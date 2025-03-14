@@ -39,3 +39,8 @@ function Button() {
   return <button onClick={onClick}>Login with Google</button>;
 }
 ```
+
+## Backend API
+
+- /analytics/tracks: track events
+- /analytics/visitor: app visitors

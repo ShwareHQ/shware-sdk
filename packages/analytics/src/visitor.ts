@@ -11,14 +11,14 @@ async function getOrCreateVisitor(): Promise<Visitor> {
 
   const visitorId = await options.storage.getItem(key);
   if (visitorId) {
-    const response = await http.get<Visitor>(`/analytics/visitors/${visitorId}`);
+    const response = await http.get<Visitor>(`/visitors/${visitorId}`);
     return response.data;
   } else {
     const dto: CreateVisitorDTO = {
       device_id: await options.deviceIdFetcher(),
       properties: await options.tagsFetcher(),
     };
-    const response = await http.post<Visitor>(`/analytics/visitors`, dto);
+    const response = await http.post<Visitor>(`/visitors`, dto);
     await options.storage.setItem(key, response.data.id);
     return response.data;
   }
@@ -39,7 +39,7 @@ export async function getVisitor(): Promise<Visitor> {
 export async function setVisitor(properties: VisitorProperties) {
   const dto: UpdateVisitorDTO = { properties };
   const { id } = await getVisitor();
-  const response = await http.patch<Visitor>(`/analytics/visitors/${id}`, dto);
+  const response = await http.patch<Visitor>(`/visitors/${id}`, dto);
   visitor = response.data;
   return response.data;
 }
