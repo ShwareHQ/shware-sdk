@@ -1,0 +1,30 @@
+{
+  "name": "@shware/analytics",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "axios": "^1.8.3",
+    "axios-retry": "^4.5.0",
+    "bowser": "^2.11.0",
+    "cookie": "^1.0.2",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "5.8.2"
+  }
+}
