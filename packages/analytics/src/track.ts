@@ -1,7 +1,7 @@
 import { TokenBucket } from 'limiter';
-import { CreateTrackEventDTO, EventName, TrackProperties, TrackEventResponse } from '../types';
-import { config } from '../setup/index';
-import { getVisitor } from '../visitor/index';
+import { CreateTrackEventDTO, EventName, TrackProperties, TrackEventResponse } from './types';
+import { config } from './setup';
+import { getVisitor } from './visitor';
 
 export interface TrackOptions {
   enableThirdPartyLogging?: boolean;

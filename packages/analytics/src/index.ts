@@ -1,4 +1,4 @@
-export { setupAnalytics } from './setup/index';
-export { track } from './track/index';
-export { getVisitor, setVisitor } from './visitor/index';
+export { setupAnalytics } from './setup';
+export { track } from './track';
+export { getVisitor, setVisitor } from './visitor';
 export { VisitorProperties, TrackProperties, TrackTags } from './types';

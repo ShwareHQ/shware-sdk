@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { ThirdPartyLogger, TrackTags } from '../types';
+import { ThirdPartyLogger, TrackTags } from './types';
 
 export interface Storage {
   getItem: (key: string) => (string | null) | Promise<string | null>;

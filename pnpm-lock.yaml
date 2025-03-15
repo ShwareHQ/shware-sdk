@@ -15,8 +15,8 @@ importers:
         specifier: ^2.4.4
         version: 2.4.4
       typescript:
-        specifier: 5.8.2
-        version: 5.8.2
+        specifier: 5.7.3
+        version: 5.7.3
 
   packages/analytics:
     dependencies:
@@ -43,8 +43,8 @@ importers:
         specifier: ^22.13.10
         version: 22.13.10
       typescript:
-        specifier: 5.8.2
-        version: 5.8.2
+        specifier: 5.7.3
+        version: 5.7.3
 
   packages/auth:
     dependencies:
@@ -2165,6 +2165,11 @@ packages:
 
   typescript@5.5.4:
     resolution: {integrity: sha512-Mtq29sKDAEYP7aljRgtPOpTvOfbwRWlS6dPRzwjdE+C0R4brX/GUyhHSecbHMFLNBLcJIPt9nl9yG5TZ1weH+Q==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+  typescript@5.7.3:
+    resolution: {integrity: sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -4846,6 +4851,8 @@ snapshots:
       - supports-color
 
   typescript@5.5.4: {}
+
+  typescript@5.7.3: {}
 
   typescript@5.8.2: {}
 

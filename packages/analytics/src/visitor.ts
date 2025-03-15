@@ -1,5 +1,5 @@
-import { config } from '../setup';
-import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from '../types';
+import { config } from './setup';
+import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 
 const key = 'visitor_id';
 async function getOrCreateVisitor(): Promise<Visitor> {
