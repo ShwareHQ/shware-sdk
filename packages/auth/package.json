@@ -1,7 +1,6 @@
 {
-  "name": "@repo/auth",
+  "name": "@shware/auth",
   "version": "0.1.5",
-  "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
