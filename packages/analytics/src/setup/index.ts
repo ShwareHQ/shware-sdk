@@ -10,8 +10,8 @@ export interface Options {
   release: string;
   storage: Storage;
   endpoint: string;
-  getTags: () => Promise<TrackTags>;
-  getDeviceId: () => Promise<string>;
+  getTags: () => TrackTags | Promise<TrackTags>;
+  getDeviceId: () => string | Promise<string>;
   thirdPartyLoggers?: ThirdPartyLogger[];
 }
 
@@ -19,8 +19,8 @@ interface Config {
   release: string;
   storage: Storage;
   http: AxiosInstance;
-  getTags: () => Promise<TrackTags>;
-  getDeviceId: () => Promise<string>;
+  getTags: () => TrackTags | Promise<TrackTags>;
+  getDeviceId: () => string | Promise<string>;
   thirdPartyLoggers: ThirdPartyLogger[];
 }
 
