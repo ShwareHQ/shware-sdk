@@ -1,20 +1,17 @@
 {
   "name": "@shware/analytics",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsc"
+    "build": "unbuild"
   },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./web": {
-      "types": "./dist/web.d.ts",
-      "default": "./dist/web.js"
-    }
+    ".": "./dist/index.mjs",
+    "./web": "./dist/web.mjs"
   },
   "files": [
     "dist"

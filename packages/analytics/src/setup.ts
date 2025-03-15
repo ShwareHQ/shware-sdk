@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import retry from 'axios-retry';
 import { ThirdPartyLogger, TrackTags } from './types';
 
 export interface Storage {
@@ -40,4 +41,5 @@ export function setupAnalytics(init: Options) {
   config.getDeviceId = init.getDeviceId;
   config.thirdPartyLoggers = init.thirdPartyLoggers ?? [];
   config.http = axios.create({ baseURL: init.endpoint, withCredentials: true, adapter: 'fetch' });
+  retry(config.http, { retries: 5, retryDelay: retry.exponentialDelay });
 }
