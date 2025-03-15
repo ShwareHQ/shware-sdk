@@ -1,6 +1,6 @@
-import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from '../../types';
+import { TokenBucket } from 'limiter';
+import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from '../types';
 import { config } from '../setup';
-import { TokenBucket } from '../utils';
 import { getVisitor } from '../visitor';
 
 export interface TrackOptions {
@@ -11,7 +11,12 @@ export interface TrackOptions {
 
 const defaultOptions: TrackOptions = { enableThirdPartyLogging: true };
 
-const tokenBucket = new TokenBucket({ rate: 1, capacity: 20, requested: 2 });
+const REQUEST_TOKENS = 2;
+const tokenBucket = new TokenBucket({
+  bucketSize: 20,
+  interval: 'second',
+  tokensPerInterval: 1,
+});
 
 async function trackAsync<T extends EventName = EventName>(
   name: T,
@@ -19,7 +24,7 @@ async function trackAsync<T extends EventName = EventName>(
   trackOptions: TrackOptions = defaultOptions
 ) {
   try {
-    await tokenBucket.removeTokens();
+    await tokenBucket.removeTokens(REQUEST_TOKENS);
     const dto: CreateTrackEventDTO<T> = {
       name,
       properties,
