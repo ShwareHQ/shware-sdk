@@ -1,4 +1,4 @@
-import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from '../types';
+import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from '../../types';
 import { config } from '../setup';
 import { TokenBucket } from '../utils';
 import { getVisitor } from '../visitor';
