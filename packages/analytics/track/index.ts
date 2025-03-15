@@ -1,6 +1,7 @@
-import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from './types';
-import { options, http } from './setup';
-import { invariant } from './utils';
+import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from '../types';
+import { config } from '../setup';
+import { TokenBucket } from '../utils';
+import { getVisitor } from '../visitor';
 
 export interface TrackOptions {
   enableThirdPartyLogging?: boolean;
@@ -10,23 +11,27 @@ export interface TrackOptions {
 
 const defaultOptions: TrackOptions = { enableThirdPartyLogging: true };
 
+const tokenBucket = new TokenBucket({ rate: 1, capacity: 20, requested: 2 });
+
 async function trackAsync<T extends EventName = EventName>(
   name: T,
   properties?: Properties<T>,
   trackOptions: TrackOptions = defaultOptions
 ) {
-  invariant(options.endpoint, 'endpoint is required');
-  invariant(options.tagsFetcher, 'tagsFetcher is required');
   try {
-    await options.tokenBucket.removeTokens();
-    const tags = await options.tagsFetcher();
-    const timestamp = new Date().getTime();
-    const dto: CreateTrackEventDTO<T> = { name, tags, properties, timestamp };
-    const { data } = await http.post<TrackEventResponse>(`/tracks`, dto);
+    await tokenBucket.removeTokens();
+    const dto: CreateTrackEventDTO<T> = {
+      name,
+      properties,
+      tags: await config.getTags(),
+      visitor_id: (await getVisitor()).id,
+      timestamp: new Date().toISOString(),
+    };
+    const { data } = await config.http.post<TrackEventResponse>(`/events`, dto);
 
     // send to third-party loggers, for example Google Analytics and Facebook Pixel
-    if (!trackOptions.enableThirdPartyLogging || !options.thirdPartyLoggers) return;
-    options.thirdPartyLoggers.forEach((logger) => logger(name, properties, data.id));
+    if (!trackOptions.enableThirdPartyLogging || !config.thirdPartyLoggers) return;
+    config.thirdPartyLoggers.forEach((logger) => logger(name, properties, data.id));
     trackOptions.onSucceed?.(data);
   } catch (e: unknown) {
     if (e instanceof Error) {
