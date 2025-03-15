@@ -1,4 +1,4 @@
-export * from './setup';
-export * from './track';
-export * from './types';
-export * from './visitor';
+export { setupAnalytics } from './setup';
+export { track } from './track';
+export { getVisitor, setVisitor } from './visitor';
+export { VisitorProperties, TrackProperties, TrackTags } from './types';

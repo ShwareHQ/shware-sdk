@@ -1,5 +1,5 @@
 import { TokenBucket } from 'limiter';
-import { CreateTrackEventDTO, EventName, Properties, TrackEventResponse } from '../types';
+import { CreateTrackEventDTO, EventName, TrackProperties, TrackEventResponse } from '../types';
 import { config } from '../setup';
 import { getVisitor } from '../visitor';
 
@@ -20,7 +20,7 @@ const tokenBucket = new TokenBucket({
 
 async function trackAsync<T extends EventName = EventName>(
   name: T,
-  properties?: Properties<T>,
+  properties?: TrackProperties<T>,
   trackOptions: TrackOptions = defaultOptions
 ) {
   try {
@@ -48,7 +48,7 @@ async function trackAsync<T extends EventName = EventName>(
 
 export function track<T extends EventName = EventName>(
   name: T,
-  properties?: Properties<T>,
+  properties?: TrackProperties<T>,
   trackOptions: TrackOptions = defaultOptions
 ) {
   trackAsync(name, properties, trackOptions).catch(console.error);

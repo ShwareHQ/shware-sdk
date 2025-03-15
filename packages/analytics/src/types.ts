@@ -164,9 +164,8 @@ export type AllowedPropertyValues = string | number | boolean | null;
 export type EventName = Lowercase<string>;
 export type CustomEventProperties = Record<Lowercase<string>, AllowedPropertyValues>;
 
-export type Properties<T extends EventName = EventName> = T extends keyof StandardEventProperties
-  ? StandardEventProperties[T]
-  : CustomEventProperties;
+export type TrackProperties<T extends EventName = EventName> =
+  T extends keyof StandardEventProperties ? StandardEventProperties[T] : CustomEventProperties;
 
 export interface UserData {
   userId: string;
@@ -184,7 +183,7 @@ export interface UserData {
 
 export type ThirdPartyLogger = <T extends EventName = EventName>(
   name: T,
-  properties?: Properties<T>,
+  properties?: TrackProperties<T>,
   event_id?: string
 ) => void;
 
@@ -242,7 +241,7 @@ export interface CreateTrackEventDTO<T extends EventName = EventName> {
   name: string;
   tags: TrackTags;
   visitor_id: string;
-  properties?: Properties<T>;
+  properties?: TrackProperties<T>;
   timestamp: string;
 }
 
