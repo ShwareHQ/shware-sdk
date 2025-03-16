@@ -18,6 +18,7 @@ export const createTrackEventSchema = z.object({
     screen_resolution: z
       .string()
       .regex(/^\d+x\d+$/)
+      .transform((v) => v as `${number}x${number}`)
       .optional(),
     release: z.string().optional(),
     language: z.string().optional(),
