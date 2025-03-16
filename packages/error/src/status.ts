@@ -154,6 +154,11 @@ export const Code = {
   //
   // HTTP Mapping: 401 Unauthorized
   UNAUTHENTICATED: 401,
+
+  // The request method is not supported by the server and cannot be handled.
+  //
+  // HTTP Mapping: 405 Method Not Allowed
+  METHOD_NOT_ALLOWED: 405,
 } as const;
 
 export const DEFAULT_MESSAGES: Record<keyof typeof Code, string> = {
@@ -175,9 +180,10 @@ export const DEFAULT_MESSAGES: Record<keyof typeof Code, string> = {
   UNAVAILABLE: 'The service is currently unavailable',
   DATA_LOSS: 'Unrecoverable data loss or corruption',
   UNAUTHENTICATED: 'The request does not have valid authentication credentials for the operation',
+  METHOD_NOT_ALLOWED: 'The request method is not supported by the server and cannot be handled',
 };
 
-export interface ErrorResponse {
+export interface ErrorBody {
   error: {
     code: number;
     status: keyof typeof Code;
@@ -188,13 +194,13 @@ export interface ErrorResponse {
 
 export class StatusError extends Error {
   readonly status: number;
-  readonly response?: ErrorResponse;
+  readonly body?: ErrorBody;
 
-  constructor(status: number, response?: ErrorResponse) {
-    super(response?.error?.message ?? `Status Error: ${status}`);
+  constructor(status: number, body?: ErrorBody) {
+    super(body?.error?.message ?? `Status Error: ${status}`);
     this.name = 'StatusError';
     this.status = status;
-    this.response = response;
+    this.body = body;
     if ((Error as any).captureStackTrace) {
       (Error as any).captureStackTrace(this, StatusError);
     }
@@ -214,7 +220,7 @@ export class StatusCode {
     return new StatusCode(code, message ?? DEFAULT_MESSAGES[code]);
   }
 
-  response(details?: Details): ErrorResponse {
+  body(details?: Details): ErrorBody {
     return {
       error: {
         code: Code[this.code],
@@ -226,21 +232,19 @@ export class StatusCode {
   }
 
   error(details?: Details): Error {
-    const response: ErrorResponse = {
-      error: {
-        code: Code[this.code],
-        status: this.code,
-        message: this.message ?? '',
-        details: details?.list ?? [],
-      },
-    };
-    if (Status.adapter) return Status.adapter(Code[this.code], response);
-    return new StatusError(Code[this.code], response);
+    const body = this.body(details);
+    if (Status.adapter) return Status.adapter(Code[this.code], body);
+    return new StatusError(Code[this.code], body);
+  }
+
+  response(details?: Details): Response {
+    const body = this.body(details);
+    return Response.json(body, { status: body.error.code });
   }
 }
 
 export class Status {
-  static adapter?: (status: number, response: ErrorResponse) => Error;
+  static adapter?: (status: number, response: ErrorBody) => Error;
 
   static ok = (message?: string) => StatusCode.of('OK', message);
   static cancelled = (message?: string) => StatusCode.of('CANCELLED', message);
@@ -259,4 +263,5 @@ export class Status {
   static internal = (message?: string) => StatusCode.of('INTERNAL', message);
   static unavailable = (message?: string) => StatusCode.of('UNAVAILABLE', message);
   static dataLoss = (message?: string) => StatusCode.of('DATA_LOSS', message);
+  static methodNotAllowed = (message?: string) => StatusCode.of('METHOD_NOT_ALLOWED', message);
 }
