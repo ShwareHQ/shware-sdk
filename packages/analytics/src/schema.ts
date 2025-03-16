@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const createTrackEventSchema = z.object({
   name: z.string().trim().min(1).max(64),
+  visitor_id: z.coerce.bigint(),
   tags: z.object({
     os: z.string().optional(),
     os_name: z.string().optional(),

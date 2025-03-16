@@ -15,3 +15,4 @@ export * from './reason';
 export * from './detail';
 export * from './status';
 export * from './vaild';
+export * from './snowflake';
