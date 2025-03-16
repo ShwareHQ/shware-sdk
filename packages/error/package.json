@@ -1,17 +1,17 @@
 {
   "name": "@shware/error",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsc",
+    "build": "unbuild",
     "test": "jest"
   },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+    ".": "./dist/index.mjs"
   },
   "files": [
     "dist"
