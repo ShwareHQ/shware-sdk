@@ -13,6 +13,7 @@ export function getDeviceId() {
 
 export function getTags(release: string) {
   const parser = Bowser.getParser(window.navigator.userAgent);
+  const params = new URLSearchParams(window.location.search);
   const os = parser.getOS();
   const browser = parser.getBrowser();
   const platform = parser.getPlatform();
@@ -37,6 +38,12 @@ export function getTags(release: string) {
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
     fbc: parsed._fbc,
     fbp: parsed._fbp,
+    gclid: params.get('gclid') ?? undefined,
+    utm_source: params.get('utm_source') ?? undefined,
+    utm_medium: params.get('utm_medium') ?? undefined,
+    utm_campaign: params.get('utm_campaign') ?? undefined,
+    utm_term: params.get('utm_term') ?? undefined,
+    utm_content: params.get('utm_content') ?? undefined,
   };
   return tags;
 }

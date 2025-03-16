@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import retry from 'axios-retry';
-import { ThirdPartyLogger, TrackTags } from './types';
+import { ThirdPartyTracker, ThirdPartyUserSetter, TrackTags } from './types';
 
 export interface Storage {
   getItem: (key: string) => (string | null) | Promise<string | null>;
@@ -13,7 +13,8 @@ export interface Options {
   endpoint: string;
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
-  thirdPartyLoggers?: ThirdPartyLogger[];
+  thirdPartyTrackers?: ThirdPartyTracker[];
+  thirdPartyUserSetters?: ThirdPartyUserSetter[];
 }
 
 interface Config {
@@ -22,7 +23,8 @@ interface Config {
   http: AxiosInstance;
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
-  thirdPartyLoggers: ThirdPartyLogger[];
+  thirdPartyTrackers: ThirdPartyTracker[];
+  thirdPartyUserSetters: ThirdPartyUserSetter[];
 }
 
 export const config: Config = {
@@ -31,7 +33,8 @@ export const config: Config = {
   storage: null!,
   getTags: null!,
   getDeviceId: null!,
-  thirdPartyLoggers: [],
+  thirdPartyTrackers: [],
+  thirdPartyUserSetters: [],
 };
 
 export function setupAnalytics(init: Options) {
@@ -39,7 +42,8 @@ export function setupAnalytics(init: Options) {
   config.storage = init.storage;
   config.getTags = init.getTags;
   config.getDeviceId = init.getDeviceId;
-  config.thirdPartyLoggers = init.thirdPartyLoggers ?? [];
+  config.thirdPartyTrackers = init.thirdPartyTrackers ?? [];
+  config.thirdPartyUserSetters = init.thirdPartyUserSetters ?? [];
   config.http = axios.create({ baseURL: init.endpoint, withCredentials: true, adapter: 'fetch' });
   retry(config.http, { retries: 5, retryDelay: retry.exponentialDelay });
 }

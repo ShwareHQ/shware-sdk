@@ -4,12 +4,12 @@ import { config } from './setup';
 import { getVisitor } from './visitor';
 
 export interface TrackOptions {
-  enableThirdPartyLogging?: boolean;
+  enableThirdPartyTracking?: boolean;
   onSucceed?: (response?: TrackEventResponse) => void;
   onError?: (error: unknown) => void;
 }
 
-const defaultOptions: TrackOptions = { enableThirdPartyLogging: true };
+const defaultOptions: TrackOptions = { enableThirdPartyTracking: true };
 
 const REQUEST_TOKENS = 2;
 const tokenBucket = new TokenBucket({
@@ -35,8 +35,8 @@ async function trackAsync<T extends EventName = EventName>(
     const { data } = await config.http.post<TrackEventResponse>(`/events`, dto);
 
     // send to third-party loggers, for example Google Analytics and Facebook Pixel
-    if (!trackOptions.enableThirdPartyLogging || !config.thirdPartyLoggers) return;
-    config.thirdPartyLoggers.forEach((logger) => logger(name, properties, data.id));
+    if (!trackOptions.enableThirdPartyTracking || !config.thirdPartyTrackers) return;
+    config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, data.id));
     trackOptions.onSucceed?.(data);
   } catch (e: unknown) {
     if (e instanceof Error) {

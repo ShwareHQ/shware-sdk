@@ -181,7 +181,7 @@ export interface UserData {
   country?: string;
 }
 
-export type ThirdPartyLogger = <T extends EventName = EventName>(
+export type ThirdPartyTracker = <T extends EventName = EventName>(
   name: T,
   properties?: TrackProperties<T>,
   event_id?: string
@@ -226,6 +226,18 @@ export interface ThirdPartyFields {
    */
   fbc?: string;
   fbp?: string;
+  /**
+   * Google Analytics fields
+   */
+  gclid?: string;
+}
+
+export interface UTMParams {
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
 }
 
 export interface TrackTags
@@ -233,7 +245,8 @@ export interface TrackTags
     DeviceInfo,
     EnvironmentInfo,
     SourceInfo,
-    ThirdPartyFields {
+    ThirdPartyFields,
+    UTMParams {
   [key: string]: string | undefined;
 }
 
@@ -253,10 +266,7 @@ export interface TrackEventResponse {
   id: string;
 }
 
-export type VisitorProperties = Record<
-  Lowercase<string>,
-  AllowedPropertyValues | AllowedPropertyValues[] | undefined
->;
+export type VisitorProperties = Record<Lowercase<string>, AllowedPropertyValues>;
 
 export interface Visitor {
   id: string;
@@ -272,3 +282,5 @@ export interface CreateVisitorDTO {
 export interface UpdateVisitorDTO {
   properties: VisitorProperties;
 }
+
+export type ThirdPartyUserSetter = (properties: VisitorProperties) => void;

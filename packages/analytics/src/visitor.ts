@@ -10,7 +10,7 @@ async function getOrCreateVisitor(): Promise<Visitor> {
   } else {
     const dto: CreateVisitorDTO = {
       device_id: await config.getDeviceId(),
-      properties: await config.getTags(),
+      properties: (await config.getTags()) as VisitorProperties,
     };
     const response = await config.http.post<Visitor>(`/visitors`, dto);
     await config.storage.setItem(key, response.data.id);
@@ -34,6 +34,7 @@ export async function setVisitor(properties: VisitorProperties) {
   const dto: UpdateVisitorDTO = { properties };
   const { id } = await getVisitor();
   const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto);
+  config.thirdPartyUserSetters.forEach((setter) => setter(properties));
   visitor = response.data;
   return response.data;
 }
