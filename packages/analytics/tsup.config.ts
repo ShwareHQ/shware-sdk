@@ -8,7 +8,7 @@ const cfg: Options = {
   treeshake: false,
   dts: true,
   format: ['esm', 'cjs'],
-  outExtension: ({ format }) => ({ js: format === 'esm' ? '.js' : '.cjs' }),
+  outExtension: ({ format }) => ({ js: format === 'esm' ? '.mjs' : '.cjs' }),
 };
 
 export default defineConfig([
@@ -28,19 +28,20 @@ export default defineConfig([
     entry: { index: 'src/next/index.tsx' },
     external: ['react', 'next'],
     outDir: 'dist/next',
-    esbuildPlugins: [esbuildPluginFilePathExtensions({ esmExtension: 'js', cjsExtension: 'cjs' })],
+    esbuildPlugins: [esbuildPluginFilePathExtensions()],
   },
   {
     ...cfg,
     entry: { index: 'src/react/index.tsx' },
     external: ['react'],
     outDir: 'dist/react',
+    esbuildPlugins: [esbuildPluginFilePathExtensions()],
   },
   {
     ...cfg,
     entry: { index: 'src/react-router/index.tsx' },
     external: ['react', 'react-router'],
     outDir: 'dist/react-router',
-    esbuildPlugins: [esbuildPluginFilePathExtensions({ esmExtension: 'js', cjsExtension: 'cjs' })],
+    esbuildPlugins: [esbuildPluginFilePathExtensions()],
   },
 ]);
