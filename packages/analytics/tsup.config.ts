@@ -22,7 +22,20 @@ export default defineConfig([
   },
   {
     ...cfg,
+    entry: { index: 'src/next/index.tsx' },
+    external: ['react', 'next', '../index'],
+    outDir: 'dist/next',
+  },
+  {
+    ...cfg,
     entry: { index: 'src/react/index.tsx' },
+    external: ['react'],
     outDir: 'dist/react',
+  },
+  {
+    ...cfg,
+    entry: { index: 'src/react-router/index.tsx' },
+    external: ['react', 'react-router', '../index'],
+    outDir: 'dist/react-router',
   },
 ]);

@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
@@ -20,10 +20,20 @@
       "import": "./dist/web/index.js",
       "require": "./dist/web/index.cjs"
     },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "import": "./dist/next/index.js",
+      "require": "./dist/next/index.cjs"
+    },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.cjs"
+    },
+    "./react-router": {
+      "types": "./dist/react-router/index.d.ts",
+      "import": "./dist/react-router/index.js",
+      "require": "./dist/react-router/index.cjs"
     }
   },
   "files": [
@@ -40,9 +50,23 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
     "typescript": "5.7.3"
   },
   "peerDependencies": {
-    "react": "^19.0.0"
+    "next": ">= 13",
+    "react": "^19.0.0",
+    "react-router": "^7"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-router": {
+      "optional": true
+    }
   }
 }
