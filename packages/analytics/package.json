@@ -1,17 +1,30 @@
 {
   "name": "@shware/analytics",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
-    "build": "unbuild"
+    "build": "tsup"
   },
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
-    ".": "./dist/index.mjs",
-    "./web": "./dist/web.mjs"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./web": {
+      "types": "./dist/web/index.d.ts",
+      "import": "./dist/web/index.js",
+      "require": "./dist/web/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    }
   },
   "files": [
     "dist"
@@ -28,5 +41,8 @@
   "devDependencies": {
     "@types/node": "^22.13.10",
     "typescript": "5.7.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
   }
 }

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
+    "jsx": "react",
     "lib": ["es2022", "DOM"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
@@ -11,6 +12,6 @@
     "esModuleInterop": true,
     "strict": true
   },
-  "include": ["src"],
+  "include": ["src", "./test.setup.ts"],
   "exclude": ["node_modules", "dist"]
 }
