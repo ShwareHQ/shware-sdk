@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
@@ -10,24 +10,29 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.mts",
-      "import": "./dist/index.mjs"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
     },
     "./web": {
-      "types": "./dist/web/index.d.mts",
-      "import": "./dist/web/index.mjs"
+      "types": "./dist/web/index.d.ts",
+      "import": "./dist/web/index.mjs",
+      "require": "./dist/web/index.cjs"
     },
     "./next": {
-      "types": "./dist/next/index.d.mts",
-      "import": "./dist/next/index.mjs"
+      "types": "./dist/next/index.d.ts",
+      "import": "./dist/next/index.mjs",
+      "require": "./dist/next/index.cjs"
     },
     "./react": {
-      "types": "./dist/react/index.d.mts",
-      "import": "./dist/react/index.mjs"
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.mjs",
+      "require": "./dist/react/index.cjs"
     },
     "./react-router": {
-      "types": "./dist/react-router/index.d.mts",
-      "import": "./dist/react-router/index.mjs"
+      "types": "./dist/react-router/index.d.ts",
+      "import": "./dist/react-router/index.mjs",
+      "require": "./dist/react-router/index.cjs"
     }
   },
   "files": [
