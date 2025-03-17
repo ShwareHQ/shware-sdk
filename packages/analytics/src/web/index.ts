@@ -1,5 +1,5 @@
 import Bowser from 'bowser';
-import cookie from 'cookie';
+import * as cookie from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { TrackTags } from '../types';
 

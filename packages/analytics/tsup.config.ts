@@ -18,6 +18,7 @@ export default defineConfig([
   {
     ...cfg,
     entry: { index: 'src/web/index.ts' },
+    external: ['bowser', 'cookie', 'uuid'],
     outDir: 'dist/web',
   },
   {
