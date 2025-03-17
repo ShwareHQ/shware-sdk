@@ -3,7 +3,7 @@
  *
  * ID data bits:
  * +----------------------+----------------+-----------+
- * |  delta millisecond   | worker node id | sequence  |
+ * |  delta millisecond   |   machine id   | sequence  |
  * +----------------------+----------------+-----------+
  * |        41bits        |     10bits     |   12bits  |
  * +----------------------+----------------+-----------+

@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
@@ -11,7 +11,8 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "exports": {
-    ".": "./dist/index.mjs"
+    ".": "./dist/index.mjs",
+    "./polyfills": "./dist/polyfills.mjs"
   },
   "files": [
     "dist"
