@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
+import { useReportWebVitals } from 'next/web-vitals';
 import { useEffect } from 'react';
 import { track } from '../index';
 
@@ -23,6 +24,16 @@ export function Analytics() {
 
     track('page_view', properties, { enableThirdPartyTracking: false });
   }, [pathname, params]);
+
+  useReportWebVitals((metric) => {
+    track(metric.name, {
+      rating: metric.rating,
+      navigation_type: metric.navigationType,
+      non_interaction: true, // avoids affecting bounce rate.
+      event_label: metric.id, // id unique to current page load
+      value: Math.round(metric.name === 'CLS' ? metric.value * 1000 : metric.value), // values must be integers
+    });
+  });
 
   return null;
 }
