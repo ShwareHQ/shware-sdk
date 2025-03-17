@@ -2,19 +2,31 @@ import { config } from './setup';
 import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 
 const key = 'visitor_id';
+
+async function createVisitor(): Promise<Visitor> {
+  const dto: CreateVisitorDTO = {
+    device_id: await config.getDeviceId(),
+    properties: (await config.getTags()) as VisitorProperties,
+  };
+  const response = await config.http.post<Visitor>(`/visitors`, dto);
+  return response.data;
+}
+
 async function getOrCreateVisitor(): Promise<Visitor> {
   const visitorId = await config.storage.getItem(key);
   if (visitorId) {
-    const response = await config.http.get<Visitor>(`/visitors/${visitorId}`);
-    return response.data;
+    try {
+      const response = await config.http.get<Visitor>(`/visitors/${visitorId}`);
+      return response.data;
+    } catch (e) {
+      const visitor = await createVisitor();
+      await config.storage.setItem(key, visitor.id);
+      return visitor;
+    }
   } else {
-    const dto: CreateVisitorDTO = {
-      device_id: await config.getDeviceId(),
-      properties: (await config.getTags()) as VisitorProperties,
-    };
-    const response = await config.http.post<Visitor>(`/visitors`, dto);
-    await config.storage.setItem(key, response.data.id);
-    return response.data;
+    const visitor = await createVisitor();
+    await config.storage.setItem(key, visitor.id);
+    return visitor;
   }
 }
 
