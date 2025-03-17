@@ -36,16 +36,29 @@ export const createTrackEventSchema = z.object({
     utm_term: z.string().optional(),
     utm_content: z.string().optional(),
   }),
-  properties: z.record(
-    z.string().trim().min(1).max(128),
-    z.union([z.string(), z.number(), z.boolean(), z.null()])
-  ),
+  properties: z
+    .record(
+      z.string().trim().min(1).max(128),
+      z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
+    )
+    .refine((data) => Object.keys(data).length <= 64),
 });
 
 export const createVisitorSchema = z.object({
   device_id: z.string().trim().min(1).max(36),
-  properties: z.record(
-    z.string().trim().min(1).max(128),
-    z.union([z.string(), z.number(), z.boolean(), z.null()])
-  ),
+  properties: z
+    .record(
+      z.string().trim().min(1).max(128),
+      z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
+    )
+    .refine((data) => Object.keys(data).length <= 64),
+});
+
+export const updateVisitorSchema = z.object({
+  properties: z
+    .record(
+      z.string().trim().min(1).max(128),
+      z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
+    )
+    .refine((data) => Object.keys(data).length <= 64),
 });
