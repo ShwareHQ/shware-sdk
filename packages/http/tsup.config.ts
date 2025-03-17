@@ -7,6 +7,7 @@ const cfg: Options = {
   treeshake: false,
   dts: true,
   format: ['esm', 'cjs'],
+  outExtension: ({ format }) => ({ js: format === 'esm' ? '.mjs' : '.cjs' }),
 };
 
 export default defineConfig([

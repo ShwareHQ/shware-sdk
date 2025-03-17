@@ -1,24 +1,21 @@
 {
   "name": "@shware/http",
-  "version": "0.2.4",
+  "version": "0.2.6",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsup",
     "test": "jest"
   },
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
     "./polyfills": {
       "types": "./dist/polyfills/index.d.ts",
-      "import": "./dist/polyfills/index.js",
+      "import": "./dist/polyfills/index.mjs",
       "require": "./dist/polyfills/index.cjs"
     }
   },
