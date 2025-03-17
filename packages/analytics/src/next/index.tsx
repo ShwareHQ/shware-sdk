@@ -26,13 +26,15 @@ export function Analytics() {
   }, [pathname, params]);
 
   useReportWebVitals((metric) => {
-    track(metric.name, {
+    const properties = {
+      id: metric.id,
       rating: metric.rating,
+      value: metric.value,
+      delta: metric.delta,
       navigation_type: metric.navigationType,
       non_interaction: true, // avoids affecting bounce rate.
-      event_label: metric.id, // id unique to current page load
-      value: Math.round(metric.name === 'CLS' ? metric.value * 1000 : metric.value), // values must be integers
-    });
+    };
+    track(metric.name as Lowercase<string>, properties);
   });
 
   return null;
