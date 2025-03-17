@@ -4,36 +4,28 @@
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsup"
+    "build": "unbuild"
   },
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     },
     "./web": {
-      "types": "./dist/web/index.d.ts",
-      "import": "./dist/web/index.js",
-      "require": "./dist/web/index.cjs"
+      "types": "./dist/web/index.d.mts",
+      "import": "./dist/web/index.mjs"
     },
     "./next": {
-      "types": "./dist/next/index.d.ts",
-      "import": "./dist/next/index.js",
-      "require": "./dist/next/index.cjs"
+      "types": "./dist/next/index.d.mts",
+      "import": "./dist/next/index.mjs"
     },
     "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js",
-      "require": "./dist/react/index.cjs"
+      "types": "./dist/react/index.d.mts",
+      "import": "./dist/react/index.mjs"
     },
     "./react-router": {
-      "types": "./dist/react-router/index.d.ts",
-      "import": "./dist/react-router/index.js",
-      "require": "./dist/react-router/index.cjs"
+      "types": "./dist/react-router/index.d.mts",
+      "import": "./dist/react-router/index.mjs"
     }
   },
   "files": [

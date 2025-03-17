@@ -4,7 +4,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 import { track } from '../index';
 
-export default function Analytics() {
+export function Analytics() {
   const pathname = usePathname();
   const params = useSearchParams();
 

@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { track } from '../index';
 
-export default function Analytics() {
+export function Analytics() {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
 

@@ -1,4 +1,5 @@
 import { defineConfig, Options } from 'tsup';
+import { esbuildPluginFilePathExtensions } from 'esbuild-plugin-file-path-extensions';
 
 const cfg: Options = {
   splitting: false,
@@ -7,6 +8,7 @@ const cfg: Options = {
   treeshake: false,
   dts: true,
   format: ['esm', 'cjs'],
+  outExtension: ({ format }) => ({ js: format === 'esm' ? '.js' : '.cjs' }),
 };
 
 export default defineConfig([
@@ -24,8 +26,9 @@ export default defineConfig([
   {
     ...cfg,
     entry: { index: 'src/next/index.tsx' },
-    external: ['react', 'next', '../index'],
+    external: ['react', 'next'],
     outDir: 'dist/next',
+    esbuildPlugins: [esbuildPluginFilePathExtensions({ esmExtension: 'js', cjsExtension: 'cjs' })],
   },
   {
     ...cfg,
@@ -36,7 +39,8 @@ export default defineConfig([
   {
     ...cfg,
     entry: { index: 'src/react-router/index.tsx' },
-    external: ['react', 'react-router', '../index'],
+    external: ['react', 'react-router'],
     outDir: 'dist/react-router',
+    esbuildPlugins: [esbuildPluginFilePathExtensions({ esmExtension: 'js', cjsExtension: 'cjs' })],
   },
 ]);
