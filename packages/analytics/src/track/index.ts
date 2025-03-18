@@ -1,12 +1,13 @@
 import { TokenBucket } from 'limiter';
-import {
-  CreateTrackEventDTO,
-  EventName,
-  TrackProperties,
-  TrackEventResponse,
-} from '../types/index';
 import { config } from '../setup/index';
 import { getVisitor } from '../visitor/index';
+import type {
+  CreateTrackEventDTO,
+  EventName,
+  TrackName,
+  TrackProperties,
+  TrackEventResponse,
+} from './types';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
@@ -23,8 +24,8 @@ const tokenBucket = new TokenBucket({
   tokensPerInterval: 1,
 });
 
-async function trackAsync<T extends EventName = EventName>(
-  name: T,
+async function trackAsync<T extends EventName>(
+  name: TrackName<T>,
   properties?: TrackProperties<T>,
   trackOptions: TrackOptions = defaultOptions
 ) {
@@ -52,7 +53,7 @@ async function trackAsync<T extends EventName = EventName>(
 }
 
 export function track<T extends EventName = EventName>(
-  name: T,
+  name: TrackName<T>,
   properties?: TrackProperties<T>,
   trackOptions: TrackOptions = defaultOptions
 ) {

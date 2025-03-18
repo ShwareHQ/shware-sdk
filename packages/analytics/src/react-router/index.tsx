@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onFID, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
 import { track } from '../track/index';
+import type { Gtag } from '../track/gtag';
+import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
   useEffect(() => {
@@ -14,7 +16,24 @@ function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
   }, [reportWebVitalsFn]);
 }
 
-export function Analytics() {
+declare global {
+  interface Window extends Gtag {}
+}
+
+interface Props {
+  gaId?: string;
+  nonce?: string;
+  debugMode?: boolean;
+}
+
+export function sendGAEvent<T extends EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>
+) {
+  window.gtag?.('event', name, properties);
+}
+
+export function Analytics({ gaId, nonce, debugMode }: Props) {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
 
@@ -46,5 +65,31 @@ export function Analytics() {
     track(metric.name as Lowercase<string>, properties);
   });
 
-  return null;
+  return (
+    <>
+      {gaId && (
+        <>
+          <script
+            async
+            id="gtag"
+            nonce={nonce}
+            src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+          />
+          <script
+            async
+            nonce={nonce}
+            id="gtag-init"
+            dangerouslySetInnerHTML={{
+              __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${gaId}'${debugMode ? " ,{ 'debug_mode': true }" : ''});
+            `,
+            }}
+          />
+        </>
+      )}
+    </>
+  );
 }
