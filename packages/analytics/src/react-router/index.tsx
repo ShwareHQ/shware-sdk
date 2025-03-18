@@ -30,7 +30,11 @@ export function sendGAEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  window.gtag?.('event', name, properties);
+  if (!window.gtag) {
+    console.warn('GA has not been initialized');
+    return;
+  }
+  window.gtag('event', name, properties);
 }
 
 export function Analytics({ gaId, nonce, debugMode }: Props) {

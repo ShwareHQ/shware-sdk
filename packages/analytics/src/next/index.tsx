@@ -2,10 +2,34 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useReportWebVitals } from 'next/web-vitals';
+import Script from 'next/script';
 import { useEffect } from 'react';
 import { track } from '../track/index';
+import type { EventName, TrackName, TrackProperties } from '../track/types';
+import type { Gtag } from '../track/gtag';
 
-export function Analytics() {
+declare global {
+  interface Window extends Gtag {}
+}
+
+interface Props {
+  gaId?: string;
+  nonce?: string;
+  debugMode?: boolean;
+}
+
+export function sendGAEvent<T extends EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>
+) {
+  if (!window.gtag) {
+    console.warn('GA has not been initialized');
+    return;
+  }
+  window.gtag('event', name, properties);
+}
+
+export function Analytics({ gaId, nonce, debugMode }: Props) {
   const pathname = usePathname();
   const params = useSearchParams();
 
@@ -37,5 +61,29 @@ export function Analytics() {
     track(metric.name as Lowercase<string>, properties);
   });
 
-  return null;
+  return (
+    <>
+      {gaId && (
+        <>
+          <Script
+            id="gtag"
+            nonce={nonce}
+            src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+          />
+          <Script
+            nonce={nonce}
+            id="gtag-init"
+            dangerouslySetInnerHTML={{
+              __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${gaId}'${debugMode ? " ,{ 'debug_mode': true }" : ''});
+            `,
+            }}
+          />
+        </>
+      )}
+    </>
+  );
 }
