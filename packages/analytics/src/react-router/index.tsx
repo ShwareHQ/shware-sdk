@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onFID, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
-import { track } from '../index';
+import { track } from '../track/index';
 
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
   useEffect(() => {

@@ -1,49 +1,31 @@
 import { defineConfig, Options } from 'tsup';
-import { esbuildPluginFilePathExtensions } from 'esbuild-plugin-file-path-extensions';
 
-const cfg: Options = {
+const options: Options = {
   splitting: false,
   sourcemap: true,
   clean: true,
   treeshake: false,
   dts: true,
   format: ['esm', 'cjs'],
-  outExtension: ({ format }) => {
-    return format === 'esm' ? { js: '.mjs' } : { js: '.cjs' };
-  },
+  outExtension: ({ format }) => (format === 'esm' ? { js: '.mjs' } : { js: '.cjs' }),
 };
 
 export default defineConfig([
   {
-    ...cfg,
-    entry: { index: 'src/index.ts' },
+    ...options,
+    entry: ['src/**/*.ts', 'src/**/*.tsx'],
     outDir: 'dist',
-  },
-  {
-    ...cfg,
-    entry: { index: 'src/web/index.ts' },
-    external: ['bowser', 'cookie', 'uuid'],
-    outDir: 'dist/web',
-  },
-  {
-    ...cfg,
-    entry: { index: 'src/next/index.tsx' },
-    external: ['react', 'next'],
-    outDir: 'dist/next',
-    esbuildPlugins: [esbuildPluginFilePathExtensions()],
-  },
-  {
-    ...cfg,
-    entry: { index: 'src/react/index.tsx' },
-    external: ['react'],
-    outDir: 'dist/react',
-    esbuildPlugins: [esbuildPluginFilePathExtensions()],
-  },
-  {
-    ...cfg,
-    entry: { index: 'src/react-router/index.tsx' },
-    external: ['react', 'react-router'],
-    outDir: 'dist/react-router',
-    esbuildPlugins: [esbuildPluginFilePathExtensions()],
+    esbuildPlugins: [
+      {
+        name: 'add-extension',
+        setup(build) {
+          const defaultExtension = build.initialOptions.format === 'esm' ? '.mjs' : '.cjs';
+          const extension = build.initialOptions.outExtension?.js ?? defaultExtension;
+          build.onResolve({ filter: /.*/ }, (args) => {
+            if (args.importer) return { path: args.path + extension, external: true };
+          });
+        },
+      },
+    ],
   },
 ]);

@@ -1,5 +1,10 @@
-import { config } from './setup';
-import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
+import { config } from '../setup/index';
+import type {
+  CreateVisitorDTO,
+  UpdateVisitorDTO,
+  Visitor,
+  VisitorProperties,
+} from '../types/index';
 
 const key = 'visitor_id';
 

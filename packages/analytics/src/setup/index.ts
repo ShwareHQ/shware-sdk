@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import retry from 'axios-retry';
-import { ThirdPartyTracker, ThirdPartyUserSetter, TrackTags } from './types';
+import { ThirdPartyTracker, ThirdPartyUserSetter, TrackTags } from '../types/index';
 
 export interface Storage {
   getItem: (key: string) => (string | null) | Promise<string | null>;

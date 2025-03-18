@@ -3,7 +3,7 @@
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useReportWebVitals } from 'next/web-vitals';
 import { useEffect } from 'react';
-import { track } from '../index';
+import { track } from '../track/index';
 
 export function Analytics() {
   const pathname = usePathname();
