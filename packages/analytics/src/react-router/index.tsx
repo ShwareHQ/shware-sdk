@@ -22,8 +22,11 @@ declare global {
 
 interface Props {
   gaId?: string;
+  gtmId?: string;
   nonce?: string;
   debugMode?: boolean;
+  pixelId?: string;
+  facebookAppId?: string;
 }
 
 export function sendGAEvent<T extends EventName>(
@@ -37,7 +40,7 @@ export function sendGAEvent<T extends EventName>(
   window.gtag('event', name, properties);
 }
 
-export function Analytics({ gaId, nonce, debugMode }: Props) {
+export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Props) {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
 
@@ -54,6 +57,11 @@ export function Analytics({ gaId, nonce, debugMode }: Props) {
       utm_content: params.get('utm_content'),
     };
 
+    /**
+     * Pixel:
+     * Each time the Pixel loads, it automatically calls fbq('track', 'PageView') to track a
+     * PageView standard event.
+     */
     track('page_view', properties, { enableThirdPartyTracking: false });
   }, [pathname, params]);
 
@@ -94,6 +102,7 @@ export function Analytics({ gaId, nonce, debugMode }: Props) {
           />
         </>
       )}
+      {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
     </>
   );
 }
