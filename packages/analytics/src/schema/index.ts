@@ -30,6 +30,7 @@ export const createTrackEventSchema = z.object({
     fbc: z.string().optional(),
     fbp: z.string().optional(),
     gclid: z.string().optional(),
+    advertising_id: z.string().optional(),
     utm_source: z.string().optional(),
     utm_medium: z.string().optional(),
     utm_campaign: z.string().optional(),

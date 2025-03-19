@@ -1,4 +1,4 @@
-import type { StandardEvents } from './gtag';
+import type { StandardEvents, UserProvidedData as GAUserProvidedData } from './gtag';
 
 export type { Item } from './gtag';
 
@@ -22,6 +22,14 @@ export interface UserData {
   state?: string;
   postal?: string;
   country?: string;
+}
+
+export interface UserProvidedData extends GAUserProvidedData {
+  user_id: string;
+  ip_address?: string;
+  user_agent?: string;
+  birthday?: number; // YYYYMMDD
+  gender?: 'female' | 'male' | (string & {});
 }
 
 export type ThirdPartyTracker = <T extends EventName>(
@@ -61,7 +69,7 @@ export interface SourceInfo {
   source?: 'app' | 'web' | 'offline';
 }
 
-export interface ThirdPartyFields {
+export interface AdvertisingInfo {
   /**
    * Meta pixel fields
    * ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters#fbc
@@ -73,6 +81,8 @@ export interface ThirdPartyFields {
    * Google Analytics fields
    */
   gclid?: string;
+  /** iOS: IDFA, Android: Android Advertising ID */
+  advertising_id?: string;
 }
 
 export interface UTMParams {
@@ -88,7 +98,7 @@ export interface TrackTags
     DeviceInfo,
     EnvironmentInfo,
     SourceInfo,
-    ThirdPartyFields,
+    AdvertisingInfo,
     UTMParams {
   [key: string]: string | undefined;
 }
