@@ -5,15 +5,20 @@ import { useReportWebVitals } from 'next/web-vitals';
 import Script from 'next/script';
 import { useEffect } from 'react';
 import { track } from '../track/index';
+import { mapAndSendFbqEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
-import type { Gtag } from '../track/gtag';
+import type { Gtag, GaId, GtmId } from '../track/gtag';
+import type { Fbq, PixelId } from '../track/fbq';
 
 declare global {
-  interface Window extends Gtag {}
+  interface Window extends Gtag, Fbq {}
 }
 
 interface Props {
-  gaId?: string;
+  gaId?: GaId;
+  gtmId?: GtmId;
+  pixelId?: PixelId;
+  facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
 }
@@ -29,7 +34,19 @@ export function sendGAEvent<T extends EventName>(
   window.gtag('event', name, properties);
 }
 
-export function Analytics({ gaId, nonce, debugMode }: Props) {
+export function sendFbqEvent<T extends EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>,
+  event_id?: string
+) {
+  if (typeof window === 'undefined' || !window.fbq) {
+    console.warn('fbq has not been initialized');
+    return;
+  }
+  mapAndSendFbqEvent(window.fbq, name, properties, { eventID: event_id });
+}
+
+export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Props) {
   const pathname = usePathname();
   const params = useSearchParams();
 
@@ -58,11 +75,12 @@ export function Analytics({ gaId, nonce, debugMode }: Props) {
       navigation_type: metric.navigationType,
       non_interaction: true, // avoids affecting bounce rate.
     };
-    track(metric.name as Lowercase<string>, properties);
+    track(metric.name, properties);
   });
 
   return (
     <>
+      {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
       {gaId && (
         <>
           <Script
@@ -82,6 +100,43 @@ export function Analytics({ gaId, nonce, debugMode }: Props) {
             `,
             }}
           />
+        </>
+      )}
+      {pixelId && (
+        <>
+          <Script
+            id="pixel"
+            strategy="afterInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `
+              !(function (f, b, e, v, n, t, s) {
+                if (f.fbq) return;
+                n = f.fbq = function () {
+                  n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+                };
+                if (!f._fbq) f._fbq = n;
+                n.push = n;
+                n.loaded = !0;
+                n.version = '2.0';
+                n.queue = [];
+                t = b.createElement(e);
+                t.async = !0;
+                t.src = v;
+                s = b.getElementsByTagName(e)[0];
+                s.parentNode.insertBefore(t, s);
+              })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+              fbq('init', '${pixelId}');
+              fbq('track', 'PageView');`,
+            }}
+          />
+          <noscript>
+            <img
+              width="1"
+              height="1"
+              style={{ display: 'none' }}
+              src={`https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1`}
+            />
+          </noscript>
         </>
       )}
     </>
