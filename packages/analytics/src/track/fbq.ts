@@ -247,6 +247,8 @@ type JSONValue =
   | Array<JSONValue>
   | { [value: string]: JSONValue };
 
+export type PixelId = `${number}`;
+
 /**
  * reference: https://developers.facebook.com/docs/meta-pixel/reference#standard-events
  *
@@ -257,10 +259,23 @@ type JSONValue =
  * reference: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
  */
 export interface Fbq {
-  fbq(type: 'init', pixelId: `${number}`, parameters?: MatchingParameters): void;
+  /**
+   * reference: https://stackoverflow.com/questions/62304291/sending-user-data-parameters-via-pixel
+   *
+   * Call init the normal default way first:
+   * `fbq('init', 'XXXXX')`
+   *
+   * And at a later point in time, when you have obtained additional user data, you can call init
+   * again basically enriching the already running fbq instance with additional data:
+   * `fbq('init', 'XXXXX', { external_id: 1234, em: 'abc@abc.com' } )`
+   *
+   * Only caveat is that you have to send an event after this additional init call, otherwise the
+   * provided data will not be sent to Facebook.
+   */
+  fbq(type: 'init', pixelId: PixelId, parameters?: MatchingParameters): void;
 
   /** Enable Manual Only mode. (value = false) */
-  fbq(type: 'set', key: 'autoConfig', value: boolean, pixelId: `${number}`): void;
+  fbq(type: 'set', key: 'autoConfig', value: boolean, pixelId: PixelId): void;
 
   fbq<T extends keyof StandardEvents>(
     type: 'track',
@@ -279,7 +294,7 @@ export interface Fbq {
   /** https://developers.facebook.com/docs/meta-pixel/guides/track-multiple-events/ */
   fbq<T extends keyof StandardEvents>(
     type: 'trackSingle',
-    pixelId: `${number}`,
+    pixelId: PixelId,
     event: T,
     properties?: StandardEvents[T] & ObjectProperties,
     options?: { eventID: string }
@@ -288,7 +303,7 @@ export interface Fbq {
   /** https://developers.facebook.com/docs/meta-pixel/guides/track-multiple-events/ */
   fbq(
     type: 'trackSingleCustom',
-    pixelId: `${number}`,
+    pixelId: PixelId,
     event: string,
     properties?: Record<string, JSONValue> & ObjectProperties,
     options?: { eventID: string }
@@ -312,6 +327,6 @@ export function normalize(parameters: MatchingParameters): MatchingParameters {
       ?.toLowerCase()
       .replace(/[s/-/,.]/g, '')
       .trim(),
-    country: parameters.country?.replace(/[s/-]/g, '').trim(),
+    country: parameters.country?.toLowerCase().replace(/[s/-]/g, '').trim(),
   };
 }
