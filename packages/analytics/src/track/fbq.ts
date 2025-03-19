@@ -1,3 +1,4 @@
+import type { EventName, TrackName, TrackProperties, Item } from './types';
 export type Content = { id: string; quantity: number; [key: string]: unknown };
 
 /**
@@ -151,8 +152,9 @@ export type ObjectProperties = {
    * If no content_type is provided, Meta will match the event to every item that has the same ID,
    * independent of its type.
    */
-  content_type?: string;
+  content_type?: 'product' | 'product_group' | (string & {});
   contents?: Content[];
+  delivery_category?: 'in_store' | 'curbside' | 'home_delivery';
   currency?: string;
   num_items?: number;
   predicted_ltv?: number;
@@ -186,6 +188,7 @@ export type StandardEvents = {
   CompleteRegistration: {
     currency?: string;
     value?: number;
+    method?: string;
   };
   Contact: {};
   CustomizeProduct: {};
@@ -281,14 +284,14 @@ export interface Fbq {
     type: 'track',
     event: T,
     properties?: StandardEvents[T] & ObjectProperties,
-    options?: { eventID: string }
+    options?: { eventID?: string }
   ): void;
 
   fbq(
     type: 'trackCustom',
     event: string,
     properties?: Record<string, JSONValue> & ObjectProperties,
-    options?: { eventID: string }
+    options?: { eventID?: string }
   ): void;
 
   /** https://developers.facebook.com/docs/meta-pixel/guides/track-multiple-events/ */
@@ -297,7 +300,7 @@ export interface Fbq {
     pixelId: PixelId,
     event: T,
     properties?: StandardEvents[T] & ObjectProperties,
-    options?: { eventID: string }
+    options?: { eventID?: string }
   ): void;
 
   /** https://developers.facebook.com/docs/meta-pixel/guides/track-multiple-events/ */
@@ -306,7 +309,7 @@ export interface Fbq {
     pixelId: PixelId,
     event: string,
     properties?: Record<string, JSONValue> & ObjectProperties,
-    options?: { eventID: string }
+    options?: { eventID?: string }
   ): void;
 }
 
@@ -329,4 +332,109 @@ export function normalize(parameters: MatchingParameters): MatchingParameters {
       .trim(),
     country: parameters.country?.toLowerCase().replace(/[s/-]/g, '').trim(),
   };
+}
+
+function mapItems(items?: Item[]): ObjectProperties {
+  if (!items) return {};
+  const categories = Array.from(new Set(items.map((i) => i.item_category).filter(Boolean)));
+  const contents = items.map(({ item_id, quantity, ...others }) => ({
+    id: item_id!,
+    quantity: quantity ?? 1,
+    ...Object.fromEntries(
+      Object.entries(others).map(([key, value]) => [key.replace('item_', ''), value])
+    ),
+  }));
+
+  return {
+    content_category: categories.length === 1 ? categories.at(0) : undefined,
+    contents,
+    content_ids: contents.map((c) => c.id),
+    num_items: items.reduce((acc, i) => acc + (i.quantity ?? 1), 0),
+  };
+}
+
+export function mapAndSendFbqEvent<T extends EventName>(
+  fbq: Fbq['fbq'],
+  name: TrackName<T>,
+  properties?: TrackProperties<T>,
+  options?: { eventID?: string }
+) {
+  if (name === 'add_payment_info') {
+    const p = properties as TrackProperties<'add_payment_info'> | undefined;
+    fbq(
+      'track',
+      'AddPaymentInfo',
+      { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
+      options
+    );
+  } else if (name === 'add_to_cart') {
+    const p = properties as TrackProperties<'add_to_cart'> | undefined;
+    fbq(
+      'track',
+      'AddToCart',
+      { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
+      options
+    );
+  } else if (name === 'add_to_wishlist') {
+    const p = properties as TrackProperties<'add_to_wishlist'> | undefined;
+    fbq(
+      'track',
+      'AddToWishlist',
+      { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
+      options
+    );
+  } else if (name === 'login') {
+    const p = properties as TrackProperties<'login'> | undefined;
+    fbq('track', 'CompleteRegistration', { method: p?.method }, options);
+  } else if (name === 'contact') {
+    fbq('track', 'Contact', {}, options);
+  } else if (name === 'customize_product') {
+    fbq('track', 'CustomizeProduct', {}, options);
+  } else if (name === 'donate') {
+    fbq('track', 'Donate', {}, options);
+  } else if (name === 'find_location') {
+    fbq('track', 'FindLocation', {}, options);
+  } else if (name === 'begin_checkout') {
+    const p = properties as TrackProperties<'begin_checkout'> | undefined;
+    fbq(
+      'track',
+      'InitiateCheckout',
+      { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
+      options
+    );
+  } else if (name === 'generate_lead') {
+    const p = properties as TrackProperties<'generate_lead'> | undefined;
+    fbq('track', 'Lead', { currency: p?.currency, value: p?.value }, options);
+  } else if (name === 'purchase') {
+    const p = properties as TrackProperties<'purchase'> | undefined;
+    fbq(
+      'track',
+      'Purchase',
+      p ? { currency: p?.currency, value: p?.value, ...mapItems(p?.items) } : undefined,
+      options
+    );
+  } else if (name === 'schedule') {
+    fbq('track', 'Schedule', {}, options);
+  } else if (name === 'search') {
+    const p = properties as TrackProperties<'search'> | undefined;
+    fbq('track', 'Search', { search_string: p?.search_term }, options);
+  } else if (name === 'trial_begin') {
+    const p = properties as TrackProperties<'trial_begin'> | undefined;
+    fbq('track', 'StartTrial', { currency: p?.currency, value: p?.value }, options);
+  } else if (name === 'submit_application') {
+    fbq('track', 'SubmitApplication', {}, options);
+  } else if (name === 'subscribe') {
+    const p = properties as TrackProperties<'subscribe'> | undefined;
+    fbq('track', 'Subscribe', { currency: p?.currency, value: p?.value }, options);
+  } else if (name === 'view_item') {
+    const p = properties as TrackProperties<'view_item'> | undefined;
+    fbq(
+      'track',
+      'ViewContent',
+      { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
+      options
+    );
+  } else {
+    fbq('trackCustom', name, properties, options);
+  }
 }

@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onFID, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
 import { track } from '../track/index';
+import { mapAndSendFbqEvent } from '../track/fbq';
 import type { Gtag } from '../track/gtag';
+import type { Fbq } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
@@ -17,7 +19,7 @@ function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
 }
 
 declare global {
-  interface Window extends Gtag {}
+  interface Window extends Gtag, Fbq {}
 }
 
 interface Props {
@@ -34,10 +36,22 @@ export function sendGAEvent<T extends EventName>(
   properties?: TrackProperties<T>
 ) {
   if (!window.gtag) {
-    console.warn('GA has not been initialized');
+    console.warn('gtag has not been initialized');
     return;
   }
   window.gtag('event', name, properties);
+}
+
+export function sendFbqEvent<T extends EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>,
+  event_id?: string
+) {
+  if (!window.fbq) {
+    console.warn('fbq has not been initialized');
+    return;
+  }
+  mapAndSendFbqEvent(window.fbq, name, properties, { eventID: event_id });
 }
 
 export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Props) {

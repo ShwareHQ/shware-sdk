@@ -1,4 +1,6 @@
 import type { StandardEvents } from './gtag';
+
+export type { Item } from './gtag';
 export type AllowedPropertyValues = string | number | boolean | null;
 export type EventName = Lowercase<string>;
 

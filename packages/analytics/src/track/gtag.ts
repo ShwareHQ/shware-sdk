@@ -156,9 +156,13 @@ export type Config = {
 };
 
 export type Item = {
+  item_id: string;
+  item_name: string;
+  affiliation?: 'Google Store' | (string & {});
+  coupon?: string;
+  discount?: number;
+  index?: number;
   item_brand?: string;
-  item_id?: string;
-  item_name?: string;
   item_category?: string;
   item_category2?: string;
   item_category3?: string;
@@ -166,10 +170,17 @@ export type Item = {
   item_category5?: string;
   item_list_id?: string;
   item_list_name?: string;
-  item_location_id?: string;
   item_variant?: string;
-  quantity?: number;
+  location_id?: string;
   price?: number;
+  quantity?: number;
+};
+
+export type PromotionItem = {
+  creative_name?: string;
+  creative_slot?: string;
+  promotion_id?: string;
+  promotion_name?: string;
 };
 
 /**
@@ -179,120 +190,173 @@ export type Item = {
 export type StandardEvents = {
   // Google Analytics 4 Recommended Events
   add_payment_info: {
-    items?: Item[];
-    currency?: string;
-    value?: number;
+    currency: string;
+    value: number;
     coupon?: string;
     payment_type?: string;
+    items: Item[];
   };
   add_shipping_info: {
-    items?: Item[];
-    currency?: string;
-    value?: number;
+    currency: string;
+    value: number;
     coupon?: string;
     shipping_tier?: string;
+    items: Item[];
   };
   add_to_cart: {
-    items?: Item[];
-    currency?: string;
-    value?: number;
+    currency: string;
+    value: number;
+    items: Item[];
   };
   add_to_wishlist: {
-    items?: Item[];
-    currency?: string;
-    value?: number;
+    currency: string;
+    value: number;
+    items: Item[];
   };
   begin_checkout: {
-    currency?: string;
-    value?: number;
+    currency: string;
+    value: number;
     coupon?: string;
-    items?: Item[];
-    [key: string]: any;
+    items: Item[];
   };
-  close_convert_lead: { currency: string; value: number };
-  close_unconvert_lead: { currency: string; value: number; unconvert_lead_reason?: string };
-  disqualify_lead: { currency: string; value: number; disqualified_lead_reason?: string };
-  earn_virtual_currency: { virtual_currency_name: string; value: number };
-  generate_lead: { currency?: string; value?: number };
-  join_group: { group_id: string };
-  level_end: { level: number; success?: string };
-  level_start: { level: number };
-  level_up: { level: number; character?: string };
-  login: { method: string };
-  post_score: { score: number; level?: number; character?: string };
+  close_convert_lead: {
+    currency: string;
+    value: number;
+  };
+  close_unconvert_lead: {
+    currency: string;
+    value: number;
+    unconvert_lead_reason?: string;
+  };
+  disqualify_lead: {
+    currency: string;
+    value: number;
+    disqualified_lead_reason?: string;
+  };
+  earn_virtual_currency: {
+    virtual_currency_name?: string;
+    value?: number;
+  };
+  generate_lead: {
+    currency: string;
+    value: number;
+    lead_source?: string;
+  };
+  join_group: {
+    group_id?: string;
+  };
+  level_end: {
+    level_name?: string;
+    success?: boolean;
+  };
+  level_start: {
+    level_name?: string;
+  };
+  level_up: {
+    level?: number;
+    level_name?: string;
+    character?: string;
+  };
+  login: {
+    method?: string;
+  };
+  post_score: {
+    score: number;
+    level?: number;
+    character?: string;
+  };
   purchase: {
-    affiliation?: string;
+    currency: string;
+    value: number;
+    transaction_id: string;
     coupon?: string;
-    currency?: string;
-    items?: Item[];
-    shipping?: number;
+    shipping?: number; // Shipping cost associated with a transaction.
     tax?: number;
-    value?: number;
-    transaction_id?: string;
-    [key: string]: any;
+    items?: Item[];
   };
-  qualify_lead: { currency: string; value: number };
+  qualify_lead: {
+    currency: string;
+    value: number;
+  };
   refund: {
-    affiliation?: string;
+    currency: string;
+    value: number;
+    transaction_id: string;
     coupon?: string;
-    currency?: string;
-    items?: Item[];
     shipping?: number;
     tax?: number;
-    value?: number;
-    transaction_id?: string;
+    items?: Item[];
   };
-  remove_from_cart: { items?: Item[]; value?: number; currency?: string };
+  remove_from_cart: {
+    currency: string;
+    value: number;
+    items: Item[];
+  };
   search: {
     search_term: string;
-    number_of_nights?: number;
-    number_of_rooms?: number;
-    number_of_passengers?: number;
-    origin?: string;
-    destination?: string;
-    start_date?: string;
-    end_date?: string;
-    travel_class?: string;
   };
-  select_content: { content_type: string; item_id: string };
+  select_content: {
+    content_type?: string;
+    content_id?: string;
+  };
   select_item: {
-    items?: Item[];
-    content_type: string;
-    item_list_id: string;
-    item_list_name: string;
+    item_list_id?: string;
+    item_list_name?: string;
+    items: Item[];
   };
   select_promotion: {
-    creative_name: string;
-    creative_slot: string;
-    items?: Item[];
-    location_id: string;
-    promotion_id: string;
-    promotion_name: string;
-  };
-  share: {
-    content_type: string;
-    item_id: string;
-    method: string;
-    activity_type?: string | null;
-    post_id?: string;
-  };
-  sign_up: { method: string };
-  spend_virtual_currency: { item_name: string; virtual_currency_name: string; value: number };
-  tutorial_begin: undefined;
-  tutorial_complete: undefined;
-  unlock_achievement: { achievement_id: string };
-  view_cart: { items?: Item[]; currency?: string; value?: number };
-  view_item: { items?: Item[]; currency?: string; value?: number };
-  view_item_list: { items?: Item[]; item_list_id?: string; item_list_name?: string };
-  view_promotion: {
-    items?: Item[];
-    location_id?: string;
     creative_name?: string;
     creative_slot?: string;
     promotion_id?: string;
     promotion_name?: string;
+    items?: (Item & PromotionItem)[];
   };
-  working_lead: { currency: string; value: number; lead_status?: string };
+  share: {
+    method?: string;
+    content_type?: string;
+    item_id?: string;
+  };
+  sign_up: {
+    method?: string;
+  };
+  spend_virtual_currency: {
+    value: number;
+    virtual_currency_name: string;
+    item_name?: string;
+  };
+  tutorial_begin: undefined;
+  tutorial_complete: undefined;
+  unlock_achievement: {
+    achievement_id: string;
+  };
+  view_cart: {
+    currency: string;
+    value: number;
+    items: Item[];
+  };
+  view_item: {
+    currency: string;
+    value: number;
+    items: Item[];
+  };
+  view_item_list: {
+    currency: string;
+    item_list_id?: string;
+    item_list_name?: string;
+    items: Item[];
+  };
+  view_promotion: {
+    creative_name?: string;
+    creative_slot?: string;
+    promotion_id?: string;
+    promotion_name?: string;
+    items: (Item & PromotionItem)[];
+  };
+  working_lead: {
+    currency: string;
+    value: number;
+    lead_status?: string;
+  };
 
   // Firebase Analytics events, event_name 40 characters limit, 25 parameters limit
   ad_impression: {
@@ -315,6 +379,17 @@ export type StandardEvents = {
   };
   screen_view: { screen_name?: string; screen_class?: string };
   view_search_results: { search_term: string };
+
+  // Added events
+  trial_begin: {
+    currency: string;
+    value: number;
+  };
+
+  subscribe: {
+    currency: string;
+    value: number;
+  };
 };
 
 /**
