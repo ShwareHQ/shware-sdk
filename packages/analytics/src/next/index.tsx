@@ -1,9 +1,9 @@
 'use client';
 
+import { useEffect } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useReportWebVitals } from 'next/web-vitals';
 import Script from 'next/script';
-import { useEffect } from 'react';
 import { track } from '../track/index';
 import { mapAndSendFbqEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
@@ -34,7 +34,7 @@ export function sendGAEvent<T extends EventName>(
   window.gtag('event', name, properties);
 }
 
-export function sendFbqEvent<T extends EventName>(
+export function sendFBEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   event_id?: string

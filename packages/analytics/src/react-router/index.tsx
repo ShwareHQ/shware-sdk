@@ -42,7 +42,7 @@ export function sendGAEvent<T extends EventName>(
   window.gtag('event', name, properties);
 }
 
-export function sendFbqEvent<T extends EventName>(
+export function sendFBEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   event_id?: string
