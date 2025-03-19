@@ -35,7 +35,7 @@ export function sendGAEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  if (!window.gtag) {
+  if (typeof window === 'undefined' || !window.gtag) {
     console.warn('gtag has not been initialized');
     return;
   }
@@ -47,7 +47,7 @@ export function sendFbqEvent<T extends EventName>(
   properties?: TrackProperties<T>,
   event_id?: string
 ) {
-  if (!window.fbq) {
+  if (typeof window === 'undefined' || !window.fbq) {
     console.warn('fbq has not been initialized');
     return;
   }
