@@ -3,8 +3,8 @@ import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onFID, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
 import { track } from '../track/index';
 import { mapAndSendFbqEvent } from '../track/fbq';
-import type { Gtag } from '../track/gtag';
-import type { Fbq } from '../track/fbq';
+import type { Gtag, GaId, GtmId } from '../track/gtag';
+import type { Fbq, PixelId } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
@@ -23,12 +23,12 @@ declare global {
 }
 
 interface Props {
-  gaId?: string;
-  gtmId?: string;
+  gaId?: GaId;
+  gtmId?: GtmId;
+  pixelId?: PixelId;
+  facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
-  pixelId?: string;
-  facebookAppId?: string;
 }
 
 export function sendGAEvent<T extends EventName>(
@@ -93,6 +93,7 @@ export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Pr
 
   return (
     <>
+      {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
       {gaId && (
         <>
           <script
@@ -116,7 +117,6 @@ export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Pr
           />
         </>
       )}
-      {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
     </>
   );
 }

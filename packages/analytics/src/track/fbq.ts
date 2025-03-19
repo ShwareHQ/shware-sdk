@@ -165,6 +165,9 @@ export type ObjectProperties = {
   value?: number;
 };
 
+/**
+ * reference: https://developers.facebook.com/docs/marketing-api/conversions-api/payload-helper
+ */
 export type StandardEvents = {
   AddPaymentInfo: {
     content_ids?: string[];
