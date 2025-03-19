@@ -1,62 +1,50 @@
-export const standardEventNames = [
-  'add_payment_info',
-  'add_shipping_info',
-  'add_to_cart',
-  'add_to_wishlist',
-  'begin_checkout',
-  'close_convert_lead',
-  'close_unconvert_lead',
-  'disqualify_lead',
-  'earn_virtual_currency',
-  'generate_lead',
-  'join_group',
-  'level_end',
-  'level_start',
-  'level_up',
-  'login',
-  'post_score',
-  'purchase',
-  'qualify_lead',
-  'refund',
-  'remove_from_cart',
-  'search',
-  'select_content',
-  'select_item',
-  'select_promotion',
-  'share',
-  'sign_up',
-  'spend_virtual_currency',
-  'tutorial_begin',
-  'tutorial_complete',
-  'unlock_achievement',
-  'view_cart',
-  'view_item',
-  'view_item_list',
-  'view_promotion',
-  'working_lead',
-] as const;
-
-export const reservedEventNames = [
-  'ad_activeview',
-  'ad_click',
-  'ad_exposure',
-  'ad_query',
-  'ad_reward',
-  'adunit_exposure',
-  'app_background',
-  'app_clear_data',
-  'app_exception',
+/** reference: https://support.google.com/analytics/answer/13316687 */
+const reservedWebEventNames = [
   'app_remove',
   'app_store_refund',
   'app_store_subscription_cancel',
-  'app_store_subscription_convert',
   'app_store_subscription_renew',
+  'click',
+  'error',
+  'file_download',
+  'first_open',
+  'first_visit',
+  'form_start',
+  'form_submit',
+  'in_app_purchase',
+  'page_view',
+  'scroll',
+  'session_start',
+  'user_engagement',
+  'view_complete',
+  'video_progress',
+  'video_start',
+  'view_search_results',
+] as const;
+
+const reservedAppEventNames = [
+  'ad_activeview',
+  'ad_click',
+  'ad_exposure',
+  'ad_impression',
+  'ad_query',
+  'ad_reward',
+  'adunit_exposure',
+  'app_clear_data',
+  'app_exception',
+  'app_install',
+  'app_remove',
+  'app_store_refund',
   'app_update',
   'app_upgrade',
   'dynamic_link_app_open',
   'dynamic_link_app_update',
   'dynamic_link_first_open',
   'error',
+  'firebase_campaign',
+  'firebase_in_app_message_action',
+  'firebase_in_app_message_dismiss',
+  'firebase_in_app_message_impression',
   'first_open',
   'first_visit',
   'in_app_purchase',
@@ -64,11 +52,121 @@ export const reservedEventNames = [
   'notification_foreground',
   'notification_open',
   'notification_receive',
+  'notification_send',
   'os_update',
+  'screen_view',
   'session_start',
-  'session_start_with_rollout',
   'user_engagement',
-];
+] as const;
+
+export const reservedEventNames = [...reservedWebEventNames, ...reservedAppEventNames] as const;
+
+type ReservedWebEventNames = (typeof reservedWebEventNames)[number];
+type ReservedAppEventNames = (typeof reservedAppEventNames)[number];
+export type ReservedEventNames = ReservedWebEventNames | ReservedAppEventNames;
+
+export type ReservedEventValues =
+  | 'cid'
+  | 'currency'
+  | 'customer_id'
+  | 'customerid'
+  | 'dclid'
+  | 'gclid'
+  | 'session_id'
+  | 'sessionid'
+  | 'sfmc_id'
+  | 'sid'
+  | 'srsltid'
+  | 'uid'
+  | 'user_id'
+  | 'userid'
+  | `_${string}`
+  | `firebase_${string}`
+  | `ga_${string}`
+  | `google_${string}`
+  | `gtag.${string}`;
+
+export type ReservedUserPropertiesNames =
+  | 'cid'
+  | 'customer_id'
+  | 'customerid'
+  | 'first_open_after_install'
+  | 'first_open_time'
+  | 'first_visit_time'
+  | 'google_allow_ad_personalization_signals'
+  | 'last_advertising_id_reset'
+  | 'last_deep_link_referrer'
+  | 'last_gclid'
+  | 'lifetime_user_engagement'
+  | 'non_personalized_ads'
+  | 'session_id'
+  | 'session_number'
+  | 'sessionid'
+  | 'sfmc_id'
+  | 'sid'
+  | 'uid'
+  | 'user_id'
+  | 'userid'
+  | `_${string}`
+  | `firebase_${string}`
+  | `ga_${string}`
+  | `google_${string}`;
+
+export type UserPropertiesValue = string | boolean | number | null | undefined;
+export type UserProperties = {
+  [key: string]: UserPropertiesValue;
+} & {
+  [key in ReservedUserPropertiesNames]?: never;
+};
+
+/**
+ * reference: https://support.google.com/analytics/answer/14078702
+ * You must turn on user-provided data collection in Google Analytics.
+ *
+ * Validate your user-provided data implementation: https://support.google.com/analytics/answer/14171683
+ *
+ * Usage: gtag('set', 'user_data', { email: 'abc@abc.com' })
+ *
+ * In order to standardize the hash results, prior to hashing one of these values you must:
+ *
+ * - Remove leading and trailing whitespaces.
+ * - Convert the text to lowercase.
+ * - Format phone numbers according to the E164 standard.
+ * - Remove all periods (.) that precede the domain name in gmail.com and googlemail.com email addresses.
+ * */
+type UserProvidedDataAddress = {
+  first_name?: string;
+  last_name?: string;
+  street?: string;
+  city?: string;
+  region?: string;
+  postal_code?: string;
+  /**
+   * User country code.
+   * Example: 'UK'. Use 2-letter country codes, per the ISO 3166-1 alpha-2 standard.
+   */
+  country?: string;
+};
+
+/**
+ * In order to standardize the hash results, prior to hashing one of these values you must:
+ *
+ * - Remove leading and trailing whitespaces.
+ * - Convert the text to lowercase.
+ * - Format phone numbers according to the E164 standard.
+ * - Remove all periods (.) that precede the domain name in gmail.com and googlemail.com email addresses.
+ */
+export type UserProvidedData = {
+  email?: string | string[];
+  /**
+   * User phone number. Must be in E.164 format, which means it must be 11 to 15 digits including a
+   * plus sign (+) prefix and country code with no dashes, parentheses, or spaces.
+   *
+   * Example: ‘+11231234567’
+   */
+  phone_number?: string | string[];
+  address?: UserProvidedDataAddress | UserProvidedDataAddress[];
+};
 
 export type GaId = `G-${Uppercase<string>}`;
 export type GtmId = `GTM-${Uppercase<string>}`;
@@ -152,7 +250,7 @@ export type Config = {
   send_page_view?: boolean;
   screen_resolution?: `${number}x${number}`;
   user_id?: string;
-  user_property?: Record<string, string | boolean | number | null | undefined>;
+  user_properties?: UserProperties;
 };
 
 export type Item = {
@@ -591,11 +689,9 @@ export interface Gtag {
    * @param name - The name of the user property. Character limit 24
    * @param value - The value of the user property. Character limit 36
    */
-  gtag(
-    event: 'set',
-    option: 'user_property',
-    properties: Record<string, string | boolean | number | null | undefined>
-  ): void;
+  gtag(event: 'set', option: 'user_properties', properties: UserProperties): void;
+
+  gtag(event: 'set', option: 'user_data', data: UserProvidedData): void;
 
   /**
    * gtag('config', ...) Set for a single stream
