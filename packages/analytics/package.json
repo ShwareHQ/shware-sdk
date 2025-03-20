@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "0.1.18",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
@@ -33,6 +33,11 @@
       "types": "./dist/react-router/index.d.ts",
       "import": "./dist/react-router/index.mjs",
       "require": "./dist/react-router/index.cjs"
+    },
+    "./server/conversions-api": {
+      "types": "./dist/server/conversions-api.d.ts",
+      "import": "./dist/server/conversions-api.mjs",
+      "require": "./dist/server/conversions-api.cjs"
     }
   },
   "files": [
