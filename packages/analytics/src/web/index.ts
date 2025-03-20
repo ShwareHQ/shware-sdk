@@ -38,6 +38,8 @@ export function getTags(release: string) {
     language: navigator.language,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
+    source: 'web',
+    source_url: window.location.origin + window.location.pathname,
     fbc: parsed._fbc,
     fbp: parsed._fbp,
     gclid: params.get('gclid') ?? undefined,
