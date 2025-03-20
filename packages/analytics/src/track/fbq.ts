@@ -1,6 +1,16 @@
 import type { Item } from './gtag';
 import type { EventName, TrackName, TrackProperties } from './types';
-export type Content = { id: string; quantity: number; [key: string]: unknown };
+
+export type Content = {
+  id: string;
+  quantity: number;
+  item_price?: number;
+  title?: string;
+  description?: string;
+  brand?: string;
+  category?: string;
+  delivery_category?: string;
+};
 
 /**
  * reference: https://developers.facebook.com/docs/meta-pixel/advanced/advanced-matching
@@ -342,13 +352,16 @@ export function normalize(parameters: MatchingParameters): MatchingParameters {
 export function mapItems(items?: Item[]): ObjectProperties {
   if (!items) return {};
   const categories = Array.from(new Set(items.map((i) => i.item_category).filter(Boolean)));
-  const contents = items.map(({ item_id, quantity, ...others }) => ({
-    id: item_id!,
-    quantity: quantity ?? 1,
-    ...Object.fromEntries(
-      Object.entries(others).map(([key, value]) => [key.replace('item_', ''), value])
-    ),
-  }));
+  const contents: Content[] = items.map(
+    ({ item_id, quantity, price, item_name, item_brand, item_category, ...others }) => ({
+      id: item_id!,
+      quantity: quantity ?? 1,
+      item_price: price,
+      title: item_name,
+      brand: item_brand,
+      category: item_category,
+    })
+  );
 
   return {
     content_category: categories.length === 1 ? categories.at(0) : undefined,

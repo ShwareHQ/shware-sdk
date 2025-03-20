@@ -114,11 +114,20 @@ export interface TrackTags
 }
 
 export interface CreateTrackEventDTO<T extends EventName = EventName> {
-  name: string;
+  name: TrackName<T>;
   tags: TrackTags;
   visitor_id: string;
   properties?: TrackProperties<T>;
   timestamp: string;
+}
+
+export interface TrackEvent<T extends EventName = EventName> {
+  id: string | bigint;
+  name: TrackName<T>;
+  tags: TrackTags;
+  visitor_id: string | bigint;
+  properties?: TrackProperties<T>;
+  created_at: string;
 }
 
 export interface TrackEventResponse {
