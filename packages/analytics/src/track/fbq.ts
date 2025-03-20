@@ -1,4 +1,5 @@
-import type { EventName, TrackName, TrackProperties, Item } from './types';
+import type { Item } from './gtag';
+import type { EventName, TrackName, TrackProperties } from './types';
 export type Content = { id: string; quantity: number; [key: string]: unknown };
 
 /**
@@ -254,6 +255,7 @@ type JSONValue =
   | { [value: string]: JSONValue };
 
 export type PixelId = `${number}`;
+export type Options = { eventID?: string };
 
 /**
  * reference: https://developers.facebook.com/docs/meta-pixel/reference#standard-events
@@ -264,7 +266,7 @@ export type PixelId = `${number}`;
  *
  * reference: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
  */
-export interface Fbq {
+export interface Pixel {
   /**
    * reference: https://stackoverflow.com/questions/62304291/sending-user-data-parameters-via-pixel
    *
@@ -287,14 +289,14 @@ export interface Fbq {
     type: 'track',
     event: T,
     properties?: StandardEvents[T] & ObjectProperties,
-    options?: { eventID?: string }
+    options?: Options
   ): void;
 
   fbq(
     type: 'trackCustom',
     event: string,
     properties?: Record<string, JSONValue> & ObjectProperties,
-    options?: { eventID?: string }
+    options?: Options
   ): void;
 
   /** https://developers.facebook.com/docs/meta-pixel/guides/track-multiple-events/ */
@@ -303,7 +305,7 @@ export interface Fbq {
     pixelId: PixelId,
     event: T,
     properties?: StandardEvents[T] & ObjectProperties,
-    options?: { eventID?: string }
+    options?: Options
   ): void;
 
   /** https://developers.facebook.com/docs/meta-pixel/guides/track-multiple-events/ */
@@ -312,7 +314,7 @@ export interface Fbq {
     pixelId: PixelId,
     event: string,
     properties?: Record<string, JSONValue> & ObjectProperties,
-    options?: { eventID?: string }
+    options?: Options
   ): void;
 }
 
@@ -337,7 +339,7 @@ export function normalize(parameters: MatchingParameters): MatchingParameters {
   };
 }
 
-function mapItems(items?: Item[]): ObjectProperties {
+export function mapItems(items?: Item[]): ObjectProperties {
   if (!items) return {};
   const categories = Array.from(new Set(items.map((i) => i.item_category).filter(Boolean)));
   const contents = items.map(({ item_id, quantity, ...others }) => ({
@@ -356,88 +358,83 @@ function mapItems(items?: Item[]): ObjectProperties {
   };
 }
 
-export function mapAndSendFbqEvent<T extends EventName>(
-  fbq: Fbq['fbq'],
+type Mapped<F extends keyof StandardEvents> = ['track', F, StandardEvents[F] & ObjectProperties];
+type Missed<F extends string> = ['trackCustom', F, Record<string, JSONValue> & ObjectProperties];
+
+export function mapFBEvent<T extends EventName>(
   name: TrackName<T>,
-  properties?: TrackProperties<T>,
-  options?: { eventID?: string }
-) {
+  properties?: TrackProperties<T>
+): Mapped<keyof StandardEvents> | Missed<TrackName<T>> {
   if (name === 'add_payment_info') {
     const p = properties as TrackProperties<'add_payment_info'> | undefined;
-    fbq(
+    return [
       'track',
       'AddPaymentInfo',
       { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
-      options
-    );
+    ];
   } else if (name === 'add_to_cart') {
     const p = properties as TrackProperties<'add_to_cart'> | undefined;
-    fbq(
+    return [
       'track',
       'AddToCart',
       { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
-      options
-    );
+    ];
   } else if (name === 'add_to_wishlist') {
     const p = properties as TrackProperties<'add_to_wishlist'> | undefined;
-    fbq(
+    return [
       'track',
       'AddToWishlist',
       { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
-      options
-    );
+    ];
   } else if (name === 'login') {
     const p = properties as TrackProperties<'login'> | undefined;
-    fbq('track', 'CompleteRegistration', { method: p?.method }, options);
+    return ['track', 'CompleteRegistration', { method: p?.method }];
   } else if (name === 'contact') {
-    fbq('track', 'Contact', {}, options);
+    return ['track', 'Contact', {}];
   } else if (name === 'customize_product') {
-    fbq('track', 'CustomizeProduct', {}, options);
+    return ['track', 'CustomizeProduct', {}];
   } else if (name === 'donate') {
-    fbq('track', 'Donate', {}, options);
+    return ['track', 'Donate', {}];
   } else if (name === 'find_location') {
-    fbq('track', 'FindLocation', {}, options);
+    return ['track', 'FindLocation', {}];
   } else if (name === 'begin_checkout') {
     const p = properties as TrackProperties<'begin_checkout'> | undefined;
-    fbq(
+    return [
       'track',
       'InitiateCheckout',
       { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
-      options
-    );
+    ];
   } else if (name === 'generate_lead') {
     const p = properties as TrackProperties<'generate_lead'> | undefined;
-    fbq('track', 'Lead', { currency: p?.currency, value: p?.value }, options);
+    return ['track', 'Lead', { currency: p?.currency, value: p?.value }];
   } else if (name === 'purchase') {
     const p = properties as TrackProperties<'purchase'> | undefined;
-    fbq(
+    return [
       'track',
       'Purchase',
-      p ? { currency: p?.currency, value: p?.value, ...mapItems(p?.items) } : undefined,
-      options
-    );
+      { currency: p?.currency ?? 'usd', value: p?.value ?? 0, ...mapItems(p?.items) },
+    ];
   } else if (name === 'schedule') {
-    fbq('track', 'Schedule', {}, options);
+    return ['track', 'Schedule', {}];
   } else if (name === 'search') {
     const p = properties as TrackProperties<'search'> | undefined;
-    fbq('track', 'Search', { search_string: p?.search_term }, options);
+    return ['track', 'Search', { search_string: p?.search_term }];
   } else if (name === 'trial_begin') {
     const p = properties as TrackProperties<'trial_begin'> | undefined;
-    fbq('track', 'StartTrial', { currency: p?.currency, value: p?.value }, options);
+    return ['track', 'StartTrial', { currency: p?.currency, value: p?.value }];
   } else if (name === 'submit_application') {
-    fbq('track', 'SubmitApplication', {}, options);
+    return ['track', 'SubmitApplication', {}];
   } else if (name === 'subscribe') {
     const p = properties as TrackProperties<'subscribe'> | undefined;
-    fbq('track', 'Subscribe', { currency: p?.currency, value: p?.value }, options);
+    return ['track', 'Subscribe', { currency: p?.currency, value: p?.value }];
   } else if (name === 'view_item') {
     const p = properties as TrackProperties<'view_item'> | undefined;
-    fbq(
+    return [
       'track',
       'ViewContent',
       { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
-      options
-    );
+    ];
   } else {
-    fbq('trackCustom', name, properties, options);
+    return ['trackCustom', name, properties ?? {}];
   }
 }

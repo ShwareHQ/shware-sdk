@@ -139,6 +139,7 @@ type UserProvidedDataAddress = {
   last_name?: string;
   street?: string;
   city?: string;
+  /** User province, state, or region. Example: `Hampshire` */
   region?: string;
   postal_code?: string;
   /**

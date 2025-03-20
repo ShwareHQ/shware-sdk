@@ -2,9 +2,9 @@ import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onFID, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
 import { track } from '../track/index';
-import { mapAndSendFbqEvent } from '../track/fbq';
+import { mapFBEvent } from '../track/fbq';
 import type { Gtag, GaId, GtmId } from '../track/gtag';
-import type { Fbq, PixelId } from '../track/fbq';
+import type { Pixel, PixelId } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
@@ -19,7 +19,7 @@ function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
 }
 
 declare global {
-  interface Window extends Gtag, Fbq {}
+  interface Window extends Gtag, Pixel {}
 }
 
 interface Props {
@@ -51,7 +51,14 @@ export function sendFBEvent<T extends EventName>(
     console.warn('fbq has not been initialized');
     return;
   }
-  mapAndSendFbqEvent(window.fbq, name, properties, { eventID: event_id });
+  const { fbq } = window;
+  const options = { eventID: event_id };
+  const [type, fbEventName, fbEventProperties] = mapFBEvent(name, properties);
+  if (type === 'track') {
+    fbq(type, fbEventName, fbEventProperties, options);
+  } else {
+    fbq(type, fbEventName, fbEventProperties, options);
+  }
 }
 
 export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Props) {

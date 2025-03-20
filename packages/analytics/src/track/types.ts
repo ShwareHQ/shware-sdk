@@ -1,7 +1,5 @@
 import type { StandardEvents, UserProvidedData as GAUserProvidedData } from './gtag';
 
-export type { Item } from './gtag';
-
 export type AllowedPropertyValues = string | number | boolean | null;
 export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'FID' | 'INP' | 'LCP' | 'TTFB';
 
@@ -25,11 +23,14 @@ export interface UserData {
 }
 
 export interface UserProvidedData extends GAUserProvidedData {
-  user_id: string;
+  user_id?: string;
   ip_address?: string;
   user_agent?: string;
-  birthday?: number; // YYYYMMDD
-  gender?: 'female' | 'male' | (string & {});
+  gender?: 'female' | 'male';
+  birthday?: { year: number; month: number; day: number };
+  // meta specific
+  fb_login_id?: string;
+  fb_page_id?: string;
 }
 
 export type ThirdPartyTracker = <T extends EventName>(
@@ -53,8 +54,15 @@ export interface DeviceInfo {
   device_id?: string;
   device_type?: string;
   device_vendor?: string;
+  device_model_id?: string;
   device_pixel_ratio?: string;
+  screen_width?: number;
+  screen_height?: number;
   screen_resolution?: `${number}x${number}`;
+}
+
+export interface AppInfo {
+  install_referrer?: string;
 }
 
 export interface EnvironmentInfo {
@@ -96,11 +104,13 @@ export interface UTMParams {
 export interface TrackTags
   extends PlatformInfo,
     DeviceInfo,
+    AppInfo,
     EnvironmentInfo,
     SourceInfo,
     AdvertisingInfo,
     UTMParams {
-  [key: string]: string | undefined;
+  idempotency_key?: string;
+  [key: string]: string | number | boolean | null | undefined;
 }
 
 export interface CreateTrackEventDTO<T extends EventName = EventName> {
