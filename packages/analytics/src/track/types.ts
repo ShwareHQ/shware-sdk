@@ -70,7 +70,7 @@ export interface AppInfo {
 export interface EnvironmentInfo {
   release?: string;
   language?: string;
-  timezone?: string;
+  timezone?: string | null;
   environment?: 'development' | 'production';
 }
 
