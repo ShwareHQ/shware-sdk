@@ -3,8 +3,10 @@ import type { StandardEvents, UserProvidedData as GAUserProvidedData } from './g
 export type AllowedPropertyValues = string | number | boolean | null;
 export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'FID' | 'INP' | 'LCP' | 'TTFB';
 
-export type TrackName<T extends EventName> = T extends keyof StandardEvents ? T : EventName;
-export type TrackProperties<T extends EventName> = T extends keyof StandardEvents
+export type TrackName<T extends EventName = EventName> = T extends keyof StandardEvents
+  ? T
+  : EventName;
+export type TrackProperties<T extends EventName = EventName> = T extends keyof StandardEvents
   ? StandardEvents[T]
   : Record<Lowercase<string>, AllowedPropertyValues>;
 
