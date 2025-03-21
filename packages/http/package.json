@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "0.2.7",
+  "version": "0.2.9",
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
@@ -17,6 +17,11 @@
       "types": "./dist/polyfills/index.d.ts",
       "import": "./dist/polyfills/index.mjs",
       "require": "./dist/polyfills/index.cjs"
+    },
+    "./hono": {
+      "types": "./dist/hono/index.d.ts",
+      "import": "./dist/hono/index.mjs",
+      "require": "./dist/hono/index.cjs"
     }
   },
   "files": [
@@ -31,5 +36,13 @@
   },
   "dependencies": {
     "zod": "^3.24.2"
+  },
+  "peerDependencies": {
+    "hono": "^4.7.5"
+  },
+  "peerDependenciesMeta": {
+    "hono": {
+      "optional": true
+    }
   }
 }

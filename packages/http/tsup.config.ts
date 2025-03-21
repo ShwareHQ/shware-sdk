@@ -1,26 +1,31 @@
 import { defineConfig, Options } from 'tsup';
 
-const cfg: Options = {
+const options: Options = {
   splitting: false,
   sourcemap: true,
   clean: true,
   treeshake: false,
   dts: true,
   format: ['esm', 'cjs'],
-  outExtension: ({ format }) => {
-    return format === 'esm' ? { js: '.mjs' } : { js: '.cjs' };
-  },
+  outExtension: ({ format }) => (format === 'esm' ? { js: '.mjs' } : { js: '.cjs' }),
 };
 
 export default defineConfig([
   {
-    ...cfg,
-    entry: { index: 'src/index.ts' },
+    ...options,
+    entry: ['src/**/*.ts', 'src/**/*.tsx'],
     outDir: 'dist',
-  },
-  {
-    ...cfg,
-    entry: { index: 'src/polyfills/index.ts' },
-    outDir: 'dist/polyfills',
+    esbuildPlugins: [
+      {
+        name: 'add-extension',
+        setup(build) {
+          const defaultExtension = build.initialOptions.format === 'esm' ? '.mjs' : '.cjs';
+          const extension = build.initialOptions.outExtension?.js ?? defaultExtension;
+          build.onResolve({ filter: /.*/ }, (args) => {
+            if (args.importer) return { path: args.path + extension, external: true };
+          });
+        },
+      },
+    ],
   },
 ]);
