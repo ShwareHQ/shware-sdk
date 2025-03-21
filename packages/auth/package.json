@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsc",
+    "build": "tsup",
     "test": "jest"
   },
   "exports": {
