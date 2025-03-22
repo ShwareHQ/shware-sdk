@@ -1,3 +1,4 @@
+import { getRuntimeKey } from 'hono/adapter';
 import type { Context } from 'hono';
 
 export type Geolocation = {
@@ -14,25 +15,26 @@ export type Geolocation = {
   timezone: string | null;
 };
 
-/** reference: https://developers.cloudflare.com/rules/transform/managed-transforms/reference/#add-visitor-location-headers */
 export function geolocation(c: Context): Geolocation {
-  return {
-    ip: c.req.header('true-client-ip') ?? c.req.header('cf-connecting-ip') ?? null,
-    city: c.req.header('cf-ipcity') ?? null,
-    country: c.req.header('cf-ipcountry') ?? null,
-    continent: c.req.header('cf-ipcontinent') ?? null,
-    longitude: c.req.header('cf-iplongitude') ? Number(c.req.header('cf-iplongitude')) : null,
-    latitude: c.req.header('cf-iplatitude') ? Number(c.req.header('cf-iplatitude')) : null,
-    region: c.req.header('cf-region') ?? null,
-    region_code: c.req.header('cf-region-code') ?? null,
-    metro_code: c.req.header('cf-metro-code') ?? null,
-    postal_code: c.req.header('cf-postal-code') ?? null,
-    timezone: c.req.header('cf-timezone') ?? null,
-  };
-}
+  const runtime = getRuntimeKey();
+  /** reference: https://developers.cloudflare.com/rules/transform/managed-transforms/reference/#add-visitor-location-headers */
+  if (runtime === 'workerd') {
+    return {
+      ip: c.req.header('true-client-ip') ?? c.req.header('cf-connecting-ip') ?? null,
+      city: c.req.header('cf-ipcity') ?? null,
+      country: c.req.header('cf-ipcountry') ?? null,
+      continent: c.req.header('cf-ipcontinent') ?? null,
+      longitude: c.req.header('cf-iplongitude') ? Number(c.req.header('cf-iplongitude')) : null,
+      latitude: c.req.header('cf-iplatitude') ? Number(c.req.header('cf-iplatitude')) : null,
+      region: c.req.header('cf-region') ?? null,
+      region_code: c.req.header('cf-region-code') ?? null,
+      metro_code: c.req.header('cf-metro-code') ?? null,
+      postal_code: c.req.header('cf-postal-code') ?? null,
+      timezone: c.req.header('cf-timezone') ?? null,
+    };
+  }
 
-/** https://github.com/vercel/vercel/blob/main/packages/functions/src/headers.ts */
-export function geolocationVercel(c: Context): Geolocation {
+  /** https://github.com/vercel/vercel/blob/main/packages/functions/src/headers.ts */
   return {
     ip: c.req.header('x-real-ip') ?? null,
     city: c.req.header('x-vercel-ip-city') ?? null,
