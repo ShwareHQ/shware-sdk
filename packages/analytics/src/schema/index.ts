@@ -42,7 +42,8 @@ export const createTrackEventSchema = z.object({
       z.string().trim().min(1).max(128),
       z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
     )
-    .refine((data) => Object.keys(data).length <= 64),
+    .refine((data) => Object.keys(data).length <= 64)
+    .optional(),
 });
 
 export const createVisitorSchema = z.object({
@@ -52,7 +53,8 @@ export const createVisitorSchema = z.object({
       z.string().trim().min(1).max(128),
       z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
     )
-    .refine((data) => Object.keys(data).length <= 64),
+    .refine((data) => Object.keys(data).length <= 64)
+    .optional(),
 });
 
 export const updateVisitorSchema = z.object({
