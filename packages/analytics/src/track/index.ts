@@ -11,7 +11,7 @@ import type {
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
-  onSucceed?: (response?: TrackEventResponse) => void;
+  onSucceed?: (response?: TrackEventResponse[number]) => void;
   onError?: (error: unknown) => void;
 }
 
@@ -24,40 +24,65 @@ const tokenBucket = new TokenBucket({
   tokensPerInterval: 1,
 });
 
-async function trackAsync<T extends EventName>(
-  name: TrackName<T>,
-  properties?: TrackProperties<T>,
-  trackOptions: TrackOptions = defaultOptions
-) {
-  try {
-    await tokenBucket.removeTokens(REQUEST_TOKENS);
-    const dto: CreateTrackEventDTO<T> = [
-      {
-        name,
-        properties,
-        tags: await config.getTags(),
-        visitor_id: (await getVisitor()).id,
-        timestamp: new Date().toISOString(),
-      },
-    ];
-    const { data } = await config.http.post<TrackEventResponse>(`/events`, dto);
+type Item = {
+  name: TrackName<any>;
+  properties: TrackProperties<any>;
+  timestamp: string;
+  options: TrackOptions;
+};
 
-    // send to third-party loggers, for example Google Analytics and Facebook Pixel
-    if (!trackOptions.enableThirdPartyTracking || !config.thirdPartyTrackers) return;
-    config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, data[0].id));
-    trackOptions.onSucceed?.(data);
-  } catch (e: unknown) {
-    if (e instanceof Error) {
-      console.log('Failed to send track event:', e.message);
+async function sendEvents(events: Item[]) {
+  try {
+    if (events.length === 0) return;
+    await tokenBucket.removeTokens(REQUEST_TOKENS);
+
+    const tags = await config.getTags();
+    const visitor_id = (await getVisitor()).id;
+    const dto: CreateTrackEventDTO = events.map((event) => ({
+      name: event.name,
+      properties: event.properties,
+      tags,
+      visitor_id,
+      timestamp: event.timestamp,
+    }));
+    const { data } = await config.http.post<TrackEventResponse>(`/events`, dto);
+    let index = 0;
+    while (events.length > 0) {
+      const { options, name, properties } = events.shift()!;
+      const eventId = data[index].id;
+      options.onSucceed?.({ id: eventId });
+      index++;
+      if (!options.enableThirdPartyTracking || !config.thirdPartyTrackers) continue;
+      config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, eventId));
     }
-    trackOptions.onError?.(e);
+  } catch (e: unknown) {
+    if (e instanceof Error) console.log('Failed to send track event:', e.message);
+    events.forEach((event) => event.options.onError?.(e));
   }
 }
+
+const batch = 10;
+const delay = 2000;
+const list: Item[] = [];
+let timer: ReturnType<typeof setTimeout> | null = null;
 
 export function track<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
-  trackOptions: TrackOptions = defaultOptions
+  options: TrackOptions = defaultOptions
 ) {
-  trackAsync(name, properties, trackOptions).catch(console.error);
+  list.push({ name, properties, options, timestamp: new Date().toISOString() });
+  if (list.length >= batch) {
+    const copy = [...list];
+    list.length = 0;
+    sendEvents(copy);
+    return;
+  }
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => {
+    timer = null;
+    const copy = [...list];
+    list.length = 0;
+    sendEvents(copy);
+  }, delay);
 }
