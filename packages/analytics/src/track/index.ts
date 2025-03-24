@@ -31,18 +31,20 @@ async function trackAsync<T extends EventName>(
 ) {
   try {
     await tokenBucket.removeTokens(REQUEST_TOKENS);
-    const dto: CreateTrackEventDTO<T> = {
-      name,
-      properties,
-      tags: await config.getTags(),
-      visitor_id: (await getVisitor()).id,
-      timestamp: new Date().toISOString(),
-    };
+    const dto: CreateTrackEventDTO<T> = [
+      {
+        name,
+        properties,
+        tags: await config.getTags(),
+        visitor_id: (await getVisitor()).id,
+        timestamp: new Date().toISOString(),
+      },
+    ];
     const { data } = await config.http.post<TrackEventResponse>(`/events`, dto);
 
     // send to third-party loggers, for example Google Analytics and Facebook Pixel
     if (!trackOptions.enableThirdPartyTracking || !config.thirdPartyTrackers) return;
-    config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, data.id));
+    config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, data[0].id));
     trackOptions.onSucceed?.(data);
   } catch (e: unknown) {
     if (e instanceof Error) {

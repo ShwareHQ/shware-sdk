@@ -115,13 +115,13 @@ export interface TrackTags
   [key: string]: string | number | boolean | null | undefined;
 }
 
-export interface CreateTrackEventDTO<T extends EventName = EventName> {
+export type CreateTrackEventDTO<T extends EventName = EventName> = {
   name: TrackName<T>;
   tags: TrackTags;
   visitor_id: string;
   properties?: TrackProperties<T>;
   timestamp: string;
-}
+}[];
 
 export interface TrackEvent<T extends EventName = EventName> {
   id: string | bigint;
@@ -132,10 +132,10 @@ export interface TrackEvent<T extends EventName = EventName> {
   created_at: string;
 }
 
-export interface TrackEventResponse {
+export type TrackEventResponse = {
   /**
    * track event id
    * some tracking system will use event_id and event_name for deduplication
    * */
   id: string;
-}
+}[];
