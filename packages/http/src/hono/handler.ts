@@ -14,13 +14,15 @@ export function errorHandler<E extends Env = any>(
   error: Error | HTTPResponseError,
   c: Context<E>
 ): Response | Promise<Response> {
+  const requestId = c.get('requestId');
+  const servingData = `${c.req.method}: ${c.req.url}`;
+  const details = Details.new().requestInfo({ requestId, servingData });
+
   if (error instanceof StatusError) {
-    const requestId = c.get('requestId');
-    const servingData = `${c.req.method}: ${c.req.url}`;
-    const details = Details.new().requestInfo({ requestId, servingData });
     error.body?.error?.details?.push(...details.list);
     return c.json(error.body, error.status as ContentfulStatusCode);
   }
 
-  return c.json(Status.internal(error.message).response(), 500);
+  console.log('Unknown error:', error);
+  return Status.internal('Unknown error').response(details);
 }
