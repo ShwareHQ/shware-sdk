@@ -7,7 +7,20 @@ type Config = {
 };
 
 interface Principal {
-  getName(): string;
+  name: string;
+}
+
+interface Authentication extends Principal {
+  '@class': string;
+  principal?: Principal;
+  authorities?: string[];
+  credentials?: object;
+  details?: object;
+}
+
+interface SecurityContext {
+  '@class': string;
+  authentication?: Authentication;
 }
 
 type JSONValue =
@@ -155,6 +168,19 @@ const CREATION_TIME_KEY = 'creationTime';
 const LAST_ACCESSED_TIME_KEY = 'lastAccessedTime';
 const MAX_INACTIVE_INTERVAL_KEY = 'maxInactiveInterval';
 const ATTRIBUTE_PREFIX = 'sessionAttr:';
+const PRINCIPAL_NAME_INDEX_NAME = `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`;
+const SPRING_SECURITY_CONTEXT = 'SPRING_SECURITY_CONTEXT';
+
+function resolveIndexesFor(session: Session): string | null {
+  const principalName = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME) as string | null;
+  if (principalName !== null) return principalName;
+
+  const context = session.getAttribute(SPRING_SECURITY_CONTEXT) as unknown as SecurityContext;
+  if (context !== null) {
+    return context?.authentication?.name ?? context.authentication?.principal?.name ?? null;
+  }
+  return null;
+}
 
 // todo: rename to KVSession
 class RedisSession implements Session {
@@ -163,12 +189,15 @@ class RedisSession implements Session {
   public isNew: boolean;
   public delta = new Map<string, JSONValue>();
   public originalSessionId: string;
+  public originalPrincipalName: string | null;
   public originalLastAccessTime: number | null = null;
 
   constructor(cached: MapSession, isNew: boolean) {
     this.cached = cached;
     this.isNew = isNew;
     this.originalSessionId = cached.getId();
+    this.originalPrincipalName = resolveIndexesFor(this);
+
     if (isNew) {
       this.delta.set(CREATION_TIME_KEY, cached.getCreationTime());
       this.delta.set(LAST_ACCESSED_TIME_KEY, cached.getLastAccessedTime());
@@ -283,12 +312,20 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
     return `${this.namespace}:sessions:expires:${sessionId}`;
   }
 
-  getExpirationKey(expires: number) {
+  getExpirationsKey(expires: number) {
     return `${this.namespace}:expirations:${expires}`;
   }
 
   getIndexKey(indexName: string, indexValue: string) {
     return `${this.namespace}:index:${indexName}:${indexValue}`;
+  }
+
+  getSessionAttrNameKey(name: string) {
+    return `${this.attributePrefix}${name}`;
+  }
+
+  getPrincipalKey(principalName: string) {
+    return `${this.namespace}:index:${PRINCIPAL_NAME_INDEX_NAME}:${principalName}`;
   }
 
   async getSession(id: string, allowExpired: boolean): Promise<RedisSession | null> {
@@ -328,23 +365,67 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
     if (session.delta.size === 0) return;
     const sessionId = session.getId();
     await this.redis.hset(this.getSessionKey(sessionId), session.delta);
+
+    const principalSessionKey = this.getSessionAttrNameKey(PRINCIPAL_NAME_INDEX_NAME);
+    const securityPrincipalSessionKey = this.getSessionAttrNameKey(SPRING_SECURITY_CONTEXT);
+    if (session.delta.has(principalSessionKey) || session.delta.has(securityPrincipalSessionKey)) {
+      if (session.originalPrincipalName !== null) {
+        const originalPrincipalRedisKey = this.getPrincipalKey(session.originalPrincipalName);
+        await this.redis.srem(originalPrincipalRedisKey, sessionId);
+      }
+      const principal = resolveIndexesFor(session);
+      session.originalPrincipalName = principal;
+      if (principal !== null) {
+        const principalRedisKey = this.getPrincipalKey(principal);
+        await this.redis.sadd(principalRedisKey, sessionId);
+      }
+    }
+
     session.isNew = false;
-    session.delta.clear();
+
+    const sessionExpireInSeconds = session.getMaxInactiveInterval();
+
+    // createShadowKey start
+    const keyToExpire = this.sessionExpiresPredix + session.getId();
+    const sessionKey = this.getSessionKey(keyToExpire);
+
+    if (sessionExpireInSeconds < 0) {
+      await this.redis.append(sessionKey, '');
+      await this.redis.persist(sessionKey);
+      await this.redis.persist(this.getSessionKey(session.getId()));
+    }
+
+    if (sessionExpireInSeconds === 0) {
+      await this.redis.del(sessionKey);
+    } else {
+      await this.redis.append(sessionKey, '');
+      await this.redis.expire(sessionKey, sessionExpireInSeconds);
+    }
+    // createShadowKey end
+
+    const fiveMinutesAfterExpires = sessionExpireInSeconds + 5 * 60;
+    await this.redis.expire(this.getSessionKey(session.getId()), fiveMinutesAfterExpires);
+
+    // expirationStore.save start
     const originalExpiration =
       session.originalLastAccessTime !== null
         ? session.originalLastAccessTime + session.getMaxInactiveInterval()
         : null;
-
-    // onExpirationUpdated
-    const keyToExpire = this.sessionExpiresPredix + session.getId();
     const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
     if (originalExpiration !== null) {
       const originalRoundedUp = this.roundUpToNextMinute(originalExpiration);
       if (toExpire !== originalRoundedUp) {
-        const expireKey = this.getExpirationKey(originalRoundedUp);
+        const expireKey = this.getExpirationsKey(originalRoundedUp);
         await this.redis.srem(expireKey, keyToExpire);
       }
     }
+
+    const expirationsKey = this.getExpirationsKey(toExpire);
+    await this.redis.expire(expirationsKey, fiveMinutesAfterExpires);
+    await this.redis.sadd(expirationsKey, keyToExpire);
+    // expirationStore.save end
+
+    session.delta.clear();
   }
 
   private async saveChangeSessionId(session: RedisSession) {
@@ -387,7 +468,7 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
 
     // 2. delete in set
     const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
-    const expireKey = this.getExpirationKey(toExpire);
+    const expireKey = this.getExpirationsKey(toExpire);
     const entryToRemove = this.sessionExpiresPredix + session.getId();
     await this.redis.srem(expireKey, entryToRemove);
 
@@ -412,6 +493,6 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
   }
 
   async findByPrincipalName(principalName: string) {
-    return this.findByIndexNameAndIndexValue('PRINCIPAL_NAME_INDEX_NAME', principalName);
+    return this.findByIndexNameAndIndexValue(PRINCIPAL_NAME_INDEX_NAME, principalName);
   }
 }
