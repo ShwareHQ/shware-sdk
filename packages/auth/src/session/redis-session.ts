@@ -10,8 +10,8 @@ const MAX_INACTIVE_INTERVAL_KEY = 'maxInactiveInterval';
 const ATTRIBUTE_PREFIX = 'sessionAttr:';
 const SESSION_EXPIRES_PREFIX = 'expires:';
 
-const PRINCIPAL_NAME_INDEX_NAME = `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`;
 const SPRING_SECURITY_CONTEXT = 'SPRING_SECURITY_CONTEXT';
+export const PRINCIPAL_NAME_INDEX_NAME = `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`;
 
 function generateId() {
   return randomUUID();

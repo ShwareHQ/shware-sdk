@@ -37,7 +37,7 @@ export interface Session {
   isExpired(): boolean;
 }
 
-export interface SessionRepository<S extends Session> {
+export interface SessionRepository<S extends Session = Session> {
   createSession(): S;
   save(session: S): Promise<void>;
   findById(sessionId: string): Promise<S | null>;
