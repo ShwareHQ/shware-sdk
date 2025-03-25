@@ -1,11 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Redis } from 'ioredis';
 
-type Config = {
-  namespace: string;
-  timeout: number;
-};
-
 interface Principal {
   name: string;
 }
@@ -30,16 +25,6 @@ type JSONValue =
   | boolean
   | Array<JSONValue>
   | { [value: string]: JSONValue };
-
-interface SessionHash {
-  lastAccessedTime: number;
-  creationTime: number;
-  maxInactiveInterval: number;
-  // sessionAttr:name -> value
-  [key: string]: JSONValue;
-}
-const namespace = 'hackertalk';
-const maxInactiveInterval = 1800;
 
 // package org.springframework.session;
 interface Session {
@@ -388,7 +373,7 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
     const sessionExpireInSeconds = session.getMaxInactiveInterval();
 
     // createShadowKey start
-    const keyToExpire = this.SESSION_EXPIRES_PREFIX + session.getId();
+    const keyToExpire = SESSION_EXPIRES_PREFIX + session.getId();
     const sessionKey = this.getSessionKey(keyToExpire);
 
     if (sessionExpireInSeconds < 0) {
