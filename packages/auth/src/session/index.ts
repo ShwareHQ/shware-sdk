@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Redis } from 'ioredis';
-import type { Session, JSONValue, SecurityContext, SessionRepository, Namespace } from './types';
+import type { Session, SecurityContext, SessionRepository, Namespace } from './types';
 
 const DEFAULT_MAX_INACTIVE_INTERVAL = 1800;
 
@@ -20,7 +20,7 @@ function generateId() {
 class MapSession implements Session {
   private id: string;
   private readonly originalId: string;
-  private sessionAttrs = new Map<string, JSONValue>();
+  private sessionAttrs = new Map<string, string | number>();
   private creationTime = Date.now();
   private lastAccessedTime = this.creationTime;
   private maxInactiveInterval = DEFAULT_MAX_INACTIVE_INTERVAL;
@@ -84,7 +84,7 @@ class MapSession implements Session {
     return Array.from(this.sessionAttrs.keys());
   }
 
-  setAttribute(name: string, value: JSONValue) {
+  setAttribute(name: string, value: string | number) {
     if (value === null) {
       this.removeAttribute(name);
     } else {
@@ -137,7 +137,7 @@ class RedisSession implements Session {
   private readonly cached: MapSession;
 
   public isNew: boolean;
-  public delta = new Map<string, JSONValue>();
+  public delta = new Map<string, string | number>();
   public originalSessionId: string;
   public originalPrincipalName: string | null;
   public originalLastAccessTime: number | null = null;
@@ -152,11 +152,10 @@ class RedisSession implements Session {
       this.delta.set(CREATION_TIME_KEY, cached.getCreationTime());
       this.delta.set(LAST_ACCESSED_TIME_KEY, cached.getLastAccessedTime());
       this.delta.set(MAX_INACTIVE_INTERVAL_KEY, cached.getMaxInactiveInterval());
-      this.cached
-        .getAttributeNames()
-        .forEach((name) =>
-          this.delta.set(this.getSessionAttrNameKey(name), this.cached.getAttribute(name))
-        );
+      this.cached.getAttributeNames().forEach((name) => {
+        const value = this.cached.getAttribute(name);
+        if (value) this.delta.set(this.getSessionAttrNameKey(name), value);
+      });
     }
   }
 
@@ -209,7 +208,7 @@ class RedisSession implements Session {
     return this.cached.getAttributeNames();
   }
 
-  setAttribute(name: string, value: JSONValue) {
+  setAttribute(name: string, value: string) {
     this.cached.setAttribute(name, value);
     this.delta.set(this.getSessionAttrNameKey(name), value);
   }
@@ -273,7 +272,7 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
 }
 
 // 15549130 <spring:session:sessions:uuid, hash<session>> + 300s
-// 15549147 <spring:session:sessions:expirations, sorted_set<expires:uuid>>  + 300s, cell to 1-minute level
+// 15549147 <spring:session:sessions:expirations, sorted_set<uuid>> + 300s
 // 15548839 <spring:session:sessions:expires:uuid, string<empty>>
 export class RedisIndexedSessionRepository implements SessionRepository<RedisSession> {
   private readonly redis: Redis;
@@ -298,10 +297,6 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
 
   getExpiredKey(sessionId: string) {
     return `${this.namespace}:sessions:expires:${sessionId}`;
-  }
-
-  getExpirationsKey(expires: number) {
-    return `${this.namespace}:expirations:${expires}`;
   }
 
   getIndexKey(indexName: string, indexValue: string) {
@@ -444,29 +439,36 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
     const session = await this.getSession(sessionId, true);
     if (!session) return;
     // 1. cleanup index
-
+    const principal = resolveIndexesFor(session);
+    if (principal !== null) {
+      await this.redis.srem(this.getPrincipalKey(principal), sessionId);
+    }
     // 2. delete in set
-    const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
-    const expireKey = this.getExpirationsKey(toExpire);
-    const entryToRemove = SESSION_EXPIRES_PREFIX + session.getId();
-    await this.redis.srem(expireKey, entryToRemove);
-
+    this.expirationStore.remove(sessionId);
     // 3. delete expired key
     const expiredKey = this.getExpiredKey(sessionId);
     await this.redis.del(expiredKey);
+
     session.setMaxInactiveInterval(0);
     await this.save(session);
   }
 
   async findByIndexNameAndIndexValue(indexName: string, indexValue: string) {
-    const indexKey = this.getIndexKey(indexName, indexValue);
-    const sessionIds = await this.redis.smembers(indexKey);
-    if (!sessionIds || sessionIds.length === 0) return new Map<string, RedisSession>();
+    if (indexName !== PRINCIPAL_NAME_INDEX_NAME) {
+      return new Map<string, RedisSession>();
+    }
+
+    const principalKey = this.getPrincipalKey(indexValue);
+    const sessionIds = await this.redis.smembers(principalKey);
+    if (!sessionIds || sessionIds.length === 0) {
+      return new Map<string, RedisSession>();
+    }
     const sessions = new Map<string, RedisSession>();
     for (const sessionId of sessionIds) {
       const session = await this.findById(sessionId);
-      if (!session) continue;
-      sessions.set(sessionId, session);
+      if (session !== null) {
+        sessions.set(sessionId, session);
+      }
     }
     return sessions;
   }

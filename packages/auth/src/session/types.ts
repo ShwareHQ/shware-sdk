@@ -15,14 +15,6 @@ export interface SecurityContext {
   authentication?: Authentication;
 }
 
-export type JSONValue =
-  | null
-  | string
-  | number
-  | boolean
-  | Array<JSONValue>
-  | { [value: string]: JSONValue };
-
 export type Namespace = `${string}:session`;
 
 // package org.springframework.session;
@@ -30,9 +22,9 @@ export interface Session {
   getId(): string;
   changeSessionId(): string;
 
-  getAttribute(name: string): JSONValue | null;
+  getAttribute(name: string): string | number | null;
   getAttributeNames(): string[];
-  setAttribute(name: string, value: JSONValue): void;
+  setAttribute(name: string, value: string | number): void;
   removeAttribute(name: string): void;
 
   getCreationTime(): number;
