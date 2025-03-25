@@ -1,81 +1,123 @@
-import { Redis } from 'ioredis';
+import { randomUUID } from 'crypto';
+import type { Redis } from 'ioredis';
+import type { Session, JSONValue } from './types';
 
-export interface HttpSession<T extends Record<string, any>> {
-  /** A string containing the unique identifier assigned to this session */
-  id: string;
+const DEFAULT_MAX_INACTIVE_INTERVAL = 1800;
 
-  /**
-   * The time when this session was created, measured in milliseconds since midnight January 1,
-   * 1970 GMT
-   * */
-  creationTime: number;
+const CREATION_TIME_KEY = 'creationTime';
+const LAST_ACCESSED_TIME_KEY = 'lastAccessedTime';
+const MAX_INACTIVE_INTERVAL_KEY = 'maxInactiveInterval';
+const ATTRIBUTE_PREFIX = 'sessionAttr:';
+const SESSION_EXPIRES_PREFIX = 'expires:';
 
-  /**
-   * The last time the client sent a request associated with this session, as the number of
-   * milliseconds since midnight January 1, 1970 GMT, and marked by the time the session manager
-   * received the request.
-   *
-   * Actions that your application takes, such as getting or setting a value associated with the
-   * session, do not affect the access time
-   * */
-  lastAccessedTime: number;
+const PRINCIPAL_NAME_INDEX_NAME = `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`;
+const SPRING_SECURITY_CONTEXT = 'SPRING_SECURITY_CONTEXT';
 
-  /**
-   * Specifies the time, in seconds, between client requests before the session manager will
-   * invalidate this session. A zero or negative time indicates that the session should never
-   * timeout.
-   * */
-  maxInactiveInterval: number;
-
-  // OAuth2AuthorizationRequest
-  /**
-   * the object bound with the specified name in this session, or null if no object is bound under
-   * the name.
-   * */
-  attributes: T;
-
-  /**
-   * Returns true if the client does not yet know about the session or if the client chooses not to
-   * join the session. For example, if the server used only cookie-based sessions, and the client
-   * had disabled the use of cookies, then a session would be new on each request.
-   * */
-  isNew: boolean;
-
-  /** Invalidates this session then unbinds any objects bound to it. */
-  invalidate(): void;
+function generateId() {
+  return randomUUID();
 }
 
-export interface OAuth2AuthorizationRequest {
-  state: string;
-  nonce?: string;
-  codeVerifier?: string;
-  registrationId: string;
-}
+class MapSession implements Session {
+  private id: string;
+  private readonly originalId: string;
+  private sessionAttrs = new Map<string, JSONValue>();
+  private creationTime = Date.now();
+  private lastAccessedTime = this.creationTime;
+  private maxInactiveInterval = DEFAULT_MAX_INACTIVE_INTERVAL;
 
-export interface SessionManagerOptions {
-  namespace: string;
-  redisUrl: string;
-}
+  constructor(id?: string);
+  constructor(session: Session);
+  constructor(input?: string | Session) {
+    if (typeof input === 'undefined') {
+      const id = generateId();
+      this.id = id;
+      this.originalId = id;
+    } else if (typeof input === 'string') {
+      this.id = input;
+      this.originalId = input;
+    } else {
+      const session = input;
+      this.id = session.getId();
+      this.originalId = session.getId();
 
-export class SessionManager<T extends Record<string, any>> {
-  private readonly redis: Redis;
-  private readonly namespace: string;
+      for (const attrName of session.getAttributeNames()) {
+        const attrValue = session.getAttribute(attrName);
+        if (attrValue !== null) {
+          this.setAttribute(attrName, attrValue);
+        }
+      }
 
-  constructor(options: SessionManagerOptions) {
-    this.redis = new Redis(options.redisUrl);
-    this.namespace = options.namespace;
+      this.lastAccessedTime = session.getLastAccessedTime();
+      this.creationTime = session.getCreationTime();
+      this.maxInactiveInterval = session.getMaxInactiveInterval();
+    }
   }
 
-  getSession(sessionId?: string, create: boolean = true) {
-    const { redis, namespace } = this;
-    redis.hset(`${namespace}:session:sessions:${sessionId}`, {});
+  setId(id: string) {
+    this.id = id;
   }
 
-  onSessionCreated(callback: (session: HttpSession<T>) => void) {}
-  onSessionExpired(callback: (session: HttpSession<T>) => void) {}
-}
+  getOriginalId() {
+    return this.originalId;
+  }
 
-// https://juejin.cn/post/7262623363700408357
-// 15549130 <spring:session:sessions:uuid, hash<session>> + 300s
-// 15549147 <spring:session:expirations:timestamp, set<expires:uuid>>  + 300s, cell to 1-minute level
-// 15548839 <spring:session:sessions:expires:uuid, string<empty>>
+  setCreationTime(creationTime: number) {
+    this.creationTime = creationTime;
+  }
+
+  // override
+  getId() {
+    return this.id;
+  }
+
+  changeSessionId() {
+    const changedId = generateId();
+    this.setId(changedId);
+    return changedId;
+  }
+
+  getAttribute(name: string) {
+    return this.sessionAttrs.get(name) ?? null;
+  }
+
+  getAttributeNames(): string[] {
+    return Array.from(this.sessionAttrs.keys());
+  }
+
+  setAttribute(name: string, value: JSONValue) {
+    if (value === null) {
+      this.removeAttribute(name);
+    } else {
+      this.sessionAttrs.set(name, value);
+    }
+  }
+
+  removeAttribute(name: string) {
+    this.sessionAttrs.delete(name);
+  }
+
+  getCreationTime() {
+    return this.creationTime;
+  }
+
+  getLastAccessedTime() {
+    return this.lastAccessedTime;
+  }
+
+  setLastAccessedTime(lastAccessedTime: number) {
+    this.lastAccessedTime = lastAccessedTime;
+  }
+
+  getMaxInactiveInterval() {
+    return this.maxInactiveInterval;
+  }
+
+  setMaxInactiveInterval(interval: number) {
+    this.maxInactiveInterval = interval;
+  }
+
+  isExpired() {
+    if (this.maxInactiveInterval < 0) return false;
+    return Date.now() - this.maxInactiveInterval - this.lastAccessedTime >= 0;
+  }
+}
