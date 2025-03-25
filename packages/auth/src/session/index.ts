@@ -272,7 +272,6 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
   }
 }
 
-// reference: https://juejin.cn/post/7262623363700408357
 // 15549130 <spring:session:sessions:uuid, hash<session>> + 300s
 // 15549147 <spring:session:sessions:expirations, sorted_set<expires:uuid>>  + 300s, cell to 1-minute level
 // 15548839 <spring:session:sessions:expires:uuid, string<empty>>
@@ -370,7 +369,10 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
       }
     }
 
-    session.isNew = false;
+    if (session.isNew) {
+      // here your can send session created message to channel
+      session.isNew = false;
+    }
 
     const sessionExpireInSeconds = session.getMaxInactiveInterval();
 
@@ -382,9 +384,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
       await this.redis.append(sessionKey, '');
       await this.redis.persist(sessionKey);
       await this.redis.persist(this.getSessionKey(session.getId()));
-    }
-
-    if (sessionExpireInSeconds === 0) {
+    } else if (sessionExpireInSeconds === 0) {
       await this.redis.del(sessionKey);
     } else {
       await this.redis.append(sessionKey, '');
@@ -392,28 +392,12 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
     }
     // createShadowKey end
 
-    const fiveMinutesAfterExpires = sessionExpireInSeconds + 5 * 60;
-    await this.redis.expire(this.getSessionKey(session.getId()), fiveMinutesAfterExpires);
-
-    // expirationStore.save start
-    const originalExpiration =
-      session.originalLastAccessTime !== null
-        ? session.originalLastAccessTime + session.getMaxInactiveInterval()
-        : null;
-    const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
-    if (originalExpiration !== null) {
-      const originalRoundedUp = this.roundUpToNextMinute(originalExpiration);
-      if (toExpire !== originalRoundedUp) {
-        const expireKey = this.getExpirationsKey(originalRoundedUp);
-        await this.redis.srem(expireKey, keyToExpire);
-      }
+    if (sessionExpireInSeconds > 0) {
+      const fiveMinutesAfterExpires = sessionExpireInSeconds + 5 * 60;
+      await this.redis.expire(this.getSessionKey(session.getId()), fiveMinutesAfterExpires);
     }
 
-    const expirationsKey = this.getExpirationsKey(toExpire);
-    await this.redis.expire(expirationsKey, fiveMinutesAfterExpires);
-    await this.redis.sadd(expirationsKey, keyToExpire);
-    // expirationStore.save end
-
+    this.expirationStore.save(session);
     session.delta.clear();
   }
 
@@ -434,11 +418,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
         await this.redis.srem(originalPrincipalRedisKey, session.originalSessionId);
         await this.redis.sadd(originalPrincipalRedisKey, sessionId);
       }
-      // expirationStore.remove
-      const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
-      const expireKey = this.getExpirationsKey(toExpire);
-      const entryToRemove = SESSION_EXPIRES_PREFIX + sessionId;
-      await this.redis.srem(expireKey, entryToRemove);
+      this.expirationStore.remove(session.originalSessionId);
     }
     session.originalSessionId = sessionId;
   }
