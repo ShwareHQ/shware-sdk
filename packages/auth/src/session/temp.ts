@@ -168,6 +168,9 @@ const CREATION_TIME_KEY = 'creationTime';
 const LAST_ACCESSED_TIME_KEY = 'lastAccessedTime';
 const MAX_INACTIVE_INTERVAL_KEY = 'maxInactiveInterval';
 const ATTRIBUTE_PREFIX = 'sessionAttr:';
+
+const SESSION_EXPIRES_PREFIX = 'expires:';
+
 const PRINCIPAL_NAME_INDEX_NAME = `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`;
 const SPRING_SECURITY_CONTEXT = 'SPRING_SECURITY_CONTEXT';
 
@@ -294,7 +297,6 @@ interface SessionRepository<S extends Session> {
 class IndexedSessionRepository implements SessionRepository<RedisSession> {
   private defaultMaxInactiveInterval = 1800;
   private readonly attributePrefix = 'sessionAttr:';
-  private readonly sessionExpiresPredix = 'expires:';
 
   private readonly redis: Redis;
   private readonly namespace: string;
@@ -386,7 +388,7 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
     const sessionExpireInSeconds = session.getMaxInactiveInterval();
 
     // createShadowKey start
-    const keyToExpire = this.sessionExpiresPredix + session.getId();
+    const keyToExpire = this.SESSION_EXPIRES_PREFIX + session.getId();
     const sessionKey = this.getSessionKey(keyToExpire);
 
     if (sessionExpireInSeconds < 0) {
@@ -439,7 +441,17 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
 
       await this.redis.rename(originalSessionIdKey, sessionIdKey);
       await this.redis.rename(originalExpiredKey, expiredKey);
-      // todo: rename index
+
+      if (session.originalPrincipalName !== null) {
+        const originalPrincipalRedisKey = this.getPrincipalKey(session.originalPrincipalName);
+        await this.redis.srem(originalPrincipalRedisKey, session.originalSessionId);
+        await this.redis.sadd(originalPrincipalRedisKey, sessionId);
+      }
+      // expirationStore.remove
+      const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
+      const expireKey = this.getExpirationsKey(toExpire);
+      const entryToRemove = SESSION_EXPIRES_PREFIX + sessionId;
+      await this.redis.srem(expireKey, entryToRemove);
     }
     session.originalSessionId = sessionId;
   }
@@ -469,7 +481,7 @@ class IndexedSessionRepository implements SessionRepository<RedisSession> {
     // 2. delete in set
     const toExpire = this.roundUpToNextMinute(this.expiresInMillis(session));
     const expireKey = this.getExpirationsKey(toExpire);
-    const entryToRemove = this.sessionExpiresPredix + session.getId();
+    const entryToRemove = SESSION_EXPIRES_PREFIX + session.getId();
     await this.redis.srem(expireKey, entryToRemove);
 
     // 3. delete expired key
