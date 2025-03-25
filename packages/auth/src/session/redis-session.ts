@@ -118,7 +118,7 @@ class MapSession implements Session {
 
   isExpired() {
     if (this.maxInactiveInterval < 0) return false;
-    return Date.now() - this.maxInactiveInterval - this.lastAccessedTime >= 0;
+    return Date.now() - this.maxInactiveInterval * 1000 - this.lastAccessedTime >= 0;
   }
 }
 
