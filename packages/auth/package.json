@@ -1,6 +1,7 @@
 {
   "name": "@shware/auth",
   "version": "0.1.5",
+  "private": false,
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
