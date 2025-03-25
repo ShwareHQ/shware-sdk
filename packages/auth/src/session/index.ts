@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Redis } from 'ioredis';
-import type { Session, JSONValue } from './types';
+import type { Session, JSONValue, SecurityContext } from './types';
 
 const DEFAULT_MAX_INACTIVE_INTERVAL = 1800;
 
@@ -119,5 +119,103 @@ class MapSession implements Session {
   isExpired() {
     if (this.maxInactiveInterval < 0) return false;
     return Date.now() - this.maxInactiveInterval - this.lastAccessedTime >= 0;
+  }
+}
+
+function resolveIndexesFor(session: Session): string | null {
+  const principalName = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME) as string | null;
+  if (principalName !== null) return principalName;
+
+  const context = session.getAttribute(SPRING_SECURITY_CONTEXT) as unknown as SecurityContext;
+  if (context !== null) {
+    return context?.authentication?.name ?? context.authentication?.principal?.name ?? null;
+  }
+  return null;
+}
+
+class RedisSession implements Session {
+  private readonly cached: MapSession;
+
+  public isNew: boolean;
+  public delta = new Map<string, JSONValue>();
+  public originalSessionId: string;
+  public originalPrincipalName: string | null;
+  public originalLastAccessTime: number | null = null;
+
+  constructor(cached: MapSession, isNew: boolean) {
+    this.cached = cached;
+    this.isNew = isNew;
+    this.originalSessionId = cached.getId();
+    this.originalPrincipalName = resolveIndexesFor(this);
+
+    if (isNew) {
+      this.delta.set(CREATION_TIME_KEY, cached.getCreationTime());
+      this.delta.set(LAST_ACCESSED_TIME_KEY, cached.getLastAccessedTime());
+      this.delta.set(MAX_INACTIVE_INTERVAL_KEY, cached.getMaxInactiveInterval());
+      this.cached
+        .getAttributeNames()
+        .forEach((name) =>
+          this.delta.set(this.getSessionAttrNameKey(name), this.cached.getAttribute(name))
+        );
+    }
+  }
+
+  getSessionAttrNameKey(name: string) {
+    return ATTRIBUTE_PREFIX + name;
+  }
+
+  // override
+  setLastAccessedTime(lastAccessedTime: number) {
+    this.cached.setLastAccessedTime(lastAccessedTime);
+    this.delta.set(LAST_ACCESSED_TIME_KEY, lastAccessedTime);
+  }
+
+  isExpired() {
+    return this.cached.isExpired();
+  }
+
+  getCreationTime() {
+    return this.cached.getCreationTime();
+  }
+
+  getId() {
+    return this.cached.getId();
+  }
+
+  changeSessionId() {
+    const newSessionId = generateId();
+    this.cached.setId(newSessionId);
+    return newSessionId;
+  }
+
+  getLastAccessedTime() {
+    return this.cached.getLastAccessedTime();
+  }
+
+  setMaxInactiveInterval(interval: number) {
+    this.cached.setMaxInactiveInterval(interval);
+    this.delta.set(MAX_INACTIVE_INTERVAL_KEY, interval);
+  }
+
+  getMaxInactiveInterval() {
+    return this.cached.getMaxInactiveInterval();
+  }
+
+  getAttribute(name: string) {
+    return this.cached.getAttribute(name);
+  }
+
+  getAttributeNames() {
+    return this.cached.getAttributeNames();
+  }
+
+  setAttribute(name: string, value: JSONValue) {
+    this.cached.setAttribute(name, value);
+    this.delta.set(this.getSessionAttrNameKey(name), value);
+  }
+
+  removeAttribute(name: string) {
+    this.cached.removeAttribute(name);
+    this.delta.delete(this.getSessionAttrNameKey(name));
   }
 }
