@@ -288,23 +288,23 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
     this.defaultMaxInactiveInterval = interval;
   }
 
-  getSessionKey(sessionId: string) {
+  private getSessionKey(sessionId: string) {
     return `${this.namespace}:sessions:${sessionId}`;
   }
 
-  getExpiredKey(sessionId: string) {
+  private getExpiredKey(sessionId: string) {
     return `${this.namespace}:sessions:expires:${sessionId}`;
   }
 
-  getSessionAttrNameKey(name: string) {
+  private getSessionAttrNameKey(name: string) {
     return ATTRIBUTE_PREFIX + name;
   }
 
-  getPrincipalKey(principalName: string) {
+  private getPrincipalKey(principalName: string) {
     return `${this.namespace}:index:${PRINCIPAL_NAME_INDEX_NAME}:${principalName}`;
   }
 
-  async getSession(id: string, allowExpired: boolean): Promise<RedisSession | null> {
+  private async getSession(id: string, allowExpired: boolean): Promise<RedisSession | null> {
     const key = this.getSessionKey(id);
     const entries = await this.redis.hgetall(key);
     if (!entries || Object.keys(entries).length === 0) return null;
