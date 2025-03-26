@@ -134,7 +134,7 @@ class RedisSession implements Session {
   private readonly cached: MapSession;
 
   public isNew: boolean;
-  public delta = new Map<string, string | number>();
+  public delta = new Map<string, string | number | null>();
   public originalSessionId: string;
   public originalPrincipalName: string | null;
   public originalLastAccessTime: number | null = null;
@@ -212,7 +212,7 @@ class RedisSession implements Session {
 
   removeAttribute(name: string) {
     this.cached.removeAttribute(name);
-    this.delta.delete(this.getSessionAttrNameKey(name));
+    this.delta.set(this.getSessionAttrNameKey(name), null);
   }
 }
 
@@ -332,7 +332,19 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   private async saveDelta(session: RedisSession) {
     if (session.delta.size === 0) return;
     const sessionId = session.getId();
-    await this.redis.hset(this.getSessionKey(sessionId), session.delta);
+    const delta = new Map<string, string | number>();
+    const removes: string[] = [];
+    session.delta.forEach((value, key) => {
+      if (value !== null) delta.set(key, value);
+      else removes.push(key);
+    });
+
+    if (delta.size !== 0) {
+      await this.redis.hset(this.getSessionKey(sessionId), delta);
+    }
+    if (removes.length !== 0) {
+      await this.redis.hdel(this.getSessionKey(sessionId), ...removes);
+    }
 
     const principalSessionKey = this.getSessionAttrNameKey(PRINCIPAL_NAME_INDEX_NAME);
     const securityPrincipalSessionKey = this.getSessionAttrNameKey(SPRING_SECURITY_CONTEXT);

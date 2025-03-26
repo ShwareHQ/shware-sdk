@@ -33,6 +33,25 @@ describe('redis session crud', () => {
   });
 });
 
+describe('redis session attributes', () => {
+  test('should set and get attributes', async () => {
+    const session = repository.createSession();
+    session.setAttribute('test_key', 'test_value');
+    const sessionId = session.getId();
+    await repository.save(session);
+
+    const foundSession = await repository.findById(sessionId);
+    expect(foundSession).not.toBeNull();
+    expect(foundSession?.getAttribute('test_key')).toBe('test_value');
+
+    foundSession?.removeAttribute('test_key');
+    await repository.save(foundSession!);
+
+    const foundSession2 = await repository.findById(sessionId);
+    expect(foundSession2?.getAttribute('test_key')).toBeNull();
+  });
+});
+
 describe('redis session config', () => {
   const maxInactiveInterval = 24 * 60 * 60;
   repository.setDefaultMaxInactiveInterval(maxInactiveInterval);
