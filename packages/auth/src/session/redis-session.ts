@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { Redis } from 'ioredis';
-import type { Session, SecurityContext, SessionRepository, Namespace } from './types';
+import type { Namespace, SecurityContext, Session, SessionRepository } from './types';
 
 const DEFAULT_MAX_INACTIVE_INTERVAL = 1800;
 
@@ -55,10 +55,6 @@ class MapSession implements Session {
 
   setId(id: string) {
     this.id = id;
-  }
-
-  getOriginalId() {
-    return this.originalId;
   }
 
   setCreationTime(creationTime: number) {
@@ -276,9 +272,9 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
 // 15548839 <spring:session:sessions:expires:uuid, string<empty>>
 export class RedisIndexedSessionRepository implements SessionRepository<RedisSession> {
   private readonly redis: Redis;
+  private readonly namespace: Namespace;
   private readonly expirationStore: RedisSessionExpirationStore;
 
-  private namespace: Namespace;
   private defaultMaxInactiveInterval = 1800;
 
   constructor(redis: Redis, namespace: Namespace = 'spring:session') {
@@ -297,10 +293,6 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
 
   getExpiredKey(sessionId: string) {
     return `${this.namespace}:sessions:expires:${sessionId}`;
-  }
-
-  getIndexKey(indexName: string, indexValue: string) {
-    return `${this.namespace}:index:${indexName}:${indexValue}`;
   }
 
   getSessionAttrNameKey(name: string) {
@@ -334,14 +326,6 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
     const result = new RedisSession(loaded, false);
     result.originalLastAccessTime = loaded.getLastAccessedTime();
     return result;
-  }
-
-  expiresInMillis(session: Session) {
-    return session.getLastAccessedTime() + session.getMaxInactiveInterval() * 1000;
-  }
-
-  roundUpToNextMinute(timeInMs: number) {
-    return Math.ceil(timeInMs / 60_000) * 60_000;
   }
 
   private async saveDelta(session: RedisSession) {
@@ -392,7 +376,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
       await this.redis.expire(this.getSessionKey(session.getId()), fiveMinutesAfterExpires);
     }
 
-    this.expirationStore.save(session);
+    await this.expirationStore.save(session);
     session.delta.clear();
   }
 
@@ -413,7 +397,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
         await this.redis.srem(originalPrincipalRedisKey, session.originalSessionId);
         await this.redis.sadd(originalPrincipalRedisKey, sessionId);
       }
-      this.expirationStore.remove(session.originalSessionId);
+      await this.expirationStore.remove(session.originalSessionId);
     }
     session.originalSessionId = sessionId;
   }
@@ -422,8 +406,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   createSession() {
     const cached = new MapSession();
     cached.setMaxInactiveInterval(this.defaultMaxInactiveInterval);
-    const session = new RedisSession(cached, true);
-    return session;
+    return new RedisSession(cached, true);
   }
 
   async save(session: RedisSession) {
@@ -444,7 +427,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
       await this.redis.srem(this.getPrincipalKey(principal), sessionId);
     }
     // 2. delete in set
-    this.expirationStore.remove(sessionId);
+    await this.expirationStore.remove(sessionId);
     // 3. delete expired key
     const expiredKey = this.getExpiredKey(sessionId);
     await this.redis.del(expiredKey);
@@ -478,6 +461,6 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   }
 
   async cleanupExpiredSessions() {
-    this.expirationStore.cleanupExpiredSessions();
+    await this.expirationStore.cleanupExpiredSessions();
   }
 }
