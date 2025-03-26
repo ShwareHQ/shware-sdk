@@ -19,7 +19,6 @@ function generateId() {
 
 class MapSession implements Session {
   private id: string;
-  private readonly originalId: string;
   private sessionAttrs = new Map<string, string | number>();
   private creationTime = Date.now();
   private lastAccessedTime = this.creationTime;
@@ -29,16 +28,12 @@ class MapSession implements Session {
   constructor(session: Session);
   constructor(input?: string | Session) {
     if (typeof input === 'undefined') {
-      const id = generateId();
-      this.id = id;
-      this.originalId = id;
+      this.id = generateId();
     } else if (typeof input === 'string') {
       this.id = input;
-      this.originalId = input;
     } else {
       const session = input;
       this.id = session.getId();
-      this.originalId = session.getId();
 
       for (const attrName of session.getAttributeNames()) {
         const attrValue = session.getAttribute(attrName);
@@ -53,10 +48,6 @@ class MapSession implements Session {
     }
   }
 
-  setId(id: string) {
-    this.id = id;
-  }
-
   setCreationTime(creationTime: number) {
     this.creationTime = creationTime;
   }
@@ -68,7 +59,7 @@ class MapSession implements Session {
 
   changeSessionId() {
     const changedId = generateId();
-    this.setId(changedId);
+    this.id = changedId;
     return changedId;
   }
 
@@ -179,9 +170,7 @@ class RedisSession implements Session {
   }
 
   changeSessionId() {
-    const newSessionId = generateId();
-    this.cached.setId(newSessionId);
-    return newSessionId;
+    return this.cached.changeSessionId();
   }
 
   getLastAccessedTime() {
@@ -219,6 +208,7 @@ class RedisSession implements Session {
 interface RedisSessionExpirationStore {
   save(session: RedisSession): Promise<void>;
   remove(sessionId: string): Promise<void>;
+  rename(session: RedisSession): Promise<void>;
   cleanupExpiredSessions(): Promise<void>;
 }
 
@@ -247,6 +237,12 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
 
   async remove(sessionId: string) {
     await this.redis.zrem(this.expirationsKey, sessionId);
+  }
+
+  async rename(session: RedisSession) {
+    if (session.originalSessionId === null || session.originalSessionId === session.getId()) return;
+    await this.remove(session.originalSessionId);
+    await this.save(session);
   }
 
   async cleanupExpiredSessions() {
@@ -410,7 +406,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
         await this.redis.srem(originalPrincipalRedisKey, session.originalSessionId);
         await this.redis.sadd(originalPrincipalRedisKey, sessionId);
       }
-      await this.expirationStore.remove(session.originalSessionId);
+      await this.expirationStore.rename(session);
     }
     session.originalSessionId = sessionId;
   }

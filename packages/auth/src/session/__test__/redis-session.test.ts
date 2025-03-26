@@ -50,6 +50,27 @@ describe('redis session attributes', () => {
     const foundSession2 = await repository.findById(sessionId);
     expect(foundSession2?.getAttribute('test_key')).toBeNull();
   });
+
+  test('should change session id', async () => {
+    const session = repository.createSession();
+    session.setAttribute('test_key', 'test_value');
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, 'user_123');
+    const oldSessionId = session.getId();
+    await repository.save(session);
+
+    const oldSession = await repository.findById(oldSessionId);
+    expect(oldSession).not.toBeNull();
+    if (!oldSession) throw new Error('Not found session id');
+
+    const newSessionId = oldSession.changeSessionId();
+    await repository.save(oldSession);
+
+    const foundSession1 = await repository.findById(oldSessionId);
+    expect(foundSession1).toBeNull();
+
+    const foundSession2 = await repository.findById(newSessionId);
+    expect(foundSession2).not.toBeNull();
+  });
 });
 
 describe('redis session config', () => {
