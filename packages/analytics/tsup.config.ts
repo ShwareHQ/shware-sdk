@@ -22,7 +22,9 @@ export default defineConfig([
           const defaultExtension = build.initialOptions.format === 'esm' ? '.mjs' : '.cjs';
           const extension = build.initialOptions.outExtension?.js ?? defaultExtension;
           build.onResolve({ filter: /.*/ }, (args) => {
-            if (args.importer) return { path: args.path + extension, external: true };
+            if (args.importer && args.path.startsWith('.')) {
+              return { path: args.path + extension, external: true };
+            }
           });
         },
       },
