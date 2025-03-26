@@ -36,7 +36,7 @@ export function facebook(): Provider<FacebookUserInfo | FacebookDecodedIdToken> 
         const data = await verifyIdToken<FacebookDecodedIdToken>(id_token, this.jwkSetUri);
         return {
           data,
-          user: {
+          claims: {
             sub: data.sub,
             name: data.name,
             picture: data.picture,
@@ -60,7 +60,7 @@ export function facebook(): Provider<FacebookUserInfo | FacebookDecodedIdToken> 
       const data = (await response.json()) as FacebookUserInfo;
       return {
         data,
-        user: {
+        claims: {
           sub: data.id,
           name: data.name,
           email: data.email,

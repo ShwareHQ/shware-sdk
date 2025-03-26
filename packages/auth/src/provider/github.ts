@@ -47,7 +47,7 @@ export function github(): Provider<GithubUserInfo> {
       const email_verified = emails.find((email) => email.email === data.email)?.verified || false;
       return {
         data,
-        user: {
+        claims: {
           sub: data.id,
           name: data.name || data.login,
           email_verified,

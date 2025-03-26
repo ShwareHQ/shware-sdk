@@ -105,7 +105,7 @@ export interface Provider<T extends Record<string, any> = Record<string, any>> {
   exchangeAuthorizationCode: (params: CodeExchangeParams) => Promise<OAuth2Token>;
 
   /** step 3: get user info */
-  getUserInfo: (token: OAuth2Token) => Promise<{ user: StandardClaims; data: T }>;
+  getUserInfo: (token: OAuth2Token) => Promise<{ claims: StandardClaims; data: T }>;
 
   /** others: refresh access token */
   refreshAccessToken?: (params: RefreshTokenParams) => Promise<OAuth2Token>;

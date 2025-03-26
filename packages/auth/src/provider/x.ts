@@ -75,7 +75,7 @@ export function x(options?: XOptions): Provider<XUserInfo> {
       const profile = (await response.json()) as XUserInfo;
       return {
         data: profile,
-        user: {
+        claims: {
           sub: profile.data.id,
           name: profile.data.name,
           picture: profile.data.profile_image_url,

@@ -33,7 +33,7 @@ export function apple(): Provider<AppleUserInfo> {
       const data = await verifyIdToken<AppleUserInfo>(id_token, this.jwkSetUri);
       return {
         data,
-        user: {
+        claims: {
           sub: data.sub,
           name: data.name,
           email: data.email,

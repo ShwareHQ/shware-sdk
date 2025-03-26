@@ -37,7 +37,7 @@ export function google(): Provider<GoogleUserInfo> {
       const data = await verifyIdToken<GoogleUserInfo>(id_token, this.jwkSetUri);
       return {
         data,
-        user: {
+        claims: {
           sub: data.sub,
           name: data.name,
           picture: data.picture,
