@@ -23,6 +23,6 @@ export function errorHandler<E extends Env = any>(
     return c.json(error.body, error.status as ContentfulStatusCode);
   }
 
-  console.log('Unknown error:', error);
+  console.error(error);
   return Status.internal('Unknown error').response(details);
 }
