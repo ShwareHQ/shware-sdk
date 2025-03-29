@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useReportWebVitals } from 'next/web-vitals';
 import Script from 'next/script';
 import { track } from '../track/index';
@@ -55,9 +55,9 @@ export function sendFBEvent<T extends EventName>(
 
 export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Props) {
   const pathname = usePathname();
-  const params = useSearchParams();
 
   useEffect(() => {
+    const params = new URLSearchParams(document.location.search);
     const properties = {
       pathname,
       referrer: document.referrer,
@@ -71,7 +71,7 @@ export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Pr
     };
 
     track('page_view', properties, { enableThirdPartyTracking: false });
-  }, [pathname, params]);
+  }, [pathname]);
 
   useReportWebVitals((metric) => {
     const properties = {
