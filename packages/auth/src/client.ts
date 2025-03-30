@@ -1,3 +1,10 @@
+export interface OAuth2AuthorizationRequest {
+  state: string;
+  codeVerifier: string;
+  registrationId: string;
+  authorizationRequestUri: string;
+}
+
 interface CreateAuthorizationUriParams {
   state: string;
   clientId: string;

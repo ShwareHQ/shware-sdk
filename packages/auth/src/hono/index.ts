@@ -3,25 +3,32 @@ import { setCookie, getCookie } from 'hono/cookie';
 import { randomUUID } from 'crypto';
 import { OAuth2 } from '../oauth2';
 import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session';
-import type { OAuth2Config, OAuth2AuthorizationRequest } from '../oauth2';
-import { CookieOptions } from 'hono/utils/cookie';
-import type { Principal } from '../session/types';
-import { OAuth2Token, StandardClaims } from '../client';
 import { oauth2RedirectQuerySchema } from '../schema';
+import type { CookieOptions } from 'hono/utils/cookie';
+import type { Principal } from '../session/types';
+import type {
+  OAuth2Token,
+  OAuth2ClientConfig,
+  OAuth2AuthorizationRequest,
+  StandardClaims,
+} from '../client';
 
 type Cookie = Omit<CookieOptions, 'expires' | 'maxAge'>;
 
 export interface Config {
   cookie?: Cookie;
   repository: SessionRepository;
-  oauth2: OAuth2Config;
+  oauth2: {
+    client: OAuth2ClientConfig & {
+      onAuthorized: (
+        c: Context,
+        registrationId: string,
+        claims: StandardClaims,
+        token: OAuth2Token
+      ) => Principal | Promise<Principal>;
+    };
+  };
   onLoggedChecked?: (principal: Principal) => void | Promise<void>;
-  onAuthorized: (
-    c: Context,
-    registrationId: string,
-    claims: StandardClaims,
-    token: OAuth2Token
-  ) => Principal | Promise<Principal>;
 }
 
 const SESSION_COOKIE_NAME = 'SESSION';
@@ -128,7 +135,7 @@ export function createOAuth2App({ repository, ...config }: Config) {
     const { claims } = await oauth2.getUserInfo(registrationId, token);
 
     // 5. create or update principal
-    const principal = await config.onAuthorized(c, registrationId, claims, token);
+    const principal = await config.oauth2.client.onAuthorized(c, registrationId, claims, token);
 
     // 6. update session
     session.setLastAccessedTime(Date.now());
