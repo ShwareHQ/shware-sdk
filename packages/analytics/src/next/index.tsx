@@ -136,14 +136,6 @@ export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Pr
               fbq('track', 'PageView');`,
             }}
           />
-          <noscript>
-            <img
-              width="1"
-              height="1"
-              style={{ display: 'none' }}
-              src={`https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1`}
-            />
-          </noscript>
         </>
       )}
     </>
