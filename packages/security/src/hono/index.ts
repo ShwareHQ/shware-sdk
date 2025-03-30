@@ -1,23 +1,24 @@
-import { Hono, Context } from 'hono';
+import { Hono } from 'hono';
 import { setCookie, getCookie } from 'hono/cookie';
 import { randomUUID } from 'crypto';
-import { OAuth2 } from '../oauth2';
+import { OAuth2Client } from '../oauth2/client';
 import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session';
-import { oauth2RedirectQuerySchema } from '../schema';
+import { oauth2RedirectQuerySchema } from '../oauth2/schema';
+import type { Env, Context } from 'hono';
 import type { CookieOptions } from 'hono/utils/cookie';
-import type { Principal } from '../session/types';
+import type { Principal } from '../core';
 import type {
   OAuth2Token,
   OAuth2ClientConfig,
   OAuth2AuthorizationRequest,
   StandardClaims,
-} from '../client';
+} from '../oauth2/types';
 
-type Cookie = Omit<CookieOptions, 'expires' | 'maxAge'>;
+type CookieConfig = Omit<CookieOptions, 'expires' | 'maxAge'> & { cookieName?: string };
 
 export interface Config {
-  cookie?: Cookie;
-  repository: SessionRepository;
+  cookie?: CookieConfig;
+  sessionRepository: SessionRepository;
   oauth2: {
     client: OAuth2ClientConfig & {
       onAuthorized: (
@@ -31,41 +32,37 @@ export interface Config {
   onLoggedChecked?: (principal: Principal) => void | Promise<void>;
 }
 
-const SESSION_COOKIE_NAME = 'SESSION';
 const OAUTH2_AUTHORIZATION_REQUEST_ATTR = 'oauth2AuthorizationRequest';
-const defaultCookieOptions: Cookie = {
-  path: '/',
-  sameSite: 'None',
-  secure: true,
-  httpOnly: true,
-};
 
-export function createOAuth2App({ repository, ...config }: Config) {
-  const app = new Hono();
-  const oauth2 = new OAuth2(config.oauth2);
-
-  function redirect(c: Context, error: string) {
-    return c.redirect(`${config.oauth2.client.errorUri}?error=${error}`, 302);
-  }
+export function createAuthApp<E extends Env = Env>(
+  app: Hono<E>,
+  { sessionRepository: sessionRepository, ...config }: Config
+) {
+  const client = new OAuth2Client(config.oauth2.client);
+  const { cookieName, ...cookieConfig }: CookieConfig = {
+    cookieName: 'SESSION',
+    path: '/',
+    sameSite: 'None',
+    secure: true,
+    httpOnly: true,
+    ...config.cookie,
+  };
 
   app.get('/logged', async (c) => {
-    const sessionId = getCookie(c, SESSION_COOKIE_NAME);
+    const sessionId = getCookie(c, cookieName);
     if (!sessionId) return c.json({ data: false });
-    const session = await repository.findById(sessionId);
+    const session = await sessionRepository.findById(sessionId);
     if (!session) return c.json({ data: false });
 
     // renew cookie
-    setCookie(c, SESSION_COOKIE_NAME, session.getId(), {
-      path: '/',
-      sameSite: 'None',
-      secure: true,
-      httpOnly: true,
+    setCookie(c, cookieName, session.getId(), {
+      ...cookieConfig,
       maxAge: session.getMaxInactiveInterval(),
     });
 
     const name = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME);
     session.setLastAccessedTime(Date.now());
-    await repository.save(session);
+    await sessionRepository.save(session);
     if (!name) return c.json({ data: false });
 
     await config.onLoggedChecked?.({ name: String(name) });
@@ -76,11 +73,11 @@ export function createOAuth2App({ repository, ...config }: Config) {
     const registrationId = c.req.param('registrationId');
     const state = randomUUID();
     const codeVerifier = randomUUID();
-    const uri = oauth2.createAuthorizationUri(registrationId, state, codeVerifier);
-    const sessionId = getCookie(c, SESSION_COOKIE_NAME);
+    const uri = client.createAuthorizationUri(registrationId, state, codeVerifier);
+    const sessionId = getCookie(c, cookieName);
     const session = sessionId
-      ? ((await repository.findById(sessionId)) ?? repository.createSession())
-      : repository.createSession();
+      ? ((await sessionRepository.findById(sessionId)) ?? sessionRepository.createSession())
+      : sessionRepository.createSession();
 
     const authorizationRequest: OAuth2AuthorizationRequest = {
       state,
@@ -90,21 +87,24 @@ export function createOAuth2App({ repository, ...config }: Config) {
     };
 
     session.setAttribute(OAUTH2_AUTHORIZATION_REQUEST_ATTR, JSON.stringify(authorizationRequest));
-    await repository.save(session);
+    await sessionRepository.save(session);
 
-    setCookie(c, SESSION_COOKIE_NAME, session.getId(), {
-      ...defaultCookieOptions,
-      ...config.cookie,
+    setCookie(c, cookieName, session.getId(), {
+      ...cookieConfig,
       maxAge: session.getMaxInactiveInterval(),
     });
 
     return c.redirect(uri.href, 302);
   });
 
+  function redirect(c: Context, error: string) {
+    return c.redirect(`${config.oauth2.client.errorUri}?error=${error}`, 302);
+  }
+
   app.get('/login/oauth2/code/:registrationId', async (c) => {
     // 1. get session from cookie
-    const sessionId = getCookie(c, SESSION_COOKIE_NAME);
-    const session = sessionId ? await repository.findById(sessionId) : null;
+    const sessionId = getCookie(c, cookieName);
+    const session = sessionId ? await sessionRepository.findById(sessionId) : null;
     if (!session) {
       return redirect(c, 'OAUTH2_AUTHORIZATION_SESSION_NOT_FOUND');
     }
@@ -131,8 +131,8 @@ export function createOAuth2App({ repository, ...config }: Config) {
     // 4. exchange authorization code for token
     const { code } = parsed.data;
     const { codeVerifier } = cached;
-    const token = await oauth2.exchangeAuthorizationCode(registrationId, code, codeVerifier);
-    const { claims } = await oauth2.getUserInfo(registrationId, token);
+    const token = await client.exchangeAuthorizationCode(registrationId, code, codeVerifier);
+    const { claims } = await client.getUserInfo(registrationId, token);
 
     // 5. create or update principal
     const principal = await config.oauth2.client.onAuthorized(c, registrationId, claims, token);
@@ -141,11 +141,10 @@ export function createOAuth2App({ repository, ...config }: Config) {
     session.setLastAccessedTime(Date.now());
     session.removeAttribute(OAUTH2_AUTHORIZATION_REQUEST_ATTR);
     session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
-    await repository.save(session);
+    await sessionRepository.save(session);
 
-    setCookie(c, SESSION_COOKIE_NAME, session.getId(), {
-      ...defaultCookieOptions,
-      ...config.cookie,
+    setCookie(c, cookieName, session.getId(), {
+      ...cookieConfig,
       maxAge: session.getMaxInactiveInterval(),
     });
 
