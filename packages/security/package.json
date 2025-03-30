@@ -14,10 +14,10 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
-    "./provider": {
-      "types": "./dist/provider/index.d.ts",
-      "import": "./dist/provider/index.mjs",
-      "require": "./dist/provider/index.cjs"
+    "./oauth2/provider": {
+      "types": "./dist/oauth2/provider/index.d.ts",
+      "import": "./dist/oauth2/provider/index.mjs",
+      "require": "./dist/oauth2/provider/index.cjs"
     }
   },
   "files": [

@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { fetch, ProxyAgent } from 'undici';
 import { OAuth2Error } from '../error';
-import { CodeExchangeParams, OAuth2Token } from '../client';
+import { CodeExchangeParams, OAuth2Token } from '../types';
 
 export function createAuthorizationUri(options: {
   state: string;

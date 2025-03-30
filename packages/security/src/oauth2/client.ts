@@ -1,28 +1,24 @@
 import invariant from 'tiny-invariant';
-import { OAuth2ClientConfig, OAuth2Token } from './client';
+import { OAuth2ClientConfig, OAuth2Token } from './types';
 
-export interface OAuth2Config {
-  client: OAuth2ClientConfig;
-}
-
-export class OAuth2 {
-  private config: OAuth2Config;
-  constructor(config: OAuth2Config) {
+export class OAuth2Client {
+  private config: OAuth2ClientConfig;
+  constructor(config: OAuth2ClientConfig) {
     this.config = config;
   }
 
-  get clientBaseUri() {
-    return this.config.client.baseUri;
+  get baseUri() {
+    return this.config.baseUri;
   }
 
-  get clientErrorUri() {
-    return this.config.client.errorUri;
+  get errorUri() {
+    return this.config.errorUri;
   }
 
   getClientConfig(registrationId: string) {
-    const registration = this.config.client.registration[registrationId];
+    const registration = this.config.registration[registrationId];
     invariant(registration, `Registration ${registrationId} not found`);
-    const provider = this.config.client.provider[registration.provider ?? registrationId];
+    const provider = this.config.provider[registration.provider ?? registrationId];
     invariant(provider, `Provider ${registration.provider ?? registrationId} not found`);
     return { registration, provider };
   }
@@ -30,7 +26,7 @@ export class OAuth2 {
   createAuthorizationUri(registrationId: string, state: string, codeVerifier?: string): URL {
     const { provider, registration } = this.getClientConfig(registrationId);
 
-    const { baseUri } = this.config.client;
+    const { baseUri } = this.config;
     const { scope, clientId, redirectUri } = registration;
     return provider.createAuthorizationUri({
       state,
@@ -48,7 +44,7 @@ export class OAuth2 {
   ): Promise<OAuth2Token> {
     const { provider, registration } = this.getClientConfig(registrationId);
 
-    const { baseUri } = this.config.client;
+    const { baseUri } = this.config;
     const { clientId, clientSecret, redirectUri } = registration;
     return provider.exchangeAuthorizationCode({
       code,

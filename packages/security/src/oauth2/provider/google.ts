@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { Provider } from '../client';
+import { Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 

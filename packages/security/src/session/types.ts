@@ -1,6 +1,4 @@
-export interface Principal {
-  name: string;
-}
+import type { Principal } from '../core/index';
 
 export interface Authentication extends Principal {
   '@class': string;
