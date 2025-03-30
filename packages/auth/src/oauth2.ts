@@ -1,8 +1,15 @@
 import invariant from 'tiny-invariant';
 import { OAuth2ClientConfig, OAuth2Token } from './client';
 
-interface OAuth2Config {
+export interface OAuth2Config {
   client: OAuth2ClientConfig;
+}
+
+export interface OAuth2AuthorizationRequest {
+  state: string;
+  codeVerifier: string;
+  registrationId: string;
+  authorizationRequestUri: string;
 }
 
 export class OAuth2 {
