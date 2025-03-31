@@ -7,7 +7,10 @@ import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from
  * ref: https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/
  * ref: https://developers.facebook.com/tools/explorer
  * */
-export function facebook(): Provider<FacebookUserInfo | FacebookDecodedIdToken> {
+export function facebook(): Provider<
+  FacebookOAuth2Token,
+  FacebookUserInfo | FacebookDecodedIdToken
+> {
   return {
     authorizationUri: 'https://www.facebook.com/v21.0/dialog/oauth',
     tokenUri: 'https://graph.facebook.com/v19.0/oauth/access_token',
@@ -98,6 +101,7 @@ interface FacebookOAuth2Token {
   access_token: string;
   token_type: 'bearer';
   expires_in: number;
+  id_token?: string;
 }
 
 interface FacebookErrorResponse {

@@ -76,8 +76,19 @@ export interface OAuth2Token {
    * access token as described by Section 3.3.
    */
   scope?: string;
+}
 
-  id_token?: string;
+export interface OidcToken extends OAuth2Token {
+  id_token: string;
+}
+
+export enum OidcScopes {
+  openid = 'openid',
+  profile = 'profile',
+  email = 'email',
+  phone = 'phone',
+  address = 'address',
+  offline_access = 'offline_access',
 }
 
 // https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
@@ -116,7 +127,10 @@ export interface UserInfo<T extends Record<string, any> = Record<string, any>> {
   data: T;
 }
 
-export interface Provider<T extends Record<string, any> = Record<string, any>> {
+export interface Provider<
+  T extends OAuth2Token = OAuth2Token,
+  U extends Record<string, any> = Record<string, any>,
+> {
   /** Authorization URI for the provider. */
   authorizationUri: string;
 
@@ -152,13 +166,13 @@ export interface Provider<T extends Record<string, any> = Record<string, any>> {
   createAuthorizationUri: (params: CreateAuthorizationUriParams) => URL;
 
   /** step 2: exchange code for token */
-  exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<OAuth2Token>;
+  exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<T>;
 
   /** step 3: get user info */
-  getUserInfo: (token: OAuth2Token) => Promise<UserInfo<T>>;
+  getUserInfo: (token: T) => Promise<UserInfo<U>>;
 
   /** others: refresh access token */
-  refreshAccessToken?: (params: RefreshTokenParams) => Promise<OAuth2Token>;
+  refreshAccessToken?: (params: RefreshTokenParams) => Promise<T>;
 
   /** others: revoke token */
   revokeToken?: (params: RevokeTokenParams) => Promise<void>;

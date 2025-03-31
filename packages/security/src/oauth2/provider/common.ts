@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { OAuth2Error } from '../error';
-import { ExchangeCodeParams, OAuth2Token, PkceParameters, RefreshTokenParams } from '../types';
+import { ExchangeCodeParams, PkceParameters, RefreshTokenParams } from '../types';
 
 export function createAuthorizationUri(options: {
   state: string;
@@ -73,13 +73,7 @@ export async function refreshAccessToken(
     body.append('client_secret', params.clientSecret);
   }
 
-  const response = await fetch(params.tokenUri, { method: 'POST', headers, body });
-  if (!response.ok) {
-    const error = await response.json();
-    console.error('Refresh token error:', error);
-    throw new OAuth2Error(response.status, 'invalid_request', 'Failed to refresh token');
-  }
-  return (await response.json()) as OAuth2Token;
+  return fetch(params.tokenUri, { method: 'POST', headers, body });
 }
 
 interface RevokeTokenParams {

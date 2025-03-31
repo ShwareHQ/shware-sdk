@@ -36,7 +36,15 @@ export class OAuth2Client {
     return { registration, provider };
   }
 
-  createAuthorizationUri(registrationId: string, state: string, pkce?: PkceParameters): URL {
+  createAuthorizationUri({
+    registrationId,
+    state,
+    pkce,
+  }: {
+    registrationId: string;
+    state: string;
+    pkce?: PkceParameters;
+  }): URL {
     const { provider, registration } = this.getClientConfig(registrationId);
 
     const { baseUri } = this.config;
@@ -50,11 +58,15 @@ export class OAuth2Client {
     });
   }
 
-  async exchangeAuthorizationCode(
-    registrationId: string,
-    code: string,
-    pkce?: PkceParameters
-  ): Promise<OAuth2Token> {
+  async exchangeAuthorizationCode({
+    registrationId,
+    code,
+    pkce,
+  }: {
+    registrationId: string;
+    code: string;
+    pkce?: PkceParameters;
+  }): Promise<OAuth2Token> {
     const { provider, registration } = this.getClientConfig(registrationId);
 
     const { baseUri } = this.config;
@@ -68,12 +80,18 @@ export class OAuth2Client {
     });
   }
 
-  async getUserInfo(registrationId: string, token: OAuth2Token) {
+  async getUserInfo({ registrationId, token }: { registrationId: string; token: OAuth2Token }) {
     const { provider } = this.getClientConfig(registrationId);
     return provider.getUserInfo(token);
   }
 
-  async refreshAccessToken(registrationId: string, refreshToken: string): Promise<OAuth2Token> {
+  async refreshAccessToken({
+    registrationId,
+    refreshToken,
+  }: {
+    registrationId: string;
+    refreshToken: string;
+  }): Promise<OAuth2Token> {
     const { provider, registration } = this.getClientConfig(registrationId);
     const { clientId, clientSecret } = registration;
 

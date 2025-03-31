@@ -22,7 +22,7 @@ const defaultUserFields = [
   'verified',
 ];
 
-export function x(options?: XOptions): Provider<XUserInfo> {
+export function x(options?: XOptions): Provider<XOAuth2Token, XUserInfo> {
   return {
     authorizationUri: 'https://x.com/i/oauth2/authorize',
     tokenUri: 'https://api.x.com/2/oauth2/token',
@@ -86,7 +86,16 @@ export function x(options?: XOptions): Provider<XUserInfo> {
       };
     },
     async refreshAccessToken(params) {
-      return refreshAccessToken({ ...params, tokenUri: this.tokenUri, authentication: 'basic' });
+      const response = await refreshAccessToken({
+        ...params,
+        tokenUri: this.tokenUri,
+        authentication: 'basic',
+      });
+      if (!response.ok) {
+        const { error, error_description } = (await response.json()) as XErrorResponse;
+        throw new OAuth2Error(response.status, error, error_description);
+      }
+      return (await response.json()) as XOAuth2Token;
     },
     async revokeToken(params) {
       invariant(this.tokenRevokeUri, 'tokenRevokeUri is required');

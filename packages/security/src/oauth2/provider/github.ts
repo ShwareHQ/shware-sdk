@@ -3,7 +3,7 @@ import { Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode } from './common';
 
-export function github(): Provider<GithubUserInfo> {
+export function github(): Provider<GithubOAuth2Token, GithubUserInfo> {
   return {
     authorizationUri: 'https://github.com/login/oauth/authorize',
     tokenUri: 'https://github.com/login/oauth/access_token',

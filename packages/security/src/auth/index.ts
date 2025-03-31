@@ -89,7 +89,7 @@ export class Auth implements AuthService {
     const { registrationId } = param(request, this.PATH_OAUTH2_AUTHORIZATION);
     const state = randomUUID();
     const pkce = this.createPkceParameters();
-    const uri = this.oauth2Client.createAuthorizationUri(registrationId, state, pkce);
+    const uri = this.oauth2Client.createAuthorizationUri({ registrationId, state, pkce });
     const sessionId = getCookie(request, this.cookieName);
     const session = sessionId
       ? ((await this.repository.findById(sessionId)) ?? this.repository.createSession())
@@ -171,12 +171,12 @@ export class Auth implements AuthService {
     // 4. exchange authorization code for token and get user info
     const { code } = parsed.data;
 
-    const token = await this.oauth2Client.exchangeAuthorizationCode(
+    const token = await this.oauth2Client.exchangeAuthorizationCode({
       registrationId,
       code,
-      cached.additionalParameters
-    );
-    const userInfo = await this.oauth2Client.getUserInfo(registrationId, token);
+      pkce: cached.additionalParameters,
+    });
+    const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
 
     // 5. create or update principal
     const principal = await onAuthorized(request, registrationId, userInfo, token);
