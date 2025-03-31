@@ -1,11 +1,9 @@
 import invariant from 'tiny-invariant';
-import { fetch } from 'undici';
 import { Provider } from '../types';
 import { OAuth2Error } from '../error';
 import {
   createAuthorizationUri,
   exchangeAuthorizationCode,
-  proxyAgent,
   refreshAccessToken,
   revokeToken,
 } from './common';
@@ -63,7 +61,7 @@ export function x(options?: XOptions): Provider<XUserInfo> {
       const url = new URL(this.userInfoUri);
       userFields.forEach((field) => url.searchParams.append('user.fields', field));
 
-      const response = await fetch(this.userInfoUri, { headers, dispatcher: proxyAgent });
+      const response = await fetch(this.userInfoUri, { headers });
       if (!response.ok) {
         const { errors } = (await response.json()) as XAPIErrorResponse;
         throw new OAuth2Error(

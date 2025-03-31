@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import invariant from 'tiny-invariant';
-import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session';
+import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session/index';
 import {
   param,
   query,

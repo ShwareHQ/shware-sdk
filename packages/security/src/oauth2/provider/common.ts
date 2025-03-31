@@ -1,6 +1,5 @@
 import { createHash } from 'crypto';
 import jwt from 'jsonwebtoken';
-import { fetch, ProxyAgent } from 'undici';
 import { OAuth2Error } from '../error';
 import { CodeExchangeParams, OAuth2Token } from '../types';
 
@@ -34,7 +33,6 @@ interface Params extends CodeExchangeParams {
   authentication?: 'basic' | 'post';
 }
 
-export const proxyAgent = new ProxyAgent('http://localhost:7890');
 export async function exchangeAuthorizationCode(params: Params) {
   const body = new URLSearchParams();
   body.append('code', params.code);
@@ -54,7 +52,7 @@ export async function exchangeAuthorizationCode(params: Params) {
     body.append('client_secret', params.clientSecret);
   }
 
-  return fetch(params.tokenUri, { method: 'POST', headers, body, dispatcher: proxyAgent });
+  return fetch(params.tokenUri, { method: 'POST', headers, body });
 }
 
 interface RefreshTokenParams {
