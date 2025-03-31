@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import invariant from 'tiny-invariant';
 import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session';
 import {
   param,
@@ -10,14 +11,13 @@ import {
 } from '../utils/http';
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import type { OAuth2AuthorizationRequest } from '../oauth2/types';
-import type { OAuth2ClientConfig } from '../oauth2/types';
-import type { AuthHandler, LoggedHandler, OAuth2AuthorizedHandler } from './types';
+import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 
-export class Auth implements AuthHandler {
+export class Auth implements AuthService {
   private readonly cookieName: string = 'SESSION';
   private readonly cookieOptions: CookieOptions;
   private readonly repository: SessionRepository;
-  private readonly oauth2Client: OAuth2Client;
+  private readonly oauth2Client: OAuth2Client | null;
 
   public readonly PATH_CSRF = '/csrf' as const;
   public readonly PATH_LOGOUT = '/logout' as const;
@@ -28,11 +28,7 @@ export class Auth implements AuthHandler {
 
   public readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
-  constructor(
-    repository: SessionRepository,
-    oauth2ClientConfig: OAuth2ClientConfig,
-    cookieOptions?: CookieOptions
-  ) {
+  constructor({ repository, oauth2, cookieOptions }: AuthConfig) {
     this.repository = repository;
     this.cookieOptions = {
       path: '/',
@@ -41,7 +37,7 @@ export class Auth implements AuthHandler {
       httpOnly: true,
       ...cookieOptions,
     };
-    this.oauth2Client = new OAuth2Client(oauth2ClientConfig);
+    this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
   }
 
   logout = async (request: Request): Promise<Response> => {
@@ -76,6 +72,7 @@ export class Auth implements AuthHandler {
   };
 
   oauth2Authorization = async (request: Request): Promise<Response> => {
+    invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { registrationId } = param(request, this.PATH_OAUTH2_AUTHORIZATION);
     const state = randomUUID();
     const codeVerifier = randomUUID();
@@ -103,6 +100,7 @@ export class Auth implements AuthHandler {
   };
 
   private redirect = (error: string): Response => {
+    invariant(this.oauth2Client, 'oauth2Client is not initialized');
     return Response.redirect(`${this.oauth2Client.errorUri}?error=${error}`, 302);
   };
 
@@ -110,6 +108,8 @@ export class Auth implements AuthHandler {
     request: Request,
     onAuthorized: OAuth2AuthorizedHandler
   ): Promise<Response> => {
+    invariant(this.oauth2Client, 'oauth2Client is not initialized');
+
     // 1. get session from cookie
     const sessionId = getCookie(request, this.cookieName);
     const session = sessionId ? await this.repository.findById(sessionId) : null;

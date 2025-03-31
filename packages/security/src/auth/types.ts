@@ -1,6 +1,8 @@
 import { Principal } from '../core';
-import { UserInfo } from '../oauth2/types';
+import { OAuth2ClientConfig, UserInfo } from '../oauth2/types';
 import { OAuth2Token } from '../oauth2/types';
+import { SessionRepository } from '../session';
+import { CookieOptions } from '../utils/http';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
 export type OAuth2AuthorizedHandler = (
@@ -10,7 +12,15 @@ export type OAuth2AuthorizedHandler = (
   token: OAuth2Token
 ) => Promise<Principal>;
 
-export interface AuthHandler {
+export interface AuthConfig {
+  repository: SessionRepository;
+  cookieOptions?: CookieOptions;
+  oauth2?: {
+    client?: OAuth2ClientConfig;
+  };
+}
+
+export interface AuthService {
   logout: (request: Request) => Promise<Response>;
   logged: (request: Request, onLogged?: LoggedHandler) => Promise<Response>;
 
