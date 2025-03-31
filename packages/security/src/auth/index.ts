@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { PRINCIPAL_NAME_INDEX_NAME, SessionRepository } from '../session';
+import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session';
 import {
   param,
   query,
@@ -8,12 +8,12 @@ import {
   deleteCookie,
   type CookieOptions,
 } from '../utils/http';
-import { OAuth2AuthorizationRequest, OAuth2Token, UserInfo } from '../oauth2/types';
-import { OAuth2ClientConfig } from '../oauth2/types';
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
-import type { Principal } from '../core';
+import type { OAuth2AuthorizationRequest } from '../oauth2/types';
+import type { OAuth2ClientConfig } from '../oauth2/types';
+import type { AuthHandler, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 
-export class Auth {
+export class Auth implements AuthHandler {
   private readonly cookieName: string = 'SESSION';
   private readonly cookieOptions: CookieOptions;
   private readonly repository: SessionRepository;
@@ -44,10 +44,15 @@ export class Auth {
     this.oauth2Client = new OAuth2Client(oauth2ClientConfig);
   }
 
-  logged = async (
-    request: Request,
-    onLogged?: (principal: Principal) => void | Promise<void>
-  ): Promise<Response> => {
+  logout = async (request: Request): Promise<Response> => {
+    const sessionId = getCookie(request, this.cookieName);
+    if (sessionId) await this.repository.deleteById(sessionId);
+    const response = Response.json({});
+    deleteCookie(response, this.cookieName);
+    return response;
+  };
+
+  logged = async (request: Request, onLogged?: LoggedHandler): Promise<Response> => {
     // 1. get session from cookie
     const sessionId = getCookie(request, this.cookieName);
     if (!sessionId) return Response.json({ data: false });
@@ -103,12 +108,7 @@ export class Auth {
 
   loginOAuth2 = async (
     request: Request,
-    onAuthorized: (
-      request: Request,
-      registrationId: string,
-      userInfo: UserInfo,
-      token: OAuth2Token
-    ) => Principal | Promise<Principal>
+    onAuthorized: OAuth2AuthorizedHandler
   ): Promise<Response> => {
     // 1. get session from cookie
     const sessionId = getCookie(request, this.cookieName);
@@ -159,14 +159,6 @@ export class Auth {
     const response = Response.redirect(this.oauth2Client.baseUri, 302);
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
-    return response;
-  };
-
-  logout = async (request: Request): Promise<Response> => {
-    const sessionId = getCookie(request, this.cookieName);
-    if (sessionId) await this.repository.deleteById(sessionId);
-    const response = Response.json({});
-    deleteCookie(response, this.cookieName);
     return response;
   };
 }
