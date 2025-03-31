@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import invariant from 'tiny-invariant';
-import { OAuth2ClientConfig, OAuth2Token } from './types';
+import { OAuth2ClientConfig, OAuth2Token, PkceParameters } from './types';
 
 export const oauth2RedirectQuerySchema = z.object({
   code: z.string().optional(),
@@ -20,6 +20,10 @@ export class OAuth2Client {
     return this.config.baseUri;
   }
 
+  get successUri() {
+    return this.config.successUri;
+  }
+
   get errorUri() {
     return this.config.errorUri;
   }
@@ -32,16 +36,16 @@ export class OAuth2Client {
     return { registration, provider };
   }
 
-  createAuthorizationUri(registrationId: string, state: string, codeVerifier?: string): URL {
+  createAuthorizationUri(registrationId: string, state: string, pkce?: PkceParameters): URL {
     const { provider, registration } = this.getClientConfig(registrationId);
 
     const { baseUri } = this.config;
     const { scope, clientId, redirectUri } = registration;
     return provider.createAuthorizationUri({
+      pkce,
       state,
       scope,
       clientId,
-      codeVerifier,
       redirectUri: redirectUri ?? `${baseUri}/login/oauth2/code/${registrationId}`,
     });
   }
@@ -49,7 +53,7 @@ export class OAuth2Client {
   async exchangeAuthorizationCode(
     registrationId: string,
     code: string,
-    codeVerifier?: string
+    pkce?: PkceParameters
   ): Promise<OAuth2Token> {
     const { provider, registration } = this.getClientConfig(registrationId);
 
@@ -57,7 +61,7 @@ export class OAuth2Client {
     const { clientId, clientSecret, redirectUri } = registration;
     return provider.exchangeAuthorizationCode({
       code,
-      codeVerifier,
+      pkce,
       clientId,
       clientSecret,
       redirectUri: redirectUri ?? `${baseUri}/login/oauth2/code/${registrationId}`,

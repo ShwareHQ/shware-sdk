@@ -31,7 +31,7 @@ export function x(options?: XOptions): Provider<XUserInfo> {
     userInfoUri: 'https://api.x.com/2/users/me',
     defaultScope: ['users.read', 'tweet.read', 'offline.access'],
     createAuthorizationUri(params) {
-      if (!params.codeVerifier) throw new Error('codeVerifier is required for x');
+      if (!params.pkce) throw new Error('pkce is required for x');
       return createAuthorizationUri({
         ...params,
         scope: params.scope ?? this.defaultScope,
@@ -39,7 +39,7 @@ export function x(options?: XOptions): Provider<XUserInfo> {
       });
     },
     async exchangeAuthorizationCode(params) {
-      if (!params.codeVerifier) throw new Error('codeVerifier is required for x');
+      if (!params.pkce) throw new Error('pkce is required for x');
       const response = await exchangeAuthorizationCode({
         ...params,
         tokenUri: this.tokenUri,

@@ -1,8 +1,14 @@
+export interface PkceParameters {
+  code_verifier: string;
+  code_challenge: string;
+  code_challenge_method: 'S256' | string;
+}
+
 export interface OAuth2AuthorizationRequest {
   state: string;
-  codeVerifier: string;
   registrationId: string;
   authorizationRequestUri: string;
+  additionalParameters: PkceParameters;
 }
 
 interface CreateAuthorizationUriParams {
@@ -10,7 +16,7 @@ interface CreateAuthorizationUriParams {
   clientId: string;
   redirectUri: string;
   scope: string[] | undefined;
-  codeVerifier?: string;
+  pkce?: PkceParameters;
 }
 
 export interface CodeExchangeParams {
@@ -18,7 +24,7 @@ export interface CodeExchangeParams {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
-  codeVerifier?: string;
+  pkce?: Omit<PkceParameters, 'code_challenge' | 'code_challenge_method'>;
 }
 
 export interface RefreshTokenParams {
@@ -33,13 +39,44 @@ export interface RevokeTokenParams {
   clientSecret: string;
 }
 
+// reference: https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
 export interface OAuth2Token {
-  access_token?: string;
-  token_type?: 'Bearer' | 'bearer' | string;
+  /**
+   * REQUIRED.
+   * The access token issued by the authorization server.
+   */
+  access_token: string;
+
+  /**
+   * REQUIRED.
+   * The type of the token issued as described in Section 7.1.  Value is case insensitive.
+   */
+  token_type: 'Bearer' | 'bearer' | 'mac' | (string & {});
+
+  /**
+   * RECOMMENDED.
+   * The lifetime in seconds of the access token. For example, the value "3600" denotes that the
+   * access token will expire in one hour from the time the response was generated. If omitted, the
+   * authorization server SHOULD provide the expiration time via other means or document the default
+   * value.
+   */
   expires_in?: number;
+
+  /**
+   * OPTIONAL.
+   * The refresh token, which can be used to obtain new access tokens using the same authorization
+   * grant as described in Section 6.
+   */
   refresh_token?: string;
-  id_token?: string;
+
+  /**
+   * OPTIONAL.
+   * If identical to the scope requested by the client; otherwise, REQUIRED. The scope of the
+   * access token as described by Section 3.3.
+   */
   scope?: string;
+
+  id_token?: string;
 }
 
 // https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
@@ -167,6 +204,7 @@ export interface Registration {
 export interface OAuth2ClientConfig {
   baseUri: string;
   errorUri: string;
+  successUri: string;
   provider: { [name: string]: Provider | undefined };
   registration: { [name: string]: Registration | undefined };
 }

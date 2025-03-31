@@ -1,7 +1,6 @@
-import { createHash } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { OAuth2Error } from '../error';
-import { CodeExchangeParams, OAuth2Token } from '../types';
+import { CodeExchangeParams, OAuth2Token, PkceParameters } from '../types';
 
 export function createAuthorizationUri(options: {
   state: string;
@@ -9,7 +8,7 @@ export function createAuthorizationUri(options: {
   clientId: string;
   redirectUri: string;
   authorizationUri: string;
-  codeVerifier?: string;
+  pkce?: Omit<PkceParameters, 'code_verifier'>;
 }) {
   const url = new URL(options.authorizationUri);
   url.searchParams.append('response_type', 'code');
@@ -17,13 +16,9 @@ export function createAuthorizationUri(options: {
   url.searchParams.append('state', options.state);
   url.searchParams.append('scope', options.scope.join(' '));
   url.searchParams.append('redirect_uri', options.redirectUri);
-  if (options.codeVerifier) {
-    const codeChallenge = createHash('sha256')
-      .update(options.codeVerifier)
-      .digest()
-      .toString('base64url');
-    url.searchParams.append('code_challenge_method', 'S256');
-    url.searchParams.append('code_challenge', codeChallenge);
+  if (options.pkce) {
+    url.searchParams.append('code_challenge_method', options.pkce.code_challenge_method);
+    url.searchParams.append('code_challenge', options.pkce.code_challenge);
   }
   return url;
 }
@@ -38,7 +33,7 @@ export async function exchangeAuthorizationCode(params: Params) {
   body.append('code', params.code);
   body.append('redirect_uri', params.redirectUri);
   body.append('grant_type', 'authorization_code');
-  if (params.codeVerifier) body.append('code_verifier', params.codeVerifier);
+  if (params.pkce) body.append('code_verifier', params.pkce.code_verifier);
 
   const headers: Record<string, string> = {
     Accept: 'application/json',

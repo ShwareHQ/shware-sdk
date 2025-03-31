@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import invariant from 'tiny-invariant';
 import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session/index';
 import {
@@ -10,8 +10,9 @@ import {
   type CookieOptions,
 } from '../utils/http';
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
-import type { OAuth2AuthorizationRequest } from '../oauth2/types';
+import type { OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
 import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
+import { OAuth2ErrorType } from '../oauth2/error';
 
 export class Auth implements AuthService {
   private readonly cookieName;
@@ -73,12 +74,22 @@ export class Auth implements AuthService {
     return response;
   };
 
+  private createPkceParameters(): PkceParameters {
+    const code_verifier = randomUUID();
+    const code_challenge = createHash('sha256')
+      .update(code_verifier)
+      .digest()
+      .toString('base64url');
+
+    return { code_verifier, code_challenge, code_challenge_method: 'S256' };
+  }
+
   oauth2Authorization = async (request: Request): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { registrationId } = param(request, this.PATH_OAUTH2_AUTHORIZATION);
     const state = randomUUID();
-    const codeVerifier = randomUUID();
-    const uri = this.oauth2Client.createAuthorizationUri(registrationId, state, codeVerifier);
+    const pkce = this.createPkceParameters();
+    const uri = this.oauth2Client.createAuthorizationUri(registrationId, state, pkce);
     const sessionId = getCookie(request, this.cookieName);
     const session = sessionId
       ? ((await this.repository.findById(sessionId)) ?? this.repository.createSession())
@@ -86,9 +97,9 @@ export class Auth implements AuthService {
 
     const authorizationRequest: OAuth2AuthorizationRequest = {
       state,
-      codeVerifier,
       registrationId,
       authorizationRequestUri: uri.href,
+      additionalParameters: pkce,
     };
 
     const value = JSON.stringify(authorizationRequest);
@@ -101,9 +112,12 @@ export class Auth implements AuthService {
     return response;
   };
 
-  private redirect = (error: string): Response => {
+  private redirect = (error: OAuth2ErrorType, description?: string): Response => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
-    return Response.redirect(`${this.oauth2Client.errorUri}?error=${error}`, 302);
+    const uri = new URL(this.oauth2Client.errorUri);
+    uri.searchParams.set('error', error);
+    if (description) uri.searchParams.set('error_description', description);
+    return Response.redirect(uri.href, 302);
   };
 
   loginOAuth2 = async (
@@ -116,13 +130,13 @@ export class Auth implements AuthService {
     const sessionId = getCookie(request, this.cookieName);
     const session = sessionId ? await this.repository.findById(sessionId) : null;
     if (!session) {
-      return this.redirect('OAUTH2_AUTHORIZATION_SESSION_NOT_FOUND');
+      return this.redirect('invalid_request', 'session not found');
     }
 
     // 2. get cached authorization request from session
     const json = session.getAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) as string | null;
     if (!json) {
-      return this.redirect('OAUTH2_AUTHORIZATION_REQUEST_NOT_FOUND');
+      return this.redirect('invalid_request', 'authorization request not  found');
     }
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
 
@@ -142,26 +156,25 @@ export class Auth implements AuthService {
 
     const parsed = oauth2RedirectQuerySchema.safeParse(data);
     if (!parsed.success) {
-      return this.redirect('INVALID_OAUTH2_REDIRECT_QUERY');
+      return this.redirect('invalid_request', 'invalid redirect query');
     }
     if (!parsed.data.code || !parsed.data.state) {
-      console.error('oauth2 redirect error:', parsed.data);
-      return this.redirect('OAUTH2_AUTHORIZATION_ERROR');
+      return this.redirect('invalid_request', 'invalid redirect query');
     }
     if (parsed.data.state !== cached.state) {
-      return this.redirect('INVALID_OAUTH2_REDIRECT_STATE');
+      return this.redirect('invalid_request', 'redirect state mismatch');
     }
     if (registrationId !== cached.registrationId) {
-      return this.redirect('INVALID_OAUTH2_REDIRECT_REGISTRATION_ID');
+      return this.redirect('invalid_request', 'redirect registration mismatch');
     }
 
     // 4. exchange authorization code for token and get user info
     const { code } = parsed.data;
-    const { codeVerifier } = cached;
+
     const token = await this.oauth2Client.exchangeAuthorizationCode(
       registrationId,
       code,
-      codeVerifier
+      cached.additionalParameters
     );
     const userInfo = await this.oauth2Client.getUserInfo(registrationId, token);
 
@@ -176,7 +189,7 @@ export class Auth implements AuthService {
 
     const response = new Response(null, {
       status: 302,
-      headers: { location: this.oauth2Client.baseUri },
+      headers: { location: this.oauth2Client.successUri },
     });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });

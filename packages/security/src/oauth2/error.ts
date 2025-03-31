@@ -1,3 +1,4 @@
+// reference: https://datatracker.ietf.org/doc/html/rfc6749#section-4.2.2.1
 export type OAuth2ErrorType =
   | 'invalid_request' // 400
   | 'invalid_client' // 401
@@ -10,9 +11,9 @@ export type OAuth2ErrorType =
   | 'insufficient_scope' // 403
   | 'redirect_uri_mismatch' // 400
   | 'access_denied' // 400
-  // added
-  | 'server_error'
-  | string;
+  | 'server_error' // 500
+  | 'temporarily_unavailable' // 503
+  | (string & {});
 
 export class OAuth2Error extends Error {
   readonly status: number;

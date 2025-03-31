@@ -15,14 +15,14 @@ export function facebook(): Provider<FacebookUserInfo | FacebookDecodedIdToken> 
     jwkSetUri: 'https://limited.facebook.com/.well-known/oauth/openid/jwks/',
     userNameAttribute: 'id',
     defaultScope: ['profile', 'email'],
-    createAuthorizationUri({ codeVerifier, ...params }) {
+    createAuthorizationUri({ pkce, ...params }) {
       return createAuthorizationUri({
         ...params,
         scope: params.scope ?? this.defaultScope,
         authorizationUri: this.authorizationUri,
       });
     },
-    async exchangeAuthorizationCode({ codeVerifier, ...params }) {
+    async exchangeAuthorizationCode({ pkce, ...params }) {
       const response = await exchangeAuthorizationCode({ ...params, tokenUri: this.tokenUri });
       if (!response.ok) {
         const { error } = (await response.json()) as FacebookErrorResponse;

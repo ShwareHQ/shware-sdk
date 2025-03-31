@@ -10,14 +10,14 @@ export function github(): Provider<GithubUserInfo> {
     userInfoUri: 'https://api.github.com/user',
     userNameAttribute: 'id',
     defaultScope: ['user:email'],
-    createAuthorizationUri({ codeVerifier, ...params }) {
+    createAuthorizationUri({ pkce, ...params }) {
       return createAuthorizationUri({
         ...params,
         scope: params.scope ?? this.defaultScope,
         authorizationUri: this.authorizationUri,
       });
     },
-    async exchangeAuthorizationCode({ codeVerifier, ...params }) {
+    async exchangeAuthorizationCode({ pkce, ...params }) {
       const response = await exchangeAuthorizationCode({ ...params, tokenUri: this.tokenUri });
       if (!response.ok) {
         const { error, error_description } = (await response.json()) as GithubErrorResponse;

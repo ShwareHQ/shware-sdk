@@ -12,14 +12,14 @@ export function apple(): Provider<AppleUserInfo> {
     jwkSetUri: 'https://appleid.apple.com/auth/keys',
     userNameAttribute: 'sub',
     defaultScope: ['openid', 'name', 'email'],
-    createAuthorizationUri({ codeVerifier, ...params }) {
+    createAuthorizationUri({ pkce, ...params }) {
       return createAuthorizationUri({
         ...params,
         scope: params.scope ?? this.defaultScope,
         authorizationUri: this.authorizationUri,
       });
     },
-    async exchangeAuthorizationCode({ codeVerifier, ...params }) {
+    async exchangeAuthorizationCode({ pkce, ...params }) {
       const response = await exchangeAuthorizationCode({ ...params, tokenUri: this.tokenUri });
       if (!response.ok) {
         const { error } = (await response.json()) as AppleErrorResponse;
