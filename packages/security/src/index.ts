@@ -1,4 +1,4 @@
-export { Auth } from './auth';
+export { Auth } from './auth/index';
 export { OAuth2Client, oauth2RedirectQuerySchema } from './oauth2/client';
 export { RedisIndexedSessionRepository, PRINCIPAL_NAME_INDEX_NAME } from './session/redis-session';
 
