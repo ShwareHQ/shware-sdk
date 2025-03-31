@@ -25,5 +25,6 @@ export interface AuthService {
   logged: (request: Request, onLogged?: LoggedHandler) => Promise<Response>;
 
   oauth2Authorization: (request: Request) => Promise<Response>;
-  loginOAuth2: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
+  loginOAuth2Code: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
+  loginOAuth2Native: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
 }

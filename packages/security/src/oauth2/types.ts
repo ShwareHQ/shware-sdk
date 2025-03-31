@@ -82,6 +82,37 @@ export interface OidcToken extends OAuth2Token {
   id_token: string;
 }
 
+// android,ios has different client_id and redirect_uri
+export type GoogleAppCredentials = {
+  state: string;
+  code: string;
+  client_id: string;
+  redirect_uri: string;
+};
+
+export type FacebookAppCredentials =
+  | { state: string; id_token: string } // platform=ios and tracking=limited
+  | { state: string; access_token: string }; // tracking=enabled
+
+export type AppleAppCredentials = {
+  state: string;
+  code: string;
+  id_token: string;
+  // no standard fields
+  user: string;
+  email?: string;
+  full_name: string;
+};
+
+export type NativeCredentials = {
+  state: string;
+  code?: string;
+  client_id?: string;
+  redirect_uri?: string;
+  id_token?: string;
+  access_token?: string;
+};
+
 export enum OidcScopes {
   openid = 'openid',
   profile = 'profile',

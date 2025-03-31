@@ -25,7 +25,8 @@ export class Auth implements AuthService {
   public readonly PATH_LOGGED = '/logged' as const;
 
   public readonly PATH_OAUTH2_AUTHORIZATION = '/oauth2/authorization/:registrationId' as const;
-  public readonly PATH_OAUTH2_REDIRECT = '/login/oauth2/code/:registrationId' as const;
+  public readonly PATH_LOGIN_OAUTH2_CODE = '/login/oauth2/code/:registrationId' as const;
+  public readonly PATH_LOGIN_OAUTH2_NATIVE = '/login/oauth2/native/:registrationId' as const;
 
   public readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
@@ -120,7 +121,7 @@ export class Auth implements AuthService {
     return Response.redirect(uri.href, 302);
   };
 
-  loginOAuth2 = async (
+  loginOAuth2Code = async (
     request: Request,
     onAuthorized: OAuth2AuthorizedHandler
   ): Promise<Response> => {
@@ -141,7 +142,7 @@ export class Auth implements AuthService {
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
 
     // 3. validate redirect query/formdata
-    const { registrationId } = param(request, this.PATH_OAUTH2_REDIRECT);
+    const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_CODE);
     let data: Record<string, string>;
     // apple redirect: response_mode=form_post
     if (
@@ -194,5 +195,14 @@ export class Auth implements AuthService {
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
     return response;
+  };
+
+  loginOAuth2Native = async (
+    request: Request,
+    onAuthorized: OAuth2AuthorizedHandler
+  ): Promise<Response> => {
+    invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
+    return Response.json({});
   };
 }
