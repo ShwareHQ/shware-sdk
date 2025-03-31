@@ -14,7 +14,7 @@ export type OAuth2AuthorizedHandler = (
 
 export interface AuthConfig {
   repository: SessionRepository;
-  cookieOptions?: CookieOptions;
+  cookie?: CookieOptions & { name?: string };
   oauth2?: {
     client?: OAuth2ClientConfig;
   };

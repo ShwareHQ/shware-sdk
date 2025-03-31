@@ -14,7 +14,7 @@ import type { OAuth2AuthorizationRequest } from '../oauth2/types';
 import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 
 export class Auth implements AuthService {
-  private readonly cookieName: string = 'SESSION';
+  private readonly cookieName;
   private readonly cookieOptions: CookieOptions;
   private readonly repository: SessionRepository;
   private readonly oauth2Client: OAuth2Client | null;
@@ -28,8 +28,10 @@ export class Auth implements AuthService {
 
   public readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
-  constructor({ repository, oauth2, cookieOptions }: AuthConfig) {
+  constructor({ repository, oauth2, cookie }: AuthConfig) {
     this.repository = repository;
+    const { name, ...cookieOptions } = cookie ?? {};
+    this.cookieName = name ?? 'SESSION';
     this.cookieOptions = {
       path: '/',
       sameSite: 'none',
