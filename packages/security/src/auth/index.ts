@@ -95,7 +95,7 @@ export class Auth implements AuthService {
     session.setAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST, value);
     await this.repository.save(session);
 
-    const response = Response.redirect(uri.href, 302);
+    const response = new Response(null, { status: 302, headers: { location: uri.href } });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
     return response;
@@ -170,7 +170,10 @@ export class Auth implements AuthService {
     session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
     await this.repository.save(session);
 
-    const response = Response.redirect(this.oauth2Client.baseUri, 302);
+    const response = new Response(null, {
+      status: 302,
+      headers: { location: this.oauth2Client.baseUri },
+    });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
     return response;
