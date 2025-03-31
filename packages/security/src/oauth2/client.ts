@@ -1,5 +1,14 @@
+import { z } from 'zod';
 import invariant from 'tiny-invariant';
 import { OAuth2ClientConfig, OAuth2Token } from './types';
+
+export const oauth2RedirectQuerySchema = z.object({
+  code: z.string(),
+  state: z.string(),
+  error: z.string().optional(),
+  error_description: z.string().optional(),
+  error_uri: z.string().optional(),
+});
 
 export class OAuth2Client {
   private config: OAuth2ClientConfig;

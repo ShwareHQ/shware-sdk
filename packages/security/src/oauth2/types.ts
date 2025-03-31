@@ -73,6 +73,11 @@ export interface StandardClaims {
   updated_at?: number;
 }
 
+export interface UserInfo<T extends Record<string, any> = Record<string, any>> {
+  claims: StandardClaims;
+  data: T;
+}
+
 export interface Provider<T extends Record<string, any> = Record<string, any>> {
   /** Authorization URI for the provider. */
   authorizationUri: string;
@@ -112,7 +117,7 @@ export interface Provider<T extends Record<string, any> = Record<string, any>> {
   exchangeAuthorizationCode: (params: CodeExchangeParams) => Promise<OAuth2Token>;
 
   /** step 3: get user info */
-  getUserInfo: (token: OAuth2Token) => Promise<{ claims: StandardClaims; data: T }>;
+  getUserInfo: (token: OAuth2Token) => Promise<UserInfo<T>>;
 
   /** others: refresh access token */
   refreshAccessToken?: (params: RefreshTokenParams) => Promise<OAuth2Token>;
