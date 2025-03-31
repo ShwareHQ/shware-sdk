@@ -3,8 +3,8 @@ import invariant from 'tiny-invariant';
 import { OAuth2ClientConfig, OAuth2Token } from './types';
 
 export const oauth2RedirectQuerySchema = z.object({
-  code: z.string(),
-  state: z.string(),
+  code: z.string().optional(),
+  state: z.string().optional(),
   error: z.string().optional(),
   error_description: z.string().optional(),
   error_uri: z.string().optional(),

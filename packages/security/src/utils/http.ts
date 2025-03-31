@@ -38,6 +38,6 @@ export function param<P extends string>(request: Request, path: P): PathParam<P>
 }
 
 export function query(request: Request) {
-  const params = new URLSearchParams(request.url);
-  return Object.fromEntries(params.entries());
+  const url = new URL(request.url);
+  return Object.fromEntries(url.searchParams.entries());
 }

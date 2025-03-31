@@ -144,6 +144,10 @@ export class Auth implements AuthService {
     if (!parsed.success) {
       return this.redirect('INVALID_OAUTH2_REDIRECT_QUERY');
     }
+    if (!parsed.data.code || !parsed.data.state) {
+      console.error('oauth2 redirect error:', parsed.data);
+      return this.redirect('OAUTH2_AUTHORIZATION_ERROR');
+    }
     if (parsed.data.state !== cached.state) {
       return this.redirect('INVALID_OAUTH2_REDIRECT_STATE');
     }
