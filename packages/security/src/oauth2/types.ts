@@ -1,7 +1,8 @@
+// reference: https://datatracker.ietf.org/doc/html/rfc7636
 export interface PkceParameters {
   code_verifier: string;
   code_challenge: string;
-  code_challenge_method: 'S256' | string;
+  code_challenge_method: 'S256' | 'plain';
 }
 
 export interface OAuth2AuthorizationRequest {
@@ -16,10 +17,10 @@ interface CreateAuthorizationUriParams {
   clientId: string;
   redirectUri: string;
   scope: string[] | undefined;
-  pkce?: PkceParameters;
+  pkce?: Omit<PkceParameters, 'code_verifier'>;
 }
 
-export interface CodeExchangeParams {
+export interface ExchangeCodeParams {
   code: string;
   clientId: string;
   clientSecret: string;
@@ -151,7 +152,7 @@ export interface Provider<T extends Record<string, any> = Record<string, any>> {
   createAuthorizationUri: (params: CreateAuthorizationUriParams) => URL;
 
   /** step 2: exchange code for token */
-  exchangeAuthorizationCode: (params: CodeExchangeParams) => Promise<OAuth2Token>;
+  exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<OAuth2Token>;
 
   /** step 3: get user info */
   getUserInfo: (token: OAuth2Token) => Promise<UserInfo<T>>;

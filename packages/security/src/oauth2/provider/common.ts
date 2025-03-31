@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { OAuth2Error } from '../error';
-import { CodeExchangeParams, OAuth2Token, PkceParameters } from '../types';
+import { ExchangeCodeParams, OAuth2Token, PkceParameters, RefreshTokenParams } from '../types';
 
 export function createAuthorizationUri(options: {
   state: string;
@@ -23,12 +23,12 @@ export function createAuthorizationUri(options: {
   return url;
 }
 
-interface Params extends CodeExchangeParams {
-  tokenUri: string;
-  authentication?: 'basic' | 'post';
-}
-
-export async function exchangeAuthorizationCode(params: Params) {
+export async function exchangeAuthorizationCode(
+  params: ExchangeCodeParams & {
+    tokenUri: string;
+    authentication?: 'basic' | 'post';
+  }
+) {
   const body = new URLSearchParams();
   body.append('code', params.code);
   body.append('redirect_uri', params.redirectUri);
@@ -50,15 +50,12 @@ export async function exchangeAuthorizationCode(params: Params) {
   return fetch(params.tokenUri, { method: 'POST', headers, body });
 }
 
-interface RefreshTokenParams {
-  tokenUri: string;
-  clientId: string;
-  clientSecret: string;
-  refreshToken: string;
-  authentication?: 'basic' | 'post';
-}
-
-export async function refreshAccessToken(params: RefreshTokenParams) {
+export async function refreshAccessToken(
+  params: RefreshTokenParams & {
+    tokenUri: string;
+    authentication?: 'basic' | 'post';
+  }
+) {
   const body = new URLSearchParams();
   body.append('grant_type', 'refresh_token');
   body.append('refresh_token', params.refreshToken);
