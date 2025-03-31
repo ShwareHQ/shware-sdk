@@ -126,9 +126,21 @@ export class Auth implements AuthService {
     }
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
 
-    // 3. validate redirect query
+    // 3. validate redirect query/formdata
     const { registrationId } = param(request, this.PATH_OAUTH2_REDIRECT);
-    const parsed = oauth2RedirectQuerySchema.safeParse(query(request));
+    let data: Record<string, string>;
+    // apple redirect: response_mode=form_post
+    if (
+      request.method === 'POST' &&
+      request.headers.get('content-type')?.toLowerCase() === 'application/x-www-form-urlencoded'
+    ) {
+      const params = new URLSearchParams(await request.text());
+      data = Object.fromEntries(params.entries());
+    } else {
+      data = query(request);
+    }
+
+    const parsed = oauth2RedirectQuerySchema.safeParse(data);
     if (!parsed.success) {
       return this.redirect('INVALID_OAUTH2_REDIRECT_QUERY');
     }
