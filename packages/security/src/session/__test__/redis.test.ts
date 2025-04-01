@@ -1,9 +1,9 @@
 import Redis from 'ioredis';
-import { PRINCIPAL_NAME_INDEX_NAME, RedisIndexedSessionRepository } from '../redis-session';
+import { PRINCIPAL_NAME_INDEX_NAME, RedisSessionRepository } from '../redis';
 
 // docker run -d -p 6379:6379 --name my-redis -e REDIS_PASSWORD=123456 redis
 const redis = new Redis('redis://default:123456@localhost:6379');
-const repository = new RedisIndexedSessionRepository(redis, 'myapp:session');
+const repository = new RedisSessionRepository(redis, 'myapp:session');
 
 describe('redis session crud', () => {
   const principalName = 'user_123456';
