@@ -47,4 +47,9 @@ export interface SessionRepository<S extends Session = Session> {
 
   // added
   cleanupExpiredSessions(): Promise<void>;
+
+  // oauth2 state
+  setItem(key: string, value: unknown, expiresIn?: number): Promise<void>;
+  getItem<T = unknown>(key: string): Promise<T | null>;
+  removeItem(key: string): Promise<void>;
 }

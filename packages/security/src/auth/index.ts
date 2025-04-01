@@ -16,7 +16,13 @@ import type {
   OAuth2AuthorizationRequest,
   PkceParameters,
 } from '../oauth2/types';
-import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
+import type {
+  AuthConfig,
+  AuthService,
+  LoggedHandler,
+  OAuth2AuthorizedHandler,
+  OAuth2State,
+} from './types';
 
 export class Auth implements AuthService {
   private readonly cookieName;
@@ -28,6 +34,7 @@ export class Auth implements AuthService {
   public readonly PATH_LOGOUT = '/logout' as const;
   public readonly PATH_LOGGED = '/logged' as const;
 
+  public readonly PATH_OAUTH2_STATE = '/oauth2/state/:registrationId' as const;
   public readonly PATH_OAUTH2_AUTHORIZATION = '/oauth2/authorization/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_CODE = '/login/oauth2/code/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_NATIVE = '/login/oauth2/native/:registrationId' as const;
@@ -88,6 +95,26 @@ export class Auth implements AuthService {
 
     return { code_verifier, code_challenge, code_challenge_method: 'S256' };
   }
+
+  private getOauth2StateKey(state: string) {
+    return `oauth2:state:${state}`;
+  }
+
+  oauth2State = async (request: Request): Promise<Response> => {
+    const { registrationId } = param(request, this.PATH_OAUTH2_STATE);
+    invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const state = randomUUID();
+    const nonce = randomUUID();
+    const pkce = this.createPkceParameters();
+    const value: OAuth2State = { state, nonce, registrationId, ...pkce };
+    await this.repository.setItem(this.getOauth2StateKey(state), value, 10 * 60);
+    return Response.json({
+      state,
+      nonce,
+      code_challenge: pkce.code_challenge,
+      code_challenge_method: pkce.code_challenge_method,
+    });
+  };
 
   oauth2Authorization = async (request: Request): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
@@ -208,9 +235,26 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
     const credentials = (await request.json()) as NativeCredentials;
+    const key = this.getOauth2StateKey(credentials.state);
+    const cached = await this.repository.getItem<OAuth2State>(key);
+    if (!cached) {
+      const json = { error: 'invalid_request', error_description: 'oauth2 state not found' };
+      return Response.json(json, { status: 400 });
+    }
+    if (cached.registrationId !== registrationId) {
+      const json = { error: 'invalid_request', error_description: 'registration mismatch' };
+      return Response.json(json, { status: 400 });
+    }
+    const pkce = {
+      code_verifier: cached.code_verifier,
+      code_challenge: cached.code_challenge,
+      code_challenge_method: cached.code_challenge_method,
+    };
+
     const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
       registrationId,
       credentials,
+      pkce,
     });
     const principal = await onAuthorized(request, registrationId, userInfo, token);
     const session = this.repository.createSession();

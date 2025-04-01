@@ -1,8 +1,7 @@
-import { Principal } from '../core';
-import { OAuth2ClientConfig, UserInfo } from '../oauth2/types';
-import { OAuth2Token } from '../oauth2/types';
-import { SessionRepository } from '../session';
-import { CookieOptions } from '../utils/http';
+import type { Principal } from '../core';
+import type { OAuth2Token, OAuth2ClientConfig, PkceParameters, UserInfo } from '../oauth2/types';
+import type { SessionRepository } from '../session';
+import type { CookieOptions } from '../utils/http';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
 export type OAuth2AuthorizedHandler = (
@@ -11,6 +10,12 @@ export type OAuth2AuthorizedHandler = (
   userInfo: UserInfo,
   token: OAuth2Token
 ) => Promise<Principal>;
+
+export interface OAuth2State extends PkceParameters {
+  state: string;
+  nonce: string;
+  registrationId: string;
+}
 
 export interface AuthConfig {
   repository: SessionRepository;
@@ -24,6 +29,7 @@ export interface AuthService {
   logout: (request: Request) => Promise<Response>;
   logged: (request: Request, onLogged?: LoggedHandler) => Promise<Response>;
 
+  oauth2State: (request: Request) => Promise<Response>;
   oauth2Authorization: (request: Request) => Promise<Response>;
   loginOAuth2Code: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
   loginOAuth2Native: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;

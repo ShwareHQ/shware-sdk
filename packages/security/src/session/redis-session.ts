@@ -472,4 +472,29 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   async cleanupExpiredSessions() {
     await this.expirationStore.cleanupExpiredSessions();
   }
+
+  private getItemKey(key: string) {
+    return `${this.namespace.replace('session', 'storage')}:${key}`;
+  }
+
+  async setItem(key: string, value: unknown, expiresIn?: number) {
+    const k = this.getItemKey(key);
+    const v = JSON.stringify(value);
+    if (expiresIn) {
+      await this.redis.set(k, v, 'EX', expiresIn);
+    } else {
+      await this.redis.set(k, v);
+    }
+  }
+
+  async getItem<T = unknown>(key: string): Promise<T | null> {
+    const k = this.getItemKey(key);
+    const json = await this.redis.get(k);
+    return json ? (JSON.parse(json) as T) : null;
+  }
+
+  async removeItem(key: string) {
+    const k = this.getItemKey(key);
+    await this.redis.del(k);
+  }
 }
