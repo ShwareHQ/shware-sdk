@@ -209,6 +209,7 @@ export class Auth implements AuthService {
     if (registrationId !== cached.registrationId) {
       return this.redirect('invalid_request', 'redirect registration mismatch');
     }
+    mark('validate_session');
 
     // 4. exchange authorization code for token and get user info
     const { code } = parsed.data;
@@ -219,7 +220,7 @@ export class Auth implements AuthService {
       pkce: cached.additionalParameters,
     });
     const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-    mark('validate_session');
+    mark('exchange_code');
 
     // 5. create or update principal
     const principal = await onAuthorized(request, registrationId, userInfo, token);
