@@ -30,6 +30,7 @@ export interface DBAdapter {
   deleteById(sessionId: string): Promise<void>;
   findById(sessionId: string): Promise<SessionEntity | null>;
   findByPrincipalName(principalName: string): Promise<SessionEntity[]>;
+  cleanupExpiredSessions(cleanupCount?: number): Promise<void>;
 }
 
 export class DBIndexedSessionRepository implements SessionRepository<DBSession> {
@@ -131,6 +132,6 @@ export class DBIndexedSessionRepository implements SessionRepository<DBSession> 
   }
 
   async cleanupExpiredSessions(cleanupCount?: number): Promise<void> {
-    return;
+    return this.db.cleanupExpiredSessions(cleanupCount);
   }
 }
