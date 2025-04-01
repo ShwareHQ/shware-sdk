@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import invariant from 'tiny-invariant';
-import { OAuth2ClientConfig, OAuth2Token, PkceParameters } from './types';
+import {
+  NativeCredentials,
+  OAuth2ClientConfig,
+  OAuth2Token,
+  OidcToken,
+  PkceParameters,
+} from './types';
 
 export const oauth2RedirectQuerySchema = z.object({
   code: z.string().optional(),
@@ -80,7 +86,13 @@ export class OAuth2Client {
     });
   }
 
-  async getUserInfo({ registrationId, token }: { registrationId: string; token: OAuth2Token }) {
+  async getUserInfo({
+    registrationId,
+    token,
+  }: {
+    registrationId: string;
+    token: OAuth2Token | OidcToken;
+  }) {
     const { provider } = this.getClientConfig(registrationId);
     return provider.getUserInfo(token);
   }
@@ -105,5 +117,28 @@ export class OAuth2Client {
 
     invariant(provider.revokeToken, 'Provider does not support revokeToken');
     await provider.revokeToken({ token, clientId, clientSecret });
+  }
+
+  async loginOAuth2Native({
+    registrationId,
+    credentials,
+    pkce,
+  }: {
+    registrationId: string;
+    credentials: NativeCredentials;
+    pkce?: PkceParameters;
+  }) {
+    const { provider, registration } = this.getClientConfig(registrationId);
+    invariant(provider.loginOAuth2Native, 'Provider does not support loginOAuth2Native');
+    const { baseUri } = this.config;
+    const { clientId, clientSecret, redirectUri } = registration;
+
+    return provider.loginOAuth2Native({
+      clientId,
+      clientSecret,
+      redirectUri: redirectUri ?? `${baseUri}/login/oauth2/code/${registrationId}`,
+      credentials,
+      pkce,
+    });
   }
 }

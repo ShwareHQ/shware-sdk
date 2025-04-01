@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { Provider } from '../types';
+import { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import {
   createAuthorizationUri,
@@ -22,7 +22,7 @@ const defaultUserFields = [
   'verified',
 ];
 
-export function x(options?: XOptions): Provider<XOAuth2Token, XUserInfo> {
+export function createX(options?: XOptions): Provider {
   return {
     authorizationUri: 'https://x.com/i/oauth2/authorize',
     tokenUri: 'https://api.x.com/2/oauth2/token',
@@ -49,7 +49,7 @@ export function x(options?: XOptions): Provider<XOAuth2Token, XUserInfo> {
         const { error, error_description } = (await response.json()) as XErrorResponse;
         throw new OAuth2Error(response.status, error, error_description);
       }
-      return (await response.json()) as XOAuth2Token;
+      return (await response.json()) as XToken;
     },
     async getUserInfo({ access_token }) {
       invariant(access_token, 'access_token is required');
@@ -95,7 +95,7 @@ export function x(options?: XOptions): Provider<XOAuth2Token, XUserInfo> {
         const { error, error_description } = (await response.json()) as XErrorResponse;
         throw new OAuth2Error(response.status, error, error_description);
       }
-      return (await response.json()) as XOAuth2Token;
+      return (await response.json()) as XToken;
     },
     async revokeToken(params) {
       invariant(this.tokenRevokeUri, 'tokenRevokeUri is required');
@@ -107,6 +107,8 @@ export function x(options?: XOptions): Provider<XOAuth2Token, XUserInfo> {
     },
   };
 }
+
+export const x = createX();
 
 type UserField =
   | 'affiliation'
@@ -168,13 +170,13 @@ type UrlEntity = { start: number; end: number; url: string; display_url: string;
 type HashtagEntity = { start: number; end: number; tag: string };
 type MentionEntity = { start: number; end: string; username: string };
 
-type XOAuth2Token = {
+export interface XToken extends OAuth2Token {
   token_type: string;
   expires_in: number;
   access_token: string;
   scope: string;
   refresh_token: string;
-};
+}
 
 type XErrorResponse = { error: string; error_description: string };
 type XAPIErrorResponse = {

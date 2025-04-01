@@ -1,9 +1,9 @@
 import invariant from 'tiny-invariant';
-import { Provider } from '../types';
+import { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
-export function google(): Provider<GoogleOAuth2Token, GoogleUserInfo> {
+export function createGoogle(): Provider {
   return {
     authorizationUri: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUri: 'https://oauth2.googleapis.com/token',
@@ -29,7 +29,7 @@ export function google(): Provider<GoogleOAuth2Token, GoogleUserInfo> {
         const { error, error_description } = (await response.json()) as GoogleErrorResponse;
         throw new OAuth2Error(response.status, error, error_description);
       }
-      return (await response.json()) as GoogleOAuth2Token;
+      return (await response.json()) as GoogleToken;
     },
     async getUserInfo({ id_token }) {
       invariant(id_token, 'id_token is required');
@@ -52,6 +52,8 @@ export function google(): Provider<GoogleOAuth2Token, GoogleUserInfo> {
   };
 }
 
+export const google = createGoogle();
+
 export interface GoogleUserInfo {
   aud: string;
   azp: string;
@@ -71,7 +73,7 @@ export interface GoogleUserInfo {
   sub: string;
 }
 
-export interface GoogleOAuth2Token {
+export interface GoogleToken extends OAuth2Token {
   access_token: string;
   token_type: string;
   expires_in: number;
@@ -79,6 +81,14 @@ export interface GoogleOAuth2Token {
   id_token: string;
   scope: string;
 }
+
+// android,ios has different client_id and redirect_uri
+export type GoogleAppCredentials = {
+  state: string;
+  code: string;
+  client_id: string;
+  redirect_uri: string;
+};
 
 export interface GoogleErrorResponse {
   error:

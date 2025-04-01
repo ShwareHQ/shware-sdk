@@ -1,9 +1,9 @@
 import invariant from 'tiny-invariant';
-import { Provider } from '../types';
+import { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode } from './common';
 
-export function github(): Provider<GithubOAuth2Token, GithubUserInfo> {
+export function createGithub(): Provider {
   return {
     authorizationUri: 'https://github.com/login/oauth/authorize',
     tokenUri: 'https://github.com/login/oauth/access_token',
@@ -23,7 +23,7 @@ export function github(): Provider<GithubOAuth2Token, GithubUserInfo> {
         const { error, error_description } = (await response.json()) as GithubErrorResponse;
         throw new OAuth2Error(response.status, error, error_description);
       }
-      return (await response.json()) as GithubOAuth2Token;
+      return (await response.json()) as GithubToken;
     },
     async getUserInfo({ access_token }) {
       invariant(access_token, 'access_token is required');
@@ -61,6 +61,8 @@ export function github(): Provider<GithubOAuth2Token, GithubUserInfo> {
     },
   };
 }
+
+export const github = createGithub();
 
 export interface GithubUserInfo {
   login: string;
@@ -116,7 +118,7 @@ interface GithubEmail {
   visibility: 'public' | 'private';
 }
 
-interface GithubOAuth2Token {
+export interface GithubToken extends OAuth2Token {
   access_token: string;
   token_type: string;
   scope: string;

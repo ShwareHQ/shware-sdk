@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { Provider } from '../types';
+import { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
@@ -7,10 +7,7 @@ import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from
  * ref: https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/
  * ref: https://developers.facebook.com/tools/explorer
  * */
-export function facebook(): Provider<
-  FacebookOAuth2Token,
-  FacebookUserInfo | FacebookDecodedIdToken
-> {
+export function createFacebook(): Provider {
   return {
     authorizationUri: 'https://www.facebook.com/v21.0/dialog/oauth',
     tokenUri: 'https://graph.facebook.com/v19.0/oauth/access_token',
@@ -31,7 +28,7 @@ export function facebook(): Provider<
         const { error } = (await response.json()) as FacebookErrorResponse;
         throw new OAuth2Error(response.status, 'invalid_request', error.message);
       }
-      return (await response.json()) as FacebookOAuth2Token;
+      return (await response.json()) as FacebookToken;
     },
     async getUserInfo({ id_token, access_token }) {
       invariant(this.jwkSetUri, 'jwkSetUri is required');
@@ -75,6 +72,8 @@ export function facebook(): Provider<
   };
 }
 
+export const facebook = createFacebook();
+
 export interface FacebookDecodedIdToken {
   sub: string;
   name: string;
@@ -97,12 +96,16 @@ export interface FacebookUserInfo {
   };
 }
 
-interface FacebookOAuth2Token {
+export interface FacebookToken extends OAuth2Token {
   access_token: string;
   token_type: 'bearer';
   expires_in: number;
   id_token?: string;
 }
+
+export type FacebookAppCredentials =
+  | { state: string; id_token: string } // platform=ios and tracking=limited
+  | { state: string; access_token: string }; // tracking=enabled
 
 interface FacebookErrorResponse {
   error: {

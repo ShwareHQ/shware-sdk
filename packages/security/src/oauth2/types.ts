@@ -40,6 +40,14 @@ export interface RevokeTokenParams {
   clientSecret: string;
 }
 
+export interface LoginOAuth2NativeParams {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  pkce?: PkceParameters;
+  credentials: NativeCredentials;
+}
+
 // reference: https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
 export interface OAuth2Token {
   /**
@@ -76,33 +84,13 @@ export interface OAuth2Token {
    * access token as described by Section 3.3.
    */
   scope?: string;
+
+  id_token?: string;
 }
 
 export interface OidcToken extends OAuth2Token {
   id_token: string;
 }
-
-// android,ios has different client_id and redirect_uri
-export type GoogleAppCredentials = {
-  state: string;
-  code: string;
-  client_id: string;
-  redirect_uri: string;
-};
-
-export type FacebookAppCredentials =
-  | { state: string; id_token: string } // platform=ios and tracking=limited
-  | { state: string; access_token: string }; // tracking=enabled
-
-export type AppleAppCredentials = {
-  state: string;
-  code: string;
-  id_token: string;
-  // no standard fields
-  user: string;
-  email?: string;
-  full_name: string;
-};
 
 export type NativeCredentials = {
   state: string;
@@ -153,15 +141,12 @@ export interface StandardClaims {
   updated_at?: number;
 }
 
-export interface UserInfo<T extends Record<string, any> = Record<string, any>> {
+export interface UserInfo<T = unknown> {
   claims: StandardClaims;
   data: T;
 }
 
-export interface Provider<
-  T extends OAuth2Token = OAuth2Token,
-  U extends Record<string, any> = Record<string, any>,
-> {
+export interface Provider {
   /** Authorization URI for the provider. */
   authorizationUri: string;
 
@@ -197,16 +182,20 @@ export interface Provider<
   createAuthorizationUri: (params: CreateAuthorizationUriParams) => URL;
 
   /** step 2: exchange code for token */
-  exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<T>;
+  exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<OAuth2Token>;
 
   /** step 3: get user info */
-  getUserInfo: (token: T) => Promise<UserInfo<U>>;
+  getUserInfo: (token: OAuth2Token) => Promise<UserInfo>;
 
   /** others: refresh access token */
-  refreshAccessToken?: (params: RefreshTokenParams) => Promise<T>;
+  refreshAccessToken?: (params: RefreshTokenParams) => Promise<OAuth2Token>;
 
   /** others: revoke token */
   revokeToken?: (params: RevokeTokenParams) => Promise<void>;
+
+  loginOAuth2Native?: (
+    params: LoginOAuth2NativeParams
+  ) => Promise<{ token: OAuth2Token; userInfo: UserInfo } | null>;
 }
 
 export interface Registration {

@@ -1,10 +1,10 @@
 import invariant from 'tiny-invariant';
-import { Provider } from '../types';
+import { NativeCredentials, LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 // ref: https://account.apple.com/.well-known/openid-configuration
-export function apple(): Provider<AppleOAuth2Token, AppleUserInfo> {
+export function createApple(): Provider {
   return {
     // important notice: response_mode=form_post is required for apple
     authorizationUri: 'https://appleid.apple.com/auth/authorize?response_mode=form_post',
@@ -25,7 +25,7 @@ export function apple(): Provider<AppleOAuth2Token, AppleUserInfo> {
         const { error } = (await response.json()) as AppleErrorResponse;
         throw new OAuth2Error(response.status, error);
       }
-      return (await response.json()) as AppleOAuth2Token;
+      return (await response.json()) as AppleToken;
     },
     async getUserInfo({ id_token }) {
       invariant(id_token, 'id_token is required');
@@ -44,8 +44,23 @@ export function apple(): Provider<AppleOAuth2Token, AppleUserInfo> {
         },
       };
     },
+    async loginOAuth2Native({ pkce, credentials, ...params }: LoginOAuth2NativeParams) {
+      invariant(credentials.code, 'code is required');
+      const { tokenUri } = this;
+      const { code } = credentials;
+      const response = await exchangeAuthorizationCode({ code, tokenUri, ...params });
+      if (!response.ok) {
+        const { error } = (await response.json()) as AppleErrorResponse;
+        throw new OAuth2Error(response.status, error);
+      }
+      const token = (await response.json()) as AppleToken;
+      const userInfo = await this.getUserInfo(token);
+      return { token, userInfo };
+    },
   };
 }
+
+export const apple = createApple();
 
 // https://developer.apple.com/documentation/sign_in_with_apple/authenticating-users-with-sign-in-with-apple
 export interface AppleUserInfo {
@@ -64,12 +79,21 @@ export interface AppleUserInfo {
 
 // https://developer.apple.com/documentation/devicemanagement/implementing-the-oauth2-authentication-user-enrollment-flow
 // https://developer.apple.com/documentation/sign_in_with_apple/generate_and_validate_tokens
-export interface AppleOAuth2Token {
+export interface AppleToken extends OAuth2Token {
   access_token: string;
   token_type: string;
   expires_in: number;
   refresh_token: string;
   id_token: string;
+}
+
+export interface AppleNativeCredentials extends NativeCredentials {
+  state: string;
+  code: string;
+  id_token: string;
+  // no standard fields
+  user: string;
+  email?: string;
 }
 
 // https://developer.apple.com/documentation/sign_in_with_apple/errorresponse
