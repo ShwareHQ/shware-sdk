@@ -22,7 +22,7 @@ const defaultUserFields = [
   'verified',
 ];
 
-export function createX(options?: XOptions): Provider {
+export function createXProvider(options?: XOptions): Provider {
   return {
     authorizationUri: 'https://x.com/i/oauth2/authorize',
     tokenUri: 'https://api.x.com/2/oauth2/token',
@@ -108,7 +108,7 @@ export function createX(options?: XOptions): Provider {
   };
 }
 
-export const x = createX();
+export const x = createXProvider();
 
 type UserField =
   | 'affiliation'

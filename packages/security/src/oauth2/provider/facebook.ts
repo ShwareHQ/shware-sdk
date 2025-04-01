@@ -7,7 +7,7 @@ import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from
  * ref: https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/
  * ref: https://developers.facebook.com/tools/explorer
  * */
-export function createFacebook(): Provider {
+export function createFacebookProvider(): Provider {
   return {
     authorizationUri: 'https://www.facebook.com/v21.0/dialog/oauth',
     tokenUri: 'https://graph.facebook.com/v19.0/oauth/access_token',
@@ -72,7 +72,7 @@ export function createFacebook(): Provider {
   };
 }
 
-export const facebook = createFacebook();
+export const facebook = createFacebookProvider();
 
 export interface FacebookDecodedIdToken {
   sub: string;

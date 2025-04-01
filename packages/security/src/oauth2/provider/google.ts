@@ -3,7 +3,7 @@ import { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
-export function createGoogle(): Provider {
+export function createGoogleProvider(): Provider {
   return {
     authorizationUri: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUri: 'https://oauth2.googleapis.com/token',
@@ -52,7 +52,7 @@ export function createGoogle(): Provider {
   };
 }
 
-export const google = createGoogle();
+export const google = createGoogleProvider();
 
 export interface GoogleUserInfo {
   aud: string;

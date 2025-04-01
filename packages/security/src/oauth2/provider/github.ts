@@ -3,7 +3,7 @@ import { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode } from './common';
 
-export function createGithub(): Provider {
+export function createGithubProvider(): Provider {
   return {
     authorizationUri: 'https://github.com/login/oauth/authorize',
     tokenUri: 'https://github.com/login/oauth/access_token',
@@ -62,7 +62,7 @@ export function createGithub(): Provider {
   };
 }
 
-export const github = createGithub();
+export const github = createGithubProvider();
 
 export interface GithubUserInfo {
   login: string;

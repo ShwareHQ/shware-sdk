@@ -4,7 +4,7 @@ import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 // ref: https://account.apple.com/.well-known/openid-configuration
-export function createApple(): Provider {
+export function createAppleProvider(): Provider {
   return {
     // important notice: response_mode=form_post is required for apple
     authorizationUri: 'https://appleid.apple.com/auth/authorize?response_mode=form_post',
@@ -60,7 +60,7 @@ export function createApple(): Provider {
   };
 }
 
-export const apple = createApple();
+export const apple = createAppleProvider();
 
 // https://developer.apple.com/documentation/sign_in_with_apple/authenticating-users-with-sign-in-with-apple
 export interface AppleUserInfo {
