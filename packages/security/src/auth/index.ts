@@ -10,9 +10,13 @@ import {
   type CookieOptions,
 } from '../utils/http';
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
-import type { OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
-import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 import { OAuth2ErrorType } from '../oauth2/error';
+import type {
+  NativeCredentials,
+  OAuth2AuthorizationRequest,
+  PkceParameters,
+} from '../oauth2/types';
+import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 
 export class Auth implements AuthService {
   private readonly cookieName;
@@ -203,6 +207,21 @@ export class Auth implements AuthService {
   ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
-    return Response.json({});
+    const credentials = (await request.json()) as NativeCredentials;
+    const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
+      registrationId,
+      credentials,
+    });
+    const principal = await onAuthorized(request, registrationId, userInfo, token);
+    const session = this.repository.createSession();
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
+    await this.repository.save(session);
+    const response = new Response(JSON.stringify(principal), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const maxAge = session.getMaxInactiveInterval();
+    setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+    return response;
   };
 }

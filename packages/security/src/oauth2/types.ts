@@ -195,7 +195,7 @@ export interface Provider {
 
   loginOAuth2Native?: (
     params: LoginOAuth2NativeParams
-  ) => Promise<{ token: OAuth2Token; userInfo: UserInfo } | null>;
+  ) => Promise<{ token: OAuth2Token; userInfo: UserInfo }>;
 }
 
 export interface Registration {
