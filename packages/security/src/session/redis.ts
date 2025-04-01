@@ -1,7 +1,7 @@
 import { resolveIndexesFor, PRINCIPAL_NAME_INDEX_NAME, SPRING_SECURITY_CONTEXT } from './common';
 import { MapSession } from './map-session';
 import type { Redis } from 'ioredis';
-import type { Namespace, Session, SessionRepository } from './types';
+import type { KVRepository, Namespace, Session, SessionRepository } from './types';
 
 const CREATION_TIME_KEY = 'creationTime';
 const LAST_ACCESSED_TIME_KEY = 'lastAccessedTime';
@@ -353,29 +353,28 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   async cleanupExpiredSessions(cleanupCount?: number) {
     await this.expirationStore.cleanupExpiredSessions(cleanupCount);
   }
+}
 
-  private getItemKey(key: string) {
-    return `${this.namespace.replace('session', 'storage')}:${key}`;
+export class RedisKVRepository implements KVRepository {
+  private readonly redis: Redis;
+
+  constructor(redis: Redis) {
+    this.redis = redis;
   }
 
-  async setItem(key: string, value: unknown, expiresIn?: number) {
-    const k = this.getItemKey(key);
-    const v = JSON.stringify(value);
+  async setItem(key: string, value: string, expiresIn?: number) {
     if (expiresIn) {
-      await this.redis.set(k, v, 'EX', expiresIn);
+      await this.redis.set(key, value, 'EX', expiresIn);
     } else {
-      await this.redis.set(k, v);
+      await this.redis.set(key, value);
     }
   }
 
-  async getItem<T = unknown>(key: string): Promise<T | null> {
-    const k = this.getItemKey(key);
-    const json = await this.redis.get(k);
-    return json ? (JSON.parse(json) as T) : null;
+  async getItem(key: string): Promise<string | null> {
+    return await this.redis.get(key);
   }
 
   async removeItem(key: string) {
-    const k = this.getItemKey(key);
-    await this.redis.del(k);
+    await this.redis.del(key);
   }
 }

@@ -12,7 +12,7 @@ import {
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
-import type { SessionRepository } from '../session/types';
+import type { KVRepository, SessionRepository } from '../session/types';
 import type {
   NativeCredentials,
   OAuth2AuthorizationRequest,
@@ -28,10 +28,11 @@ import type {
 
 export class Auth implements AuthService {
   private readonly timing: boolean;
-
   private readonly cookieName;
   private readonly cookieOptions: CookieOptions;
+  private readonly kv: KVRepository;
   private readonly repository: SessionRepository;
+
   private readonly oauth2Client: OAuth2Client | null;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
@@ -46,9 +47,10 @@ export class Auth implements AuthService {
 
   public readonly PATH_CLEANUP_EXPIRED_SESSIONS = '/sessions/expired/cleanup' as const;
 
-  constructor({ repository, oauth2, cookie, timing }: AuthConfig) {
+  constructor({ sessionRepository, kvRepository, oauth2, cookie, timing }: AuthConfig) {
     this.timing = timing ?? false;
-    this.repository = repository;
+    this.kv = kvRepository;
+    this.repository = sessionRepository;
     const { name, ...cookieOptions } = cookie ?? {};
     this.cookieName = name ?? 'SESSION';
     this.cookieOptions = {
@@ -112,7 +114,7 @@ export class Auth implements AuthService {
     const nonce = randomUUID();
     const pkce = this.createPkceParameters();
     const value: OAuth2State = { state, nonce, registrationId, ...pkce };
-    await this.repository.setItem(this.getOauth2StateKey(state), value, 10 * 60);
+    await this.kv.setItem(this.getOauth2StateKey(state), JSON.stringify(value), 10 * 60);
     return Response.json({
       state,
       nonce,
@@ -255,7 +257,8 @@ export class Auth implements AuthService {
     const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
     const credentials = (await request.json()) as NativeCredentials;
     const key = this.getOauth2StateKey(credentials.state);
-    const cached = await this.repository.getItem<OAuth2State>(key);
+    const value = await this.kv.getItem(key);
+    const cached = value ? (JSON.parse(value) as OAuth2State) : null;
     if (!cached) {
       const json = { error: 'invalid_request', error_description: 'oauth2 state not found' };
       return Response.json(json, { status: 400 });

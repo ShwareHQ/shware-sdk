@@ -133,16 +133,4 @@ export class DBIndexedSessionRepository implements SessionRepository<DBSession> 
   async cleanupExpiredSessions(cleanupCount?: number): Promise<void> {
     return;
   }
-
-  async setItem(key: string, value: unknown, expiresIn?: number): Promise<void> {
-    return;
-  }
-
-  async getItem<T = unknown>(key: string): Promise<T | null> {
-    return null;
-  }
-
-  async removeItem(key: string): Promise<void> {
-    return;
-  }
 }

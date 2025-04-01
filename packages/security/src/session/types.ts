@@ -47,9 +47,10 @@ export interface SessionRepository<S extends Session = Session> {
 
   // added
   cleanupExpiredSessions(cleanupCount?: number): Promise<void>;
+}
 
-  // oauth2 state
-  setItem(key: string, value: unknown, expiresIn?: number): Promise<void>;
-  getItem<T = unknown>(key: string): Promise<T | null>;
+export interface KVRepository {
+  setItem(key: string, value: string, expiresIn?: number): Promise<void>;
+  getItem(key: string): Promise<string | null>;
   removeItem(key: string): Promise<void>;
 }
