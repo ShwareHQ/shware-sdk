@@ -23,8 +23,11 @@ import type {
   OAuth2AuthorizedHandler,
   OAuth2State,
 } from './types';
+import { timing } from '../utils/timing';
 
 export class Auth implements AuthService {
+  private readonly timing: boolean;
+
   private readonly cookieName;
   private readonly cookieOptions: CookieOptions;
   private readonly repository: SessionRepository;
@@ -41,7 +44,8 @@ export class Auth implements AuthService {
 
   public readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
-  constructor({ repository, oauth2, cookie }: AuthConfig) {
+  constructor({ repository, oauth2, cookie, timing }: AuthConfig) {
+    this.timing = timing ?? false;
     this.repository = repository;
     const { name, ...cookieOptions } = cookie ?? {};
     this.cookieName = name ?? 'SESSION';
@@ -82,7 +86,6 @@ export class Auth implements AuthService {
     const response = Response.json({ data: name !== null });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
-
     return response;
   };
 
@@ -118,6 +121,7 @@ export class Auth implements AuthService {
 
   oauth2Authorization = async (request: Request): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, this.PATH_OAUTH2_AUTHORIZATION);
     const state = randomUUID();
     const pkce = this.createPkceParameters();
@@ -126,6 +130,7 @@ export class Auth implements AuthService {
     const session = sessionId
       ? ((await this.repository.findById(sessionId)) ?? this.repository.createSession())
       : this.repository.createSession();
+    mark('fetch_session');
 
     const authorizationRequest: OAuth2AuthorizationRequest = {
       state,
@@ -137,10 +142,13 @@ export class Auth implements AuthService {
     const value = JSON.stringify(authorizationRequest);
     session.setAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST, value);
     await this.repository.save(session);
+    mark('save_session');
 
     const response = new Response(null, { status: 302, headers: { location: uri.href } });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+    setTiming(response);
+
     return response;
   };
 
@@ -157,6 +165,7 @@ export class Auth implements AuthService {
     onAuthorized: OAuth2AuthorizedHandler
   ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const { mark, setTiming } = timing({ enabled: this.timing });
 
     // 1. get session from cookie
     const sessionId = getCookie(request, this.cookieName);
@@ -164,6 +173,7 @@ export class Auth implements AuthService {
     if (!session) {
       return this.redirect('invalid_request', 'session not found');
     }
+    mark('load_session');
 
     // 2. get cached authorization request from session
     const json = session.getAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) as string | null;
@@ -209,15 +219,18 @@ export class Auth implements AuthService {
       pkce: cached.additionalParameters,
     });
     const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
+    mark('validate_session');
 
     // 5. create or update principal
     const principal = await onAuthorized(request, registrationId, userInfo, token);
+    mark('save_principal');
 
     // 6. update session
     session.setLastAccessedTime(Date.now());
     session.removeAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST);
     session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
     await this.repository.save(session);
+    mark('update_session');
 
     const response = new Response(null, {
       status: 302,
@@ -225,6 +238,8 @@ export class Auth implements AuthService {
     });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+    setTiming(response);
+
     return response;
   };
 
@@ -233,6 +248,7 @@ export class Auth implements AuthService {
     onAuthorized: OAuth2AuthorizedHandler
   ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
     const credentials = (await request.json()) as NativeCredentials;
     const key = this.getOauth2StateKey(credentials.state);
@@ -245,6 +261,8 @@ export class Auth implements AuthService {
       const json = { error: 'invalid_request', error_description: 'registration mismatch' };
       return Response.json(json, { status: 400 });
     }
+    mark('validate_state');
+
     const pkce = {
       code_verifier: cached.code_verifier,
       code_challenge: cached.code_challenge,
@@ -256,7 +274,11 @@ export class Auth implements AuthService {
       credentials,
       pkce,
     });
+    mark('login_oauth2_native');
+
     const principal = await onAuthorized(request, registrationId, userInfo, token);
+    mark('save_principal');
+
     const session = this.repository.createSession();
     session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
     await this.repository.save(session);
@@ -266,6 +288,8 @@ export class Auth implements AuthService {
     });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+    setTiming(response);
+
     return response;
   };
 }

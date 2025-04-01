@@ -18,6 +18,7 @@ export interface OAuth2State extends PkceParameters {
 }
 
 export interface AuthConfig {
+  timing?: boolean;
   repository: SessionRepository;
   cookie?: CookieOptions & { name?: string };
   oauth2?: {
