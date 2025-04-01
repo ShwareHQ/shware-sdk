@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { OAuth2Token, Provider } from '../types';
+import { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
@@ -48,6 +48,19 @@ export function createGoogleProvider(): Provider {
           locale: data.locale,
         },
       };
+    },
+    async loginOAuth2Native({ pkce, credentials, ...params }: LoginOAuth2NativeParams) {
+      invariant(credentials.code, 'code is required');
+      const { code } = credentials;
+      const { tokenUri } = this;
+      const response = await exchangeAuthorizationCode({ code, tokenUri, ...params });
+      if (!response.ok) {
+        const { error, error_description } = (await response.json()) as GoogleErrorResponse;
+        throw new OAuth2Error(response.status, error, error_description);
+      }
+      const token = (await response.json()) as GoogleToken;
+      const userInfo = await this.getUserInfo(token);
+      return { token, userInfo };
     },
   };
 }

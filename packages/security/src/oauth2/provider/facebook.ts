@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { OAuth2Token, Provider } from '../types';
+import { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
@@ -68,6 +68,19 @@ export function createFacebookProvider(): Provider {
           email_verified: data.email_verified,
         },
       };
+    },
+    async loginOAuth2Native({ credentials }: LoginOAuth2NativeParams) {
+      if (credentials.id_token || credentials.access_token) {
+        const userInfo = await this.getUserInfo(credentials as unknown as OAuth2Token);
+        const token: OAuth2Token = {
+          token_type: 'bearer',
+          access_token: credentials.access_token ?? '',
+          id_token: credentials.id_token,
+        };
+        return { token, userInfo };
+      } else {
+        throw new OAuth2Error(400, 'invalid_request', 'id_token or access_token is required');
+      }
     },
   };
 }
