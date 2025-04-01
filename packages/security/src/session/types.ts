@@ -46,7 +46,7 @@ export interface SessionRepository<S extends Session = Session> {
   findByPrincipalName(principalName: string): Promise<Map<string, S>>;
 
   // added
-  cleanupExpiredSessions(): Promise<void>;
+  cleanupExpiredSessions(cleanupCount?: number): Promise<void>;
 
   // oauth2 state
   setItem(key: string, value: unknown, expiresIn?: number): Promise<void>;

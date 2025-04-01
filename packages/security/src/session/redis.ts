@@ -209,15 +209,13 @@ interface RedisSessionExpirationStore {
   save(session: RedisSession): Promise<void>;
   remove(sessionId: string): Promise<void>;
   rename(session: RedisSession): Promise<void>;
-  cleanupExpiredSessions(): Promise<void>;
+  cleanupExpiredSessions(cleanupCount?: number): Promise<void>;
 }
 
 class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStore {
   private readonly redis: Redis;
   private readonly namespace: Namespace;
   private readonly expirationsKey: string;
-
-  private cleanupCount = 100;
 
   constructor(redis: Redis, namespace: Namespace) {
     this.redis = redis;
@@ -245,15 +243,10 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
     await this.save(session);
   }
 
-  async cleanupExpiredSessions() {
-    const sessionIds = await this.redis.zrevrangebyscore(
-      this.expirationsKey,
-      Date.now(),
-      0,
-      'LIMIT',
-      0,
-      this.cleanupCount
-    );
+  async cleanupExpiredSessions(cleanupCount: number = 100) {
+    const key = this.expirationsKey;
+    const score = Date.now();
+    const sessionIds = await this.redis.zrevrangebyscore(key, score, 0, 'LIMIT', 0, cleanupCount);
     if (sessionIds.length === 0) return;
     for (const sessionId of sessionIds) {
       const sessionKey = this.getSessionKey(sessionId);
@@ -469,8 +462,8 @@ export class RedisSessionRepository implements SessionRepository<RedisSession> {
     return this.findByIndexNameAndIndexValue(PRINCIPAL_NAME_INDEX_NAME, principalName);
   }
 
-  async cleanupExpiredSessions() {
-    await this.expirationStore.cleanupExpiredSessions();
+  async cleanupExpiredSessions(cleanupCount?: number) {
+    await this.expirationStore.cleanupExpiredSessions(cleanupCount);
   }
 
   private getItemKey(key: string) {

@@ -32,6 +32,7 @@ export class Auth implements AuthService {
   private readonly cookieOptions: CookieOptions;
   private readonly repository: SessionRepository;
   private readonly oauth2Client: OAuth2Client | null;
+  private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
   public readonly PATH_CSRF = '/csrf' as const;
   public readonly PATH_LOGOUT = '/logout' as const;
@@ -42,7 +43,7 @@ export class Auth implements AuthService {
   public readonly PATH_LOGIN_OAUTH2_CODE = '/login/oauth2/code/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_NATIVE = '/login/oauth2/native/:registrationId' as const;
 
-  public readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
+  public readonly PATH_CLEANUP_EXPIRED_SESSIONS = '/sessions/expired/cleanup' as const;
 
   constructor({ repository, oauth2, cookie, timing }: AuthConfig) {
     this.timing = timing ?? false;
@@ -292,5 +293,10 @@ export class Auth implements AuthService {
     setTiming(response);
 
     return response;
+  };
+
+  cleanupExpiredSessions = async (cleanupCount?: number): Promise<Response> => {
+    await this.repository.cleanupExpiredSessions(cleanupCount);
+    return Response.json({});
   };
 }
