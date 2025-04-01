@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import invariant from 'tiny-invariant';
-import { PRINCIPAL_NAME_INDEX_NAME, type SessionRepository } from '../session/index';
+import { PRINCIPAL_NAME_INDEX_NAME } from '../session/common';
 import {
   param,
   query,
@@ -11,6 +11,8 @@ import {
 } from '../utils/http';
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
+import { timing } from '../utils/timing';
+import type { SessionRepository } from '../session/types';
 import type {
   NativeCredentials,
   OAuth2AuthorizationRequest,
@@ -23,7 +25,6 @@ import type {
   OAuth2AuthorizedHandler,
   OAuth2State,
 } from './types';
-import { timing } from '../utils/timing';
 
 export class Auth implements AuthService {
   private readonly timing: boolean;

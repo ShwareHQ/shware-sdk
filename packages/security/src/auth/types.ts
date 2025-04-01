@@ -1,6 +1,6 @@
 import type { Principal } from '../core';
 import type { OAuth2Token, OAuth2ClientConfig, PkceParameters, UserInfo } from '../oauth2/types';
-import type { SessionRepository } from '../session';
+import type { SessionRepository } from '../session/types';
 import type { CookieOptions } from '../utils/http';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
