@@ -40,7 +40,7 @@ export interface AuthService {
 
   // session management
   kick: (principal: Principal) => Promise<void>;
-  isAuthorized: (request: Request) => Promise<boolean>;
+  isAuthenticated: (request: Request) => Promise<boolean>;
   getSession: <T extends boolean>(
     request: Request,
     create: T
