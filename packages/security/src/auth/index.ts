@@ -307,6 +307,16 @@ export class Auth implements AuthService {
     }
   };
 
+  authorize = async (request: Request): Promise<boolean> => {
+    const sessionId = getCookie(request, this.cookieName);
+    if (!sessionId) return false;
+    const session = await this.repository.findById(sessionId);
+    if (!session) return false;
+    const principalName = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME);
+    if (!principalName) return false;
+    return true;
+  };
+
   getSession = async <T extends boolean>(
     request: Request,
     create: T
