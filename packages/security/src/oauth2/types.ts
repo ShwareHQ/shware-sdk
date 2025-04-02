@@ -45,7 +45,7 @@ export interface LoginOAuth2NativeParams {
   clientSecret: string;
   redirectUri: string;
   pkce?: PkceParameters;
-  credentials: NativeCredentials;
+  credentials: NativeCredential;
 }
 
 // reference: https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
@@ -92,7 +92,7 @@ export interface OidcToken extends OAuth2Token {
   id_token: string;
 }
 
-export type NativeCredentials = {
+export type NativeCredential = {
   state: string;
   code?: string;
   client_id?: string;

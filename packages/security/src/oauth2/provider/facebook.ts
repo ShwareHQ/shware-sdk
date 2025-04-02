@@ -116,7 +116,7 @@ export interface FacebookToken extends OAuth2Token {
   id_token?: string;
 }
 
-export type FacebookAppCredentials =
+export type FacebookAppCredential =
   | { state: string; id_token: string } // platform=ios and tracking=limited
   | { state: string; access_token: string }; // tracking=enabled
 

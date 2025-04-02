@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { NativeCredentials, LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
+import { NativeCredential, LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
@@ -87,7 +87,7 @@ export interface AppleToken extends OAuth2Token {
   id_token: string;
 }
 
-export interface AppleNativeCredentials extends NativeCredentials {
+export interface AppleNativeCredential extends NativeCredential {
   state: string;
   code: string;
   id_token: string;

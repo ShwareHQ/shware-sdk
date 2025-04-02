@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import invariant from 'tiny-invariant';
 import {
-  NativeCredentials,
+  NativeCredential,
   OAuth2ClientConfig,
   OAuth2Token,
   OidcToken,
@@ -125,7 +125,7 @@ export class OAuth2Client {
     pkce,
   }: {
     registrationId: string;
-    credentials: NativeCredentials;
+    credentials: NativeCredential;
     pkce?: PkceParameters;
   }) {
     const { provider, registration } = this.getClientConfig(registrationId);

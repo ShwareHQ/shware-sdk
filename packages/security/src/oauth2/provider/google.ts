@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
+import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
@@ -96,12 +96,12 @@ export interface GoogleToken extends OAuth2Token {
 }
 
 // android,ios has different client_id and redirect_uri
-export type GoogleAppCredentials = {
+export interface GoogleAppCredential extends NativeCredential {
   state: string;
   code: string;
   client_id: string;
   redirect_uri: string;
-};
+}
 
 export interface GoogleErrorResponse {
   error:

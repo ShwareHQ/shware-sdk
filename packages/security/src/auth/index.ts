@@ -13,11 +13,7 @@ import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
-import type {
-  NativeCredentials,
-  OAuth2AuthorizationRequest,
-  PkceParameters,
-} from '../oauth2/types';
+import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
 import type {
   AuthConfig,
   AuthService,
@@ -256,7 +252,7 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
-    const credentials = (await request.json()) as NativeCredentials;
+    const credentials = (await request.json()) as NativeCredential;
     const key = this.getOauth2StateKey(credentials.state);
     const value = await this.kv.getItem(key);
     const cached = value ? (JSON.parse(value) as OAuth2State) : null;
