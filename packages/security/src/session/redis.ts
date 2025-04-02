@@ -145,9 +145,9 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
   }
 }
 
-// 15549130 <spring:session:sessions:uuid, hash<session>> + 300s
-// 15549147 <spring:session:sessions:expirations, sorted_set<uuid>> + 300s
-// 15548839 <spring:session:sessions:expires:uuid, string<empty>>
+// <spring:session:sessions:uuid, hash<session>> + 300s
+// <spring:session:sessions:expirations, sorted_set<uuid>>
+// <spring:session:sessions:expires:uuid, string<empty>>: for expire check & event
 export class RedisIndexedSessionRepository implements SessionRepository<RedisSession> {
   private readonly redis: Redis;
   private readonly namespace: Namespace;
