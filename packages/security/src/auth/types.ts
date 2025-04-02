@@ -1,6 +1,6 @@
 import type { Principal } from '../core';
 import type { OAuth2Token, OAuth2ClientConfig, PkceParameters, UserInfo } from '../oauth2/types';
-import type { KVRepository, SessionRepository } from '../session/types';
+import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { CookieOptions } from '../utils/http';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
@@ -28,11 +28,22 @@ export interface AuthConfig {
 }
 
 export interface AuthService {
+  // basic
   logout: (request: Request) => Promise<Response>;
   logged: (request: Request, onLogged?: LoggedHandler) => Promise<Response>;
 
+  // oauth2
   oauth2State: (request: Request) => Promise<Response>;
   oauth2Authorization: (request: Request) => Promise<Response>;
   loginOAuth2Code: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
   loginOAuth2Native: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
+
+  // session management
+  kick: (principal: Principal) => Promise<void>;
+  getSession: <T extends boolean>(
+    request: Request,
+    create: T
+  ) => Promise<T extends true ? Session : Session | null>;
+  deleteSession: (sessionId: string) => Promise<void>;
+  cleanupExpiredSessions: (cleanupCount?: number) => Promise<Response>;
 }

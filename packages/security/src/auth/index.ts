@@ -12,7 +12,7 @@ import {
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
-import type { KVRepository, SessionRepository } from '../session/types';
+import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type {
   NativeCredentials,
   OAuth2AuthorizationRequest,
@@ -25,6 +25,7 @@ import type {
   OAuth2AuthorizedHandler,
   OAuth2State,
 } from './types';
+import { Principal } from '../core';
 
 export class Auth implements AuthService {
   private readonly timing: boolean;
@@ -297,6 +298,44 @@ export class Auth implements AuthService {
     setTiming(response);
 
     return response;
+  };
+
+  kick = async (principal: Principal): Promise<void> => {
+    const sessions = await this.repository.findByPrincipalName(principal.name);
+    for (const sessionId of sessions.keys()) {
+      await this.repository.deleteById(sessionId);
+    }
+  };
+
+  getSession = async <T extends boolean>(
+    request: Request,
+    create: T
+  ): Promise<T extends true ? Session : Session | null> => {
+    const sessionId = getCookie(request, this.cookieName);
+    if (!sessionId) {
+      if (create) {
+        const session = this.repository.createSession();
+        await this.repository.save(session);
+        return session;
+      } else {
+        return null as T extends true ? Session : Session | null;
+      }
+    }
+    const session = await this.repository.findById(sessionId);
+    if (!session) {
+      if (create) {
+        const session = this.repository.createSession();
+        await this.repository.save(session);
+        return session;
+      } else {
+        return null as T extends true ? Session : Session | null;
+      }
+    }
+    return session;
+  };
+
+  deleteSession = async (sessionId: string): Promise<void> => {
+    await this.repository.deleteById(sessionId);
   };
 
   cleanupExpiredSessions = async (cleanupCount?: number): Promise<Response> => {
