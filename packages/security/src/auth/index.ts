@@ -307,7 +307,7 @@ export class Auth implements AuthService {
     }
   };
 
-  authorize = async (request: Request): Promise<boolean> => {
+  isAuthorized = async (request: Request): Promise<boolean> => {
     const sessionId = getCookie(request, this.cookieName);
     if (!sessionId) return false;
     const session = await this.repository.findById(sessionId);
