@@ -1,26 +1,14 @@
 import { createHash, randomUUID } from 'crypto';
 import invariant from 'tiny-invariant';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../session/common';
-import {
-  param,
-  query,
-  getCookie,
-  setCookie,
-  deleteCookie,
-  type CookieOptions,
-} from '../utils/http';
+import { param, query, getCookie, setCookie, deleteCookie } from '../utils/http';
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
+import type { CookieOptions } from '../utils/http';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
-import type {
-  AuthConfig,
-  AuthService,
-  LoggedHandler,
-  OAuth2AuthorizedHandler,
-  OAuth2State,
-} from './types';
+import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 import { Principal } from '../core';
 
 export class Auth implements AuthService {
@@ -38,6 +26,7 @@ export class Auth implements AuthService {
   public readonly PATH_LOGGED = '/logged' as const;
 
   public readonly PATH_OAUTH2_STATE = '/oauth2/state/:registrationId' as const;
+  public readonly PATH_OAUTH2_NONCE = '/oauth2/nonce/:registrationId' as const;
   public readonly PATH_OAUTH2_AUTHORIZATION = '/oauth2/authorization/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_CODE = '/login/oauth2/code/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_NATIVE = '/login/oauth2/native/:registrationId' as const;
@@ -104,20 +93,22 @@ export class Auth implements AuthService {
     return `oauth2:state:${state}`;
   }
 
+  private getOauth2NonceKey(nonce: string) {
+    return `oauth2:nonce:${nonce}`;
+  }
+
   oauth2State = async (request: Request): Promise<Response> => {
     const { registrationId } = param(request, this.PATH_OAUTH2_STATE);
-    invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const state = randomUUID();
+    await this.kv.setItem(this.getOauth2StateKey(state), registrationId, 10 * 60);
+    return Response.json({ state });
+  };
+
+  oauth2Nonce = async (request: Request): Promise<Response> => {
+    const { registrationId } = param(request, this.PATH_OAUTH2_NONCE);
     const nonce = randomUUID();
-    const pkce = this.createPkceParameters();
-    const value: OAuth2State = { state, nonce, registrationId, ...pkce };
-    await this.kv.setItem(this.getOauth2StateKey(state), JSON.stringify(value), 10 * 60);
-    return Response.json({
-      state,
-      nonce,
-      code_challenge: pkce.code_challenge,
-      code_challenge_method: pkce.code_challenge_method,
-    });
+    await this.kv.setItem(this.getOauth2NonceKey(nonce), registrationId, 10 * 60);
+    return Response.json({ nonce });
   };
 
   oauth2Authorization = async (request: Request): Promise<Response> => {
@@ -253,31 +244,22 @@ export class Auth implements AuthService {
     const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
     const credentials = (await request.json()) as NativeCredential;
-    const key = this.getOauth2StateKey(credentials.state);
-    const value = await this.kv.getItem(key);
-    const cached = value ? (JSON.parse(value) as OAuth2State) : null;
-    if (!cached) {
-      const json = { error: 'invalid_request', error_description: 'oauth2 state not found' };
-      return Response.json(json, { status: 400 });
-    }
-    if (cached.registrationId !== registrationId) {
-      const json = { error: 'invalid_request', error_description: 'registration mismatch' };
-      return Response.json(json, { status: 400 });
-    }
-    mark('validate_state');
-
-    const pkce = {
-      code_verifier: cached.code_verifier,
-      code_challenge: cached.code_challenge,
-      code_challenge_method: cached.code_challenge_method,
-    };
-
     const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
       registrationId,
       credentials,
-      pkce,
     });
     mark('login_oauth2_native');
+
+    const { nonce } = userInfo.data as { nonce?: string };
+    if (nonce) {
+      const value = await this.kv.getItem(this.getOauth2NonceKey(nonce));
+      if (value !== registrationId) {
+        const json = { error: 'invalid_request', error_description: 'nonce mismatch' };
+        return Response.json(json, { status: 400 });
+      }
+      await this.kv.removeItem(this.getOauth2NonceKey(nonce));
+      mark('check_nonce');
+    }
 
     const principal = await onAuthorized(request, registrationId, userInfo, token);
     mark('save_principal');

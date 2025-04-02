@@ -84,6 +84,7 @@ export interface GoogleUserInfo {
   nbf?: number;
   picture: string;
   sub: string;
+  nonce?: string;
 }
 
 export interface GoogleToken extends OAuth2Token {

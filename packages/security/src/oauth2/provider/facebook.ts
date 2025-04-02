@@ -92,6 +92,7 @@ export interface FacebookDecodedIdToken {
   name: string;
   email: string;
   picture: string;
+  nonce?: string;
 }
 
 export interface FacebookUserInfo {

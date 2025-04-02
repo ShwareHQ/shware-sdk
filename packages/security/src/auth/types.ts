@@ -11,12 +11,6 @@ export type OAuth2AuthorizedHandler = (
   token: OAuth2Token
 ) => Promise<Principal>;
 
-export interface OAuth2State extends PkceParameters {
-  state: string;
-  nonce: string;
-  registrationId: string;
-}
-
 export interface AuthConfig {
   timing?: boolean;
   kvRepository: KVRepository;
@@ -34,6 +28,7 @@ export interface AuthService {
 
   // oauth2
   oauth2State: (request: Request) => Promise<Response>;
+  oauth2Nonce: (request: Request) => Promise<Response>;
   oauth2Authorization: (request: Request) => Promise<Response>;
   loginOAuth2Code: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
   loginOAuth2Native: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;

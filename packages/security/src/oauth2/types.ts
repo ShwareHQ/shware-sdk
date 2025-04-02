@@ -93,7 +93,7 @@ export interface OidcToken extends OAuth2Token {
 }
 
 export type NativeCredential = {
-  state: string;
+  state?: string;
   code?: string;
   client_id?: string;
   redirect_uri?: string;

@@ -75,6 +75,8 @@ export interface AppleUserInfo {
     name: { firstName: string; lastName: string };
     email: string;
   };
+  nonce?: string;
+  nonce_supported?: boolean;
 }
 
 // https://developer.apple.com/documentation/devicemanagement/implementing-the-oauth2-authentication-user-enrollment-flow
