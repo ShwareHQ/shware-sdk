@@ -348,6 +348,16 @@ export class Auth implements AuthService {
     await this.repository.deleteById(sessionId);
   };
 
+  getPrincipal = async (request: Request): Promise<Principal | null> => {
+    const sessionId = getCookie(request, this.cookieName);
+    if (!sessionId) return null;
+    const session = await this.repository.findById(sessionId);
+    if (!session) return null;
+    const name = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME);
+    if (!name) return null;
+    return { name: String(name) };
+  };
+
   cleanupExpiredSessions = async (cleanupCount?: number): Promise<Response> => {
     await this.repository.cleanupExpiredSessions(cleanupCount);
     return Response.json({});

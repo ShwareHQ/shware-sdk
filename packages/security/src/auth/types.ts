@@ -46,5 +46,6 @@ export interface AuthService {
     create: T
   ) => Promise<T extends true ? Session : Session | null>;
   deleteSession: (sessionId: string) => Promise<void>;
+  getPrincipal: (request: Request) => Promise<Principal | null>;
   cleanupExpiredSessions: (cleanupCount?: number) => Promise<Response>;
 }
