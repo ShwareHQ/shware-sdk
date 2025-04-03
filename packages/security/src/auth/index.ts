@@ -5,11 +5,12 @@ import { param, query, getCookie, setCookie, deleteCookie } from '../utils/http'
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
+import { google } from '../oauth2/provider';
 import type { CookieOptions } from '../utils/http';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
 import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
-import { Principal } from '../core';
+import type { Principal } from '../core';
 
 export class Auth implements AuthService {
   private readonly timing: boolean;
@@ -30,6 +31,7 @@ export class Auth implements AuthService {
   public readonly PATH_OAUTH2_AUTHORIZATION = '/oauth2/authorization/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_CODE = '/login/oauth2/code/:registrationId' as const;
   public readonly PATH_LOGIN_OAUTH2_NATIVE = '/login/oauth2/native/:registrationId' as const;
+  public readonly PATH_LOGIN_OAUTH2_ONETAP = '/login/oauth2/onetap/google' as const;
 
   public readonly PATH_CLEANUP_EXPIRED_SESSIONS = '/sessions/expired/cleanup' as const;
 
@@ -262,6 +264,49 @@ export class Auth implements AuthService {
     }
 
     const principal = await onAuthorized(request, registrationId, userInfo, token);
+    mark('save_principal');
+
+    const session = this.repository.createSession();
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
+    await this.repository.save(session);
+    const response = new Response(JSON.stringify(principal), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const maxAge = session.getMaxInactiveInterval();
+    setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+    setTiming(response);
+
+    return response;
+  };
+
+  loginOAuth2Onetap = async (
+    request: Request,
+    onAuthorized: OAuth2AuthorizedHandler
+  ): Promise<Response> => {
+    const { mark, setTiming } = timing({ enabled: this.timing });
+    // should support application/x-www-form-urlencoded and application/json
+    let body: Record<string, string>;
+    if (request.headers.get('Content-Type') === 'application/x-www-form-urlencoded') {
+      const text = await request.text();
+      body = Object.fromEntries(new URLSearchParams(text));
+    } else if (request.headers.get('Content-Type') === 'application/json') {
+      body = (await request.json()) as Record<string, string>;
+    } else {
+      const json = { error: 'invalid_request', error_description: 'invalid content type' };
+      return Response.json(json, { status: 400 });
+    }
+
+    const csrf_cookie = getCookie(request, 'g_csrf_token');
+    if (csrf_cookie) {
+      const csrf_request = body['g_csrf_token'];
+      if (!csrf_request || csrf_cookie !== csrf_request) {
+        const json = { error: 'invalid_request', error_description: 'invalid csrf token' };
+        return Response.json(json, { status: 400 });
+      }
+    }
+    const { token, userInfo } = await google.getTokenInfo(body['credential']);
+    const principal = await onAuthorized(request, 'google', userInfo, token);
     mark('save_principal');
 
     const session = this.repository.createSession();

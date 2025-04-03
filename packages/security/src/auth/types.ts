@@ -32,6 +32,7 @@ export interface AuthService {
   oauth2Authorization: (request: Request) => Promise<Response>;
   loginOAuth2Code: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
   loginOAuth2Native: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
+  loginOAuth2Onetap: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
 
   // session management
   kick: (principal: Principal) => Promise<void>;

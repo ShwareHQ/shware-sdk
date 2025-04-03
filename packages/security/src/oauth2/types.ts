@@ -198,6 +198,10 @@ export interface Provider {
   ) => Promise<{ token: OAuth2Token; userInfo: UserInfo }>;
 }
 
+export interface OneTapProvider extends Provider {
+  getTokenInfo: (id_token: string) => Promise<{ token: OAuth2Token; userInfo: UserInfo }>;
+}
+
 export interface Registration {
   /**
    * Reference to the OAuth 2.0 provider to use. May reference an element from the 'provider'

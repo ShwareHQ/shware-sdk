@@ -1,9 +1,9 @@
 import invariant from 'tiny-invariant';
-import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, Provider } from '../types';
+import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, OneTapProvider } from '../types';
 import { OAuth2Error } from '../error';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
-export function createGoogleProvider(): Provider {
+export function createGoogleProvider(): OneTapProvider {
   return {
     authorizationUri: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenUri: 'https://oauth2.googleapis.com/token',
@@ -61,6 +61,34 @@ export function createGoogleProvider(): Provider {
       const token = (await response.json()) as GoogleToken;
       const userInfo = await this.getUserInfo(token);
       return { token, userInfo };
+    },
+    async getTokenInfo(id_token: string) {
+      invariant(id_token, 'id_token is required');
+      invariant(this.jwkSetUri, 'jwkSetUri is required');
+      const data = await verifyIdToken<GoogleUserInfo>(id_token, this.jwkSetUri);
+      return {
+        token: {
+          id_token,
+          access_token: '',
+          token_type: '',
+          expires_in: 0,
+          refresh_token: '',
+          scope: '',
+        },
+        userInfo: {
+          data,
+          claims: {
+            sub: data.sub,
+            name: data.name,
+            picture: data.picture,
+            email: data.email,
+            email_verified: data.email_verified,
+            given_name: data.given_name,
+            family_name: data.family_name,
+            locale: data.locale,
+          },
+        },
+      };
     },
   };
 }
