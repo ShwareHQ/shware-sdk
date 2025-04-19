@@ -229,24 +229,26 @@ export interface SendEventParams {
 export async function sendEvent(
   accessToken: string,
   pixelId: string,
-  params: SendEventParams,
+  event: TrackEvent,
+  data: UserProvidedData = {},
   appPackageName?: string
 ) {
-  const { event, data } = params;
   const request = new EventRequest(accessToken, pixelId);
-  request.setEvents([getServerEvent(event, data, appPackageName)]);
+  const fbEvent = getServerEvent(event, data, appPackageName);
+  request.setEvents([fbEvent]);
   return request.execute();
 }
 
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
-  paramsList: SendEventParams[],
+  events: TrackEvent[],
+  data: UserProvidedData = {},
   appPackageName?: string
 ) {
-  const events = paramsList.map(({ event, data }) => getServerEvent(event, data, appPackageName));
+  const fbEvents = events.map((event) => getServerEvent(event, data, appPackageName));
   const request = new EventRequest(accessToken, pixelId);
-  request.setEvents(events);
+  request.setEvents(fbEvents);
   return request.execute();
 }
 
