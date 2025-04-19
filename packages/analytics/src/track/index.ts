@@ -86,3 +86,11 @@ export function track<T extends EventName = EventName>(
     sendEvents(copy);
   }, delay);
 }
+
+export async function trackAsync<T extends EventName = EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>,
+  options: TrackOptions = defaultOptions
+) {
+  await sendEvents([{ name, properties, options, timestamp: new Date().toISOString() }]);
+}
