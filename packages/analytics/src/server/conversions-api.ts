@@ -141,7 +141,7 @@ function getAppData(tags: TrackTags, appPackageName: string) {
   return appData;
 }
 
-function getCustomData({ name, properties }: TrackEvent) {
+function getCustomData({ name, properties }: TrackEvent<any>) {
   const data = new CustomData();
   const [_, _name, fbEventProperties] = mapFBEvent(name, properties);
   const {
@@ -191,7 +191,11 @@ function getCustomData({ name, properties }: TrackEvent) {
   return data;
 }
 
-export function getServerEvent(event: TrackEvent, data: UserProvidedData, appPackageName?: string) {
+export function getServerEvent(
+  event: TrackEvent<any>,
+  data: UserProvidedData,
+  appPackageName?: string
+) {
   const userData = getUserData(event.tags, data);
   const customData = getCustomData(event);
   const serverEvent = new ServerEvent()
@@ -221,15 +225,10 @@ export function getServerEvent(event: TrackEvent, data: UserProvidedData, appPac
   return serverEvent;
 }
 
-export interface SendEventParams {
-  event: TrackEvent;
-  data: UserProvidedData;
-}
-
 export async function sendEvent(
   accessToken: string,
   pixelId: string,
-  event: TrackEvent,
+  event: TrackEvent<any>,
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
@@ -242,7 +241,7 @@ export async function sendEvent(
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
-  events: TrackEvent[],
+  events: TrackEvent<any>[],
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
