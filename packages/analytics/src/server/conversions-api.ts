@@ -224,13 +224,29 @@ export function getServerEvent(event: TrackEvent, data: UserProvidedData, appPac
 export interface SendEventParams {
   event: TrackEvent;
   data: UserProvidedData;
-  appPackageName?: string;
 }
 
-export async function sendEvent(accessToken: string, pixelId: string, params: SendEventParams) {
-  const { event, data, appPackageName } = params;
+export async function sendEvent(
+  accessToken: string,
+  pixelId: string,
+  params: SendEventParams,
+  appPackageName?: string
+) {
+  const { event, data } = params;
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents([getServerEvent(event, data, appPackageName)]);
+  return request.execute();
+}
+
+export async function sendEvents(
+  accessToken: string,
+  pixelId: string,
+  paramsList: SendEventParams[],
+  appPackageName?: string
+) {
+  const events = paramsList.map(({ event, data }) => getServerEvent(event, data, appPackageName));
+  const request = new EventRequest(accessToken, pixelId);
+  request.setEvents(events);
   return request.execute();
 }
 
