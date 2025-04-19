@@ -1,5 +1,5 @@
 export { setupAnalytics } from './setup/index';
-export { track } from './track/index';
+export { track, trackAsync } from './track/index';
 export { getVisitor, setVisitor } from './visitor/index';
 export { createTrackEventSchema, createVisitorSchema, updateVisitorSchema } from './schema/index';
 export type { TrackProperties, TrackTags, AllowedPropertyValues } from './track/types';
