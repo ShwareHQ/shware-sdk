@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+const items = z.array(
+  z.record(
+    z.string().trim().min(1).max(128),
+    z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
+  )
+);
+
 export const createTrackEventSchema = z
   .object({
     name: z.string().trim().min(1).max(64),
@@ -44,13 +51,7 @@ export const createTrackEventSchema = z
     properties: z
       .record(
         z.string().trim().min(1).max(128),
-        z.union([
-          z.string().max(512),
-          z.number(),
-          z.boolean(),
-          z.null(),
-          z.array(z.union([z.string().max(512), z.number(), z.boolean(), z.null()])),
-        ])
+        z.union([z.string().max(512), z.number(), z.boolean(), z.null(), items])
       )
       .refine((data) => Object.keys(data).length <= 64)
       .optional(),
@@ -64,13 +65,7 @@ export const createVisitorSchema = z.object({
   properties: z
     .record(
       z.string().trim().min(1).max(128),
-      z.union([
-        z.string().max(512),
-        z.number(),
-        z.boolean(),
-        z.null(),
-        z.array(z.union([z.string().max(512), z.number(), z.boolean(), z.null()])),
-      ])
+      z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
     )
     .refine((data) => Object.keys(data).length <= 64)
     .optional(),
@@ -80,13 +75,7 @@ export const updateVisitorSchema = z.object({
   properties: z
     .record(
       z.string().trim().min(1).max(128),
-      z.union([
-        z.string().max(512),
-        z.number(),
-        z.boolean(),
-        z.null(),
-        z.array(z.union([z.string().max(512), z.number(), z.boolean(), z.null()])),
-      ])
+      z.union([z.string().max(512), z.number(), z.boolean(), z.null()])
     )
     .refine((data) => Object.keys(data).length <= 64),
 });
