@@ -14,6 +14,7 @@ export interface Options {
   endpoint: string;
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
+  getHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
   thirdPartyTrackers?: ThirdPartyTracker[];
   thirdPartyUserSetters?: ThirdPartyUserSetter[];
 }
@@ -24,6 +25,7 @@ interface Config {
   http: AxiosInstance;
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
+  getHeaders: () => Record<string, string> | Promise<Record<string, string>>;
   thirdPartyTrackers: ThirdPartyTracker[];
   thirdPartyUserSetters: ThirdPartyUserSetter[];
 }
@@ -34,6 +36,7 @@ export const config: Config = {
   storage: null!,
   getTags: null!,
   getDeviceId: null!,
+  getHeaders: null!,
   thirdPartyTrackers: [],
   thirdPartyUserSetters: [],
 };
@@ -43,6 +46,7 @@ export function setupAnalytics(init: Options) {
   config.storage = init.storage;
   config.getTags = init.getTags;
   config.getDeviceId = init.getDeviceId;
+  config.getHeaders = init.getHeaders ?? (() => ({}));
   config.thirdPartyTrackers = init.thirdPartyTrackers ?? [];
   config.thirdPartyUserSetters = init.thirdPartyUserSetters ?? [];
   config.http = axios.create({ baseURL: init.endpoint, withCredentials: true, adapter: 'fetch' });

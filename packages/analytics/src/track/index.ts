@@ -45,7 +45,8 @@ async function sendEvents(events: Item[]) {
       visitor_id,
       timestamp: event.timestamp,
     }));
-    const { data } = await config.http.post<TrackEventResponse>(`/events`, dto);
+    const headers = await config.getHeaders();
+    const { data } = await config.http.post<TrackEventResponse>(`/events`, dto, { headers });
     let index = 0;
     while (events.length > 0) {
       const { options, name, properties } = events.shift()!;
