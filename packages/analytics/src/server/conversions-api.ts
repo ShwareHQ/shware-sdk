@@ -89,6 +89,12 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
   if (tags.advertising_id) {
     userData.setMadid(tags.advertising_id);
   }
+  if (tags.ip && typeof tags.ip === 'string') {
+    userData.setClientIpAddress(tags.ip);
+  }
+  if (tags.ip_address && typeof tags.ip_address === 'string') {
+    userData.setClientIpAddress(tags.ip_address);
+  }
 
   return userData;
 }
