@@ -34,7 +34,7 @@ export const createTrackEventSchema = z
         .optional(),
       release: z.string().optional(),
       language: z.string().optional(),
-      timezone: z.string().optional(),
+      time_zone: z.string().optional(),
       environment: z.enum(['development', 'production']).optional(),
       source_url: z.string().optional(),
       source: z.enum(['web', 'app', 'offline']).optional(),
