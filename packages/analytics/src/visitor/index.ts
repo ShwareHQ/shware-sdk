@@ -8,7 +8,8 @@ async function createVisitor(): Promise<Visitor> {
     device_id: await config.getDeviceId(),
     properties: (await config.getTags()) as VisitorProperties,
   };
-  const response = await config.http.post<Visitor>(`/visitors`, dto);
+  const headers = await config.getHeaders();
+  const response = await config.http.post<Visitor>(`/visitors`, dto, { headers });
   return response.data;
 }
 
@@ -16,7 +17,8 @@ async function getOrCreateVisitor(): Promise<Visitor> {
   const visitorId = await config.storage.getItem(key);
   if (visitorId) {
     try {
-      const response = await config.http.get<Visitor>(`/visitors/${visitorId}`);
+      const headers = await config.getHeaders();
+      const response = await config.http.get<Visitor>(`/visitors/${visitorId}`, { headers });
       return response.data;
     } catch (e) {
       const visitor = await createVisitor();
@@ -45,7 +47,8 @@ export async function getVisitor(): Promise<Visitor> {
 export async function setVisitor(properties: VisitorProperties) {
   const dto: UpdateVisitorDTO = { properties };
   const { id } = await getVisitor();
-  const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto);
+  const headers = await config.getHeaders();
+  const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto, { headers });
   config.thirdPartyUserSetters.forEach((setter) => setter(properties));
   visitor = response.data;
   return response.data;
