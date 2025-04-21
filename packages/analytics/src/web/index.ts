@@ -37,7 +37,7 @@ export function getTags(release: string) {
     screen_resolution: `${window.screen.width}x${window.screen.height}`,
     release,
     language: navigator.language,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
     source: 'web',
     source_url: window.location.origin + window.location.pathname,
