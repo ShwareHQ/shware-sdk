@@ -201,9 +201,10 @@ export function getServerEvent(
 ) {
   const userData = getUserData(event.tags, data);
   const customData = getCustomData(event);
+  const [_, eventName] = mapFBEvent(event.name, event.properties);
   const serverEvent = new ServerEvent()
     .setEventId(event.tags.idempotency_key ?? event.id.toString())
-    .setEventName(event.name)
+    .setEventName(eventName)
     .setEventTime(Math.round(Date.now() / 1000))
     .setUserData(userData)
     .setCustomData(customData);
