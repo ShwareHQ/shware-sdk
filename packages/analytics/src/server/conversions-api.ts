@@ -15,12 +15,18 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
 
   // set user provided data
   if (data.email) {
-    Array.isArray(data.email) ? userData.setEmails(data.email) : userData.setEmail(data.email);
+    if (Array.isArray(data.email)) {
+      userData.setEmails(data.email);
+    } else {
+      userData.setEmail(data.email);
+    }
   }
   if (data.phone_number) {
-    Array.isArray(data.phone_number)
-      ? userData.setPhones(data.phone_number)
-      : userData.setPhone(data.phone_number);
+    if (Array.isArray(data.phone_number)) {
+      userData.setPhones(data.phone_number);
+    } else {
+      userData.setPhone(data.phone_number);
+    }
   }
   if (data.gender) {
     if (data.gender === 'female') {
