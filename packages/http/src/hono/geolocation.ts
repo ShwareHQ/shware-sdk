@@ -1,4 +1,5 @@
 import { getRuntimeKey } from 'hono/adapter';
+import { isIPv4, isIPv6 } from 'net';
 import type { Context } from 'hono';
 
 export type Geolocation = {
@@ -54,8 +55,21 @@ export function geolocation(c: Context): Geolocation | null {
 
   // cloudfront
   // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/adding-cloudfront-headers.html#cloudfront-headers-viewer-location
+  let ip_address: string | null = null;
+  const viewerAddress = c.req.header('CloudFront-Viewer-Address');
+  if (viewerAddress) {
+    try {
+      const url = new URL(`https://${viewerAddress}`);
+      ip_address = url.hostname.replace('[', '').replace(']', '');
+    } catch (_) {
+      if (isIPv4(viewerAddress) || isIPv6(viewerAddress)) {
+        ip_address = viewerAddress;
+      }
+    }
+  }
+
   return {
-    ip_address: c.req.header('CloudFront-Viewer-Address')?.split(':').at(0) ?? null,
+    ip_address,
     city: c.req.header('CloudFront-Viewer-City') ?? null,
     country: c.req.header('CloudFront-Viewer-Country') ?? null,
     continent: null,
