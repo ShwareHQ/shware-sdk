@@ -22,6 +22,10 @@ describe('extractIpAddress', () => {
     expect(extractIpAddress('[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:80/path')).toBe(
       '2001:db8:85a3::8a2e:370:7334' // remove leading zeros
     );
+
+    expect(extractIpAddress('2404:7ac0:614d:bba7:cf41:992e:98e:9186:60704')).toBe(
+      '2404:7ac0:614d:bba7:cf41:992e:98e:9186'
+    );
   });
 
   it('should return null if the ip address is not valid', () => {
