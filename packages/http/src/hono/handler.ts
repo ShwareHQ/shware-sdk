@@ -15,7 +15,7 @@ export function errorHandler<E extends Env = any>(
   c: Context<E>
 ): Response | Promise<Response> {
   const requestId = c.get('requestId');
-  const servingData = `${c.req.method}: ${c.req.url}`;
+  const servingData = `${c.req.method}: ${c.req.path}`;
   const details = Details.new().requestInfo({ requestId, servingData });
 
   if (error instanceof StatusError) {
