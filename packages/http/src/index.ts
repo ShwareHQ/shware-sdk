@@ -11,9 +11,19 @@
  * throw Status.alreadyExists('xxx').error(details);
  */
 
-export * from './reason';
+export {
+  NetworkErrorReason,
+  StatusErrorReason,
+  AuthenticationErrorReason,
+  ModerationErrorReason,
+  MultipartErrorReason,
+  AppErrorReason,
+  ErrorReason,
+} from './reason';
+
 export * from './detail';
 export * from './status';
 export * from './vaild';
 export * from './snowflake';
 export * from './response';
+export { hasText } from './utils/string';
