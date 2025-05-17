@@ -11,7 +11,7 @@
  * throw Status.alreadyExists('xxx').error(details);
  */
 
-export {
+export type {
   NetworkErrorReason,
   StatusErrorReason,
   AuthenticationErrorReason,
@@ -27,3 +27,4 @@ export * from './vaild';
 export * from './snowflake';
 export * from './response';
 export { hasText } from './utils/string';
+export { verifyStandardWebhook } from './webhook';
