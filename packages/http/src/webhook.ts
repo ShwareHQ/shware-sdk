@@ -22,14 +22,14 @@ function verifyTimestamp(webhookTimestamp: string) {
  * reference: https://github.com/standard-webhooks/standard-webhooks/tree/main/libraries/javascript
  * hono usage:
  * ```ts
- * const webhook = await verifyStandardWebhook(c.req.header(), await c.req.text(), 'secret');
+ * const webhook = verifyStandardWebhook(c.req.header(), await c.req.text(), 'secret');
  * ```
  */
-export async function verifyStandardWebhook(
+export function verifyStandardWebhook<T = unknown>(
   headers: Record<string, string>,
   payload: string,
   secret: string
-) {
+): T {
   const webhookId = headers['webhook-id'];
   const webhookTimestamp = headers['webhook-timestamp'];
   const webhookSignature = headers['webhook-signature'];
@@ -52,7 +52,7 @@ export async function verifyStandardWebhook(
     if (version !== 'v1') continue;
     if (timingSafeEqual(encoder.encode(signature), encoder.encode(expectedSignature))) {
       try {
-        return JSON.parse(payload);
+        return JSON.parse(payload) as T;
       } catch (_) {
         console.error('invalid payload', payload);
         throw Status.invalidArgument('invalid webhook payload').error();
