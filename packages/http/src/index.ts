@@ -27,4 +27,5 @@ export * from './vaild';
 export * from './snowflake';
 export * from './response';
 export { hasText } from './utils/string';
+export { timing } from './utils/timing';
 export { verifyStandardWebhook } from './webhook';
