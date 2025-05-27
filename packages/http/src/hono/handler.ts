@@ -23,6 +23,12 @@ export function errorHandler<E extends Env = any>(
     return c.json(error.body, error.status as ContentfulStatusCode);
   }
 
+  if (error instanceof SyntaxError) {
+    if (/^Cannot convert .* to a BigInt$/.test(error.message)) {
+      return Status.invalidArgument(`Invalid number. ${error.message}`).response(details);
+    }
+  }
+
   console.error(error);
   return Status.internal('Unknown error').response(details);
 }
