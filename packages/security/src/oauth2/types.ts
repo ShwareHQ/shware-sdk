@@ -86,6 +86,8 @@ export interface OAuth2Token {
   scope?: string;
 
   id_token?: string;
+
+  [key: string]: unknown;
 }
 
 export interface OidcToken extends OAuth2Token {
