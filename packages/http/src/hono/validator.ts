@@ -1,11 +1,11 @@
-import type { z, ZodSchema } from 'zod';
+import type { z, ZodType } from 'zod/v4';
 import type { ValidationTargets } from 'hono';
 import { validator } from 'hono/validator';
 import { Status } from '../status';
 import { Details } from '../detail';
 import type { BadRequest } from '../detail';
 
-export function zValidator<S extends ZodSchema>(target: keyof ValidationTargets, schema: S) {
+export function zValidator<S extends ZodType>(target: keyof ValidationTargets, schema: S) {
   return validator(target, async (value) => {
     const result = await schema.safeParseAsync(value);
     if (result.success) return result.data as z.infer<S>;

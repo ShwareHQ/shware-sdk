@@ -1,9 +1,9 @@
-import type { z, ZodSchema } from 'zod';
+import type { z, ZodType } from 'zod/v4';
 import { Details } from './detail';
 import { BadRequest } from './detail';
 import { Status } from './status';
 
-export type Result<S extends ZodSchema> =
+export type Result<S extends ZodType> =
   | { data: z.infer<S>; error: null }
   | { data: null; error: Response };
 
@@ -18,7 +18,7 @@ async function getTarget(request: Request, target: Target): Promise<any> {
   }
 }
 
-export async function valid<S extends ZodSchema>(
+export async function valid<S extends ZodType>(
   request: Request,
   target: Target,
   schema: S
