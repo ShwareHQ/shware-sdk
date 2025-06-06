@@ -5,7 +5,7 @@ import { param, query, getCookie, setCookie, deleteCookie } from '../utils/http'
 import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
-import { google } from '../oauth2/provider';
+import { google } from '../oauth2/provider/index';
 import type { CookieOptions } from '../utils/http';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
