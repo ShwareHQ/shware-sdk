@@ -29,3 +29,5 @@ export * from './response';
 export { hasText } from './utils/string';
 export { timing } from './utils/timing';
 export { verifyStandardWebhook } from './webhook';
+export { invariant } from './utils/invariant';
+export { TokenBucket, type TokenBucketOptions } from './utils/token-bucket';
