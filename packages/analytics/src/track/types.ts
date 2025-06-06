@@ -1,7 +1,7 @@
 import type { StandardEvents, UserProvidedData as GAUserProvidedData } from './gtag';
 
 export type AllowedPropertyValues = string | number | boolean | null;
-export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'FID' | 'INP' | 'LCP' | 'TTFB';
+export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB';
 
 export type TrackName<T extends EventName = EventName> = T extends keyof StandardEvents
   ? T
