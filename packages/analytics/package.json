@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "0.3.18",
+  "version": "0.4.0",
   "private": false,
   "type": "module",
   "scripts": {
@@ -45,19 +45,18 @@
     "dist"
   ],
   "dependencies": {
-    "axios": "^1.8.4",
+    "axios": "^1.9.0",
     "axios-retry": "^4.5.0",
     "bowser": "^2.11.0",
     "cookie": "^1.0.2",
-    "limiter": "^3.0.0",
     "uuid": "^11.1.0",
-    "web-vitals": "^4.2.4",
-    "zod": "^3.24.3"
+    "web-vitals": "^5.0.2",
+    "zod": "^3.25.53"
   },
   "devDependencies": {
-    "@types/facebook-nodejs-business-sdk": "^20.0.3",
-    "@types/node": "^22.14.1",
-    "@types/react": "^19.1.2",
+    "@types/facebook-nodejs-business-sdk": "^22.0.0",
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.1.6",
     "typescript": "^5.8.3"
   },
   "peerDependencies": {

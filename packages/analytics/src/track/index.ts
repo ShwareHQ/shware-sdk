@@ -1,4 +1,4 @@
-import { TokenBucket } from 'limiter';
+import { TokenBucket } from '../utils/token-bucket';
 import { config } from '../setup/index';
 import { getVisitor } from '../visitor/index';
 import type {
@@ -16,13 +16,7 @@ export interface TrackOptions {
 }
 
 const defaultOptions: TrackOptions = { enableThirdPartyTracking: true };
-
-const REQUEST_TOKENS = 2;
-const tokenBucket = new TokenBucket({
-  bucketSize: 20,
-  interval: 'second',
-  tokensPerInterval: 1,
-});
+const tokenBucket = new TokenBucket({ rate: 1, capacity: 20, requested: 2 });
 
 type Item = {
   name: TrackName<any>;
@@ -34,7 +28,7 @@ type Item = {
 async function sendEvents(events: Item[]) {
   try {
     if (events.length === 0) return;
-    await tokenBucket.removeTokens(REQUEST_TOKENS);
+    await tokenBucket.removeTokens();
 
     const tags = await config.getTags();
     const visitor_id = (await getVisitor()).id;
