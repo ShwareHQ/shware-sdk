@@ -155,7 +155,11 @@ export interface Provider {
   /** Token URI for the provider. */
   tokenUri: string;
 
+  /** Token revoke URI for the provider. */
   tokenRevokeUri?: string;
+
+  /** Token refresh URI for the provider. */
+  tokenRefreshUri?: string;
 
   /** User info URI for the provider. */
   userInfoUri?: string;

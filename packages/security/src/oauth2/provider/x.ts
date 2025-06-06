@@ -26,6 +26,7 @@ export function createXProvider(options?: XOptions): Provider {
   return {
     authorizationUri: 'https://x.com/i/oauth2/authorize',
     tokenUri: 'https://api.x.com/2/oauth2/token',
+    tokenRefreshUri: 'https://api.x.com/2/oauth2/token',
     tokenRevokeUri: 'https://api.x.com/2/oauth2/revoke',
     // https://docs.x.com/x-api/users/user-lookup-me
     userInfoUri: 'https://api.x.com/2/users/me',
@@ -86,9 +87,10 @@ export function createXProvider(options?: XOptions): Provider {
       };
     },
     async refreshAccessToken(params) {
+      invariant(this.tokenRefreshUri, 'tokenRefreshUri is required');
       const response = await refreshAccessToken({
         ...params,
-        tokenUri: this.tokenUri,
+        tokenUri: this.tokenRefreshUri,
         authentication: 'basic',
       });
       if (!response.ok) {

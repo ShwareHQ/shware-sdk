@@ -14,6 +14,7 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
       ? 'https://open.weixin.qq.com/connect/oauth2/authorize'
       : 'https://open.weixin.qq.com/connect/qrconnect',
     tokenUri: 'https://api.weixin.qq.com/sns/oauth2/access_token',
+    tokenRefreshUri: 'https://api.weixin.qq.com/sns/oauth2/refresh_token',
     userInfoUri: 'https://api.weixin.qq.com/sns/userinfo',
     defaultScope: [isWechatBrowser ? 'snsapi_userinfo' : 'snsapi_login'],
     createAuthorizationUri(params) {
@@ -60,6 +61,19 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
           gender: data.sex === 1 ? 'male' : data.sex === 2 ? 'female' : undefined,
         },
       };
+    },
+    async refreshAccessToken(params) {
+      invariant(this.tokenRefreshUri, 'tokenRefreshUri is required');
+      const url = new URL(this.tokenRefreshUri);
+      url.searchParams.set('appid', params.clientId);
+      url.searchParams.set('grant_type', 'refresh_token');
+      url.searchParams.set('refresh_token', params.refreshToken);
+      const response = await fetch(url.href);
+      if (!response.ok) {
+        const { errcode, errmsg } = (await response.json()) as WechatErrorResponse;
+        throw new OAuth2Error(response.status, errmsg, `errcode: ${errcode}`);
+      }
+      return (await response.json()) as WechatToken;
     },
   };
 }
