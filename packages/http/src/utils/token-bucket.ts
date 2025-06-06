@@ -1,7 +1,17 @@
+type Interval = 'second' | 'minute' | 'hour' | 'day';
+
+const INTERVAL_MAP: Record<Interval, number> = {
+  second: 1000,
+  minute: 60 * 1000,
+  hour: 60 * 60 * 1000,
+  day: 24 * 60 * 60 * 1000,
+};
+
 export interface TokenBucketOptions {
   rate: number;
   capacity: number;
   requested: number;
+  interval?: Interval;
 }
 
 export class TokenBucket {
@@ -11,7 +21,7 @@ export class TokenBucket {
   private readonly timer: number | NodeJS.Timeout;
   private tokens: number;
 
-  constructor({ rate, capacity, requested }: TokenBucketOptions) {
+  constructor({ rate, capacity, requested, interval = 'second' }: TokenBucketOptions) {
     if (rate <= 0) throw new Error('rate must be greater than 0');
     if (capacity <= 0) throw new Error('capacity must be greater than 0');
     if (requested <= 0) throw new Error('requested must be greater than 0');
@@ -26,7 +36,7 @@ export class TokenBucket {
         const tokens = this.tokens + this.rate;
         this.tokens = Math.min(tokens, this.capacity);
       }
-    }, 1000);
+    }, INTERVAL_MAP[interval]);
   }
 
   private wait(ms: number): Promise<void> {
