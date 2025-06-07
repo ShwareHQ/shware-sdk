@@ -15,7 +15,7 @@ export enum DetailType {
 
 export interface ErrorInfo {
   type: DetailType.ERROR_INFO;
-  reason: keyof ErrorReason;
+  reason: keyof ErrorReason | (string & {});
   domain?: string;
   metadata?: { [key: string]: string };
 }
