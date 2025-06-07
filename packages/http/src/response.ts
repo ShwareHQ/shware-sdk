@@ -23,8 +23,8 @@ export function pageParamsSchema(max: number = 100, defaultLimit: number = 20) {
 }
 
 export const Cursor = {
-  of(prev: bigint | number | string, next: bigint | number | string) {
-    return { prev: this.encode(prev), next: this.encode(next) };
+  of(prev: bigint | number | string | undefined, next: bigint | number | string | undefined) {
+    return { prev: prev ? this.encode(prev) : '', next: next ? this.encode(next) : '' };
   },
   empty() {
     return { prev: '', next: '' };
