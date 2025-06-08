@@ -1,5 +1,5 @@
 import type { Principal } from '../core';
-import type { OAuth2Token, OAuth2ClientConfig, PkceParameters, UserInfo } from '../oauth2/types';
+import type { OAuth2Token, OAuth2ClientConfig, UserInfo } from '../oauth2/types';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { CookieOptions } from '../utils/http';
 
@@ -43,5 +43,6 @@ export interface AuthService {
   ) => Promise<T extends true ? Session : Session | null>;
   deleteSession: (sessionId: string) => Promise<void>;
   getPrincipal: (request: Request) => Promise<Principal | null>;
+  listSessions: (principal: Principal) => Promise<Session[]>;
   cleanupExpiredSessions: (cleanupCount?: number) => Promise<Response>;
 }

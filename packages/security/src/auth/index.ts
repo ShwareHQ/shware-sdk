@@ -381,6 +381,11 @@ export class Auth implements AuthService {
     return { name: String(name) };
   };
 
+  listSessions = async (principal: Principal): Promise<Session[]> => {
+    const sessions = await this.repository.findByPrincipalName(principal.name);
+    return Array.from(sessions.values());
+  };
+
   cleanupExpiredSessions = async (cleanupCount?: number): Promise<Response> => {
     await this.repository.cleanupExpiredSessions(cleanupCount);
     return Response.json({});
