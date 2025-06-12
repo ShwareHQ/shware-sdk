@@ -1,9 +1,9 @@
-import type { z, ZodType } from 'zod/v4';
+import type { z, ZodMiniType } from 'zod/v4-mini';
 import { Details } from './detail';
 import { BadRequest } from './detail';
 import { Status } from './status';
 
-export type Result<S extends ZodType> =
+export type Result<S extends ZodMiniType> =
   | { data: z.infer<S>; error: null }
   | { data: null; error: Response };
 
@@ -18,7 +18,7 @@ async function getTarget(request: Request, target: Target): Promise<any> {
   }
 }
 
-export async function valid<S extends ZodType>(
+export async function valid<S extends ZodMiniType>(
   request: Request,
   target: Target,
   schema: S

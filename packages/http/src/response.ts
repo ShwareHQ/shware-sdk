@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { object, string, coerce, optional, int, minimum, maximum, _default } from 'zod/v4-mini';
 
 export type Empty = {};
 export type EntityId = string | number;
@@ -15,10 +15,10 @@ export type ParentPageParams = { limit: number; parent: string; prev?: string; n
 export type PagedResponse<T = never> = { data: T[]; paging: { next: string; prev: string } };
 
 export function pageParamsSchema(max: number = 100, defaultLimit: number = 20) {
-  return z.object({
-    limit: z.coerce.number().int().min(1).max(max).default(defaultLimit),
-    prev: z.string().optional(),
-    next: z.string().optional(),
+  return object({
+    limit: _default(coerce.number().check(int(), minimum(1), maximum(max)), defaultLimit),
+    prev: optional(string()),
+    next: optional(string()),
   });
 }
 

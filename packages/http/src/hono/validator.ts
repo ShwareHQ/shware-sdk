@@ -1,14 +1,18 @@
-import type { z, ZodType } from 'zod/v4';
+import type { output as outputV4, ZodType } from 'zod/v4';
+import type { output as outputMini, ZodMiniType } from 'zod/v4-mini';
 import type { ValidationTargets } from 'hono';
 import { validator } from 'hono/validator';
 import { Status } from '../status';
 import { Details } from '../detail';
 import type { BadRequest } from '../detail';
 
-export function zValidator<S extends ZodType>(target: keyof ValidationTargets, schema: S) {
+export function zValidator<S extends ZodType | ZodMiniType>(
+  target: keyof ValidationTargets,
+  schema: S
+) {
   return validator(target, async (value) => {
     const result = await schema.safeParseAsync(value);
-    if (result.success) return result.data as z.infer<S>;
+    if (result.success) return result.data as S extends ZodType ? outputV4<S> : outputMini<S>;
 
     const fieldViolations: BadRequest['fieldViolations'] = result.error.issues.map(
       ({ path, message }) => ({ field: path.join('.'), description: message })
