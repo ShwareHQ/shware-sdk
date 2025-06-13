@@ -1,4 +1,4 @@
-import { z } from 'zod/v4';
+import { string, object, optional } from 'zod/v4-mini';
 import invariant from 'tiny-invariant';
 import {
   NativeCredential,
@@ -8,12 +8,12 @@ import {
   PkceParameters,
 } from './types';
 
-export const oauth2RedirectQuerySchema = z.object({
-  code: z.string().optional(),
-  state: z.string().optional(),
-  error: z.string().optional(),
-  error_description: z.string().optional(),
-  error_uri: z.string().optional(),
+export const oauth2RedirectQuerySchema = object({
+  code: optional(string()),
+  state: optional(string()),
+  error: optional(string()),
+  error_description: optional(string()),
+  error_uri: optional(string()),
 });
 
 export class OAuth2Client {
