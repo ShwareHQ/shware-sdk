@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": false,
   "type": "module",
   "scripts": {
@@ -39,10 +39,14 @@
     "zod": "^3.25.63"
   },
   "peerDependencies": {
-    "hono": "^4.7.9"
+    "hono": "^4.7.9",
+    "axios": "^1.10.0"
   },
   "peerDependenciesMeta": {
     "hono": {
+      "optional": true
+    },
+    "axios": {
       "optional": true
     }
   }
