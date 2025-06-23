@@ -1,5 +1,5 @@
 import type Stripe from 'stripe';
-import { maxLength, object, optional, string, enum as _enum, type z } from 'zod/v4-mini';
+import { maxLength, object, optional, string, enum as _enum, type z, url } from 'zod/v4-mini';
 import { SubscriptionStatus } from '../subscription/index';
 
 export const METADATA_KEYS = {
@@ -50,6 +50,8 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
   };
 }
 
+export type CheckoutSession = ReturnType<typeof mapCheckoutSession>;
+
 export function mapStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
     case 'active':
@@ -90,6 +92,14 @@ export const cancellationDetailsSchema = object({
     ])
   ),
 });
+
+export function checkoutSessionSchema(productIds: [ProductId, ...ProductId[]]) {
+  return object({
+    productId: _enum(productIds),
+    cancelUrl: optional(url()),
+    successUrl: optional(url()),
+  });
+}
 
 export interface CancellationDetails extends z.output<typeof cancellationDetailsSchema> {
   reason?: 'cancellation_requested' | 'payment_disputed' | 'payment_failed';
