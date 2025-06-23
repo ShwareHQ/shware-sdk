@@ -18,6 +18,7 @@ import {
   refine,
   pipe,
   transform,
+  email,
 } from 'zod/v4-mini';
 
 const items = array(
@@ -91,4 +92,10 @@ export const updateVisitorSchema = object({
     string().check(trim(), minLength(1), maxLength(128)),
     union([string().check(maxLength(512)), number(), boolean(), _null()])
   ).check(refine((data) => Object.keys(data).length <= 64)),
+});
+
+export const createFeedbackSchema = object({
+  name: string().check(minLength(1), maxLength(256)),
+  email: email().check(maxLength(320)),
+  message: string().check(minLength(1), maxLength(65536)),
 });
