@@ -8,6 +8,10 @@
     "build": "tsup",
     "test": "jest"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

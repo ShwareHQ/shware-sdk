@@ -9,6 +9,10 @@
     "build:tsup": "tsup",
     "build:unbuild": "unbuild"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
