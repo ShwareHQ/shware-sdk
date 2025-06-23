@@ -4,6 +4,8 @@ export enum Platform {
   STRIPE = 'STRIPE',
 }
 
+export const ALL_PLATFORMS = [Platform.APPLE, Platform.GOOGLE, Platform.STRIPE] as const;
+
 /**
  * [Stripe Subscription Status](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)
  * [Stripe Subscription Lifecycle](https://docs.stripe.com/billing/subscriptions/overview)
@@ -156,11 +158,11 @@ export enum SubscriptionStatus {
   EXPIRED = 'EXPIRED',
 }
 
-export const AVAILABLE_SUBSCRIPTION_STATUS = [
+export const AVAILABLE_STATUS = [
   SubscriptionStatus.ACTIVE,
   SubscriptionStatus.TRIALING,
   SubscriptionStatus.IN_GRACE_PERIOD,
-];
+] as const;
 
 export const ALL_SUBSCRIPTION_STATUS = [
   SubscriptionStatus.TRIALING,
@@ -177,4 +179,4 @@ export const ALL_SUBSCRIPTION_STATUS = [
   SubscriptionStatus.PAUSED,
   SubscriptionStatus.REPLACED,
   SubscriptionStatus.EXPIRED,
-];
+] as const;
