@@ -11,5 +11,5 @@ export {
   checkoutSessionSchema,
   type CancellationDetails,
 } from './schema';
-export type { ProductId, PriceId, Config } from './types';
+export type { ProductId, PriceId, Config, CreateCheckoutSessionDTO } from './types';
 export { METADATA_KEYS } from './metadata';
