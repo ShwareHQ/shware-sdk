@@ -9,9 +9,22 @@ export function mapTime<T extends number | null>(
 }
 
 export function mapCheckoutSession(session: Stripe.Checkout.Session) {
+  let coupon: string | undefined = undefined;
+  if (Array.isArray(session.discounts) && session.discounts.length !== 0) {
+    const discount = session.discounts[0];
+    if (discount.coupon && typeof discount.coupon === 'object') {
+      coupon = discount.coupon.id;
+    } else if (typeof discount.coupon === 'string') {
+      coupon = discount.coupon;
+    } else {
+      coupon = undefined;
+    }
+  }
+
   return {
     id: session.id,
     url: session.url,
+    coupon,
     livemode: session.livemode,
     expires_at: session.expires_at,
     payment_status: session.payment_status,
@@ -84,4 +97,60 @@ export function minorUnits(currency: string) {
 
 export function price(value: number, currency: string) {
   return value / minorUnits(currency);
+}
+
+export interface PurchaseProperties {
+  currency: string;
+  value: number;
+  transaction_id: string;
+  coupon?: string;
+  shipping?: number;
+  tax?: number;
+  items?: Array<{
+    item_id: string;
+    item_name: string;
+    affiliation?: 'Google Store' | (string & {});
+    coupon?: string;
+    discount?: number;
+    index?: number;
+    item_brand?: string;
+    item_category?: string;
+    item_category2?: string;
+    item_category3?: string;
+    item_category4?: string;
+    item_category5?: string;
+    item_list_id?: string;
+    item_list_name?: string;
+    item_variant?: string;
+    location_id?: string;
+    price?: number;
+    quantity?: number;
+  }>;
+}
+
+export function getPurchaseProperties(session: CheckoutSession): PurchaseProperties {
+  let value: number;
+  let currency: string;
+  if (!session.amount_total || !session.currency) {
+    value = session.line_items?.reduce((acc, item) => acc + (item.amount_total ?? 0), 0) ?? 0;
+    currency = session.line_items?.[0]?.currency ?? 'usd';
+  } else {
+    value = session.amount_total;
+    currency = session.currency;
+  }
+
+  return {
+    transaction_id: session.id,
+    value: price(value, currency),
+    currency: currency.toUpperCase(),
+    coupon: session.coupon,
+    items: session.line_items.map((item, index) => ({
+      index,
+      item_id: item.id,
+      item_name: item.description ?? '',
+      price: price(item.amount_total, item.currency),
+      quantity: item.quantity ?? 1,
+      discount: price(item.amount_discount, item.currency),
+    })),
+  };
 }

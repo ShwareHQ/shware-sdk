@@ -4,7 +4,9 @@ export {
   mapCheckoutSession,
   minorUnits,
   price,
+  getPurchaseProperties,
   type CheckoutSession,
+  type PurchaseProperties,
 } from './mapper';
 export {
   cancellationDetailsSchema,
