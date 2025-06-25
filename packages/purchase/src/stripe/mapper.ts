@@ -58,3 +58,30 @@ export function mapStatus(status: Stripe.Subscription.Status): SubscriptionStatu
     }
   }
 }
+
+export const ZERO_DECIMAL_CURRENCIES = [
+  'BIF',
+  'CLP',
+  'DJF',
+  'GNF',
+  'JPY',
+  'KMF',
+  'KRW',
+  'MGA',
+  'PYG',
+  'RWF',
+  'UGX',
+  'VND',
+  'VUV',
+  'XAF',
+  'XOF',
+  'XPF',
+];
+
+export function minorUnits(currency: string) {
+  return ZERO_DECIMAL_CURRENCIES.includes(currency.toUpperCase()) ? 1 : 100;
+}
+
+export function price(value: number, currency: string) {
+  return value / minorUnits(currency);
+}
