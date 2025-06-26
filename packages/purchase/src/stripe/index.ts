@@ -5,8 +5,11 @@ export {
   minorUnits,
   price,
   getPurchaseProperties,
+  getBeginCheckoutProperties,
   type CheckoutSession,
   type PurchaseProperties,
+  type ProductPrice,
+  type BeginCheckoutProperties,
 } from './mapper';
 export {
   cancellationDetailsSchema,

@@ -30,22 +30,37 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
     payment_status: session.payment_status,
     currency: session.currency,
     amount_total: session.amount_total,
-    line_items:
-      session.line_items?.data.map((item) => ({
-        id: item.id,
-        currency: item.currency,
-        quantity: item.quantity,
-        description: item.description,
-        amount_tax: item.amount_tax,
-        amount_total: item.amount_total,
-        amount_subtotal: item.amount_subtotal,
-        amount_discount: item.amount_discount,
-        price: item.price ? { id: item.price.id } : null,
-      })) ?? [],
+    line_items: session.line_items?.data.map((item) => ({
+      id: item.price
+        ? typeof item.price.product === 'string'
+          ? item.price.product
+          : item.price.product.id
+        : item.id,
+      currency: item.currency,
+      quantity: item.quantity,
+      description: item.description,
+      amount_tax: item.amount_tax,
+      amount_total: item.amount_total,
+      amount_subtotal: item.amount_subtotal,
+      amount_discount: item.amount_discount,
+      price: item.price ? { id: item.price.id } : null,
+    })),
   };
 }
 
 export type CheckoutSession = ReturnType<typeof mapCheckoutSession>;
+export type ProductPrice = {
+  id: string;
+  type: Stripe.Price.Type;
+  unit_amount: number;
+  currency: Stripe.Price['currency'];
+  product: {
+    id: Stripe.Product['id'];
+    name: Stripe.Product['name'];
+    description: Stripe.Product['description'];
+    livemode: Stripe.Product['livemode'];
+  };
+};
 
 export function mapStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
@@ -98,6 +113,26 @@ export function minorUnits(currency: string) {
 export function price(value: number, currency: string) {
   return value / minorUnits(currency);
 }
+export interface Item {
+  item_id: string;
+  item_name: string;
+  affiliation?: 'Google Store' | (string & {});
+  coupon?: string;
+  discount?: number;
+  index?: number;
+  item_brand?: string;
+  item_category?: string;
+  item_category2?: string;
+  item_category3?: string;
+  item_category4?: string;
+  item_category5?: string;
+  item_list_id?: string;
+  item_list_name?: string;
+  item_variant?: string;
+  location_id?: string;
+  price?: number;
+  quantity?: number;
+}
 
 export interface PurchaseProperties {
   currency: string;
@@ -106,26 +141,14 @@ export interface PurchaseProperties {
   coupon?: string;
   shipping?: number;
   tax?: number;
-  items?: Array<{
-    item_id: string;
-    item_name: string;
-    affiliation?: 'Google Store' | (string & {});
-    coupon?: string;
-    discount?: number;
-    index?: number;
-    item_brand?: string;
-    item_category?: string;
-    item_category2?: string;
-    item_category3?: string;
-    item_category4?: string;
-    item_category5?: string;
-    item_list_id?: string;
-    item_list_name?: string;
-    item_variant?: string;
-    location_id?: string;
-    price?: number;
-    quantity?: number;
-  }>;
+  items?: Item[];
+}
+
+export interface BeginCheckoutProperties {
+  currency: string;
+  value: number;
+  coupon?: string;
+  items: Item[];
 }
 
 export function getPurchaseProperties(session: CheckoutSession): PurchaseProperties {
@@ -144,7 +167,7 @@ export function getPurchaseProperties(session: CheckoutSession): PurchasePropert
     value: price(value, currency),
     currency: currency.toUpperCase(),
     coupon: session.coupon,
-    items: session.line_items.map((item, index) => ({
+    items: session.line_items?.map((item, index) => ({
       index,
       item_id: item.id,
       item_name: item.description ?? '',
@@ -152,5 +175,19 @@ export function getPurchaseProperties(session: CheckoutSession): PurchasePropert
       quantity: item.quantity ?? 1,
       discount: price(item.amount_discount, item.currency),
     })),
+  };
+}
+
+export function getBeginCheckoutProperties(p: ProductPrice): BeginCheckoutProperties {
+  return {
+    currency: p.currency.toUpperCase(),
+    value: price(p.unit_amount, p.currency),
+    items: [
+      {
+        item_id: p.product.id,
+        item_name: p.product.name,
+        price: price(p.unit_amount, p.currency),
+      },
+    ],
   };
 }
