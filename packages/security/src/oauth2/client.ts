@@ -16,6 +16,20 @@ export const oauth2RedirectQuerySchema = object({
   error_uri: optional(string()),
 });
 
+export const googleOneTapSchema = object({
+  // login_uri
+  code: optional(string()),
+  state: optional(string()),
+  error: optional(string()),
+  error_description: optional(string()),
+  error_uri: optional(string()),
+  nonce: optional(string()),
+  g_csrf_token: optional(string()),
+  hd: optional(string()),
+  // callback
+  credential: optional(string()),
+});
+
 export class OAuth2Client {
   private config: OAuth2ClientConfig;
   constructor(config: OAuth2ClientConfig) {

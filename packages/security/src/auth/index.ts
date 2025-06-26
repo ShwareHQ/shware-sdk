@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import invariant from 'tiny-invariant';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../session/common';
 import { param, query, getCookie, setCookie, deleteCookie } from '../utils/http';
-import { OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
+import { googleOneTapSchema, OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { timing } from '../utils/timing';
 import { google } from '../oauth2/provider/index';
@@ -282,9 +282,12 @@ export class Auth implements AuthService {
 
   loginOAuth2Onetap = async (
     request: Request,
-    onAuthorized: OAuth2AuthorizedHandler
+    onAuthorized: OAuth2AuthorizedHandler,
+    registrationId: string = 'google'
   ): Promise<Response> => {
+    invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
+
     // should support application/x-www-form-urlencoded and application/json
     let body: Record<string, string>;
     if (request.headers.get('Content-Type') === 'application/x-www-form-urlencoded') {
@@ -297,16 +300,30 @@ export class Auth implements AuthService {
       return Response.json(json, { status: 400 });
     }
 
+    const parsed = googleOneTapSchema.parse(body);
+
     const csrf_cookie = getCookie(request, 'g_csrf_token');
-    if (csrf_cookie) {
-      const csrf_request = body['g_csrf_token'];
-      if (!csrf_request || csrf_cookie !== csrf_request) {
-        const json = { error: 'invalid_request', error_description: 'invalid csrf token' };
-        return Response.json(json, { status: 400 });
-      }
+    const csrf_request = parsed.g_csrf_token;
+    if (!csrf_request || csrf_cookie !== csrf_request) {
+      const json = { error: 'invalid_request', error_description: 'invalid csrf token' };
+      return Response.json(json, { status: 400 });
     }
-    const { token, userInfo } = await google.getTokenInfo(body['credential']);
-    const principal = await onAuthorized(request, 'google', userInfo, token);
+
+    let principal: Principal;
+    if (parsed.credential) {
+      const { token, userInfo } = await google.getTokenInfo(parsed.credential);
+      principal = await onAuthorized(request, registrationId, userInfo, token);
+    } else if (parsed.code) {
+      const token = await this.oauth2Client.exchangeAuthorizationCode({
+        registrationId,
+        code: parsed.code,
+      });
+      const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
+      principal = await onAuthorized(request, registrationId, userInfo, token);
+    } else {
+      throw new Error('invalid request');
+    }
+
     mark('save_principal');
 
     const session = this.repository.createSession();
