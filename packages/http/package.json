@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": false,
   "type": "module",
   "scripts": {
@@ -27,6 +27,11 @@
       "types": "./dist/hono/index.d.ts",
       "import": "./dist/hono/index.mjs",
       "require": "./dist/hono/index.cjs"
+    },
+    "./google-one-tap": {
+      "types": "./dist/google-one-tap/index.d.ts",
+      "import": "./dist/google-one-tap/index.mjs",
+      "require": "./dist/google-one-tap/index.cjs"
     }
   },
   "files": [
