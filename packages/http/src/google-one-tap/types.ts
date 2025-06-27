@@ -89,7 +89,7 @@ interface Credential {
   password: string;
 }
 
-interface CredentialResponse {
+export interface CredentialResponse {
   credential: string;
   select_by: string;
 }
@@ -113,11 +113,20 @@ export interface IdConfiguration {
   native_callback?: (response: CredentialResponse) => void;
   intermediate_iframe_close_callback?: () => void;
 }
-
-interface PromptMomentNotification {
+/**
+ * ref: https://developers.google.com/identity/gsi/web/guides/fedcm-migration?s=dc&utm_source=devtools&utm_campaign=stable#display_moment
+ */
+export interface PromptMomentNotification {
+  /** @deprecated */
   isDisplayMoment(): boolean;
+
+  /** @deprecated */
   isDisplayed(): boolean;
+
+  /** @deprecated */
   isNotDisplayed(): boolean;
+
+  /** @deprecated */
   getNotDisplayedReason():
     | 'browser_not_supported'
     | 'invalid_client'
@@ -128,8 +137,10 @@ interface PromptMomentNotification {
     | 'unregistered_origin'
     | 'unknown_reason';
 
-  isSkippedMoment(): boolean;
+  /** @deprecated */
   getSkippedReason(): 'auto_cancel' | 'user_cancel' | 'tap_outside' | 'issuing_failed';
+
+  isSkippedMoment(): boolean;
   isDismissedMoment(): boolean;
   getDismissedReason(): 'credential_returned' | 'cancel_called' | 'flow_restarted';
   getMomentType(): 'display' | 'skipped' | 'dismissed';
