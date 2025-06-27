@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": false,
   "type": "module",
   "scripts": {
@@ -27,6 +27,11 @@
       "types": "./dist/hono/index.d.ts",
       "import": "./dist/hono/index.mjs",
       "require": "./dist/hono/index.cjs"
+    },
+    "./webhook": {
+      "types": "./dist/webhook/index.d.ts",
+      "import": "./dist/webhook/index.mjs",
+      "require": "./dist/webhook/index.cjs"
     },
     "./google-one-tap": {
       "types": "./dist/google-one-tap/index.d.ts",
