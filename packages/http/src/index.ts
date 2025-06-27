@@ -32,3 +32,10 @@ export { timing } from './utils/timing';
 export { verifyStandardWebhook } from './webhook';
 export { invariant } from './utils/invariant';
 export { TokenBucket, type TokenBucketOptions } from './utils/token-bucket';
+
+export {
+  LoginTimeoutError,
+  LoginCanceledError,
+  CheckoutCreateError,
+  PurchaseError,
+} from './error/index';
