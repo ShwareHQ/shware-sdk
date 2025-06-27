@@ -302,12 +302,13 @@ export class Auth implements AuthService {
 
     const parsed = googleOneTapSchema.parse(body);
 
-    const csrf_cookie = getCookie(request, 'g_csrf_token');
-    const csrf_request = parsed.g_csrf_token;
-    if (!csrf_request || csrf_cookie !== csrf_request) {
-      const json = { error: 'invalid_request', error_description: 'invalid csrf token' };
-      return Response.json(json, { status: 400 });
-    }
+    // csrf token is not supported in FedCM mode
+    // const csrf_cookie = getCookie(request, 'g_csrf_token');
+    // const csrf_request = parsed.g_csrf_token;
+    // if (!csrf_request || csrf_cookie !== csrf_request) {
+    //   const json = { error: 'invalid_request', error_description: 'invalid csrf token' };
+    //   return Response.json(json, { status: 400 });
+    // }
 
     let principal: Principal;
     if (parsed.credential) {

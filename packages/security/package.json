@@ -1,6 +1,6 @@
 {
   "name": "@shware/security",
-  "version": "1.4.1",
+  "version": "1.4.3",
   "private": false,
   "type": "module",
   "scripts": {
