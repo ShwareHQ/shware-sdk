@@ -227,10 +227,11 @@ export class Auth implements AuthService {
     await this.repository.save(session);
     mark('update_session');
 
-    const response = new Response(null, {
-      status: 302,
-      headers: { location: this.oauth2Client.successUri },
-    });
+    const uri = new URL(this.oauth2Client.successUri);
+    uri.searchParams.set('status', 'success');
+    uri.searchParams.set('registrationId', registrationId);
+
+    const response = new Response(null, { status: 302, headers: { location: uri.href } });
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
     setTiming(response);

@@ -357,7 +357,19 @@ export type StandardEvents = {
     character?: string;
   };
   login: {
-    method?: string;
+    method?:
+      | 'google'
+      | 'apple'
+      | 'facebook'
+      | 'twitter'
+      | 'linkedin'
+      | 'github'
+      | 'microsoft'
+      | 'wechat'
+      | 'onetap'
+      | 'phone'
+      | 'email'
+      | (string & {});
   };
   post_score: {
     score: number;
