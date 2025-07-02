@@ -1,9 +1,11 @@
-import type { output as outputV4, ZodType } from 'zod/v4';
-import type { output as outputMini, ZodMiniType } from 'zod/v4-mini';
-import type { ValidationTargets } from 'hono';
+import { transform, pipe, string } from 'zod/v4-mini';
+import { NEVER } from 'zod/v4';
 import { validator } from 'hono/validator';
 import { Status } from '../status';
 import { Details } from '../detail';
+import type { ValidationTargets } from 'hono';
+import type { output as outputV4, ZodType } from 'zod/v4';
+import type { output as outputMini, ZodMiniType } from 'zod/v4-mini';
 import type { BadRequest } from '../detail';
 
 export function zValidator<S extends ZodType | ZodMiniType>(
@@ -21,3 +23,21 @@ export function zValidator<S extends ZodType | ZodMiniType>(
     throw Status.invalidArgument().error(details);
   });
 }
+
+export const bigintId = pipe(
+  string(),
+  transform((input, ctx) => {
+    if (!/^(0|[1-9]\d{0,19})$/.test(input)) {
+      const message = `Invalid bigint id: ${input}`;
+      ctx.issues.push({ code: 'custom', input, message });
+      return NEVER;
+    }
+    try {
+      return BigInt(input);
+    } catch (_) {
+      const message = `Parse bigint id: ${input} failed`;
+      ctx.issues.push({ code: 'custom', input, message });
+      return NEVER;
+    }
+  })
+);
