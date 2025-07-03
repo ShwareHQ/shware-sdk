@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": false,
   "type": "module",
   "scripts": {
@@ -43,15 +43,15 @@
     "dist"
   ],
   "devDependencies": {
-    "@types/jest": "^29.5.14",
-    "@types/node": "^24.0.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.10",
     "@types/react": "^19.1.8",
-    "jest": "^30.0.0",
+    "jest": "^30.0.4",
     "ts-jest": "^29.4.0",
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "zod": "^3.25.63"
+    "zod": "^3.25.71"
   },
   "peerDependencies": {
     "axios": "^1.10.0",
