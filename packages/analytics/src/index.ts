@@ -1,11 +1,13 @@
 export { setupAnalytics } from './setup/index';
 export { track, trackAsync } from './track/index';
 export { getVisitor, setVisitor } from './visitor/index';
+export { sendFeedback } from './feedback/index';
 export {
   createTrackEventSchema,
   createVisitorSchema,
   updateVisitorSchema,
   createFeedbackSchema,
+  type CreateFeedbackDTO,
 } from './schema/index';
 export { stripeMinorUnits } from './utils/stripe';
 export type {

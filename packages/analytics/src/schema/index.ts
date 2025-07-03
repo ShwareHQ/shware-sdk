@@ -19,6 +19,7 @@ import {
   pipe,
   transform,
   email,
+  type z,
 } from 'zod/v4-mini';
 
 const items = array(
@@ -99,3 +100,5 @@ export const createFeedbackSchema = object({
   email: email().check(maxLength(320)),
   message: string().check(minLength(1), maxLength(65536)),
 });
+
+export type CreateFeedbackDTO = z.output<typeof createFeedbackSchema>;
