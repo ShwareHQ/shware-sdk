@@ -44,3 +44,15 @@ function Button() {
 
 - /analytics/tracks: track events
 - /analytics/visitor: app visitors
+
+## UTM params
+
+- utm_source
+
+## GAD params
+
+[About gad\_\* URL parameters](https://support.google.com/google-ads/answer/16193746)
+
+- gad_source
+- gad_campaignid
+- gclid

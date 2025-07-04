@@ -68,8 +68,10 @@ export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Pr
     const properties = {
       pathname,
       referrer: document.referrer,
-      gclid: params.get('gclid'),
       fbclid: params.get('fbclid'),
+      gclid: params.get('gclid'),
+      gad_source: params.get('gad_source'),
+      gad_campaignid: params.get('gad_campaignid'),
       utm_source: params.get('utm_source'),
       utm_medium: params.get('utm_medium'),
       utm_campaign: params.get('utm_campaign'),
