@@ -317,6 +317,7 @@ export type StandardEvents = {
     value: number;
     coupon?: string;
     items: Item[];
+    source?: string; // added
   };
   close_convert_lead: {
     currency: string;
@@ -370,6 +371,7 @@ export type StandardEvents = {
       | 'phone'
       | 'email'
       | (string & {});
+    source?: string; // added
   };
   post_score: {
     score: number;
@@ -384,6 +386,7 @@ export type StandardEvents = {
     shipping?: number; // Shipping cost associated with a transaction.
     tax?: number;
     items?: Item[];
+    source?: string; // added
   };
   qualify_lead: {
     currency: string;
@@ -429,6 +432,7 @@ export type StandardEvents = {
   };
   sign_up: {
     method?: string;
+    source?: string; // added
   };
   spend_virtual_currency: {
     value: number;
@@ -495,11 +499,13 @@ export type StandardEvents = {
   trial_begin: {
     currency: string;
     value: number;
+    source?: string; // added
   };
 
   subscribe: {
     currency: string;
     value: number;
+    source?: string; // added
   };
 };
 
