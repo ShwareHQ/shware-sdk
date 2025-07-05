@@ -80,9 +80,15 @@ group by country
 order by visitor_count desc
 limit 20;
 
--- UTM sources (Bar chart)
-select 
-  coalesce(e.properties ->> 'utm_source', 'unknown') as utm_source,
+-- Sources (utm_source, gad_source) (Bar chart)
+select
+  case
+    when nullif(e.properties ->> 'utm_source', '') is not null 
+      then e.properties ->> 'utm_source' || ' (utm)'
+    when nullif(e.properties ->> 'gad_source', '') is not null 
+      then e.properties ->> 'gad_source' || ' (gad)'
+    else 'unknown'
+  end as source,
   count(distinct e.visitor_id) as event_count
 from application.event e
 where
@@ -90,6 +96,6 @@ where
   and e.tags ->> 'environment' = '$environment'
   and e.tags ->> 'platform' in (${platform:sqlstring})
   and e.name = 'page_view'
-group by utm_source
+group by source
 order by event_count desc
 limit 10;
