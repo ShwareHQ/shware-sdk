@@ -17,7 +17,7 @@ export interface ErrorInfo {
   type: DetailType.ERROR_INFO;
   reason: keyof ErrorReason | (string & {});
   domain?: string;
-  metadata?: { [key: string]: string };
+  metadata?: Record<string, string>;
 }
 
 export interface RetryInfo {

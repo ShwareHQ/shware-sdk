@@ -28,6 +28,7 @@ export type {
 } from './error/reason';
 export * from './error/detail';
 export * from './error/status';
+export { getErrorMessage } from './error/parse';
 
 export * from './vaild';
 export * from './snowflake';
