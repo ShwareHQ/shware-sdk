@@ -1,4 +1,4 @@
-import { Details } from '../error/detail';
+import { Details, DetailType } from '../error/detail';
 import { Status, StatusError } from '../error/status';
 import type { AxiosError } from 'axios';
 import type { Context } from 'hono';
@@ -11,7 +11,7 @@ type Env = {
   Bindings?: Bindings;
 };
 
-export function isAxiosError(payload: any): payload is AxiosError {
+export function isAxiosError(payload: unknown): payload is AxiosError {
   return (
     payload !== null &&
     typeof payload === 'object' &&
@@ -20,7 +20,7 @@ export function isAxiosError(payload: any): payload is AxiosError {
   );
 }
 
-export function errorHandler<E extends Env = any>(
+export function errorHandler<E extends Env = never>(
   error: Error | HTTPResponseError,
   c: Context<E>
 ): Response | Promise<Response> {
@@ -30,6 +30,10 @@ export function errorHandler<E extends Env = any>(
 
   if (error instanceof StatusError) {
     error.body?.error?.details?.push(...details.list);
+    const badRequest = error.body?.error?.details.find((d) => d.type === DetailType.BAD_REQUEST);
+    if (badRequest) {
+      console.warn({ requestId, servingData, ...badRequest });
+    }
     return c.json(error.body, error.status as ContentfulStatusCode);
   }
 
