@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
-import { MapSession } from './map-session';
 import { PRINCIPAL_NAME_INDEX_NAME, resolveIndexesFor } from './common';
+import { MapSession } from './map-session';
 import type { SessionRepository } from './types';
 
 interface SessionEntity {

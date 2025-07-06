@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { useReportWebVitals } from 'next/web-vitals';
 import Script from 'next/script';
-import { track } from '../track/index';
+import { useReportWebVitals } from 'next/web-vitals';
+import { useEffect } from 'react';
 import { mapFBEvent } from '../track/fbq';
-import type { EventName, TrackName, TrackProperties } from '../track/types';
-import type { Gtag, GaId, GtmId } from '../track/gtag';
+import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
+import type { Gtag, GaId, GtmId } from '../track/gtag';
+import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 declare global {
   interface Window extends Gtag, Pixel {}

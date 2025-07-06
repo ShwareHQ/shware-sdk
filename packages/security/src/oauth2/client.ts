@@ -1,5 +1,5 @@
-import { string, object, optional } from 'zod/v4-mini';
 import invariant from 'tiny-invariant';
+import { string, object, optional } from 'zod/v4-mini';
 import {
   NativeCredential,
   OAuth2ClientConfig,

@@ -1,6 +1,6 @@
 import invariant from 'tiny-invariant';
-import { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
+import { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 /**

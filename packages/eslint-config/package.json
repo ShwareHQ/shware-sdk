@@ -1,11 +1,12 @@
 {
   "name": "@repo/eslint-config",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
-  "private": true,
+  "private": false,
   "exports": {
     "./base": "./base.js",
     "./next-js": "./next.js",
+    "./package": "./package.js",
     "./react-internal": "./react-internal.js"
   },
   "devDependencies": {
@@ -13,6 +14,7 @@
     "@next/eslint-plugin-next": "^15.2.1",
     "eslint": "^9.22.0",
     "eslint-config-prettier": "^10.1.1",
+    "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-only-warn": "^1.1.0",
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^5.2.0",

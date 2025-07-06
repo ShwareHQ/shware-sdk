@@ -1,10 +1,10 @@
+import { Details } from '../error/detail';
+import { Status, StatusError } from '../error/status';
+import type { AxiosError } from 'axios';
 import type { Context } from 'hono';
+import type { RequestIdVariables } from 'hono/request-id';
 import type { HTTPResponseError, Bindings } from 'hono/types';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import type { RequestIdVariables } from 'hono/request-id';
-import type { AxiosError } from 'axios';
-import { Status, StatusError } from '../error/status';
-import { Details } from '../error/detail';
 
 type Env = {
   Variables: RequestIdVariables;

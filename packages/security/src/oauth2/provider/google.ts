@@ -1,6 +1,6 @@
 import invariant from 'tiny-invariant';
-import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, OneTapProvider } from '../types';
 import { OAuth2Error } from '../error';
+import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, OneTapProvider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 export function createGoogleProvider(): OneTapProvider {

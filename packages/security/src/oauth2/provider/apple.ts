@@ -1,6 +1,6 @@
 import invariant from 'tiny-invariant';
-import { NativeCredential, LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
+import { NativeCredential, LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 // ref: https://account.apple.com/.well-known/openid-configuration

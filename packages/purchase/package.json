@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsup",
-    "test": "jest"
+    "test": "jest",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint . --fix --ext .js,.jsx,.ts,.tsx"
   },
   "repository": {
     "type": "git",
@@ -33,6 +35,8 @@
     "dist"
   ],
   "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
     "@types/jest": "^29.5.14",
     "@types/node": "^24.0.1",
     "jest": "^30.0.0",

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint . --fix --ext .js,.jsx,.ts,.tsx",
     "build": "tsup",
     "build:tsup": "tsup",
     "build:unbuild": "unbuild"
@@ -58,6 +60,8 @@
     "zod": "^3.25.63"
   },
   "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^22.0.0",
     "@types/node": "^24.0.1",
     "@types/react": "^19.1.8",

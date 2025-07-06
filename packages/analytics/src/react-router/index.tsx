@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
-import { track } from '../track/index';
 import { mapFBEvent } from '../track/fbq';
-import type { Gtag, GaId, GtmId } from '../track/gtag';
+import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
+import type { Gtag, GaId, GtmId } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {

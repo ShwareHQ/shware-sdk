@@ -1,7 +1,7 @@
 import { resolveIndexesFor, PRINCIPAL_NAME_INDEX_NAME, SPRING_SECURITY_CONTEXT } from './common';
 import { MapSession } from './map-session';
-import type { Redis } from 'ioredis';
 import type { KVRepository, Namespace, Session, SessionRepository } from './types';
+import type { Redis } from 'ioredis';
 
 const CREATION_TIME_KEY = 'creationTime';
 const LAST_ACCESSED_TIME_KEY = 'lastAccessedTime';

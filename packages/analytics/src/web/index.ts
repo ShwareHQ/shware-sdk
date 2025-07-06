@@ -1,8 +1,8 @@
 import Bowser from 'bowser';
 import * as cookie from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
-import type { TrackTags } from '../track/types';
 import type { Storage } from '../setup/index';
+import type { TrackTags } from '../track/types';
 
 export function getDeviceId() {
   const cached = localStorage.getItem('device_id');

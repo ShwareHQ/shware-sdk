@@ -1,5 +1,5 @@
-import { TokenBucket } from '../utils/token-bucket';
 import { config } from '../setup/index';
+import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
 import type {
   CreateTrackEventDTO,

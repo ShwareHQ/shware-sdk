@@ -1,5 +1,5 @@
-import { DetailType } from './detail';
 import { hasText } from '../utils/string';
+import { DetailType } from './detail';
 import type { ErrorBody } from './status';
 import type { DefaultNamespace, Namespace, TFunction } from 'i18next';
 

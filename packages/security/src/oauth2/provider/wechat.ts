@@ -1,6 +1,6 @@
 import invariant from 'tiny-invariant';
-import type { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
+import type { OAuth2Token, Provider } from '../types';
 
 export type Options = { isWechatBrowser: boolean };
 
