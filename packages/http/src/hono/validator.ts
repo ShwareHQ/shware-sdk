@@ -33,7 +33,7 @@ export const bigintId = pipe(
     }
     try {
       return BigInt(input);
-    } catch (_) {
+    } catch {
       const message = `Parse bigint id: ${input} failed`;
       ctx.issues.push({ code: 'custom', input, message });
       return NEVER;

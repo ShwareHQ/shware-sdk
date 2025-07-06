@@ -1,4 +1,5 @@
 import { object, string, coerce, optional, int, minimum, maximum, _default } from 'zod/v4-mini';
+import { hasText } from './utils/string';
 
 export type Empty = {};
 export type EntityId = string | number;
@@ -11,8 +12,7 @@ export type NextParams = { limit: number; parent?: string; next: string };
 export type PrevParams = { limit: number; parent?: string; prev: string };
 export type PageParams = { limit: number; prev?: string; next?: string };
 export type ParentPageParams = { limit: number; parent: string; prev?: string; next?: string };
-
-export type PagedResponse<T = never> = { data: T[]; paging: { next: string; prev: string } };
+export type Page<T = never> = { data: T[]; paging: { next: string; prev: string } };
 
 export function pageParamsSchema(max: number = 100, defaultLimit: number = 20) {
   return object({
@@ -42,3 +42,13 @@ export const Cursor = {
     return value as any;
   },
 };
+
+export const initialPageParam: Omit<PageParams, 'limit'> = { next: '', prev: '' };
+
+export function getPreviousPageParam<T = never>(first: Page<T>): Omit<PageParams, 'limit'> | null {
+  return hasText(first.paging.prev) ? { next: '', prev: first.paging.prev } : null;
+}
+
+export function getNextPageParam<T = never>(last: Page<T>): Omit<PageParams, 'limit'> | null {
+  return hasText(last.paging.next) ? { next: last.paging.next, prev: '' } : null;
+}
