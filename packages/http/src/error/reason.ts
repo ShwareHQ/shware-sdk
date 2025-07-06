@@ -63,8 +63,8 @@ export interface MultipartErrorReason {
 }
 
 export interface AppErrorReason {
-  NOT_SUBSCRIBED: string;
-  CREDIT_NOT_ENOUGH: string;
+  RATE_LIMIT_EXCEEDED: string;
+  INSUFFICIENT_CREDITS: string;
   ALREADY_SUBSCRIBED_AT_OTHER_PLATFORM: string;
 }
 

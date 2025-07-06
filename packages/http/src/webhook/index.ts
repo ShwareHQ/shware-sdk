@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
-import { Status } from '../status';
+import { Status } from '../error/status';
 
 const WEBHOOK_TOLERANCE_IN_SECONDS = 5 * 60; // 5 minutes
 

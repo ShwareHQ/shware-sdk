@@ -11,6 +11,12 @@
  * throw Status.alreadyExists('xxx').error(details);
  */
 
+export {
+  LoginTimeoutError,
+  LoginCanceledError,
+  CheckoutCreateError,
+  PurchaseError,
+} from './error/index';
 export type {
   NetworkErrorReason,
   StatusErrorReason,
@@ -19,10 +25,10 @@ export type {
   MultipartErrorReason,
   AppErrorReason,
   ErrorReason,
-} from './reason';
+} from './error/reason';
+export * from './error/detail';
+export * from './error/status';
 
-export * from './detail';
-export * from './status';
 export * from './vaild';
 export * from './snowflake';
 export * from './response';
@@ -31,10 +37,3 @@ export { hasText } from './utils/string';
 export { timing } from './utils/timing';
 export { invariant } from './utils/invariant';
 export { TokenBucket, type TokenBucketOptions } from './utils/token-bucket';
-
-export {
-  LoginTimeoutError,
-  LoginCanceledError,
-  CheckoutCreateError,
-  PurchaseError,
-} from './error/index';
