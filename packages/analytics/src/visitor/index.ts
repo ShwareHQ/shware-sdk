@@ -20,7 +20,7 @@ async function getOrCreateVisitor(): Promise<Visitor> {
       const headers = await config.getHeaders();
       const response = await config.http.get<Visitor>(`/visitors/${visitorId}`, { headers });
       return response.data;
-    } catch (e) {
+    } catch {
       const visitor = await createVisitor();
       await config.storage.setItem(key, visitor.id);
       return visitor;
