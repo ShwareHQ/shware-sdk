@@ -210,3 +210,4 @@ export const createLinkSchema = object({
 });
 
 export type CreateFeedbackDTO = z.output<typeof createFeedbackSchema>;
+export type CreateLinkDTO = z.output<typeof createLinkSchema>;

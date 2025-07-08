@@ -2,6 +2,7 @@ export { setupAnalytics } from './setup/index';
 export { track, trackAsync } from './track/index';
 export { getVisitor, setVisitor, setUserId } from './visitor/index';
 export { sendFeedback } from './feedback/index';
+export { createLink, type Link } from './link/index';
 export {
   createTrackEventSchemaV1,
   createTrackEventSchema,
@@ -10,8 +11,10 @@ export {
   createFeedbackSchema,
   createLinkSchema,
   type CreateFeedbackDTO,
+  type CreateLinkDTO,
 } from './schema/index';
 export { stripeMinorUnits } from './utils/stripe';
+
 export type {
   TrackProperties,
   TrackTags,
