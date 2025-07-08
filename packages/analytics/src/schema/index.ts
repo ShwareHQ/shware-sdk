@@ -21,6 +21,7 @@ import {
   email,
   type z,
   uuid,
+  url,
 } from 'zod/v4-mini';
 
 const items = array(
@@ -153,6 +154,59 @@ export const createFeedbackSchema = object({
   name: string().check(minLength(1), maxLength(256)),
   email: email().check(maxLength(320)),
   message: string().check(minLength(1), maxLength(65536)),
+});
+
+/**
+ * The schema for creating a link.
+ * @see https://support.google.com/analytics/answer/10917952
+ * */
+export const createLinkSchema = object({
+  /** The URL that the user is redirected to. */
+  url: url(), // required
+
+  /**
+   * Campaign ID. Used to identify a specific campaign or promotion. This is a required key for GA4
+   * data import. Use the same IDs that you use when uploading campaign cost data.
+   */
+  utm_id: optional(string()),
+
+  /** Referrer, for example: google, newsletter4, billboard */
+  utm_source: string(), // required
+
+  /** Marketing medium, for example: cpc, banner, email */
+  utm_medium: string(), // required
+
+  /** Product, slogan, promo code, for example: spring_sale */
+  utm_campaign: string(), // required
+
+  /** Paid keyword */
+  utm_term: optional(string()),
+
+  /**
+   * Use to differentiate creatives. For example, if you have two call-to-action links within the
+   * same email message, you can use utm_content and set different values for each so you can tell
+   * which version is more effective.
+   */
+  utm_content: optional(string()),
+
+  /**
+   * The platform responsible for directing traffic to a given Analytics property (such as a buying
+   * platform that sets budgets and targeting criteria or a platform that manages organic traffic
+   * data). For example: Search Ads 360 or Display & Video 360.
+   */
+  utm_source_platform: optional(string()),
+
+  /**
+   * Type of creative, for example: display, native, video, search, utm_creative_format is not
+   * currently reported in Google Analytics 4 properties.
+   */
+  utm_creative_format: optional(string()),
+
+  /**
+   * Targeting criteria applied to a campaign, for example: remarketing, prospecting,
+   * utm_marketing_tactic is not currently reported in Google Analytics 4 properties.
+   * */
+  utm_marketing_tactic: optional(string()),
 });
 
 export type CreateFeedbackDTO = z.output<typeof createFeedbackSchema>;

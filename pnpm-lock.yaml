@@ -79,7 +79,7 @@ importers:
   packages/analytics:
     dependencies:
       axios:
-        specifier: ^1.9.0
+        specifier: ^1.10.0
         version: 1.10.0
       axios-retry:
         specifier: ^4.5.0
@@ -109,8 +109,8 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3
       zod:
-        specifier: ^3.25.63
-        version: 3.25.74
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@repo/eslint-config':
         specifier: workspace:*
@@ -122,7 +122,7 @@ importers:
         specifier: ^22.0.0
         version: 22.0.0
       '@types/node':
-        specifier: ^24.0.1
+        specifier: ^24.0.10
         version: 24.0.10
       '@types/react':
         specifier: ^19.1.8
@@ -5144,6 +5144,9 @@ packages:
 
   zod@3.25.74:
     resolution: {integrity: sha512-J8poo92VuhKjNknViHRAIuuN6li/EwFbAC8OedzI8uxpEPGiXHGQu9wemIAioIpqgfB4SySaJhdk0mH5Y4ICBg==}
+
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
 
@@ -11007,3 +11010,5 @@ snapshots:
   yocto-queue@1.2.1: {}
 
   zod@3.25.74: {}
+
+  zod@3.25.76: {}

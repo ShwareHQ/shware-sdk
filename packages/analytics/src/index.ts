@@ -8,6 +8,7 @@ export {
   createVisitorSchema,
   updateVisitorSchema,
   createFeedbackSchema,
+  createLinkSchema,
   type CreateFeedbackDTO,
 } from './schema/index';
 export { stripeMinorUnits } from './utils/stripe';
