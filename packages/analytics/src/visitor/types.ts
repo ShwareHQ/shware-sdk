@@ -12,7 +12,8 @@ export interface CreateVisitorDTO {
 }
 
 export interface UpdateVisitorDTO {
-  properties: VisitorProperties;
+  user_id?: string;
+  properties?: VisitorProperties;
 }
 
 export type ThirdPartyUserSetter = (properties: VisitorProperties) => void;

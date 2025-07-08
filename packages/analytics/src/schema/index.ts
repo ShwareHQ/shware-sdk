@@ -20,7 +20,7 @@ import {
   transform,
   email,
   type z,
-  uuidv7,
+  uuid,
 } from 'zod/v4-mini';
 
 const items = array(
@@ -83,7 +83,7 @@ export const createTrackEventSchemaV1 = array(
 export const createTrackEventSchema = array(
   object({
     name: string().check(trim(), minLength(1), maxLength(64)),
-    visitor_id: uuidv7(),
+    visitor_id: uuid(),
     timestamp: iso.datetime(),
     tags: object({
       os: optional(string()),
@@ -140,10 +140,13 @@ export const createVisitorSchema = object({
 });
 
 export const updateVisitorSchema = object({
-  properties: record(
-    string().check(trim(), minLength(1), maxLength(128)),
-    union([string().check(maxLength(512)), number(), boolean(), _null()])
-  ).check(refine((data) => Object.keys(data).length <= 64)),
+  user_id: optional(uuid()),
+  properties: optional(
+    record(
+      string().check(trim(), minLength(1), maxLength(128)),
+      union([string().check(maxLength(512)), number(), boolean(), _null()])
+    ).check(refine((data) => Object.keys(data).length <= 64))
+  ),
 });
 
 export const createFeedbackSchema = object({

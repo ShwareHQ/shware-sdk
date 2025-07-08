@@ -1,6 +1,6 @@
 export { setupAnalytics } from './setup/index';
 export { track, trackAsync } from './track/index';
-export { getVisitor, setVisitor } from './visitor/index';
+export { getVisitor, setVisitor, setUserId } from './visitor/index';
 export { sendFeedback } from './feedback/index';
 export {
   createTrackEventSchemaV1,

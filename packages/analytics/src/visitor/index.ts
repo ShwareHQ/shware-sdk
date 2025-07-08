@@ -53,3 +53,12 @@ export async function setVisitor(properties: VisitorProperties) {
   visitor = response.data;
   return response.data;
 }
+
+export async function setUserId(userId: string) {
+  const { id } = await getVisitor();
+  const dto: UpdateVisitorDTO = { user_id: userId };
+  const headers = await config.getHeaders();
+  const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto, { headers });
+  visitor = response.data;
+  return response.data;
+}
