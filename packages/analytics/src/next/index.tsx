@@ -21,6 +21,7 @@ interface Props {
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
+  reportWebVitals?: boolean;
 }
 
 export function sendGAEvent<T extends EventName>(
@@ -53,7 +54,14 @@ export function sendFBEvent<T extends EventName>(
   }
 }
 
-export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Props) {
+export function Analytics({
+  gaId,
+  nonce,
+  debugMode,
+  pixelId,
+  facebookAppId,
+  reportWebVitals = true,
+}: Props) {
   const pathname = usePathname();
 
   useEffect(() => {
@@ -76,6 +84,7 @@ export function Analytics({ gaId, nonce, debugMode, pixelId, facebookAppId }: Pr
   }, [pathname]);
 
   useReportWebVitals((metric) => {
+    if (!reportWebVitals) return;
     const properties = {
       id: metric.id,
       rating: metric.rating,
