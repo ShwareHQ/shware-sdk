@@ -3,6 +3,7 @@ export { track, trackAsync } from './track/index';
 export { getVisitor, setVisitor } from './visitor/index';
 export { sendFeedback } from './feedback/index';
 export {
+  createTrackEventSchemaV1,
   createTrackEventSchema,
   createVisitorSchema,
   updateVisitorSchema,

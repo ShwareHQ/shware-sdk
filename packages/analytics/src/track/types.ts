@@ -124,10 +124,10 @@ export type CreateTrackEventDTO<T extends EventName = EventName> = {
 }[];
 
 export interface TrackEvent<T extends EventName = EventName> {
-  id: string | bigint;
+  id: string;
   name: TrackName<T>;
   tags: TrackTags;
-  visitor_id: string | bigint;
+  visitor_id: string;
   properties?: TrackProperties<T>;
   created_at: string;
 }
