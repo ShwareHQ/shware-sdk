@@ -2,7 +2,7 @@ export { setupAnalytics } from './setup/index';
 export { track, trackAsync } from './track/index';
 export { getVisitor, setVisitor, setUserId } from './visitor/index';
 export { sendFeedback } from './feedback/index';
-export { createLink, type Link } from './link/index';
+export { createLink, getLink, type Link } from './link/index';
 export {
   createTrackEventSchemaV1,
   createTrackEventSchema,

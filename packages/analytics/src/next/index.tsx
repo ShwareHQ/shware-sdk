@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
 import { useEffect } from 'react';
+import { getLink, type Link } from '../link/index';
 import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
@@ -65,22 +66,29 @@ export function Analytics({
   const pathname = usePathname();
 
   useEffect(() => {
-    const params = new URLSearchParams(document.location.search);
-    const properties = {
-      pathname,
-      referrer: document.referrer,
-      fbclid: params.get('fbclid'),
-      gclid: params.get('gclid'),
-      gad_source: params.get('gad_source'),
-      gad_campaignid: params.get('gad_campaignid'),
-      utm_source: params.get('utm_source'),
-      utm_medium: params.get('utm_medium'),
-      utm_campaign: params.get('utm_campaign'),
-      utm_term: params.get('utm_term'),
-      utm_content: params.get('utm_content'),
+    const trackUTM = async () => {
+      const params = new URLSearchParams(document.location.search);
+      let link: Link | null = null;
+      if (params.has('s')) link = await getLink(params.get('s')!);
+
+      const properties = {
+        pathname,
+        referrer: document.referrer,
+        fbclid: params.get('fbclid'),
+        gclid: params.get('gclid'),
+        gad_source: params.get('gad_source'),
+        gad_campaignid: params.get('gad_campaignid'),
+        utm_source: link?.utm_source ?? params.get('utm_source'),
+        utm_medium: link?.utm_medium ?? params.get('utm_medium'),
+        utm_campaign: link?.utm_campaign ?? params.get('utm_campaign'),
+        utm_term: link?.utm_term ?? params.get('utm_term'),
+        utm_content: link?.utm_content ?? params.get('utm_content'),
+      };
+
+      track('page_view', properties, { enableThirdPartyTracking: false });
     };
 
-    track('page_view', properties, { enableThirdPartyTracking: false });
+    trackUTM();
   }, [pathname]);
 
   useReportWebVitals((metric) => {
