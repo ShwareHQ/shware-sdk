@@ -162,51 +162,51 @@ export const createFeedbackSchema = object({
  * */
 export const createLinkSchema = object({
   /** The URL that the user is redirected to. */
-  url: url(), // required
+  url: url().check(maxLength(1024)), // required
 
   /**
    * Campaign ID. Used to identify a specific campaign or promotion. This is a required key for GA4
    * data import. Use the same IDs that you use when uploading campaign cost data.
    */
-  utm_id: optional(string()),
+  utm_id: optional(string().check(maxLength(256))),
 
   /** Referrer, for example: google, newsletter4, billboard */
-  utm_source: string(), // required
+  utm_source: string().check(maxLength(256)), // required
 
   /** Marketing medium, for example: cpc, banner, email */
-  utm_medium: string(), // required
+  utm_medium: string().check(maxLength(256)), // required
 
   /** Product, slogan, promo code, for example: spring_sale */
-  utm_campaign: string(), // required
+  utm_campaign: string().check(maxLength(256)), // required
 
   /** Paid keyword */
-  utm_term: optional(string()),
+  utm_term: optional(string().check(maxLength(256))),
 
   /**
    * Use to differentiate creatives. For example, if you have two call-to-action links within the
    * same email message, you can use utm_content and set different values for each so you can tell
    * which version is more effective.
    */
-  utm_content: optional(string()),
+  utm_content: optional(string().check(maxLength(256))),
 
   /**
    * The platform responsible for directing traffic to a given Analytics property (such as a buying
    * platform that sets budgets and targeting criteria or a platform that manages organic traffic
    * data). For example: Search Ads 360 or Display & Video 360.
    */
-  utm_source_platform: optional(string()),
+  utm_source_platform: optional(string().check(maxLength(256))),
 
   /**
    * Type of creative, for example: display, native, video, search, utm_creative_format is not
    * currently reported in Google Analytics 4 properties.
    */
-  utm_creative_format: optional(string()),
+  utm_creative_format: optional(string().check(maxLength(256))),
 
   /**
    * Targeting criteria applied to a campaign, for example: remarketing, prospecting,
    * utm_marketing_tactic is not currently reported in Google Analytics 4 properties.
    * */
-  utm_marketing_tactic: optional(string()),
+  utm_marketing_tactic: optional(string().check(maxLength(256))),
 });
 
 export type CreateFeedbackDTO = z.output<typeof createFeedbackSchema>;
