@@ -8,6 +8,8 @@ import type { Pixel, PixelId } from '../track/fbq';
 import type { Gtag, GaId, GtmId } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
+type HotjarId = `${number}`;
+
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
   useEffect(() => {
     onCLS(reportWebVitalsFn);
@@ -26,6 +28,7 @@ interface Props {
   gaId?: GaId;
   gtmId?: GtmId;
   pixelId?: PixelId;
+  hotjarId?: HotjarId;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
@@ -67,6 +70,7 @@ export function Analytics({
   nonce,
   debugMode,
   pixelId,
+  hotjarId,
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
@@ -143,32 +147,49 @@ export function Analytics({
         </>
       )}
       {pixelId && (
-        <>
-          <script
-            id="pixel"
-            dangerouslySetInnerHTML={{
-              __html: `
-              !(function (f, b, e, v, n, t, s) {
-                if (f.fbq) return;
-                n = f.fbq = function () {
-                  n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
-                };
-                if (!f._fbq) f._fbq = n;
-                n.push = n;
-                n.loaded = !0;
-                n.version = '2.0';
-                n.queue = [];
-                t = b.createElement(e);
-                t.async = !0;
-                t.src = v;
-                s = b.getElementsByTagName(e)[0];
-                s.parentNode.insertBefore(t, s);
-              })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
-              fbq('init', '${pixelId}');
-              fbq('track', 'PageView');`,
-            }}
-          />
-        </>
+        <script
+          async
+          id="pixel"
+          dangerouslySetInnerHTML={{
+            __html: `
+            !(function (f, b, e, v, n, t, s) {
+              if (f.fbq) return;
+              n = f.fbq = function () {
+                n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+              };
+              if (!f._fbq) f._fbq = n;
+              n.push = n;
+              n.loaded = !0;
+              n.version = '2.0';
+              n.queue = [];
+              t = b.createElement(e);
+              t.async = !0;
+              t.src = v;
+              s = b.getElementsByTagName(e)[0];
+              s.parentNode.insertBefore(t, s);
+            })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+            fbq('init', '${pixelId}');
+            fbq('track', 'PageView');`,
+          }}
+        />
+      )}
+      {hotjarId && (
+        <script
+          async
+          id="hotjar"
+          dangerouslySetInnerHTML={{
+            __html: `
+            (function(h,o,t,j,a,r){
+              h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
+              h._hjSettings={hjid:${hotjarId},hjsv:6};
+              a=o.getElementsByTagName('head')[0];
+              r=o.createElement('script');r.async=1;
+              r.src=t+h._hjSettings.hjid+j+h._hjSettings.hjsv;
+              a.appendChild(r);
+            })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
+            `,
+          }}
+        />
       )}
     </>
   );
