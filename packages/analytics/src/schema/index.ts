@@ -162,7 +162,7 @@ export const createFeedbackSchema = object({
  * */
 export const createLinkSchema = object({
   /** The URL that the user is redirected to. */
-  url: url().check(maxLength(1024)), // required
+  url: url().check(minLength(1), maxLength(1024)), // required
 
   /**
    * Campaign ID. Used to identify a specific campaign or promotion. This is a required key for GA4
@@ -171,13 +171,13 @@ export const createLinkSchema = object({
   utm_id: optional(string().check(maxLength(256))),
 
   /** Referrer, for example: google, newsletter4, billboard */
-  utm_source: string().check(maxLength(256)), // required
+  utm_source: string().check(minLength(1), maxLength(256)), // required
 
   /** Marketing medium, for example: cpc, banner, email */
-  utm_medium: string().check(maxLength(256)), // required
+  utm_medium: string().check(minLength(1), maxLength(256)), // required
 
   /** Product, slogan, promo code, for example: spring_sale */
-  utm_campaign: string().check(maxLength(256)), // required
+  utm_campaign: string().check(minLength(1), maxLength(256)), // required
 
   /** Paid keyword */
   utm_term: optional(string().check(maxLength(256))),
