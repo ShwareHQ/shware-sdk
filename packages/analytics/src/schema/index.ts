@@ -22,7 +22,7 @@ import {
   type z,
   uuid,
   url,
-} from 'zod/v4-mini';
+} from 'zod/mini';
 
 const items = array(
   record(

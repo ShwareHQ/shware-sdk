@@ -1,11 +1,11 @@
 import { validator } from 'hono/validator';
-import { transform, pipe, string, NEVER } from 'zod/v4-mini';
+import { transform, pipe, string, NEVER } from 'zod/mini';
 import { Details } from '../error/detail';
 import { Status } from '../error/status';
 import type { BadRequest } from '../error/detail';
 import type { ValidationTargets } from 'hono';
-import type { output as outputV4, ZodType } from 'zod/v4';
-import type { output as outputMini, ZodMiniType } from 'zod/v4-mini';
+import type { output as outputV4, ZodType } from 'zod';
+import type { output as outputMini, ZodMiniType } from 'zod/mini';
 
 export function zValidator<S extends ZodType | ZodMiniType>(
   target: keyof ValidationTargets,

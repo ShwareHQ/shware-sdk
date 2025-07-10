@@ -1,6 +1,6 @@
 import { Details, BadRequest } from './error/detail';
 import { Status } from './error/status';
-import type { z, ZodMiniType } from 'zod/v4-mini';
+import type { z, ZodMiniType } from 'zod/mini';
 
 export type Result<S extends ZodMiniType> =
   | { data: z.infer<S>; error: null }

@@ -57,6 +57,7 @@ export function errorHandler<E extends Env = never>(
     return Status.internal('Axios error').response(details);
   }
 
+  console.error(`serving data: ${servingData}`);
   console.error(error);
   return Status.internal('Unknown error').response(details);
 }

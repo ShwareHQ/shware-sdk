@@ -1,6 +1,7 @@
-import { object, string, coerce, optional, int, minimum, maximum, _default } from 'zod/v4-mini';
+import { object, string, coerce, optional, int, minimum, maximum, _default } from 'zod/mini';
 import { hasText } from './utils/string';
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type Empty = {};
 export type EntityId = string | number;
 export type Entity = { id: EntityId };
@@ -37,9 +38,11 @@ export const Cursor = {
     type: T = 'bigint' as T
   ): T extends 'bigint' ? bigint : T extends 'number' ? number : string {
     const value = Buffer.from(token, 'base64').toString('utf-8');
-    if (type === 'bigint') return BigInt(value) as any;
-    if (type === 'number') return Number(value) as any;
-    return value as any;
+    if (type === 'bigint')
+      return BigInt(value) as T extends 'bigint' ? bigint : T extends 'number' ? number : string;
+    if (type === 'number')
+      return Number(value) as T extends 'bigint' ? bigint : T extends 'number' ? number : string;
+    return value as T extends 'bigint' ? bigint : T extends 'number' ? number : string;
   },
 };
 
