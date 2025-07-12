@@ -91,6 +91,8 @@ export interface AdvertisingInfo {
    * Google Analytics fields
    */
   gclid?: string;
+  gad_source?: string;
+  gad_campaignid?: string;
   /** iOS: IDFA, Android: Android Advertising ID */
   advertising_id?: string;
 }
