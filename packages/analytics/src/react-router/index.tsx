@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { onLCP, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
-import { getLink, type Link } from '../link/index';
 import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
@@ -78,33 +77,8 @@ export function Analytics({
   const [params] = useSearchParams();
 
   useEffect(() => {
-    const trackUTM = async () => {
-      let link: Link | null = null;
-      if (params.has('s')) link = await getLink(params.get('s')!);
-
-      const properties = {
-        pathname,
-        referrer: document.referrer,
-        fbclid: params.get('fbclid'),
-        gclid: params.get('gclid'),
-        gad_source: params.get('gad_source'),
-        gad_campaignid: params.get('gad_campaignid'),
-        utm_source: link?.utm_source ?? params.get('utm_source'),
-        utm_medium: link?.utm_medium ?? params.get('utm_medium'),
-        utm_campaign: link?.utm_campaign ?? params.get('utm_campaign'),
-        utm_term: link?.utm_term ?? params.get('utm_term'),
-        utm_content: link?.utm_content ?? params.get('utm_content'),
-      };
-
-      /**
-       * Pixel:
-       * Each time the Pixel loads, it automatically calls fbq('track', 'PageView') to track a
-       * PageView standard event.
-       */
-      track('page_view', properties, { enableThirdPartyTracking: false });
-    };
-
-    trackUTM();
+    const properties = { pathname, referrer: document.referrer };
+    track('page_view', properties, { enableThirdPartyTracking: false });
   }, [pathname, params]);
 
   useReportWebVitals((metric) => {
