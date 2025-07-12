@@ -84,13 +84,24 @@ export interface AdvertisingInfo {
    * Meta pixel fields
    * ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters#fbc
    * Stored in the _fbc/_fbp browser cookie under your domain
+   * ref: https://www.facebook.com/business/help/2360940870872492?checkpoint_src=any
    */
   fbc?: string;
   fbp?: string;
+  fbclid?: string;
+  ad_id?: string;
+  ad_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  campaign_id?: string;
+  campaign_name?: string;
+  placement?: string;
+  site_source_name?: string;
   /**
    * Google Analytics fields
    */
   gclid?: string;
+  gclsrc?: string;
   gad_source?: string;
   gad_campaignid?: string;
   /** iOS: IDFA, Android: Android Advertising ID */
