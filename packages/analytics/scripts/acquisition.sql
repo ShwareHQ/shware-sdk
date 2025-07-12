@@ -81,21 +81,17 @@ order by visitor_count desc
 limit 20;
 
 -- Sources (utm_source, gad_source) (Bar chart)
-select
-  case
-    when nullif(e.properties ->> 'utm_source', '') is not null 
-      then e.properties ->> 'utm_source' || ' (utm)'
-    when nullif(e.properties ->> 'gad_source', '') is not null 
-      then e.properties ->> 'gad_source' || ' (gad)'
+select 
+  case 
+    when nullif(v.properties ->> 'utm_source', '') is not null then v.properties ->> 'utm_source' || ' (utm)'
+    when nullif(v.properties ->> 'gad_source', '') is not null then v.properties ->> 'gad_source' || ' (gad)'
     else 'unknown'
   end as source,
-  count(distinct e.visitor_id) as event_count
-from application.event e
+  count(*) as event_count
+from application.visitor v
 where
-  e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
-  and e.name = 'page_view'
+  v.created_at between $__timeFrom() and $__timeTo()
+  and v.properties ->> 'environment' = '$environment'
+  and v.properties ->> 'platform' in (${platform:sqlstring})
 group by source
-order by event_count desc
-limit 10;
+order by event_count desc;
