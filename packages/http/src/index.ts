@@ -57,3 +57,5 @@ export { hasText } from './utils/string';
 export { timing } from './utils/timing';
 export { invariant } from './utils/invariant';
 export { TokenBucket, type TokenBucketOptions } from './utils/token-bucket';
+
+export { ISO_3601_1, type ISO3166CountryCode } from './iso/iso_3601_1';
