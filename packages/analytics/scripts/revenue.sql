@@ -1,3 +1,12 @@
+-- Revenue (Stripe)
+select 
+  coalesce(sum((e.data_object ->> 'amount')::float / (100 * 1)), 0) as total_income
+from application.stripe_event e
+where
+  e.type in ('charge.succeeded')
+  and e.created between extract(epoch from $__timeFrom()::TIMESTAMP)
+  and extract(epoch from $__timeTo()::TIMESTAMP)
+
 -- Purchase by country (Bar chart)
 select
   e.tags ->> 'country' as country,
