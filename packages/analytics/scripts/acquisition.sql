@@ -72,7 +72,7 @@ select
     when e.properties ->> 'referrer' not similar to 'https?://%' then 'unknown'
     else regexp_replace(e.properties ->> 'referrer', '^https?://([^/]+).*', '\1')
   end as host,
-  count(e.id) as event_count
+  count(distinct e.visitor_id) as event_count
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
