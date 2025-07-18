@@ -63,12 +63,29 @@ export async function getTags(release: string) {
     gclsrc: params.get('gclsrc') ?? undefined,
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
+    // click ids
+    dclid: params.get('dclid') ?? undefined,
+    ko_click_id: params.get('ko_click_id') ?? undefined,
+    li_fat_id: params.get('li_fat_id') ?? undefined,
+    msclkid: params.get('msclkid') ?? undefined,
+    sccid: params.get('sccid') ?? undefined,
+    ttclid: params.get('ttclid') ?? undefined,
+    twclid: params.get('twclid') ?? undefined,
+    wbraid: params.get('wbraid') ?? undefined,
+    yclid: params.get('yclid') ?? undefined,
     // utm params
     utm_source: link?.utm_source ?? params.get('utm_source') ?? undefined,
     utm_medium: link?.utm_medium ?? params.get('utm_medium') ?? undefined,
     utm_campaign: link?.utm_campaign ?? params.get('utm_campaign') ?? undefined,
     utm_term: link?.utm_term ?? params.get('utm_term') ?? undefined,
     utm_content: link?.utm_content ?? params.get('utm_content') ?? undefined,
+    utm_id: link?.utm_id ?? params.get('utm_id') ?? undefined,
+    utm_source_platform:
+      link?.utm_source_platform ?? params.get('utm_source_platform') ?? undefined,
+    utm_creative_format:
+      link?.utm_creative_format ?? params.get('utm_creative_format') ?? undefined,
+    utm_marketing_tactic:
+      link?.utm_marketing_tactic ?? params.get('utm_marketing_tactic') ?? undefined,
   };
   return tags;
 }

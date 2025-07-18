@@ -80,6 +80,16 @@ export const createTrackEventSchemaV1 = array(
       gad_source: optional(string()),
       gad_campaignid: optional(string()),
       advertising_id: optional(string()),
+      // click ids
+      dclid: optional(string()),
+      ko_click_id: optional(string()),
+      li_fat_id: optional(string()),
+      msclkid: optional(string()),
+      sccid: optional(string()),
+      ttclid: optional(string()),
+      twclid: optional(string()),
+      wbraid: optional(string()),
+      yclid: optional(string()),
       // utm params
       utm_source: optional(string()),
       utm_medium: optional(string()),
@@ -144,6 +154,16 @@ export const createTrackEventSchema = array(
       gad_source: optional(string()),
       gad_campaignid: optional(string()),
       advertising_id: optional(string()),
+      // click ids
+      dclid: optional(string()),
+      ko_click_id: optional(string()),
+      li_fat_id: optional(string()),
+      msclkid: optional(string()),
+      sccid: optional(string()),
+      ttclid: optional(string()),
+      twclid: optional(string()),
+      wbraid: optional(string()),
+      yclid: optional(string()),
       // utm params
       utm_source: optional(string()),
       utm_medium: optional(string()),

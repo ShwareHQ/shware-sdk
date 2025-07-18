@@ -106,6 +106,16 @@ export interface AdvertisingInfo {
   gad_campaignid?: string;
   /** iOS: IDFA, Android: Android Advertising ID */
   advertising_id?: string;
+  // click ids
+  dclid?: string; // Google Display Network
+  ko_click_id?: string; // Kakao Ads
+  li_fat_id?: string; // LinkedIn Ads
+  msclkid?: string; // Microsoft Ads (Bing Ads)
+  sccid?: string; // Snapchat Ads
+  ttclid?: string; // TikTok Ads
+  twclid?: string; // Twitter Ads (X Ads)
+  wbraid?: string; // Google Ads (for iOS privacy)
+  yclid?: string; // Yandex Ads
 }
 
 export interface UTMParams {
