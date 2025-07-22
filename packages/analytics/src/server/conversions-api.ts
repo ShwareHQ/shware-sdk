@@ -88,7 +88,18 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
   // set tags info
   if (tags.fbc) {
     userData.setFbc(tags.fbc);
+  } else if (tags.fbclid) {
+    // ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc#2--format-clickid
+    // The formatted ClickID value must be of the form `version.subdomainIndex.creationTime.<fbclid>`, where:
+    // - version is always this prefix: fb
+    // - subdomainIndex is which domain the cookie is defined on ('com' = 0, 'example.com' = 1, 'www.example.com' = 2)
+    // - creationTime is the UNIX time since epoch in milliseconds when the _fbc was stored. If you don't save the _fbc cookie, use the timestamp when you first observed or received this fbclid value
+    // - <fbclid> is the value for the fbclid query parameter in the page URL.
+
+    const fbc = `fb.1.${Date.now()}.${tags.fbclid}`;
+    userData.setFbc(fbc);
   }
+
   if (tags.fbp) {
     userData.setFbp(tags.fbp);
   }

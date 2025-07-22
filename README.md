@@ -5,6 +5,10 @@
 - error
 - features
 
+## Todos
+
+- [ ] add page duration
+
 ## Use by
 
 - [proface.ai](https://proface.ai)
