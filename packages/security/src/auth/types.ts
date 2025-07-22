@@ -23,6 +23,7 @@ export interface AuthConfig {
 
 export interface AuthService {
   // basic
+  csrf: (request: Request) => Promise<Response>;
   logout: (request: Request) => Promise<Response>;
   logged: (request: Request, onLogged?: LoggedHandler) => Promise<Response>;
 

@@ -51,6 +51,25 @@ export class Auth implements AuthService {
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
   }
 
+  csrf = async (_request: Request): Promise<Response> => {
+    const token = randomUUID();
+    const response = Response.json({
+      token,
+      parameterName: '_csrf',
+      headerName: 'X-XSRF-TOKEN',
+    });
+
+    // Double Submit Cookie Protection
+    setCookie(response, 'XSRF-TOKEN', token, {
+      path: '/',
+      secure: true,
+      httpOnly: false,
+      sameSite: 'none',
+      domain: this.cookieOptions.domain,
+    });
+    return response;
+  };
+
   logout = async (request: Request): Promise<Response> => {
     const sessionId = getCookie(request, this.cookieName);
     if (sessionId) await this.repository.deleteById(sessionId);
