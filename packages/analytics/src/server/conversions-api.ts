@@ -10,6 +10,18 @@ import {
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 
+function normalizeCountry<T extends string | undefined>(
+  input: T
+): T extends string ? string : undefined {
+  const country = input?.split(/[-_]/).at(0);
+  if (!country) return undefined as never;
+  return [
+    'xk', // Kosovo
+  ].includes(country)
+    ? ('zz' as never) // zz is unknown or unspecified country
+    : (country as never);
+}
+
 function getUserData(tags: TrackTags, data: UserProvidedData) {
   const userData = new UserData();
 
@@ -42,7 +54,8 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
       const cities = data.address.map((a) => a.city).filter(Boolean);
       const states = data.address.map((a) => a.region).filter(Boolean);
       const postalCodes = data.address.map((a) => a.postal_code).filter(Boolean);
-      const countries = data.address.map((a) => a.country?.split(/[-_]/).at(0)).filter(Boolean);
+      const countries = data.address.map((a) => normalizeCountry(a.country)).filter(Boolean);
+
       userData.setFirstNames(firstNames as string[]);
       userData.setLastNames(lastNames as string[]);
       userData.setCities(cities as string[]);
@@ -61,7 +74,7 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
       if (data.address.city) userData.setCity(data.address.city);
       if (data.address.region) userData.setState(data.address.region);
       if (data.address.postal_code) userData.setZip(data.address.postal_code);
-      if (data.address.country) userData.setCountry(data.address.country.split(/[-_]/).at(0)!);
+      if (data.address.country) userData.setCountry(normalizeCountry(data.address.country));
     }
   }
   if (data.birthday) {
