@@ -53,18 +53,18 @@
   "dependencies": {
     "axios": "^1.11.0",
     "axios-retry": "^4.5.0",
-    "bowser": "^2.11.0",
+    "bowser": "^2.12.1",
     "cookie": "^1.0.2",
     "uuid": "^11.1.0",
     "web-vitals": "^5.1.0",
-    "zod": "^4.0.15"
+    "zod": "^4.1.1"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^22.0.0",
-    "@types/node": "^24.2.0",
-    "@types/react": "^19.1.9",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.11",
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
