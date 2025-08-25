@@ -1,6 +1,6 @@
 {
   "name": "@shware/purchase",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": false,
   "type": "module",
   "scripts": {
@@ -38,13 +38,13 @@
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.2.0",
+    "@types/node": "^24.3.0",
     "jest": "^30.0.5",
     "ts-jest": "^29.4.1",
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "zod": "^4.0.15"
+    "zod": "^4.1.1"
   },
   "peerDependencies": {
     "stripe": "^18.0.0"
