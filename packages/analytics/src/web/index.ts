@@ -90,7 +90,23 @@ export async function getTags(release: string) {
   return tags;
 }
 
+const map = new Map<string, string>();
+
 export const storage: Storage = {
-  getItem: (key) => localStorage.getItem(key),
-  setItem: (key, value) => localStorage.setItem(key, value),
+  getItem: (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      console.error('localStorage is not available');
+      return map.get(key) ?? null;
+    }
+  },
+  setItem: (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      console.error('localStorage is not available');
+      map.set(key, value);
+    }
+  },
 };
