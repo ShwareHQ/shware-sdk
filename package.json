@@ -15,9 +15,9 @@
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "tsup": "^8.5.0",
-    "turbo": "^2.5.5",
+    "turbo": "^2.5.6",
     "typescript": "^5.9.2",
-    "unbuild": "^3.6.0"
+    "unbuild": "^3.6.1"
   },
   "prettier": {
     "printWidth": 100,
@@ -34,7 +34,7 @@
     "endOfLine": "lf",
     "plugins": []
   },
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@10.15.1",
   "engines": {
     "node": "22.x"
   }

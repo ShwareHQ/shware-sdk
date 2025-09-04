@@ -1,6 +1,6 @@
 {
   "name": "@shware/purchase",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": false,
   "type": "module",
   "scripts": {
@@ -25,6 +25,16 @@
       "import": "./dist/client/index.mjs",
       "require": "./dist/client/index.cjs"
     },
+    "./app-store": {
+      "types": "./dist/app-store/index.d.ts",
+      "import": "./dist/app-store/index.mjs",
+      "require": "./dist/app-store/index.cjs"
+    },
+    "./google-play": {
+      "types": "./dist/google-play/index.d.ts",
+      "import": "./dist/google-play/index.mjs",
+      "require": "./dist/google-play/index.cjs"
+    },
     "./stripe": {
       "types": "./dist/stripe/index.d.ts",
       "import": "./dist/stripe/index.mjs",
@@ -39,12 +49,12 @@
     "@repo/typescript-config": "workspace:*",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.3.0",
-    "jest": "^30.0.5",
+    "jest": "^30.1.3",
     "ts-jest": "^29.4.1",
     "typescript": "^5.9.2"
   },
   "dependencies": {
-    "zod": "^4.1.1"
+    "zod": "^4.1.5"
   },
   "peerDependencies": {
     "stripe": "^18.0.0"
