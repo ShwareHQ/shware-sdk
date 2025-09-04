@@ -61,7 +61,7 @@
     "axios": "^1.10.0",
     "hono": "^4.7.9",
     "i18next": "^25.0.0",
-    "react": "^19.0.0"
+    "react": "^19"
   },
   "peerDependenciesMeta": {
     "axios": {

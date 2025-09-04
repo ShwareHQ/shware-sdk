@@ -68,9 +68,9 @@
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
-    "facebook-nodejs-business-sdk": "^23.0.1",
-    "next": ">= 15",
-    "react": "^19.0.0",
+    "facebook-nodejs-business-sdk": "^23",
+    "next": "^15",
+    "react": "^19",
     "react-router": "^7"
   },
   "peerDependenciesMeta": {
