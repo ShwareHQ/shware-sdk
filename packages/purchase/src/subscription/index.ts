@@ -162,7 +162,7 @@ export const AVAILABLE_STATUS = [
   SubscriptionStatus.ACTIVE,
   SubscriptionStatus.TRIALING,
   SubscriptionStatus.IN_GRACE_PERIOD,
-] as const;
+];
 
 export const ALL_SUBSCRIPTION_STATUS = [
   SubscriptionStatus.TRIALING,
@@ -179,4 +179,4 @@ export const ALL_SUBSCRIPTION_STATUS = [
   SubscriptionStatus.PAUSED,
   SubscriptionStatus.REPLACED,
   SubscriptionStatus.EXPIRED,
-] as const;
+];
