@@ -179,4 +179,4 @@ export const ALL_SUBSCRIPTION_STATUS = [
   SubscriptionStatus.PAUSED,
   SubscriptionStatus.REPLACED,
   SubscriptionStatus.EXPIRED,
-];
+] as const;
