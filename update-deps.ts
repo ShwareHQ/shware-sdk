@@ -2,6 +2,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 
 function incrementVersion(version: string): string {
   const parts = version.split('.');
@@ -36,6 +37,17 @@ function findPackageJsonFiles(packagesDir: string): string[] {
   }
 
   return packageJsonPaths;
+}
+
+function runDependencyUpdates() {
+  console.log('Running npm-check-updates in interactive mode...');
+  try {
+    execSync('ncu -i --deep', { stdio: 'inherit', cwd: process.cwd() });
+    console.log('Dependency updates completed.\n');
+  } catch (error) {
+    console.error('Error running ncu:', error);
+    process.exit(1);
+  }
 }
 
 function updatePackageVersions() {
@@ -75,4 +87,5 @@ function updatePackageVersions() {
   }
 }
 
+runDependencyUpdates();
 updatePackageVersions();
