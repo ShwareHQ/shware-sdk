@@ -8,7 +8,7 @@
     "build": "tsup",
     "test": "jest",
     "check-types": "tsc --noEmit",
-    "lint": "eslint . --fix --ext .js,.jsx,.ts,.tsx"
+    "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx"
   },
   "repository": {
     "type": "git",

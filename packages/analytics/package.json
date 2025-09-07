@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit",
-    "lint": "eslint . --fix --ext .js,.jsx,.ts,.tsx",
+    "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx",
     "build": "tsup",
     "build:tsup": "tsup",
     "build:unbuild": "unbuild"

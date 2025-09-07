@@ -6,7 +6,7 @@ import type { RequestIdVariables } from 'hono/request-id';
 import type { HTTPResponseError, Bindings } from 'hono/types';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
-type Env = {
+export type Env = {
   Variables: RequestIdVariables;
   Bindings?: Bindings;
 };

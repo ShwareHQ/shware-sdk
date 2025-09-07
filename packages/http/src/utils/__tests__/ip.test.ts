@@ -1,4 +1,4 @@
-import { extractIpAddress } from '../utils/ip';
+import { extractIpAddress } from '../ip';
 
 describe('extractIpAddress', () => {
   it('should extract the ipv4 address from the request', () => {

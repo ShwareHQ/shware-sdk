@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "private": false,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsup",
     "test": "jest",
     "check-types": "tsc --noEmit",
-    "lint": "eslint . --fix --ext .js,.jsx,.ts,.tsx"
+    "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx"
   },
   "repository": {
     "type": "git",
