@@ -7,9 +7,7 @@ import type { MiddlewareHandler } from 'hono';
 
 type Methods = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
-type Auth = {
-  isAuthenticated: (request: Request) => Promise<boolean>;
-};
+type Auth = { isAuthenticated: (request: Request) => Promise<boolean> };
 
 export class Authorizer {
   private readonly router = new SmartRouter<null>({
@@ -52,5 +50,42 @@ export class Authorizer {
       if (!authenticated) throw Status.unauthorized().error();
       await next();
     };
+  };
+}
+
+export interface AuthorizerConfig {
+  auth: Auth;
+  errorMessage?: string;
+  rules?: { path: string; methods?: [Methods, ...Methods[]] }[];
+}
+
+export function authorizer({
+  auth,
+  errorMessage = 'Unauthorized, please login to continue.',
+  rules = [],
+}: AuthorizerConfig): MiddlewareHandler {
+  const router = new SmartRouter<null>({ routers: [new RegExpRouter(), new TrieRouter()] });
+
+  for (const { path, methods = [METHOD_NAME_ALL] } of rules) {
+    for (const method of methods) {
+      router.add(method, path, null);
+    }
+  }
+
+  return async (c, next) => {
+    if (c.req.method === 'OPTIONS') {
+      await next();
+      return;
+    }
+
+    const [matched] = router.match(c.req.method, c.req.path);
+    if (matched.length === 0) {
+      await next();
+      return;
+    }
+
+    const authenticated = await auth.isAuthenticated(c.req.raw);
+    if (!authenticated) throw Status.unauthorized(errorMessage).error();
+    await next();
   };
 }
