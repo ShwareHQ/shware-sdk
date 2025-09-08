@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { OAuth2Error } from '../error';
 import { ExchangeCodeParams, PkceParameters, RefreshTokenParams } from '../types';
 
@@ -108,37 +108,13 @@ export async function revokeToken(params: RevokeTokenParams) {
   }
 }
 
-interface JWKSet {
-  keys: { kty: string; kid: string; use: string; alg: string; n: string; e: string }[];
-}
-
-const cache = new Map<string, JWKSet>();
-
-async function getJWK(kid: string, jwkSetUri: string) {
-  let jwkSet: JWKSet;
-  if (cache.has(jwkSetUri)) {
-    jwkSet = cache.get(jwkSetUri)!;
-  } else {
-    const response = await fetch(jwkSetUri);
-    if (!response.ok) throw new OAuth2Error(response.status, 'server_error', 'Failed to fetch JWK');
-    jwkSet = (await response.json()) as JWKSet;
-    cache.set(jwkSetUri, jwkSet);
-  }
-
-  const jwk = jwkSet.keys.find((key) => key.kid === kid);
-  if (!jwk) throw new OAuth2Error(400, 'invalid_request', `JWK not found for kid: ${kid}`);
-  return jwk;
-}
-
 export async function verifyIdToken<T>(idToken: string, jwkSetUri: string) {
-  const header = jwt.decode(idToken, { complete: true });
-  if (!header?.header.kid) {
-    throw new OAuth2Error(400, 'invalid_request', 'kid not found in id_token header');
-  }
   try {
-    const key = await getJWK(header.header.kid, jwkSetUri);
-    return jwt.verify(idToken, { key, format: 'jwk' }) as T;
+    const jwks = createRemoteJWKSet(new URL(jwkSetUri));
+    const { payload } = await jwtVerify(idToken, jwks);
+    return payload as T;
   } catch (e) {
+    console.error('Failed to verify id_token', e);
     throw new OAuth2Error(400, 'invalid_request', 'Failed to verify id_token');
   }
 }
