@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 0.1.12
+
+### Patch Changes
+
+- add quantity support
+
 ## 0.1.11
 
 ### Patch Changes

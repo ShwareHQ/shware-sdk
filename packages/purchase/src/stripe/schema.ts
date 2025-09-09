@@ -6,8 +6,11 @@ import {
   string,
   enum as _enum,
   url,
-  type z,
-} from 'zod/v4-mini';
+  _default,
+  int,
+  gte,
+  type output,
+} from 'zod/mini';
 import type { ProductId } from './types';
 
 export const cancellationDetailsSchema = object({
@@ -30,12 +33,13 @@ export const cancellationDetailsSchema = object({
 
 export function checkoutSessionSchema(productIds: [ProductId, ...ProductId[]]) {
   return object({
+    quantity: _default(int().check(gte(1)), 1),
     productId: _enum(productIds),
     cancelUrl: optional(url()),
     successUrl: optional(url()),
   });
 }
 
-export interface CancellationDetails extends z.output<typeof cancellationDetailsSchema> {
+export interface CancellationDetails extends output<typeof cancellationDetailsSchema> {
   reason?: 'cancellation_requested' | 'payment_disputed' | 'payment_failed' | null;
 }

@@ -2,7 +2,7 @@
   "name": "@repo/eslint-config",
   "version": "0.0.2",
   "type": "module",
-  "private": false,
+  "private": true,
   "exports": {
     "./base": "./base.js",
     "./next-js": "./next.js",
