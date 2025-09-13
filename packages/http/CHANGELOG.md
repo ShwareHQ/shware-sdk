@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.1.12
+
+### Patch Changes
+
+- add once util
+
 ## 1.1.11
 
 ### Patch Changes

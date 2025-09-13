@@ -55,6 +55,7 @@ export * from './snowflake';
 export * as MAX_LENGTH from './max-length/index';
 export { hasText } from './utils/string';
 export { timing } from './utils/timing';
+export { once } from './utils/promise';
 export { invariant } from './utils/invariant';
 export { TokenBucket, type TokenBucketOptions } from './utils/token-bucket';
 
