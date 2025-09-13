@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.2.11
+
+### Patch Changes
+
+- update deps
+
 ## 2.2.10
 
 ### Patch Changes

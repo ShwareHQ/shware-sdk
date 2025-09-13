@@ -1,6 +1,6 @@
 {
   "name": "@repo/eslint-config",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "private": true,
   "exports": {
@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
-    "@next/eslint-plugin-next": "^15.5.2",
+    "@next/eslint-plugin-next": "^15.5.3",
     "eslint": "^9.35.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
