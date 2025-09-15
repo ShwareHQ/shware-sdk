@@ -1,5 +1,11 @@
 # @shware/security
 
+## 1.5.3
+
+### Patch Changes
+
+- chore: eslint
+
 ## 1.5.2
 
 ### Patch Changes

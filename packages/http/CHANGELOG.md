@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.2.2
+
+### Patch Changes
+
+- chore: eslint
+
 ## 1.2.1
 
 ### Patch Changes
