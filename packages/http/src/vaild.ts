@@ -8,7 +8,7 @@ export type Result<S extends ZodMiniType> =
 
 type Target = 'json' | 'form' | 'query' | 'param' | 'header' | 'cookie';
 
-async function getTarget(request: Request, target: Target): Promise<any> {
+async function getTarget(request: Request, target: Target): Promise<unknown> {
   switch (target) {
     case 'json':
       return request.json();

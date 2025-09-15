@@ -49,7 +49,7 @@ export function createGoogleProvider(): OneTapProvider {
         },
       };
     },
-    async loginOAuth2Native({ pkce, credentials, ...params }: LoginOAuth2NativeParams) {
+    async loginOAuth2Native({ pkce: _, credentials, ...params }: LoginOAuth2NativeParams) {
       invariant(credentials.code, 'code is required');
       const { code } = credentials;
       const { tokenUri } = this;

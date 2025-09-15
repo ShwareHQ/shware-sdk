@@ -201,9 +201,6 @@ export class StatusError extends Error {
     this.name = 'StatusError';
     this.status = status;
     this.body = body;
-    if ((Error as any).captureStackTrace) {
-      (Error as any).captureStackTrace(this, StatusError);
-    }
     Object.setPrototypeOf(this, StatusError.prototype);
   }
 }

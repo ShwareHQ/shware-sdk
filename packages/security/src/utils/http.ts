@@ -27,7 +27,8 @@ type PathParam<T extends string> = T extends `${string}:${infer Param}/${infer R
   ? { [K in Param]: string } & PathParam<Rest>
   : T extends `${string}:${infer Param}`
     ? { [K in Param]: string }
-    : {};
+    : // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+      {};
 
 export function param<P extends string>(request: Request, path: P): PathParam<P> {
   const url = new URL(request.url);

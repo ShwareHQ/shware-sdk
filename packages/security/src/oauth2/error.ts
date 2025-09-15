@@ -23,9 +23,6 @@ export class OAuth2Error extends Error {
     super(message ?? `OAuth2 error: ${error}`);
     this.status = status;
     this.error = error;
-    if ((Error as any).captureStackTrace) {
-      (Error as any).captureStackTrace(this, OAuth2Error);
-    }
     Object.setPrototypeOf(this, OAuth2Error.prototype);
   }
 }
@@ -33,9 +30,6 @@ export class OAuth2Error extends Error {
 export class AuthenticationError extends Error {
   constructor(message: string) {
     super(message);
-    if ((Error as any).captureStackTrace) {
-      (Error as any).captureStackTrace(this, AuthenticationError);
-    }
     Object.setPrototypeOf(this, AuthenticationError.prototype);
   }
 }

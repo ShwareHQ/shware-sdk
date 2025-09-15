@@ -48,10 +48,10 @@ export const packageConfig = [
           alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
-      'sort-imports': 'error',
+      'sort-imports': ['error', { ignoreDeclarationSort: true }],
     },
   },
   {
-    ignores: ['node_modules', 'cdk.out', '**/*.cjs'],
+    ignores: ['node_modules', 'dist', 'cdk.out', '**/*.cjs'],
   },
 ];

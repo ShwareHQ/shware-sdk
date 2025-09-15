@@ -19,7 +19,9 @@ const defaultOptions: TrackOptions = { enableThirdPartyTracking: true };
 const tokenBucket = new TokenBucket({ rate: 1, capacity: 20, requested: 2 });
 
 type Item = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   name: TrackName<any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   properties: TrackProperties<any>;
   timestamp: string;
   options: TrackOptions;

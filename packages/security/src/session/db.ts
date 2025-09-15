@@ -10,6 +10,7 @@ interface SessionEntity {
   lastAccessTime: number;
   maxInactiveInterval: number;
   expiryTime: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   attributes: Record<string, any>;
   principalName?: string | null;
 }
@@ -46,9 +47,9 @@ export class DBIndexedSessionRepository implements SessionRepository<DBSession> 
   }
 
   private mapSessionToEntity(session: DBSession): SessionEntity {
-    const attributes = new Map<string, string | number | null>();
+    const attributes: Record<string, string | number | null> = {};
     for (const name of session.getAttributeNames()) {
-      attributes.set(name, session.getAttribute(name));
+      attributes[name] = session.getAttribute(name);
     }
     const principalName = resolveIndexesFor(session);
 

@@ -12,14 +12,14 @@ export function createAppleProvider(): Provider {
     jwkSetUri: 'https://appleid.apple.com/auth/keys',
     userNameAttribute: 'sub',
     defaultScope: ['openid', 'name', 'email'],
-    createAuthorizationUri({ pkce, ...params }) {
+    createAuthorizationUri({ pkce: _, ...params }) {
       return createAuthorizationUri({
         ...params,
         scope: params.scope ?? this.defaultScope,
         authorizationUri: this.authorizationUri,
       });
     },
-    async exchangeAuthorizationCode({ pkce, ...params }) {
+    async exchangeAuthorizationCode({ pkce: _, ...params }) {
       const response = await exchangeAuthorizationCode({ ...params, tokenUri: this.tokenUri });
       if (!response.ok) {
         const { error } = (await response.json()) as AppleErrorResponse;
@@ -44,7 +44,7 @@ export function createAppleProvider(): Provider {
         },
       };
     },
-    async loginOAuth2Native({ pkce, credentials, ...params }: LoginOAuth2NativeParams) {
+    async loginOAuth2Native({ pkce: _, credentials, ...params }: LoginOAuth2NativeParams) {
       invariant(credentials.code, 'code is required');
       const { tokenUri } = this;
       const { code } = credentials;

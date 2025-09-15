@@ -1,8 +1,8 @@
-interface Props<T extends (...args: any[]) => any> {
+interface Props<A extends unknown[], R> {
   name: string;
-  key: (...args: Parameters<T>) => string;
-  condition?: (...args: Parameters<T>) => boolean;
-  fn: T;
+  key: (...args: A) => string;
+  fn: (...args: A) => R;
+  condition?: (...args: A) => boolean;
 }
 
-export function cache<T extends (...args: any[]) => any>(props: Props<T>) {}
+export function cache<A extends unknown[], R>(_props: Props<A, R>) {}

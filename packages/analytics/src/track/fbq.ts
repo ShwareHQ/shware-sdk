@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 import type { Item } from './gtag';
 import type { EventName, TrackName, TrackProperties } from './types';
 
@@ -336,7 +337,7 @@ export function normalize(parameters: MatchingParameters): MatchingParameters {
   return {
     ...parameters,
     em: parameters.em?.toLowerCase().trim(),
-    ph: parameters.ph?.replace(/[\+\-\(\)\s]/g, '').replace(/^0+/, ''),
+    ph: parameters.ph?.replace(/[-+()\s]/g, '').replace(/^0+/, ''),
     zp: parameters.zp?.split('-').at(0)?.trim(),
     fn: parameters.fn?.toLowerCase().trim(),
     ln: parameters.ln?.toLowerCase().trim(),
@@ -353,7 +354,7 @@ export function mapItems(items?: Item[]): ObjectProperties {
   if (!items) return {};
   const categories = Array.from(new Set(items.map((i) => i.item_category).filter(Boolean)));
   const contents: Content[] = items.map(
-    ({ item_id, quantity, price, item_name, item_brand, item_category, ...others }) => ({
+    ({ item_id, quantity, price, item_name, item_brand, item_category, ..._others }) => ({
       id: item_id!,
       quantity: quantity ?? 1,
       item_price: price,
