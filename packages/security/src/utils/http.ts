@@ -1,4 +1,4 @@
-import { parse, serialize, type SerializeOptions } from 'cookie';
+import { type SerializeOptions, parse, serialize } from 'cookie';
 import { match } from 'path-to-regexp';
 
 export type CookieOptions = Omit<SerializeOptions, 'encode'>;

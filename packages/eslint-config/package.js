@@ -48,6 +48,7 @@ export const packageConfig = [
           alphabetize: { order: 'asc', caseInsensitive: true },
         },
       ],
+      'sort-imports': 'error',
     },
   },
   {

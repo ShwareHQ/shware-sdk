@@ -1,4 +1,4 @@
-import { Details, DetailType, Status, StatusError } from '../index';
+import { DetailType, Details, Status, StatusError } from '../index';
 
 describe('error details', () => {
   test('test detail list constructor', () => {

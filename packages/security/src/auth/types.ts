@@ -1,5 +1,5 @@
 import type { Principal } from '../core';
-import type { OAuth2Token, OAuth2ClientConfig, UserInfo } from '../oauth2/types';
+import type { OAuth2ClientConfig, OAuth2Token, UserInfo } from '../oauth2/types';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { CookieOptions } from '../utils/http';
 

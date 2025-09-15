@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { csrf } from '../csrf';
-import { errorHandler, type Env } from '../handler';
+import { type Env, errorHandler } from '../handler';
 
 describe('CSRF Protection', () => {
   let app: Hono<Env>;

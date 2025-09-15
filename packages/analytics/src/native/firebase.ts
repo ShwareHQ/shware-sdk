@@ -1,4 +1,4 @@
-import { logEvent, getAnalytics } from '@react-native-firebase/analytics';
+import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
 import type { StandardEvents } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 

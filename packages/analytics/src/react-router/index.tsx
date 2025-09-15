@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
-import { onLCP, onCLS, onINP, onFCP, onTTFB, type Metric } from 'web-vitals';
+import { type Metric, onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
-import type { Gtag, GaId, GtmId } from '../track/gtag';
+import type { GaId, Gtag, GtmId } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 type HotjarId = `${number}`;

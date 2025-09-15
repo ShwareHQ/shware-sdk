@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
-import { authorizer, type AuthorizerConfig } from '../authorizer';
-import { errorHandler, type Env } from '../handler';
+import { type AuthorizerConfig, authorizer } from '../authorizer';
+import { type Env, errorHandler } from '../handler';
 
 describe('authorizer', () => {
   let app: Hono<Env>;

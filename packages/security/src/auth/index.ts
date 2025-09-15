@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'crypto';
 import invariant from 'tiny-invariant';
-import { googleOneTapSchema, OAuth2Client, oauth2RedirectQuerySchema } from '../oauth2/client';
+import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { google } from '../oauth2/provider/index';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../session/common';
-import { param, query, getCookie, setCookie, deleteCookie } from '../utils/http';
+import { deleteCookie, getCookie, param, query, setCookie } from '../utils/http';
 import { timing } from '../utils/timing';
 import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
 import type { Principal } from '../core';

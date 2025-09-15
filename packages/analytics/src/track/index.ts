@@ -4,9 +4,9 @@ import { getVisitor } from '../visitor/index';
 import type {
   CreateTrackEventDTO,
   EventName,
+  TrackEventResponse,
   TrackName,
   TrackProperties,
-  TrackEventResponse,
 } from './types';
 
 export interface TrackOptions {

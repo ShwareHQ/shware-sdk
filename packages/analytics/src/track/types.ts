@@ -1,4 +1,4 @@
-import type { StandardEvents, UserProvidedData as GAUserProvidedData } from './gtag';
+import type { UserProvidedData as GAUserProvidedData, StandardEvents } from './gtag';
 
 export type AllowedPropertyValues = string | number | boolean | null;
 export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB';

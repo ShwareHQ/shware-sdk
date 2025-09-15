@@ -1,4 +1,4 @@
-import { object, string, coerce, optional, int, minimum, maximum, _default } from 'zod/mini';
+import { _default, coerce, int, maximum, minimum, object, optional, string } from 'zod/mini';
 import { hasText } from './utils/string';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type

@@ -1,18 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getIosIdForVendorAsync, getAndroidId, getInstallReferrerAsync } from 'expo-application';
+import { getAndroidId, getInstallReferrerAsync, getIosIdForVendorAsync } from 'expo-application';
 import { randomUUID } from 'expo-crypto';
 import {
-  osName,
-  osVersion,
-  modelName,
-  deviceType,
   DeviceType,
+  deviceType,
   manufacturer,
   modelId,
+  modelName,
+  osName,
+  osVersion,
 } from 'expo-device';
 import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
-import { Platform, PixelRatio, Dimensions } from 'react-native';
+import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';

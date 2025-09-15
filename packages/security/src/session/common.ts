@@ -1,4 +1,4 @@
-import type { Session, SecurityContext } from './types';
+import type { SecurityContext, Session } from './types';
 
 export const SPRING_SECURITY_CONTEXT = 'SPRING_SECURITY_CONTEXT';
 export const PRINCIPAL_NAME_INDEX_NAME = `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`;

@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
-import type { Gtag, GaId, GtmId } from '../track/gtag';
+import type { GaId, Gtag, GtmId } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 type HotjarId = `${number}`;

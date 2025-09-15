@@ -1,7 +1,7 @@
 import Bowser from 'bowser';
 import * as cookie from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
-import { getLink, type Link } from '../link/index';
+import { type Link, getLink } from '../link/index';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
 

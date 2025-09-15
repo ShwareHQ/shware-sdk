@@ -1,4 +1,4 @@
-import type { GoogleAccounts, CredentialResponse } from './types';
+import type { CredentialResponse, GoogleAccounts } from './types';
 
 declare global {
   interface Window {
