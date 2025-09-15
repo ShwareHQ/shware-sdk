@@ -9,10 +9,7 @@ import type { MiddlewareHandler } from 'hono';
 
 type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
 
-export interface CSRFIgnoreRule {
-  path: string;
-  methods?: HTTPMethod[];
-}
+export type CSRFIgnoreRule = string | { path: string; methods?: [HTTPMethod, ...HTTPMethod[]] };
 
 export interface CSRFConfig {
   /**
@@ -99,7 +96,9 @@ export function csrf(config: CSRFConfig = {}): MiddlewareHandler {
   // register ignore rules
   if (config.ignores) {
     for (const rule of config.ignores) {
-      if (rule.methods && rule.methods.length > 0) {
+      if (typeof rule === 'string') {
+        router.add(METHOD_NAME_ALL, rule, true);
+      } else if (rule.methods && rule.methods.length > 0) {
         for (const method of rule.methods) {
           router.add(method, rule.path, true);
         }
