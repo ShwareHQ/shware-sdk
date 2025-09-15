@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "private": false,
   "type": "module",
   "scripts": {
@@ -27,14 +27,14 @@
       "require": "./dist/native/index.cjs"
     },
     "./native/fbsdk": {
-      "types": "./dist/native/fbsdk/index.d.ts",
-      "import": "./dist/native/fbsdk/index.mjs",
-      "require": "./dist/native/fbsdk/index.cjs"
+      "types": "./dist/native/fbsdk.d.ts",
+      "import": "./dist/native/fbsdk.mjs",
+      "require": "./dist/native/fbsdk.cjs"
     },
     "./native/firebase": {
-      "types": "./dist/native/firebase/index.d.ts",
-      "import": "./dist/native/firebase/index.mjs",
-      "require": "./dist/native/firebase/index.cjs"
+      "types": "./dist/native/firebase.d.ts",
+      "import": "./dist/native/firebase.mjs",
+      "require": "./dist/native/firebase.cjs"
     },
     "./web": {
       "types": "./dist/web/index.d.ts",
