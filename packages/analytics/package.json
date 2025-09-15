@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": false,
   "type": "module",
   "scripts": {
@@ -25,6 +25,16 @@
       "types": "./dist/native/index.d.ts",
       "import": "./dist/native/index.mjs",
       "require": "./dist/native/index.cjs"
+    },
+    "./native/fbsdk": {
+      "types": "./dist/native/fbsdk/index.d.ts",
+      "import": "./dist/native/fbsdk/index.mjs",
+      "require": "./dist/native/fbsdk/index.cjs"
+    },
+    "./native/firebase": {
+      "types": "./dist/native/firebase/index.d.ts",
+      "import": "./dist/native/firebase/index.mjs",
+      "require": "./dist/native/firebase/index.cjs"
     },
     "./web": {
       "types": "./dist/web/index.d.ts",
@@ -74,6 +84,7 @@
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-firebase/analytics": "^23.3.1",
     "expo-application": "7.0.7",
     "expo-crypto": "^15.0.7",
     "expo-device": "^8.0.7",
@@ -83,11 +94,15 @@
     "next": "^15",
     "react": "^19",
     "react-native": "^0.81.4",
+    "react-native-fbsdk-next": "^13.4.1",
     "react-native-url-polyfill": "^2.0.0",
     "react-router": "^7"
   },
   "peerDependenciesMeta": {
     "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
+    "@react-native-firebase/analytics": {
       "optional": true
     },
     "expo-application": {
@@ -115,6 +130,9 @@
       "optional": true
     },
     "react-native": {
+      "optional": true
+    },
+    "react-native-fbsdk-next": {
       "optional": true
     },
     "react-native-url-polyfill": {

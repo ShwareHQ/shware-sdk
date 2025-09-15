@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.2
+
+### Patch Changes
+
+- add firebase & fbsdk event
+
 ## 2.3.1
 
 ### Patch Changes
