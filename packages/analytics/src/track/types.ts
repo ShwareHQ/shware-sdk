@@ -124,6 +124,10 @@ export interface UTMParams {
   utm_campaign?: string;
   utm_term?: string;
   utm_content?: string;
+  utm_id?: string;
+  utm_source_platform?: string;
+  utm_creative_format?: string;
+  utm_marketing_tactic?: string;
 }
 
 export interface TrackTags

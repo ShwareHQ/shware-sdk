@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.0
+
+### Minor Changes
+
+- support react-native environment
+
 ## 2.2.11
 
 ### Patch Changes

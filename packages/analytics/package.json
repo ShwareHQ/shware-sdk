@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.2.11",
+  "version": "2.3.0",
   "private": false,
   "type": "module",
   "scripts": {
@@ -20,6 +20,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
+    },
+    "./native": {
+      "types": "./dist/native/index.d.ts",
+      "import": "./dist/native/index.mjs",
+      "require": "./dist/native/index.cjs"
     },
     "./web": {
       "types": "./dist/web/index.d.ts",
@@ -68,12 +73,38 @@
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "expo-application": "7.0.7",
+    "expo-crypto": "^15.0.7",
+    "expo-device": "^8.0.7",
+    "expo-localization": "^17.0.7",
+    "expo-tracking-transparency": "^6.0.7",
     "facebook-nodejs-business-sdk": "^23",
     "next": "^15",
     "react": "^19",
+    "react-native": "^0.81.4",
+    "react-native-url-polyfill": "^2.0.0",
     "react-router": "^7"
   },
   "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
+    "expo-application": {
+      "optional": true
+    },
+    "expo-crypto": {
+      "optional": true
+    },
+    "expo-device": {
+      "optional": true
+    },
+    "expo-localization": {
+      "optional": true
+    },
+    "expo-tracking-transparency": {
+      "optional": true
+    },
     "facebook-nodejs-business-sdk": {
       "optional": true
     },
@@ -81,6 +112,12 @@
       "optional": true
     },
     "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    },
+    "react-native-url-polyfill": {
       "optional": true
     },
     "react-router": {
