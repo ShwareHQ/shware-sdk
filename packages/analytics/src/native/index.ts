@@ -58,7 +58,10 @@ export async function getTags(release: string): Promise<TrackTags> {
   const screen = Dimensions.get('screen');
   const height = Math.floor(screen.height);
   const width = Math.floor(screen.width);
-  const params = new URLSearchParams(await getInstallReferrerAsync());
+  const params =
+    Platform.OS === 'android'
+      ? new URLSearchParams(await getInstallReferrerAsync())
+      : new URLSearchParams();
 
   return {
     os: `${osName} ${osVersion}`,

@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.1
+
+### Patch Changes
+
+- fix getInstallReferrerAsync is not available on ios
+
 ## 2.3.0
 
 ### Minor Changes
