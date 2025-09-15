@@ -1,6 +1,4 @@
-# Client Side Error Handling
-
-# Server Side Error Handling
+# Error Handling
 
 ## hono example
 
