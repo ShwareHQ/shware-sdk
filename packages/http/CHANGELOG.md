@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.2.1
+
+### Patch Changes
+
+- fix build
+
 ## 1.2.0
 
 ### Minor Changes
