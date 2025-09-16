@@ -50,6 +50,8 @@ export const createTrackEventSchemaV1 = array(
       device_type: optional(string()),
       device_vendor: optional(string()),
       device_pixel_ratio: optional(string()),
+      screen_width: optional(number()),
+      screen_height: optional(number()),
       screen_resolution: optional(
         pipe(
           string().check(regex(/^\d+x\d+$/)),
@@ -62,6 +64,9 @@ export const createTrackEventSchemaV1 = array(
       environment: optional(_enum(['development', 'production'])),
       source_url: optional(string()),
       source: optional(_enum(['web', 'app', 'offline'])),
+      // app info
+      advertising_id: optional(string()),
+      install_referrer: optional(string()),
       // meta ads
       fbc: optional(string()),
       fbp: optional(string()),
@@ -79,7 +84,6 @@ export const createTrackEventSchemaV1 = array(
       gclsrc: optional(string()),
       gad_source: optional(string()),
       gad_campaignid: optional(string()),
-      advertising_id: optional(string()),
       // click ids
       dclid: optional(string()),
       ko_click_id: optional(string()),
@@ -96,6 +100,10 @@ export const createTrackEventSchemaV1 = array(
       utm_campaign: optional(string()),
       utm_term: optional(string()),
       utm_content: optional(string()),
+      utm_id: optional(string()),
+      utm_source_platform: optional(string()),
+      utm_creative_format: optional(string()),
+      utm_marketing_tactic: optional(string()),
     }),
     properties: optional(
       record(
@@ -124,6 +132,8 @@ export const createTrackEventSchema = array(
       device_type: optional(string()),
       device_vendor: optional(string()),
       device_pixel_ratio: optional(string()),
+      screen_width: optional(number()),
+      screen_height: optional(number()),
       screen_resolution: optional(
         pipe(
           string().check(regex(/^\d+x\d+$/)),
@@ -136,6 +146,9 @@ export const createTrackEventSchema = array(
       environment: optional(_enum(['development', 'production'])),
       source_url: optional(string()),
       source: optional(_enum(['web', 'app', 'offline'])),
+      // app info
+      advertising_id: optional(string()),
+      install_referrer: optional(string()),
       // meta ads
       fbc: optional(string()),
       fbp: optional(string()),
@@ -153,7 +166,6 @@ export const createTrackEventSchema = array(
       gclsrc: optional(string()),
       gad_source: optional(string()),
       gad_campaignid: optional(string()),
-      advertising_id: optional(string()),
       // click ids
       dclid: optional(string()),
       ko_click_id: optional(string()),
@@ -170,6 +182,10 @@ export const createTrackEventSchema = array(
       utm_campaign: optional(string()),
       utm_term: optional(string()),
       utm_content: optional(string()),
+      utm_id: optional(string()),
+      utm_source_platform: optional(string()),
+      utm_creative_format: optional(string()),
+      utm_marketing_tactic: optional(string()),
     }),
     properties: optional(
       record(

@@ -56,12 +56,11 @@ export function getDeviceType(): string | undefined {
 
 export async function getTags(release: string): Promise<TrackTags> {
   const screen = Dimensions.get('screen');
-  const height = Math.floor(screen.height);
-  const width = Math.floor(screen.width);
-  const params =
-    Platform.OS === 'android'
-      ? new URLSearchParams(await getInstallReferrerAsync())
-      : new URLSearchParams();
+  const screen_width = Math.floor(screen.width);
+  const screen_height = Math.floor(screen.height);
+
+  const install_referrer = Platform.OS === 'android' ? await getInstallReferrerAsync() : undefined;
+  const params = new URLSearchParams(install_referrer);
 
   return {
     os: `${osName} ${osVersion}`,
@@ -74,9 +73,9 @@ export async function getTags(release: string): Promise<TrackTags> {
     device_vendor: manufacturer ?? undefined,
     device_model_id: modelId ?? undefined,
     device_pixel_ratio: `${PixelRatio.get()}`,
-    screen_width: height,
-    screen_height: width,
-    screen_resolution: `${height}x${width}`,
+    screen_width,
+    screen_height,
+    screen_resolution: `${screen_width}x${screen_height}`,
     release: release,
     language: getLocales()?.[0]?.languageTag ?? 'en',
     time_zone: getCalendars()?.[0]?.timeZone ?? 'UTC',
@@ -84,6 +83,7 @@ export async function getTags(release: string): Promise<TrackTags> {
     source: 'app',
     // ads
     advertising_id: getAdvertisingId() ?? undefined,
+    install_referrer,
     // utm params
     utm_source: params.get('utm_source') ?? undefined,
     utm_medium: params.get('utm_medium') ?? undefined,

@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.5
+
+### Patch Changes
+
+- add install_referrer and fix screen resolution
+
 ## 2.3.4
 
 ### Patch Changes

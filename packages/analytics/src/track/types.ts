@@ -64,6 +64,8 @@ export interface DeviceInfo {
 }
 
 export interface AppInfo {
+  /** iOS: IDFA, Android: Android Advertising ID */
+  advertising_id?: string;
   install_referrer?: string;
 }
 
@@ -104,8 +106,6 @@ export interface AdvertisingInfo {
   gclsrc?: string;
   gad_source?: string;
   gad_campaignid?: string;
-  /** iOS: IDFA, Android: Android Advertising ID */
-  advertising_id?: string;
   // click ids
   dclid?: string; // Google Display Network
   ko_click_id?: string; // Kakao Ads
@@ -160,9 +160,6 @@ export interface TrackEvent<T extends EventName = EventName> {
 }
 
 export type TrackEventResponse = {
-  /**
-   * track event id
-   * some tracking system will use event_id and event_name for deduplication
-   * */
+  /** track event id: Meta Pixel will use event_id and event_name for deduplication */
   id: string;
 }[];

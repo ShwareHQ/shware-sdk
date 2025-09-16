@@ -169,6 +169,9 @@ function getAppData(tags: TrackTags, appPackageName: string) {
   if (tags.advertising_id) {
     appData.setAdvertiserTrackingEnabled(true);
   }
+  if (tags.install_referrer) {
+    appData.setInstallReferrer(tags.install_referrer);
+  }
 
   return appData;
 }
