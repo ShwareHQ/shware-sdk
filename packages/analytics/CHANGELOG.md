@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.9
+
+### Patch Changes
+
+- chore types
+
 ## 2.3.8
 
 ### Patch Changes
