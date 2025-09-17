@@ -202,4 +202,211 @@ describe('CSRF Protection', () => {
     res = await app.request('/public/data', { method: 'POST' });
     expect(res.status).toBe(200);
   });
+
+  describe('Origin bypass', () => {
+    it('should allow requests from configured origins', async () => {
+      app.use(csrf({ origin: ['https://example.com', 'https://trusted.com'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      // Request from allowed origin should work without CSRF token
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'https://example.com' },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe('OK');
+    });
+
+    it('should allow requests from any configured origin', async () => {
+      app.use(csrf({ origin: ['https://example.com', 'https://trusted.com'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'https://trusted.com' },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('should reject requests from non-configured origins', async () => {
+      app.use(csrf({ origin: ['https://example.com'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'https://malicious.com' },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject requests without origin header', async () => {
+      app.use(csrf({ origin: ['https://example.com'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', { method: 'POST' });
+      expect(res.status).toBe(403);
+    });
+
+    it('should handle empty origin list', async () => {
+      app.use(csrf({ origin: [] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'https://example.com' },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('Sec-Fetch-Site bypass', () => {
+    it('should allow requests with configured sec-fetch-site values', async () => {
+      app.use(csrf({ secFetchSite: ['same-origin', 'same-site'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Sec-Fetch-Site': 'same-origin' },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe('OK');
+    });
+
+    it('should allow requests with any configured sec-fetch-site value', async () => {
+      app.use(csrf({ secFetchSite: ['same-origin', 'same-site', 'cross-origin'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Sec-Fetch-Site': 'cross-origin' },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('should reject requests with non-configured sec-fetch-site values', async () => {
+      app.use(csrf({ secFetchSite: ['same-origin'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Sec-Fetch-Site': 'same-site' },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject requests without sec-fetch-site header', async () => {
+      app.use(csrf({ secFetchSite: ['same-origin'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', { method: 'POST' });
+      expect(res.status).toBe(403);
+    });
+
+    it('should handle all valid sec-fetch-site values', async () => {
+      app.use(csrf({ secFetchSite: ['same-origin', 'same-site', 'none', 'cross-origin'] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const validValues = ['same-origin', 'same-site', 'none', 'cross-origin'];
+
+      for (const value of validValues) {
+        const res = await app.request('/test', {
+          method: 'POST',
+          headers: { 'Sec-Fetch-Site': value },
+        });
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('should handle empty sec-fetch-site list', async () => {
+      app.use(csrf({ secFetchSite: [] }));
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Sec-Fetch-Site': 'same-origin' },
+      });
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('Combined origin and sec-fetch-site bypass', () => {
+    it('should allow requests matching either origin or sec-fetch-site', async () => {
+      app.use(
+        csrf({
+          origin: ['https://example.com'],
+          secFetchSite: ['same-site'],
+        })
+      );
+      app.post('/test', (c) => c.text('OK'));
+
+      // Should work with matching origin
+      let res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'https://example.com' },
+      });
+      expect(res.status).toBe(200);
+
+      // Should work with matching sec-fetch-site
+      res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Sec-Fetch-Site': 'same-site' },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('should reject requests matching neither origin nor sec-fetch-site', async () => {
+      app.use(
+        csrf({
+          origin: ['https://example.com'],
+          secFetchSite: ['same-origin'],
+        })
+      );
+      app.post('/test', (c) => c.text('OK'));
+
+      const res = await app.request('/test', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://malicious.com',
+          'Sec-Fetch-Site': 'cross-origin',
+        },
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('should work with origin, sec-fetch-site and ignore rules combined', async () => {
+      app.use(
+        csrf({
+          origin: ['https://example.com'],
+          secFetchSite: ['same-site'],
+          ignores: [{ path: '/webhook/*', methods: ['POST'] }],
+        })
+      );
+
+      app.post('/test', (c) => c.text('OK'));
+      app.post('/webhook/stripe', (c) => c.text('OK'));
+      app.post('/api/data', (c) => c.text('OK'));
+
+      // Should work with origin bypass
+      let res = await app.request('/test', {
+        method: 'POST',
+        headers: { Origin: 'https://example.com' },
+      });
+      expect(res.status).toBe(200);
+
+      // Should work with sec-fetch-site bypass
+      res = await app.request('/test', {
+        method: 'POST',
+        headers: { 'Sec-Fetch-Site': 'same-site' },
+      });
+      expect(res.status).toBe(200);
+
+      // Should work with ignore rule
+      res = await app.request('/webhook/stripe', { method: 'POST' });
+      expect(res.status).toBe(200);
+
+      // Should fail without any bypass
+      res = await app.request('/api/data', { method: 'POST' });
+      expect(res.status).toBe(403);
+    });
+  });
 });

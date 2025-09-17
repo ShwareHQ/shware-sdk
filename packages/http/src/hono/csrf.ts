@@ -41,6 +41,18 @@ export interface CSRFConfig {
   safeMethods?: HTTPMethod[];
 
   /**
+   * Origin allowed to bypass CSRF check
+   * @default undefined
+   */
+  origin?: string[];
+
+  /**
+   * Sec-Fetch-Site allowed to bypass CSRF check
+   * @default undefined
+   */
+  secFetchSite?: Array<'same-origin' | 'same-site' | 'none' | 'cross-origin'>;
+
+  /**
    * Custom error message
    * @default 'CSRF token validation failed'
    */
@@ -109,25 +121,36 @@ export function csrf(config: CSRFConfig = {}): MiddlewareHandler {
     }
   }
 
-  // check if the request should be ignored
-  function shouldIgnore(method: string, path: string): boolean {
-    if (safeMethods.has(method)) {
-      return true;
-    }
-    const [matchedAll] = router.match(METHOD_NAME_ALL, path);
-    if (matchedAll.length > 0) {
-      return true;
-    }
-    const [matchedMethod] = router.match(method, path);
-    return matchedMethod.length > 0;
-  }
-
   // return middleware
   return async (c, next) => {
     const method = c.req.method;
     const path = c.req.path;
 
-    if (shouldIgnore(method, path)) {
+    // check if the request should be ignored
+    // 1. ignore safe methods
+    if (safeMethods.has(method)) {
+      await next();
+      return;
+    }
+
+    // 2. ignore configured origin
+    if (config.origin && config.origin.includes(c.req.header('origin') ?? '')) {
+      await next();
+      return;
+    }
+
+    // 3. ignore configured secFetchSite
+    if (
+      config.secFetchSite &&
+      config.secFetchSite.includes((c.req.header('sec-fetch-site') ?? '') as never)
+    ) {
+      await next();
+      return;
+    }
+
+    // 4. ignore configured ignore rules
+    const [matched] = router.match(method, path);
+    if (matched.length > 0) {
       await next();
       return;
     }

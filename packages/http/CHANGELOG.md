@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.2.3
+
+### Patch Changes
+
+- add origin and sec-fetch-site header support
+
 ## 1.2.2
 
 ### Patch Changes
