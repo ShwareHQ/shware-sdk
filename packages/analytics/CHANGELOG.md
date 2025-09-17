@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 2.3.8
+
+### Patch Changes
+
+- fix types
+
+## 2.3.7
+
+### Patch Changes
+
+- add types
+
 ## 2.3.5
 
 ### Patch Changes

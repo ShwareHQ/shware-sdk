@@ -492,7 +492,12 @@ export type StandardEvents = {
     aclid?: string;
     cp1?: string;
   };
-  screen_view: { screen_name?: string; screen_class?: string };
+  screen_view: {
+    screen_name?: string;
+    screen_class?: string;
+    previous_screen?: string; // added
+    previous_screen_duration?: number; // added, in seconds
+  };
   view_search_results: { search_term: string };
 
   // Added events
