@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.11
+
+### Patch Changes
+
+- chore build
+
 ## 2.3.10
 
 ### Patch Changes
