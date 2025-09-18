@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.3.10
+
+### Patch Changes
+
+- add native screen analytics
+
 ## 2.3.9
 
 ### Patch Changes

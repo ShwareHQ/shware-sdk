@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.3.9",
+  "version": "2.3.10",
   "private": false,
   "type": "module",
   "scripts": {
@@ -89,6 +89,7 @@
     "expo-crypto": "^15.0.7",
     "expo-device": "^8.0.7",
     "expo-localization": "^17.0.7",
+    "expo-router": "^6.0.6",
     "expo-tracking-transparency": "^6.0.7",
     "facebook-nodejs-business-sdk": "^23",
     "next": "^15",
@@ -115,6 +116,9 @@
       "optional": true
     },
     "expo-localization": {
+      "optional": true
+    },
+    "expo-router": {
       "optional": true
     },
     "expo-tracking-transparency": {
