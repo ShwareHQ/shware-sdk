@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import 'expo-sqlite/localStorage/install';
 import { getAndroidId, getInstallReferrerAsync, getIosIdForVendorAsync } from 'expo-application';
 import { randomUUID } from 'expo-crypto';
 import {
@@ -17,9 +17,25 @@ import { URLSearchParams } from 'react-native-url-polyfill';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
+const map = new Map<string, string>();
+
 export const storage: Storage = {
-  getItem: (key) => AsyncStorage.getItem(key),
-  setItem: (key, value) => AsyncStorage.setItem(key, value),
+  getItem: (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      console.error('localStorage is not available');
+      return map.get(key) ?? null;
+    }
+  },
+  setItem: (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      console.error('localStorage is not available');
+      map.set(key, value);
+    }
+  },
 };
 
 export async function getDeviceId(): Promise<string> {
@@ -30,10 +46,10 @@ export async function getDeviceId(): Promise<string> {
     deviceId = getAndroidId();
   }
   if (!deviceId) {
-    deviceId = await AsyncStorage.getItem('device_id');
+    deviceId = localStorage.getItem('device_id');
     if (!deviceId) {
       deviceId = randomUUID();
-      await AsyncStorage.setItem('device_id', deviceId);
+      localStorage.setItem('device_id', deviceId);
     }
   }
   return deviceId;

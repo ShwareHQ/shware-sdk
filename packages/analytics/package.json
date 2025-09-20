@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.3.11",
+  "version": "2.4.0",
   "private": false,
   "type": "module",
   "scripts": {
@@ -83,13 +83,13 @@
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
-    "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-firebase/analytics": "^23.3.1",
     "expo-application": "7.0.7",
     "expo-crypto": "^15.0.7",
     "expo-device": "^8.0.7",
     "expo-localization": "^17.0.7",
     "expo-router": "^6.0.6",
+    "expo-sqlite": "^16.0.8",
     "expo-tracking-transparency": "^6.0.7",
     "facebook-nodejs-business-sdk": "^23",
     "next": "^15",
@@ -100,9 +100,6 @@
     "react-router": "^7"
   },
   "peerDependenciesMeta": {
-    "@react-native-async-storage/async-storage": {
-      "optional": true
-    },
     "@react-native-firebase/analytics": {
       "optional": true
     },
@@ -119,6 +116,9 @@
       "optional": true
     },
     "expo-router": {
+      "optional": true
+    },
+    "expo-sqlite": {
       "optional": true
     },
     "expo-tracking-transparency": {

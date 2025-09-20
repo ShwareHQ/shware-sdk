@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.4.0
+
+### Minor Changes
+
+- replace AsyncStorage with expo-sqlite
+
 ## 2.3.11
 
 ### Patch Changes
