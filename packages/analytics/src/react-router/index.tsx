@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { useLocation, useSearchParams } from 'react-router';
+import { useLocation } from 'react-router';
 import { type Metric, onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
+import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
 import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
@@ -74,12 +75,7 @@ export function Analytics({
   reportWebVitals = true,
 }: Props) {
   const { pathname } = useLocation();
-  const [params] = useSearchParams();
-
-  useEffect(() => {
-    const properties = { pathname, referrer: document.referrer };
-    track('page_view', properties, { enableThirdPartyTracking: false });
-  }, [pathname, params]);
+  usePageViewAnalytics(pathname);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
