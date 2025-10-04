@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.2.4
+
+### Patch Changes
+
+- update deps
+
 ## 1.2.3
 
 ### Patch Changes

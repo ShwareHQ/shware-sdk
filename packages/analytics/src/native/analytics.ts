@@ -40,8 +40,8 @@ export function useScreenViewAnalytics() {
     track('screen_view', {
       screen_name: pathname,
       screen_class: pathname,
-      previous_screen: prevPathname ?? undefined,
-      previous_screen_duration: prevPathname ? Number(duration.toFixed(2)) : undefined,
+      previous_screen_name: prevPathname ?? undefined,
+      previous_screen_name_duration: prevPathname ? Number(duration.toFixed(2)) : undefined,
     });
 
     // reset session

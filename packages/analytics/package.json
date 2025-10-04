@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "private": false,
   "type": "module",
   "scripts": {
@@ -66,21 +66,21 @@
     "dist"
   ],
   "dependencies": {
-    "axios": "^1.12.1",
+    "axios": "^1.12.2",
     "axios-retry": "^4.5.0",
     "bowser": "^2.12.1",
     "cookie": "^1.0.2",
     "uuid": "^13.0.0",
     "web-vitals": "^5.1.0",
-    "zod": "^4.1.8"
+    "zod": "^4.1.11"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
-    "@types/facebook-nodejs-business-sdk": "^22.0.1",
-    "@types/node": "^24.3.3",
-    "@types/react": "^19.1.13",
-    "typescript": "^5.9.2"
+    "@types/facebook-nodejs-business-sdk": "^23.0.0",
+    "@types/node": "^24.6.2",
+    "@types/react": "^19.2.0",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^23.3.1",

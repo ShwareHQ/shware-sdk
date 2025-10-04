@@ -495,12 +495,18 @@ export type StandardEvents = {
   screen_view: {
     screen_name?: string;
     screen_class?: string;
-    previous_screen?: string; // added
-    previous_screen_duration?: number; // added, in seconds
+    previous_screen_name?: string; // added
+    previous_screen_name_duration?: number; // added, in seconds
   };
   view_search_results: { search_term: string };
 
   // Added events
+  page_view: {
+    pathname: string;
+    referrer: string;
+    previous_pathname?: string;
+    previous_pathname_duration?: number;
+  };
   trial_begin: {
     currency: string;
     value: number;
