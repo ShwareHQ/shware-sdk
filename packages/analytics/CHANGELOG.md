@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.5.0
+
+### Minor Changes
+
+- add previous page analytics
+
 ## 2.4.1
 
 ### Patch Changes

@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
-import { useEffect } from 'react';
+import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
 import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
 import type { Pixel, PixelId } from '../track/fbq';
@@ -67,11 +67,7 @@ export function Analytics({
   reportWebVitals = true,
 }: Props) {
   const pathname = usePathname();
-
-  useEffect(() => {
-    const properties = { pathname, referrer: document.referrer };
-    track('page_view', properties, { enableThirdPartyTracking: false });
-  }, [pathname]);
+  usePageViewAnalytics(pathname);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
