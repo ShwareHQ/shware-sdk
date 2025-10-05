@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.6.0
+
+### Minor Changes
+
+- update event name
+
 ## 2.5.2
 
 ### Patch Changes

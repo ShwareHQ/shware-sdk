@@ -31,10 +31,12 @@ export function usePageViewAnalytics(pathname: string) {
     }
 
     const properties = {
-      pathname,
-      referrer: document.referrer,
-      previous_pathname: prevPathname ?? undefined,
-      previous_pathname_duration: prevPathname ? Number(duration.toFixed(2)) : undefined,
+      page_path: pathname,
+      page_title: document.title,
+      page_referrer: document.referrer,
+      page_location: window.location.href,
+      previous_page_path: prevPathname ?? undefined,
+      previous_page_path_duration: prevPathname ? Number(duration.toFixed(2)) : undefined,
     };
 
     track('page_view', properties, { enableThirdPartyTracking: false });
