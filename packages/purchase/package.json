@@ -1,6 +1,6 @@
 {
   "name": "@shware/purchase",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": false,
   "type": "module",
   "scripts": {
@@ -57,7 +57,7 @@
     "zod": "^4.1.11"
   },
   "peerDependencies": {
-    "stripe": "^18"
+    "stripe": "^19"
   },
   "peerDependenciesMeta": {
     "stripe": {

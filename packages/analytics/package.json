@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "private": false,
   "type": "module",
   "scripts": {
@@ -86,9 +86,9 @@
     "@react-native-firebase/analytics": "^23.3.1",
     "expo-application": "7.0.7",
     "expo-crypto": "^15.0.7",
-    "expo-device": "^8.0.7",
+    "expo-device": "^8.0.9",
     "expo-localization": "^17.0.7",
-    "expo-router": "^6.0.6",
+    "expo-router": "^6.0.10",
     "expo-sqlite": "^16.0.8",
     "expo-tracking-transparency": "^6.0.7",
     "facebook-nodejs-business-sdk": "^23",
@@ -96,7 +96,7 @@
     "react": "^19",
     "react-native": "^0.81.4",
     "react-native-fbsdk-next": "^13.4.1",
-    "react-native-url-polyfill": "^2.0.0",
+    "react-native-url-polyfill": "^3",
     "react-router": "^7"
   },
   "peerDependenciesMeta": {

@@ -60,13 +60,13 @@ importers:
         specifier: ^15.0.7
         version: 15.0.7(expo@54.0.12)
       expo-device:
-        specifier: ^8.0.7
+        specifier: ^8.0.9
         version: 8.0.9(expo@54.0.12)
       expo-localization:
         specifier: ^17.0.7
         version: 17.0.7(expo@54.0.12)(react@19.2.0)
       expo-router:
-        specifier: ^6.0.6
+        specifier: ^6.0.10
         version: 6.0.10(@expo/metro-runtime@6.1.2)(@types/react@19.2.0)(expo-constants@18.0.9)(expo-linking@8.0.8)(expo@54.0.12)(react-dom@19.2.0(react@19.2.0))(react-native-safe-area-context@5.6.1(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))(react@19.2.0))(react-native-screens@4.16.0(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))(react@19.2.0))(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))(react@19.2.0)
       expo-sqlite:
         specifier: ^16.0.8
@@ -90,8 +90,8 @@ importers:
         specifier: ^13.4.1
         version: 13.4.1(expo@54.0.12)(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))
       react-native-url-polyfill:
-        specifier: ^2.0.0
-        version: 2.0.0(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))
+        specifier: ^3
+        version: 3.0.0(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))
       react-router:
         specifier: ^7
         version: 7.9.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -212,8 +212,8 @@ importers:
   packages/purchase:
     dependencies:
       stripe:
-        specifier: ^18
-        version: 18.5.0(@types/node@24.6.2)
+        specifier: ^19
+        version: 19.1.0(@types/node@24.6.2)
       zod:
         specifier: ^4.1.11
         version: 4.1.11
@@ -5827,8 +5827,8 @@ packages:
       react: '*'
       react-native: '*'
 
-  react-native-url-polyfill@2.0.0:
-    resolution: {integrity: sha512-My330Do7/DvKnEvwQc0WdcBnFPploYKp9CYlefDXzIdEaA+PAhDYllkvGeEroEzvc4Kzzj2O4yVdz8v6fjRvhA==}
+  react-native-url-polyfill@3.0.0:
+    resolution: {integrity: sha512-aA5CiuUCUb/lbrliVCJ6lZ17/RpNJzvTO/C7gC/YmDQhTUoRD5q5HlJfwLWcxz4VgAhHwXKzhxH+wUN24tAdqg==}
     peerDependencies:
       react-native: '*'
 
@@ -6303,11 +6303,11 @@ packages:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
 
-  stripe@18.5.0:
-    resolution: {integrity: sha512-Hp+wFiEQtCB0LlNgcFh5uVyKznpDjzyUZ+CNVEf+I3fhlYvh7rZruIg+jOwzJRCpy0ZTPMjlzm7J2/M2N6d+DA==}
-    engines: {node: '>=12.*'}
+  stripe@19.1.0:
+    resolution: {integrity: sha512-FjgIiE98dMMTNssfdjMvFdD4eZyEzdWAOwPYqzhPRNZeg9ggFWlPXmX1iJKD5pPIwZBaPlC3SayQQkwsPo6/YQ==}
+    engines: {node: '>=16'}
     peerDependencies:
-      '@types/node': '>=12.x.x'
+      '@types/node': '>=16'
     peerDependenciesMeta:
       '@types/node':
         optional: true
@@ -13641,7 +13641,7 @@ snapshots:
       react-native-is-edge-to-edge: 1.2.1(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0))(react@19.2.0)
       warn-once: 0.1.1
 
-  react-native-url-polyfill@2.0.0(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0)):
+  react-native-url-polyfill@3.0.0(react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0)):
     dependencies:
       react-native: 0.81.4(@babel/core@7.28.4)(@types/react@19.2.0)(react@19.2.0)
       whatwg-url-without-unicode: 8.0.0-3
@@ -14232,7 +14232,7 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
-  stripe@18.5.0(@types/node@24.6.2):
+  stripe@19.1.0(@types/node@24.6.2):
     dependencies:
       qs: 6.14.0
     optionalDependencies:
