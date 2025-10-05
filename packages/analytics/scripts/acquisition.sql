@@ -1,39 +1,39 @@
 -- Unique visitors (Stat)
-select 
+select
   count(distinct visitor_id) as uv
 from application.event
-where 
+where
   created_at between $__timeFrom() and $__timeTo()
   and name = 'page_view'
   and tags ->> 'environment' = '$environment'
-  and tags ->> 'platform' in (${platform:sqlstring})
+  and tags ->> 'platform' in (${platform:sqlstring});
 
 -- Page views (Stat)
-select 
+select
   count(visitor_id) as pv
 from application.event
-where 
+where
   created_at between $__timeFrom() and $__timeTo()
   and name = 'page_view'
   and tags ->> 'environment' = '$environment'
-  and tags ->> 'platform' in (${platform:sqlstring})
+  and tags ->> 'platform' in (${platform:sqlstring});
 
 -- New Users
 select count(id) as total
 from application.user
-where created_at between $__timeFrom() and $__timeTo()
+where created_at between $__timeFrom() and $__timeTo();
 
 -- Registration Conversion Rate
-with 
+with
 u as (
   select count(id) as total
   from application.user
   where created_at between $__timeFrom() and $__timeTo()
-), 
+),
 v as (
   select count(id) as total
   from application.visitor
-  where 
+  where
     created_at between $__timeFrom() and $__timeTo()
     and properties ->> 'environment' = '$environment'
     and properties ->> 'platform' in (${platform:sqlstring})
@@ -41,11 +41,11 @@ v as (
 select u.total::float / nullif(v.total, 0) as rate from u, v;
 
 -- Total Revenue (Stripe)
-select 
+select
   coalesce(sum((e.data_object ->> 'amount')::float / (100 * 1)), 0) as total_income
 from application.stripe_event e
 where
-  e.type in ('charge.succeeded')
+  e.type in ('charge.succeeded');
 
 -- Feedbacks (Stat)
 select count(id)
@@ -53,7 +53,7 @@ from application.feedback
 where created_at between $__timeFrom() and $__timeTo()
 
 -- PV/UV (Time series)
-select 
+select
   date_trunc('hour', created_at) as time,
   count(id) as pv,
   count(distinct visitor_id) as uv
@@ -63,7 +63,7 @@ where
   and name = 'page_view'
   and tags ->> 'environment' = '$environment'
   and tags ->> 'platform' in (${platform:sqlstring})
-group by time
+group by time;
 
 -- Referral sources (Bar chart)
 select
@@ -84,11 +84,11 @@ order by event_count desc
 limit 10;
 
 -- Visitor by device type (Pie chart)
-select 
+select
   count(v.id) as visitor_count,
   coalesce(v.properties ->> 'device_type', 'unknown') as device_type
 from application.visitor v
-where 
+where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.properties ->> 'environment' = '$environment'
   and v.properties ->> 'platform' in (${platform:sqlstring})
@@ -116,11 +116,11 @@ order by visitor_count desc
 limit 20;
 
 -- Visitor by OS (Bar chart)
-select 
+select
   count(v.id) as visitor_count,
   coalesce(v.properties ->> 'os_name', 'Unknown') as os_name
 from application.visitor v
-where 
+where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.properties ->> 'environment' = '$environment'
   and v.properties ->> 'platform' in (${platform:sqlstring})
@@ -129,11 +129,11 @@ order by visitor_count desc
 limit 20;
 
 -- Visitor by browser (Bar chart)
-select 
+select
   count(v.id) as visitor_count,
   coalesce(v.properties ->> 'browser_name', 'Unknown') as browser_name
 from application.visitor v
-where 
+where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.properties ->> 'environment' = '$environment'
   and v.properties ->> 'platform' in (${platform:sqlstring})
@@ -142,11 +142,11 @@ order by visitor_count desc
 limit 20;
 
 -- Visitor by language (Bar chart)
-select 
+select
   count(v.id) as visitor_count,
   coalesce(v.properties ->> 'language', 'Unknown') as language
 from application.visitor v
-where 
+where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.properties ->> 'environment' = '$environment'
   and v.properties ->> 'platform' in (${platform:sqlstring})
@@ -155,8 +155,8 @@ order by visitor_count desc
 limit 20;
 
 -- Sources (utm_source, gad_source) (Bar chart)
-select 
-  case 
+select
+  case
     when nullif(v.properties ->> 'utm_source', '') is not null then v.properties ->> 'utm_source' || ' (utm)'
     when nullif(v.properties ->> 'gad_source', '') is not null then v.properties ->> 'gad_source' || ' (gad)'
     else 'unknown'

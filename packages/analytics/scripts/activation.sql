@@ -1,11 +1,11 @@
 -- User funnel (Bar chart)
-select 
+select
   e.name as event_name,
   count(distinct e.visitor_id) as event_count
 from application.event e
 where
   e.name in (
-    'page_view', 
+    'page_view',
     'cta_button_clicked',
     'login',
     'begin_checkout',
@@ -21,14 +21,32 @@ where
 group by event_name
 order by event_count desc;
 
+-- User referrer
+select
+    case
+        when e.properties ->> 'page_referrer' is null then 'unknown'
+        when e.properties ->> 'page_referrer' not similar to 'https?://%' then 'unknown'
+        else regexp_replace(e.properties ->> 'page_referrer', '^https?://([^/]+).*', '\1')
+        end as host,
+    count(e.id) as event_count
+from application.event e
+where
+    e.created_at between $__timeFrom() and $__timeTo()
+  and e.tags ->> 'environment' = '$environment'
+  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.name = 'page_view'
+group by host
+order by event_count desc
+limit 10;
+
 -- User page views (Bar chart)
-select 
-  e.properties ->> 'pathname' as pathname,
+select
+  e.properties ->> 'page_path' as page_path,
   count(e.id) as event_count
 from application.event e
 where
   e.name = 'page_view'
-  and e.properties ->> 'pathname' not like '/blogs/%'
+  and e.properties ->> 'page_path' not like '/blogs/%'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
@@ -36,18 +54,18 @@ where
       and v.properties ->> 'environment' = '$environment'
       and v.properties ->> 'platform' in (${platform:sqlstring})
   )
-group by pathname
+group by page_path
 order by event_count desc
 limit 10;
 
 -- User blog views (Bar chart)
 select
-  substring(e.properties ->> 'pathname' from 8) as slug,
+  substring(e.properties ->> 'page_path' from 8) as slug,
   count(e.id) as event_count
 from application.event e
 where
   e.name = 'page_view'
-  and e.properties ->> 'pathname' like '/blogs/%'
+  and e.properties ->> 'page_path' like '/blog/%'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
@@ -60,13 +78,13 @@ order by event_count desc
 limit 10;
 
 -- User funnel by (utm_source=x) (Bar chart)
-select 
+select
   e.name as event_name,
   count(distinct e.visitor_id) as event_count
 from application.event e
 where
   e.name in (
-    'page_view', 
+    'page_view',
     'cta_button_clicked',
     'login',
     'begin_checkout',
@@ -84,13 +102,13 @@ group by event_name
 order by event_count desc;
 
 -- User funnel by (unknown) (Bar chart)
-select 
+select
   e.name as event_name,
   count(distinct e.visitor_id) as event_count
 from application.event e
 where
   e.name in (
-    'page_view', 
+    'page_view',
     'cta_button_clicked',
     'login',
     'begin_checkout',
