@@ -1,5 +1,17 @@
 # @shware/http
 
+## 1.2.6
+
+### Patch Changes
+
+- update deps
+
+## 1.2.5
+
+### Patch Changes
+
+- add base62 support
+
 ## 1.2.4
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.6.1
+
+### Patch Changes
+
+- update deps
+
 ## 2.6.0
 
 ### Minor Changes

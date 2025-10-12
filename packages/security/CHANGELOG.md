@@ -1,5 +1,11 @@
 # @shware/security
 
+## 1.5.6
+
+### Patch Changes
+
+- update deps
+
 ## 1.5.5
 
 ### Patch Changes
