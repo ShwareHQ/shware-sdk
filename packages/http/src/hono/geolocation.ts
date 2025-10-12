@@ -15,46 +15,44 @@ export type Geolocation = {
   time_zone: string | null;
 };
 
-const runtime = getRuntimeKey();
-export function geolocation(c: Context): Geolocation | null {
-  /** reference: https://developers.cloudflare.com/rules/transform/managed-transforms/reference/#add-visitor-location-headers */
-  if (runtime === 'workerd') {
-    return {
-      ip_address: c.req.header('true-client-ip') ?? c.req.header('cf-connecting-ip') ?? null,
-      city: c.req.header('cf-ipcity') ?? null,
-      country: c.req.header('cf-ipcountry') ?? null,
-      continent: c.req.header('cf-ipcontinent') ?? null,
-      longitude: c.req.header('cf-iplongitude') ? Number(c.req.header('cf-iplongitude')) : null,
-      latitude: c.req.header('cf-iplatitude') ? Number(c.req.header('cf-iplatitude')) : null,
-      region: c.req.header('cf-region-code') ?? null,
-      metro_code: c.req.header('cf-metro-code') ?? null,
-      postal_code: c.req.header('cf-postal-code') ?? null,
-      time_zone: c.req.header('cf-timezone') ?? null,
-    };
-  }
+/** reference: https://developers.cloudflare.com/rules/transform/managed-transforms/reference/#add-visitor-location-headers */
+function getGeolocationFromCloudflareWorker(c: Context): Geolocation {
+  return {
+    ip_address: c.req.header('true-client-ip') ?? c.req.header('cf-connecting-ip') ?? null,
+    city: c.req.header('cf-ipcity') ?? null,
+    country: c.req.header('cf-ipcountry') ?? null,
+    continent: c.req.header('cf-ipcontinent') ?? null,
+    longitude: c.req.header('cf-iplongitude') ? Number(c.req.header('cf-iplongitude')) : null,
+    latitude: c.req.header('cf-iplatitude') ? Number(c.req.header('cf-iplatitude')) : null,
+    region: c.req.header('cf-region-code') ?? null,
+    metro_code: c.req.header('cf-metro-code') ?? null,
+    postal_code: c.req.header('cf-postal-code') ?? null,
+    time_zone: c.req.header('cf-timezone') ?? null,
+  };
+}
 
-  /** https://github.com/vercel/vercel/blob/main/packages/functions/src/headers.ts */
-  if (c.req.header('x-vercel-id')) {
-    return {
-      ip_address: c.req.header('x-real-ip') ?? null,
-      city: c.req.header('x-vercel-ip-city') ?? null,
-      country: c.req.header('x-vercel-ip-country') ?? null,
-      continent: c.req.header('x-vercel-ip-continent') ?? null,
-      longitude: c.req.header('x-vercel-ip-longitude')
-        ? Number(c.req.header('x-vercel-ip-longitude'))
-        : null,
-      latitude: c.req.header('x-vercel-ip-latitude')
-        ? Number(c.req.header('x-vercel-ip-latitude'))
-        : null,
-      region: c.req.header('x-vercel-ip-country-region') ?? null,
-      metro_code: null,
-      postal_code: c.req.header('x-vercel-ip-postal-code') ?? null,
-      time_zone: null,
-    };
-  }
+/** https://github.com/vercel/vercel/blob/main/packages/functions/src/headers.ts */
+function getGeolocationFromVercel(c: Context): Geolocation {
+  return {
+    ip_address: c.req.header('x-real-ip') ?? null,
+    city: c.req.header('x-vercel-ip-city') ?? null,
+    country: c.req.header('x-vercel-ip-country') ?? null,
+    continent: c.req.header('x-vercel-ip-continent') ?? null,
+    longitude: c.req.header('x-vercel-ip-longitude')
+      ? Number(c.req.header('x-vercel-ip-longitude'))
+      : null,
+    latitude: c.req.header('x-vercel-ip-latitude')
+      ? Number(c.req.header('x-vercel-ip-latitude'))
+      : null,
+    region: c.req.header('x-vercel-ip-country-region') ?? null,
+    metro_code: null,
+    postal_code: c.req.header('x-vercel-ip-postal-code') ?? null,
+    time_zone: null,
+  };
+}
 
-  // cloudfront
-  // https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/adding-cloudfront-headers.html#cloudfront-headers-viewer-location
+/** ref: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/adding-cloudfront-headers.html#cloudfront-headers-viewer-location */
+function getGeolocationFromCloudfront(c: Context): Geolocation {
   return {
     ip_address: extractIpAddress(c.req.header('CloudFront-Viewer-Address')),
     city: c.req.header('CloudFront-Viewer-City') ?? null,
@@ -71,4 +69,10 @@ export function geolocation(c: Context): Geolocation | null {
     postal_code: c.req.header('CloudFront-Viewer-Postal-Code') ?? null,
     time_zone: c.req.header('CloudFront-Viewer-Time-Zone') ?? null,
   };
+}
+
+export function geolocation(c: Context): Geolocation {
+  if (getRuntimeKey() === 'workerd') return getGeolocationFromCloudflareWorker(c);
+  if (c.req.header('x-vercel-id')) return getGeolocationFromVercel(c);
+  return getGeolocationFromCloudfront(c);
 }
