@@ -19,3 +19,9 @@ where
   and e.name = 'purchase'
 group by country
 order by event_count desc;
+
+-- Total subscriptions
+select count(id) from application.subscription
+
+-- Total purchases
+select count(id) from application.product_purchase
