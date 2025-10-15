@@ -282,6 +282,32 @@ export type PromotionItem = {
   promotion_name?: string;
 };
 
+export type SurveyProperties = {
+  id?: string;
+  feature?: Lowercase<string>;
+  trigger?: Lowercase<string>;
+};
+
+export type SurveyQA = {
+  q1: string;
+  a1: string;
+  q2?: string;
+  a2?: string;
+  q3?: string;
+  a3?: string;
+  q4?: string;
+  a4?: string;
+  q5?: string;
+  a5?: string;
+  q6?: string;
+  a6?: string;
+  completed?: boolean;
+};
+
+export type NPSScore = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | number;
+export type CASTScore = 1 | 2 | 3 | 4 | 5 | number;
+export type CESScore = 1 | 2 | 3 | 4 | 5 | number;
+
 /**
  * ref: https://developers.google.com/analytics/devguides/collection/ga4/reference/events?client_type=gtag
  * ref: https://firebase.google.com/docs/reference/android/com/google/firebase/analytics/FirebaseAnalytics.Event
@@ -519,6 +545,31 @@ export type StandardEvents = {
     value: number;
     source?: string; // added
   };
+  // survey
+  survey_shown: SurveyProperties;
+  survey_sent: SurveyProperties & SurveyQA;
+  survey_dismissed: SurveyProperties;
+  /**
+   * Net promoter score: Get an industry-recognized benchmark
+   * How likely are you to recommend us to a friend?
+   * */
+  nps_shown: SurveyProperties;
+  nps_sent: SurveyProperties & { score: NPSScore; feedback?: string };
+  nps_dismissed: SurveyProperties;
+  /**
+   * Customer satisfaction score: Works best after a checkout or support flow
+   * How satisfied are you with xxx?
+   * */
+  cast_shown: SurveyProperties;
+  cast_sent: SurveyProperties & { score: CASTScore; feedback?: string };
+  cast_dismissed: SurveyProperties;
+  /**
+   * Customer effort score: Works well with churn surveys
+   * How easy is it to use the feature?
+   * */
+  ces_shown: SurveyProperties;
+  ces_sent: SurveyProperties & { score: CESScore; feedback?: string };
+  ces_dismissed: SurveyProperties;
 };
 
 /**

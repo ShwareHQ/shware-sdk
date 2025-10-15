@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.6.2
+
+### Patch Changes
+
+- add survey support
+
 ## 2.6.1
 
 ### Patch Changes
