@@ -43,9 +43,9 @@ select
   passives,
   total,
   round(
-    case when total > 0 
+    (case when total > 0 
       then ((promoters::float - detractors::float) / total) * 100
-      else 0 end, 2
+      else 0 end)::numeric, 2
   ) as nps_score
 from nps_counts;
 
