@@ -73,6 +73,22 @@ export function mapInvoice(i: Stripe.Invoice) {
   };
 }
 
+export function mapCharge(charge: Stripe.Charge) {
+  return {
+    id: charge.id,
+    description: charge.description,
+    currency: charge.currency,
+    amount: charge.amount,
+    amount_captured: charge.amount_captured,
+    amount_refunded: charge.amount_refunded,
+    receipt_email: charge.receipt_email,
+    receipt_number: charge.receipt_number,
+    receipt_url: charge.receipt_url,
+    status: charge.status,
+    created: charge.created,
+  };
+}
+
 export type CheckoutSession = ReturnType<typeof mapCheckoutSession>;
 export type ProductPrice = {
   id: string;
@@ -87,7 +103,7 @@ export type ProductPrice = {
   };
 };
 
-export function mapStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
+export function mapSubscriptionStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
     case 'active':
       return SubscriptionStatus.ACTIVE;

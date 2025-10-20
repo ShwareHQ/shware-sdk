@@ -1,9 +1,10 @@
 export {
   mapTime,
-  mapStatus,
+  mapCharge,
   mapInvoice,
   mapLineItem,
   mapCheckoutSession,
+  mapSubscriptionStatus,
   minorUnits,
   price,
   getPurchaseProperties,

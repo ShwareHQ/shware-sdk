@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 0.2.0
+
+### Minor Changes
+
+- rename mapStatus function, add mapCharge
+
 ## 0.1.19
 
 ### Patch Changes
