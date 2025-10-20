@@ -8,6 +8,24 @@ export function mapTime<T extends number | null>(
   return new Date(stripeTimestampSeconds * 1000).toISOString() as T extends number ? string : null;
 }
 
+export function mapLineItem(item: Stripe.LineItem) {
+  return {
+    id: item.price
+      ? typeof item.price.product === 'string'
+        ? item.price.product
+        : item.price.product.id
+      : item.id,
+    currency: item.currency,
+    quantity: item.quantity,
+    description: item.description,
+    amount_tax: item.amount_tax,
+    amount_total: item.amount_total,
+    amount_subtotal: item.amount_subtotal,
+    amount_discount: item.amount_discount,
+    price: item.price ? { id: item.price.id } : null,
+  };
+}
+
 export function mapCheckoutSession(session: Stripe.Checkout.Session) {
   let coupon: string | undefined = undefined;
   if (Array.isArray(session.discounts) && session.discounts.length !== 0) {
@@ -30,21 +48,28 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
     payment_status: session.payment_status,
     currency: session.currency,
     amount_total: session.amount_total,
-    line_items: session.line_items?.data.map((item) => ({
-      id: item.price
-        ? typeof item.price.product === 'string'
-          ? item.price.product
-          : item.price.product.id
-        : item.id,
-      currency: item.currency,
-      quantity: item.quantity,
-      description: item.description,
-      amount_tax: item.amount_tax,
-      amount_total: item.amount_total,
-      amount_subtotal: item.amount_subtotal,
-      amount_discount: item.amount_discount,
-      price: item.price ? { id: item.price.id } : null,
-    })),
+    line_items: session.line_items?.data.map(mapLineItem),
+  };
+}
+
+export function mapInvoice(i: Stripe.Invoice) {
+  return {
+    id: i.id,
+    number: i.number,
+    total: i.total,
+    subtotal: i.subtotal,
+    amount_due: i.amount_due,
+    amount_paid: i.amount_paid,
+    amount_remaining: i.amount_remaining,
+    currency: i.currency,
+    billing_reason: i.billing_reason,
+    hosted_invoice_url: i.hosted_invoice_url,
+    invoice_pdf: i.invoice_pdf,
+    receipt_number: i.receipt_number,
+    status: i.status,
+    created: i.created,
+    period_start: i.period_start,
+    period_end: i.period_end,
   };
 }
 

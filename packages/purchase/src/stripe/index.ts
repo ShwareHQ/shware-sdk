@@ -1,6 +1,8 @@
 export {
   mapTime,
   mapStatus,
+  mapInvoice,
+  mapLineItem,
   mapCheckoutSession,
   minorUnits,
   price,
