@@ -44,16 +44,16 @@ export async function getVisitor(): Promise<Visitor> {
   return visitor;
 }
 
-export async function setVisitor(properties: VisitorProperties) {
-  const dto: UpdateVisitorDTO = { properties };
+export async function setVisitor(dto: UpdateVisitorDTO) {
   const { id } = await getVisitor();
   const headers = await config.getHeaders();
   const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto, { headers });
-  config.thirdPartyUserSetters.forEach((setter) => setter(properties));
+  config.thirdPartyUserSetters.forEach((setter) => setter(dto));
   visitor = response.data;
   return response.data;
 }
 
+/** @deprecated Use setVisitor instead */
 export async function setUserId(userId: string) {
   const { id } = await getVisitor();
   const dto: UpdateVisitorDTO = { user_id: userId };

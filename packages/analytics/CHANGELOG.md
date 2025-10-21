@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.7.0
+
+### Minor Changes
+
+- add setGAUser, update setVisitor params
+
 ## 2.6.2
 
 ### Patch Changes

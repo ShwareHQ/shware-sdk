@@ -1,3 +1,5 @@
+import type { UserProperties, UserProvidedData } from '../track/gtag';
+
 export type VisitorProperties = Record<Lowercase<string>, string | number | boolean | null>;
 
 export interface Visitor {
@@ -13,7 +15,8 @@ export interface CreateVisitorDTO {
 
 export interface UpdateVisitorDTO {
   user_id?: string;
-  properties?: VisitorProperties;
+  data?: UserProvidedData;
+  properties?: UserProperties;
 }
 
-export type ThirdPartyUserSetter = (properties: VisitorProperties) => void;
+export type ThirdPartyUserSetter = (dto: UpdateVisitorDTO) => void;
