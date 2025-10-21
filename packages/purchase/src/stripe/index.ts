@@ -3,6 +3,7 @@ export {
   mapCharge,
   mapInvoice,
   mapLineItem,
+  mapPaymentIntent,
   mapCheckoutSession,
   mapSubscriptionStatus,
   minorUnits,

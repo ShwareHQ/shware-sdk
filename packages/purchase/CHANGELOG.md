@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 0.2.1
+
+### Patch Changes
+
+- add mapPaymentIntent
+
 ## 0.2.0
 
 ### Minor Changes

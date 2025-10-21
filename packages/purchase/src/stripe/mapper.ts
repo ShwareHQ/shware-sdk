@@ -73,6 +73,20 @@ export function mapInvoice(i: Stripe.Invoice) {
   };
 }
 
+export function mapPaymentIntent(intent: Stripe.PaymentIntent) {
+  return {
+    id: intent.id,
+    amount: intent.amount,
+    amount_capturable: intent.amount_capturable,
+    amount_received: intent.amount_received,
+    currency: intent.currency,
+    client_secret: intent.client_secret,
+    description: intent.description,
+    status: intent.status,
+    created: intent.created,
+  };
+}
+
 export function mapCharge(charge: Stripe.Charge) {
   return {
     id: charge.id,
@@ -154,6 +168,7 @@ export function minorUnits(currency: string) {
 export function price(value: number, currency: string) {
   return value / minorUnits(currency);
 }
+
 export interface Item {
   item_id: string;
   item_name: string;
