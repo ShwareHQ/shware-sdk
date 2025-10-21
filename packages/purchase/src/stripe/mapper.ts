@@ -100,6 +100,10 @@ export function mapCharge(charge: Stripe.Charge) {
     receipt_url: charge.receipt_url,
     status: charge.status,
     created: charge.created,
+    payment_intent:
+      charge.payment_intent && typeof charge.payment_intent === 'object'
+        ? mapPaymentIntent(charge.payment_intent)
+        : undefined,
   };
 }
 
