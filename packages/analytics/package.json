@@ -46,20 +46,25 @@
       "import": "./dist/next/index.mjs",
       "require": "./dist/next/index.cjs"
     },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.mjs",
-      "require": "./dist/react/index.cjs"
-    },
     "./react-router": {
       "types": "./dist/react-router/index.d.ts",
       "import": "./dist/react-router/index.mjs",
       "require": "./dist/react-router/index.cjs"
     },
-    "./server/conversions-api": {
-      "types": "./dist/server/conversions-api.d.ts",
-      "import": "./dist/server/conversions-api.mjs",
-      "require": "./dist/server/conversions-api.cjs"
+    "./third-parties": {
+      "types": "./dist/third-parties/index.d.ts",
+      "import": "./dist/third-parties/index.mjs",
+      "require": "./dist/third-parties/index.cjs"
+    },
+    "./server/meta-conversions-api": {
+      "types": "./dist/server/meta-conversions-api.d.ts",
+      "import": "./dist/server/meta-conversions-api.mjs",
+      "require": "./dist/server/meta-conversions-api.cjs"
+    },
+    "./server/reddit-conversions-api": {
+      "types": "./dist/server/reddit-conversions-api.d.ts",
+      "import": "./dist/server/reddit-conversions-api.mjs",
+      "require": "./dist/server/reddit-conversions-api.cjs"
     }
   },
   "files": [

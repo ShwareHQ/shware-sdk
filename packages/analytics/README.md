@@ -56,3 +56,7 @@ function Button() {
 - gad_source
 - gad_campaignid
 - gclid
+
+## Third Parties Advices
+
+- reddit: We strongly recommend using the Reddit Pixel and Conversions API (CAPI) together.

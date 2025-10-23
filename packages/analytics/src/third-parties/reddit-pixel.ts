@@ -10,8 +10,8 @@ declare global {
 
 export function sendRDTEvent<T extends EventName>(
   name: TrackName<T>,
-  _properties?: TrackProperties<T>,
-  event_id?: string
+  properties?: TrackProperties<T>,
+  eventId?: string
 ) {
   if (typeof window === 'undefined' || !window.rdt) {
     console.warn('rdt has not been initialized');
@@ -19,7 +19,7 @@ export function sendRDTEvent<T extends EventName>(
   }
 
   const { rdt } = window;
-  const [type, params] = mapRDTEvent(name, event_id);
+  const [type, params] = mapRDTEvent(name, properties, eventId);
   if (type === 'Custom') {
     rdt('track', type, params);
   } else {
