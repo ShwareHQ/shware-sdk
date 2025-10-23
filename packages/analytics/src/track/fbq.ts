@@ -277,7 +277,7 @@ export type Options = { eventID?: string };
  *
  * reference: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters
  */
-export interface Pixel {
+export interface FBQ {
   /**
    * reference: https://stackoverflow.com/questions/62304291/sending-user-data-parameters-via-pixel
    *
