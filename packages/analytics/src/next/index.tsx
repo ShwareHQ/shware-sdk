@@ -4,76 +4,32 @@ import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
 import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
-import { mapFBEvent } from '../track/fbq';
 import { track } from '../track/index';
-import type { Pixel, PixelId } from '../track/fbq';
-import type { GaId, Gtag, GtmId } from '../track/gtag';
-import type { EventName, TrackName, TrackProperties } from '../track/types';
-import type { UpdateVisitorDTO } from '../visitor/types';
+import type { PixelId as MetaPixelId } from '../track/fbq';
+import type { GaId, GtmId } from '../track/gtag';
+import type { PixelId as RedditPixelId } from '../track/rdt';
 
 type HotjarId = `${number}`;
-
-declare global {
-  interface Window extends Gtag, Pixel {}
-}
 
 interface Props {
   gaId?: GaId;
   gtmId?: GtmId;
-  pixelId?: PixelId;
   hotjarId?: HotjarId;
+  metaPixelId?: MetaPixelId;
+  redditPixelId?: RedditPixelId;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
   reportWebVitals?: boolean;
 }
 
-export function sendGAEvent<T extends EventName>(
-  name: TrackName<T>,
-  properties?: TrackProperties<T>
-) {
-  if (!window.gtag) {
-    console.warn('GA has not been initialized');
-    return;
-  }
-  window.gtag('event', name, properties);
-}
-
-export function setGAUser({ user_id, data, properties }: UpdateVisitorDTO) {
-  if (!window.gtag) {
-    console.warn('GA has not been initialized');
-    return;
-  }
-  if (user_id) window.gtag('set', 'user_id', user_id);
-  if (data) window.gtag('set', 'user_data', data);
-  if (properties) window.gtag('set', 'user_properties', properties);
-}
-
-export function sendFBEvent<T extends EventName>(
-  name: TrackName<T>,
-  properties?: TrackProperties<T>,
-  event_id?: string
-) {
-  if (typeof window === 'undefined' || !window.fbq) {
-    console.warn('fbq has not been initialized');
-    return;
-  }
-  const { fbq } = window;
-  const options = { eventID: event_id };
-  const [type, fbEventName, fbEventProperties] = mapFBEvent(name, properties);
-  if (type === 'track') {
-    fbq(type, fbEventName, fbEventProperties, options);
-  } else {
-    fbq(type, fbEventName, fbEventProperties, options);
-  }
-}
-
 export function Analytics({
   gaId,
   nonce,
   debugMode,
-  pixelId,
+  metaPixelId,
   hotjarId,
+  redditPixelId,
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
@@ -117,9 +73,9 @@ export function Analytics({
           />
         </>
       )}
-      {pixelId && (
+      {metaPixelId && (
         <Script
-          id="pixel"
+          id="meta-pixel"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
@@ -139,8 +95,32 @@ export function Analytics({
               s = b.getElementsByTagName(e)[0];
               s.parentNode.insertBefore(t, s);
             })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
-            fbq('init', '${pixelId}');
+            fbq('init', '${metaPixelId}');
             fbq('track', 'PageView');`,
+          }}
+        />
+      )}
+      {redditPixelId && (
+        <Script
+          id="reddit-pixel"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+            !function(w,d) {
+              if(!w.rdt) {
+                var p = w.rdt = function() {
+                  p.sendEvent ? p.sendEvent.apply(p,arguments) : p.callQueue.push(arguments)
+                };
+                p.callQueue = [];
+                var t = d.createElement("script");
+                t.src = "https://www.redditstatic.com/ads/pixel.js";
+                t.async = !0;
+                var s = d.getElementsByTagName("script")[0];
+                s.parentNode.insertBefore(t,s)
+              }
+            }(window, document);
+            rdt('init', '${redditPixelId}');
+            rdt('track', 'PageVisit');`,
           }}
         />
       )}
