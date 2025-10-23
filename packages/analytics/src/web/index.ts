@@ -73,6 +73,7 @@ export async function getTags(release: string) {
     twclid: params.get('twclid') ?? undefined,
     wbraid: params.get('wbraid') ?? undefined,
     yclid: params.get('yclid') ?? undefined,
+    rdt_cid: params.get('rdt_cid') ?? undefined,
     // utm params
     utm_source: link?.utm_source ?? params.get('utm_source') ?? undefined,
     utm_medium: link?.utm_medium ?? params.get('utm_medium') ?? undefined,

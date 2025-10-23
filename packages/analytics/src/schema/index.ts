@@ -31,86 +31,91 @@ const items = array(
   )
 );
 
+export const tagsSchema = object({
+  os: optional(string()),
+  os_name: optional(string()),
+  os_version: optional(string()),
+  browser: optional(string()),
+  browser_name: optional(string()),
+  browser_version: optional(string()),
+  platform: optional(_enum(['ios', 'android', 'web', 'macos', 'windows', 'linux', 'unknown'])),
+  device: optional(string()),
+  device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
+  device_type: optional(string()),
+  device_vendor: optional(string()),
+  device_pixel_ratio: optional(string()),
+  screen_width: optional(number()),
+  screen_height: optional(number()),
+  screen_resolution: optional(
+    pipe(
+      string().check(regex(/^\d+x\d+$/)),
+      transform((v) => v as `${number}x${number}`)
+    )
+  ),
+  release: optional(string()),
+  language: optional(string()),
+  time_zone: optional(string()),
+  environment: optional(_enum(['development', 'production'])),
+  source_url: optional(string()),
+  source: optional(_enum(['web', 'app', 'offline'])),
+  // app info
+  advertising_id: optional(string()),
+  install_referrer: optional(string()),
+  // meta ads
+  fbc: optional(string()),
+  fbp: optional(string()),
+  fbclid: optional(string()),
+  ad_id: optional(string()),
+  ad_name: optional(string()),
+  adset_id: optional(string()),
+  adset_name: optional(string()),
+  campaign_id: optional(string()),
+  campaign_name: optional(string()),
+  placement: optional(string()),
+  site_source_name: optional(string()),
+  // google ads
+  gclid: optional(string()),
+  gclsrc: optional(string()),
+  gad_source: optional(string()),
+  gad_campaignid: optional(string()),
+  // click ids
+  dclid: optional(string()),
+  ko_click_id: optional(string()),
+  li_fat_id: optional(string()),
+  msclkid: optional(string()),
+  sccid: optional(string()),
+  ttclid: optional(string()),
+  twclid: optional(string()),
+  wbraid: optional(string()),
+  yclid: optional(string()),
+  rdt_cid: optional(string()),
+  // utm params
+  utm_source: optional(string()),
+  utm_medium: optional(string()),
+  utm_campaign: optional(string()),
+  utm_term: optional(string()),
+  utm_content: optional(string()),
+  utm_id: optional(string()),
+  utm_source_platform: optional(string()),
+  utm_creative_format: optional(string()),
+  utm_marketing_tactic: optional(string()),
+});
+
+export const propertiesSchema = optional(
+  record(
+    string().check(trim(), minLength(1), maxLength(128)),
+    union([string().check(maxLength(512)), number(), boolean(), _null(), items])
+  ).check(refine((data) => Object.keys(data).length <= 64))
+);
+
 /** @deprecated */
 export const createTrackEventSchemaV1 = array(
   object({
     name: string().check(trim(), minLength(1), maxLength(64)),
     visitor_id: coerce.bigint(),
     timestamp: iso.datetime(),
-    tags: object({
-      os: optional(string()),
-      os_name: optional(string()),
-      os_version: optional(string()),
-      browser: optional(string()),
-      browser_name: optional(string()),
-      browser_version: optional(string()),
-      platform: optional(_enum(['ios', 'android', 'web', 'macos', 'windows', 'linux', 'unknown'])),
-      device: optional(string()),
-      device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
-      device_type: optional(string()),
-      device_vendor: optional(string()),
-      device_pixel_ratio: optional(string()),
-      screen_width: optional(number()),
-      screen_height: optional(number()),
-      screen_resolution: optional(
-        pipe(
-          string().check(regex(/^\d+x\d+$/)),
-          transform((v) => v as `${number}x${number}`)
-        )
-      ),
-      release: optional(string()),
-      language: optional(string()),
-      time_zone: optional(string()),
-      environment: optional(_enum(['development', 'production'])),
-      source_url: optional(string()),
-      source: optional(_enum(['web', 'app', 'offline'])),
-      // app info
-      advertising_id: optional(string()),
-      install_referrer: optional(string()),
-      // meta ads
-      fbc: optional(string()),
-      fbp: optional(string()),
-      fbclid: optional(string()),
-      ad_id: optional(string()),
-      ad_name: optional(string()),
-      adset_id: optional(string()),
-      adset_name: optional(string()),
-      campaign_id: optional(string()),
-      campaign_name: optional(string()),
-      placement: optional(string()),
-      site_source_name: optional(string()),
-      // google ads
-      gclid: optional(string()),
-      gclsrc: optional(string()),
-      gad_source: optional(string()),
-      gad_campaignid: optional(string()),
-      // click ids
-      dclid: optional(string()),
-      ko_click_id: optional(string()),
-      li_fat_id: optional(string()),
-      msclkid: optional(string()),
-      sccid: optional(string()),
-      ttclid: optional(string()),
-      twclid: optional(string()),
-      wbraid: optional(string()),
-      yclid: optional(string()),
-      // utm params
-      utm_source: optional(string()),
-      utm_medium: optional(string()),
-      utm_campaign: optional(string()),
-      utm_term: optional(string()),
-      utm_content: optional(string()),
-      utm_id: optional(string()),
-      utm_source_platform: optional(string()),
-      utm_creative_format: optional(string()),
-      utm_marketing_tactic: optional(string()),
-    }),
-    properties: optional(
-      record(
-        string().check(trim(), minLength(1), maxLength(128)),
-        union([string().check(maxLength(512)), number(), boolean(), _null(), items])
-      ).check(refine((data) => Object.keys(data).length <= 64))
-    ),
+    tags: tagsSchema,
+    properties: propertiesSchema,
   })
 ).check(minLength(1), maxLength(100));
 
@@ -119,80 +124,8 @@ export const createTrackEventSchema = array(
     name: string().check(trim(), minLength(1), maxLength(64)),
     visitor_id: uuid(),
     timestamp: iso.datetime(),
-    tags: object({
-      os: optional(string()),
-      os_name: optional(string()),
-      os_version: optional(string()),
-      browser: optional(string()),
-      browser_name: optional(string()),
-      browser_version: optional(string()),
-      platform: optional(_enum(['ios', 'android', 'web', 'macos', 'windows', 'linux', 'unknown'])),
-      device: optional(string()),
-      device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
-      device_type: optional(string()),
-      device_vendor: optional(string()),
-      device_pixel_ratio: optional(string()),
-      screen_width: optional(number()),
-      screen_height: optional(number()),
-      screen_resolution: optional(
-        pipe(
-          string().check(regex(/^\d+x\d+$/)),
-          transform((v) => v as `${number}x${number}`)
-        )
-      ),
-      release: optional(string()),
-      language: optional(string()),
-      time_zone: optional(string()),
-      environment: optional(_enum(['development', 'production'])),
-      source_url: optional(string()),
-      source: optional(_enum(['web', 'app', 'offline'])),
-      // app info
-      advertising_id: optional(string()),
-      install_referrer: optional(string()),
-      // meta ads
-      fbc: optional(string()),
-      fbp: optional(string()),
-      fbclid: optional(string()),
-      ad_id: optional(string()),
-      ad_name: optional(string()),
-      adset_id: optional(string()),
-      adset_name: optional(string()),
-      campaign_id: optional(string()),
-      campaign_name: optional(string()),
-      placement: optional(string()),
-      site_source_name: optional(string()),
-      // google ads
-      gclid: optional(string()),
-      gclsrc: optional(string()),
-      gad_source: optional(string()),
-      gad_campaignid: optional(string()),
-      // click ids
-      dclid: optional(string()),
-      ko_click_id: optional(string()),
-      li_fat_id: optional(string()),
-      msclkid: optional(string()),
-      sccid: optional(string()),
-      ttclid: optional(string()),
-      twclid: optional(string()),
-      wbraid: optional(string()),
-      yclid: optional(string()),
-      // utm params
-      utm_source: optional(string()),
-      utm_medium: optional(string()),
-      utm_campaign: optional(string()),
-      utm_term: optional(string()),
-      utm_content: optional(string()),
-      utm_id: optional(string()),
-      utm_source_platform: optional(string()),
-      utm_creative_format: optional(string()),
-      utm_marketing_tactic: optional(string()),
-    }),
-    properties: optional(
-      record(
-        string().check(trim(), minLength(1), maxLength(128)),
-        union([string().check(maxLength(512)), number(), boolean(), _null(), items])
-      ).check(refine((data) => Object.keys(data).length <= 64))
-    ),
+    tags: tagsSchema,
+    properties: propertiesSchema,
   })
 ).check(minLength(1), maxLength(100));
 

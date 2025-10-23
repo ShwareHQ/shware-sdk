@@ -99,9 +99,7 @@ export interface AdvertisingInfo {
   campaign_name?: string;
   placement?: string;
   site_source_name?: string;
-  /**
-   * Google Analytics fields
-   */
+  /** Google Analytics fields */
   gclid?: string;
   gclsrc?: string;
   gad_source?: string;
@@ -116,6 +114,7 @@ export interface AdvertisingInfo {
   twclid?: string; // Twitter Ads (X Ads)
   wbraid?: string; // Google Ads (for iOS privacy)
   yclid?: string; // Yandex Ads
+  rdt_cid?: string; // Reddit Ads
 }
 
 export interface UTMParams {
