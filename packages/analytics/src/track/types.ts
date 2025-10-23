@@ -104,6 +104,9 @@ export interface AdvertisingInfo {
   gclsrc?: string;
   gad_source?: string;
   gad_campaignid?: string;
+  /** Reddit Ads fields */
+  rdt_cid?: string;
+  rdt_uuid?: string;
   // click ids
   dclid?: string; // Google Display Network
   ko_click_id?: string; // Kakao Ads
@@ -114,7 +117,6 @@ export interface AdvertisingInfo {
   twclid?: string; // Twitter Ads (X Ads)
   wbraid?: string; // Google Ads (for iOS privacy)
   yclid?: string; // Yandex Ads
-  rdt_cid?: string; // Reddit Ads
 }
 
 export interface UTMParams {

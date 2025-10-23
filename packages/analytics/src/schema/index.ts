@@ -78,6 +78,9 @@ export const tagsSchema = object({
   gclsrc: optional(string()),
   gad_source: optional(string()),
   gad_campaignid: optional(string()),
+  // reddit ads
+  rdt_cid: optional(string()),
+  rdt_uuid: optional(string()),
   // click ids
   dclid: optional(string()),
   ko_click_id: optional(string()),
@@ -88,7 +91,6 @@ export const tagsSchema = object({
   twclid: optional(string()),
   wbraid: optional(string()),
   yclid: optional(string()),
-  rdt_cid: optional(string()),
   // utm params
   utm_source: optional(string()),
   utm_medium: optional(string()),
