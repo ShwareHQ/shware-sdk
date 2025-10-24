@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.8.5
+
+### Patch Changes
+
+- typo \_rtd_uuid -> \_rdt_uuid
+
 ## 2.8.4
 
 ### Patch Changes
