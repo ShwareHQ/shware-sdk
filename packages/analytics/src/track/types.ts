@@ -107,10 +107,11 @@ export interface AdvertisingInfo {
   /** Reddit Ads fields */
   rdt_cid?: string;
   rdt_uuid?: string;
+  /** LinkedIn Ads fields: get click id from url params or first-party cookie */
+  li_fat_id?: string;
   // click ids
   dclid?: string; // Google Display Network
   ko_click_id?: string; // Kakao Ads
-  li_fat_id?: string; // LinkedIn Ads
   msclkid?: string; // Microsoft Ads (Bing Ads)
   sccid?: string; // Snapchat Ads
   ttclid?: string; // TikTok Ads

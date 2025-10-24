@@ -90,8 +90,6 @@ export async function sendEvents(
       });
   }
 
-  // todo: add LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID
-
   const dto: CreateMultipleLinkedinEventsDTO = {
     elements: events
       .filter((event) => eventNames.includes(event.name))
@@ -104,9 +102,17 @@ export async function sendEvents(
           amount: event.properties?.value?.toString() ?? '0',
         },
         user: {
-          userIds,
-          externalIds,
+          userIds: event.tags.li_fat_id
+            ? [
+                {
+                  idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID',
+                  idValue: event.tags.li_fat_id,
+                },
+                ...userIds,
+              ]
+            : userIds,
           userInfo,
+          externalIds,
         },
       })),
   };

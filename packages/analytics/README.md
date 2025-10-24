@@ -1,3 +1,5 @@
+# Shware Analytics SDK
+
 ## Config
 
 layout.tsx
@@ -59,5 +61,15 @@ function Button() {
 
 ## Third Parties Advices
 
-- reddit: We strongly recommend using the Reddit Pixel and Conversions API (CAPI) together.
-- linkedin: If we receive an Insight Tag event and a Conversions API event from the same account with the same eventId, we discard the Conversions API event and count only the Insight Tag event in campaign reporting.
+### Reddit
+
+We strongly recommend using the Reddit Pixel and Conversions API (CAPI) together.
+
+- rdt_cid: from url params
+- \_rdt_uuid: from first-party cookie
+
+### LinkedIn
+
+If we receive an Insight Tag event and a Conversions API event from the same account with the same eventId, we discard the Conversions API event and count only the Insight Tag event in campaign reporting.
+
+- [Click IDs](https://learn.microsoft.com/en-us/linkedin/marketing/conversions/enabling-first-party-cookies?view=li-lms-2025-10&source=recommendations): get li_fat_id from url params and cookie

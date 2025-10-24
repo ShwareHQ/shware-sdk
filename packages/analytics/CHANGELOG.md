@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.10.1
+
+### Patch Changes
+
+- support linkedin click ids
+
 ## 2.10.0
 
 ### Minor Changes
