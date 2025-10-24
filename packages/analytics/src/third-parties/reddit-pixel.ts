@@ -21,9 +21,9 @@ export function sendRDTEvent<T extends EventName>(
   const { rdt } = window;
   const [type, params] = mapRDTEvent(name, properties, eventId);
   if (type === 'Custom') {
-    rdt('track', type, params);
+    rdt('track', type, JSON.parse(JSON.stringify(params)));
   } else {
-    rdt('track', type, params);
+    rdt('track', type, JSON.parse(JSON.stringify(params)));
   }
 }
 
