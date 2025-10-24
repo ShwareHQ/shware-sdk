@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.8.2
+
+### Patch Changes
+
+- remove third party web vitals report
+
 ## 2.8.1
 
 ### Patch Changes
