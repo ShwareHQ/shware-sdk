@@ -262,6 +262,8 @@ export function getServerEvent(
   return serverEvent;
 }
 
+const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
+
 export async function sendEvent(
   accessToken: string,
   pixelId: string,
@@ -270,6 +272,7 @@ export async function sendEvent(
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
+  if (metrics.includes(event.name)) return;
   const request = new EventRequest(accessToken, pixelId);
   const fbEvent = getServerEvent(event, data, appPackageName);
   request.setEvents([fbEvent]);
@@ -284,7 +287,9 @@ export async function sendEvents(
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
-  const fbEvents = events.map((event) => getServerEvent(event, data, appPackageName));
+  const fbEvents = events
+    .filter((event) => !metrics.includes(event.name))
+    .map((event) => getServerEvent(event, data, appPackageName));
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);
   return request.execute();

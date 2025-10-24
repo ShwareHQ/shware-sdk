@@ -121,6 +121,8 @@ export function getServerEvent(
   };
 }
 
+const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
+
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
@@ -132,7 +134,9 @@ export async function sendEvents(
   const dto: CreateRedditEventDTO = {
     data: {
       test_id: testId,
-      events: events.map((event) => getServerEvent(event, data)),
+      events: events
+        .filter((event) => !metrics.includes(event.name))
+        .map((event) => getServerEvent(event, data)),
     },
   };
 

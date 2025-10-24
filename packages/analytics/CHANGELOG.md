@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.8.6
+
+### Patch Changes
+
+- remove metrics from conversions api
+
 ## 2.8.5
 
 ### Patch Changes
