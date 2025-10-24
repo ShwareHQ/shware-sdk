@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.8.3
+
+### Patch Changes
+
+- remove meta, reddit metrics
+
 ## 2.8.2
 
 ### Patch Changes

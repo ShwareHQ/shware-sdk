@@ -8,6 +8,8 @@ declare global {
   interface Window extends RDT {}
 }
 
+const metrics = ['CLS', 'FCP', 'INP', 'LCP', 'TTFB'];
+
 export function sendRDTEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
@@ -17,6 +19,7 @@ export function sendRDTEvent<T extends EventName>(
     console.warn('rdt has not been initialized');
     return;
   }
+  if (metrics.includes(name)) return;
 
   const { rdt } = window;
   const [type, params] = mapRDTEvent(name, properties, eventId);

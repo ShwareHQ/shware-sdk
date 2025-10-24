@@ -8,6 +8,8 @@ declare global {
   interface Window extends FBQ {}
 }
 
+const metrics = ['CLS', 'FCP', 'INP', 'LCP', 'TTFB'];
+
 export function sendFBEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
@@ -17,6 +19,8 @@ export function sendFBEvent<T extends EventName>(
     console.warn('fbq has not been initialized');
     return;
   }
+  if (metrics.includes(name)) return;
+
   const { fbq } = window;
   const options = { eventID: event_id };
   const [type, fbEventName, fbEventProperties] = mapFBEvent(name, properties);

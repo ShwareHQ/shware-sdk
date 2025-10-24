@@ -46,7 +46,7 @@ export function Analytics({
       navigation_type: metric.navigationType,
       non_interaction: true, // avoids affecting bounce rate.
     };
-    track(metric.name, properties, { enableThirdPartyTracking: false });
+    track(metric.name, properties);
   });
 
   return (
