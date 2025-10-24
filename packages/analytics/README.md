@@ -60,3 +60,4 @@ function Button() {
 ## Third Parties Advices
 
 - reddit: We strongly recommend using the Reddit Pixel and Conversions API (CAPI) together.
+- linkedin: If we receive an Insight Tag event and a Conversions API event from the same account with the same eventId, we discard the Conversions API event and count only the Insight Tag event in campaign reporting.

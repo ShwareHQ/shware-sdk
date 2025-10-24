@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.10.0
+
+### Minor Changes
+
+- support linkedin conversions api
+
 ## 2.9.0
 
 ### Minor Changes
