@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.9.0
+
+### Minor Changes
+
+- add linkedin insight tag support
+
 ## 2.8.6
 
 ### Patch Changes
