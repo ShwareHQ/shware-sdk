@@ -8,7 +8,7 @@ declare global {
   interface Window extends FBQ {}
 }
 
-const metrics = ['CLS', 'FCP', 'INP', 'LCP', 'TTFB'];
+const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 
 export function sendFBEvent<T extends EventName>(
   name: TrackName<T>,

@@ -8,7 +8,7 @@ declare global {
   interface Window extends RDT {}
 }
 
-const metrics = ['CLS', 'FCP', 'INP', 'LCP', 'TTFB'];
+const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 
 export function sendRDTEvent<T extends EventName>(
   name: TrackName<T>,

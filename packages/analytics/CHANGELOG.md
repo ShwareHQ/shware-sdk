@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.8.4
+
+### Patch Changes
+
+- chore remove FID
+
 ## 2.8.3
 
 ### Patch Changes
