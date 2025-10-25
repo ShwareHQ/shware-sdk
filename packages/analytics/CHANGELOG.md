@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.2
+
+### Patch Changes
+
+- fix server event mapping
+
 ## 2.11.1
 
 ### Patch Changes

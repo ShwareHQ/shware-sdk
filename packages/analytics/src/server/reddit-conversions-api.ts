@@ -1,6 +1,6 @@
-import { mapRDTEvent } from '../track/rdt';
+import { mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
 import { getFirst } from '../utils/field';
-import type { StandardEvents } from '../track/rdt';
+import type { ServerStandardEvent } from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 
 /**
@@ -17,7 +17,7 @@ export interface RedditEvent {
   action_source: 'WEBSITE' | 'APP' | string;
 
   type: {
-    tracking_type: Uppercase<keyof StandardEvents> | 'CUSTOM';
+    tracking_type: ServerStandardEvent | 'CUSTOM';
     custom_event_name?: string;
   };
 
@@ -84,8 +84,7 @@ export function getServerEvent(
     event_at: Date.now(),
     action_source: tags.source === 'web' ? 'WEBSITE' : tags.source === 'app' ? 'APP' : 'UNKNOWN',
     type: {
-      tracking_type:
-        type === 'Custom' ? 'CUSTOM' : (type.toUpperCase() as Uppercase<keyof StandardEvents>),
+      tracking_type: type === 'Custom' ? 'CUSTOM' : mapServerStandardEvent(type),
       custom_event_name: type === 'Custom' ? params.customEventName : undefined,
     },
     metadata: {

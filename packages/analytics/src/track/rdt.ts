@@ -183,3 +183,25 @@ export function mapRDTEvent<T extends EventName>(
     ];
   }
 }
+
+export type ServerStandardEvent =
+  | 'PAGE_VISIT'
+  | 'VIEW_CONTENT'
+  | 'SEARCH'
+  | 'ADD_TO_CART'
+  | 'ADD_TO_WISHLIST'
+  | 'PURCHASE'
+  | 'LEAD'
+  | 'SIGN_UP';
+
+export function mapServerStandardEvent(name: keyof StandardEvents): ServerStandardEvent {
+  if (name === 'PageVisit') return 'PAGE_VISIT';
+  if (name === 'ViewContent') return 'VIEW_CONTENT';
+  if (name === 'Search') return 'SEARCH';
+  if (name === 'AddToCart') return 'ADD_TO_CART';
+  if (name === 'AddToWishlist') return 'ADD_TO_WISHLIST';
+  if (name === 'Purchase') return 'PURCHASE';
+  if (name === 'Lead') return 'LEAD';
+  if (name === 'SignUp') return 'SIGN_UP';
+  throw new Error(`Unsupported standard event: ${name}`);
+}
