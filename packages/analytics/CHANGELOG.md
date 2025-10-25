@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.1
+
+### Patch Changes
+
+- fix linkedin types
+
 ## 2.11.0
 
 ### Minor Changes

@@ -16,7 +16,7 @@ declare global {
  *   add_to_wishlist: 789,
  * }
  */
-export type LinkedinConversionConfig = Record<TrackName, number>;
+export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
 export function sendLinkedinEvent(config: LinkedinConversionConfig) {
   return <T extends EventName>(
@@ -29,7 +29,7 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
       return;
     }
 
-    const conversion_id = config[name];
+    const conversion_id = config[name as Lowercase<string>];
     if (!conversion_id) return;
     window.lintrk('track', { conversion_id, event_id });
   };

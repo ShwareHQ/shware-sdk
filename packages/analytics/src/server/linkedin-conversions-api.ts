@@ -4,7 +4,7 @@
  */
 import { createHash } from 'crypto';
 import { getFirst } from '../utils/field';
-import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
+import type { TrackEvent, UserProvidedData } from '../track/types';
 
 type UserIdType =
   | 'SHA256_EMAIL'
@@ -60,7 +60,7 @@ export interface CreateMultipleLinkedinEventsDTO {
   elements: CreateLinkedinEventDTO[];
 }
 
-export type LinkedinConversionConfig = Record<TrackName, number>;
+export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
 export async function sendEvents(
   accessToken: string,
