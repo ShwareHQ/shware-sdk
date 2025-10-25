@@ -21,13 +21,12 @@ export function sendFBEvent<T extends EventName>(
   }
   if (metrics.includes(name)) return;
 
-  const { fbq } = window;
   const options = { eventID: event_id };
   const [type, fbEventName, fbEventProperties] = mapFBEvent(name, properties);
   if (type === 'track') {
-    fbq(type, fbEventName, fbEventProperties, options);
+    window.fbq(type, fbEventName, fbEventProperties, options);
   } else {
-    fbq(type, fbEventName, fbEventProperties, options);
+    window.fbq(type, fbEventName, fbEventProperties, options);
   }
 }
 

@@ -4,7 +4,7 @@
  */
 import { createHash } from 'crypto';
 import { getFirst } from '../utils/field';
-import type { EventName, TrackEvent, UserProvidedData } from '../track/types';
+import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
 
 type UserIdType =
   | 'SHA256_EMAIL'
@@ -60,16 +60,16 @@ export interface CreateMultipleLinkedinEventsDTO {
   elements: CreateLinkedinEventDTO[];
 }
 
-export type Conversions = Record<EventName, number>;
+export type LinkedinConversionConfig = Record<TrackName, number>;
 
 export async function sendEvents(
   accessToken: string,
-  conversions: Conversions,
+  config: LinkedinConversionConfig,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {}
 ) {
-  const eventNames = Object.keys(conversions);
+  const eventNames = Object.keys(config);
   const address = getFirst(data.address);
   const userIds: { idType: UserIdType; idValue: string }[] = [];
   const externalIds: [string, ...string[]] | undefined = data.user_id ? [data.user_id] : undefined;
@@ -95,7 +95,7 @@ export async function sendEvents(
       .filter((event) => eventNames.includes(event.name))
       .map((event) => ({
         eventId: event.id,
-        conversion: `urn:lla:llaPartnerConversion:${conversions[event.name]}`,
+        conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,
         conversionHappenedAt: Date.now(),
         conversionValue: {
           currencyCode: event.properties?.currency?.toUpperCase() ?? 'USD',

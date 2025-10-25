@@ -10,7 +10,7 @@ declare global {
 
 const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 
-export function sendRDTEvent<T extends EventName>(
+export function sendRedditEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   eventId?: string
@@ -21,16 +21,15 @@ export function sendRDTEvent<T extends EventName>(
   }
   if (metrics.includes(name)) return;
 
-  const { rdt } = window;
   const [type, params] = mapRDTEvent(name, properties, eventId);
   if (type === 'Custom') {
-    rdt('track', type, JSON.parse(JSON.stringify(params)));
+    window.rdt('track', type, JSON.parse(JSON.stringify(params)));
   } else {
-    rdt('track', type, JSON.parse(JSON.stringify(params)));
+    window.rdt('track', type, JSON.parse(JSON.stringify(params)));
   }
 }
 
-export function setRDTUser(pixelId: PixelId) {
+export function setRedditUser(pixelId: PixelId) {
   return ({ user_id, data }: UpdateVisitorDTO) => {
     if (!window.rdt) {
       console.warn('rdt has not been initialized');

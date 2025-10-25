@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.0
+
+### Minor Changes
+
+- add linkedin linktr definition
+
 ## 2.10.1
 
 ### Patch Changes
