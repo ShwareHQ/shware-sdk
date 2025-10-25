@@ -139,6 +139,8 @@ export async function sendEvents(
     },
   };
 
+  if (dto.data.events.length === 0) return;
+
   const response = await fetch(
     `https://ads-api.reddit.com/api/v3/pixels/${pixelId}/conversion_events`,
     {

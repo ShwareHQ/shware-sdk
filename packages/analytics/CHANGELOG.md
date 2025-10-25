@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.3
+
+### Patch Changes
+
+- ignore empty events
+
 ## 2.11.2
 
 ### Patch Changes

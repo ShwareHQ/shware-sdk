@@ -290,6 +290,7 @@ export async function sendEvents(
   const fbEvents = events
     .filter((event) => !metrics.includes(event.name))
     .map((event) => getServerEvent(event, data, appPackageName));
+  if (fbEvents.length === 0) return;
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);
   return request.execute();
