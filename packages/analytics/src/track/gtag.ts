@@ -455,6 +455,8 @@ export type StandardEvents = {
     method?: string;
     content_type?: string;
     item_id?: string;
+    system_activity_type?: string; // added
+    platform_post_id?: string; // added
   };
   sign_up: {
     method?: string;

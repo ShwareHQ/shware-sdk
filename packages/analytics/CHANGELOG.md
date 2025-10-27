@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.4
+
+### Patch Changes
+
+- add share params
+
 ## 2.11.3
 
 ### Patch Changes
