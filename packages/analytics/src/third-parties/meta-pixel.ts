@@ -5,6 +5,7 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface Window extends FBQ {}
 }
 

@@ -57,7 +57,7 @@ export interface DeviceInfo {
   device_type?: string;
   device_vendor?: string;
   device_model_id?: string;
-  device_pixel_ratio?: string;
+  device_pixel_ratio?: number;
   screen_width?: number;
   screen_height?: number;
   screen_resolution?: `${number}x${number}`;

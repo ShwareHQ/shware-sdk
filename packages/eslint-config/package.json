@@ -1,18 +1,15 @@
 {
   "name": "@repo/eslint-config",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "type": "module",
   "private": true,
   "exports": {
     "./base": "./base.js",
-    "./next-js": "./next.js",
-    "./package": "./package.js",
-    "./react-internal": "./react-internal.js"
+    "./package": "./package.js"
   },
   "devDependencies": {
-    "@eslint/js": "^9.37.0",
-    "@next/eslint-plugin-next": "^15.5.4",
-    "eslint": "^9.37.0",
+    "@eslint/js": "^9.38.0",
+    "eslint": "^9.38.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
@@ -22,6 +19,6 @@
     "eslint-plugin-turbo": "^2.5.8",
     "globals": "^16.4.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.46.0"
+    "typescript-eslint": "^8.46.2"
   }
 }

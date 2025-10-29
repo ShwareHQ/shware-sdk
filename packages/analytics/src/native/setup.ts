@@ -88,7 +88,7 @@ export async function getTags(release: string): Promise<TrackTags> {
     device_type: getDeviceType(),
     device_vendor: manufacturer ?? undefined,
     device_model_id: modelId ?? undefined,
-    device_pixel_ratio: `${PixelRatio.get()}`,
+    device_pixel_ratio: PixelRatio.get(),
     screen_width,
     screen_height,
     screen_resolution: `${screen_width}x${screen_height}`,

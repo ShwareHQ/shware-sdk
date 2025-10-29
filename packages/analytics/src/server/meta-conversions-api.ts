@@ -157,7 +157,7 @@ function getAppData(tags: TrackTags, appPackageName: string) {
     extinfo.setScreenHeight(tags.screen_height);
   }
   if (tags.device_pixel_ratio) {
-    extinfo.setScreenDensity(tags.device_pixel_ratio);
+    extinfo.setScreenDensity(tags.device_pixel_ratio.toString());
   }
 
   const appData = new AppData();

@@ -36,7 +36,7 @@ export async function getTags(release: string) {
     device_id: getDeviceId(),
     device_type: platform.type,
     device_vendor: platform.vendor,
-    device_pixel_ratio: `${window.devicePixelRatio}`,
+    device_pixel_ratio: window.devicePixelRatio,
     screen_width: window.screen.width,
     screen_height: window.screen.height,
     screen_resolution: `${window.screen.width}x${window.screen.height}`,

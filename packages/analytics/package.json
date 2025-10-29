@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.11.4",
+  "version": "2.11.5",
   "private": false,
   "type": "module",
   "scripts": {
@@ -66,7 +66,7 @@
     "dist"
   ],
   "dependencies": {
-    "axios": "^1.12.2",
+    "axios": "^1.13.1",
     "axios-retry": "^4.5.0",
     "bowser": "^2.12.1",
     "cookie": "^1.0.2",
@@ -78,17 +78,18 @@
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^23.0.0",
-    "@types/node": "^24.7.2",
+    "@types/node": "^24.9.2",
     "@types/react": "^19.2.2",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^23.3.1",
     "expo-application": "7.0.7",
+    "expo-clipboard": "^8.0.7",
     "expo-crypto": "^15.0.7",
     "expo-device": "^8.0.9",
     "expo-localization": "^17.0.7",
-    "expo-router": "^6.0.10",
+    "expo-router": "^6.0.13",
     "expo-sqlite": "^16.0.8",
     "expo-tracking-transparency": "^6.0.7",
     "facebook-nodejs-business-sdk": "^23",
@@ -104,6 +105,9 @@
       "optional": true
     },
     "expo-application": {
+      "optional": true
+    },
+    "expo-clipboard": {
       "optional": true
     },
     "expo-crypto": {

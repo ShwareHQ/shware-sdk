@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.5
+
+### Patch Changes
+
+- support native fingerprint
+
 ## 2.11.4
 
 ### Patch Changes
