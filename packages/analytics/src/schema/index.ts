@@ -43,7 +43,7 @@ export const tagsSchema = object({
   device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   device_type: optional(string()),
   device_vendor: optional(string()),
-  device_pixel_ratio: optional(string()),
+  device_pixel_ratio: optional(number()),
   screen_width: optional(number()),
   screen_height: optional(number()),
   screen_resolution: optional(

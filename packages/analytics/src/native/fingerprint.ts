@@ -4,7 +4,14 @@
  */
 import { getInstallReferrerAsync } from 'expo-application';
 import { getStringAsync } from 'expo-clipboard';
-import { manufacturer, modelId, modelName, osName, osVersion } from 'expo-device';
+import {
+  manufacturer,
+  modelId,
+  modelName,
+  osName,
+  osVersion,
+  supportedCpuArchitectures,
+} from 'expo-device';
 import { getCalendars, getLocales } from 'expo-localization';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 
@@ -17,6 +24,7 @@ export type ProbabilisticFingerprint = {
   os: string | null;
   os_name: string | null;
   os_version: string | null;
+  cpu_architecture: string | null;
   platform: 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
   device: string | null;
   device_vendor: string | null;
@@ -29,7 +37,7 @@ export type ProbabilisticFingerprint = {
   time_zone: string | null;
   install_referrer: string | null;
   pasted_link: string | null;
-  timestamp: number;
+  timestamp: number; // 7 days validity
 };
 
 export async function getDeterministicFingerprint(): Promise<DeterministicFingerprint> {
@@ -51,6 +59,7 @@ export async function getProbabilisticFingerprint(
     os: osName && osVersion ? `${osName} ${osVersion}` : null,
     os_name: osName,
     os_version: osVersion,
+    cpu_architecture: supportedCpuArchitectures?.at(0) ?? null,
     platform: Platform.OS,
     device: modelName,
     device_vendor: manufacturer,

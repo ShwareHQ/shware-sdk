@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.11.6
+
+### Patch Changes
+
+- fix types
+
 ## 2.11.5
 
 ### Patch Changes
