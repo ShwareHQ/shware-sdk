@@ -143,6 +143,7 @@ export const createVisitorSchema = object({
 
 export const updateVisitorSchema = object({
   user_id: optional(uuid()),
+  distinct_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   properties: optional(
     record(
       string().check(trim(), minLength(1), maxLength(128)),

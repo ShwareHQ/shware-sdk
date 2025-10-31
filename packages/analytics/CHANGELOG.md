@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.12.0
+
+### Minor Changes
+
+- add distinct_id support and remove setUserId
+
 ## 2.11.6
 
 ### Patch Changes

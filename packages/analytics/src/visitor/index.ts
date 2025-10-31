@@ -52,13 +52,3 @@ export async function setVisitor(dto: UpdateVisitorDTO) {
   visitor = response.data;
   return response.data;
 }
-
-/** @deprecated Use setVisitor instead */
-export async function setUserId(userId: string) {
-  const { id } = await getVisitor();
-  const dto: UpdateVisitorDTO = { user_id: userId };
-  const headers = await config.getHeaders();
-  const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto, { headers });
-  visitor = response.data;
-  return response.data;
-}

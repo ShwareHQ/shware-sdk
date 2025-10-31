@@ -15,6 +15,7 @@ export interface CreateVisitorDTO {
 
 export interface UpdateVisitorDTO {
   user_id?: string;
+  distinct_id?: string;
   data?: UserProvidedData;
   properties?: UserProperties;
 }
