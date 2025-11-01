@@ -121,18 +121,23 @@ export async function sendEvents(
   };
 
   if (dto.elements.length === 0) return;
-  const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      'LinkedIn-Version': '202509',
-      'X-Restli-Protocol-Version': '2.0.0',
-    },
-    body: JSON.stringify(dto),
-  });
+  try {
+    const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'LinkedIn-Version': '202509',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify(dto),
+    });
 
-  if (!response.ok) {
-    console.error('Failed to send LinkedIn conversion events:', await response.text());
+    if (response.ok) return;
+    const { status } = response;
+    const message = await response.text();
+    console.error(`Failed to send LinkedIn conversion, status: ${status}, body: ${message}`);
+  } catch (error) {
+    console.error('Failed to send LinkedIn conversion, network error:', error);
   }
 }

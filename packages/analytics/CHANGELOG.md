@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.12.2
+
+### Patch Changes
+
+- conversions api error handling & retry
+
 ## 2.12.1
 
 ### Patch Changes
