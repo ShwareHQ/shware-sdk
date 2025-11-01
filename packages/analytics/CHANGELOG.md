@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.12.3
+
+### Patch Changes
+
+- add X-RestLi-Method: BATCH_CREATE header
+
 ## 2.12.2
 
 ### Patch Changes
