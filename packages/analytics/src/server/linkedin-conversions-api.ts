@@ -3,6 +3,7 @@
  * https://learn.microsoft.com/en-us/linkedin/marketing/conversions/conversions-overview?view=li-lms-2025-09
  */
 import { createHash } from 'crypto';
+import { fetch } from '../utils/fetch';
 import { getFirst } from '../utils/field';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 

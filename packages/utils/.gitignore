@@ -1,0 +1,12 @@
+# dependencies
+node_modules
+
+# Testing
+coverage
+
+# build
+dist
+.turbo
+
+# IDE
+.idea

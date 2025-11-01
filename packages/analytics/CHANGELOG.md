@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.12.1
+
+### Patch Changes
+
+- add fetch utils
+
 ## 2.12.0
 
 ### Minor Changes

@@ -1,4 +1,5 @@
 import { mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
+import { fetch } from '../utils/fetch';
 import { getFirst } from '../utils/field';
 import type { ServerStandardEvent } from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';

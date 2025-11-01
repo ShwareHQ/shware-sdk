@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.2.8
+
+### Patch Changes
+
+- add fetch utils
+
 ## 1.2.7
 
 ### Patch Changes
