@@ -51,7 +51,7 @@ export async function fetch(
 
   while (retryCount <= retries) {
     try {
-      const response = await global.fetch(input, init);
+      const response = await globalThis.fetch(input, init);
       lastResponse = response;
       if (response.ok || !retryCondition(response) || retryCount === retries) {
         return response;

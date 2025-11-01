@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.12.4
+
+### Patch Changes
+
+- global -> globalThis
+
 ## 2.12.3
 
 ### Patch Changes

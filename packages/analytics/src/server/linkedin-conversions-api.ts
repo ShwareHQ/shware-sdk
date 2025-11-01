@@ -76,13 +76,14 @@ export async function sendEvents(
   const address = getFirst(data.address);
   const userIds: { idType: UserIdType; idValue: string }[] = [];
   const externalIds: [string, ...string[]] | undefined = data.user_id ? [data.user_id] : undefined;
-  const userInfo = address
-    ? {
-        firstName: address.first_name,
-        lastName: address.last_name,
-        countryCode: address.country,
-      }
-    : undefined;
+  const userInfo =
+    address && address.first_name && address.last_name
+      ? {
+          firstName: address.first_name,
+          lastName: address.last_name,
+          countryCode: address.country,
+        }
+      : undefined;
 
   if (data.email) {
     const email = getFirst(data.email);

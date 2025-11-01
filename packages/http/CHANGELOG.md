@@ -1,5 +1,11 @@
 # @shware/http
 
+## 1.2.9
+
+### Patch Changes
+
+- global -> globalThis
+
 ## 1.2.8
 
 ### Patch Changes
