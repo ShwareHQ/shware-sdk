@@ -3,7 +3,7 @@ export function once<A extends unknown[], T>(fn: (...args: A) => Promise<T>) {
   let promise: Promise<T> | null = null;
 
   return async (...args: A) => {
-    if (cache) return cache;
+    if (cache !== null) return cache;
     if (!promise) {
       promise = fn(...args)
         .then((result) => {

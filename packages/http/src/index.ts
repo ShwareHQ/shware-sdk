@@ -49,8 +49,7 @@ export type {
   Page,
 } from './response';
 
-export * from './vaild';
-export * from './snowflake';
+export { UidGenerator, uid } from './snowflake';
 
 export * as MAX_LENGTH from './max-length/index';
 export { base62 } from './utils/base62';
