@@ -21,6 +21,7 @@ export interface Options {
 
 interface Config {
   release: string;
+  endpoint: string;
   storage: Storage;
   http: AxiosInstance;
   getTags: () => TrackTags | Promise<TrackTags>;
@@ -32,6 +33,7 @@ interface Config {
 
 export const config: Config = {
   http: null!,
+  endpoint: '',
   release: '0.0.0',
   storage: null!,
   getTags: null!,
@@ -44,6 +46,7 @@ export const config: Config = {
 export function setupAnalytics(init: Options) {
   config.release = init.release;
   config.storage = init.storage;
+  config.endpoint = init.endpoint;
   config.getTags = init.getTags;
   config.getDeviceId = init.getDeviceId;
   config.getHeaders = init.getHeaders ?? (() => ({}));
