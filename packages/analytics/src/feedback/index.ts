@@ -1,6 +1,16 @@
 import { config } from '../setup/index';
+import { fetch } from '../utils/fetch';
 import type { CreateFeedbackDTO } from '../schema/index';
 
 export async function sendFeedback(dto: CreateFeedbackDTO) {
-  await config.http.post('/feedback', dto);
+  const response = await fetch(`${config.endpoint}/feedback`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: await config.getHeaders(),
+    body: JSON.stringify(dto),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to send feedback: ${response.status} ${await response.text()}`);
+  }
 }

@@ -1,4 +1,5 @@
 import { config } from '../setup/index';
+import { fetch } from '../utils/fetch';
 import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
 import type {
@@ -41,8 +42,20 @@ async function sendEvents(events: Item[]) {
       visitor_id,
       timestamp: event.timestamp,
     }));
-    const headers = await config.getHeaders();
-    const { data } = await config.http.post<TrackEventResponse>(`/events`, dto, { headers });
+
+    const response = await fetch(`${config.endpoint}/events`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: await config.getHeaders(),
+      body: JSON.stringify(dto),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to send track event: ${response.status} ${await response.text()}`);
+    }
+
+    const data = (await response.json()) as TrackEventResponse;
+
     let index = 0;
     while (events.length > 0) {
       const { options, name, properties } = events.shift()!;
@@ -53,7 +66,7 @@ async function sendEvents(events: Item[]) {
       config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, eventId));
     }
   } catch (e: unknown) {
-    if (e instanceof Error) console.log('Failed to send track event:', e.message);
+    if (e instanceof Error) console.log(e.message);
     events.forEach((event) => event.options.onError?.(e));
   }
 }

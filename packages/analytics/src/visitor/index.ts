@@ -1,4 +1,5 @@
 import { config } from '../setup/index';
+import { fetch } from '../utils/fetch';
 import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 
 const key = 'visitor_id';
@@ -8,27 +9,32 @@ async function createVisitor(): Promise<Visitor> {
     device_id: await config.getDeviceId(),
     properties: (await config.getTags()) as VisitorProperties,
   };
-  const headers = await config.getHeaders();
-  const response = await config.http.post<Visitor>(`/visitors`, dto, { headers });
-  return response.data;
+
+  const response = await fetch(`${config.endpoint}/visitors`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: await config.getHeaders(),
+    body: JSON.stringify(dto),
+  });
+
+  const data = (await response.json()) as Visitor;
+  await config.storage.setItem(key, data.id);
+  return data;
 }
 
 async function getOrCreateVisitor(): Promise<Visitor> {
   const visitorId = await config.storage.getItem(key);
   if (visitorId) {
-    try {
-      const headers = await config.getHeaders();
-      const response = await config.http.get<Visitor>(`/visitors/${visitorId}`, { headers });
-      return response.data;
-    } catch {
-      const visitor = await createVisitor();
-      await config.storage.setItem(key, visitor.id);
-      return visitor;
-    }
+    const response = await fetch(`${config.endpoint}/visitors/${visitorId}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: await config.getHeaders(),
+    });
+
+    if (!response.ok) return createVisitor();
+    return response.json() as Promise<Visitor>;
   } else {
-    const visitor = await createVisitor();
-    await config.storage.setItem(key, visitor.id);
-    return visitor;
+    return createVisitor();
   }
 }
 
@@ -46,9 +52,17 @@ export async function getVisitor(): Promise<Visitor> {
 
 export async function setVisitor(dto: UpdateVisitorDTO) {
   const { id } = await getVisitor();
-  const headers = await config.getHeaders();
-  const response = await config.http.patch<Visitor>(`/visitors/${id}`, dto, { headers });
+  const response = await fetch(`${config.endpoint}/visitors/${id}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: await config.getHeaders(),
+    body: JSON.stringify(dto),
+  });
+
+  if (!response.ok) throw new Error('Failed to set visitor');
+  const data = (await response.json()) as Visitor;
+
   config.thirdPartyUserSetters.forEach((setter) => setter(dto));
-  visitor = response.data;
-  return response.data;
+  visitor = data;
+  return data;
 }

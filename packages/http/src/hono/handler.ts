@@ -1,6 +1,5 @@
 import { DetailType, Details } from '../error/detail';
 import { Status, StatusError } from '../error/status';
-import type { AxiosError } from 'axios';
 import type { Context } from 'hono';
 import type { RequestIdVariables } from 'hono/request-id';
 import type { Bindings, HTTPResponseError } from 'hono/types';
@@ -9,6 +8,21 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
 export type Env = {
   Variables: RequestIdVariables;
   Bindings?: Bindings;
+};
+
+type AxiosError = {
+  code?: string;
+  cause?: unknown;
+  status?: number;
+  message?: string;
+  isAxiosError: boolean;
+  response?: {
+    data: unknown;
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+  };
+  config?: { url?: string; data?: unknown; method?: string; headers?: Record<string, string> };
 };
 
 export function isAxiosError(payload: unknown): payload is AxiosError {

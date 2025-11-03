@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.13.0
+
+### Minor Changes
+
+- remove axios dependency
+
 ## 2.12.4
 
 ### Patch Changes

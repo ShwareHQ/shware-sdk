@@ -1,5 +1,3 @@
-import axios, { AxiosInstance } from 'axios';
-import retry from 'axios-retry';
 import type { ThirdPartyTracker, TrackTags } from '../track/types';
 import type { ThirdPartyUserSetter } from '../visitor/types';
 
@@ -23,7 +21,6 @@ interface Config {
   release: string;
   endpoint: string;
   storage: Storage;
-  http: AxiosInstance;
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
   getHeaders: () => Record<string, string> | Promise<Record<string, string>>;
@@ -32,7 +29,6 @@ interface Config {
 }
 
 export const config: Config = {
-  http: null!,
   endpoint: '',
   release: '0.0.0',
   storage: null!,
@@ -49,9 +45,10 @@ export function setupAnalytics(init: Options) {
   config.endpoint = init.endpoint;
   config.getTags = init.getTags;
   config.getDeviceId = init.getDeviceId;
-  config.getHeaders = init.getHeaders ?? (() => ({}));
+  config.getHeaders = async () => ({
+    'Content-Type': 'application/json',
+    ...(await init.getHeaders?.()),
+  });
   config.thirdPartyTrackers = init.thirdPartyTrackers ?? [];
   config.thirdPartyUserSetters = init.thirdPartyUserSetters ?? [];
-  config.http = axios.create({ baseURL: init.endpoint, withCredentials: true, adapter: 'fetch' });
-  retry(config.http, { retries: 5, retryDelay: retry.exponentialDelay });
 }
