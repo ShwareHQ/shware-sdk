@@ -104,7 +104,7 @@ export class DBIndexedSessionRepository implements SessionRepository<DBSession> 
   }
 
   async deleteById(sessionId: string) {
-    this.db.deleteById(sessionId);
+    await this.db.deleteById(sessionId);
   }
 
   async findByIndexNameAndIndexValue(

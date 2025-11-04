@@ -1,5 +1,11 @@
 # @shware/security
 
+## 1.5.8
+
+### Patch Changes
+
+- add await
+
 ## 1.5.7
 
 ### Patch Changes

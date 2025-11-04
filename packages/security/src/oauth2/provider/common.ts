@@ -113,8 +113,8 @@ export async function verifyIdToken<T>(idToken: string, jwkSetUri: string) {
     const jwks = createRemoteJWKSet(new URL(jwkSetUri));
     const { payload } = await jwtVerify(idToken, jwks);
     return payload as T;
-  } catch (e) {
-    console.error('Failed to verify id_token', e);
+  } catch {
+    console.error('Failed to verify id_token');
     throw new OAuth2Error(400, 'invalid_request', 'Failed to verify id_token');
   }
 }

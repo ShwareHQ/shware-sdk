@@ -191,7 +191,7 @@ export class Auth implements AuthService {
     // 2. get cached authorization request from session
     const json = session.getAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) as string | null;
     if (!json) {
-      return this.redirect('invalid_request', 'authorization request not  found');
+      return this.redirect('invalid_request', 'authorization request not found');
     }
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
 
@@ -310,10 +310,10 @@ export class Auth implements AuthService {
 
     // should support application/x-www-form-urlencoded and application/json
     let body: Record<string, string>;
-    if (request.headers.get('Content-Type') === 'application/x-www-form-urlencoded') {
+    if (request.headers.get('Content-Type')?.includes('application/x-www-form-urlencoded')) {
       const text = await request.text();
       body = Object.fromEntries(new URLSearchParams(text));
-    } else if (request.headers.get('Content-Type') === 'application/json') {
+    } else if (request.headers.get('Content-Type')?.includes('application/json')) {
       body = (await request.json()) as Record<string, string>;
     } else {
       const json = { error: 'invalid_request', error_description: 'invalid content type' };
