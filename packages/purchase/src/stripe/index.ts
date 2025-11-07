@@ -15,6 +15,7 @@ export {
   type ProductPrice,
   type BeginCheckoutProperties,
 } from './mapper';
+export { StripeEventHandler } from './handler';
 export {
   cancellationDetailsSchema,
   checkoutSessionSchema,

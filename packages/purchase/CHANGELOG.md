@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 0.2.3
+
+### Patch Changes
+
+- add stripe event handler util
+
 ## 0.2.2
 
 ### Patch Changes
