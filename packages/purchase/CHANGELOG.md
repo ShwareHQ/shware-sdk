@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 0.2.4
+
+### Patch Changes
+
+- import type only
+
 ## 0.2.3
 
 ### Patch Changes
