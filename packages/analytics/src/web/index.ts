@@ -65,7 +65,11 @@ export async function getTags(release: string) {
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
     // reddit ads
-    rdt_cid: params.get('rdt_cid') ?? undefined,
+    rdt_cid:
+      params.get('rdt_cid') ??
+      parsed._rdt_cid ??
+      expiringStorage.getItem<string>('rdt_cid') ??
+      undefined,
     rdt_uuid: parsed._rdt_uuid,
     // linkedin ads: get click id from url params or first-party cookie
     li_fat_id: params.get('li_fat_id') ?? parsed.li_fat_id ?? undefined,

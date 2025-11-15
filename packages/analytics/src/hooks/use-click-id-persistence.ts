@@ -13,12 +13,22 @@ function setCookie(name: string, value: string, ttlInMs: number) {
 // reference: https://watsspace.com/blog/meta-conversions-api-fbc-and-fbp-parameters/
 export function useClickIdPersistence() {
   useEffect(() => {
-    const fbclid = new URLSearchParams(window.location.search).get('fbclid');
-    if (!fbclid) return;
-    const fbc = `fb.1.${Date.now()}.${fbclid}`;
+    const params = new URLSearchParams(window.location.search);
+    const fbclid = params.get('fbclid');
+    const rdt_cid = params.get('rdt_cid');
+
     // common practice ~90 days
     const ttlMs = 90 * 24 * 60 * 60 * 1000;
-    setCookie('_fbc', fbc, ttlMs);
-    expiringStorage.setItem('fbc', fbc, ttlMs);
+
+    if (fbclid) {
+      const fbc = `fb.1.${Date.now()}.${fbclid}`;
+      setCookie('_fbc', fbc, ttlMs);
+      expiringStorage.setItem('fbc', fbc, ttlMs);
+    }
+
+    if (rdt_cid) {
+      setCookie('_rdt_cid', rdt_cid, ttlMs);
+      expiringStorage.setItem('rdt_cid', rdt_cid, ttlMs);
+    }
   }, []);
 }

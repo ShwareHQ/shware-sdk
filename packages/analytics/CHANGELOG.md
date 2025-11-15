@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.13.2
+
+### Patch Changes
+
+- add reddit pixel cookie
+
 ## 2.13.1
 
 ### Patch Changes
