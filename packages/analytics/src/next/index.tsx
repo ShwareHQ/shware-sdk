@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
+import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
 import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
 import { track } from '../track/index';
 import type { PixelId as MetaPixelId } from '../track/fbq';
@@ -37,6 +38,8 @@ export function Analytics({
 }: Props) {
   const pathname = usePathname();
   usePageViewAnalytics(pathname);
+
+  useClickIdPersistence();
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;

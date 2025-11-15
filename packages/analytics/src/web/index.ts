@@ -2,6 +2,7 @@ import Bowser from 'bowser';
 import * as cookie from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { type Link, getLink } from '../link/index';
+import { expiringStorage } from '../utils/storage';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
@@ -47,7 +48,7 @@ export async function getTags(release: string) {
     source: 'web',
     source_url: window.location.origin + window.location.pathname,
     // meta ads
-    fbc: parsed._fbc,
+    fbc: parsed._fbc ?? expiringStorage.getItem<string>('fbc') ?? undefined,
     fbp: parsed._fbp,
     fbclid: params.get('fbclid') ?? undefined,
     ad_id: params.get('ad_id') ?? undefined,

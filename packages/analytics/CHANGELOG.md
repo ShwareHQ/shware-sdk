@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.13.1
+
+### Patch Changes
+
+- safari ITP: store fbc to cookie and localstorage
+
 ## 2.13.0
 
 ### Minor Changes

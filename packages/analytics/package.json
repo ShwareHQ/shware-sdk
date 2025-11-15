@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.13.0",
+  "version": "2.13.1",
   "private": false,
   "type": "module",
   "scripts": {
@@ -76,8 +76,8 @@
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^23.0.0",
-    "@types/node": "^24.10.0",
-    "@types/react": "^19.2.2",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

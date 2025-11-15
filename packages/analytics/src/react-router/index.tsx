@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'react-router';
 import { type Metric, onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
+import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
 import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
 import { track } from '../track/index';
 import type { PixelId as MetaPixelId } from '../track/fbq';
@@ -45,6 +46,8 @@ export function Analytics({
 }: Props) {
   const { pathname } = useLocation();
   usePageViewAnalytics(pathname);
+
+  useClickIdPersistence();
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
