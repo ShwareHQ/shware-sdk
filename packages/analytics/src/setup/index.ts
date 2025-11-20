@@ -42,7 +42,7 @@ export const config: Config = {
 export function setupAnalytics(init: Options) {
   config.release = init.release;
   config.storage = init.storage;
-  config.endpoint = init.endpoint;
+  config.endpoint = init.endpoint.endsWith('/') ? init.endpoint.slice(0, -1) : init.endpoint;
   config.getTags = init.getTags;
   config.getDeviceId = init.getDeviceId;
   config.getHeaders = async () => ({
