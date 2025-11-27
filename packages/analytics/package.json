@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.13.3",
+  "version": "2.13.4",
   "private": false,
   "type": "module",
   "scripts": {
@@ -66,18 +66,18 @@
     "dist"
   ],
   "dependencies": {
-    "bowser": "^2.12.1",
-    "cookie": "^1.0.2",
+    "bowser": "^2.13.0",
+    "cookie": "^1.1.1",
     "uuid": "^13.0.0",
     "web-vitals": "^5.1.0",
-    "zod": "^4.1.12"
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^23.0.0",
     "@types/node": "^24.10.1",
-    "@types/react": "^19.2.5",
+    "@types/react": "^19.2.7",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

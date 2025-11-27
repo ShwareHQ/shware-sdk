@@ -1,4 +1,4 @@
-import { type SerializeOptions, parse, serialize } from 'cookie';
+import { type SerializeOptions, parseCookie, stringifySetCookie } from 'cookie';
 import { match } from 'path-to-regexp';
 
 export type CookieOptions = Omit<SerializeOptions, 'encode'>;
@@ -6,7 +6,7 @@ export type CookieOptions = Omit<SerializeOptions, 'encode'>;
 export function getCookie(request: Request, name: string): string | undefined {
   const cookie = request.headers.get('Cookie');
   if (!cookie) return undefined;
-  const parsed = parse(cookie);
+  const parsed = parseCookie(cookie);
   return parsed[name];
 }
 
@@ -16,11 +16,11 @@ export function setCookie(
   value: string,
   options?: SerializeOptions
 ) {
-  response.headers.append('Set-Cookie', serialize(name, value, options));
+  response.headers.append('Set-Cookie', stringifySetCookie(name, value, options));
 }
 
 export function deleteCookie(response: Response, name: string, options?: SerializeOptions) {
-  response.headers.append('Set-Cookie', serialize(name, '', { ...options, maxAge: 0 }));
+  response.headers.append('Set-Cookie', stringifySetCookie(name, '', { ...options, maxAge: 0 }));
 }
 
 type PathParam<T extends string> = T extends `${string}:${infer Param}/${infer Rest}`

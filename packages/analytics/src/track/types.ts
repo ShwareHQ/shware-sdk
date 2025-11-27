@@ -133,7 +133,8 @@ export interface UTMParams {
 }
 
 export interface TrackTags
-  extends PlatformInfo,
+  extends
+    PlatformInfo,
     DeviceInfo,
     AppInfo,
     EnvironmentInfo,

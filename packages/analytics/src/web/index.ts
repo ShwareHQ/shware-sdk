@@ -1,5 +1,5 @@
 import Bowser from 'bowser';
-import * as cookie from 'cookie';
+import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { type Link, getLink } from '../link/index';
 import { expiringStorage } from '../utils/storage';
@@ -20,7 +20,7 @@ export async function getTags(release: string) {
   const os = parser.getOS();
   const browser = parser.getBrowser();
   const platform = parser.getPlatform();
-  const parsed = cookie.parse(document.cookie);
+  const parsed = parseCookie(document.cookie);
 
   let link: Link | null = null;
   if (params.has('s')) link = await getLink(params.get('s')!);
