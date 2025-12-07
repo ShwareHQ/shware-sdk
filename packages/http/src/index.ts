@@ -26,9 +26,23 @@ export type {
   AppErrorReason,
   ErrorReason,
 } from './error/reason';
-export * from './error/detail';
-export * from './error/status';
-export { getErrorMessage } from './error/parse';
+export {
+  DetailType,
+  Details,
+  type ErrorInfo,
+  type RetryInfo,
+  type DebugInfo,
+  type QuotaFailure,
+  type PreconditionFailure,
+  type BadRequest,
+  type RequestInfo,
+  type ResourceInfo,
+  type Help,
+  type LocalizedMessage,
+  type Detail,
+} from './error/detail';
+export { Status, StatusError, type ErrorBody } from './error/status';
+export { getErrorReason, getErrorMessage, getFieldViolations } from './error/parse';
 export {
   pageParamsSchema,
   Cursor,

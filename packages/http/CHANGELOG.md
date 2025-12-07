@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.0.0
+
+### Major Changes
+
+- update error types and add more error details
+
 ## 1.2.13
 
 ### Patch Changes

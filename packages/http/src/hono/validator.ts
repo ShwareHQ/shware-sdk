@@ -16,7 +16,12 @@ export function zValidator<S extends ZodType | ZodMiniType>(
     if (result.success) return result.data as S extends ZodType ? outputV4<S> : outputMini<S>;
 
     const fieldViolations: BadRequest['fieldViolations'] = result.error.issues.map(
-      ({ path, message }) => ({ field: path.join('.'), description: message })
+      ({ code, path, message }) => ({
+        field: path.join('.'),
+        description: message,
+        reason: code?.toUpperCase() ?? 'INVALID_ARGUMENT',
+        localizedMessage: { locale: 'en-US', message: message },
+      })
     );
     const details = Details.new().badRequest({ fieldViolations });
     throw Status.invalidArgument().error(details);
