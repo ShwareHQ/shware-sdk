@@ -529,6 +529,7 @@ export type StandardEvents = {
   view_search_results: { search_term: string };
 
   // Added events
+  app_launch: { pathname: string };
   page_view: {
     page_path: string;
     page_title: string;

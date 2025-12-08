@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.13.5
+
+### Patch Changes
+
+- add app_launch event
+
 ## 2.13.4
 
 ### Patch Changes
