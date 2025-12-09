@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { cache } from '../setup';
+import { cache } from '../setup/index';
 import { sendBeacon, track } from '../track';
 
 export function useSessionAnalytics() {
