@@ -149,6 +149,7 @@ export type CreateTrackEventDTO<T extends EventName = EventName> = {
   name: TrackName<T>;
   tags: TrackTags;
   visitor_id: string;
+  session_id: string;
   properties?: TrackProperties<T>;
   timestamp: string;
 }[];
@@ -158,6 +159,7 @@ export interface TrackEvent<T extends EventName = EventName> {
   name: TrackName<T>;
   tags: TrackTags;
   visitor_id: string;
+  session_id: string;
   properties?: TrackProperties<T>;
   created_at: string;
 }

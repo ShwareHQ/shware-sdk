@@ -115,6 +115,7 @@ export const createTrackEventSchemaV1 = array(
   object({
     name: string().check(trim(), minLength(1), maxLength(64)),
     visitor_id: coerce.bigint(),
+    session_id: uuid(),
     timestamp: iso.datetime(),
     tags: tagsSchema,
     properties: propertiesSchema,
@@ -125,6 +126,7 @@ export const createTrackEventSchema = array(
   object({
     name: string().check(trim(), minLength(1), maxLength(64)),
     visitor_id: uuid(),
+    session_id: uuid(),
     timestamp: iso.datetime(),
     tags: tagsSchema,
     properties: propertiesSchema,

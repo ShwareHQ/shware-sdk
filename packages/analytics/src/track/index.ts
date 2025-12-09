@@ -40,6 +40,7 @@ async function sendEvents(events: Item[]) {
       properties: event.properties,
       tags,
       visitor_id,
+      session_id: cache.session.id,
       timestamp: event.timestamp,
     }));
 
@@ -116,6 +117,7 @@ export function sendBeacon<T extends EventName = EventName>(
       properties,
       tags: cache.tags,
       visitor_id: cache.visitor.id,
+      session_id: cache.session.id,
       timestamp: new Date().toISOString(),
     },
   ];

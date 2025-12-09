@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v7 as uuidv7 } from 'uuid';
 import type { ThirdPartyTracker, TrackTags } from '../track/types';
 import type { ThirdPartyUserSetter, Visitor } from '../visitor/types';
 
@@ -32,13 +32,13 @@ interface Config {
 interface Cache {
   tags: TrackTags | null;
   visitor: Visitor | null;
-  session: { readonly id: string; readonly startedAt: string };
+  session: { id: string; startedAt: string };
 }
 
 export const cache: Cache = {
   tags: null,
   visitor: null,
-  session: { id: uuidv4(), startedAt: new Date().toISOString() },
+  session: { id: uuidv7(), startedAt: new Date().toISOString() },
 };
 
 export const config: Config = {

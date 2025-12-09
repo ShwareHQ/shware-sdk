@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.15.0
+
+### Minor Changes
+
+- add sessionId
+
 ## 2.14.4
 
 ### Patch Changes
