@@ -1,3 +1,11 @@
+-- Average session duration (Stat)
+select avg((properties ->> 'duration')::float8) from application.event
+where
+  created_at between $__timeFrom() and $__timeTo()
+  and name = 'session_end'
+  and tags ->> 'environment' = '$environment'
+  and tags ->> 'platform' in (${platform:sqlstring})
+
 -- User funnel (Bar chart)
 select
   e.name as event_name,
