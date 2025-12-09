@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.14.3
+
+### Patch Changes
+
+- fix import error
+
 ## 2.14.2
 
 ### Patch Changes

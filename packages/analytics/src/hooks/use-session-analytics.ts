@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { cache } from '../setup/index';
-import { sendBeacon, track } from '../track';
+import { sendBeacon, track } from '../track/index';
 
 export function useSessionAnalytics() {
   const launched = useRef(false);

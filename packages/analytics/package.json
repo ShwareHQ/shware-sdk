@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.14.2",
+  "version": "2.14.3",
   "private": false,
   "type": "module",
   "scripts": {
