@@ -1,4 +1,4 @@
-import { config } from '../setup/index';
+import { cache, config } from '../setup/index';
 import { fetch } from '../utils/fetch';
 import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 
@@ -18,12 +18,12 @@ async function createVisitor(): Promise<Visitor> {
   });
 
   const data = (await response.json()) as Visitor;
-  await config.storage.setItem(key, data.id);
+  config.storage.setItem(key, data.id);
   return data;
 }
 
 async function getOrCreateVisitor(): Promise<Visitor> {
-  const visitorId = await config.storage.getItem(key);
+  const visitorId = config.storage.getItem(key);
   if (visitorId) {
     const response = await fetch(`${config.endpoint}/visitors/${visitorId}`, {
       method: 'GET',
@@ -38,16 +38,15 @@ async function getOrCreateVisitor(): Promise<Visitor> {
   }
 }
 
-let visitor: Visitor | null = null;
 let visitorFetcher: Promise<Visitor> | null = null;
 
 export async function getVisitor(): Promise<Visitor> {
-  if (visitor) return visitor;
+  if (cache.visitor) return cache.visitor;
   if (visitorFetcher) return visitorFetcher;
   visitorFetcher = getOrCreateVisitor();
-  visitor = await visitorFetcher;
+  cache.visitor = await visitorFetcher;
   visitorFetcher = null;
-  return visitor;
+  return cache.visitor;
 }
 
 export async function setVisitor(dto: UpdateVisitorDTO) {
@@ -63,6 +62,6 @@ export async function setVisitor(dto: UpdateVisitorDTO) {
   const data = (await response.json()) as Visitor;
 
   config.thirdPartyUserSetters.forEach((setter) => setter(dto));
-  visitor = data;
+  cache.visitor = data;
   return data;
 }

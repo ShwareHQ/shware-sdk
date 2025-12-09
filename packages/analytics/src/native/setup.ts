@@ -14,6 +14,7 @@ import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
+import { cache, config } from '../setup/index';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
@@ -70,7 +71,7 @@ export function getDeviceType(): string | undefined {
   }
 }
 
-export async function getTags(release: string): Promise<TrackTags> {
+export async function getTags(): Promise<TrackTags> {
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);
   const screen_height = Math.floor(screen.height);
@@ -78,7 +79,7 @@ export async function getTags(release: string): Promise<TrackTags> {
   const install_referrer = Platform.OS === 'android' ? await getInstallReferrerAsync() : undefined;
   const params = new URLSearchParams(install_referrer);
 
-  return {
+  const tags: TrackTags = {
     os: `${osName} ${osVersion}`,
     os_name: osName ?? undefined,
     os_version: osVersion ?? undefined,
@@ -92,7 +93,7 @@ export async function getTags(release: string): Promise<TrackTags> {
     screen_width,
     screen_height,
     screen_resolution: `${screen_width}x${screen_height}`,
-    release: release,
+    release: config.release,
     language: getLocales()?.[0]?.languageTag ?? 'en',
     time_zone: getCalendars()?.[0]?.timeZone ?? 'UTC',
     environment: __DEV__ ? 'development' : 'production',
@@ -111,4 +112,7 @@ export async function getTags(release: string): Promise<TrackTags> {
     utm_creative_format: params.get('utm_creative_format') ?? undefined,
     utm_marketing_tactic: params.get('utm_marketing_tactic') ?? undefined,
   };
+
+  cache.tags = tags;
+  return tags;
 }

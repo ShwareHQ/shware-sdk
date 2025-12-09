@@ -2,6 +2,7 @@ import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { type Link, getLink } from '../link/index';
+import { cache, config } from '../setup/index';
 import { expiringStorage } from '../utils/storage';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
@@ -14,7 +15,7 @@ export function getDeviceId() {
   return id;
 }
 
-export async function getTags(release: string) {
+export async function getTags() {
   const parser = Bowser.getParser(window.navigator.userAgent);
   const params = new URLSearchParams(window.location.search);
   const os = parser.getOS();
@@ -41,7 +42,7 @@ export async function getTags(release: string) {
     screen_width: window.screen.width,
     screen_height: window.screen.height,
     screen_resolution: `${window.screen.width}x${window.screen.height}`,
-    release,
+    release: config.release,
     language: navigator.language,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
@@ -96,6 +97,8 @@ export async function getTags(release: string) {
     utm_marketing_tactic:
       link?.utm_marketing_tactic ?? params.get('utm_marketing_tactic') ?? undefined,
   };
+
+  cache.tags = tags;
   return tags;
 }
 

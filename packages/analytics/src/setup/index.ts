@@ -1,9 +1,10 @@
+import { v4 as uuidv4 } from 'uuid';
 import type { ThirdPartyTracker, TrackTags } from '../track/types';
-import type { ThirdPartyUserSetter } from '../visitor/types';
+import type { ThirdPartyUserSetter, Visitor } from '../visitor/types';
 
 export interface Storage {
-  getItem: (key: string) => (string | null) | Promise<string | null>;
-  setItem: (key: string, value: string) => void | Promise<void>;
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
 }
 
 export interface Options {
@@ -27,6 +28,18 @@ interface Config {
   thirdPartyTrackers: ThirdPartyTracker[];
   thirdPartyUserSetters: ThirdPartyUserSetter[];
 }
+
+interface Cache {
+  tags: TrackTags | null;
+  visitor: Visitor | null;
+  session: { readonly id: string; readonly startedAt: string };
+}
+
+export const cache: Cache = {
+  tags: null,
+  visitor: null,
+  session: { id: uuidv4(), startedAt: new Date().toISOString() },
+};
 
 export const config: Config = {
   endpoint: '',
