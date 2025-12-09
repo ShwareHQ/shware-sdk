@@ -119,5 +119,6 @@ export function sendBeacon<T extends EventName = EventName>(
       timestamp: new Date().toISOString(),
     },
   ];
-  navigator.sendBeacon(`${config.endpoint}/events`, JSON.stringify(dto));
+  const blob = new Blob([JSON.stringify(dto)], { type: 'application/json' });
+  navigator.sendBeacon(`${config.endpoint}/events`, blob);
 }

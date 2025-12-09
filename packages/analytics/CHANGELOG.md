@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.14.4
+
+### Patch Changes
+
+- fix content-type
+
 ## 2.14.3
 
 ### Patch Changes
