@@ -1,4 +1,4 @@
-import { config } from '../setup/index';
+import { cache, config } from '../setup/index';
 import { fetch } from '../utils/fetch';
 import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
@@ -103,4 +103,21 @@ export async function trackAsync<T extends EventName = EventName>(
   options: TrackOptions = defaultOptions
 ) {
   await sendEvents([{ name, properties, options, timestamp: new Date().toISOString() }]);
+}
+
+export function sendBeacon<T extends EventName = EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>
+) {
+  if (!cache.tags || !cache.visitor) return;
+  const dto: CreateTrackEventDTO<T> = [
+    {
+      name,
+      properties,
+      tags: cache.tags,
+      visitor_id: cache.visitor.id,
+      timestamp: new Date().toISOString(),
+    },
+  ];
+  navigator.sendBeacon(`${config.endpoint}/events`, JSON.stringify(dto));
 }

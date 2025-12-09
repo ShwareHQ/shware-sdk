@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 2.14.0
+
+### Minor Changes
+
+- add session analytics
+- simplify getTags function
+- ignore server events
+- add setup cache
+- add sendBeacon function
+- use sync storage
+
 ## 2.13.5
 
 ### Patch Changes

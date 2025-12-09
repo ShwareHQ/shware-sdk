@@ -44,6 +44,4 @@ export function usePageViewAnalytics(pathname: string) {
     // reset session
     session.current = { start: performance.now(), total: 0, isActive: true };
   }, [pathname]);
-
-  useEffect(() => track('app_launch', { pathname }, { enableThirdPartyTracking: false }), []);
 }

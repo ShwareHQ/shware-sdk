@@ -529,7 +529,8 @@ export type StandardEvents = {
   view_search_results: { search_term: string };
 
   // Added events
-  app_launch: { pathname: string };
+  session_start: { session_id: string };
+  session_end: { session_id: string; duration: number; started_at: string; ended_at: string };
   page_view: {
     page_path: string;
     page_title: string;
