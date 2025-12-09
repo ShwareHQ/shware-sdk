@@ -5,6 +5,7 @@
 import { createHash } from 'crypto';
 import { fetch } from '../utils/fetch';
 import { getFirst } from '../utils/field';
+import { IGNORE_EVENTS } from './ignore-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 
 type UserIdType =
@@ -63,8 +64,6 @@ export interface CreateMultipleLinkedinEventsDTO {
 
 export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
-const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
-
 export async function sendEvents(
   accessToken: string,
   config: LinkedinConversionConfig,
@@ -96,7 +95,7 @@ export async function sendEvents(
 
   const dto: CreateMultipleLinkedinEventsDTO = {
     elements: events
-      .filter((event) => eventNames.includes(event.name) && !metrics.includes(event.name))
+      .filter((event) => eventNames.includes(event.name) && !IGNORE_EVENTS.includes(event.name))
       .map((event) => ({
         eventId: event.id,
         conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,

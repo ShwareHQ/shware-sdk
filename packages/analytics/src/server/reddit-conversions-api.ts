@@ -1,6 +1,7 @@
 import { mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
 import { fetch } from '../utils/fetch';
 import { getFirst } from '../utils/field';
+import { IGNORE_EVENTS } from './ignore-events';
 import type { ServerStandardEvent } from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 
@@ -121,8 +122,6 @@ export function getServerEvent(
   };
 }
 
-const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
-
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
@@ -135,7 +134,7 @@ export async function sendEvents(
     data: {
       test_id: testId,
       events: events
-        .filter((event) => !metrics.includes(event.name))
+        .filter((event) => !IGNORE_EVENTS.includes(event.name))
         .map((event) => getServerEvent(event, data)),
     },
   };
