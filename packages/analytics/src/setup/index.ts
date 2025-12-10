@@ -32,14 +32,25 @@ interface Config {
 interface Cache {
   tags: TrackTags | null;
   visitor: Visitor | null;
-  session: { id: string; startedAt: string };
 }
 
 export const cache: Cache = {
   tags: null,
   visitor: null,
-  session: { id: uuidv7(), startedAt: new Date().toISOString() },
 };
+
+type Session = { id: string; lastActiveTimestamp: number };
+const session: Session = { id: uuidv7(), lastActiveTimestamp: Date.now() };
+
+export function getSession() {
+  return session;
+}
+
+export function resetSession() {
+  session.id = uuidv7();
+  session.lastActiveTimestamp = Date.now();
+  return session;
+}
 
 export const config: Config = {
   endpoint: '',

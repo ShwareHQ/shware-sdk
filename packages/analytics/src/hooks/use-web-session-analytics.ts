@@ -8,6 +8,11 @@ import { sendBeacon, track } from '../track/index';
 const scrollGap = 500;
 const scrollThreshold = 0.9;
 
+/**
+ * 1. send session_start event when the page is loaded
+ * 2. send scroll event when the user scrolls more than 90% of the page
+ * 3. send user_engagement event when the page is hidden or the user is not focused
+ */
 export function useWebSessionAnalytics(pathname: string) {
   const isActive = useRef(true);
   const isFocused = useRef(true);
@@ -46,6 +51,8 @@ export function useWebSessionAnalytics(pathname: string) {
     track('scroll', { engagement_time_msec }, { enableThirdPartyTracking: false });
   }, [updateAccumulator]);
 
+  // reset scroll state when the pathname changes, so we can send scroll when the user navigates to
+  // a new page
   useEffect(() => {
     hasSendScroll.current = false;
   }, [pathname]);

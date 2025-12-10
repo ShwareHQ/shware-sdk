@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.15.1
+
+### Patch Changes
+
+- update session analytics
+
 ## 2.15.0
 
 ### Minor Changes
