@@ -5,7 +5,7 @@ import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
 import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
 import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
-import { useSessionAnalytics } from '../hooks/use-session-analytics';
+import { useWebSessionAnalytics } from '../hooks/use-web-session-analytics';
 import { track } from '../track/index';
 import type { PixelId as MetaPixelId } from '../track/fbq';
 import type { GaId, GtmId } from '../track/gtag';
@@ -37,8 +37,8 @@ export function Analytics({
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
-  useSessionAnalytics();
   useClickIdPersistence();
+  useWebSessionAnalytics();
 
   const pathname = usePathname();
   usePageViewAnalytics(pathname);

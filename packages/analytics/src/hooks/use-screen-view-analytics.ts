@@ -1,8 +1,8 @@
 import { usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
-import { usePrevious } from '../hooks/use-previous';
 import { track } from '../track/index';
+import { usePrevious } from './use-previous';
 
 export function useScreenViewAnalytics() {
   const pathname = usePathname();
@@ -47,6 +47,4 @@ export function useScreenViewAnalytics() {
     // reset session
     session.current = { start: performance.now(), total: 0, isActive: true };
   }, [pathname]);
-
-  useEffect(() => track('app_launch', { pathname }, { enableThirdPartyTracking: false }), []);
 }

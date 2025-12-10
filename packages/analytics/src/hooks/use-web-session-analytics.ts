@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { cache } from '../setup/index';
 import { sendBeacon, track } from '../track/index';
 
-export function useSessionAnalytics() {
+export function useWebSessionAnalytics() {
   const launched = useRef(false);
 
   useEffect(() => {
@@ -18,7 +18,13 @@ export function useSessionAnalytics() {
       const ended_at = new Date().toISOString();
       const ms = new Date(ended_at).getTime() - new Date(started_at).getTime();
       const duration = Number((ms / 1000).toFixed(2));
-      sendBeacon('session_end', { duration, session_id: cache.session.id, started_at, ended_at });
+      sendBeacon('session_end', {
+        duration,
+        started_at,
+        ended_at,
+        reason: 'beforeunload',
+        session_id: cache.session.id,
+      });
     };
 
     window.addEventListener('beforeunload', onBeforeUnload);

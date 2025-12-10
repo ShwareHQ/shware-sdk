@@ -530,7 +530,13 @@ export type StandardEvents = {
 
   // Added events
   session_start: { session_id: string };
-  session_end: { session_id: string; duration: number; started_at: string; ended_at: string };
+  session_end: {
+    session_id: string;
+    duration: number;
+    started_at: string;
+    ended_at: string;
+    reason: 'timeout' | 'beforeunload';
+  };
   page_view: {
     page_path: string;
     page_title: string;
