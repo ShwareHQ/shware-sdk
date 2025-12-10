@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.15.2
+
+### Patch Changes
+
+- session active time
+
 ## 2.15.1
 
 ### Patch Changes

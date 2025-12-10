@@ -1,4 +1,3 @@
-import { v7 as uuidv7 } from 'uuid';
 import type { ThirdPartyTracker, TrackTags } from '../track/types';
 import type { ThirdPartyUserSetter, Visitor } from '../visitor/types';
 
@@ -38,19 +37,6 @@ export const cache: Cache = {
   tags: null,
   visitor: null,
 };
-
-type Session = { id: string; lastActiveTimestamp: number };
-const session: Session = { id: uuidv7(), lastActiveTimestamp: Date.now() };
-
-export function getSession() {
-  return session;
-}
-
-export function resetSession() {
-  session.id = uuidv7();
-  session.lastActiveTimestamp = Date.now();
-  return session;
-}
 
 export const config: Config = {
   endpoint: '',

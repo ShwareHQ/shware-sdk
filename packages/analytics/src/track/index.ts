@@ -1,4 +1,5 @@
-import { cache, config, getSession } from '../setup/index';
+import { cache, config } from '../setup/index';
+import { updateSessionActiveTime } from '../setup/session';
 import { fetch } from '../utils/fetch';
 import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
@@ -35,7 +36,7 @@ async function sendEvents(events: Item[]) {
 
     const tags = await config.getTags();
     const visitor_id = (await getVisitor()).id;
-    const session = getSession();
+    const session = updateSessionActiveTime();
     const dto: CreateTrackEventDTO = events.map((event) => ({
       name: event.name,
       properties: event.properties,
@@ -112,7 +113,7 @@ export function sendBeacon<T extends EventName = EventName>(
   properties?: TrackProperties<T>
 ) {
   if (!cache.tags || !cache.visitor) return;
-  const session = getSession();
+  const session = updateSessionActiveTime();
   const dto: CreateTrackEventDTO<T> = [
     {
       name,
