@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-empty-object-type */
 /** reference: https://support.google.com/analytics/answer/13316687 */
 const reservedWebEventNames = [
   'app_remove',
@@ -529,14 +530,10 @@ export type StandardEvents = {
   view_search_results: { search_term: string };
 
   // Added events
-  session_start: { session_id: string };
-  session_end: {
-    session_id: string;
-    duration: number;
-    started_at: string;
-    ended_at: string;
-    reason: 'timeout' | 'beforeunload';
-  };
+  first_visit: {};
+  session_start: {};
+  scroll: { engagement_time_msec: number };
+  user_engagement: { engagement_time_msec: number };
   page_view: {
     page_path: string;
     page_title: string;

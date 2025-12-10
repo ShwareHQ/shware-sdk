@@ -38,10 +38,10 @@ export function Analytics({
   reportWebVitals = true,
 }: Props) {
   useClickIdPersistence();
-  useWebSessionAnalytics();
 
   const pathname = usePathname();
   usePageViewAnalytics(pathname);
+  useWebSessionAnalytics(pathname);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;

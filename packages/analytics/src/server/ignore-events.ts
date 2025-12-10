@@ -1,5 +1,12 @@
 const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
-const session = ['session_start', 'session_end', 'page_view', 'screen_view'];
+const session = [
+  'first_visit',
+  'page_view',
+  'screen_view',
+  'session_start',
+  'scroll',
+  'user_engagement', // when page hide, visibility hidden
+];
 const notification = [
   'notification_dismiss',
   'notification_foreground',
