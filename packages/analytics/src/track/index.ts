@@ -1,5 +1,10 @@
 import { cache, config } from '../setup/index';
-import { updateSessionActiveTime } from '../setup/session';
+import {
+  getCurrentSession,
+  isSessionExpired,
+  resetSession,
+  updateSessionActiveTime,
+} from '../setup/session';
 import { fetch } from '../utils/fetch';
 import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
@@ -32,11 +37,24 @@ type Item = {
 async function sendEvents(events: Item[]) {
   try {
     if (events.length === 0) return;
+
+    if (isSessionExpired()) {
+      resetSession();
+      events.unshift({
+        name: 'session_start',
+        properties: {},
+        options: { enableThirdPartyTracking: false },
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      updateSessionActiveTime();
+    }
+
     await tokenBucket.removeTokens();
 
     const tags = await config.getTags();
     const visitor_id = (await getVisitor()).id;
-    const session = updateSessionActiveTime();
+    const session = getCurrentSession();
     const dto: CreateTrackEventDTO = events.map((event) => ({
       name: event.name,
       properties: event.properties,
@@ -113,7 +131,9 @@ export function sendBeacon<T extends EventName = EventName>(
   properties?: TrackProperties<T>
 ) {
   if (!cache.tags || !cache.visitor) return;
-  const session = updateSessionActiveTime();
+
+  updateSessionActiveTime();
+  const session = getCurrentSession();
   const dto: CreateTrackEventDTO<T> = [
     {
       name,
