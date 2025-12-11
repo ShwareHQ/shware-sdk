@@ -48,7 +48,7 @@ export interface PlatformInfo {
   browser?: string;
   browser_name?: string;
   browser_version?: string;
-  platform?: 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
+  platform: 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
 }
 
 export interface DeviceInfo {
@@ -73,7 +73,7 @@ export interface EnvironmentInfo {
   release?: string;
   language?: string;
   time_zone?: string | null;
-  environment?: 'development' | 'production';
+  environment: 'development' | 'production';
 }
 
 export interface SourceInfo {

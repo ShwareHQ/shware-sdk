@@ -38,7 +38,7 @@ export const tagsSchema = object({
   browser: optional(string()),
   browser_name: optional(string()),
   browser_version: optional(string()),
-  platform: optional(_enum(['ios', 'android', 'web', 'macos', 'windows', 'linux', 'unknown'])),
+  platform: _enum(['ios', 'android', 'web', 'macos', 'windows', 'linux', 'unknown']),
   device: optional(string()),
   device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   device_type: optional(string()),
@@ -55,7 +55,7 @@ export const tagsSchema = object({
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),
-  environment: optional(_enum(['development', 'production'])),
+  environment: _enum(['development', 'production']),
   source_url: optional(string()),
   source: optional(_enum(['web', 'app', 'offline'])),
   // app info
