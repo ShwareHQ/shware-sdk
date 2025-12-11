@@ -5,8 +5,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'CLS'
 group by rating
 limit 10;
@@ -18,8 +18,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'FCP'
 group by rating
 limit 10;
@@ -31,8 +31,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'LCP'
 group by rating
 limit 10;
@@ -44,8 +44,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'TTFB'
 group by rating
 limit 10;
@@ -57,8 +57,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'FID'
 group by rating
 limit 10;
@@ -70,8 +70,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'INP'
 group by rating
 limit 10;

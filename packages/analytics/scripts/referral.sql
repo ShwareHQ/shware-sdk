@@ -13,8 +13,8 @@ from application.event
 where
   created_at between $__timeFrom() and $__timeTo()
   and name = 'share'
-  and tags ->> 'environment' = '$environment'
-  and tags ->> 'platform' in (${platform:sqlstring});
+  and environment = '$environment'
+  and platform in (${platform:sqlstring});
 
 -- Total NPS (Net Promoter Score)
 -- Detractors: score 0-6, Passives: 7-8, Promoters: 9-10
@@ -26,8 +26,8 @@ with nps_data as (
   where
     name = 'nps_sent'
     -- and created_at between $__timeFrom() and $__timeTo()
-    and tags ->> 'environment' = '$environment'
-    and tags ->> 'platform' in (${platform:sqlstring})
+    and environment = '$environment'
+    and platform in (${platform:sqlstring})
 ),
 nps_counts as (
   select

@@ -160,6 +160,8 @@ export interface TrackEvent<T extends EventName = EventName> {
   tags: TrackTags;
   visitor_id: string;
   session_id: string;
+  platform: 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
+  environment: 'development' | 'production';
   properties?: TrackProperties<T>;
   created_at: string;
 }

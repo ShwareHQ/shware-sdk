@@ -14,8 +14,8 @@ select
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'purchase'
 group by country
 order by event_count desc;

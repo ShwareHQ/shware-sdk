@@ -3,8 +3,8 @@ select avg((properties ->> 'duration')::float8) from application.event
 where
   created_at between $__timeFrom() and $__timeTo()
   and name = 'session_end'
-  and tags ->> 'environment' = '$environment'
-  and tags ->> 'platform' in (${platform:sqlstring})
+  and environment = '$environment'
+  and platform in (${platform:sqlstring})
 
 -- User funnel (Bar chart)
 select
@@ -40,8 +40,8 @@ select
 from application.event e
 where
     e.created_at between $__timeFrom() and $__timeTo()
-  and e.tags ->> 'environment' = '$environment'
-  and e.tags ->> 'platform' in (${platform:sqlstring})
+  and e.environment = '$environment'
+  and e.platform in (${platform:sqlstring})
   and e.name = 'page_view'
 group by host
 order by event_count desc
