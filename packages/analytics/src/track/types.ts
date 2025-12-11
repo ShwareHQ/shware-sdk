@@ -10,6 +10,9 @@ export type TrackProperties<T extends EventName = EventName> = T extends keyof S
   ? StandardEvents[T]
   : Record<Lowercase<string>, AllowedPropertyValues>;
 
+export type Platform = 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
+export type Environment = 'development' | 'production';
+
 export interface UserData {
   userId: string;
   email?: string;
@@ -48,7 +51,8 @@ export interface PlatformInfo {
   browser?: string;
   browser_name?: string;
   browser_version?: string;
-  platform: 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
+  /** @deprecated */
+  platform: Platform;
 }
 
 export interface DeviceInfo {
@@ -72,8 +76,9 @@ export interface AppInfo {
 export interface EnvironmentInfo {
   release?: string;
   language?: string;
-  time_zone?: string | null;
-  environment: 'development' | 'production';
+  time_zone?: string;
+  /** @deprecated */
+  environment: Environment;
 }
 
 export interface SourceInfo {
@@ -145,23 +150,14 @@ export interface TrackTags
   [key: string]: string | number | boolean | null | undefined;
 }
 
-export type CreateTrackEventDTO<T extends EventName = EventName> = {
-  name: TrackName<T>;
-  tags: TrackTags;
-  visitor_id: string;
-  session_id: string;
-  properties?: TrackProperties<T>;
-  timestamp: string;
-}[];
-
 export interface TrackEvent<T extends EventName = EventName> {
   id: string;
   name: TrackName<T>;
   tags: TrackTags;
   visitor_id: string;
   session_id: string;
-  platform: 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
-  environment: 'development' | 'production';
+  platform: Platform;
+  environment: Environment;
   properties?: TrackProperties<T>;
   created_at: string;
 }

@@ -23,6 +23,7 @@ import {
   uuid,
   type z,
 } from 'zod/mini';
+import type { Environment, Platform } from '../track/types';
 
 const items = array(
   record(
@@ -31,32 +32,17 @@ const items = array(
   )
 );
 
-export enum Platform {
-  ios = 'ios',
-  android = 'android',
-  web = 'web',
-  macos = 'macos',
-  windows = 'windows',
-  linux = 'linux',
-  unknown = 'unknown',
-}
-
-export enum Environment {
-  development = 'development',
-  production = 'production',
-}
-
 export const ALL_PLATFORMS = [
-  Platform.ios,
-  Platform.android,
-  Platform.web,
-  Platform.macos,
-  Platform.windows,
-  Platform.linux,
-  Platform.unknown,
-] as const;
+  'ios',
+  'android',
+  'web',
+  'macos',
+  'windows',
+  'linux',
+  'unknown',
+] as const satisfies Platform[];
 
-export const ALL_ENVIRONMENTS = [Environment.development, Environment.production] as const;
+export const ALL_ENVIRONMENTS = ['development', 'production'] as const satisfies Environment[];
 
 export const tagsSchema = object({
   os: optional(string()),
@@ -65,7 +51,7 @@ export const tagsSchema = object({
   browser: optional(string()),
   browser_name: optional(string()),
   browser_version: optional(string()),
-  platform: _enum(Platform),
+  platform: _enum(ALL_PLATFORMS),
   device: optional(string()),
   device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   device_type: optional(string()),
@@ -82,7 +68,7 @@ export const tagsSchema = object({
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),
-  environment: _enum(Environment),
+  environment: _enum(ALL_ENVIRONMENTS),
   source_url: optional(string()),
   source: optional(_enum(['web', 'app', 'offline'])),
   // app info
@@ -154,6 +140,8 @@ export const createTrackEventSchema = array(
     name: string().check(trim(), minLength(1), maxLength(64)),
     visitor_id: uuid(),
     session_id: uuid(),
+    platform: _enum(ALL_PLATFORMS),
+    environment: _enum(ALL_ENVIRONMENTS),
     timestamp: iso.datetime(),
     tags: tagsSchema,
     properties: propertiesSchema,
@@ -162,6 +150,8 @@ export const createTrackEventSchema = array(
 
 export const createVisitorSchema = object({
   device_id: string().check(trim(), minLength(1), maxLength(36)),
+  platform: _enum(ALL_PLATFORMS),
+  environment: _enum(ALL_ENVIRONMENTS),
   properties: optional(
     record(
       string().check(trim(), minLength(1), maxLength(128)),
@@ -245,5 +235,8 @@ export const createLinkSchema = object({
   utm_marketing_tactic: optional(noEmptyString),
 });
 
+export type CreateTrackEventDTO = z.output<typeof createTrackEventSchema>;
 export type CreateFeedbackDTO = z.output<typeof createFeedbackSchema>;
 export type CreateLinkDTO = z.output<typeof createLinkSchema>;
+export type CreateVisitorDTO = z.output<typeof createVisitorSchema>;
+export type UpdateVisitorDTO = z.output<typeof updateVisitorSchema>;

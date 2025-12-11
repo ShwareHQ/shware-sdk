@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 2.16.0
+
+### Minor Changes
+
+- fix type mismatch
+- add platform and environment field for visitor and event object
+- simplify types
+
 ## 2.15.5
 
 ### Patch Changes

@@ -8,13 +8,8 @@ import {
 import { fetch } from '../utils/fetch';
 import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
-import type {
-  CreateTrackEventDTO,
-  EventName,
-  TrackEventResponse,
-  TrackName,
-  TrackProperties,
-} from './types';
+import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
+import type { CreateTrackEventDTO } from '../schema/index';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
@@ -61,6 +56,8 @@ async function sendEvents(events: Item[]) {
       tags,
       visitor_id,
       session_id: session.id,
+      platform: config.platform,
+      environment: config.environment,
       timestamp: event.timestamp,
     }));
 
@@ -134,13 +131,15 @@ export function sendBeacon<T extends EventName = EventName>(
 
   updateSessionActiveTime();
   const session = getCurrentSession();
-  const dto: CreateTrackEventDTO<T> = [
+  const dto: CreateTrackEventDTO = [
     {
       name,
       properties,
       tags: cache.tags,
       visitor_id: cache.visitor.id,
       session_id: session.id,
+      platform: config.platform,
+      environment: config.environment,
       timestamp: new Date().toISOString(),
     },
   ];

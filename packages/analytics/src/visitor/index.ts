@@ -1,12 +1,15 @@
 import { cache, config } from '../setup/index';
 import { fetch } from '../utils/fetch';
-import type { CreateVisitorDTO, UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
+import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
+import type { CreateVisitorDTO } from '../schema/index';
 
 const key = 'visitor_id';
 
 async function createVisitor(): Promise<Visitor> {
   const dto: CreateVisitorDTO = {
     device_id: await config.getDeviceId(),
+    platform: config.platform,
+    environment: config.environment,
     properties: (await config.getTags()) as VisitorProperties,
   };
 
