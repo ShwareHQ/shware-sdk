@@ -35,8 +35,8 @@ v as (
   from application.visitor
   where
     created_at between $__timeFrom() and $__timeTo()
-    and properties ->> 'environment' = '$environment'
-    and properties ->> 'platform' in (${platform:sqlstring})
+    and environment = '$environment'
+    and platform in (${platform:sqlstring})
 )
 select u.total::float / nullif(v.total, 0) as rate from u, v;
 
@@ -90,8 +90,8 @@ select
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
-  and v.properties ->> 'environment' = '$environment'
-  and v.properties ->> 'platform' in (${platform:sqlstring})
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
 group by device_type
 order by visitor_count desc
 limit 20;
@@ -122,8 +122,8 @@ select
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
-  and v.properties ->> 'environment' = '$environment'
-  and v.properties ->> 'platform' in (${platform:sqlstring})
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
 group by os_name
 order by visitor_count desc
 limit 20;
@@ -135,8 +135,8 @@ select
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
-  and v.properties ->> 'environment' = '$environment'
-  and v.properties ->> 'platform' in (${platform:sqlstring})
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
 group by browser_name
 order by visitor_count desc
 limit 20;
@@ -148,8 +148,8 @@ select
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
-  and v.properties ->> 'environment' = '$environment'
-  and v.properties ->> 'platform' in (${platform:sqlstring})
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
 group by language
 order by visitor_count desc
 limit 20;
@@ -165,7 +165,7 @@ select
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
-  and v.properties ->> 'environment' = '$environment'
-  and v.properties ->> 'platform' in (${platform:sqlstring})
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
 group by source
 order by event_count desc;

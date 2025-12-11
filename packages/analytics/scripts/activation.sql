@@ -23,8 +23,8 @@ where
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
-      and v.properties ->> 'environment' = '$environment'
-      and v.properties ->> 'platform' in (${platform:sqlstring})
+      and v.environment = '$environment'
+      and v.platform in (${platform:sqlstring})
   )
 group by event_name
 order by event_count desc;
@@ -59,8 +59,8 @@ where
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
-      and v.properties ->> 'environment' = '$environment'
-      and v.properties ->> 'platform' in (${platform:sqlstring})
+      and v.environment = '$environment'
+      and v.platform in (${platform:sqlstring})
   )
 group by page_path
 order by event_count desc
@@ -78,8 +78,8 @@ where
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
-      and v.properties ->> 'environment' = '$environment'
-      and v.properties ->> 'platform' in (${platform:sqlstring})
+      and v.environment = '$environment'
+      and v.platform in (${platform:sqlstring})
   )
 group by slug
 order by event_count desc
@@ -102,8 +102,8 @@ where
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
-      and v.properties ->> 'environment' = '$environment'
-      and v.properties ->> 'platform' in (${platform:sqlstring})
+      and v.environment = '$environment'
+      and v.platform in (${platform:sqlstring})
       and v.properties ->> 'utm_source' = 'x'
   )
 group by event_name
@@ -126,8 +126,8 @@ where
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
-      and v.properties ->> 'environment' = '$environment'
-      and v.properties ->> 'platform' in (${platform:sqlstring})
+      and v.environment = '$environment'
+      and v.platform in (${platform:sqlstring})
       and nullif(v.properties ->> 'utm_source', '') is null
       and nullif(v.properties ->> 'gad_source', '') is null
   )

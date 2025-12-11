@@ -4,8 +4,8 @@ with v as (
   from application.visitor
   where
     created_at between date_trunc('month', CURRENT_DATE - INTERVAL '2 months') and $__timeTo()
-    and properties ->> 'environment' = '$environment'
-    and properties ->> 'platform' in (${platform:sqlstring})
+    and environment = '$environment'
+    and platform in (${platform:sqlstring})
 ),
 r as (
   select
