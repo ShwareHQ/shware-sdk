@@ -129,6 +129,8 @@ export const createTrackEventSchemaV1 = array(
     name: string().check(trim(), minLength(1), maxLength(64)),
     visitor_id: coerce.bigint(),
     session_id: uuid(),
+    platform: _enum(ALL_PLATFORMS),
+    environment: _enum(ALL_ENVIRONMENTS),
     timestamp: iso.datetime(),
     tags: tagsSchema,
     properties: propertiesSchema,

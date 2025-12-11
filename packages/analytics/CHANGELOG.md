@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.16.1
+
+### Patch Changes
+
+- update v1 schema
+
 ## 2.16.0
 
 ### Minor Changes
