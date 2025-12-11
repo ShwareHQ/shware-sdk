@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.15.5
+
+### Patch Changes
+
+- export Platform and Environment enum
+
 ## 2.15.4
 
 ### Patch Changes

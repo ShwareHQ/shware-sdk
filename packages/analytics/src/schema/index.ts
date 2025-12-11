@@ -31,6 +31,33 @@ const items = array(
   )
 );
 
+export enum Platform {
+  ios = 'ios',
+  android = 'android',
+  web = 'web',
+  macos = 'macos',
+  windows = 'windows',
+  linux = 'linux',
+  unknown = 'unknown',
+}
+
+export enum Environment {
+  development = 'development',
+  production = 'production',
+}
+
+export const ALL_PLATFORMS = [
+  Platform.ios,
+  Platform.android,
+  Platform.web,
+  Platform.macos,
+  Platform.windows,
+  Platform.linux,
+  Platform.unknown,
+] as const;
+
+export const ALL_ENVIRONMENTS = [Environment.development, Environment.production] as const;
+
 export const tagsSchema = object({
   os: optional(string()),
   os_name: optional(string()),
@@ -38,7 +65,7 @@ export const tagsSchema = object({
   browser: optional(string()),
   browser_name: optional(string()),
   browser_version: optional(string()),
-  platform: _enum(['ios', 'android', 'web', 'macos', 'windows', 'linux', 'unknown']),
+  platform: _enum(Platform),
   device: optional(string()),
   device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   device_type: optional(string()),
@@ -55,7 +82,7 @@ export const tagsSchema = object({
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),
-  environment: _enum(['development', 'production']),
+  environment: _enum(Environment),
   source_url: optional(string()),
   source: optional(_enum(['web', 'app', 'offline'])),
   // app info

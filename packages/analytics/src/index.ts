@@ -4,6 +4,10 @@ export { getVisitor, setVisitor } from './visitor/index';
 export { sendFeedback } from './feedback/index';
 export { createLink, getLink, type Link } from './link/index';
 export {
+  Platform,
+  Environment,
+  ALL_PLATFORMS,
+  ALL_ENVIRONMENTS,
   createTrackEventSchemaV1,
   createTrackEventSchema,
   createVisitorSchema,
