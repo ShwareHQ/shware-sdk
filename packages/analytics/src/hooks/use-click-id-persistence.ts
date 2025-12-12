@@ -1,5 +1,5 @@
+import { expiringStorage } from '@shware/utils';
 import { useEffect } from 'react';
-import { expiringStorage } from '../utils/storage';
 
 function setCookie(name: string, value: string, ttlInMs: number) {
   const d = new Date();

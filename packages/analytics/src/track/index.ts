@@ -1,3 +1,4 @@
+import { TokenBucket, fetch } from '@shware/utils';
 import { cache, config } from '../setup/index';
 import {
   getCurrentSession,
@@ -5,8 +6,6 @@ import {
   resetSession,
   updateSessionActiveTime,
 } from '../setup/session';
-import { fetch } from '../utils/fetch';
-import { TokenBucket } from '../utils/token-bucket';
 import { getVisitor } from '../visitor/index';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
 import type { CreateTrackEventDTO } from '../schema/index';

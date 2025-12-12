@@ -1,5 +1,18 @@
 # @shware/analytics
 
+## 2.17.0
+
+### Minor Changes
+
+- add utils deps & fix session duration time\
+
+## 2.16.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.0.0
+
 ## 2.16.1
 
 ### Patch Changes

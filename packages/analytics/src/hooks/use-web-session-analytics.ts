@@ -2,11 +2,10 @@
  * reference:
  * - Discover how long someone spends engaged on your website or app in Google Analytics](https://support.google.com/analytics/answer/11109416?hl=en)
  */
+import { throttle } from '@shware/utils';
 import { useCallback, useEffect, useRef } from 'react';
+import { SESSION_TIMEOUT } from '../setup/session';
 import { sendBeacon, track } from '../track/index';
-
-const scrollGap = 500;
-const scrollThreshold = 0.9;
 
 /**
  * 1. send session_start event when the page is loaded
@@ -22,13 +21,12 @@ export function useWebSessionAnalytics(pathname: string) {
   const accumulatedTime = useRef(0);
 
   const hasSendScroll = useRef(false);
-  const lastScrollTime = useRef(0);
 
   const updateAccumulator = useCallback(() => {
     const now = Date.now();
     if (isFocused.current && isVisible.current && isActive.current) {
       const delta = now - startTime.current;
-      if (delta > 0) {
+      if (delta > 0 && delta < SESSION_TIMEOUT) {
         accumulatedTime.current += delta;
       }
     }
@@ -62,6 +60,8 @@ export function useWebSessionAnalytics(pathname: string) {
     isVisible.current = typeof document !== 'undefined' && document.visibilityState === 'visible';
     startTime.current = Date.now();
 
+    track('session_start', {}, { enableThirdPartyTracking: false });
+
     const onFocus = () => {
       updateAccumulator();
       isFocused.current = true;
@@ -93,10 +93,8 @@ export function useWebSessionAnalytics(pathname: string) {
       }
     };
 
-    const onScroll = () => {
-      const now = Date.now();
-      if (now - lastScrollTime.current < scrollGap) return;
-      lastScrollTime.current = now;
+    const onScroll = throttle(() => {
+      updateAccumulator();
       if (hasSendScroll.current) return;
 
       // only send scroll when the user has scrolled more than 90% of the page
@@ -105,13 +103,14 @@ export function useWebSessionAnalytics(pathname: string) {
       const docHeight = document.documentElement.scrollHeight;
       if (docHeight === 0) return;
       const scrollPercent = (scrollTop + windowHeight) / docHeight;
-      if (scrollPercent < scrollThreshold) return;
+      if (scrollPercent < 0.9) return;
       hasSendScroll.current = true;
 
       sendScroll();
-    };
+    }, 500);
 
-    track('session_start', {}, { enableThirdPartyTracking: false });
+    const checkpointEvents = ['mousedown', 'keydown', 'touchstart'];
+    const checkpoint = throttle(updateAccumulator, 1000);
 
     window.addEventListener('focus', onFocus, { passive: true });
     window.addEventListener('blur', onBlur, { passive: true });
@@ -120,6 +119,11 @@ export function useWebSessionAnalytics(pathname: string) {
     window.addEventListener('scroll', onScroll, { passive: true });
     document.addEventListener('visibilitychange', onVisibilityChange, { passive: true });
 
+    // save checkpoint
+    checkpointEvents.forEach((event) => {
+      window.addEventListener(event, checkpoint, { passive: true, capture: true });
+    });
+
     return () => {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('blur', onBlur);
@@ -127,6 +131,13 @@ export function useWebSessionAnalytics(pathname: string) {
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('scroll', onScroll);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+
+      checkpointEvents.forEach((event) => {
+        window.removeEventListener(event, checkpoint);
+      });
+
+      onScroll.cancel();
+      checkpoint.cancel();
     };
   }, []);
 }

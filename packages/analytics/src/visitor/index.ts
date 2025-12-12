@@ -1,5 +1,5 @@
+import { fetch } from '@shware/utils';
 import { cache, config } from '../setup/index';
-import { fetch } from '../utils/fetch';
 import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 import type { CreateVisitorDTO } from '../schema/index';
 

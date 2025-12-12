@@ -2,7 +2,7 @@ import { v7 as uuidv7 } from 'uuid';
 
 export type Session = { id: string; lastActiveTime: number };
 
-const SESSION_TIMEOUT = 30 * 60 * 1000;
+export const SESSION_TIMEOUT = 30 * 60 * 1000;
 const session: Session = { id: uuidv7(), lastActiveTime: Date.now() };
 
 export function updateSessionActiveTime() {

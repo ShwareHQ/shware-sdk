@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "2.16.1",
+  "version": "2.17.0",
   "private": false,
   "type": "module",
   "scripts": {
@@ -66,6 +66,7 @@
     "dist"
   ],
   "dependencies": {
+    "@shware/utils": "workspace:^",
     "bowser": "^2.13.1",
     "cookie": "^1.1.1",
     "uuid": "^13.0.0",

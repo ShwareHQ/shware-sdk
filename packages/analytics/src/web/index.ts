@@ -1,9 +1,9 @@
+import { expiringStorage } from '@shware/utils';
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { type Link, getLink } from '../link/index';
 import { cache, config } from '../setup/index';
-import { expiringStorage } from '../utils/storage';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
