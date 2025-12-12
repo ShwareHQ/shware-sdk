@@ -4,3 +4,6 @@ export { base62 } from './base62';
 export { hasText } from './string';
 export { once } from './promise';
 export { invariant } from './invariant';
+export { throttle } from './throttle';
+export { expiringStorage } from './storage';
+export { stripeMinorUnits, ZERO_DECIMAL_CURRENCIES } from './stripe';
