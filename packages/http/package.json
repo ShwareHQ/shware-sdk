@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": false,
   "type": "module",
   "scripts": {
@@ -47,7 +47,6 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
-    "@shware/utils": "workspace:^",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.10.2",
     "@types/react": "^19.2.7",
@@ -56,6 +55,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@shware/utils": "workspace:^",
     "zod": "^4.1.13"
   },
   "peerDependencies": {
