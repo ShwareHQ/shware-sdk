@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.2.0
+
+### Minor Changes
+
+- use @shware/utils
+
 ## 2.1.0
 
 ### Minor Changes
