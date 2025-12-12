@@ -66,11 +66,5 @@ export type {
 export { UidGenerator, uid } from './snowflake';
 
 export * as MAX_LENGTH from './max-length/index';
-export { base62 } from './utils/base62';
-export { hasText } from './utils/string';
 export { timing } from './utils/timing';
-export { once } from './utils/promise';
-export { invariant } from './utils/invariant';
-export { TokenBucket, type TokenBucketOptions } from './utils/token-bucket';
-export { fetch, type RetryOptions } from './utils/fetch';
 export { ISO_3601_1, type ISO3166CountryCode } from './iso/iso_3601_1';

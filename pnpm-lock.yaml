@@ -41,6 +41,9 @@ importers:
       '@react-native-firebase/analytics':
         specifier: ^23.3.1
         version: 23.4.1(@react-native-firebase/app@23.4.1(expo@54.0.21)(react-native@0.81.5(@babel/core@7.28.5)(@types/react@19.2.7)(react@19.2.0))(react@19.2.0))
+      '@shware/utils':
+        specifier: workspace:^
+        version: link:../utils
       bowser:
         specifier: ^2.13.1
         version: 2.13.1
@@ -181,6 +184,9 @@ importers:
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      '@shware/utils':
+        specifier: workspace:^
+        version: link:../utils
       '@types/jest':
         specifier: ^30.0.0
         version: 30.0.0
@@ -8461,7 +8467,7 @@ snapshots:
       '@babel/code-frame': 7.10.4
       chalk: 4.1.2
       find-up: 5.0.0
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
 
   '@firebase/ai@2.4.0(@firebase/app-types@0.9.3)(@firebase/app@0.14.4)':
     dependencies:

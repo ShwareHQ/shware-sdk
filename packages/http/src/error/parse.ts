@@ -1,4 +1,4 @@
-import { hasText } from '../utils/string';
+import { hasText } from '@shware/utils';
 import { type BadRequest, DetailType } from './detail';
 import type { ErrorBody } from './status';
 import type { DefaultNamespace, Namespace, TFunction } from 'i18next';

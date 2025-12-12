@@ -1,5 +1,5 @@
+import { hasText } from '@shware/utils';
 import { _default, coerce, int, maximum, minimum, object, optional, string } from 'zod/mini';
-import { hasText } from './utils/string';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type Empty = {};
