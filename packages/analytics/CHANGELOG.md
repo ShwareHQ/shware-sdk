@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.17.2
+
+### Patch Changes
+
+- add first_open and first_visit event, define automatically collected events
+
 ## 2.17.1
 
 ### Patch Changes

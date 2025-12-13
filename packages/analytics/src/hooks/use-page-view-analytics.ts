@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { config } from '../setup/index';
 import { track } from '../track/index';
 import { usePrevious } from './use-previous';
 
@@ -18,6 +19,20 @@ export function usePageViewAnalytics(pathname: string) {
     };
     document.addEventListener('visibilitychange', handler);
     return () => document.removeEventListener('visibilitychange', handler);
+  }, []);
+
+  // send first_visit event when the page is loaded
+  useEffect(() => {
+    const key = 'first_visit_time';
+    if (config.storage.getItem(key)) return;
+    const properties = {
+      page_path: pathname,
+      page_title: document.title,
+      page_referrer: document.referrer,
+      page_location: window.location.href,
+    };
+    track('first_visit', properties, { enableThirdPartyTracking: false });
+    config.storage.setItem(key, new Date().toISOString());
   }, []);
 
   useEffect(() => {

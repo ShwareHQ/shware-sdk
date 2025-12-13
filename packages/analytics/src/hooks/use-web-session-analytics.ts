@@ -60,7 +60,7 @@ export function useWebSessionAnalytics(pathname: string) {
     isVisible.current = typeof document !== 'undefined' && document.visibilityState === 'visible';
     startTime.current = Date.now();
 
-    track('session_start', {}, { enableThirdPartyTracking: false });
+    track('session_start', undefined, { enableThirdPartyTracking: false });
 
     const onFocus = () => {
       updateAccumulator();

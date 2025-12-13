@@ -27,7 +27,7 @@ export function useAppSessionAnalytics() {
   }, [updateAccumulator]);
 
   useEffect(() => {
-    track('session_start', {}, { enableThirdPartyTracking: false });
+    track('session_start', undefined, { enableThirdPartyTracking: false });
 
     const subscription = AppState.addEventListener('change', (state) => {
       updateAccumulator();

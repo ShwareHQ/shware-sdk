@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-empty-object-type */
 /** reference: https://support.google.com/analytics/answer/13316687 */
 const reservedWebEventNames = [
   'app_remove',
@@ -309,11 +308,160 @@ export type NPSScore = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | number;
 export type CASTScore = 1 | 2 | 3 | 4 | 5 | number;
 export type CESScore = 1 | 2 | 3 | 4 | 5 | number;
 
+/** ref: https://support.google.com/analytics/answer/9216061 */
+export type EnhancedMeasurementEvents = {
+  page_view: {
+    page_path: string;
+    page_title: string;
+    page_referrer?: string;
+    page_location?: string;
+    previous_pathname?: string;
+    previous_pathname_duration?: number;
+    engagement_time_msec?: number;
+  };
+  // Scrolls: the first time a user reaches the bottom of each page
+  // (i.e., when a 90% vertical depth becomes visible)
+  scroll: {
+    engagement_time_msec: number;
+  };
+  // Outbound clicks
+  click: {
+    link_id: string;
+    link_url: string;
+    link_domain: string;
+    link_classes: string;
+    outbound: boolean;
+  };
+  // Site search
+  view_search_results: {
+    search_term: string;
+  };
+  // Video engagement
+  video_start: {
+    video_current_time: number;
+    video_duration: number;
+    video_percent: number;
+    video_provider: 'youtube' | 'vimeo' | 'html5' | (string & {});
+    video_title: string;
+    video_url: string;
+    visible: boolean;
+  };
+  video_progress: {
+    video_current_time: number;
+    video_duration: number;
+    video_percent: number;
+    video_provider: 'youtube' | 'vimeo' | 'html5' | (string & {});
+    video_title: string;
+    video_url: string;
+    visible: boolean;
+  };
+  video_complete: {
+    video_current_time: number;
+    video_duration: number;
+    video_percent: number;
+    video_provider: 'youtube' | 'vimeo' | 'html5' | (string & {});
+    video_title: string;
+    video_url: string;
+    visible: boolean;
+  };
+  // File downloads:
+  file_download: {
+    file_extension: string;
+    file_name: string;
+    link_classes: string;
+    link_id: string;
+    link_text: string;
+    link_url: string;
+  };
+  // Form interactions
+  form_start: {
+    form_id: string;
+    form_name: string;
+    form_destination: string;
+  };
+  form_submit: {
+    form_id: string;
+    form_name: string;
+    form_destination: string;
+    form_submit_text: string;
+  };
+};
+
+/** ref: https://support.google.com/analytics/answer/9234069  */
+export type AutomaticallyCollectedEvents = EnhancedMeasurementEvents & {
+  first_visit: {
+    page_path: string;
+    page_title: string;
+    page_referrer?: string;
+    page_location?: string;
+  };
+  first_open: {
+    screen_name: string;
+    screen_class: string;
+  };
+  in_app_purchase: {
+    product_id: string;
+    price: number;
+    value: number;
+    currency: string;
+    quantity: number;
+    subscription?: boolean;
+    free_trial?: boolean;
+    introductory_price?: number;
+  };
+  notification_dismiss: {
+    // Android only
+    topic: string;
+    label: string;
+    message_id: string;
+    message_name: string;
+    message_time: number;
+    message_device_time: number;
+    message_channel: string;
+  };
+  notification_foreground: {
+    topic: string;
+    label: string;
+    message_id: string;
+    message_name: string;
+    message_type: string;
+    message_time: number;
+    message_device_time: number;
+    message_channel: string;
+  };
+  notification_open: {
+    topic: string;
+    label: string;
+    message_id: string;
+    message_name: string;
+    message_time: number;
+    message_device_time: number;
+    message_channel: string;
+  };
+  notification_receive: {
+    // Android only
+    topic: string;
+    label: string;
+    message_id: string;
+    message_name: string;
+    message_type: string;
+    message_time: number;
+    message_device_time: number;
+    message_channel: string;
+  };
+  // Note: The 'screen_view' event is automatically sent only when using Android or iOS native SDKs.
+  // If you are using React Native, you need to send this event manually; it should not be ignored.
+  session_start: undefined;
+  user_engagement: {
+    engagement_time_msec: number;
+  };
+};
+
 /**
  * ref: https://developers.google.com/analytics/devguides/collection/ga4/reference/events?client_type=gtag
  * ref: https://firebase.google.com/docs/reference/android/com/google/firebase/analytics/FirebaseAnalytics.Event
  * */
-export type StandardEvents = {
+export type RecommendedEvents = {
   // Google Analytics 4 Recommended Events
   add_payment_info: {
     currency: string;
@@ -526,31 +674,11 @@ export type StandardEvents = {
     screen_class?: string;
     previous_screen_class?: string; // added
     previous_screen_class_duration?: number; // added, in seconds
+    engagement_time_msec?: number;
   };
-  view_search_results: { search_term: string };
+};
 
-  /**
-   * Added Events: some events are automatically collected by Google Analytics, shoud be ignored by
-   * third-party trackers.
-   * @see: https://support.google.com/analytics/answer/9234069
-   */
-  first_visit: {
-    page_path: string;
-    page_title: string;
-    page_referrer?: string;
-    page_location?: string;
-  };
-  session_start: {};
-  scroll: { engagement_time_msec: number };
-  user_engagement: { engagement_time_msec: number };
-  page_view: {
-    page_path: string;
-    page_title: string;
-    page_referrer?: string;
-    page_location?: string;
-    previous_pathname?: string;
-    previous_pathname_duration?: number;
-  };
+export type AddedRecommendedEvents = {
   trial_begin: {
     currency: string;
     value: number;
@@ -560,20 +688,6 @@ export type StandardEvents = {
     currency: string;
     value: number;
     source?: string; // added
-  };
-  /**
-   * firebase sdk or facebook sdk will automatically collect this event, should be ignored by
-   * third-party trackers.
-   */
-  in_app_purchase: {
-    product_id: string;
-    price: number;
-    value: number;
-    currency: string;
-    quantity: number;
-    subscription?: boolean;
-    free_trial?: boolean;
-    introductory_price?: number;
   };
   // survey
   survey_shown: SurveyProperties;
@@ -601,6 +715,10 @@ export type StandardEvents = {
   ces_sent: SurveyProperties & { score: CESScore; feedback?: string };
   ces_dismissed: SurveyProperties;
 };
+
+export type StandardEvents = AutomaticallyCollectedEvents &
+  RecommendedEvents &
+  AddedRecommendedEvents;
 
 /**
  * reference: https://developers.google.com/analytics/devguides/collection/ga4/reference/config

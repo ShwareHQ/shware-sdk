@@ -1,6 +1,7 @@
 import { usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
+import { config } from '../setup/index';
 import { track } from '../track/index';
 import { usePrevious } from './use-previous';
 
@@ -24,6 +25,15 @@ export function useScreenViewAnalytics() {
     });
 
     return () => subscription.remove();
+  }, []);
+
+  // send first_visit event when the page is loaded
+  useEffect(() => {
+    const key = 'first_open_time';
+    if (config.storage.getItem(key)) return;
+    const properties = { screen_name: pathname, screen_class: pathname };
+    track('first_open', properties, { enableThirdPartyTracking: false });
+    config.storage.setItem(key, new Date().toISOString());
   }, []);
 
   // when the screen is switched, the duration of the previous screen is recorded
