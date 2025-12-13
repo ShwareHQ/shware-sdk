@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.17.3
+
+### Patch Changes
+
+- add outbound click analytics
+
 ## 2.17.2
 
 ### Patch Changes

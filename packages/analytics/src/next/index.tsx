@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
 import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
+import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
 import { useWebSessionAnalytics } from '../hooks/use-web-session-analytics';
 import { track } from '../track/index';
@@ -42,6 +43,8 @@ export function Analytics({
   const pathname = usePathname();
   usePageViewAnalytics(pathname);
   useWebSessionAnalytics(pathname);
+
+  useOutboundClickAnalytics();
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;

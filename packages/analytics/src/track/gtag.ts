@@ -328,6 +328,7 @@ export type EnhancedMeasurementEvents = {
   click: {
     link_id: string;
     link_url: string;
+    link_text: string; // added
     link_domain: string;
     link_classes: string;
     outbound: boolean;

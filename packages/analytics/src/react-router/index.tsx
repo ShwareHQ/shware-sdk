@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useLocation } from 'react-router';
 import { type Metric, onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
+import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
 import { useWebSessionAnalytics } from '../hooks/use-web-session-analytics';
 import { track } from '../track/index';
@@ -50,6 +51,8 @@ export function Analytics({
   const { pathname } = useLocation();
   usePageViewAnalytics(pathname);
   useWebSessionAnalytics(pathname);
+
+  useOutboundClickAnalytics();
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
