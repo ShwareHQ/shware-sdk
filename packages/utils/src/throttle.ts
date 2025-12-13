@@ -9,10 +9,12 @@ type ThrottleOptions = {
   trailing?: boolean;
 };
 
-export interface ThrottledFunction<F extends Procedure> {
+export interface ThrottledFunction<F extends Procedure, R = ReturnType<F>> {
   (...args: Parameters<F>): void;
   /** For cleaning up timers, essential for React useEffect cleanup */
   cancel: () => void;
+  /** Immediately invokes any pending function call */
+  flush: () => R | undefined;
 }
 
 export function throttle<F extends Procedure>(
@@ -75,6 +77,19 @@ export function throttle<F extends Procedure>(
     }
     previous = 0;
     lastArgs = null;
+  };
+
+  // Flush method to immediately invoke any pending function call
+  throttled.flush = (): ReturnType<F> | undefined => {
+    if (timeout && lastArgs) {
+      clearTimeout(timeout);
+      timeout = null;
+      previous = leading === false ? 0 : Date.now();
+      const args = lastArgs;
+      lastArgs = null;
+      return func.apply(lastThis, args) as ReturnType<F>;
+    }
+    return undefined;
   };
 
   return throttled;

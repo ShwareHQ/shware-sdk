@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.1.0
+
+### Minor Changes
+
+- add chunk & debounce, add throttle options
+
 ## 1.0.1
 
 ### Patch Changes
