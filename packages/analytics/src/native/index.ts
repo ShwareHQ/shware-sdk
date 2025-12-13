@@ -1,6 +1,5 @@
 export { getDeviceId, getDeviceType, getTags, storage } from './setup';
-export { useScreenViewAnalytics } from '../hooks/use-screen-view-analytics';
-export { useAppSessionAnalytics } from '../hooks/use-app-session-analytics';
+export { useAppAnalytics } from '../hooks/use-app-analytics';
 export { getDeterministicFingerprint, getProbabilisticFingerprint } from './fingerprint';
 
 export type { DeterministicFingerprint, ProbabilisticFingerprint } from './fingerprint';

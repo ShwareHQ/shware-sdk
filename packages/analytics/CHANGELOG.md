@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.18.0
+
+### Minor Changes
+
+- simplify session analytics
+
 ## 2.17.3
 
 ### Patch Changes

@@ -5,8 +5,7 @@ import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
 import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
-import { usePageViewAnalytics } from '../hooks/use-page-view-analytics';
-import { useWebSessionAnalytics } from '../hooks/use-web-session-analytics';
+import { useWebAnalytics } from '../hooks/use-web-analytics';
 import { track } from '../track/index';
 import type { PixelId as MetaPixelId } from '../track/fbq';
 import type { GaId, GtmId } from '../track/gtag';
@@ -41,9 +40,7 @@ export function Analytics({
   useClickIdPersistence();
 
   const pathname = usePathname();
-  usePageViewAnalytics(pathname);
-  useWebSessionAnalytics(pathname);
-
+  useWebAnalytics(pathname);
   useOutboundClickAnalytics();
 
   useReportWebVitals((metric) => {

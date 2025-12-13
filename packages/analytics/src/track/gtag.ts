@@ -316,7 +316,6 @@ export type EnhancedMeasurementEvents = {
     page_referrer?: string;
     page_location?: string;
     previous_pathname?: string;
-    previous_pathname_duration?: number;
     engagement_time_msec?: number;
   };
   // Scrolls: the first time a user reaches the bottom of each page
@@ -674,7 +673,6 @@ export type RecommendedEvents = {
     screen_name?: string;
     screen_class?: string;
     previous_screen_class?: string; // added
-    previous_screen_class_duration?: number; // added, in seconds
     engagement_time_msec?: number;
   };
 };
