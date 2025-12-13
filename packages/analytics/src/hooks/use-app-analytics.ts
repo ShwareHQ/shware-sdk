@@ -1,4 +1,3 @@
-import { usePathname } from 'expo-router';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { config } from '../setup/index';
@@ -20,8 +19,7 @@ function sendUserEngagement() {
   track('user_engagement', { engagement_time_msec }, { enableThirdPartyTracking: false });
 }
 
-export function useAppAnalytics() {
-  const pathname = usePathname();
+export function useAppAnalytics(pathname: string) {
   const prevPathname = usePrevious(pathname);
 
   useEffect(() => {

@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.0.0
+
+### Major Changes
+
+- remove expo-router deps
+
 ## 2.18.0
 
 ### Minor Changes
