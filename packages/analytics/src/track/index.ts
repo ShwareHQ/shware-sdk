@@ -1,11 +1,6 @@
 import { TokenBucket, fetch } from '@shware/utils';
 import { cache, config } from '../setup/index';
-import {
-  getCurrentSession,
-  isSessionExpired,
-  resetSession,
-  updateSessionActiveTime,
-} from '../setup/session';
+import { session } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getVisitor } from '../visitor/index';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
@@ -33,8 +28,8 @@ async function sendEvents(events: Item[]) {
   try {
     if (events.length === 0) return;
 
-    if (isSessionExpired()) {
-      resetSession();
+    if (session.isExpired()) {
+      session.refresh();
       events.unshift({
         name: 'session_start',
         properties: {},
@@ -42,20 +37,20 @@ async function sendEvents(events: Item[]) {
         timestamp: new Date().toISOString(),
       });
     } else {
-      updateSessionActiveTime();
+      session.updateLastActiveTime();
     }
 
     await tokenBucket.removeTokens();
 
     const tags = await config.getTags();
     const visitor_id = (await getVisitor()).id;
-    const session = getCurrentSession();
+
     const dto: CreateTrackEventDTO = events.map((event) => ({
       name: event.name,
       properties: event.properties,
       tags,
       visitor_id,
-      session_id: session.id,
+      session_id: session.getId(),
       platform: config.platform,
       environment: config.environment,
       timestamp: event.timestamp,
@@ -135,15 +130,15 @@ export function sendBeacon<T extends EventName = EventName>(
 ) {
   if (!cache.tags || !cache.visitor) return;
 
-  updateSessionActiveTime();
-  const session = getCurrentSession();
+  session.updateLastActiveTime();
+
   const dto: CreateTrackEventDTO = [
     {
       name,
       properties,
       tags: cache.tags,
       visitor_id: cache.visitor.id,
-      session_id: session.id,
+      session_id: session.getId(),
       platform: config.platform,
       environment: config.environment,
       timestamp: new Date().toISOString(),
