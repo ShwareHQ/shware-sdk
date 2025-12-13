@@ -4,8 +4,8 @@
  */
 import { createHash } from 'crypto';
 import { fetch } from '@shware/utils';
+import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getFirst } from '../utils/field';
-import { IGNORE_EVENTS } from './ignore-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 
 type UserIdType =
@@ -95,7 +95,7 @@ export async function sendEvents(
 
   const dto: CreateMultipleLinkedinEventsDTO = {
     elements: events
-      .filter((event) => eventNames.includes(event.name) && !IGNORE_EVENTS.includes(event.name))
+      .filter((event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name))
       .map((event) => ({
         eventId: event.id,
         conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,

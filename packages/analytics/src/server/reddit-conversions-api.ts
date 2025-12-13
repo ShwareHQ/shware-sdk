@@ -1,7 +1,7 @@
 import { fetch } from '@shware/utils';
+import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
 import { getFirst } from '../utils/field';
-import { IGNORE_EVENTS } from './ignore-events';
 import type { ServerStandardEvent } from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 
@@ -134,7 +134,7 @@ export async function sendEvents(
     data: {
       test_id: testId,
       events: events
-        .filter((event) => !IGNORE_EVENTS.includes(event.name))
+        .filter((event) => !IGNORED_EVENTS.includes(event.name))
         .map((event) => getServerEvent(event, data)),
     },
   };

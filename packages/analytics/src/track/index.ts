@@ -6,6 +6,7 @@ import {
   resetSession,
   updateSessionActiveTime,
 } from '../setup/session';
+import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getVisitor } from '../visitor/index';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
 import type { CreateTrackEventDTO } from '../schema/index';
@@ -79,7 +80,13 @@ async function sendEvents(events: Item[]) {
       const eventId = data[index].id;
       options.onSucceed?.({ id: eventId });
       index++;
-      if (!options.enableThirdPartyTracking || !config.thirdPartyTrackers) continue;
+      if (
+        !config.thirdPartyTrackers ||
+        !options.enableThirdPartyTracking ||
+        IGNORED_EVENTS.includes(name)
+      ) {
+        continue;
+      }
       config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, eventId));
     }
   } catch (e: unknown) {

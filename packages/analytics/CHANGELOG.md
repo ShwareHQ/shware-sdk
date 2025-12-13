@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 2.17.1
+
+### Patch Changes
+
+- ignore google analytics auto events
+
 ## 2.17.0
 
 ### Minor Changes

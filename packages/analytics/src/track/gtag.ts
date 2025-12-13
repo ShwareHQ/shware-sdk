@@ -529,8 +529,17 @@ export type StandardEvents = {
   };
   view_search_results: { search_term: string };
 
-  // Added events
-  first_visit: {};
+  /**
+   * Added Events: some events are automatically collected by Google Analytics, shoud be ignored by
+   * third-party trackers.
+   * @see: https://support.google.com/analytics/answer/9234069
+   */
+  first_visit: {
+    page_path: string;
+    page_title: string;
+    page_referrer?: string;
+    page_location?: string;
+  };
   session_start: {};
   scroll: { engagement_time_msec: number };
   user_engagement: { engagement_time_msec: number };
@@ -551,6 +560,20 @@ export type StandardEvents = {
     currency: string;
     value: number;
     source?: string; // added
+  };
+  /**
+   * firebase sdk or facebook sdk will automatically collect this event, should be ignored by
+   * third-party trackers.
+   */
+  in_app_purchase: {
+    product_id: string;
+    price: number;
+    value: number;
+    currency: string;
+    quantity: number;
+    subscription?: boolean;
+    free_trial?: boolean;
+    introductory_price?: number;
   };
   // survey
   survey_shown: SurveyProperties;

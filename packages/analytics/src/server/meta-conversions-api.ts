@@ -7,8 +7,8 @@ import {
   ServerEvent,
   UserData,
 } from 'facebook-nodejs-business-sdk';
+import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
-import { IGNORE_EVENTS } from './ignore-events';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
@@ -271,7 +271,7 @@ export async function sendEvent(
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
-  if (IGNORE_EVENTS.includes(event.name)) return;
+  if (IGNORED_EVENTS.includes(event.name)) return;
   const request = new EventRequest(accessToken, pixelId);
   const fbEvent = getServerEvent(event, data, appPackageName);
   request.setEvents([fbEvent]);
@@ -287,7 +287,7 @@ export async function sendEvents(
   appPackageName?: string
 ) {
   const fbEvents = events
-    .filter((event) => !IGNORE_EVENTS.includes(event.name))
+    .filter((event) => !IGNORED_EVENTS.includes(event.name))
     .map((event) => getServerEvent(event, data, appPackageName));
   if (fbEvents.length === 0) return;
   const request = new EventRequest(accessToken, pixelId);
