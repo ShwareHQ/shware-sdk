@@ -8,15 +8,14 @@ import { usePrevious } from './use-previous';
 function sendFirstOpen(pathname: string) {
   const key = 'first_open_time';
   if (config.storage.getItem(key)) return;
-  const properties = { screen_name: pathname, screen_class: pathname };
-  track('first_open', properties, { enableThirdPartyTracking: false });
+  track('first_open', { screen_name: pathname, screen_class: pathname });
   config.storage.setItem(key, new Date().toISOString());
 }
 
 function sendUserEngagement() {
   const engagement_time_msec = session.flush();
   if (engagement_time_msec <= 0) return;
-  track('user_engagement', { engagement_time_msec }, { enableThirdPartyTracking: false });
+  track('user_engagement', { engagement_time_msec, trigger: 'background' });
 }
 
 export function useAppAnalytics(pathname: string) {
@@ -24,7 +23,7 @@ export function useAppAnalytics(pathname: string) {
 
   useEffect(() => {
     sendFirstOpen(pathname);
-    track('session_start', undefined, { enableThirdPartyTracking: false });
+    track('session_start', undefined);
 
     const subscription = AppState.addEventListener('change', (state) => {
       session.updateAccumulator();

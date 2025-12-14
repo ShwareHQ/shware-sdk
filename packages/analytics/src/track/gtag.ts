@@ -315,7 +315,7 @@ export type EnhancedMeasurementEvents = {
     page_title: string;
     page_referrer?: string;
     page_location?: string;
-    previous_pathname?: string;
+    previous_page_path?: string;
     engagement_time_msec?: number;
   };
   // Scrolls: the first time a user reaches the bottom of each page
@@ -454,6 +454,7 @@ export type AutomaticallyCollectedEvents = EnhancedMeasurementEvents & {
   session_start: undefined;
   user_engagement: {
     engagement_time_msec: number;
+    trigger: 'pagehide' | 'visibilitychange' | 'background';
   };
 };
 

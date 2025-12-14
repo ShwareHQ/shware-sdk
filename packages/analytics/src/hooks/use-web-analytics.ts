@@ -8,26 +8,25 @@ import { usePrevious } from './use-previous';
 function sendFirstVisit(pathname: string) {
   const key = 'first_visit_time';
   if (config.storage.getItem(key)) return;
-  const properties = {
+  track('first_visit', {
     page_path: pathname,
     page_title: document.title,
     page_referrer: document.referrer,
     page_location: window.location.href,
-  };
-  track('first_visit', properties, { enableThirdPartyTracking: false });
+  });
   config.storage.setItem(key, new Date().toISOString());
 }
 
-function sendUserEngagement() {
+function sendUserEngagement(trigger: 'pagehide' | 'visibilitychange') {
   const engagement_time_msec = session.flush();
   if (engagement_time_msec <= 0) return;
-  sendBeacon('user_engagement', { engagement_time_msec });
+  sendBeacon('user_engagement', { engagement_time_msec, trigger });
 }
 
 function sendScroll() {
   const engagement_time_msec = session.flush();
   if (engagement_time_msec <= 0) return;
-  track('scroll', { engagement_time_msec }, { enableThirdPartyTracking: false });
+  track('scroll', { engagement_time_msec });
 }
 
 function getScrollPercent() {
@@ -40,13 +39,13 @@ function getScrollPercent() {
 
 function onPageHide() {
   session.pagehide();
-  sendUserEngagement();
+  sendUserEngagement('pagehide');
 }
 
 function onVisibilityChange() {
   session.visibilitychange(document.visibilityState);
   if (document.visibilityState === 'hidden') {
-    sendUserEngagement();
+    sendUserEngagement('visibilitychange');
   }
 }
 
@@ -66,7 +65,7 @@ export function useWebAnalytics(pathname: string) {
 
   useEffect(() => {
     sendFirstVisit(pathname);
-    track('session_start', undefined, { enableThirdPartyTracking: false });
+    track('session_start', undefined);
 
     const onScroll = throttle(() => {
       session.updateAccumulator();
@@ -110,15 +109,13 @@ export function useWebAnalytics(pathname: string) {
   }, []);
 
   useEffect(() => {
-    const properties = {
+    track('page_view', {
       page_path: pathname,
       page_title: document.title,
       page_referrer: document.referrer,
       page_location: window.location.href,
       previous_page_path: prevPathname ?? undefined,
       engagement_time_msec: prevPathname ? session.flush() : undefined,
-    };
-
-    track('page_view', properties, { enableThirdPartyTracking: false });
+    });
   }, [pathname]);
 }
