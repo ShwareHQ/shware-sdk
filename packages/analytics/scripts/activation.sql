@@ -1,19 +1,20 @@
 -- Average session duration (Stat)
-with session_start as (
-  select distinct session_id
-  from application.event
-  where name = 'session_start'
+with sessions as (
+  select session_id from application.event
+  where 
+    name = 'session_start'
     and created_at between $__timeFrom() and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
 ),
-engagement_time as (
-  select sum((e.properties ->> 'engagement_time_msec')::bigint) as total_engagement_time_msec
+durations as (
+  select sum(coalesce((properties ->> 'engagement_time_msec')::float8, 0)) / 1000 as duration
   from application.event e
-  join session_start s on e.session_id = s.session_id
-  where e.name in ('user_engagement', 'scroll')
+  inner join sessions s on e.session_id = s.session_id
+  where e.name in ('scroll', 'page_view', 'user_engagement')
+  group by e.session_id
 )
-select avg(total_engagement_time_msec)/1000 as average_session_duration from engagement_time;
+select avg(duration) from durations;
 
 -- User funnel (Bar chart)
 select
