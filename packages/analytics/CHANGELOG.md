@@ -1,5 +1,23 @@
 # @shware/analytics
 
+## 3.0.4
+
+### Patch Changes
+
+- remove logs
+
+## 3.0.3
+
+### Patch Changes
+
+- remove passive true
+
+## 3.0.2
+
+### Patch Changes
+
+- add log
+
 ## 3.0.1
 
 ### Patch Changes

@@ -129,7 +129,6 @@ export function sendBeacon<T extends EventName = EventName>(
   properties?: TrackProperties<T>
 ) {
   if (!cache.tags || !cache.visitor) return;
-
   session.updateLastActiveTime();
 
   const dto: CreateTrackEventDTO = [
@@ -145,5 +144,7 @@ export function sendBeacon<T extends EventName = EventName>(
     },
   ];
   const blob = new Blob([JSON.stringify(dto)], { type: 'application/json' });
-  navigator.sendBeacon(`${config.endpoint}/events`, blob);
+  const success = navigator.sendBeacon(`${config.endpoint}/events`, blob);
+  if (success) return;
+  console.warn('Failed to send beacon', name, properties);
 }

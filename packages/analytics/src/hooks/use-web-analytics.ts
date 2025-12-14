@@ -79,29 +79,26 @@ export function useWebAnalytics(pathname: string) {
     const checkpointEvents = ['mousedown', 'keydown', 'touchstart'];
     const checkpoint = throttle(session.updateAccumulator, 1000);
 
-    window.addEventListener('focus', session.focus, { passive: true });
-    window.addEventListener('blur', session.blur, { passive: true });
-    window.addEventListener('pageshow', session.pageshow, { passive: true });
-    window.addEventListener('pagehide', onPageHide, { passive: true });
+    window.addEventListener('focus', session.focus);
+    window.addEventListener('blur', session.blur);
     window.addEventListener('scroll', onScroll, { passive: true });
-    document.addEventListener('visibilitychange', onVisibilityChange, { passive: true });
+    window.addEventListener('pageshow', session.pageshow);
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     // save checkpoint
-    checkpointEvents.forEach((event) => {
-      window.addEventListener(event, checkpoint, { passive: true, capture: true });
+    checkpointEvents.forEach((e) => {
+      window.addEventListener(e, checkpoint, { passive: true, capture: true });
     });
 
     return () => {
       window.removeEventListener('focus', session.focus);
       window.removeEventListener('blur', session.blur);
+      window.removeEventListener('scroll', onScroll);
       window.removeEventListener('pageshow', session.pageshow);
       window.removeEventListener('pagehide', onPageHide);
-      window.removeEventListener('scroll', onScroll);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-
-      checkpointEvents.forEach((event) => {
-        window.removeEventListener(event, checkpoint);
-      });
+      checkpointEvents.forEach((e) => window.removeEventListener(e, checkpoint));
 
       onScroll.cancel();
       checkpoint.cancel();
