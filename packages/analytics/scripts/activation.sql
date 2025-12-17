@@ -1,4 +1,4 @@
--- Average session duration (Stat)
+-- Average engagement time (Stat)
 with sessions as (
   select session_id from application.event
   where 

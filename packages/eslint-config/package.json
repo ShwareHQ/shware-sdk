@@ -1,6 +1,6 @@
 {
   "name": "@repo/eslint-config",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "type": "module",
   "private": true,
   "exports": {
@@ -8,8 +8,8 @@
     "./package": "./package.js"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "eslint": "^9.39.1",
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
@@ -19,6 +19,6 @@
     "eslint-plugin-turbo": "^2.6.3",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.49.0"
+    "typescript-eslint": "^8.50.0"
   }
 }

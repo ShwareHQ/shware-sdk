@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 0.2.8
+
+### Patch Changes
+
+- update deps
+
 ## 0.2.7
 
 ### Patch Changes
