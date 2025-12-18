@@ -1,5 +1,6 @@
 import { expiringStorage } from '@shware/utils';
 import { useEffect } from 'react';
+import { keys } from '../constants/storage';
 
 function setCookie(name: string, value: string, ttlInMs: number) {
   const d = new Date();
@@ -23,12 +24,12 @@ export function useClickIdPersistence() {
     if (fbclid) {
       const fbc = `fb.1.${Date.now()}.${fbclid}`;
       setCookie('_fbc', fbc, ttlMs);
-      expiringStorage.setItem('fbc', fbc, ttlMs);
+      expiringStorage.setItem(keys.fbc, fbc, ttlMs);
     }
 
     if (rdt_cid) {
       setCookie('_rdt_cid', rdt_cid, ttlMs);
-      expiringStorage.setItem('rdt_cid', rdt_cid, ttlMs);
+      expiringStorage.setItem(keys.rdt_cid, rdt_cid, ttlMs);
     }
   }, []);
 }

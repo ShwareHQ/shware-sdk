@@ -1,15 +1,15 @@
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
+import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { session } from '../setup/session';
 import { track } from '../track/index';
 import { usePrevious } from './use-previous';
 
 function sendFirstOpen(pathname: string) {
-  const key = 'first_open_time';
-  if (config.storage.getItem(key)) return;
+  if (config.storage.getItem(keys.first_open_time)) return;
   track('first_open', { screen_name: pathname, screen_class: pathname });
-  config.storage.setItem(key, new Date().toISOString());
+  config.storage.setItem(keys.first_open_time, new Date().toISOString());
 }
 
 function sendUserEngagement() {

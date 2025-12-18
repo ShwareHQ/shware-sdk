@@ -1,9 +1,8 @@
 import { fetch } from '@shware/utils';
+import { keys } from '../constants/storage';
 import { cache, config } from '../setup/index';
 import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 import type { CreateVisitorDTO } from '../schema/index';
-
-const key = 'visitor_id';
 
 async function createVisitor(): Promise<Visitor> {
   const dto: CreateVisitorDTO = {
@@ -21,12 +20,12 @@ async function createVisitor(): Promise<Visitor> {
   });
 
   const data = (await response.json()) as Visitor;
-  config.storage.setItem(key, data.id);
+  config.storage.setItem(keys.visitor_id, data.id);
   return data;
 }
 
 async function getOrCreateVisitor(): Promise<Visitor> {
-  const visitorId = config.storage.getItem(key);
+  const visitorId = config.storage.getItem(keys.visitor_id);
   if (visitorId) {
     const response = await fetch(`${config.endpoint}/visitors/${visitorId}`, {
       method: 'GET',

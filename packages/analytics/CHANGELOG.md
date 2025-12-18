@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.0.6
+
+### Patch Changes
+
+- add storage keys
+
 ## 3.0.5
 
 ### Patch Changes

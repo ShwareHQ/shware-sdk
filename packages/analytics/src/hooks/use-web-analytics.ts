@@ -1,20 +1,20 @@
 import { throttle } from '@shware/utils';
 import { useEffect, useRef } from 'react';
+import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { session } from '../setup/session';
 import { sendBeacon, track } from '../track/index';
 import { usePrevious } from './use-previous';
 
 function sendFirstVisit(pathname: string) {
-  const key = 'first_visit_time';
-  if (config.storage.getItem(key)) return;
+  if (config.storage.getItem(keys.first_visit_time)) return;
   track('first_visit', {
     page_path: pathname,
     page_title: document.title,
     page_referrer: document.referrer,
     page_location: window.location.href,
   });
-  config.storage.setItem(key, new Date().toISOString());
+  config.storage.setItem(keys.first_visit_time, new Date().toISOString());
 }
 
 function sendUserEngagement(trigger: 'pagehide' | 'visibilitychange') {

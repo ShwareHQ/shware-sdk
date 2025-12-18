@@ -2,16 +2,17 @@ import { expiringStorage } from '@shware/utils';
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
+import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { cache, config } from '../setup/index';
 import type { Storage } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
 export function getDeviceId() {
-  const cached = localStorage.getItem('device_id');
+  const cached = localStorage.getItem(keys.device_id);
   if (cached) return cached;
   const id = crypto?.randomUUID ? crypto.randomUUID() : uuidv4();
-  localStorage.setItem('device_id', id);
+  localStorage.setItem(keys.device_id, id);
   return id;
 }
 
@@ -49,7 +50,7 @@ export async function getTags() {
     source: 'web',
     source_url: window.location.origin + window.location.pathname,
     // meta ads
-    fbc: parsed._fbc ?? expiringStorage.getItem<string>('fbc') ?? undefined,
+    fbc: parsed._fbc ?? expiringStorage.getItem<string>(keys.fbc) ?? undefined,
     fbp: parsed._fbp,
     fbclid: params.get('fbclid') ?? undefined,
     ad_id: params.get('ad_id') ?? undefined,
@@ -69,7 +70,7 @@ export async function getTags() {
     rdt_cid:
       params.get('rdt_cid') ??
       parsed._rdt_cid ??
-      expiringStorage.getItem<string>('rdt_cid') ??
+      expiringStorage.getItem<string>(keys.rdt_cid) ??
       undefined,
     rdt_uuid: parsed._rdt_uuid,
     // linkedin ads: get click id from url params or first-party cookie
