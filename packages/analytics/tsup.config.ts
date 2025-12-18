@@ -13,7 +13,7 @@ const options: Options = {
 export default defineConfig([
   {
     ...options,
-    entry: ['src/**/*.ts', 'src/**/*.tsx'],
+    entry: ['src/**/*.ts', 'src/**/*.tsx', '!src/**/*.test.*'],
     outDir: 'dist',
     esbuildPlugins: [
       {

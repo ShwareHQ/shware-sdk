@@ -1,11 +1,12 @@
 {
   "name": "@shware/analytics",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "private": false,
   "type": "module",
   "scripts": {
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit",
+    "test": "vitest",
     "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx",
     "build": "tsup",
     "build:tsup": "tsup",
@@ -76,10 +77,11 @@
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
-    "@types/facebook-nodejs-business-sdk": "^23.0.0",
-    "@types/node": "^24.10.2",
-    "@types/react": "^19.2.7",
-    "typescript": "^5.9.3"
+    "@types/facebook-nodejs-business-sdk": "^23",
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^23.3.1",

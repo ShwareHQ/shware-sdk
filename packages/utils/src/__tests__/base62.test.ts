@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { base62 } from '../base62';
 
 describe('base62', () => {

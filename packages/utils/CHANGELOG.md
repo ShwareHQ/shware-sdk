@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.1.2
+
+### Patch Changes
+
+- add tests
+
 ## 1.1.1
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 3.0.7
+
+### Patch Changes
+
+- add tests
+- Updated dependencies
+  - @shware/utils@1.1.2
+
 ## 3.0.6
 
 ### Patch Changes
