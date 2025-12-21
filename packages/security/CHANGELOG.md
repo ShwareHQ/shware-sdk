@@ -1,5 +1,11 @@
 # @shware/security
 
+## 2.0.0
+
+### Major Changes
+
+- add async config support
+
 ## 1.5.12
 
 ### Patch Changes

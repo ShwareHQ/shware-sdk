@@ -1,4 +1,4 @@
-import invariant from 'tiny-invariant';
+import { invariant } from '@shware/utils';
 import { OAuth2Error } from '../error';
 import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, OneTapProvider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';

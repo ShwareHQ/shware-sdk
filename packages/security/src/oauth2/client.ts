@@ -1,4 +1,4 @@
-import invariant from 'tiny-invariant';
+import { invariant } from '@shware/utils';
 import { object, optional, string } from 'zod/v4-mini';
 import {
   NativeCredential,
@@ -48,15 +48,21 @@ export class OAuth2Client {
     return this.config.errorUri;
   }
 
-  getClientConfig(registrationId: string) {
-    const registration = this.config.registration[registrationId];
+  private async getClientConfig(registrationId: string) {
+    const registrations =
+      typeof this.config.registration === 'function'
+        ? await this.config.registration()
+        : this.config.registration;
+
+    const registration = registrations[registrationId];
     invariant(registration, `Registration ${registrationId} not found`);
+
     const provider = this.config.provider[registration.provider ?? registrationId];
     invariant(provider, `Provider ${registration.provider ?? registrationId} not found`);
     return { registration, provider };
   }
 
-  createAuthorizationUri({
+  async createAuthorizationUri({
     registrationId,
     state,
     pkce,
@@ -64,8 +70,8 @@ export class OAuth2Client {
     registrationId: string;
     state: string;
     pkce?: PkceParameters;
-  }): URL {
-    const { provider, registration } = this.getClientConfig(registrationId);
+  }): Promise<URL> {
+    const { provider, registration } = await this.getClientConfig(registrationId);
 
     const { baseUri } = this.config;
     const { scope, clientId, redirectUri } = registration;
@@ -87,7 +93,7 @@ export class OAuth2Client {
     code: string;
     pkce?: PkceParameters;
   }): Promise<OAuth2Token> {
-    const { provider, registration } = this.getClientConfig(registrationId);
+    const { provider, registration } = await this.getClientConfig(registrationId);
 
     const { baseUri } = this.config;
     const { clientId, clientSecret, redirectUri } = registration;
@@ -107,7 +113,7 @@ export class OAuth2Client {
     registrationId: string;
     token: OAuth2Token | OidcToken;
   }) {
-    const { provider } = this.getClientConfig(registrationId);
+    const { provider } = await this.getClientConfig(registrationId);
     return provider.getUserInfo(token);
   }
 
@@ -118,7 +124,7 @@ export class OAuth2Client {
     registrationId: string;
     refreshToken: string;
   }): Promise<OAuth2Token> {
-    const { provider, registration } = this.getClientConfig(registrationId);
+    const { provider, registration } = await this.getClientConfig(registrationId);
     const { clientId, clientSecret } = registration;
 
     invariant(provider.refreshAccessToken, 'Provider does not support refreshAccessToken');
@@ -126,7 +132,7 @@ export class OAuth2Client {
   }
 
   async revokeToken(registrationId: string, token: string) {
-    const { provider, registration } = this.getClientConfig(registrationId);
+    const { provider, registration } = await this.getClientConfig(registrationId);
     const { clientId, clientSecret } = registration;
 
     invariant(provider.revokeToken, 'Provider does not support revokeToken');
@@ -142,7 +148,7 @@ export class OAuth2Client {
     credentials: NativeCredential;
     pkce?: PkceParameters;
   }) {
-    const { provider, registration } = this.getClientConfig(registrationId);
+    const { provider, registration } = await this.getClientConfig(registrationId);
     invariant(provider.loginOAuth2Native, 'Provider does not support loginOAuth2Native');
     const { baseUri } = this.config;
     const { clientId, clientSecret, redirectUri } = registration;

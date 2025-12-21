@@ -1,4 +1,4 @@
-import invariant from 'tiny-invariant';
+import { invariant } from '@shware/utils';
 import { OAuth2Error } from '../error';
 import { OAuth2Token, Provider } from '../types';
 import {

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
-import invariant from 'tiny-invariant';
+import { invariant } from '@shware/utils';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { OAuth2ErrorType } from '../oauth2/error';
 import { google } from '../oauth2/provider/index';
@@ -138,7 +138,7 @@ export class Auth implements AuthService {
     const { registrationId } = param(request, this.PATH_OAUTH2_AUTHORIZATION);
     const state = randomUUID();
     const pkce = this.createPkceParameters();
-    const uri = this.oauth2Client.createAuthorizationUri({ registrationId, state, pkce });
+    const uri = await this.oauth2Client.createAuthorizationUri({ registrationId, state, pkce });
     const sessionId = getCookie(request, this.cookieName);
     const session = sessionId
       ? ((await this.repository.findById(sessionId)) ?? this.repository.createSession())

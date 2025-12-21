@@ -251,5 +251,7 @@ export interface OAuth2ClientConfig {
   errorUri: string;
   successUri: string;
   provider: { [name: string]: Provider | undefined };
-  registration: { [name: string]: Registration | undefined };
+  registration:
+    | { [name: string]: Registration | undefined }
+    | (() => Promise<{ [name: string]: Registration | undefined }>);
 }

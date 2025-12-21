@@ -5,7 +5,7 @@
 ```ts
 import { Hono } from 'hono';
 import { Auth, RedisIndexedSessionRepository } from '@shware/security';
-import { github } from '@shware/security/oauth2/provider';
+import { apple, github } from '@shware/security/oauth2/provider';
 import { env, type Env } from '../env';
 import { redis } from '../db';
 import { onAuthorized } from '../services/auth';
@@ -22,13 +22,24 @@ const auth = new Auth({
       baseUri: 'https://api.mywebsite.com', // backend
       errorUri: 'https://mywebsite.com', // frontend with query: error=string&error_description=string
       successUri: 'https://mywebsite.com',
-      provider: { github },
-      registration: {
+      provider: { apple, github },
+      registration: async () => ({
+        appleApp: {
+          provider: 'apple',
+          clientId: env.OAUTH2_APPLE_APP_CLIENT_ID,
+          clientSecret: env.OAUTH2_APPLE_APP_CLIENT_SECRET,
+        },
+        appleWeb: {
+          provider: 'apple',
+          clientId: env.OAUTH2_APPLE_WEB_CLIENT_ID,
+          clientSecret: env.OAUTH2_APPLE_WEB_CLIENT_SECRET,
+        },
         github: {
+          provider: 'github',
           clientId: env.OAUTH2_GITHUB_CLIENT_ID,
           clientSecret: env.OAUTH2_GITHUB_CLIENT_SECRET,
         },
-      },
+      }),
     },
   },
 });
