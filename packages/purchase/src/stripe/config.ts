@@ -8,17 +8,18 @@ const addMethod = Symbol('addMethod');
 
 class Product<
   NS extends Lowercase<string> = Lowercase<string>,
-  PL extends string = string,
-  PI extends PriceId = never,
+  PE extends string = string,
+  PI extends string = never,
+  I extends PriceId = never,
 > {
   readonly id: string;
-  readonly config: StripeConfig<NS, PL>;
-  readonly plan: PL | null;
+  readonly config: StripeConfig<NS, PE, PI>;
+  readonly plan: PE | null;
   readonly prices: Map<PriceId, CreditConfig>;
 
-  defaultPriceId: PI | null;
+  defaultPriceId: I | null;
 
-  constructor(config: StripeConfig<NS, PL>, id: string, plan: PL | null = null) {
+  constructor(config: StripeConfig<NS, PE, PI>, id: string, plan: PE | null = null) {
     this.id = id;
     this.config = config;
     this.plan = plan;
@@ -27,14 +28,14 @@ class Product<
   }
 
   price = <K extends PriceId>(
-    priceId: K extends PI ? never : K,
+    priceId: K extends I ? never : K,
     credit: CreditConfig = { credits: 0, expiresIn: '0' }
-  ): Product<NS, PL, PI | K> => {
+  ): Product<NS, PE, PI, I | K> => {
     this.prices.set(priceId, credit);
-    return this as Product<NS, PL, PI | K>;
+    return this as Product<NS, PE, PI, I | K>;
   };
 
-  default = (defaultPriceId: PI) => {
+  default = (defaultPriceId: I) => {
     this.defaultPriceId = defaultPriceId;
     this.config[addMethod](this as never);
     return this.config;
@@ -50,9 +51,10 @@ type Options = {
 
 export class StripeConfig<
   NS extends Lowercase<string> = Lowercase<string>,
-  PL extends string = string,
+  PE extends string = string,
+  PI extends string = never,
 > {
-  private products: Map<string, Product<NS, PL>> = new Map();
+  private products: Map<string, Product<NS, PE, PI>> = new Map();
 
   public returnUrl: string;
   public cancelUrl: string;
@@ -63,7 +65,7 @@ export class StripeConfig<
     return Array.from(this.products.keys());
   }
 
-  [addMethod] = (product: Product<NS, PL>) => {
+  [addMethod] = (product: Product<NS, PE, PI>) => {
     this.products.set(product.id, product);
     return this;
   };
@@ -75,15 +77,18 @@ export class StripeConfig<
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 
-  static create = <NS extends Lowercase<string>, P extends string>(options: Options) => {
-    return new StripeConfig<NS, P>(options);
+  static create = <NS extends Lowercase<string>, PE extends string>(options: Options) => {
+    return new StripeConfig<NS, PE>(options);
   };
 
-  product = <K extends `${NS}.${Lowercase<string>}`>(productId: K, plan: PL | null = null) => {
-    return new Product(this, productId, plan);
+  product = <K extends `${NS}.${Lowercase<string>}`>(
+    productId: K extends PI ? never : K,
+    plan: PE | null = null
+  ) => {
+    return new Product<NS, PE, K | PI>(this, productId, plan);
   };
 
-  getPlan = (productId: string): PL => {
+  getPlan = (productId: string): PE => {
     const plan = this.products.get(productId)?.plan;
     if (!plan) throw new Error(`Plan not found for product ${productId}`);
     return plan;
