@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.1.0
+
+### Minor Changes
+
+- add options
+
 ## 1.0.0
 
 ### Major Changes

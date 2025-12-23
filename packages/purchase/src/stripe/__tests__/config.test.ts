@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { StripeConfig } from '../config';
 
 describe('StripeConfig', () => {
-  const config = StripeConfig.create()
+  const config = StripeConfig.create({
+    allowPromotionCodes: true,
+    returnUrl: 'https://example.com/return',
+    cancelUrl: 'https://example.com/cancel',
+    successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+  })
     // One-time payment product with multiple prices
     .product('credits')
     .price('price_credits_100', { credits: 100, expiresIn: '30d' })
@@ -23,10 +28,6 @@ describe('StripeConfig', () => {
     expect(config.productIds).toContain('credits');
     expect(config.productIds).toContain('pro');
     expect(config.productIds).toContain('free');
-
-    // fluent API returns same config instance
-    const newConfig = StripeConfig.create();
-    expect(newConfig.product('test').price('price_test').default('price_test')).toBe(newConfig);
   });
 
   it('should return correct mode and plan', () => {

@@ -46,8 +46,20 @@ class Product<P extends ProductId = ProductId, I extends PriceId = never> {
   };
 }
 
+type Options = {
+  returnUrl: string;
+  cancelUrl: string;
+  successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
+  allowPromotionCodes: boolean;
+};
+
 export class StripeConfig {
   private products: Map<ProductId, Product> = new Map();
+
+  public returnUrl: string;
+  public cancelUrl: string;
+  public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
+  public allowPromotionCodes: boolean;
 
   get productIds(): ProductId[] {
     return Array.from(this.products.keys());
@@ -58,10 +70,15 @@ export class StripeConfig {
     return this;
   };
 
-  private constructor() {}
+  private constructor(options: Options) {
+    this.returnUrl = options.returnUrl;
+    this.cancelUrl = options.cancelUrl;
+    this.successUrl = options.successUrl;
+    this.allowPromotionCodes = options.allowPromotionCodes;
+  }
 
-  static create = () => {
-    return new StripeConfig();
+  static create = (options: Options) => {
+    return new StripeConfig(options);
   };
 
   product = (id: ProductId, plan: string | null = null) => {
