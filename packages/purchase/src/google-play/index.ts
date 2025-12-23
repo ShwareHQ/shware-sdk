@@ -11,3 +11,4 @@ export {
   VoidedPurchaseProductType,
   VoidedPurchaseRefundType,
 } from './real-time-developer-notification';
+export { GooglePlayConfig } from './config';
