@@ -20,7 +20,7 @@ class Product<
 
   defaultPriceId: I | null;
 
-  private constructor(config: StripeConfig<NS, PL>, id: P, plan: PL | null = null) {
+  constructor(config: StripeConfig<NS, PL>, id: P, plan: PL | null = null) {
     this.id = id;
     this.config = config;
     this.plan = plan;
@@ -28,20 +28,8 @@ class Product<
     this.defaultPriceId = null;
   }
 
-  static create = <
-    NS extends Lowercase<string>,
-    PL extends string,
-    P extends ProductId = ProductId,
-  >(
-    config: StripeConfig<NS, PL>,
-    id: P,
-    plan: PL | null = null
-  ) => {
-    return new Product<NS, PL, P>(config, id, plan);
-  };
-
   price = <K extends PriceId>(
-    priceId: K,
+    priceId: K extends I ? never : K,
     credit: CreditConfig = { credits: 0, expiresIn: '0' }
   ): Product<NS, PL, P, I | K> => {
     this.prices.set(priceId, credit);
@@ -93,8 +81,8 @@ export class StripeConfig<
     return new StripeConfig<NS, P>(options);
   };
 
-  product = (id: `${NS}.${ProductId}`, plan: PL | null = null) => {
-    return Product.create<NS, PL>(this, id as ProductId, plan);
+  product = (productId: `${NS}.${ProductId}`, plan: PL | null = null) => {
+    return new Product<NS, PL>(this, productId as ProductId, plan);
   };
 
   getPlan = (productId: string): PL => {
