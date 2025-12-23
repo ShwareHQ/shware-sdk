@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.0.0
+
+### Major Changes
+
+- add stripe config
+
 ## 0.2.8
 
 ### Patch Changes

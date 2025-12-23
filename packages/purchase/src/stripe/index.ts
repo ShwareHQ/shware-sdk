@@ -21,5 +21,6 @@ export {
   checkoutSessionSchema,
   type CancellationDetails,
 } from './schema';
-export type { ProductId, PriceId, Config, CreateCheckoutSessionDTO } from './types';
+export type { Config, CreateCheckoutSessionDTO } from './types';
 export { METADATA_KEYS } from './metadata';
+export { StripeConfig, type ProductId, type PriceId } from './config';

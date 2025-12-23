@@ -1,6 +1,7 @@
 export type ProductId = Lowercase<string>;
 export type PriceId = `price_${string}`;
 
+/** @deprecated Use StripeConfig instead */
 export interface Config {
   returnUrl: string;
   cancelUrl: string;
