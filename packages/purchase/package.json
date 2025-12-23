@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsup",
-    "test": "vitest",
+    "test": "vitest run",
     "check-types": "tsc --noEmit",
     "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx"
   },

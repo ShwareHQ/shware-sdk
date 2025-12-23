@@ -1,3 +1,4 @@
+import { describe, expect, test } from 'vitest';
 import { DetailType, Details, Status, StatusError } from '../index';
 
 describe('error details', () => {

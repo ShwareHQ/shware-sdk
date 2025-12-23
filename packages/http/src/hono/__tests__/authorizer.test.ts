@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type AuthorizerConfig, authorizer } from '../authorizer';
 import { type Env, errorHandler } from '../handler';
 
@@ -15,7 +16,7 @@ describe('authorizer', () => {
   describe('Basic functionality', () => {
     it('should allow all requests when no rules are defined', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(true),
+        isAuthenticated: vi.fn().mockResolvedValue(true),
       };
 
       app.use(authorizer({ auth }));
@@ -28,7 +29,7 @@ describe('authorizer', () => {
 
     it('should allow requests when rules match and authentication passes', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(true),
+        isAuthenticated: vi.fn().mockResolvedValue(true),
       };
 
       app.use(authorizer({ auth, rules: [{ path: '/protected', methods: ['GET'] }] }));
@@ -42,7 +43,7 @@ describe('authorizer', () => {
 
     it('should reject requests when rules match but authentication fails', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(authorizer({ auth, rules: [{ path: '/protected', methods: ['GET'] }] }));
@@ -56,7 +57,7 @@ describe('authorizer', () => {
 
     it('should support custom error messages', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
       const customMessage = 'Please login first';
 
@@ -78,7 +79,7 @@ describe('authorizer', () => {
   describe('HTTP methods', () => {
     it('should only protect specified HTTP methods', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -116,7 +117,7 @@ describe('authorizer', () => {
 
     it('should protect all methods when methods not specified', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -142,7 +143,7 @@ describe('authorizer', () => {
 
     it('should always allow OPTIONS requests', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -163,7 +164,7 @@ describe('authorizer', () => {
   describe('Path matching', () => {
     it('should support exact path matching', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -192,7 +193,7 @@ describe('authorizer', () => {
 
     it('should support wildcard path matching', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -225,7 +226,7 @@ describe('authorizer', () => {
 
     it('should support pattern-like path matching', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -273,7 +274,7 @@ describe('authorizer', () => {
   describe('Authentication function', () => {
     it('should pass Request object correctly to auth function', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockImplementation(async (request: Request) => {
+        isAuthenticated: vi.fn().mockImplementation(async (request: Request) => {
           const authHeader = request.headers.get('Authorization');
           return authHeader === 'Bearer valid-token';
         }),
@@ -309,7 +310,7 @@ describe('authorizer', () => {
 
     it('should handle exceptions thrown by auth function', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockRejectedValue(new Error('Auth service error')),
+        isAuthenticated: vi.fn().mockRejectedValue(new Error('Auth service error')),
       };
 
       app.use(
@@ -327,7 +328,7 @@ describe('authorizer', () => {
 
     it('should support cookie-based authentication', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockImplementation(async (request: Request) => {
+        isAuthenticated: vi.fn().mockImplementation(async (request: Request) => {
           const cookie = request.headers.get('Cookie');
           return cookie?.includes('session=valid-session');
         }),
@@ -355,7 +356,7 @@ describe('authorizer', () => {
 
     it('should support query parameter authentication', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockImplementation(async (request: Request) => {
+        isAuthenticated: vi.fn().mockImplementation(async (request: Request) => {
           const url = new URL(request.url);
           return url.searchParams.get('api_key') === 'valid-key';
         }),
@@ -387,7 +388,7 @@ describe('authorizer', () => {
   describe('Multiple rules', () => {
     it('should support multiple rule combinations', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -437,7 +438,7 @@ describe('authorizer', () => {
 
     it('should handle overlapping rules correctly', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(true),
+        isAuthenticated: vi.fn().mockResolvedValue(true),
       };
 
       app.use(
@@ -467,7 +468,7 @@ describe('authorizer', () => {
   describe('Edge cases', () => {
     it('should allow all requests with empty rules array', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(authorizer({ auth, rules: [] }));
@@ -480,7 +481,7 @@ describe('authorizer', () => {
 
     it('should handle special characters in paths', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -516,7 +517,7 @@ describe('authorizer', () => {
 
     it('should handle URLs with query parameters and fragments', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -535,7 +536,7 @@ describe('authorizer', () => {
 
     it('should handle root path correctly', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -558,7 +559,7 @@ describe('authorizer', () => {
 
     it('should handle trailing slashes as different paths', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockResolvedValue(false),
+        isAuthenticated: vi.fn().mockResolvedValue(false),
       };
 
       app.use(
@@ -582,7 +583,7 @@ describe('authorizer', () => {
   describe('Complex authentication scenarios', () => {
     it('should support role-based authentication', async () => {
       const auth: AuthorizerConfig['auth'] = {
-        isAuthenticated: jest.fn().mockImplementation(async (request: Request) => {
+        isAuthenticated: vi.fn().mockImplementation(async (request: Request) => {
           const authHeader = request.headers.get('Authorization');
           const url = new URL(request.url);
 

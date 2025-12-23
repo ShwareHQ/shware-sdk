@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { describe, expect, test } from 'vitest';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../common';
 import { RedisIndexedSessionRepository } from '../redis';
 
