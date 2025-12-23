@@ -46,8 +46,10 @@ export class AppStoreConfig<
   PL extends PE = never,
   PI extends string = never,
 > {
-  private products: Map<string, CreditConfig>;
+  private products: Map<string, CreditConfig | null>;
+  private consumables: Set<string>;
   private subscriptions: Map<PE, Subscription<NS, PE, PL, PI>>;
+  private nonConsumables: Set<string>;
 
   get productIds(): string[] {
     return Array.from(this.products.keys());
@@ -61,7 +63,9 @@ export class AppStoreConfig<
 
   private constructor() {
     this.products = new Map();
+    this.consumables = new Set();
     this.subscriptions = new Map();
+    this.nonConsumables = new Set();
   }
 
   static create = <NS extends Lowercase<string>, PE extends string>() => {
@@ -70,6 +74,21 @@ export class AppStoreConfig<
 
   subscription = <K extends PE>(plan: K extends PL ? never : K) => {
     return new Subscription<NS, PE, K | PL, PI>(this, plan);
+  };
+
+  consumable = <K extends `${NS}.${Lowercase<string>}`>(
+    productId: K extends PI ? never : K,
+    credit: CreditConfig = { credits: 0, expiresIn: '0' }
+  ) => {
+    this.consumables.add(productId);
+    this.products.set(productId, credit);
+    return this as AppStoreConfig<NS, PE, PL, PI | K>;
+  };
+
+  nonConsumable = <K extends `${NS}.${Lowercase<string>}`>(productId: K extends PI ? never : K) => {
+    this.nonConsumables.add(productId);
+    this.products.set(productId, null);
+    return this as AppStoreConfig<NS, PE, PL, PI | K>;
   };
 
   getCreditAmount = (productId: string): number => {
