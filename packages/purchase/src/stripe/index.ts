@@ -18,9 +18,9 @@ export {
 export { StripeEventHandler } from './handler';
 export {
   cancellationDetailsSchema,
-  checkoutSessionSchema,
+  createCheckoutSessionSchema,
   type CancellationDetails,
+  type CreateCheckoutSessionDTO,
 } from './schema';
-export type { Config, CreateCheckoutSessionDTO } from './types';
 export { METADATA_KEYS } from './metadata';
-export { StripeConfig, type ProductId, type PriceId } from './config';
+export { StripeConfig, type PriceId } from './config';

@@ -2,7 +2,6 @@ import { invariant } from '@shware/utils';
 import ms, { type StringValue } from 'ms';
 
 export type PriceId = `price_${string}`;
-export type ProductId = Lowercase<string>;
 export type CreditConfig = { credits: number; expiresIn: StringValue };
 
 const addMethod = Symbol('addMethod');
@@ -10,17 +9,16 @@ const addMethod = Symbol('addMethod');
 class Product<
   NS extends Lowercase<string> = Lowercase<string>,
   PL extends string = string,
-  P extends ProductId = ProductId,
-  I extends PriceId = never,
+  PI extends PriceId = never,
 > {
-  readonly id: P;
+  readonly id: string;
   readonly config: StripeConfig<NS, PL>;
   readonly plan: PL | null;
   readonly prices: Map<PriceId, CreditConfig>;
 
-  defaultPriceId: I | null;
+  defaultPriceId: PI | null;
 
-  constructor(config: StripeConfig<NS, PL>, id: P, plan: PL | null = null) {
+  constructor(config: StripeConfig<NS, PL>, id: string, plan: PL | null = null) {
     this.id = id;
     this.config = config;
     this.plan = plan;
@@ -29,14 +27,14 @@ class Product<
   }
 
   price = <K extends PriceId>(
-    priceId: K extends I ? never : K,
+    priceId: K extends PI ? never : K,
     credit: CreditConfig = { credits: 0, expiresIn: '0' }
-  ): Product<NS, PL, P, I | K> => {
+  ): Product<NS, PL, PI | K> => {
     this.prices.set(priceId, credit);
-    return this as Product<NS, PL, P, I | K>;
+    return this as Product<NS, PL, PI | K>;
   };
 
-  default = (defaultPriceId: I) => {
+  default = (defaultPriceId: PI) => {
     this.defaultPriceId = defaultPriceId;
     this.config[addMethod](this as never);
     return this.config;
@@ -54,14 +52,14 @@ export class StripeConfig<
   NS extends Lowercase<string> = Lowercase<string>,
   PL extends string = string,
 > {
-  private products: Map<ProductId, Product<NS, PL>> = new Map();
+  private products: Map<string, Product<NS, PL>> = new Map();
 
   public returnUrl: string;
   public cancelUrl: string;
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
   public allowPromotionCodes: boolean;
 
-  get productIds(): ProductId[] {
+  get productIds(): string[] {
     return Array.from(this.products.keys());
   }
 
@@ -81,31 +79,31 @@ export class StripeConfig<
     return new StripeConfig<NS, P>(options);
   };
 
-  product = (productId: `${NS}.${ProductId}`, plan: PL | null = null) => {
-    return new Product<NS, PL>(this, productId as ProductId, plan);
+  product = <K extends `${NS}.${Lowercase<string>}`>(productId: K, plan: PL | null = null) => {
+    return new Product(this, productId, plan);
   };
 
   getPlan = (productId: string): PL => {
-    const plan = this.products.get(productId as ProductId)?.plan;
+    const plan = this.products.get(productId)?.plan;
     if (!plan) throw new Error(`Plan not found for product ${productId}`);
     return plan;
   };
 
   getMode = (productId: string): 'payment' | 'subscription' => {
-    const product = this.products.get(productId as ProductId);
+    const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     return product.plan === null ? 'payment' : 'subscription';
   };
 
   getPriceId = (productId: string): PriceId => {
-    const product = this.products.get(productId as ProductId);
+    const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     invariant(product.defaultPriceId, `Default price not found for product ${productId}`);
     return product.defaultPriceId;
   };
 
   getCreditAmount = (productId: string, priceId?: string): number => {
-    const product = this.products.get(productId as ProductId);
+    const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     if (priceId) {
       const price = product.prices.get(priceId as PriceId);
@@ -118,7 +116,7 @@ export class StripeConfig<
   };
 
   private getCreditExpiresIn = (productId: string, priceId?: string): number => {
-    const product = this.products.get(productId as ProductId);
+    const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     if (priceId) {
       const price = product.prices.get(priceId as PriceId);

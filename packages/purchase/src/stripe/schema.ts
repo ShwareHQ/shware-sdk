@@ -11,7 +11,6 @@ import {
   string,
   url,
 } from 'zod/mini';
-import type { ProductId } from './types';
 
 export const cancellationDetailsSchema = object({
   comment: optional(nullable(string().check(maxLength(1024)))),
@@ -31,7 +30,7 @@ export const cancellationDetailsSchema = object({
   ),
 });
 
-export function checkoutSessionSchema(productIds: [ProductId, ...ProductId[]]) {
+export function createCheckoutSessionSchema(productIds: string[]) {
   return object({
     quantity: _default(int().check(gte(1)), 1),
     productId: _enum(productIds),
@@ -42,4 +41,10 @@ export function checkoutSessionSchema(productIds: [ProductId, ...ProductId[]]) {
 
 export interface CancellationDetails extends output<typeof cancellationDetailsSchema> {
   reason?: 'cancellation_requested' | 'payment_disputed' | 'payment_failed' | null;
+}
+
+export interface CreateCheckoutSessionDTO {
+  productId: string;
+  cancelUrl?: string;
+  successUrl?: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
 }
