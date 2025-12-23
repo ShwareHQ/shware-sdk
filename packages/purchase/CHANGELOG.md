@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.4.0
+
+### Minor Changes
+
+- add AppStoreConfig options
+
 ## 1.3.0
 
 ### Minor Changes

@@ -40,12 +40,17 @@ class Subscription<
   };
 }
 
+type Options = { appId: `${number}`; bundleId: string };
+
 export class AppStoreConfig<
   NS extends Lowercase<string> = Lowercase<string>,
   PE extends string = string,
   PL extends PE = never,
   PI extends string = never,
 > {
+  readonly appId: string;
+  readonly bundleId: string;
+
   private products: Map<string, CreditConfig | null>;
   private consumables: Set<string>;
   private subscriptions: Map<PE, Subscription<NS, PE, PL, PI>>;
@@ -61,15 +66,17 @@ export class AppStoreConfig<
     return this;
   };
 
-  private constructor() {
+  private constructor(options: Options) {
+    this.appId = options.appId;
+    this.bundleId = options.bundleId;
     this.products = new Map();
     this.consumables = new Set();
     this.subscriptions = new Map();
     this.nonConsumables = new Set();
   }
 
-  static create = <NS extends Lowercase<string>, PE extends string>() => {
-    return new AppStoreConfig<NS, PE>();
+  static create = <NS extends Lowercase<string>, PE extends string>(options: Options) => {
+    return new AppStoreConfig<NS, PE>(options);
   };
 
   subscription = <K extends PE>(plan: K extends PL ? never : K) => {
@@ -89,6 +96,21 @@ export class AppStoreConfig<
     this.nonConsumables.add(productId);
     this.products.set(productId, null);
     return this as AppStoreConfig<NS, PE, PL, PI | K>;
+  };
+
+  getPlan = (productId: string): PE => {
+    for (const [plan, subscription] of this.subscriptions.entries()) {
+      if (subscription.products.has(productId)) return plan;
+    }
+    throw new Error(`Plan not found for product ${productId}`);
+  };
+
+  getMode = (productId: string): 'payment' | 'subscription' => {
+    if (this.consumables.has(productId) || this.nonConsumables.has(productId)) return 'payment';
+    for (const subscription of this.subscriptions.values()) {
+      if (subscription.products.has(productId)) return 'subscription';
+    }
+    throw new Error(`Mode not found for product ${productId}`);
   };
 
   getCreditAmount = (productId: string): number => {
