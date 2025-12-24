@@ -1,8 +1,8 @@
 import { invariant } from '@shware/utils';
-import ms, { type StringValue } from 'ms';
+import ms from 'ms';
+import type { Metadata } from '../types';
 
 export type PriceId = `price_${string}`;
-export type CreditConfig = { credits: number; expiresIn: StringValue };
 
 const addMethod = Symbol('addMethod');
 
@@ -15,7 +15,7 @@ class Product<
   readonly id: string;
   readonly config: StripeConfig<NS, PE, PI>;
   readonly plan: PE | null;
-  readonly prices: Map<PriceId, CreditConfig>;
+  readonly prices: Map<PriceId, Metadata>;
 
   defaultPriceId: I | null;
 
@@ -29,9 +29,9 @@ class Product<
 
   price = <K extends PriceId>(
     priceId: K extends I ? never : K,
-    credit: CreditConfig = { credits: 0, expiresIn: '0' }
+    metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Product<NS, PE, PI, I | K> => {
-    this.prices.set(priceId, credit);
+    this.prices.set(priceId, metadata);
     return this as Product<NS, PE, PI, I | K>;
   };
 

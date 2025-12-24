@@ -1,7 +1,6 @@
 import { invariant } from '@shware/utils';
-import ms, { type StringValue } from 'ms';
-
-export type CreditConfig = { credits: number; expiresIn: StringValue };
+import ms from 'ms';
+import type { Metadata } from '../types';
 
 const addMethod = Symbol('addMethod');
 
@@ -14,7 +13,7 @@ class Subscription<
 > {
   readonly plan: PL;
   readonly config: AppStoreConfig<NS, PE, PL, PI>;
-  readonly products: Map<string, CreditConfig>;
+  readonly products: Map<string, Metadata>;
 
   defaultProductId: I | null;
 
@@ -27,9 +26,9 @@ class Subscription<
 
   product = <K extends `${NS}.${Lowercase<string>}`>(
     productId: K extends PI ? never : K,
-    credit: CreditConfig = { credits: 0, expiresIn: '0' }
+    metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Subscription<NS, PE, PL, PI | K, I | K> => {
-    this.products.set(productId, credit);
+    this.products.set(productId, metadata);
     return this as Subscription<NS, PE, PL, PI | K, I | K>;
   };
 
@@ -51,7 +50,7 @@ export class AppStoreConfig<
   readonly appId: string;
   readonly bundleId: string;
 
-  private products: Map<string, CreditConfig | null>;
+  private products: Map<string, Metadata | null>;
   private consumables: Set<string>;
   private subscriptions: Map<PE, Subscription<NS, PE, PL, PI>>;
   private nonConsumables: Set<string>;
@@ -61,7 +60,7 @@ export class AppStoreConfig<
   }
 
   [addMethod] = (subscription: Subscription<NS, PE, PL, PI>) => {
-    subscription.products.forEach((credit, productId) => this.products.set(productId, credit));
+    subscription.products.forEach((metadata, productId) => this.products.set(productId, metadata));
     this.subscriptions.set(subscription.plan, subscription);
     return this;
   };
@@ -85,10 +84,10 @@ export class AppStoreConfig<
 
   consumable = <K extends `${NS}.${Lowercase<string>}`>(
     productId: K extends PI ? never : K,
-    credit: CreditConfig = { credits: 0, expiresIn: '0' }
+    metadata: Metadata = { credits: 0, expiresIn: '0' }
   ) => {
     this.consumables.add(productId);
-    this.products.set(productId, credit);
+    this.products.set(productId, metadata);
     return this as AppStoreConfig<NS, PE, PL, PI | K>;
   };
 
