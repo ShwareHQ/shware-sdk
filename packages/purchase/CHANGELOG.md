@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.5.2
+
+### Patch Changes
+
+- fix type
+
 ## 1.5.1
 
 ### Patch Changes

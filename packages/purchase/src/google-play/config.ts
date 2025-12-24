@@ -85,7 +85,7 @@ export class GooglePlayConfig<
   ) => {
     this.onetimes.add(productId);
     this.products.set(productId, metadata);
-    return this;
+    return this as GooglePlayConfig<NS, PE, PI | K>;
   };
 
   getPlan = (productId: string, planId: string): PE => {
