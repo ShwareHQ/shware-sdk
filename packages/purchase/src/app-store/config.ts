@@ -114,7 +114,8 @@ export class AppStoreConfig<
 
   getCreditAmount = (productId: string): number => {
     const config = this.products.get(productId);
-    invariant(config, `Product not found for ${productId}`);
+    invariant(config !== undefined, `Product not found for ${productId}`);
+    invariant(config !== null, `Credits not available for non-consumable product ${productId}`);
     return config.credits;
   };
 

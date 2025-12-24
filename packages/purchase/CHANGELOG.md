@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.5.3
+
+### Patch Changes
+
+- update error message
+
 ## 1.5.2
 
 ### Patch Changes
