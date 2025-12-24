@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.5.5
+
+### Patch Changes
+
+- add priceID
+
 ## 1.5.4
 
 ### Patch Changes
