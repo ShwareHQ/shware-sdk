@@ -50,43 +50,51 @@ describe('GooglePlayConfig', () => {
   });
 
   it('should return correct credit amount', () => {
+    // Subscription products
     expect(config.getCreditAmount('com.example.sub.starter', 'monthly_v1')).toBe(100);
     expect(config.getCreditAmount('com.example.sub.starter', 'yearly_v1')).toBe(200);
     expect(config.getCreditAmount('com.example.sub.premium', 'monthly_v1')).toBe(300);
     expect(config.getCreditAmount('com.example.sub.premium', 'yearly_v1')).toBe(400);
 
+    // Onetime products
+    expect(config.getCreditAmount('com.example.credit.starter')).toBe(100);
+    expect(config.getCreditAmount('com.example.credit.premium')).toBe(200);
+
     // non-existent
     expect(() => config.getCreditAmount('nonexistent', 'monthly_v1')).toThrow();
     expect(() => config.getCreditAmount('com.example.sub.starter', 'nonexistent')).toThrow();
+    expect(() => config.getCreditAmount('nonexistent')).toThrow();
   });
 
   it('should return correct credit expiration', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
 
-    // STARTER monthly (30d)
     expect(config.getCreditExpiresAt('com.example.sub.starter', 'monthly_v1')).toBe(
       '2025-01-31T00:00:00.000Z'
     );
-
-    // STARTER yearly (365d)
     expect(config.getCreditExpiresAt('com.example.sub.starter', 'yearly_v1')).toBe(
       '2026-01-01T00:00:00.000Z'
     );
-
-    // PREMIUM monthly (30d)
     expect(config.getCreditExpiresAt('com.example.sub.premium', 'monthly_v1')).toBe(
       '2025-01-31T00:00:00.000Z'
     );
-
-    // PREMIUM yearly (365d)
     expect(config.getCreditExpiresAt('com.example.sub.premium', 'yearly_v1')).toBe(
       '2026-01-01T00:00:00.000Z'
+    );
+
+    // onetime products
+    expect(config.getCreditExpiresAt('com.example.credit.starter')).toBe(
+      '2025-01-31T00:00:00.000Z'
+    );
+    expect(config.getCreditExpiresAt('com.example.credit.premium')).toBe(
+      '2025-03-02T00:00:00.000Z'
     );
 
     // non-existent product
     expect(() => config.getCreditExpiresAt('nonexistent', 'monthly_v1')).toThrow();
     expect(() => config.getCreditExpiresAt('com.example.sub.starter', 'nonexistent')).toThrow();
+    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow();
 
     vi.useRealTimers();
   });

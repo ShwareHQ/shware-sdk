@@ -61,7 +61,9 @@ export class GooglePlayConfig<
     return this;
   };
 
-  private getId = (productId: string, planId: string) => `${productId}:${planId}`;
+  private getId = (productId: string, planId?: string) => {
+    return planId ? `${productId}:${planId}` : productId;
+  };
 
   private constructor(options: Options) {
     this.package = options.package;
@@ -102,21 +104,21 @@ export class GooglePlayConfig<
     throw new Error(`Mode not found for product ${productId}`);
   };
 
-  getCreditAmount = (productId: string, planId: string): number => {
+  getCreditAmount = (productId: string, planId?: string): number => {
     const id = this.getId(productId, planId);
     const metadata = this.products.get(id);
     invariant(metadata, `Product not found for ${id}`);
     return metadata.credits;
   };
 
-  private getCreditExpiresIn = (productId: string, planId: string): number => {
+  private getCreditExpiresIn = (productId: string, planId?: string): number => {
     const id = this.getId(productId, planId);
     const metadata = this.products.get(id);
     invariant(metadata, `Product not found for ${id}`);
     return ms(metadata.expiresIn);
   };
 
-  getCreditExpiresAt = (productId: string, planId: string): string => {
+  getCreditExpiresAt = (productId: string, planId?: string): string => {
     const expiresIn = this.getCreditExpiresIn(productId, planId);
     return new Date(Date.now() + expiresIn).toISOString();
   };

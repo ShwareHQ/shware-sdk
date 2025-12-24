@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.5.4
+
+### Patch Changes
+
+- fix onetime credit getter
+
 ## 1.5.3
 
 ### Patch Changes
