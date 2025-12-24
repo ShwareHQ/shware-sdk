@@ -18,7 +18,7 @@ describe('StripeConfig', () => {
     .price('price_credits_500', { credits: 500, expiresIn: '60d' })
     .default('price_credits_100')
     // Subscription product
-    .product('com.example.subscription.starter', Plan.STARTER)
+    .product('com.example.sub.starter', Plan.STARTER)
     .price('price_starter_monthly1', { credits: 1000, expiresIn: '30d' })
     .price('price_starter_monthly2', { credits: 12000, expiresIn: '365d' })
     .default('price_starter_monthly1')
@@ -30,7 +30,7 @@ describe('StripeConfig', () => {
   it('should manage products correctly', () => {
     expect(config.productIds).toHaveLength(3);
     expect(config.productIds).toContain('com.example.credits.starter');
-    expect(config.productIds).toContain('com.example.subscription.starter');
+    expect(config.productIds).toContain('com.example.sub.starter');
     expect(config.productIds).toContain('com.example.free');
   });
 
@@ -43,8 +43,8 @@ describe('StripeConfig', () => {
     );
 
     // subscription mode (has plan)
-    expect(config.getMode('com.example.subscription.starter')).toBe('subscription');
-    expect(config.getPlan('com.example.subscription.starter')).toBe(Plan.STARTER);
+    expect(config.getMode('com.example.sub.starter')).toBe('subscription');
+    expect(config.getPlan('com.example.sub.starter')).toBe(Plan.STARTER);
 
     // non-existent product
     expect(() => config.getMode('nonexistent')).toThrow();
@@ -53,7 +53,7 @@ describe('StripeConfig', () => {
 
   it('should return correct priceId', () => {
     expect(config.getPriceId('com.example.credits.starter')).toBe('price_credits_100');
-    expect(config.getPriceId('com.example.subscription.starter')).toBe('price_starter_monthly1');
+    expect(config.getPriceId('com.example.sub.starter')).toBe('price_starter_monthly1');
     expect(config.getPriceId('com.example.free')).toBe('price_free');
 
     expect(() => config.getPriceId('nonexistent')).toThrow();
@@ -62,14 +62,12 @@ describe('StripeConfig', () => {
   it('should return correct credit amount', () => {
     // default price
     expect(config.getCreditAmount('com.example.credits.starter')).toBe(100);
-    expect(config.getCreditAmount('com.example.subscription.starter')).toBe(1000);
+    expect(config.getCreditAmount('com.example.sub.starter')).toBe(1000);
     expect(config.getCreditAmount('com.example.free')).toBe(0);
 
     // specific price
     expect(config.getCreditAmount('com.example.credits.starter', 'price_credits_500')).toBe(500);
-    expect(
-      config.getCreditAmount('com.example.subscription.starter', 'price_starter_monthly2')
-    ).toBe(12000);
+    expect(config.getCreditAmount('com.example.sub.starter', 'price_starter_monthly2')).toBe(12000);
 
     // errors
     expect(() => config.getCreditAmount('nonexistent')).toThrow();
@@ -84,17 +82,15 @@ describe('StripeConfig', () => {
     expect(config.getCreditExpiresAt('com.example.credits.starter')).toBe(
       '2025-01-31T00:00:00.000Z'
     );
-    expect(config.getCreditExpiresAt('com.example.subscription.starter')).toBe(
-      '2025-01-31T00:00:00.000Z'
-    );
+    expect(config.getCreditExpiresAt('com.example.sub.starter')).toBe('2025-01-31T00:00:00.000Z');
 
     // specific price (60d / 365d)
     expect(config.getCreditExpiresAt('com.example.credits.starter', 'price_credits_500')).toBe(
       '2025-03-02T00:00:00.000Z'
     );
-    expect(
-      config.getCreditExpiresAt('com.example.subscription.starter', 'price_starter_monthly2')
-    ).toBe('2026-01-01T00:00:00.000Z');
+    expect(config.getCreditExpiresAt('com.example.sub.starter', 'price_starter_monthly2')).toBe(
+      '2026-01-01T00:00:00.000Z'
+    );
 
     // errors
     expect(() => config.getCreditExpiresAt('nonexistent')).toThrow();
