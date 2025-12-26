@@ -89,9 +89,10 @@ export class StripeConfig<
   };
 
   getPlan = (productId: string): PE => {
-    const plan = this.products.get(productId)?.plan;
-    if (!plan) throw new Error(`Plan not found for product ${productId}`);
-    return plan;
+    const product = this.products.get(productId);
+    invariant(product, `Product not found for ${productId}`);
+    invariant(product.plan, `Product ${productId} is not a subscription`);
+    return product.plan;
   };
 
   getMode = (productId: string): 'payment' | 'subscription' => {
