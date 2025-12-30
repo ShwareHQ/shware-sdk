@@ -51,6 +51,18 @@ export class Auth implements AuthService {
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
   }
 
+  private getSessionId(request: Request): string | undefined {
+    let sessionId: string | undefined;
+    const header = request.headers.get('Authorization');
+    if (header?.startsWith('Bearer ')) {
+      sessionId = header.replace('Bearer ', '');
+    }
+    if (!sessionId) {
+      sessionId = getCookie(request, this.cookieName);
+    }
+    return sessionId;
+  }
+
   csrf = async (_request: Request): Promise<Response> => {
     const token = randomUUID();
     const response = Response.json({
@@ -71,7 +83,7 @@ export class Auth implements AuthService {
   };
 
   logout = async (request: Request): Promise<Response> => {
-    const sessionId = getCookie(request, this.cookieName);
+    const sessionId = this.getSessionId(request);
     if (sessionId) await this.repository.deleteById(sessionId);
     const response = Response.json({});
     deleteCookie(response, this.cookieName);
@@ -79,8 +91,8 @@ export class Auth implements AuthService {
   };
 
   logged = async (request: Request, onLogged?: LoggedHandler): Promise<Response> => {
-    // 1. get session from cookie
-    const sessionId = getCookie(request, this.cookieName);
+    // 1. get session from header or cookie
+    const sessionId = this.getSessionId(request);
     if (!sessionId) return Response.json({ data: false });
     const session = await this.repository.findById(sessionId);
     if (!session) return Response.json({ data: false });
@@ -139,7 +151,7 @@ export class Auth implements AuthService {
     const state = randomUUID();
     const pkce = this.createPkceParameters();
     const uri = await this.oauth2Client.createAuthorizationUri({ registrationId, state, pkce });
-    const sessionId = getCookie(request, this.cookieName);
+    const sessionId = this.getSessionId(request);
     const session = sessionId
       ? ((await this.repository.findById(sessionId)) ?? this.repository.createSession())
       : this.repository.createSession();
@@ -180,8 +192,8 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
 
-    // 1. get session from cookie
-    const sessionId = getCookie(request, this.cookieName);
+    // 1. get session from header or cookie
+    const sessionId = this.getSessionId(request);
     const session = sessionId ? await this.repository.findById(sessionId) : null;
     if (!session) {
       return this.redirect('invalid_request', 'session not found');
@@ -369,7 +381,7 @@ export class Auth implements AuthService {
   };
 
   isAuthenticated = async (request: Request): Promise<boolean> => {
-    const sessionId = getCookie(request, this.cookieName);
+    const sessionId = this.getSessionId(request);
     if (!sessionId) return false;
     const session = await this.repository.findById(sessionId);
     if (!session) return false;
@@ -382,7 +394,7 @@ export class Auth implements AuthService {
     request: Request,
     create: T
   ): Promise<T extends true ? Session : Session | null> => {
-    const sessionId = getCookie(request, this.cookieName);
+    const sessionId = this.getSessionId(request);
     if (!sessionId) {
       if (create) {
         const session = this.repository.createSession();
@@ -410,7 +422,7 @@ export class Auth implements AuthService {
   };
 
   getPrincipal = async (request: Request): Promise<Principal | null> => {
-    const sessionId = getCookie(request, this.cookieName);
+    const sessionId = this.getSessionId(request);
     if (!sessionId) return null;
     const session = await this.repository.findById(sessionId);
     if (!session) return null;
