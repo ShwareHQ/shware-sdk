@@ -1,5 +1,11 @@
 # @repo/eslint-config
 
+## 0.0.12
+
+### Patch Changes
+
+- update deps
+
 ## 0.0.11
 
 ### Patch Changes
