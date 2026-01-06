@@ -18,8 +18,7 @@
     "prettier": "^3.7.4",
     "tsup": "^8.5.1",
     "turbo": "^2.7.2",
-    "typescript": "^5.9.3",
-    "unbuild": "^3.6.1"
+    "typescript": "^5.9.3"
   },
   "prettier": {
     "printWidth": 100,
