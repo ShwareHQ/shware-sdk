@@ -16,6 +16,59 @@ durations as (
 )
 select avg(duration) from durations;
 
+-- time to value (bar chart with group by weeks), event_name=ping
+with session_events as (
+  select
+    visitor_id,
+    min(case when name = 'session_start' then created_at end) as session_start_time,
+    min(case when name = 'ping' then created_at end) as value_event_time
+  from application.event
+  where
+    name in ('session_start', 'ping')
+    and created_at >= now() - interval '7 weeks'
+  group by visitor_id
+  having
+    min(case when name = 'session_start' then created_at end) is not null 
+    and min(case when name = 'ping' then created_at end) is not null
+),
+time_to_value as (
+  select
+    extract(epoch from (value_event_time - session_start_time)) as ttv_seconds,
+    date_trunc('week', session_start_time) as week_start
+  from session_events
+  where value_event_time > session_start_time
+),
+ttv_buckets as (
+  select 
+    week_start,
+    ttv_seconds,
+    ntile(4) over (partition by week_start order by ttv_seconds) as quartile
+  from time_to_value
+)
+-- pivot: transform metric to column
+select
+  week_start as time,
+  -- avg
+  -- avg(case when quartile = 1 then ttv_seconds end) as "0-25%",
+  -- avg(case when quartile = 2 then ttv_seconds end) as "25-50%",
+  -- avg(case when quartile = 3 then ttv_seconds end) as "50-75%",
+  -- avg(case when quartile = 4 then ttv_seconds end) as "75-100%"
+
+  -- count
+  -- count(case when quartile = 1 then ttv_seconds end) as "0-25%",
+  -- count(case when quartile = 2 then ttv_seconds end) as "25-50%",
+  -- count(case when quartile = 3 then ttv_seconds end) as "50-75%",
+  -- count(case when quartile = 4 then ttv_seconds end) as "75-100%"
+
+  -- median
+  percentile_cont(0.5) within group (order by case when quartile = 1 then ttv_seconds end) as "0-25%",
+  percentile_cont(0.5) within group (order by case when quartile = 2 then ttv_seconds end) as "25-50%",
+  percentile_cont(0.5) within group (order by case when quartile = 3 then ttv_seconds end) as "50-75%",
+  percentile_cont(0.5) within group (order by case when quartile = 4 then ttv_seconds end) as "75-100%"
+from ttv_buckets
+group by week_start
+order by week_start;
+
 -- User funnel (Bar chart)
 select
   e.name as event_name,
