@@ -8,7 +8,7 @@ export const base62 = {
       else break;
     }
 
-    let num = BigInt('0x' + buffer.toString('hex'));
+    let num = BigInt(`0x${buffer.toString('hex')}`);
     if (num === 0n) return '0'.repeat(buffer.length);
 
     const chars: string[] = [];
@@ -45,7 +45,7 @@ export const base62 = {
     }
 
     let hex = num.toString(16);
-    if (hex.length % 2 !== 0) hex = '0' + hex;
+    if (hex.length % 2 !== 0) hex = `0${hex}`;
     let buf = Buffer.from(hex, 'hex');
 
     if (leadingZeros > 0) {

@@ -48,7 +48,7 @@ export async function getDeterministicFingerprint(): Promise<DeterministicFinger
 }
 
 export async function getProbabilisticFingerprint(
-  shouldUseClipboard: boolean = true
+  shouldUseClipboard = true
 ): Promise<ProbabilisticFingerprint> {
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);

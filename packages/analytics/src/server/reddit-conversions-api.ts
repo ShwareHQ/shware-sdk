@@ -1,8 +1,7 @@
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
+import { type ServerStandardEvent, mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
 import { getFirst } from '../utils/field';
-import type { ServerStandardEvent } from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 
 /**

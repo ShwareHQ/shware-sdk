@@ -1,6 +1,5 @@
-import { mapRDTEvent } from '../track/rdt';
+import { type PixelId, type RDT, mapRDTEvent } from '../track/rdt';
 import { getFirst } from '../utils/field';
-import type { PixelId, RDT } from '../track/rdt';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import type { UpdateVisitorDTO } from '../visitor/types';
 

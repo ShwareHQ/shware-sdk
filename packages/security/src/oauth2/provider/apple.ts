@@ -1,6 +1,6 @@
 import { invariant } from '@shware/utils';
 import { OAuth2Error } from '../error';
-import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, Provider } from '../types';
+import type { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, Provider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 // ref: https://account.apple.com/.well-known/openid-configuration

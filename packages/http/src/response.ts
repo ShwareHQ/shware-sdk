@@ -15,7 +15,7 @@ export type PageParams = { limit: number; prev?: string; next?: string };
 export type ParentPageParams = { limit: number; parent: string; prev?: string; next?: string };
 export type Page<T = never> = { data: T[]; paging: { next: string; prev: string } };
 
-export function pageParamsSchema(max: number = 100, defaultLimit: number = 20) {
+export function pageParamsSchema(max = 100, defaultLimit = 20) {
   return object({
     limit: _default(coerce.number().check(int(), minimum(1), maximum(max)), defaultLimit),
     prev: optional(string()),

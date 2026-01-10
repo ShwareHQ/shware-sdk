@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { Session } from './types';
+import type { Session } from './types';
 
 function generateId() {
   return randomUUID();

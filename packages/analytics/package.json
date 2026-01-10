@@ -2,20 +2,14 @@
   "name": "@shware/analytics",
   "version": "3.0.8",
   "private": false,
-  "type": "module",
-  "scripts": {
-    "dev": "tsc --watch",
-    "check-types": "tsc --noEmit",
-    "test": "vitest run",
-    "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx",
-    "build": "tsup",
-    "build:tsup": "tsup",
-    "build:unbuild": "unbuild"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
   },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -63,9 +57,15 @@
       "require": "./dist/server/index.cjs"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "scripts": {
+    "dev": "tsc --watch",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "oxlint . --fix",
+    "build": "tsup",
+    "build:tsup": "tsup",
+    "build:unbuild": "unbuild"
+  },
   "dependencies": {
     "@shware/utils": "workspace:^",
     "bowser": "^2.13.1",
@@ -75,7 +75,6 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^23",
     "@types/node": "^24",

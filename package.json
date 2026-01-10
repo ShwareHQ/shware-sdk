@@ -3,10 +3,10 @@
   "private": false,
   "scripts": {
     "dev": "turbo run dev",
-    "lint": "turbo run lint",
     "build": "turbo run build",
     "test": "turbo run test",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "format": "oxfmt",
+    "lint": "oxlint --fix",
     "check-types": "turbo run check-types",
     "prepare": "husky"
   },
@@ -15,28 +15,14 @@
     "@commitlint/cli": "^20.3.0",
     "@commitlint/config-conventional": "^20.3.0",
     "husky": "^9.1.7",
-    "prettier": "^3.7.4",
+    "oxfmt": "^0.23.0",
+    "oxlint": "^1.38.0",
     "tsup": "^8.5.1",
     "turbo": "^2.7.2",
     "typescript": "^5.9.3"
   },
-  "prettier": {
-    "printWidth": 100,
-    "tabWidth": 2,
-    "useTabs": false,
-    "semi": true,
-    "singleQuote": true,
-    "quoteProps": "as-needed",
-    "jsxSingleQuote": false,
-    "trailingComma": "es5",
-    "bracketSpacing": true,
-    "bracketSameLine": false,
-    "arrowParens": "always",
-    "endOfLine": "lf",
-    "plugins": []
-  },
-  "packageManager": "pnpm@10.27.0",
   "engines": {
     "node": "24.x"
-  }
+  },
+  "packageManager": "pnpm@10.27.0"
 }

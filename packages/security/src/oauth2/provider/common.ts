@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { OAuth2Error } from '../error';
-import { ExchangeCodeParams, PkceParameters, RefreshTokenParams } from '../types';
+import type { ExchangeCodeParams, PkceParameters, RefreshTokenParams } from '../types';
 
 export function createAuthorizationUri(options: {
   state: string;

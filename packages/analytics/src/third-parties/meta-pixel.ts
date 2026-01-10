@@ -1,6 +1,5 @@
-import { PixelId, mapFBEvent } from '../track/fbq';
+import { type FBQ, type PixelId, mapFBEvent } from '../track/fbq';
 import { getFirst } from '../utils/field';
-import type { FBQ } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import type { UpdateVisitorDTO } from '../visitor/types';
 

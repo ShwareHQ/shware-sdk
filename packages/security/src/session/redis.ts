@@ -131,7 +131,7 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
     await this.save(session);
   }
 
-  async cleanupExpiredSessions(cleanupCount: number = 100) {
+  async cleanupExpiredSessions(cleanupCount = 100) {
     const key = this.expirationsKey;
     const score = Date.now();
     const sessionIds = await this.redis.zrevrangebyscore(key, score, 0, 'LIMIT', 0, cleanupCount);

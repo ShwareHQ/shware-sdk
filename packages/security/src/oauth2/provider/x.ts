@@ -1,6 +1,6 @@
 import { invariant } from '@shware/utils';
 import { OAuth2Error } from '../error';
-import { OAuth2Token, Provider } from '../types';
+import type { OAuth2Token, Provider } from '../types';
 import {
   createAuthorizationUri,
   exchangeAuthorizationCode,
@@ -68,7 +68,7 @@ export function createXProvider(options?: XOptions): Provider {
         throw new OAuth2Error(
           response.status,
           'invalid_request',
-          'Failed to fetch user info: ' + (errors.at(0)?.detail ?? errors.at(0)?.title)
+          `Failed to fetch user info: ${errors.at(0)?.detail ?? errors.at(0)?.title}`
         );
       }
       const profile = (await response.json()) as XUserInfo;

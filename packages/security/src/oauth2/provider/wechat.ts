@@ -57,7 +57,7 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
         claims: {
           sub: data.unionid ?? data.openid,
           name: data.nickname,
-          picture: data.headimgurl.split('/').slice(0, -1).join('/') + '/0',
+          picture: `${data.headimgurl.split('/').slice(0, -1).join('/')}/0`,
           gender: data.sex === 1 ? 'male' : data.sex === 2 ? 'female' : undefined,
         },
       };

@@ -2,18 +2,14 @@
   "name": "@shware/purchase",
   "version": "1.5.7",
   "private": false,
-  "type": "module",
-  "scripts": {
-    "dev": "tsc --watch",
-    "build": "tsup",
-    "test": "vitest run",
-    "check-types": "tsc --noEmit",
-    "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
   },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -41,21 +37,24 @@
       "require": "./dist/stripe/index.cjs"
     }
   },
-  "files": [
-    "dist"
-  ],
-  "devDependencies": {
-    "@repo/eslint-config": "workspace:*",
-    "@repo/typescript-config": "workspace:*",
-    "@types/ms": "^2.1.0",
-    "@types/node": "^24",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsup",
+    "test": "vitest run",
+    "check-types": "tsc --noEmit",
+    "lint": "oxlint . --fix"
   },
   "dependencies": {
     "@shware/utils": "workspace:^",
     "ms": "^2.1.3",
     "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/ms": "^2.1.0",
+    "@types/node": "^24",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
   },
   "peerDependencies": {
     "stripe": "^20"

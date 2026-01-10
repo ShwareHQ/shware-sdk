@@ -3,6 +3,7 @@ export function chunk<T>(array: T[], size: number): T[][] {
   if (array.length === 0) return [];
 
   const chunksCount = Math.ceil(array.length / size);
+  // oxlint-disable-next-line no-new-array
   const result: T[][] = new Array(chunksCount);
 
   for (let i = 0; i < chunksCount; i++) {

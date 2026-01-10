@@ -1,6 +1,11 @@
 import { invariant } from '@shware/utils';
 import { OAuth2Error } from '../error';
-import { LoginOAuth2NativeParams, NativeCredential, OAuth2Token, OneTapProvider } from '../types';
+import type {
+  LoginOAuth2NativeParams,
+  NativeCredential,
+  OAuth2Token,
+  OneTapProvider,
+} from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 export function createGoogleProvider(): OneTapProvider {

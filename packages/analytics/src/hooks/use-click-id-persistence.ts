@@ -5,7 +5,7 @@ import { keys } from '../constants/storage';
 function setCookie(name: string, value: string, ttlInMs: number) {
   const d = new Date();
   d.setTime(d.getTime() + ttlInMs);
-  const expires = 'expires=' + d.toUTCString();
+  const expires = `expires=${d.toUTCString()}`;
   document.cookie = `${name}=${value}; ${expires}; path=/; SameSite=Lax; Secure`;
 }
 

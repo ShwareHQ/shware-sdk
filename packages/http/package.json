@@ -2,18 +2,14 @@
   "name": "@shware/http",
   "version": "2.2.3",
   "private": false,
-  "type": "module",
-  "scripts": {
-    "dev": "tsc --watch",
-    "build": "tsup",
-    "test": "vitest run",
-    "check-types": "tsc --noEmit",
-    "lint": "npx eslint . --fix --ext .js,.jsx,.ts,.tsx"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
   },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -41,20 +37,23 @@
       "require": "./dist/google-one-tap/index.cjs"
     }
   },
-  "files": [
-    "dist"
-  ],
-  "devDependencies": {
-    "@repo/eslint-config": "workspace:*",
-    "@repo/typescript-config": "workspace:*",
-    "@types/node": "^24",
-    "@types/react": "^19.2.7",
-    "typescript": "^5.9.3"
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsup",
+    "test": "vitest run",
+    "check-types": "tsc --noEmit",
+    "lint": "oxlint . --fix"
   },
   "dependencies": {
     "@shware/utils": "workspace:^",
     "vitest": "^4.0.16",
     "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^24",
+    "@types/react": "^19.2.7",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "hono": "^4.10.4",

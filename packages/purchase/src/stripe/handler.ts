@@ -1,4 +1,4 @@
-import type Stripe from 'stripe';
+import { type Stripe } from 'stripe';
 
 type StripeEventObject<T extends Stripe.Event.Type> = Extract<
   Stripe.Event,

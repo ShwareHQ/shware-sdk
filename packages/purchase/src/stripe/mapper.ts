@@ -1,5 +1,5 @@
 import { SubscriptionStatus } from '../subscription/index';
-import type Stripe from 'stripe';
+import { type Stripe } from 'stripe';
 
 export function mapTime<T extends number | null>(
   stripeTimestampSeconds: T

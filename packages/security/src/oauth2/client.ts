@@ -1,6 +1,6 @@
 import { invariant } from '@shware/utils';
 import { object, optional, string } from 'zod/v4-mini';
-import {
+import type {
   NativeCredential,
   OAuth2ClientConfig,
   OAuth2Token,

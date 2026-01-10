@@ -4,8 +4,7 @@ import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
-import { cache, config } from '../setup/index';
-import type { Storage } from '../setup/index';
+import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
 export function getDeviceId() {
