@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.1.4
+
+### Patch Changes
+
+- replace prettier and eslint with oxfmt and oxlint
+
 ## 1.1.3
 
 ### Patch Changes

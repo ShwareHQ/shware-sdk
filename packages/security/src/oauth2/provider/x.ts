@@ -167,8 +167,13 @@ export interface XUserInfo {
   includes?: { tweets?: { id: string; text: string }[]; users?: XUser[] };
 }
 
-// prettier-ignore
-type UrlEntity = { start: number; end: number; url: string; display_url: string; expanded_url: string; }
+type UrlEntity = {
+  start: number;
+  end: number;
+  url: string;
+  display_url: string;
+  expanded_url: string;
+};
 type HashtagEntity = { start: number; end: number; tag: string };
 type MentionEntity = { start: number; end: string; username: string };
 

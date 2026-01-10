@@ -1,5 +1,13 @@
 # @shware/security
 
+## 2.0.2
+
+### Patch Changes
+
+- replace prettier and eslint with oxfmt and oxlint
+- Updated dependencies
+  - @shware/utils@1.1.4
+
 ## 2.0.1
 
 ### Patch Changes

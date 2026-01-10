@@ -1,5 +1,13 @@
 # @shware/http
 
+## 2.2.4
+
+### Patch Changes
+
+- replace prettier and eslint with oxfmt and oxlint
+- Updated dependencies
+  - @shware/utils@1.1.4
+
 ## 2.2.3
 
 ### Patch Changes

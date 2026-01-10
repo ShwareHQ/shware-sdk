@@ -1,5 +1,13 @@
 # @shware/purchase
 
+## 1.5.8
+
+### Patch Changes
+
+- replace prettier and eslint with oxfmt and oxlint
+- Updated dependencies
+  - @shware/utils@1.1.4
+
 ## 1.5.7
 
 ### Patch Changes

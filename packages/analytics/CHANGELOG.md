@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 3.0.9
+
+### Patch Changes
+
+- replace prettier and eslint with oxfmt and oxlint
+- Updated dependencies
+  - @shware/utils@1.1.4
+
 ## 3.0.8
 
 ### Patch Changes
