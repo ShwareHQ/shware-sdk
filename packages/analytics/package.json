@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.0.9",
+  "version": "3.1.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -46,6 +46,11 @@
       "import": "./dist/react-router/index.mjs",
       "require": "./dist/react-router/index.cjs"
     },
+    "./tanstack": {
+      "types": "./dist/tanstack/index.d.ts",
+      "import": "./dist/tanstack/index.mjs",
+      "require": "./dist/tanstack/index.cjs"
+    },
     "./third-parties": {
       "types": "./dist/third-parties/index.d.ts",
       "import": "./dist/third-parties/index.mjs",
@@ -84,6 +89,7 @@
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^23.3.1",
+    "@tanstack/react-router": "^1.132.0",
     "expo-application": "7.0.7",
     "expo-clipboard": "^8.0.7",
     "expo-crypto": "^15.0.7",
@@ -101,6 +107,9 @@
   },
   "peerDependenciesMeta": {
     "@react-native-firebase/analytics": {
+      "optional": true
+    },
+    "@tanstack/react-router": {
       "optional": true
     },
     "expo-application": {

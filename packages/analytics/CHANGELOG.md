@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.1.0
+
+### Minor Changes
+
+- add tanstack router support
+
 ## 3.0.9
 
 ### Patch Changes
