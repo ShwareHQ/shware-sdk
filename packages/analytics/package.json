@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -88,19 +88,19 @@
     "vitest": "^4.0.16"
   },
   "peerDependencies": {
-    "@react-native-firebase/analytics": "^23.3.1",
+    "@react-native-firebase/analytics": "^23.7.0",
     "@tanstack/react-router": "^1.132.0",
-    "expo-application": "7.0.7",
-    "expo-clipboard": "^8.0.7",
-    "expo-crypto": "^15.0.7",
-    "expo-device": "^8.0.9",
-    "expo-localization": "^17.0.7",
-    "expo-sqlite": "^16.0.8",
-    "expo-tracking-transparency": "^6.0.7",
+    "expo-application": "^7.0.8",
+    "expo-clipboard": "^8.0.8",
+    "expo-crypto": "^15.0.8",
+    "expo-device": "^8.0.10",
+    "expo-localization": "^17.0.8",
+    "expo-sqlite": "^16.0.10",
+    "expo-tracking-transparency": "^6.0.8",
     "facebook-nodejs-business-sdk": "^23",
     "next": "^15",
     "react": "^19",
-    "react-native": "^0.81.4",
+    "react-native": "^0.81.5",
     "react-native-fbsdk-next": "^13.4.1",
     "react-native-url-polyfill": "^3",
     "react-router": "^7"

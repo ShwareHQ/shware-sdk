@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.1.1
+
+### Patch Changes
+
+- update deps
+
 ## 3.1.0
 
 ### Minor Changes
