@@ -1,6 +1,6 @@
+import type { Context } from 'hono';
 import { getRuntimeKey } from 'hono/adapter';
 import { extractIpAddress } from '../utils/ip';
-import type { Context } from 'hono';
 
 export type Geolocation = {
   ip_address?: string;

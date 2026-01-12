@@ -1,12 +1,12 @@
+import { fetch } from '@shware/utils';
 /**
  * Conversions API Payload Builder: https://www.linkedin.com/developers/payload-builder
  * https://learn.microsoft.com/en-us/linkedin/marketing/conversions/conversions-overview?view=li-lms-2025-09
  */
 import { createHash } from 'crypto';
-import { fetch } from '@shware/utils';
+import type { TrackEvent, UserProvidedData } from '../track/types';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getFirst } from '../utils/field';
-import type { TrackEvent, UserProvidedData } from '../track/types';
 
 type UserIdType =
   | 'SHA256_EMAIL'

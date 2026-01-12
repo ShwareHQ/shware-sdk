@@ -1,7 +1,11 @@
-import { createHash, randomUUID } from 'crypto';
 import { invariant } from '@shware/utils';
-import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
+import { createHash, randomUUID } from 'crypto';
+import type { Principal } from '../core';
 import type { OAuth2ErrorType } from '../oauth2/error';
+import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
+import type { KVRepository, Session, SessionRepository } from '../session/types';
+import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
+import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { google } from '../oauth2/provider/index';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../session/common';
 import {
@@ -13,10 +17,6 @@ import {
   setCookie,
 } from '../utils/http';
 import { timing } from '../utils/timing';
-import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
-import type { Principal } from '../core';
-import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
-import type { KVRepository, Session, SessionRepository } from '../session/types';
 
 export class Auth implements AuthService {
   private readonly timing: boolean;

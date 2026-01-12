@@ -1,6 +1,6 @@
 import { AppEventsLogger, type Params } from 'react-native-fbsdk-next';
-import { mapFBEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
+import { mapFBEvent } from '../track/fbq';
 
 /**
  * ref: https://developers.facebook.com/docs/app-events/guides/maximize-in-app-ad-revenue/

@@ -1,6 +1,6 @@
 import { fetch } from '@shware/utils';
-import { config } from '../setup/index';
 import type { CreateFeedbackDTO } from '../schema/index';
+import { config } from '../setup/index';
 
 export async function sendFeedback(dto: CreateFeedbackDTO) {
   const response = await fetch(`${config.endpoint}/feedback`, {

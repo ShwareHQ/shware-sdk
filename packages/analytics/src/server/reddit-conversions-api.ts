@@ -1,8 +1,8 @@
 import { fetch } from '@shware/utils';
+import type { TrackEvent, UserProvidedData } from '../track/types';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { type ServerStandardEvent, mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
 import { getFirst } from '../utils/field';
-import type { TrackEvent, UserProvidedData } from '../track/types';
 
 /**
  * https://ads-api.reddit.com/docs/v3/operations/Post%20Conversion%20Events

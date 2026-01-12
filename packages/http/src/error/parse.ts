@@ -1,7 +1,7 @@
-import { hasText } from '@shware/utils';
-import { type BadRequest, DetailType } from './detail';
-import type { ErrorBody } from './status';
 import type { DefaultNamespace, Namespace, TFunction } from 'i18next';
+import { hasText } from '@shware/utils';
+import type { ErrorBody } from './status';
+import { type BadRequest, DetailType } from './detail';
 
 export function getErrorReason(data: unknown) {
   if (typeof data !== 'object' || data === null || !('error' in data)) return 'UNKNOWN';

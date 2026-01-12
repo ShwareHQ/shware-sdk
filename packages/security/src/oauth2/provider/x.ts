@@ -1,6 +1,6 @@
 import { invariant } from '@shware/utils';
-import { OAuth2Error } from '../error';
 import type { OAuth2Token, Provider } from '../types';
+import { OAuth2Error } from '../error';
 import {
   createAuthorizationUri,
   exchangeAuthorizationCode,

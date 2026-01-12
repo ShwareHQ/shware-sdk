@@ -1,7 +1,7 @@
-import { type PixelId, type RDT, mapRDTEvent } from '../track/rdt';
-import { getFirst } from '../utils/field';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import type { UpdateVisitorDTO } from '../visitor/types';
+import { type PixelId, type RDT, mapRDTEvent } from '../track/rdt';
+import { getFirst } from '../utils/field';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type

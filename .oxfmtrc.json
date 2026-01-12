@@ -18,5 +18,6 @@
   "useTabs": false,
   "experimentalSortPackageJson": true,
   "experimentalTailwindcss": { "functions": ["clsx", "cn", "cva", "tw"] },
-  "ignorePatterns": []
+  "experimentalSortImports": { "newlinesBetween": false },
+  "ignorePatterns": ["routeTree.gen.ts"]
 }

@@ -1,9 +1,9 @@
-import { DetailType, Details } from '../error/detail';
-import { Status, StatusError } from '../error/status';
 import type { Context } from 'hono';
 import type { RequestIdVariables } from 'hono/request-id';
 import type { Bindings, HTTPResponseError } from 'hono/types';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { DetailType, Details } from '../error/detail';
+import { Status, StatusError } from '../error/status';
 
 export type Env = {
   Variables: RequestIdVariables;

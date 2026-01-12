@@ -1,3 +1,4 @@
+import type { MiddlewareHandler } from 'hono';
 import { timingSafeEqual } from 'crypto';
 import { getCookie } from 'hono/cookie';
 import { METHOD_NAME_ALL } from 'hono/router';
@@ -5,7 +6,6 @@ import { RegExpRouter } from 'hono/router/reg-exp-router';
 import { SmartRouter } from 'hono/router/smart-router';
 import { TrieRouter } from 'hono/router/trie-router';
 import { Status } from '../error/status';
-import type { MiddlewareHandler } from 'hono';
 
 type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS';
 

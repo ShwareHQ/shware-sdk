@@ -1,6 +1,6 @@
 import { fetch } from '@shware/utils';
-import { config } from '../setup/index';
 import type { CreateLinkDTO } from '../schema/index';
+import { config } from '../setup/index';
 
 export interface Link extends CreateLinkDTO {
   id: string;
