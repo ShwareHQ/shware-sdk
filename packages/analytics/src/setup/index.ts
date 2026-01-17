@@ -42,6 +42,7 @@ export const cache: Cache = {
   visitor: null,
 };
 
+// oxlint-disable typescript/no-non-null-assertion
 export const config: Config = {
   endpoint: '',
   release: '0.0.0',
@@ -54,6 +55,7 @@ export const config: Config = {
   thirdPartyTrackers: [],
   thirdPartyUserSetters: [],
 };
+// oxlint-enable typescript/no-non-null-assertion
 
 export function setupAnalytics(init: Options) {
   config.release = init.release;

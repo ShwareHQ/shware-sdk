@@ -47,7 +47,7 @@ describe('redis session attributes', () => {
     expect(foundSession?.getAttribute('test_key')).toBe('test_value');
 
     foundSession?.removeAttribute('test_key');
-    await repository.save(foundSession!);
+    if (foundSession) await repository.save(foundSession);
 
     const foundSession2 = await repository.findById(sessionId);
     expect(foundSession2?.getAttribute('test_key')).toBeNull();

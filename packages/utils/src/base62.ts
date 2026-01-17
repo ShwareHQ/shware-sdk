@@ -14,7 +14,7 @@ export const base62 = {
     const chars: string[] = [];
     while (num > 0n) {
       const remainder = num % base;
-      chars.push(charset[Number(remainder)]!);
+      chars.push(charset[Number(remainder)]);
       num /= base;
     }
 

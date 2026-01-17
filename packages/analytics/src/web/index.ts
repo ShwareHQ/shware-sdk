@@ -4,7 +4,7 @@ import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import type { TrackTags } from '../track/types';
 import { keys } from '../constants/storage';
-import { type Link, getLink } from '../link/index';
+import { getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 
 export function getDeviceId() {
@@ -23,8 +23,8 @@ export async function getTags() {
   const platform = parser.getPlatform();
   const parsed = parseCookie(document.cookie);
 
-  let link: Link | null = null;
-  if (params.has('s')) link = await getLink(params.get('s')!);
+  const linkId = params.get('s');
+  const link = linkId ? await getLink(linkId) : null;
 
   const tags: TrackTags = {
     os: `${os.name} ${os.version}`,

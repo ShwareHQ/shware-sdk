@@ -71,7 +71,12 @@ async function sendEvents(events: Item[]) {
 
     let index = 0;
     while (events.length > 0) {
-      const { options, name, properties } = events.shift()!;
+      const event = events.shift();
+      if (!event) {
+        index++;
+        continue;
+      }
+      const { options, name, properties } = event;
       const eventId = data[index].id;
       options.onSucceed?.({ id: eventId });
       index++;

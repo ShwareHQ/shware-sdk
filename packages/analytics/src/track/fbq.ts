@@ -355,7 +355,7 @@ export function mapItems(items?: Item[]): ObjectProperties {
   const categories = Array.from(new Set(items.map((i) => i.item_category).filter(Boolean)));
   const contents: Content[] = items.map(
     ({ item_id, quantity, price, item_name, item_brand, item_category, ..._others }) => ({
-      id: item_id!,
+      id: item_id,
       quantity: quantity ?? 1,
       item_price: price,
       title: item_name,
