@@ -16,6 +16,8 @@ export type Props = {
   callback: (response: CredentialResponse) => void | Promise<void>;
 };
 
+let script: HTMLScriptElement | null = null;
+
 /** debug: chrome://settings/content/federatedIdentityApi */
 export function prompt({
   client_id,
@@ -24,13 +26,7 @@ export function prompt({
   cancel_on_tap_outside = false,
   callback,
 }: Props) {
-  const scriptId = 'google-one-tap';
-  const script = document.createElement('script');
-  script.id = scriptId;
-  script.async = true;
-  script.defer = true;
-  script.src = 'https://accounts.google.com/gsi/client';
-  script.onload = () => {
+  const initializeAndPrompt = () => {
     window.google.accounts.id.initialize({
       ux_mode: 'popup',
       context: 'signin',
@@ -43,6 +39,22 @@ export function prompt({
     });
     window.google?.accounts?.id?.prompt();
   };
+
+  if (script) {
+    if (window.google?.accounts?.id) {
+      initializeAndPrompt();
+    } else {
+      script.addEventListener('load', initializeAndPrompt);
+    }
+    return;
+  }
+
+  script = document.createElement('script');
+  script.id = 'google-one-tap';
+  script.async = true;
+  script.defer = true;
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.onload = initializeAndPrompt;
 
   document.head.appendChild(script);
 }

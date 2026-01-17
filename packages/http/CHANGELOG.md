@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.3.0
+
+### Minor Changes
+
+- fix append script more than once
+
 ## 2.2.5
 
 ### Patch Changes
