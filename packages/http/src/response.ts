@@ -24,8 +24,14 @@ export function pageParamsSchema(max = 100, defaultLimit = 20) {
 }
 
 export const Cursor = {
-  of(prev: bigint | number | string | undefined, next: bigint | number | string | undefined) {
-    return { prev: prev ? this.encode(prev) : '', next: next ? this.encode(next) : '' };
+  of(
+    prev: bigint | number | string | undefined,
+    next: bigint | number | string | undefined
+  ): Page['paging'] {
+    return {
+      prev: prev ? this.encode(prev) : undefined,
+      next: next ? this.encode(next) : undefined,
+    };
   },
   empty(): Page['paging'] {
     return { prev: undefined, next: undefined };

@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.4.1
+
+### Patch Changes
+
+- feat support undefined response for cursor.of
+
 ## 2.4.0
 
 ### Minor Changes
