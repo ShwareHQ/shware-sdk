@@ -9,12 +9,21 @@ declare global {
 }
 
 export type Props = {
-  clientId: string;
+  client_id: string;
+  auto_select?: boolean;
+  cancel_on_tap_outside?: boolean;
+  use_fedcm_for_prompt?: boolean;
   callback: (response: CredentialResponse) => void | Promise<void>;
 };
 
 /** debug: chrome://settings/content/federatedIdentityApi */
-export function prompt({ clientId, callback }: Props) {
+export function prompt({
+  client_id,
+  auto_select = false,
+  use_fedcm_for_prompt = true,
+  cancel_on_tap_outside = false,
+  callback,
+}: Props) {
   const scriptId = 'google-one-tap';
   const script = document.createElement('script');
   script.id = scriptId;
@@ -25,11 +34,12 @@ export function prompt({ clientId, callback }: Props) {
     window.google.accounts.id.initialize({
       ux_mode: 'popup',
       context: 'signin',
-      auto_select: false,
-      client_id: clientId,
-      use_fedcm_for_prompt: true,
-      cancel_on_tap_outside: false,
+      auto_select,
+      client_id,
+      use_fedcm_for_prompt,
+      cancel_on_tap_outside,
       callback,
+      native_callback: callback,
     });
     window.google?.accounts?.id?.prompt();
   };
