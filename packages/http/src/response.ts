@@ -13,7 +13,7 @@ export type NextParams = { limit: number; parent?: string; next: string };
 export type PrevParams = { limit: number; parent?: string; prev: string };
 export type PageParams = { limit: number; prev?: string; next?: string };
 export type ParentPageParams = { limit: number; parent: string; prev?: string; next?: string };
-export type Page<T = never> = { data: T[]; paging: { next: string; prev: string } };
+export type Page<T = never> = { data: T[]; paging: { next?: string; prev?: string } };
 
 export function pageParamsSchema(max = 100, defaultLimit = 20) {
   return object({
@@ -27,10 +27,11 @@ export const Cursor = {
   of(prev: bigint | number | string | undefined, next: bigint | number | string | undefined) {
     return { prev: prev ? this.encode(prev) : '', next: next ? this.encode(next) : '' };
   },
-  empty() {
-    return { prev: '', next: '' };
+  empty(): Page['paging'] {
+    return { prev: undefined, next: undefined };
   },
-  encode(id: bigint | number | string): string {
+  encode(id: bigint | number | string | undefined): string | undefined {
+    if (!id) return undefined;
     return Buffer.from(id.toString(), 'utf-8').toString('base64');
   },
   decode<T extends 'bigint' | 'number' | 'string' = 'bigint'>(
@@ -46,12 +47,12 @@ export const Cursor = {
   },
 };
 
-export const initialPageParam: Omit<PageParams, 'limit'> = { next: '', prev: '' };
+export const initialPageParam: Page['paging'] = { next: undefined, prev: undefined };
 
-export function getPreviousPageParam<T = never>(first: Page<T>): Omit<PageParams, 'limit'> | null {
-  return hasText(first.paging.prev) ? { next: '', prev: first.paging.prev } : null;
+export function getPreviousPageParam<T = never>(first: Page<T>): Page['paging'] | null {
+  return hasText(first.paging.prev) ? { prev: first.paging.prev } : null;
 }
 
-export function getNextPageParam<T = never>(last: Page<T>): Omit<PageParams, 'limit'> | null {
-  return hasText(last.paging.next) ? { next: last.paging.next, prev: '' } : null;
+export function getNextPageParam<T = never>(last: Page<T>): Page['paging'] | null {
+  return hasText(last.paging.next) ? { next: last.paging.next } : null;
 }

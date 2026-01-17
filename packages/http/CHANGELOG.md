@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.4.0
+
+### Minor Changes
+
+- feat support undefined cursor
+
 ## 2.3.0
 
 ### Minor Changes
