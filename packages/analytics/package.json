@@ -85,7 +85,7 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.17"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^23.7.0",
