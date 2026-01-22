@@ -1,6 +1,6 @@
 {
   "name": "@shware/utils",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "private": false,
   "repository": {
     "type": "git",
@@ -27,8 +27,12 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^24",
+    "@types/react": "^19.1.9",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0"
   },
   "peerDependenciesMeta": {}
 }

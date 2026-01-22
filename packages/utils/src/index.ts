@@ -9,3 +9,6 @@ export { throttle } from './throttle';
 export { debounce } from './debounce';
 export { expiringStorage } from './storage';
 export { stripeMinorUnits, ZERO_DECIMAL_CURRENCIES } from './stripe';
+
+// react utils
+export { useExponentialHint } from './react/use-exponential-hint';
