@@ -53,7 +53,7 @@ export const Cursor = {
   },
 };
 
-export const initialPageParam: Page['paging'] = { next: undefined, prev: undefined };
+export const initialPageParam: Page['paging'] = {};
 
 export function getPreviousPageParam<T = never>(first: Page<T>): Page['paging'] | null {
   return hasText(first.paging.prev) ? { prev: first.paging.prev } : null;

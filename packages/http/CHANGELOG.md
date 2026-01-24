@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.4.2
+
+### Patch Changes
+
+- update initialPageParam
+
 ## 2.4.1
 
 ### Patch Changes
