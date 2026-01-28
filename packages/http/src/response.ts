@@ -102,18 +102,6 @@ export const pages = {
       return { ...data, pages: [...pages.slice(0, -1), { ...last, data: [...last.data, item] }] };
     };
   },
-  remove<T>(predicate: (item: T) => boolean) {
-    return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
-      if (!data) return data;
-      return {
-        ...data,
-        pages: data.pages.map((page) => ({
-          ...page,
-          data: page.data.filter((item) => !predicate(item)),
-        })),
-      };
-    };
-  },
   update<T>(updater: T, predicate: (item: T) => boolean) {
     return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
       if (!data) return data;
@@ -128,6 +116,91 @@ export const pages = {
   },
   updateById<T extends Entity>(updated: T) {
     return this.update<T>(updated, (item) => item.id === updated.id);
+  },
+  remove<T>(predicate: (item: T) => boolean) {
+    return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
+      if (!data) return data;
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          data: page.data.filter((item) => !predicate(item)),
+        })),
+      };
+    };
+  },
+  removeById<T extends Entity>(id: EntityId) {
+    return this.remove<T>((item) => item.id === id);
+  },
+};
+
+export const items = {
+  push<T>(newItems: T[]) {
+    return (data: T[] | undefined): T[] | undefined => {
+      if (!data) return newItems;
+      return [...data, ...newItems];
+    };
+  },
+  unshift<T>(newItems: T[]) {
+    return (data: T[] | undefined): T[] | undefined => {
+      if (!data) return newItems;
+      return [...newItems, ...data];
+    };
+  },
+  pushAndDedupe<T extends Entity>(newItems: T[]) {
+    return (data: T[] | undefined): T[] | undefined => {
+      if (!data) return newItems;
+      const seen = new Set<EntityId>();
+      const result: T[] = [];
+      for (const item of data) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          result.push(item);
+        }
+      }
+      for (const item of newItems) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          result.push(item);
+        }
+      }
+      return result;
+    };
+  },
+  unshiftAndDedupe<T extends Entity>(newItems: T[]) {
+    return (data: T[] | undefined): T[] | undefined => {
+      if (!data) return newItems;
+      const seen = new Set<EntityId>();
+      const result: T[] = [];
+      for (const item of newItems) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          result.push(item);
+        }
+      }
+      for (const item of data) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          result.push(item);
+        }
+      }
+      return result;
+    };
+  },
+  update<T>(updater: T, predicate: (item: T) => boolean) {
+    return (data: T[] | undefined): T[] | undefined => {
+      if (!data) return data;
+      return data.map((item) => (predicate(item) ? updater : item));
+    };
+  },
+  updateById<T extends Entity>(updated: T) {
+    return this.update<T>(updated, (item) => item.id === updated.id);
+  },
+  remove<T>(predicate: (item: T) => boolean) {
+    return (data: T[] | undefined): T[] | undefined => {
+      if (!data) return data;
+      return data.filter((item) => !predicate(item));
+    };
   },
   removeById<T extends Entity>(id: EntityId) {
     return this.remove<T>((item) => item.id === id);
