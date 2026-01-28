@@ -62,3 +62,74 @@ export function getPreviousPageParam<T = never>(first: Page<T>): Page['paging'] 
 export function getNextPageParam<T = never>(last: Page<T>): Page['paging'] | null {
   return hasText(last.paging.next) ? { next: last.paging.next } : null;
 }
+
+export type InfinitePageData<T> = {
+  pages: Array<Page<T>>;
+  pageParams: Array<Page['paging']>;
+};
+
+export const pages = {
+  flatten<T>(data: InfinitePageData<T>): T[] {
+    return data.pages.flatMap((page) => page.data);
+  },
+  dedupe<T extends Entity>(data: InfinitePageData<T>): T[] {
+    const seen = new Set<EntityId>();
+    const result: T[] = [];
+    for (const page of data.pages) {
+      for (const item of page.data) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          result.push(item);
+        }
+      }
+    }
+    return result;
+  },
+  prepend<T>(item: T) {
+    return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
+      if (!data) return data;
+      const [first, ...rest] = data.pages;
+      if (!first) return { ...data, pages: [{ data: [item], paging: {} }] };
+      return { ...data, pages: [{ ...first, data: [item, ...first.data] }, ...rest] };
+    };
+  },
+  append<T>(item: T) {
+    return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
+      if (!data) return data;
+      const pages = data.pages;
+      const last = pages[pages.length - 1];
+      if (!last) return { ...data, pages: [{ data: [item], paging: {} }] };
+      return { ...data, pages: [...pages.slice(0, -1), { ...last, data: [...last.data, item] }] };
+    };
+  },
+  remove<T>(predicate: (item: T) => boolean) {
+    return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
+      if (!data) return data;
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          data: page.data.filter((item) => !predicate(item)),
+        })),
+      };
+    };
+  },
+  update<T>(updater: T, predicate: (item: T) => boolean) {
+    return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
+      if (!data) return data;
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          data: page.data.map((item) => (predicate(item) ? updater : item)),
+        })),
+      };
+    };
+  },
+  updateById<T extends Entity>(updated: T) {
+    return this.update<T>(updated, (item) => item.id === updated.id);
+  },
+  removeById<T extends Entity>(id: EntityId) {
+    return this.remove<T>((item) => item.id === id);
+  },
+};

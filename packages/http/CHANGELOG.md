@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.4.3
+
+### Patch Changes
+
+- add pages util
+
 ## 2.4.2
 
 ### Patch Changes

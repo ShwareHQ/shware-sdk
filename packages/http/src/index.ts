@@ -44,8 +44,9 @@ export {
 export { Status, StatusError, type ErrorBody } from './error/status';
 export { getErrorReason, getErrorMessage, getFieldViolations } from './error/parse';
 export {
-  pageParamsSchema,
+  pages,
   Cursor,
+  pageParamsSchema,
   initialPageParam,
   getPreviousPageParam,
   getNextPageParam,
@@ -61,6 +62,7 @@ export type {
   PageParams,
   ParentPageParams,
   Page,
+  InfinitePageData,
 } from './response';
 
 export { UidGenerator, uid } from './snowflake';
