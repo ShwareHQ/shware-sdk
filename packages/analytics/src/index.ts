@@ -16,6 +16,7 @@ export {
   type CreateLinkDTO,
 } from './schema/index';
 export { stripeMinorUnits } from './utils/stripe';
+export { useTrackImpression } from './hooks/use-track-impression';
 
 export type {
   Platform,

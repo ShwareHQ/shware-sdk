@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.1.2
+
+### Patch Changes
+
+- add useTrackImpression hook
+
 ## 3.1.1
 
 ### Patch Changes
