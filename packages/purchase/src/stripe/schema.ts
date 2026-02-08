@@ -28,6 +28,7 @@ export const cancellationDetailsSchema = object({
       ])
     )
   ),
+  resubscribeIntent: optional(nullable(_enum(['maybe', 'no', 'yes']))),
 });
 
 export function createCheckoutSessionSchema(productIds: string[]) {

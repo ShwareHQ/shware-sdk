@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.5.9
+
+### Patch Changes
+
+- add resubscribeIntent field
+
 ## 1.5.8
 
 ### Patch Changes
