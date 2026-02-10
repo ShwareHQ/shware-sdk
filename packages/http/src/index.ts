@@ -44,8 +44,8 @@ export {
 export { Status, StatusError, type ErrorBody } from './error/status';
 export { getErrorReason, getErrorMessage, getFieldViolations } from './error/parse';
 export {
-  items,
-  pages,
+  Items,
+  Pages,
   Cursor,
   pageParamsSchema,
   initialPageParam,

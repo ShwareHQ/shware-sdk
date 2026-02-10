@@ -68,7 +68,7 @@ export type InfinitePageData<T> = {
   pageParams: Array<Page['paging']>;
 };
 
-export const pages = {
+export const Pages = {
   flatten<T>(data: InfinitePageData<T>): T[] {
     return data.pages.flatMap((page) => page.data);
   },
@@ -134,7 +134,7 @@ export const pages = {
   },
 };
 
-export const items = {
+export const Items = {
   push<T>(newItems: T[]) {
     return (data: T[] | undefined): T[] | undefined => {
       if (!data) return newItems;

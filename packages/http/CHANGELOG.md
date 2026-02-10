@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.5.0
+
+### Minor Changes
+
+- rename to Pages, Items
+
 ## 2.4.4
 
 ### Patch Changes
