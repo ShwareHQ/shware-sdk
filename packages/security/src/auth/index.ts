@@ -37,6 +37,7 @@ export const PATH = {
   LOGIN_OAUTH2_CODE: '/login/oauth2/code/:registrationId',
   LOGIN_OAUTH2_NATIVE: '/login/oauth2/native/:registrationId',
   LOGIN_OAUTH2_ONETAP: '/login/oauth2/onetap/google',
+  CLEANUP_EXPIRED_SESSIONS: '/sessions/expired/cleanup',
 } as const;
 
 export class Auth implements AuthService {
