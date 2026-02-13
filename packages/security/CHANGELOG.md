@@ -1,5 +1,11 @@
 # @shware/security
 
+## 2.1.4
+
+### Patch Changes
+
+- add error log
+
 ## 2.1.3
 
 ### Patch Changes

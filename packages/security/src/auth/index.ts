@@ -421,7 +421,8 @@ export class Auth implements AuthService {
       await sender({ email, verificationCode });
       await this.kv.setItem(this.getEmailVerificationCodeKey(email), verificationCode, 10 * 60);
       return Response.json({});
-    } catch {
+    } catch (e) {
+      console.error('Failed to send email verification code', e);
       return Response.json(invalidArgument('EMAIL_DELIVERY_FAILED'), { status: 400 });
     }
   };
