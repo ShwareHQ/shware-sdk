@@ -29,14 +29,19 @@ export const PATH = {
   CSRF: '/csrf',
   LOGOUT: '/logout',
   LOGGED: '/logged',
+
   OAUTH2_STATE: '/oauth2/state/:registrationId',
   OAUTH2_NONCE: '/oauth2/nonce/:registrationId',
   OAUTH2_AUTHORIZATION: '/oauth2/authorization/:registrationId',
-  LOGIN_EMAIL: '/login/email',
-  LOGIN_PHONE: '/login/phone',
   LOGIN_OAUTH2_CODE: '/login/oauth2/code/:registrationId',
   LOGIN_OAUTH2_NATIVE: '/login/oauth2/native/:registrationId',
   LOGIN_OAUTH2_ONETAP: '/login/oauth2/onetap/google',
+
+  LOGIN_EMAIL: '/login/email',
+  LOGIN_PHONE: '/login/phone',
+  SEND_EMAIL_VERIFICATION_CODE: '/auth/sendEmailVerificationCode',
+  SEND_PHONE_VERIFICATION_CODE: '/auth/sendPhoneVerificationCode',
+
   CLEANUP_EXPIRED_SESSIONS: '/sessions/expired/cleanup',
 } as const;
 

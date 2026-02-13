@@ -1,5 +1,11 @@
 # @shware/security
 
+## 2.1.2
+
+### Patch Changes
+
+- add SEND_EMAIL_VERIFICATION_CODE, SEND_PHONE_VERIFICATION_CODE path
+
 ## 2.1.1
 
 ### Patch Changes
