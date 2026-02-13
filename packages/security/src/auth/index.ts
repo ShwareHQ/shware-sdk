@@ -1,10 +1,16 @@
 import { invariant } from '@shware/utils';
-import { createHash, randomUUID } from 'crypto';
-import type { Principal } from '../core';
+import { createHash, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import type { OAuth2ErrorType } from '../oauth2/error';
-import type { NativeCredential, OAuth2AuthorizationRequest, PkceParameters } from '../oauth2/types';
+import type {
+  NativeCredential,
+  OAuth2AuthorizationRequest,
+  PkceParameters,
+  StandardClaims,
+} from '../oauth2/types';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
-import type { AuthConfig, AuthService, LoggedHandler, OAuth2AuthorizedHandler } from './types';
+import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from './types';
+import { type Principal, Provider } from '../core';
+import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { google } from '../oauth2/provider/index';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../session/common';
@@ -17,6 +23,21 @@ import {
   setCookie,
 } from '../utils/http';
 import { timing } from '../utils/timing';
+import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
+
+export const PATH = {
+  CSRF: '/csrf',
+  LOGOUT: '/logout',
+  LOGGED: '/logged',
+  OAUTH2_STATE: '/oauth2/state/:registrationId',
+  OAUTH2_NONCE: '/oauth2/nonce/:registrationId',
+  OAUTH2_AUTHORIZATION: '/oauth2/authorization/:registrationId',
+  LOGIN_EMAIL: '/login/email',
+  LOGIN_PHONE: '/login/phone',
+  LOGIN_OAUTH2_CODE: '/login/oauth2/code/:registrationId',
+  LOGIN_OAUTH2_NATIVE: '/login/oauth2/native/:registrationId',
+  LOGIN_OAUTH2_ONETAP: '/login/oauth2/onetap/google',
+} as const;
 
 export class Auth implements AuthService {
   private readonly timing: boolean;
@@ -24,27 +45,22 @@ export class Auth implements AuthService {
   private readonly cookieOptions: CookieOptions;
   private readonly kv: KVRepository;
   private readonly repository: SessionRepository;
-
+  private readonly turnstileSecretKey?: string;
   private readonly oauth2Client: OAuth2Client | null;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
-  public readonly PATH_CSRF = '/csrf' as const;
-  public readonly PATH_LOGOUT = '/logout' as const;
-  public readonly PATH_LOGGED = '/logged' as const;
-
-  public readonly PATH_OAUTH2_STATE = '/oauth2/state/:registrationId' as const;
-  public readonly PATH_OAUTH2_NONCE = '/oauth2/nonce/:registrationId' as const;
-  public readonly PATH_OAUTH2_AUTHORIZATION = '/oauth2/authorization/:registrationId' as const;
-  public readonly PATH_LOGIN_OAUTH2_CODE = '/login/oauth2/code/:registrationId' as const;
-  public readonly PATH_LOGIN_OAUTH2_NATIVE = '/login/oauth2/native/:registrationId' as const;
-  public readonly PATH_LOGIN_OAUTH2_ONETAP = '/login/oauth2/onetap/google' as const;
-
-  public readonly PATH_CLEANUP_EXPIRED_SESSIONS = '/sessions/expired/cleanup' as const;
-
-  constructor({ sessionRepository, kvRepository, oauth2, cookie, timing }: AuthConfig) {
+  constructor({
+    sessionRepository,
+    kvRepository,
+    turnstileSecretKey,
+    oauth2,
+    cookie,
+    timing,
+  }: AuthConfig) {
     this.timing = timing ?? false;
     this.kv = kvRepository;
     this.repository = sessionRepository;
+    this.turnstileSecretKey = turnstileSecretKey;
     const { name, ...cookieOptions } = cookie ?? {};
     this.cookieName = name ?? 'SESSION';
     this.cookieOptions = {
@@ -136,15 +152,23 @@ export class Auth implements AuthService {
     return `oauth2:nonce:${nonce}`;
   }
 
+  private getEmailVerificationCodeKey(email: string) {
+    return `email:verification:${email}`;
+  }
+
+  private getPhoneVerificationCodeKey(phone: string) {
+    return `phone:verification:${phone}`;
+  }
+
   oauth2State = async (request: Request): Promise<Response> => {
-    const { registrationId } = param(request, this.PATH_OAUTH2_STATE);
+    const { registrationId } = param(request, PATH.OAUTH2_STATE);
     const state = randomUUID();
     await this.kv.setItem(this.getOauth2StateKey(state), registrationId, 10 * 60);
     return Response.json({ state });
   };
 
   oauth2Nonce = async (request: Request): Promise<Response> => {
-    const { registrationId } = param(request, this.PATH_OAUTH2_NONCE);
+    const { registrationId } = param(request, PATH.OAUTH2_NONCE);
     const nonce = randomUUID();
     await this.kv.setItem(this.getOauth2NonceKey(nonce), registrationId, 10 * 60);
     return Response.json({ nonce });
@@ -153,7 +177,7 @@ export class Auth implements AuthService {
   oauth2Authorization = async (request: Request): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
-    const { registrationId } = param(request, this.PATH_OAUTH2_AUTHORIZATION);
+    const { registrationId } = param(request, PATH.OAUTH2_AUTHORIZATION);
     const state = randomUUID();
     const pkce = this.createPkceParameters();
     const uri = await this.oauth2Client.createAuthorizationUri({ registrationId, state, pkce });
@@ -191,10 +215,7 @@ export class Auth implements AuthService {
     return Response.redirect(uri.href, 302);
   };
 
-  loginOAuth2Code = async (
-    request: Request,
-    onAuthorized: OAuth2AuthorizedHandler
-  ): Promise<Response> => {
+  loginOAuth2Code = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
 
@@ -214,7 +235,7 @@ export class Auth implements AuthService {
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
 
     // 3. validate redirect query/formdata
-    const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_CODE);
+    const { registrationId } = param(request, PATH.LOGIN_OAUTH2_CODE);
     let data: Record<string, string>;
     // apple redirect: response_mode=form_post
     if (
@@ -254,7 +275,7 @@ export class Auth implements AuthService {
     mark('exchange_code');
 
     // 5. create or update principal
-    const principal = await onAuthorized(request, registrationId, userInfo, token);
+    const principal = await handler(request, registrationId, userInfo, token);
     mark('save_principal');
 
     // 6. update session
@@ -276,13 +297,10 @@ export class Auth implements AuthService {
     return response;
   };
 
-  loginOAuth2Native = async (
-    request: Request,
-    onAuthorized: OAuth2AuthorizedHandler
-  ): Promise<Response> => {
+  loginOAuth2Native = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
-    const { registrationId } = param(request, this.PATH_LOGIN_OAUTH2_NATIVE);
+    const { registrationId } = param(request, PATH.LOGIN_OAUTH2_NATIVE);
     const credentials = (await request.json()) as NativeCredential;
     const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
       registrationId,
@@ -301,7 +319,7 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await onAuthorized(request, registrationId, userInfo, token);
+    const principal = await handler(request, registrationId, userInfo, token);
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -320,7 +338,7 @@ export class Auth implements AuthService {
 
   loginOAuth2Onetap = async (
     request: Request,
-    onAuthorized: OAuth2AuthorizedHandler,
+    handler: AuthorizedHandler,
     registrationId = 'google'
   ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
@@ -351,14 +369,14 @@ export class Auth implements AuthService {
     let principal: Principal;
     if (parsed.credential) {
       const { token, userInfo } = await google.getTokenInfo(parsed.credential);
-      principal = await onAuthorized(request, registrationId, userInfo, token);
+      principal = await handler(request, registrationId, userInfo, token);
     } else if (parsed.code) {
       const token = await this.oauth2Client.exchangeAuthorizationCode({
         registrationId,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-      principal = await onAuthorized(request, registrationId, userInfo, token);
+      principal = await handler(request, registrationId, userInfo, token);
     } else {
       throw new Error('invalid request');
     }
@@ -377,6 +395,72 @@ export class Auth implements AuthService {
     setTiming(response);
 
     return response;
+  };
+
+  sendEmailVerificationCode = async (
+    request: Request,
+    sender: (data: { email: string; verificationCode: string }) => Promise<void>
+  ): Promise<Response> => {
+    invariant(this.turnstileSecretKey, 'turnstileSecretKey is not configured');
+
+    const { data, error } = valid(sendEmailVerificationCodeSchema, await request.json());
+    if (error) return Response.json(error, { status: error.error.code });
+    const { email, turnstileToken } = data;
+
+    const result = await verifyTurnstileToken(this.turnstileSecretKey, turnstileToken);
+    if (result.error) return Response.json(result.error, { status: result.error.error.code });
+
+    try {
+      const verificationCode = randomInt(1_000_000).toString().padStart(6, '0');
+      await sender({ email, verificationCode });
+      await this.kv.setItem(this.getEmailVerificationCodeKey(email), verificationCode, 10 * 60);
+      return Response.json({});
+    } catch {
+      return Response.json(invalidArgument('EMAIL_DELIVERY_FAILED'), { status: 400 });
+    }
+  };
+
+  loginEmail = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
+    const { data, error } = valid(loginEmailSchema, await request.json());
+    if (error) return Response.json(error, { status: error.error.code });
+    const { email, verificationCode } = data;
+
+    const key = this.getEmailVerificationCodeKey(email);
+    const stored = await this.kv.getItem(key);
+    if (
+      typeof stored !== 'string' ||
+      stored.length !== verificationCode.length ||
+      !timingSafeEqual(Buffer.from(stored), Buffer.from(verificationCode))
+    ) {
+      return Response.json(invalidArgument('INVALID_VERIFICATION_CODE'), { status: 400 });
+    }
+    await this.kv.removeItem(key);
+    const claims: StandardClaims = { sub: email, email, email_verified: true };
+    const principal = await handler(request, Provider.EMAIL, { claims, data: {} });
+
+    // save session
+    const session = this.repository.createSession();
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
+    await this.repository.save(session);
+    const response = new Response(JSON.stringify(principal), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const maxAge = session.getMaxInactiveInterval();
+    setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+
+    return response;
+  };
+
+  sendPhoneVerificationCode = async (
+    _request: Request,
+    _sender: (data: { phone: string; verificationCode: string }) => Promise<void>
+  ): Promise<Response> => {
+    return Response.json({ error: 'not_implemented' }, { status: 501 });
+  };
+
+  loginPhone = async (_request: Request, _handler: AuthorizedHandler): Promise<Response> => {
+    return Response.json({ error: 'not_implemented' }, { status: 501 });
   };
 
   kick = async (principal: Principal): Promise<void> => {

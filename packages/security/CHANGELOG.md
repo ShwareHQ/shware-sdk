@@ -1,5 +1,11 @@
 # @shware/security
 
+## 2.1.0
+
+### Minor Changes
+
+- login with email
+
 ## 2.0.3
 
 ### Patch Changes

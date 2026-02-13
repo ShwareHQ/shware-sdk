@@ -1,4 +1,4 @@
-export { Auth } from './auth/index';
+export { Auth, PATH } from './auth/index';
 export { OAuth2Client, oauth2RedirectQuerySchema } from './oauth2/client';
 export { RedisIndexedSessionRepository, RedisKVRepository } from './session/redis';
 export { DBIndexedSessionRepository } from './session/db';

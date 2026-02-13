@@ -4,11 +4,11 @@ import type { KVRepository, Session, SessionRepository } from '../session/types'
 import type { CookieOptions } from '../utils/http';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
-export type OAuth2AuthorizedHandler = (
+export type AuthorizedHandler = (
   request: Request,
   registrationId: string,
   userInfo: UserInfo,
-  token: OAuth2Token
+  token?: OAuth2Token
 ) => Promise<Principal>;
 
 export interface AuthConfig {
@@ -16,6 +16,7 @@ export interface AuthConfig {
   kvRepository: KVRepository;
   sessionRepository: SessionRepository;
   cookie?: CookieOptions & { name?: string };
+  turnstileSecretKey?: string;
   oauth2?: {
     client?: OAuth2ClientConfig;
   };
@@ -31,13 +32,26 @@ export interface AuthService {
   oauth2State: (request: Request) => Promise<Response>;
   oauth2Nonce: (request: Request) => Promise<Response>;
   oauth2Authorization: (request: Request) => Promise<Response>;
-  loginOAuth2Code: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
-  loginOAuth2Native: (request: Request, onAuthorized: OAuth2AuthorizedHandler) => Promise<Response>;
+  loginOAuth2Code: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
+  loginOAuth2Native: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
   loginOAuth2Onetap: (
     request: Request,
-    onAuthorized: OAuth2AuthorizedHandler,
+    onAuthorized: AuthorizedHandler,
     registrationId?: string
   ) => Promise<Response>;
+
+  // email & phone
+  sendEmailVerificationCode: (
+    request: Request,
+    sender: (data: { email: string; verificationCode: string }) => Promise<void>
+  ) => Promise<Response>;
+  sendPhoneVerificationCode: (
+    request: Request,
+    sender: (data: { phone: string; verificationCode: string }) => Promise<void>
+  ) => Promise<Response>;
+
+  loginEmail: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
+  loginPhone: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
 
   // session management
   kick: (principal: Principal) => Promise<void>;
