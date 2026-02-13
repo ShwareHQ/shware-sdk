@@ -48,13 +48,8 @@ export function errorHandler<E extends Env = never>(
       (d) => d['@type'] === DetailType.BAD_REQUEST
     );
     if (badRequest) console.warn(servingData, badRequest);
+    console.error(servingData, error.body?.error);
     return c.json(error.body, error.status as ContentfulStatusCode);
-  }
-
-  if (error instanceof SyntaxError) {
-    if (/^Cannot convert .* to a BigInt$/.test(error.message)) {
-      return Status.invalidArgument(`Invalid number. ${error.message}`).response(details);
-    }
   }
 
   if (isAxiosError(error)) {

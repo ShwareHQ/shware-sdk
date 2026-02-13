@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.5.1
+
+### Patch Changes
+
+- add rate-limiter
+
 ## 2.5.0
 
 ### Minor Changes
