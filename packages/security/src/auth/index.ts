@@ -9,7 +9,7 @@ import type {
 } from '../oauth2/types';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from './types';
-import { type Principal, Provider } from '../core';
+import { type Principal, Provider } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import { google } from '../oauth2/provider/index';

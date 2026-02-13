@@ -1,5 +1,11 @@
 # @shware/security
 
+## 2.1.3
+
+### Patch Changes
+
+- fix import
+
 ## 2.1.2
 
 ### Patch Changes
