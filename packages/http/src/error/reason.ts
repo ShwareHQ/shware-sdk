@@ -68,9 +68,7 @@ export interface AppErrorReason {
   ALREADY_SUBSCRIBED_AT_OTHER_PLATFORM: string;
 }
 
-export type ErrorReason = NetworkErrorReason &
-  StatusErrorReason &
-  AuthenticationErrorReason &
-  ModerationErrorReason &
-  MultipartErrorReason &
-  AppErrorReason;
+// oxlint-disable-next-line typescript/no-empty-object-type
+export interface ErrorReason {}
+
+export type ResolvedErrorReason = keyof ErrorReason extends never ? string : keyof ErrorReason;

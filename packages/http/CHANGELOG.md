@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.6.0
+
+### Minor Changes
+
+- declaration merging for ErrorReason
+
 ## 2.5.1
 
 ### Patch Changes

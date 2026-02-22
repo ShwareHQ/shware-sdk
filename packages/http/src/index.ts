@@ -25,6 +25,7 @@ export type {
   MultipartErrorReason,
   AppErrorReason,
   ErrorReason,
+  ResolvedErrorReason,
 } from './error/reason';
 export {
   DetailType,

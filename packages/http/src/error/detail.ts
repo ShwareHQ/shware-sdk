@@ -1,5 +1,5 @@
 /** reference: https://github.com/googleapis/googleapis/blob/master/google/rpc/error_details.proto */
-import type { ErrorReason } from './reason';
+import type { ResolvedErrorReason } from './reason';
 
 export enum DetailType {
   ERROR_INFO = 'type.googleapis.com/google.rpc.ErrorInfo',
@@ -16,7 +16,7 @@ export enum DetailType {
 
 export interface ErrorInfo {
   '@type': DetailType.ERROR_INFO;
-  reason: keyof ErrorReason | (string & {});
+  reason: ResolvedErrorReason;
   domain?: string;
   metadata?: Record<string, string>;
 }
