@@ -53,6 +53,8 @@ By default, `ErrorInfo.reason` accepts any `string`. You can use TypeScript [dec
 
 ```typescript
 // e.g. shware-http.d.ts
+import '@shware/http'; // Required: makes this file a module so that `declare module` augments rather than replaces
+
 declare module '@shware/http' {
   interface ErrorReason {
     ACCOUNT_BLOCKED: string;
