@@ -17,16 +17,7 @@ export {
   CheckoutCreateError,
   PurchaseError,
 } from './error/index';
-export type {
-  NetworkErrorReason,
-  StatusErrorReason,
-  AuthenticationErrorReason,
-  ModerationErrorReason,
-  MultipartErrorReason,
-  AppErrorReason,
-  ErrorReason,
-  ResolvedErrorReason,
-} from './error/reason';
+export type { ErrorReason, ResolvedErrorReason } from './error/reason';
 export {
   DetailType,
   Details,

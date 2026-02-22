@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.6.1
+
+### Patch Changes
+
+- remove reason types
+
 ## 2.6.0
 
 ### Minor Changes
