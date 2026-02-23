@@ -46,6 +46,7 @@ type Options = {
   returnUrl: string;
   cancelUrl: string;
   successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
+  cancellationCouponId: string;
   allowPromotionCodes: boolean;
 };
 
@@ -59,6 +60,7 @@ export class StripeConfig<
   public returnUrl: string;
   public cancelUrl: string;
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
+  public cancellationCouponId: string;
   public allowPromotionCodes: boolean;
 
   get productIds(): string[] {
@@ -74,6 +76,7 @@ export class StripeConfig<
     this.returnUrl = options.returnUrl;
     this.cancelUrl = options.cancelUrl;
     this.successUrl = options.successUrl;
+    this.cancellationCouponId = options.cancellationCouponId;
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 

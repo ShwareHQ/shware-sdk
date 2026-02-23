@@ -8,6 +8,7 @@ describe('StripeConfig', () => {
 
   const config = StripeConfig.create<'com.example', Plan>({
     allowPromotionCodes: true,
+    cancellationCouponId: 'coupon_123456',
     returnUrl: 'https://example.com/return',
     cancelUrl: 'https://example.com/cancel',
     successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
