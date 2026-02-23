@@ -8,6 +8,19 @@ export function mapTime<T extends number | null>(
   return new Date(stripeTimestampSeconds * 1000).toISOString() as T extends number ? string : null;
 }
 
+export function mapPrice(price: Stripe.Price) {
+  return {
+    id: price.id,
+    type: price.type,
+    active: price.active,
+    billing_scheme: price.billing_scheme,
+    currency: price.currency,
+    unit_amount: price.unit_amount,
+    unit_amount_decimal: price.unit_amount_decimal,
+    recurring: price.recurring,
+  };
+}
+
 export function mapLineItem(item: Stripe.LineItem) {
   return {
     id: item.price
@@ -22,7 +35,7 @@ export function mapLineItem(item: Stripe.LineItem) {
     amount_total: item.amount_total,
     amount_subtotal: item.amount_subtotal,
     amount_discount: item.amount_discount,
-    price: item.price ? { id: item.price.id } : null,
+    price: item.price ? mapPrice(item.price) : null,
   };
 }
 

@@ -1,5 +1,6 @@
 export {
   mapTime,
+  mapPrice,
   mapCharge,
   mapInvoice,
   mapLineItem,
