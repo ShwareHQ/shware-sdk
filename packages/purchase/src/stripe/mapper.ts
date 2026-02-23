@@ -8,7 +8,18 @@ export function mapTime<T extends number | null>(
   return new Date(stripeTimestampSeconds * 1000).toISOString() as T extends number ? string : null;
 }
 
-export function mapPrice(price: Stripe.Price) {
+export type Price = {
+  id: string;
+  type: Stripe.Price.Type;
+  active: boolean;
+  billing_scheme: Stripe.Price.BillingScheme;
+  currency: Stripe.Price['currency'];
+  unit_amount: number | null;
+  unit_amount_decimal: string | null;
+  recurring: Stripe.Price.Recurring | null;
+};
+
+export function mapPrice(price: Stripe.Price): Price {
   return {
     id: price.id,
     type: price.type,

@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.5.12
+
+### Patch Changes
+
+- add Price type
+
 ## 1.5.11
 
 ### Patch Changes
