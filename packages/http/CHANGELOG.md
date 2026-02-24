@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.7.0
+
+### Minor Changes
+
+- getErrorReason -> getErrorInfo
+
 ## 2.6.1
 
 ### Patch Changes

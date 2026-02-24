@@ -1,13 +1,14 @@
 import type { DefaultNamespace, Namespace, TFunction } from 'i18next';
 import { hasText } from '@shware/utils';
+import type { ResolvedErrorReason } from './reason';
 import type { ErrorBody } from './status';
-import { type BadRequest, DetailType } from './detail';
+import { type BadRequest, DetailType, type ErrorInfo } from './detail';
 
-export function getErrorReason(data: unknown) {
-  if (typeof data !== 'object' || data === null || !('error' in data)) return 'UNKNOWN';
+export function getErrorInfo(data: unknown): ErrorInfo | null {
+  if (typeof data !== 'object' || data === null || !('error' in data)) return null;
   const { error } = data as ErrorBody;
   const errorInfo = error?.details?.find((d) => d['@type'] === DetailType.ERROR_INFO);
-  return errorInfo?.reason ?? 'UNKNOWN';
+  return errorInfo ?? null;
 }
 
 /**
@@ -21,18 +22,18 @@ export function getErrorReason(data: unknown) {
 export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix = undefined>(
   data: unknown,
   t: TFunction<Ns, KPrefix>
-): { reason: string; message: string } {
+): { reason: ResolvedErrorReason | null; message: string } {
   // 0. unknown error
   if (typeof data !== 'object' || data === null || !('error' in data)) {
     console.error('Unknown API error:', data);
-    return { reason: 'UNKNOWN', message: t('UNKNOWN') };
+    return { reason: null, message: t('UNKNOWN') };
   }
 
   const { error } = data as ErrorBody;
 
   // 1. from server via Accept-Language header or lng param
   const localizedMessage = error?.details?.find((d) => d['@type'] === DetailType.LOCALIZED_MESSAGE);
-  if (localizedMessage) return { reason: 'LOCALIZED_MESSAGE', message: localizedMessage.message };
+  if (localizedMessage) return { reason: null, message: localizedMessage.message };
 
   // 2. from business logic error
   const errorInfo = error?.details?.find((d) => d['@type'] === DetailType.ERROR_INFO);
@@ -44,14 +45,14 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
   }
 
   // 3. error message in english
-  if (hasText(error.message)) return { reason: 'ERROR_MESSAGE', message: error.message };
+  if (hasText(error.message)) return { reason: null, message: error.message };
 
   // 4. from server via status code
-  if (error.status) return { reason: error.status, message: t(error.status) };
+  if (error.status) return { reason: null, message: t(error.status) };
 
   // 5. unknown error
   console.error('Unknown API error:', data);
-  return { reason: 'UNKNOWN', message: t('UNKNOWN') };
+  return { reason: null, message: t('UNKNOWN') };
 }
 
 /**

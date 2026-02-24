@@ -34,7 +34,7 @@ export {
   type Detail,
 } from './error/detail';
 export { Status, StatusError, type ErrorBody } from './error/status';
-export { getErrorReason, getErrorMessage, getFieldViolations } from './error/parse';
+export { getErrorInfo, getErrorMessage, getFieldViolations } from './error/parse';
 export {
   Items,
   Pages,
