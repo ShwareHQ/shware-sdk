@@ -48,7 +48,7 @@ export function errorHandler<E extends Env = never>(
       (d) => d['@type'] === DetailType.BAD_REQUEST
     );
     if (badRequest) console.warn(servingData, badRequest);
-    console.error(servingData, error.body?.error);
+    console.error(servingData, JSON.stringify(error.body?.error ?? {}, null, 2));
     return c.json(error.body, error.status as ContentfulStatusCode);
   }
 

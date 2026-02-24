@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.7.1
+
+### Patch Changes
+
+- stringify error
+
 ## 2.7.0
 
 ### Minor Changes
