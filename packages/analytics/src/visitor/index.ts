@@ -20,13 +20,15 @@ async function createVisitor(): Promise<Visitor> {
   });
 
   const data = (await response.json()) as Visitor;
-  config.storage.setItem(keys.visitor_id, data.id);
+  if (data.id) {
+    config.storage.setItem(keys.visitor_id, data.id);
+  }
   return data;
 }
 
 async function getOrCreateVisitor(): Promise<Visitor> {
   const visitorId = config.storage.getItem(keys.visitor_id);
-  if (visitorId) {
+  if (visitorId && visitorId !== 'undefined') {
     const response = await fetch(`${config.endpoint}/visitors/${visitorId}`, {
       method: 'GET',
       credentials: 'include',

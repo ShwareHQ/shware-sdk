@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.1.3
+
+### Patch Changes
+
+- fix visitorId edge case
+
 ## 3.1.2
 
 ### Patch Changes
