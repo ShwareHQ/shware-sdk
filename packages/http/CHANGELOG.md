@@ -1,5 +1,16 @@
 # @shware/http
 
+## 2.8.0
+
+### Minor Changes
+
+- update deps
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.2.0
+
 ## 2.7.1
 
 ### Patch Changes

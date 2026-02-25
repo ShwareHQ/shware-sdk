@@ -1,5 +1,16 @@
 # @shware/security
 
+## 2.2.0
+
+### Minor Changes
+
+- update deps
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.2.0
+
 ## 2.1.4
 
 ### Patch Changes
