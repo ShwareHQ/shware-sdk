@@ -1,8 +1,8 @@
-import type { DefaultNamespace, Namespace, TFunction } from 'i18next';
 import { hasText } from '@shware/utils';
+import type { DefaultNamespace, Namespace, TFunction } from 'i18next';
+import { type BadRequest, DetailType, type ErrorInfo } from './detail';
 import type { ResolvedErrorReason } from './reason';
 import type { ErrorBody } from './status';
-import { type BadRequest, DetailType, type ErrorInfo } from './detail';
 
 export function getErrorInfo(data: unknown): ErrorInfo | null {
   if (typeof data !== 'object' || data === null || !('error' in data)) return null;

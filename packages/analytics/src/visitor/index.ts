@@ -1,8 +1,8 @@
 import { fetch } from '@shware/utils';
-import type { CreateVisitorDTO } from '../schema/index';
-import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 import { keys } from '../constants/storage';
+import type { CreateVisitorDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
+import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 
 async function createVisitor(): Promise<Visitor> {
   const dto: CreateVisitorDTO = {

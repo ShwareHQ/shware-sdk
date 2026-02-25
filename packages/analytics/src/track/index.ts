@@ -1,10 +1,10 @@
 import { TokenBucket, fetch } from '@shware/utils';
 import type { CreateTrackEventDTO } from '../schema/index';
-import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
 import { cache, config } from '../setup/index';
 import { session } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getVisitor } from '../visitor/index';
+import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;

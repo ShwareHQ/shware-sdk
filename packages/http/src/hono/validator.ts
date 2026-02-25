@@ -1,6 +1,6 @@
 import type { ValidationTargets } from 'hono';
-import type { ZodType, output as outputV4 } from 'zod';
 import { validator } from 'hono/validator';
+import type { ZodType, output as outputV4 } from 'zod';
 import {
   NEVER,
   type ZodMiniType,

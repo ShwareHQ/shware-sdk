@@ -1,5 +1,5 @@
-import type { MiddlewareHandler } from 'hono';
 import { timingSafeEqual } from 'crypto';
+import type { MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { METHOD_NAME_ALL } from 'hono/router';
 import { RegExpRouter } from 'hono/router/reg-exp-router';

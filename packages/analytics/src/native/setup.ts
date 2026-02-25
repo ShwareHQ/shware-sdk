@@ -14,8 +14,8 @@ import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
-import type { TrackTags } from '../track/types';
 import { type Storage, cache, config } from '../setup/index';
+import type { TrackTags } from '../track/types';
 
 const map = new Map<string, string>();
 

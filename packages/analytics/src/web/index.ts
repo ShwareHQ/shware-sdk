@@ -2,10 +2,10 @@ import { expiringStorage } from '@shware/utils';
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
-import type { TrackTags } from '../track/types';
 import { keys } from '../constants/storage';
 import { getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
+import type { TrackTags } from '../track/types';
 
 export function getDeviceId() {
   const cached = localStorage.getItem(keys.device_id);

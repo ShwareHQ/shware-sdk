@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useEffectEvent, useRef } from 'react';
-import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { track } from '../track/index';
+import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 export function useTrackImpression<R extends Element = Element, T extends EventName = EventName>(
   ref: RefObject<R>,

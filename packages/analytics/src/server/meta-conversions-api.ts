@@ -7,9 +7,9 @@ import {
   ServerEvent,
   UserData,
 } from 'facebook-nodejs-business-sdk';
-import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
+import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
 function normalizeCountry(input: string | undefined): string | undefined {

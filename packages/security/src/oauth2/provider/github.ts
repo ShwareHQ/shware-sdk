@@ -1,6 +1,6 @@
 import { invariant } from '@shware/utils';
-import type { OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
+import type { OAuth2Token, Provider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode } from './common';
 
 export function createGithubProvider(): Provider {

@@ -1,7 +1,7 @@
-import type { EventName, TrackName, TrackProperties } from '../track/types';
-import type { UpdateVisitorDTO } from '../visitor/types';
 import { type FBQ, type PixelId, mapFBEvent } from '../track/fbq';
+import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
+import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type

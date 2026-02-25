@@ -1,6 +1,6 @@
 import { invariant } from '@shware/utils';
-import type { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { OAuth2Error } from '../error';
+import type { LoginOAuth2NativeParams, OAuth2Token, Provider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
 /**
