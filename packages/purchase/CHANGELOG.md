@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.6.1
+
+### Patch Changes
+
+- add REFERRAL_CODE metadata key
+
 ## 1.6.0
 
 ### Minor Changes
