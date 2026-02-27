@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.9.0
+
+### Minor Changes
+
+- update google one tap prompt
+
 ## 2.8.0
 
 ### Minor Changes
