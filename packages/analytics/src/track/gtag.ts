@@ -679,6 +679,7 @@ export type RecommendedEvents = {
 };
 
 export type AddedRecommendedEvents = {
+  logout: undefined;
   trial_begin: {
     currency: string;
     value: number;
