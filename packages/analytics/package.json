@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -99,6 +99,7 @@
     "expo-tracking-transparency": "^6.0.8",
     "facebook-nodejs-business-sdk": "^24",
     "next": "^16",
+    "posthog-js": "^1.358.1",
     "react": "^19",
     "react-native": "^0.81.5",
     "react-native-fbsdk-next": "^13.4.3",
@@ -137,6 +138,9 @@
       "optional": true
     },
     "next": {
+      "optional": true
+    },
+    "posthog-js": {
       "optional": true
     },
     "react": {
