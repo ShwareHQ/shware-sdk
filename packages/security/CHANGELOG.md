@@ -1,5 +1,11 @@
 # @shware/security
 
+## 2.2.1
+
+### Patch Changes
+
+- update deps
+
 ## 2.2.0
 
 ### Minor Changes
