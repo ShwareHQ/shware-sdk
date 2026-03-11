@@ -29,6 +29,8 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
       console.warn('lintrk has not been initialized');
       return;
     }
+    if (window.location.host.includes('127.0.0.1')) return;
+    if (window.location.host.includes('localhost')) return;
 
     const conversion_id = config[name as Lowercase<string>];
     if (!conversion_id) return;

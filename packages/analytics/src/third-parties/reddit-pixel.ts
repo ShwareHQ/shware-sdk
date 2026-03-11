@@ -20,6 +20,8 @@ export function sendRedditEvent<T extends EventName>(
     return;
   }
   if (metrics.includes(name)) return;
+  if (window.location.host.includes('127.0.0.1')) return;
+  if (window.location.host.includes('localhost')) return;
 
   const [type, params] = mapRDTEvent(name, properties, eventId);
   if (type === 'Custom') {

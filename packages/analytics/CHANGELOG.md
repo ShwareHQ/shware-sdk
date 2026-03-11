@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.2.5
+
+### Patch Changes
+
+- remove localhost event
+
 ## 3.2.4
 
 ### Patch Changes

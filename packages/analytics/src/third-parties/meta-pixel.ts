@@ -20,6 +20,8 @@ export function sendFBEvent<T extends EventName>(
     return;
   }
   if (metrics.includes(name)) return;
+  if (window.location.host.includes('127.0.0.1')) return;
+  if (window.location.host.includes('localhost')) return;
 
   const options = { eventID: event_id };
   const [type, fbEventName, fbEventProperties] = mapFBEvent(name, properties);
