@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.2.2",
+  "version": "3.2.3",
   "private": false,
   "repository": {
     "type": "git",
@@ -55,6 +55,11 @@
       "types": "./dist/third-parties/index.d.ts",
       "import": "./dist/third-parties/index.mjs",
       "require": "./dist/third-parties/index.cjs"
+    },
+    "./third-parties/posthog": {
+      "types": "./dist/third-parties/posthog.d.ts",
+      "import": "./dist/third-parties/posthog.mjs",
+      "require": "./dist/third-parties/posthog.cjs"
     },
     "./server": {
       "types": "./dist/server/index.d.ts",

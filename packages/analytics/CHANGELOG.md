@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.2.3
+
+### Patch Changes
+
+- split posthog package
+
 ## 3.2.2
 
 ### Patch Changes
