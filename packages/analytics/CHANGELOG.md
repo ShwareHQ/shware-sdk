@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.2.4
+
+### Patch Changes
+
+- currency case
+
 ## 3.2.3
 
 ### Patch Changes

@@ -426,7 +426,7 @@ export function mapFBEvent<T extends EventName>(
     return [
       'track',
       'Purchase',
-      { currency: p?.currency ?? 'usd', value: p?.value ?? 0, ...mapItems(p?.items) },
+      { currency: p?.currency ?? 'USD', value: p?.value ?? 0, ...mapItems(p?.items) },
     ];
   } else if (name === 'schedule') {
     return ['track', 'Schedule', {}];

@@ -197,7 +197,7 @@ function getCustomData({ name, properties }: TrackEvent<any>) {
     delivery_category,
     ...custom_properties
   } = fbEventProperties;
-  if (value) data.setValue(value);
+  if (value !== undefined && value !== null) data.setValue(value);
   if (currency) data.setCurrency(currency);
   if (content_name) data.setContentName(content_name);
   if (content_category) data.setContentCategory(content_category);
