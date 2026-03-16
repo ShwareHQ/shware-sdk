@@ -9,8 +9,6 @@ import type { GaId, GtmId } from '../track/gtag';
 import { track } from '../track/index';
 import type { PixelId as RedditPixelId } from '../track/rdt';
 
-type HotjarId = `${number}`;
-
 function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
   useEffect(() => {
     onCLS(reportWebVitalsFn);
@@ -23,11 +21,12 @@ function useReportWebVitals(reportWebVitalsFn: (metric: Metric) => void) {
 
 interface Props {
   gaId?: GaId;
+  gaSrc?: string;
   gtmId?: GtmId;
   metaPixelId?: MetaPixelId;
   redditPixelId?: RedditPixelId;
   linkedInPartnerId?: `${number}`;
-  hotjarId?: HotjarId;
+  hotjarId?: `${number}`;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
@@ -36,6 +35,7 @@ interface Props {
 
 export function Analytics({
   gaId,
+  gaSrc,
   nonce,
   debugMode,
   metaPixelId,
@@ -73,7 +73,7 @@ export function Analytics({
             async
             id="gtag"
             nonce={nonce}
-            src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+            src={gaSrc ?? `https://www.googletagmanager.com/gtag/js?id=${gaId}`}
           />
           <script
             async

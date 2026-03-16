@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.2.6
+
+### Patch Changes
+
+- add gaSrc props for gtag gateway
+
 ## 3.2.5
 
 ### Patch Changes

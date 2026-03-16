@@ -11,12 +11,11 @@ import type { GaId, GtmId } from '../track/gtag';
 import { track } from '../track/index';
 import type { PixelId as RedditPixelId } from '../track/rdt';
 
-type HotjarId = `${number}`;
-
 interface Props {
   gaId?: GaId;
+  gaSrc?: string;
   gtmId?: GtmId;
-  hotjarId?: HotjarId;
+  hotjarId?: `${number}`;
   metaPixelId?: MetaPixelId;
   redditPixelId?: RedditPixelId;
   linkedInPartnerId?: `${number}`;
@@ -28,6 +27,7 @@ interface Props {
 
 export function Analytics({
   gaId,
+  gaSrc,
   nonce,
   debugMode,
   metaPixelId,
@@ -64,7 +64,7 @@ export function Analytics({
           <Script
             id="gtag"
             nonce={nonce}
-            src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+            src={gaSrc ?? `https://www.googletagmanager.com/gtag/js?id=${gaId}`}
           />
           <Script
             nonce={nonce}
