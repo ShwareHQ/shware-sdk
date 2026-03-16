@@ -1,5 +1,10 @@
 import { getGeolocation } from './geolocation';
 
+/**
+ * In a browser, verify the set up by navigating to: https://example.com/metrics/healthy. The page
+ * should read ok. Verify that geographical information is being included by navigating to:
+ * https://example.com/metrics/?validate_geo=healthy. The page should read ok.
+ */
 export async function forwardToGoogleTagGateway(request: Request, gaId: string) {
   const GATEWAY_HOST = `${gaId}.fps.goog`;
   const { pathname, search } = new URL(request.url);
