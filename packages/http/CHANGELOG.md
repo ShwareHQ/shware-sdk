@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.9.2
+
+### Patch Changes
+
+- forwardToGoogleTagGateway
+
 ## 2.9.1
 
 ### Patch Changes
