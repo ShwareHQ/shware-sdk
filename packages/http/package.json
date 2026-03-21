@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "2.9.2",
+  "version": "2.9.3",
   "private": false,
   "repository": {
     "type": "git",
@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "@shware/utils": "workspace:^",
-    "vitest": "^4.0.18",
+    "vitest": "^4.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -56,8 +56,8 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "hono": "^4.12.5",
-    "i18next": "^25.8.14",
+    "hono": "^4.12.8",
+    "i18next": "^25.9.0",
     "react": "^19"
   },
   "peerDependenciesMeta": {
