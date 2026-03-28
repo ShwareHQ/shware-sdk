@@ -46,11 +46,12 @@ export function Analytics({
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
     const properties = {
-      id: metric.id,
-      rating: metric.rating,
-      value: metric.value,
-      delta: metric.delta,
-      navigation_type: metric.navigationType,
+      value: metric.delta,
+      metric_id: metric.id,
+      metric_value: metric.value,
+      metric_delta: metric.delta,
+      metric_rating: metric.rating,
+      metric_navigation_type: metric.navigationType,
       non_interaction: true, // avoids affecting bounce rate.
     };
     track(metric.name, properties);

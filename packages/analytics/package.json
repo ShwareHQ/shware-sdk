@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.2.7",
+  "version": "3.3.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -81,7 +81,7 @@
     "bowser": "^2.14.1",
     "cookie": "^1.1.1",
     "uuid": "^13.0.0",
-    "web-vitals": "^5.1.0",
+    "web-vitals": "^5.2.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -89,12 +89,12 @@
     "@types/facebook-nodejs-business-sdk": "^23",
     "@types/node": "^25",
     "@types/react": "^19",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.0"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^23.8.8",
-    "@tanstack/react-router": "^1.168.1",
+    "@tanstack/react-router": "^1.168.7",
     "expo-application": "^55.0.10",
     "expo-clipboard": "^55.0.9",
     "expo-crypto": "^55.0.10",
@@ -104,7 +104,7 @@
     "expo-tracking-transparency": "^55.0.9",
     "facebook-nodejs-business-sdk": "^24",
     "next": "^16",
-    "posthog-js": "^1.363.1",
+    "posthog-js": "^1.364.1",
     "react": "^19",
     "react-native": "^0.83.0",
     "react-native-fbsdk-next": "^13.4.3",

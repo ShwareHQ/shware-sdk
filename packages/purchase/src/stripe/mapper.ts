@@ -27,7 +27,7 @@ export function mapPrice(price: Stripe.Price): Price {
     billing_scheme: price.billing_scheme,
     currency: price.currency,
     unit_amount: price.unit_amount,
-    unit_amount_decimal: price.unit_amount_decimal,
+    unit_amount_decimal: price.unit_amount_decimal?.toString() ?? null,
     recurring: price.recurring,
   };
 }

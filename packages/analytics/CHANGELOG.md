@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 3.3.0
+
+### Minor Changes
+
+- update deps
+- update GA4 web-vitals properties
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.3.0
+
 ## 3.2.7
 
 ### Patch Changes
