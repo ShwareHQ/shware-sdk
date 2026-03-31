@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.4.0
+
+### Minor Changes
+
+- simplify useTrackImpression
+
 ## 3.3.0
 
 ### Minor Changes
