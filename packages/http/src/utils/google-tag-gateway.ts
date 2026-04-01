@@ -1,7 +1,7 @@
 import { getGeolocation } from './geolocation';
 
 /**
- * In a browser, verify the set up by navigating to: https://example.com/metrics/healthy. The page
+ * In a browser, verify the setup by navigating to: https://example.com/metrics/healthy. The page
  * should read ok. Verify that geographical information is being included by navigating to:
  * https://example.com/metrics/?validate_geo=healthy. The page should read ok.
  */

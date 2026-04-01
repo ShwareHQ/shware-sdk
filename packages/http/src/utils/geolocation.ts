@@ -1,5 +1,3 @@
-import { extractIpAddress } from './ip';
-
 export type Geolocation = {
   ip_address?: string;
   city?: string;
@@ -47,10 +45,16 @@ export function getGeolocationFromVercel(r: Request): Geolocation {
   };
 }
 
+function stripPort(value: string | null): string | null {
+  if (!value) return null;
+  const i = value.lastIndexOf(':');
+  return i !== -1 && /^\d+$/.test(value.slice(i + 1)) ? value.slice(0, i) : value;
+}
+
 /** reference: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/adding-cloudfront-headers.html#cloudfront-headers-viewer-location */
 export function getGeolocationFromCloudfront(r: Request): Geolocation {
   return {
-    ip_address: extractIpAddress(r.headers.get('CloudFront-Viewer-Address')) ?? undefined,
+    ip_address: stripPort(r.headers.get('CloudFront-Viewer-Address')) ?? undefined,
     city: r.headers.get('CloudFront-Viewer-City') ?? undefined,
     country: r.headers.get('CloudFront-Viewer-Country') ?? undefined,
     longitude: toNumber(r.headers.get('CloudFront-Viewer-Longitude')),

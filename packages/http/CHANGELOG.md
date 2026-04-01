@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.10.2
+
+### Patch Changes
+
+- remove net deps
+
 ## 2.10.1
 
 ### Patch Changes
