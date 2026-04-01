@@ -62,6 +62,5 @@ export { UidGenerator, uid } from './snowflake';
 
 export * as MAX_LENGTH from './max-length/index';
 export { timing } from './utils/timing';
-export { getGeolocation } from './utils/geolocation';
 export { forwardToGoogleTagGateway } from './utils/google-tag-gateway';
 export { ISO_3601_1, type ISO3166CountryCode } from './iso/iso_3601_1';
