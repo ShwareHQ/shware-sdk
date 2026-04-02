@@ -13,7 +13,7 @@ import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
 function normalizeCountry(input: string | undefined): string | undefined {
-  const country = input?.split(/[-_]/).at(0);
+  const country = input?.split(/[-_]/).at(0)?.toLowerCase();
   if (!country) return undefined;
   return USER_ASSIGNED_COUNTRIES.includes(country) ? undefined : country;
 }
@@ -21,7 +21,7 @@ function normalizeCountry(input: string | undefined): string | undefined {
 function getUserData(tags: TrackTags, data: UserProvidedData) {
   const userData = new UserData();
 
-  // set user provided data
+  // set user-provided data
   if (data.email) {
     if (Array.isArray(data.email)) {
       userData.setEmails(data.email);

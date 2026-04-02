@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.4.1
+
+### Patch Changes
+
+- fix xk country code for meta conversions api
+
 ## 3.4.0
 
 ### Minor Changes
