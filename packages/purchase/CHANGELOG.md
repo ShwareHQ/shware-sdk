@@ -1,5 +1,17 @@
 # @shware/purchase
 
+## 1.8.1
+
+### Patch Changes
+
+- fix export types
+
+## 1.8.0
+
+### Minor Changes
+
+- update stripe types
+
 ## 1.7.0
 
 ### Minor Changes

@@ -69,7 +69,7 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
     coupon,
     livemode: session.livemode,
     expires_at: session.expires_at,
-    payment_status: session.payment_status,
+    payment_status: session.payment_status as Stripe.Checkout.Session['payment_status'],
     currency: session.currency,
     amount_total: session.amount_total,
     line_items: session.line_items?.data.map(mapLineItem),

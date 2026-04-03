@@ -1,3 +1,4 @@
+import type { Stripe } from 'stripe';
 import {
   _default,
   enum as _enum,
@@ -41,7 +42,7 @@ export function createCheckoutSessionSchema(productIds: string[]) {
 }
 
 export interface CancellationDetails extends output<typeof cancellationDetailsSchema> {
-  reason?: 'cancellation_requested' | 'payment_disputed' | 'payment_failed' | null;
+  reason?: Stripe.Subscription.CancellationDetails.Reason | null;
 }
 
 export interface CreateCheckoutSessionDTO {
