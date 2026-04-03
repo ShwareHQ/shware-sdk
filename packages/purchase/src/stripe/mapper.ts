@@ -50,6 +50,8 @@ export function mapLineItem(item: Stripe.LineItem) {
   };
 }
 
+export type PaymentStatus = 'no_payment_required' | 'paid' | 'unpaid';
+
 export function mapCheckoutSession(session: Stripe.Checkout.Session) {
   let coupon: string | undefined = undefined;
   if (Array.isArray(session.discounts) && session.discounts.length !== 0) {
@@ -69,7 +71,7 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
     coupon,
     livemode: session.livemode,
     expires_at: session.expires_at,
-    payment_status: session.payment_status as Stripe.Checkout.Session['payment_status'],
+    payment_status: session.payment_status satisfies PaymentStatus as PaymentStatus,
     currency: session.currency,
     amount_total: session.amount_total,
     line_items: session.line_items?.data.map(mapLineItem),
