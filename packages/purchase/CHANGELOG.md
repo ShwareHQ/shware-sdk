@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.8.3
+
+### Patch Changes
+
+- fix stripe type
+
 ## 1.8.2
 
 ### Patch Changes

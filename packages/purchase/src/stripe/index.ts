@@ -13,6 +13,7 @@ export {
   getBeginCheckoutProperties,
   type Price,
   type CheckoutSession,
+  type PaymentStatus,
   type PurchaseProperties,
   type ProductPrice,
   type BeginCheckoutProperties,
