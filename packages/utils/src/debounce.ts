@@ -1,6 +1,6 @@
 type Procedure = (...args: never[]) => unknown;
 
-type DebounceOptions = {
+export type DebounceOptions = {
   /**
    * Specify invoking on the leading edge of the timeout.
    * @default false

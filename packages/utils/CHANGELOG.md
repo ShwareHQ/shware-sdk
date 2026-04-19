@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.4.0
+
+### Minor Changes
+
+- add react hooks
+
 ## 1.3.0
 
 ### Minor Changes

@@ -4,7 +4,7 @@ type Procedure = (...args: never[]) => unknown;
  * leading: Whether to execute immediately at the start (default true)
  * trailing: Whether to execute once after timeout ends (default true)
  */
-type ThrottleOptions = {
+export type ThrottleOptions = {
   leading?: boolean;
   trailing?: boolean;
 };
