@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.5.0
+
+### Minor Changes
+
+- cache fbclid
+
 ## 3.4.1
 
 ### Patch Changes

@@ -5,5 +5,6 @@ export const keys = {
   first_visit_time: 'first_visit_time',
   // click ids
   fbc: 'fbc',
+  fbclid: 'fbclid',
   rdt_cid: 'rdt_cid',
 } as const;

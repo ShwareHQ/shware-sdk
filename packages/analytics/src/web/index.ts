@@ -51,7 +51,7 @@ export async function getTags() {
     // meta ads
     fbc: parsed._fbc ?? expiringStorage.getItem<string>(keys.fbc) ?? undefined,
     fbp: parsed._fbp,
-    fbclid: params.get('fbclid') ?? undefined,
+    fbclid: params.get('fbclid') ?? expiringStorage.getItem<string>(keys.fbclid) ?? undefined,
     ad_id: params.get('ad_id') ?? undefined,
     ad_name: params.get('ad_name') ?? undefined,
     adset_id: params.get('adset_id') ?? undefined,
