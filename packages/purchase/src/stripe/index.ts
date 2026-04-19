@@ -27,3 +27,4 @@ export {
 } from './schema';
 export { METADATA_KEYS } from './metadata';
 export { StripeConfig, type PriceId } from './config';
+export type { Stripe } from 'stripe';
