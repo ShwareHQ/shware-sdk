@@ -42,6 +42,16 @@ export const PATH = {
   SEND_EMAIL_VERIFICATION_CODE: '/auth/sendEmailVerificationCode',
   SEND_PHONE_VERIFICATION_CODE: '/auth/sendPhoneVerificationCode',
 
+  // Desktop / native app sign-in via web loopback (RFC 8252 + OAuth 2.1 Auth Code Flow):
+  //   1. user already authenticated with cookie session → POST DESKTOP_AUTHORIZE → { code }
+  //   2. web redirects to desktop's loopback callback with the code
+  //   3. desktop renderer POSTs DESKTOP_EXCHANGE with the code → server returns
+  //      Set-Cookie carrying a fresh session, single-use code is invalidated
+  // The two-step flow keeps the actual session id off the redirect URL — only a
+  // 5-minute single-use code transits via the loopback.
+  DESKTOP_AUTHORIZE: '/auth/desktop/authorize',
+  DESKTOP_EXCHANGE: '/auth/desktop/exchange',
+
   CLEANUP_EXPIRED_SESSIONS: '/sessions/expired/cleanup',
 } as const;
 
@@ -164,6 +174,10 @@ export class Auth implements AuthService {
 
   private getPhoneVerificationCodeKey(phone: string) {
     return `phone:verification:${phone}`;
+  }
+
+  private getDesktopCodeKey(code: string) {
+    return `desktop:code:${code}`;
   }
 
   oauth2State = async (request: Request): Promise<Response> => {
@@ -456,6 +470,102 @@ export class Auth implements AuthService {
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
 
+    return response;
+  };
+
+  /**
+   * Step 1 of the desktop / native app sign-in handshake. The caller already
+   * completed normal sign-in on the web (so a cookie session exists); this
+   * issues a 5-minute single-use code that the web page hands off to the
+   * desktop client via a loopback redirect.
+   *
+   * The code itself is just an opaque random UUID; it carries no payload —
+   * the principal name is stashed in KV under the code's key and pulled
+   * during `desktopExchange`. KV TTL bounds the lifetime; `removeItem` in
+   * `desktopExchange` enforces single-use semantics.
+   *
+   * Requires an authenticated cookie session — anonymous callers get 401.
+   * Throttling / abuse protection on this endpoint is the API layer's job
+   * (rate-limit per principal); the SDK doesn't gate it because the
+   * upstream sign-in flow already passed CAPTCHA / OAuth / verification.
+   */
+  desktopAuthorize = async (request: Request): Promise<Response> => {
+    const principal = await this.getPrincipal(request);
+    if (!principal) {
+      const body = {
+        error: {
+          code: 401,
+          status: 'UNAUTHENTICATED',
+          message: 'sign in first',
+          details: [],
+        },
+      };
+      return Response.json(body, { status: 401 });
+    }
+
+    const code = randomUUID();
+    await this.kv.setItem(this.getDesktopCodeKey(code), principal.name, 5 * 60);
+
+    return Response.json({ code });
+  };
+
+  /**
+   * Step 2 of the desktop / native app sign-in handshake. The desktop
+   * client hands back the auth code it received via the loopback callback,
+   * and we mint a fresh session for it — independent of the web cookie
+   * session that originally `authorize`'d the code, so logging out on
+   * either side doesn't cascade to the other.
+   *
+   * Cookie attributes: defaults to `SameSite=None; Secure` so the cookie
+   * survives cross-site fetches from the desktop renderer's `file://` /
+   * `app://` origin. The configured base `cookieOptions` provide
+   * everything else (`domain`, `path`, `httpOnly`, `maxAge`); the override
+   * is targeted at the SameSite/Secure pair only. In a non-HTTPS dev
+   * backend this combination is rejected by Chromium — see the desktop
+   * sign-in PRD for workarounds.
+   *
+   * No CSRF check needed — the request carries no cookie, the auth code
+   * itself is the credential, and KV's single-use removal blocks replay.
+   */
+  desktopExchange = async (request: Request): Promise<Response> => {
+    let body: { code?: unknown };
+    try {
+      body = (await request.json()) as { code?: unknown };
+    } catch {
+      return Response.json(invalidArgument('INVALID_ARGUMENT'), { status: 400 });
+    }
+
+    const code = typeof body.code === 'string' ? body.code : null;
+    if (!code) {
+      return Response.json(invalidArgument('INVALID_ARGUMENT'), { status: 400 });
+    }
+
+    const key = this.getDesktopCodeKey(code);
+    const principalName = await this.kv.getItem(key);
+    if (typeof principalName !== 'string') {
+      return Response.json(invalidArgument('INVALID_DESKTOP_CODE'), { status: 400 });
+    }
+    // One-time use: remove BEFORE creating the session so a concurrent
+    // duplicate exchange (e.g. retry after timeout) sees the code as
+    // consumed even if our session save races it.
+    await this.kv.removeItem(key);
+
+    const session = this.repository.createSession();
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principalName);
+    session.setAttribute('client_type', 'desktop');
+    await this.repository.save(session);
+
+    const response = Response.json({ ok: true });
+    const maxAge = session.getMaxInactiveInterval();
+    setCookie(response, this.cookieName, session.getId(), {
+      ...this.cookieOptions,
+      // Override sameSite/secure for desktop: the renderer's origin
+      // (file:// / app://) is cross-site to the API, so SameSite=Lax/Strict
+      // would block the cookie on subsequent fetches.
+      sameSite: 'none',
+      secure: true,
+      maxAge,
+    });
     return response;
   };
 
