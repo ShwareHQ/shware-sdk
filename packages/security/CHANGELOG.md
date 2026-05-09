@@ -1,5 +1,13 @@
 # @shware/security
 
+## 2.5.0
+
+### Minor Changes
+
+- Desktop sign-in: require PKCE (S256). `desktopAuthorize` now takes `{ code_challenge, code_challenge_method: 'S256' }` in the JSON body and pins the challenge to the auth code in KV; `desktopExchange` now requires a matching `code_verifier`. This blocks an attacker who captures only the auth code (browser history, malicious extension, loopback packet sniff) from minting a session.
+
+  Breaking change for `desktopAuthorize` / `desktopExchange` callers: both endpoints' request bodies gained required fields. The KV record format also changed from raw `principalName` string to `{ name, cc }` JSON; in-flight codes from the previous version will fail with `INVALID_DESKTOP_CODE` after upgrade and need to be re-issued (5-min TTL bounds the impact).
+
 ## 2.4.1
 
 ### Patch Changes

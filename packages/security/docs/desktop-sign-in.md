@@ -18,24 +18,33 @@ The standard answer (what Slack, Linear, GitHub Desktop, VSCode, Cursor all do):
 ┌──────────────────────────────────────────────────────────────────────┐
 │  desktop main process                                                │
 │   1. spawn ephemeral HTTP server: http://127.0.0.1:RANDOM_PORT      │
-│   2. generate random `state` (UUID)                                  │
+│   2. generate random `state` (UUID) and PKCE pair:                   │
+│        verifier  = base64url(random(32))                             │
+│        challenge = base64url(sha256(verifier))                       │
+│      keep verifier in main-process memory only                       │
 │   3. shell.openExternal(                                             │
 │        https://yourapp.com/sign-in?                                  │
 │          desktop_callback=http://127.0.0.1:PORT&                     │
-│          state=STATE&via=google|apple|email                          │
+│          state=STATE&                                                │
+│          desktop_challenge=CHALLENGE&                                │
+│          via=google|apple|email                                      │
 │      )                                                               │
 └──────────────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │  system browser (your web app)                                       │
-│   4. /sign-in page reads desktop_callback / state, persists in       │
-│      sessionStorage (survives intermediate OAuth redirects)          │
+│   4. /sign-in page reads desktop_callback / state / challenge,       │
+│      persists in sessionStorage (survives intermediate OAuth         │
+│      redirects)                                                      │
 │   5. user signs in (any method — Turnstile, OAuth, verification      │
 │      code). Browser ends with a valid cookie session.                │
 │   6. SPA detects sessionStorage marker, calls                        │
-│        POST /auth/desktop/authorize  (cookie sent automatically)     │
-│      → server returns { code } (5-minute single-use)                 │
+│        POST /auth/desktop/authorize                                  │
+│          { code_challenge, code_challenge_method: 'S256' }           │
+│        (cookie sent automatically)                                   │
+│      → server pins challenge to a 5-min single-use code,             │
+│        returns { code }                                              │
 │   7. SPA: location.replace(callback + '?code=...&state=...')         │
 └──────────────────────────────────────────────────────────────────────┘
                             │
@@ -44,11 +53,12 @@ The standard answer (what Slack, Linear, GitHub Desktop, VSCode, Cursor all do):
 │  desktop main process / renderer                                     │
 │   8. loopback server receives GET /?code=...&state=...               │
 │   9. main verifies state, closes server, returns 200 HTML            │
-│  10. main hands `code` to renderer (via your IPC bridge)             │
+│  10. main hands `code` + held `verifier` to renderer (IPC bridge)    │
 │  11. renderer fetches:                                               │
 │        POST https://api.yourapp.com/auth/desktop/exchange            │
-│          { code }, credentials: 'include'                            │
-│      → server validates code (single-use → KV.removeItem),           │
+│          { code, code_verifier }, credentials: 'include'             │
+│      → server checks sha256(verifier) === stored challenge,          │
+│        consumes code (single-use → KV.removeItem),                   │
 │        creates fresh session, replies with                           │
 │        Set-Cookie: SESSION=...; HttpOnly; Secure; SameSite=None      │
 │  12. Chromium stores the cookie in the renderer's webContents        │
@@ -70,33 +80,42 @@ import { Auth, PATH } from '@shware/security';
 
 ### `desktopAuthorize(request) → Response`
 
-Web side. Caller must be authenticated (cookie session, same auth your other methods use). Returns a 5-minute single-use auth code.
+Web side. Caller must be authenticated (cookie session, same auth your other methods use). Pins a PKCE challenge to a 5-minute single-use code.
 
 ```ts
+// Request body (PKCE per RFC 7636, S256 only)
+{ "code_challenge": "<base64url(sha256(verifier))>", "code_challenge_method": "S256" }
+
 // JSON response
 { "code": "5e2c8e94-7b1f-4a3a-9e1b-2c8c3a14f9d3" }
 
-// Stored in KV under `desktop:code:<code>` → principal name, TTL 300s.
+// Stored in KV under `desktop:code:<code>` → { name, cc }, TTL 300s.
 // Anonymous callers receive HTTP 401 / UNAUTHENTICATED.
+// Missing/malformed challenge → 400 / INVALID_ARGUMENT.
 ```
 
 The endpoint sets no cookie — it's used from a context that already has one.
 
 ### `desktopExchange(request) → Response`
 
-Desktop side. Hands the loopback-received code back to mint a fresh session. The response carries a `Set-Cookie` for a brand-new session record (`client_type: 'desktop'`), independent of the web cookie session that authorized it.
+Desktop side. Hands the loopback-received code + the matching `code_verifier` back to mint a fresh session. The response carries a `Set-Cookie` for a brand-new session record (`client_type: 'desktop'`), independent of the web cookie session that authorized it.
 
 ```ts
 // Request body
-{ "code": "<from authorize>" }
+{ "code": "<from authorize>", "code_verifier": "<from desktop main>" }
 
 // Response
 HTTP 200
 Set-Cookie: SESSION=<id>; HttpOnly; Secure; SameSite=None; Max-Age=...
 { "ok": true }
 
-// Code is removed from KV before the session is created — concurrent
-// duplicate exchanges resolve to a single success / one INVALID_DESKTOP_CODE.
+// PKCE check (timing-safe): sha256(verifier) === stored challenge.
+// Verifier mismatch → 400 / INVALID_DESKTOP_CODE; the code is NOT
+// consumed on mismatch (a network retry of a legit exchange still
+// works), but the 5-min TTL bounds brute-force attempts.
+// On success: code is removed from KV before the session is created —
+// concurrent duplicate exchanges resolve to one success / one
+// INVALID_DESKTOP_CODE.
 ```
 
 `SameSite=None` is forced regardless of your `cookie` config so the cookie survives the desktop renderer's cross-site fetches (`file://` / `app://` → `https://api.yourapp.com`). The configured `cookie.domain` / `cookie.path` / `cookie.httpOnly` flow through unchanged.
@@ -127,24 +146,32 @@ useEffect(() => {
   const url = new URL(window.location.href);
   const callback = url.searchParams.get('desktop_callback');
   const state = url.searchParams.get('state');
-  if (!callback || !state) return;
+  const challenge = url.searchParams.get('desktop_challenge');
+  if (!callback || !state || !challenge) return;
   // Reject anything that isn't loopback — phishing protection.
   if (!/^http:\/\/127\.0\.0\.1:\d+(\/.*)?$/.test(callback)) return;
+  // Challenge must look like a PKCE S256 base64url string.
+  if (!/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) return;
   sessionStorage.setItem('desktop_callback', callback);
   sessionStorage.setItem('desktop_state', state);
+  sessionStorage.setItem('desktop_challenge', challenge);
 }, []);
 
 // On any successful sign-in (your existing post-login hook):
 async function maybeRedirectToDesktop(): Promise<boolean> {
   const callback = sessionStorage.getItem('desktop_callback');
   const state = sessionStorage.getItem('desktop_state');
-  if (!callback || !state) return false;
+  const challenge = sessionStorage.getItem('desktop_challenge');
+  if (!callback || !state || !challenge) return false;
   sessionStorage.removeItem('desktop_callback');
   sessionStorage.removeItem('desktop_state');
+  sessionStorage.removeItem('desktop_challenge');
 
   const res = await fetch('/auth/desktop/authorize', {
     method: 'POST',
     credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code_challenge: challenge, code_challenge_method: 'S256' }),
   });
   if (!res.ok) return false;
   const { code } = (await res.json()) as { code: string };
@@ -168,12 +195,20 @@ Main process — loopback server:
 
 ```ts
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { shell } from 'electron';
 
+const b64url = (buf: Buffer) =>
+  buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
 export async function startLoopbackSignIn(provider: 'google' | 'apple' | 'email') {
-  return new Promise<{ code: string }>((resolve, reject) => {
+  return new Promise<{ code: string; codeVerifier: string }>((resolve, reject) => {
     const state = randomUUID();
+    // PKCE: 32 random bytes → 43-char base64url verifier; challenge = sha256.
+    // Keep verifier in main-process closure only; never thread it through
+    // any URL or storage that the browser / renderer can observe.
+    const codeVerifier = b64url(randomBytes(32));
+    const codeChallenge = b64url(createHash('sha256').update(codeVerifier).digest());
     let settled = false;
 
     const server = http.createServer((req, res) => {
@@ -205,7 +240,7 @@ export async function startLoopbackSignIn(provider: 'google' | 'apple' | 'email'
         res
           .writeHead(200, { 'content-type': 'text/html' })
           .end('<h1>Signed in</h1><p>You can close this tab.</p>');
-        resolve({ code });
+        resolve({ code, codeVerifier });
       });
     });
 
@@ -233,6 +268,7 @@ export async function startLoopbackSignIn(provider: 'google' | 'apple' | 'email'
       const url = new URL('https://yourapp.com/sign-in');
       url.searchParams.set('desktop_callback', `http://127.0.0.1:${port}/`);
       url.searchParams.set('state', state);
+      url.searchParams.set('desktop_challenge', codeChallenge);
       url.searchParams.set('via', provider);
       void shell.openExternal(url.href);
     });
@@ -240,18 +276,20 @@ export async function startLoopbackSignIn(provider: 'google' | 'apple' | 'email'
 }
 ```
 
-Renderer — exchange the code for a cookie:
+Renderer — exchange the code + verifier for a cookie:
 
 ```ts
 async function signIn(provider: 'google' | 'apple' | 'email') {
-  // 1. main starts the loopback dance, awaits the code.
-  const { code } = await ipc.auth.startSignIn(provider); // your IPC bridge
-  // 2. POST the code; Chromium picks up Set-Cookie automatically.
+  // 1. main starts the loopback dance, awaits the code + the verifier
+  //    it generated. The verifier crosses the IPC bridge once; never
+  //    persist it (memory-only, dies with the renderer).
+  const { code, codeVerifier } = await ipc.auth.startSignIn(provider);
+  // 2. POST the pair; Chromium picks up Set-Cookie automatically.
   await fetch('https://api.yourapp.com/auth/desktop/exchange', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, code_verifier: codeVerifier }),
   });
   // 3. Subsequent calls just need credentials: 'include' — done.
 }
@@ -263,7 +301,7 @@ async function signIn(provider: 'google' | 'apple' | 'email') {
 - **Auth code never sees the server twice**. `desktopExchange` removes the KV entry before creating the session; concurrent exchanges (e.g. retry-after-network-hiccup) resolve to one success and one `INVALID_DESKTOP_CODE`.
 - **Cookie has `SameSite=None`, but session is isolated**. The desktop session is a separate Redis row from the web cookie session that authorized the code. Logging out on either side doesn't cascade. To enumerate / revoke, query sessions with `client_type === 'desktop'`.
 - **`Secure` requires HTTPS for the API**. `SameSite=None` + `Secure` is the only combination Chromium accepts cross-site. Plain `http://localhost:8080` will refuse the cookie. In dev, run your API on HTTPS (`mkcert localhost` is the easy path).
-- **No PKCE on the loopback step**. The `code` returned to the loopback IS the credential (no second exchange against the auth server with `code_verifier`). The threat model is "co-resident malware on the user's machine" — at that level, a stolen code or a stolen `code_verifier` are equivalent. If you want to layer PKCE later, switch `desktopExchange` to consume a `(code, code_verifier)` tuple and have `desktopAuthorize` accept `code_challenge`. Backwards-compatible additive change.
+- **PKCE (S256) is required**. The auth code travels through the system browser's URL bar and lands in browser history, browser-extension URL listeners, and (on the loopback hop) any process able to read the `127.0.0.1:PORT` packets. PKCE makes the code useless on its own — the verifier never leaves the desktop main process. RFC 7636 §4.4.1 mandates S256 for native clients; the SDK rejects `plain` and any other method. A 32-byte random verifier is the recommended size (43-char base64url). The server accepts 43-128 char verifiers/challenges per the spec.
 - **`shell.openExternal` URL must be trusted**. Build it from a constant origin you control, not from user input.
 
 ## Threat model differences vs. web

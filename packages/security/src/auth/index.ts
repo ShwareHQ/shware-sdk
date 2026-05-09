@@ -25,6 +25,20 @@ import { timing } from '../utils/timing';
 import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
 import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from './types';
 
+// PKCE per RFC 7636: code_verifier / code_challenge are 43-128 chars from
+// the unreserved set. We restrict to base64url (drops "." and "~") since
+// that's what S256 produces and what callers should be sending; rejecting
+// the rest shrinks the accepted input shape without losing legit clients.
+// A 32-byte random verifier base64url-encodes to exactly 43 chars.
+const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
+
+interface DesktopCodeRecord {
+  /** principal.name from the upstream cookie session */
+  name: string;
+  /** code_challenge (S256, base64url) — verifier must hash to this */
+  cc: string;
+}
+
 export const PATH = {
   CSRF: '/csrf',
   LOGOUT: '/logout',
@@ -479,10 +493,13 @@ export class Auth implements AuthService {
    * issues a 5-minute single-use code that the web page hands off to the
    * desktop client via a loopback redirect.
    *
-   * The code itself is just an opaque random UUID; it carries no payload —
-   * the principal name is stashed in KV under the code's key and pulled
-   * during `desktopExchange`. KV TTL bounds the lifetime; `removeItem` in
-   * `desktopExchange` enforces single-use semantics.
+   * PKCE (RFC 7636, S256 only): the desktop generates a random `code_verifier`
+   * before opening the browser, derives `code_challenge = base64url(sha256(verifier))`,
+   * and threads the challenge through the URL → web page → here. We pin
+   * the challenge to the code in KV; `desktopExchange` enforces that the
+   * caller knows the matching verifier. This blocks an attacker who only
+   * intercepts the auth code (browser history, malicious extension, packet
+   * capture on loopback) from exchanging it.
    *
    * Requires an authenticated cookie session — anonymous callers get 401.
    * Throttling / abuse protection on this endpoint is the API layer's job
@@ -503,8 +520,28 @@ export class Auth implements AuthService {
       return Response.json(body, { status: 401 });
     }
 
+    let body: { code_challenge?: unknown; code_challenge_method?: unknown };
+    try {
+      body = (await request.json()) as {
+        code_challenge?: unknown;
+        code_challenge_method?: unknown;
+      };
+    } catch {
+      return Response.json(invalidArgument('INVALID_ARGUMENT'), { status: 400 });
+    }
+
+    const codeChallenge = typeof body.code_challenge === 'string' ? body.code_challenge : null;
+    if (
+      !codeChallenge ||
+      body.code_challenge_method !== 'S256' ||
+      !PKCE_FORMAT.test(codeChallenge)
+    ) {
+      return Response.json(invalidArgument('INVALID_ARGUMENT'), { status: 400 });
+    }
+
     const code = randomUUID();
-    await this.kv.setItem(this.getDesktopCodeKey(code), principal.name, 5 * 60);
+    const record: DesktopCodeRecord = { name: principal.name, cc: codeChallenge };
+    await this.kv.setItem(this.getDesktopCodeKey(code), JSON.stringify(record), 5 * 60);
 
     return Response.json({ code });
   };
@@ -528,30 +565,52 @@ export class Auth implements AuthService {
    * itself is the credential, and KV's single-use removal blocks replay.
    */
   desktopExchange = async (request: Request): Promise<Response> => {
-    let body: { code?: unknown };
+    let body: { code?: unknown; code_verifier?: unknown };
     try {
-      body = (await request.json()) as { code?: unknown };
+      body = (await request.json()) as { code?: unknown; code_verifier?: unknown };
     } catch {
       return Response.json(invalidArgument('INVALID_ARGUMENT'), { status: 400 });
     }
 
     const code = typeof body.code === 'string' ? body.code : null;
-    if (!code) {
+    const verifier = typeof body.code_verifier === 'string' ? body.code_verifier : null;
+    if (!code || !verifier || !PKCE_FORMAT.test(verifier)) {
       return Response.json(invalidArgument('INVALID_ARGUMENT'), { status: 400 });
     }
 
     const key = this.getDesktopCodeKey(code);
-    const principalName = await this.kv.getItem(key);
-    if (typeof principalName !== 'string') {
+    const raw = await this.kv.getItem(key);
+    if (typeof raw !== 'string') {
       return Response.json(invalidArgument('INVALID_DESKTOP_CODE'), { status: 400 });
     }
+    let record: DesktopCodeRecord;
+    try {
+      record = JSON.parse(raw) as DesktopCodeRecord;
+    } catch {
+      // Malformed KV record (shouldn't happen with our own writes) — drop it
+      // and surface as an invalid code; the caller can retry the whole flow.
+      await this.kv.removeItem(key);
+      return Response.json(invalidArgument('INVALID_DESKTOP_CODE'), { status: 400 });
+    }
+
+    // Verify PKCE: base64url(sha256(verifier)) === stored challenge.
+    // Don't burn the code on a verifier mismatch — that would let an
+    // attacker who races a network retry brick a legit exchange. The code
+    // is single-use on success and 5-min TTL bounded; brute-forcing the
+    // 256-bit verifier in that window is infeasible.
+    const computed = createHash('sha256').update(verifier).digest();
+    const stored = Buffer.from(record.cc, 'base64url');
+    if (stored.length !== computed.length || !timingSafeEqual(computed, stored)) {
+      return Response.json(invalidArgument('INVALID_DESKTOP_CODE'), { status: 400 });
+    }
+
     // One-time use: remove BEFORE creating the session so a concurrent
     // duplicate exchange (e.g. retry after timeout) sees the code as
     // consumed even if our session save races it.
     await this.kv.removeItem(key);
 
     const session = this.repository.createSession();
-    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principalName);
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, record.name);
     session.setAttribute('client_type', 'desktop');
     await this.repository.save(session);
 
