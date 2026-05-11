@@ -9,6 +9,12 @@ declare global {
 }
 
 export type Props = {
+  /**
+   * Opaque nonce string forwarded as-is to Google. Google echoes it back in
+   * the ID Token's `nonce` claim per the OIDC spec; the caller is responsible
+   * for any hashing/encoding required by its verifier.
+   */
+  nonce?: string;
   client_id: string;
   auto_select?: boolean;
   cancel_on_tap_outside?: boolean;
@@ -56,6 +62,7 @@ function loadScript(): Promise<void> {
 
 /** debug: chrome://settings/content/federatedIdentityApi */
 export async function prompt({
+  nonce,
   client_id,
   auto_select = false,
   use_fedcm_for_prompt = true,
@@ -70,6 +77,7 @@ export async function prompt({
       ux_mode: 'popup',
       context: 'signin',
       auto_select,
+      nonce,
       client_id,
       use_fedcm_for_prompt,
       cancel_on_tap_outside,

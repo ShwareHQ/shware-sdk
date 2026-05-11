@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.10.4
+
+### Patch Changes
+
+- add nonce support
+
 ## 2.10.3
 
 ### Patch Changes
