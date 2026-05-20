@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.10.5
+
+### Patch Changes
+
+- try to fix redirect
+
 ## 2.10.4
 
 ### Patch Changes

@@ -31,11 +31,20 @@ export async function forwardToGoogleTagGateway(request: Request, gaId: string) 
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+
+  // Buffer the body instead of streaming it. The conversion endpoint
+  // (g/measurement/conversion) answers POSTs with a 302 to www.google.com, and we want
+  // to follow that hop on the server so the browser never sees a Google domain (the whole
+  // point of the first-party gateway). Following a redirect requires re-issuing the
+  // request, which undici cannot do with a one-shot `request.body` stream — it throws
+  // "fetch failed", surfacing as a 500. A buffered body is replayable, so the redirect
+  // is followed transparently here.
+  const body = hasBody ? await request.arrayBuffer() : undefined;
+
   const response = await fetch(target, {
     method: request.method,
     headers,
-    body: hasBody ? request.body : undefined,
-    ...(hasBody && { duplex: 'half' as const }),
+    body,
   });
 
   // Strip content-encoding/content-length because fetch() auto-decompresses
