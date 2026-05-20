@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.4.2
+
+### Patch Changes
+
+- add waitForRequestIdleCallback
+
 ## 1.4.1
 
 ### Patch Changes
