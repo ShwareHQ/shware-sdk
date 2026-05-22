@@ -30,7 +30,6 @@ export type Props = {
 export type PromptMoment = {
   skipped: boolean;
   dismissed: boolean;
-  momentType: ReturnType<PromptMomentNotification['getMomentType']>;
   dismissedReason: ReturnType<PromptMomentNotification['getDismissedReason']>;
 };
 
@@ -57,9 +56,10 @@ function loadScript(): Promise<void> {
         resolve();
       } else {
         script.addEventListener('load', () => resolve());
-        script.addEventListener('error', () =>
-          reject(new Error('Failed to load Google One Tap script'))
-        );
+        script.addEventListener('error', () => {
+          script = null; // allow a later call to recreate the element instead of hanging
+          reject(new Error('Failed to load Google One Tap script'));
+        });
       }
       return;
     }
@@ -70,7 +70,10 @@ function loadScript(): Promise<void> {
     script.defer = true;
     script.src = 'https://accounts.google.com/gsi/client';
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google One Tap script'));
+    script.onerror = () => {
+      script = null; // allow a later call to recreate the element instead of hanging
+      reject(new Error('Failed to load Google One Tap script'));
+    };
 
     document.head.appendChild(script);
   });
@@ -128,19 +131,14 @@ export async function prompt({
       window.google.accounts.id.prompt((notification) => {
         if (settled) return;
 
-        if (
-          notification.isSkippedMoment() ||
-          (notification.isDismissedMoment() &&
-            notification.getDismissedReason() !== 'credential_returned')
-        ) {
+        const skipped = notification.isSkippedMoment();
+        const dismissed = notification.isDismissedMoment();
+        const dismissedReason = notification.getDismissedReason();
+
+        if (skipped || (dismissed && dismissedReason !== 'credential_returned')) {
           settle({
             authorized: false,
-            moment: {
-              momentType: notification.getMomentType(),
-              skipped: notification.isSkippedMoment(),
-              dismissed: notification.isDismissedMoment(),
-              dismissedReason: notification.getDismissedReason(),
-            },
+            moment: { skipped, dismissed, dismissedReason },
           });
         }
       });

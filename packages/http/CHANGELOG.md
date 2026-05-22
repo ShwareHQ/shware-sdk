@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.11.1
+
+### Patch Changes
+
+- update onetap props
+
 ## 2.11.0
 
 ### Minor Changes
