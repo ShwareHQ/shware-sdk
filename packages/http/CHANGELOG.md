@@ -1,5 +1,11 @@
 # @shware/http
 
+## 2.11.0
+
+### Minor Changes
+
+- update google one tap error handling
+
 ## 2.10.5
 
 ### Patch Changes

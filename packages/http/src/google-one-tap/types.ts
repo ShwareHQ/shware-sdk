@@ -1,4 +1,4 @@
-interface ClientConfigError extends Error {
+export interface ClientConfigError extends Error {
   message: string;
   stack?: string;
   type: 'unknown' | 'popup_closed' | 'popup_failed_to_open';
@@ -36,7 +36,7 @@ interface TokenResponse {
   error_uri: string;
 }
 
-interface CodeResponse {
+export interface CodeResponse {
   code: string;
   scope: string;
   state: string;
