@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.4.3
+
+### Patch Changes
+
+- update deps
+
 ## 1.4.2
 
 ### Patch Changes

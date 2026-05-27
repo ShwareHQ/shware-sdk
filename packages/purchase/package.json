@@ -1,6 +1,6 @@
 {
   "name": "@shware/purchase",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "private": false,
   "repository": {
     "type": "git",
@@ -54,7 +54,7 @@
     "@types/ms": "^2.1.0",
     "@types/node": "^25",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.7"
   },
   "peerDependencies": {
     "stripe": "^22"

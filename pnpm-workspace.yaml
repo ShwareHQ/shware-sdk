@@ -3,4 +3,26 @@ packages:
   - 'examples/*'
   - 'packages/*'
 
-minimumReleaseAge: 10080
+# minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - '@posthog/core@1.29.11'
+  - '@posthog/types@1.376.2'
+  - '@turbo/darwin-64@2.9.15'
+  - '@turbo/darwin-arm64@2.9.15'
+  - '@turbo/linux-64@2.9.15'
+  - '@turbo/linux-arm64@2.9.15'
+  - '@turbo/windows-64@2.9.15'
+  - '@turbo/windows-arm64@2.9.15'
+  - expo-crypto@56.0.4
+  - i18next@26.3.0
+  - ioredis@5.11.0
+  - posthog-js@1.376.2
+  - turbo@2.9.15
+
+allowBuilds:
+  '@firebase/util': true
+  core-js: true
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
+  sharp: true

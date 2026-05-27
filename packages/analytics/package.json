@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "private": false,
   "repository": {
     "type": "git",
@@ -86,27 +86,27 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/facebook-nodejs-business-sdk": "^23",
+    "@types/facebook-nodejs-business-sdk": "^24",
     "@types/node": "^25",
     "@types/react": "^19",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.7"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^24.0.0",
-    "@tanstack/react-router": "^1.169.1",
-    "expo-application": "^55.0.14",
-    "expo-clipboard": "^55.0.13",
-    "expo-crypto": "^55.0.14",
-    "expo-device": "^55.0.15",
-    "expo-localization": "^55.0.13",
-    "expo-sqlite": "^55.0.15",
-    "expo-tracking-transparency": "^55.0.13",
+    "@tanstack/react-router": "^1.170.8",
+    "expo-application": "^56.0.3",
+    "expo-clipboard": "^56.0.3",
+    "expo-crypto": "^56.0.4",
+    "expo-device": "^56.0.4",
+    "expo-localization": "^56.0.6",
+    "expo-sqlite": "^56.0.4",
+    "expo-tracking-transparency": "^56.0.5",
     "facebook-nodejs-business-sdk": "^24",
     "next": "^16",
-    "posthog-js": "^1.372.6",
+    "posthog-js": "^1.376.2",
     "react": "^19",
-    "react-native": "^0.83.0",
+    "react-native": "^0.85.3",
     "react-native-fbsdk-next": "^13.4.3",
     "react-native-url-polyfill": "^3",
     "react-router": "^7"
