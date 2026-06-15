@@ -1,3 +1,2 @@
 pnpm check-types
-pnpm lint
-pnpm format
+pnpm lint-staged
