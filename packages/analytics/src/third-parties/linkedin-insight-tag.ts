@@ -4,7 +4,7 @@ import { getFirst } from '../utils/field';
 import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  // oxlint-disable-next-line typescript/no-empty-object-type
   interface Window extends Lintrk {}
 }
 
