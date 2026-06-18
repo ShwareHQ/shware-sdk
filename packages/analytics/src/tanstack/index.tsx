@@ -24,6 +24,7 @@ interface Props {
   gaSrc?: string;
   gtmId?: GtmId;
   metaPixelId?: MetaPixelId;
+  openaiPixelId?: string;
   redditPixelId?: RedditPixelId;
   linkedInPartnerId?: `${number}`;
   hotjarId?: `${number}`;
@@ -39,6 +40,7 @@ export function Analytics({
   nonce,
   debugMode,
   metaPixelId,
+  openaiPixelId,
   redditPixelId,
   linkedInPartnerId,
   hotjarId,
@@ -115,6 +117,31 @@ export function Analytics({
             })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
             fbq('init', '${metaPixelId}');
             fbq('track', 'PageView');`,
+          }}
+        />
+      )}
+      {openaiPixelId && (
+        <script
+          async
+          id="openai-pixel"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function (w, d, s, u) {
+                  if (w.oaiq) return;
+                  var q = function () {
+                    q.q.push(arguments);
+                  };
+                  q.q = [];
+                  w.oaiq = q;
+                  var js = d.createElement(s);
+                  js.async = true;
+                  js.src = u;
+                  var f = d.getElementsByTagName(s)[0];
+                  f.parentNode.insertBefore(js, f);
+                })(window, document, "script", "https://bzrcdn.openai.com/sdk/oaiq.min.js");
+
+                oaiq("init", { pixelId: "${openaiPixelId}" });
+            `,
           }}
         />
       )}
