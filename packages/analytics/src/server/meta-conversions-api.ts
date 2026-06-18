@@ -176,7 +176,7 @@ function getAppData(tags: TrackTags, appPackageName: string) {
   return appData;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any
 function getCustomData({ name, properties }: TrackEvent<any>) {
   const data = new CustomData();
   const [_, _name, fbEventProperties] = mapFBEvent(name, properties);
@@ -228,7 +228,7 @@ function getCustomData({ name, properties }: TrackEvent<any>) {
 }
 
 export function getServerEvent(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   data: UserProvidedData,
   appPackageName?: string
@@ -266,7 +266,7 @@ export function getServerEvent(
 export async function sendEvent(
   accessToken: string,
   pixelId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   data: UserProvidedData = {},
   appPackageName?: string
@@ -281,7 +281,7 @@ export async function sendEvent(
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {},
   appPackageName?: string

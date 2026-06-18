@@ -67,7 +67,7 @@ export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 export async function sendEvents(
   accessToken: string,
   config: LinkedinConversionConfig,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {}
 ) {

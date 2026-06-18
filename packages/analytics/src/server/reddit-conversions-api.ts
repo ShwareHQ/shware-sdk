@@ -73,7 +73,7 @@ export interface CreateRedditEventDTO {
 }
 
 export function getServerEvent(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   data: UserProvidedData
 ): RedditEvent {
@@ -124,7 +124,7 @@ export function getServerEvent(
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {},
   testId?: string
