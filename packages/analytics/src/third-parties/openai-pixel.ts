@@ -1,4 +1,4 @@
-import { type OAIQ, type OAIQUser, mapOAIEvent } from '../track/oaiq';
+import { NON_AD_EVENTS, type OAIQ, type OAIQUser, mapOAIEvent } from '../track/oaiq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import type { UpdateVisitorDTO } from '../visitor/types';
@@ -7,8 +7,6 @@ declare global {
   // oxlint-disable-next-line typescript/no-empty-object-type
   interface Window extends OAIQ {}
 }
-
-const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 
 /** Drop `undefined` fields so the SDK only receives populated values. */
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,7 +28,7 @@ export function sendOpenAIEvent<T extends EventName>(
     console.warn('oaiq has not been initialized');
     return;
   }
-  if (metrics.includes(name)) return;
+  if (NON_AD_EVENTS.includes(name)) return;
   if (window.location.host.includes('127.0.0.1')) return;
   if (window.location.host.includes('localhost')) return;
 

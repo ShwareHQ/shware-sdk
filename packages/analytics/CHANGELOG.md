@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.6.1
+
+### Patch Changes
+
+- ignore non ad events
+
 ## 3.6.0
 
 ### Minor Changes

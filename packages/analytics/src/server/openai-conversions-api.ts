@@ -6,7 +6,7 @@
 import { createHash } from 'crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { type EventData, mapOAIEvent } from '../track/oaiq';
+import { type EventData, NON_AD_EVENTS, mapOAIEvent } from '../track/oaiq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 
@@ -129,6 +129,7 @@ export async function sendEvents(
     validate_only: validateOnly,
     events: events
       .filter((event) => !IGNORED_EVENTS.includes(event.name))
+      .filter((event) => !NON_AD_EVENTS.includes(event.name))
       .map((event) => getServerEvent(event, data)),
   };
 

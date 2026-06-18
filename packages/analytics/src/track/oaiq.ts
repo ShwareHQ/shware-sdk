@@ -1,6 +1,19 @@
 import type { Item } from './gtag';
 import type { EventName, TrackName, TrackProperties } from './types';
 
+export const NON_AD_EVENTS = [
+  // metrics
+  'CLS',
+  'FCP',
+  'FID',
+  'INP',
+  'LCP',
+  'TTFB',
+  // promotions
+  'view_promotion',
+  'select_promotion',
+];
+
 /**
  * Content item shared by `contents` and `plan_enrollment` events.
  * https://developers.openai.com/ads/supported-events
