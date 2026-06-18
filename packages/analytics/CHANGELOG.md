@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.6.0
+
+### Minor Changes
+
+- add openai pixel and conversions api
+
 ## 3.5.2
 
 ### Patch Changes
