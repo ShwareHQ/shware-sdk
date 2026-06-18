@@ -127,7 +127,7 @@ export type UserProperties = {
  *
  * Usage: gtag('set', 'user_data', { email: 'abc@abc.com' })
  *
- * In order to standardize the hash results, prior to hashing one of these values you must:
+ * To standardize the hash results, before hashing one of these values, you must:
  *
  * - Remove leading and trailing whitespaces.
  * - Convert the text to lowercase.
@@ -150,7 +150,7 @@ type UserProvidedDataAddress = {
 };
 
 /**
- * In order to standardize the hash results, prior to hashing one of these values you must:
+ * To standardize the hash results, before hashing one of these values, you must:
  *
  * - Remove leading and trailing whitespaces.
  * - Convert the text to lowercase.
@@ -730,6 +730,8 @@ export interface Gtag {
    * To disable advertising features based on third-party advertising identifiers, set
    * allow_google_signals to false.
    *
+   * @param event
+   * @param option
    * @param allow - Whether to allow Google signals.
    * @default true
    */
@@ -738,6 +740,8 @@ export interface Gtag {
   /**
    * Set to false to disable advertising personalization features.
    *
+   * @param event
+   * @param option
    * @param allow - Whether to allow ad personalization signals.
    * @default true
    */
@@ -789,10 +793,12 @@ export interface Gtag {
    * Specifies the domain used to store the analytics cookie.
    * Set to 'none' to set the cookie without specifying a domain.
    * Set to 'auto' (the default value) to set the cookie to the top level domain plus one
-   * subdomain (eTLD +1). For example if cookie_domain is set to 'auto' https://example.com would
+   * subdomain (eTLD +1). For example, if cookie_domain is set to 'auto' https://example.com would
    * use example.com for the domain, and https://subdomain.example.com would also use example.com
    * for the domain.
    *
+   * @param event
+   * @param option
    * @param domain - The domain used to store the analytics cookie.
    * @default 'auto'
    */
@@ -801,15 +807,17 @@ export interface Gtag {
   /**
    * Every time a hit is sent to Google Analytics, the cookie expiration time is updated to be the
    * current time plus the value of the cookie_expires field. This means that if you use the default
-   * value time of two years (63072000 seconds), and a user visits your site every month, their
+   * value time of two years (63,072,000 seconds), and a user visits your site every month, their
    * cookie will never expire.
    *
-   * If you set the cookie_expires time to 0 (zero) seconds, the cookie turns into a session based
+   * If you set the cookie_expires time to 0 (zero) seconds, the cookie turns into a session-based
    * cookie and expires once the current browser session ends.
    *
    * Caution: If you set the cookie to expire too quickly, you will inflate your user count and
    * decrease the quality of your measurement.
    *
+   * @param event
+   * @param option
    * @param expires - The number of seconds until the cookie expires.
    * @default 63072000
    */
@@ -837,6 +845,8 @@ export interface Gtag {
    * When set to false, cookies are not updated on each page load. This has the effect of cookie
    * expiration being relative to the first time a user visited the site.
    *
+   * @param event
+   * @param option
    * @param update - Whether to update the cookie on each page load.
    * @default true
    */
@@ -846,22 +856,28 @@ export interface Gtag {
    * Set to true to indicate to Analytics that the referrer shouldn't be displayed as a traffic
    * source. [Learn when to use this field](https://support.google.com/analytics/answer/10327750#set-parameter)
    *
+   * @param event
+   * @param option
    * @param ignore - Whether to ignore the referrer.
    * @default false
    */
   gtag(event: 'set', option: 'ignore_referrer', ignore: boolean): void;
 
   /**
-   * Specifies the language preference of the user. Defaults to the user's navigator.language value.
+   * Specifies the language preference of the user. Defaults to the user's `navigator.language` value.
    *
+   * @param event
+   * @param option
    * @param language - The language preference of the user.
    * @default navigator.language
    */
   gtag(event: 'set', option: 'language', language: string): void;
 
   /**
-   * Specifies the full URL of the page. Defaults to the user's document.location value.
+   * Specifies the full URL of the page. Defaults to the user's `document.location` value.
    *
+   * @param event
+   * @param option
    * @param location - The full URL of the page. Character limit 1000
    * @default document.location
    */
@@ -869,17 +885,21 @@ export interface Gtag {
 
   /**
    * Specifies which referral source brought traffic to a page. This value is also used to compute
-   * the traffic source. The format of this value is a URL. Defaults to the user's document.referrer
+   * the traffic source. The format of this value is a URL. Defaults to the user's `document.referrer`
    * value.
    *
+   * @param event
+   * @param option
    * @param referrer - The referral source. Character limit 420
    * @default document.referrer
    */
   gtag(event: 'set', option: 'page_referrer', referrer: string): void;
 
   /**
-   * The title of the page or document. Defaults to the user's document.title value.
+   * The title of the page or document. Defaults to the user's `document.title` value.
    *
+   * @param event
+   * @param option
    * @param title - The title of the page or document. Character limit 300
    * @default document.title
    */
@@ -888,6 +908,8 @@ export interface Gtag {
   /**
    * Set to false to prevent the default snippet from sending a page_view.
    *
+   * @param event
+   * @param option
    * @param send - Whether to send a page_view.
    * @default true
    */
@@ -898,6 +920,8 @@ export interface Gtag {
    * example, for an 800px by 600px screen, the value would be 800x600. Calculated from the user's
    * window.screen value.
    *
+   * @param event
+   * @param option
    * @param resolution - The resolution of the screen.
    * @default window.screen
    */
@@ -906,8 +930,10 @@ export interface Gtag {
   /**
    * Specifies a known identifier for a user provided by the site owner/library user. It must not
    * itself be PII (personally identifiable information). The value should never be persisted in
-   * Google Analytics cookies or other Analytics provided storage.
+   * Google Analytics cookies or other Analytics-provided storage.
    *
+   * @param event
+   * @param option
    * @param userId - The user ID. Character limit 256
    */
   gtag(event: 'set', option: 'user_id', userId: string): void;
@@ -917,8 +943,9 @@ export interface Gtag {
    * as language preference or geographic location. Up to 25 additional user properties can be set
    * per project.
    *
-   * @param name - The name of the user property. Character limit 24
-   * @param value - The value of the user property. Character limit 36
+   * @param event
+   * @param option
+   * @param properties
    */
   gtag(event: 'set', option: 'user_properties', properties: UserProperties): void;
 
