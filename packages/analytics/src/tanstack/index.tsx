@@ -141,6 +141,7 @@ export function Analytics({
                 })(window, document, "script", "https://bzrcdn.openai.com/sdk/oaiq.min.js");
 
                 oaiq("init", { pixelId: "${openaiPixelId}" });
+                oaiq("measure", "page_viewed", { type: "contents" });
             `,
           }}
         />
