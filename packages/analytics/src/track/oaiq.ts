@@ -226,8 +226,6 @@ function planEnrollmentData(properties: unknown): PlanEnrollmentData {
 export type MappedOAIEvent = {
   type: StandardEvent | 'custom';
   data: EventData;
-  /** Set only when `type` is `custom`; mirrors the original track event name. */
-  customEventName?: string;
 };
 
 /** Map an internal track event onto an OpenAI standard (or custom) conversion event. */
@@ -263,7 +261,6 @@ export function mapOAIEvent<T extends EventName>(
       const currency = readCurrency(properties);
       return {
         type: 'custom',
-        customEventName: name,
         data: {
           type: 'custom',
           amount: toMinorUnits(readValue(properties), currency),
