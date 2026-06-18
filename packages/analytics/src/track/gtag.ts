@@ -678,17 +678,23 @@ export type RecommendedEvents = {
   };
 };
 
+/**
+ * Extra commonly used events that are NOT part of the GA standard event set.
+ * Added to satisfy additional analytics needs.
+ */
 export type AddedRecommendedEvents = {
   logout: undefined;
   trial_begin: {
     currency: string;
     value: number;
     source?: string; // added
+    items?: Item[]; // added, the plan(s) enrolled (first item's id maps to OpenAI plan_id)
   };
   subscribe: {
     currency: string;
     value: number;
     source?: string; // added
+    items?: Item[]; // added, the plan(s) enrolled (first item's id maps to OpenAI plan_id)
   };
   // survey
   survey_shown: SurveyProperties;
