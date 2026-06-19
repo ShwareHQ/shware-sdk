@@ -52,9 +52,9 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/ms": "^2.1.0",
-    "@types/node": "^25",
+    "@types/node": "^25.9.3",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.9"
   },
   "peerDependencies": {
     "stripe": "^22"

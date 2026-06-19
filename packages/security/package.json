@@ -32,7 +32,7 @@
   "dependencies": {
     "@shware/utils": "workspace:^",
     "cookie": "^1.1.1",
-    "ioredis": "^5.11.0",
+    "ioredis": "^5.11.1",
     "jose": "^6.2.3",
     "path-to-regexp": "^8.4.2",
     "uuid": "^14.0.0",
@@ -40,9 +40,9 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "^25",
+    "@types/node": "^25.9.3",
     "ts-node": "^10.9.2",
     "typescript": "6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.9"
   }
 }
