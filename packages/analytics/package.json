@@ -67,6 +67,9 @@
       "require": "./dist/server/index.cjs"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit",

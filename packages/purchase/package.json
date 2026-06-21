@@ -37,6 +37,9 @@
       "require": "./dist/stripe/index.cjs"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsup",

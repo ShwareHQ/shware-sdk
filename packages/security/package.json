@@ -22,6 +22,9 @@
       "require": "./dist/oauth2/provider/index.cjs"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsup",
