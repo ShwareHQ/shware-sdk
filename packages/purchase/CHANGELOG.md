@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 1.8.7
+
+### Patch Changes
+
+- add pending checkout store
+
 ## 1.8.6
 
 ### Patch Changes
