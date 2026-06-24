@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.6.2
+
+### Patch Changes
+
+- refresh legacy system id to UUID v7
+
 ## 3.6.1
 
 ### Patch Changes

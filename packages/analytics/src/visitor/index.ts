@@ -36,7 +36,15 @@ async function getOrCreateVisitor(): Promise<Visitor> {
     });
 
     if (!response.ok) return createVisitor();
-    return response.json() as Promise<Visitor>;
+    const data = (await response.json()) as Visitor;
+
+    // The legacy system used int64 ids (SnowflakeId); the new system switched to UUID_v7. The GET
+    // endpoint accepts both, and querying with a legacy id returns the new UUID_v7,
+    // so we write it back here to refresh the stored id for a smooth migration.
+    if (data.id) {
+      config.storage.setItem(keys.visitor_id, data.id);
+    }
+    return data;
   } else {
     return createVisitor();
   }
