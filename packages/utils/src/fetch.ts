@@ -78,5 +78,6 @@ export async function fetch(
   }
 
   if (lastResponse) return lastResponse;
-  throw lastError ?? new Error('Fetch failed');
+  if (lastError instanceof Error) throw lastError;
+  throw new Error('Fetch failed', { cause: lastError });
 }
