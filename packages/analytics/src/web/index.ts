@@ -48,7 +48,8 @@ export async function getTags() {
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
     source: 'web',
     source_url: window.location.origin + window.location.pathname,
-    // meta ads
+    page_referrer: document.referrer || undefined,
+    // Meta Ads
     fbc: parsed._fbc ?? expiringStorage.getItem<string>(keys.fbc) ?? undefined,
     fbp: parsed._fbp,
     fbclid: params.get('fbclid') ?? expiringStorage.getItem<string>(keys.fbclid) ?? undefined,
@@ -60,19 +61,19 @@ export async function getTags() {
     campaign_name: params.get('campaign_name') ?? undefined,
     placement: params.get('placement') ?? undefined,
     site_source_name: params.get('site_source_name') ?? undefined,
-    // google ads
+    // Google Ads
     gclid: params.get('gclid') ?? undefined,
     gclsrc: params.get('gclsrc') ?? undefined,
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
-    // reddit ads
+    // Reddit Ads
     rdt_cid:
       params.get('rdt_cid') ??
       parsed._rdt_cid ??
       expiringStorage.getItem<string>(keys.rdt_cid) ??
       undefined,
     rdt_uuid: parsed._rdt_uuid,
-    // linkedin ads: get click id from url params or first-party cookie
+    // LinkedIn Ads: get click id from url params or first-party cookie
     li_fat_id: params.get('li_fat_id') ?? parsed.li_fat_id ?? undefined,
     // click ids
     dclid: params.get('dclid') ?? undefined,

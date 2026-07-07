@@ -71,6 +71,7 @@ export const tagsSchema = object({
   environment: _enum(ALL_ENVIRONMENTS),
   source_url: optional(string()),
   source: optional(_enum(['web', 'app', 'offline'])),
+  page_referrer: optional(string()),
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
