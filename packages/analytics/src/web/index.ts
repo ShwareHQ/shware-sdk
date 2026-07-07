@@ -47,7 +47,7 @@ export async function getTags() {
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
     source: 'web',
-    source_url: window.location.origin + window.location.pathname,
+    source_url: window.location.href,
     page_referrer: document.referrer || undefined,
     // Meta Ads
     fbc: parsed._fbc ?? expiringStorage.getItem<string>(keys.fbc) ?? undefined,
