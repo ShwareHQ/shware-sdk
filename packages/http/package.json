@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "2.11.2",
+  "version": "2.11.3",
   "private": false,
   "repository": {
     "type": "git",
@@ -54,13 +54,13 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
-    "hono": "^4.12.23",
-    "i18next": "^26.3.0",
+    "hono": "^4.12.28",
+    "i18next": "^26.3.4",
     "react": "^19"
   },
   "peerDependenciesMeta": {

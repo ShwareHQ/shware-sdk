@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 3.6.3
+
+### Patch Changes
+
+- update deps
+- Updated dependencies
+  - @shware/utils@1.4.4
+
 ## 3.6.2
 
 ### Patch Changes

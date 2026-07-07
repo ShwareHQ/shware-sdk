@@ -16,8 +16,8 @@
   "tabWidth": 2,
   "trailingComma": "es5",
   "useTabs": false,
-  "experimentalSortPackageJson": true,
-  "experimentalTailwindcss": { "functions": ["clsx", "cn", "cva", "tw"] },
-  "experimentalSortImports": { "newlinesBetween": false },
+  "sortPackageJson": true,
+  "sortTailwindcss": { "functions": ["clsx", "cn", "cva", "tw"] },
+  "sortImports": { "newlinesBetween": false },
   "ignorePatterns": ["routeTree.gen.ts"]
 }

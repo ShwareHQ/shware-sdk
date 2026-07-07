@@ -1,5 +1,13 @@
 # @shware/purchase
 
+## 1.8.8
+
+### Patch Changes
+
+- update deps
+- Updated dependencies
+  - @shware/utils@1.4.4
+
 ## 1.8.7
 
 ### Patch Changes

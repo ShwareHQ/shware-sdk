@@ -1,6 +1,6 @@
 {
   "name": "@shware/purchase",
-  "version": "1.8.7",
+  "version": "1.8.8",
   "private": false,
   "repository": {
     "type": "git",
@@ -55,7 +55,7 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/ms": "^2.1.0",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
