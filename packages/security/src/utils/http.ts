@@ -16,11 +16,14 @@ export function setCookie(
   value: string,
   options?: SerializeOptions
 ) {
-  response.headers.append('Set-Cookie', stringifySetCookie(name, value, options));
+  response.headers.append('Set-Cookie', stringifySetCookie({ name, value, ...options }));
 }
 
 export function deleteCookie(response: Response, name: string, options?: SerializeOptions) {
-  response.headers.append('Set-Cookie', stringifySetCookie(name, '', { ...options, maxAge: 0 }));
+  response.headers.append(
+    'Set-Cookie',
+    stringifySetCookie({ name, value: '', ...options, maxAge: 0 })
+  );
 }
 
 type PathParam<T extends string> = T extends `${string}:${infer Param}/${infer Rest}`
