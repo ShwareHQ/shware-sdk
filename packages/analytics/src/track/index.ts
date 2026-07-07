@@ -109,7 +109,7 @@ export function track<T extends EventName = EventName>(
   if (list.length >= batch) {
     const copy = [...list];
     list.length = 0;
-    sendEvents(copy);
+    void sendEvents(copy);
     return;
   }
   if (timer) clearTimeout(timer);
@@ -117,7 +117,7 @@ export function track<T extends EventName = EventName>(
     timer = null;
     const copy = [...list];
     list.length = 0;
-    sendEvents(copy);
+    void sendEvents(copy);
   }, delay);
 }
 

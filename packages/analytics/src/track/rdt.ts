@@ -203,5 +203,5 @@ export function mapServerStandardEvent(name: keyof StandardEvents): ServerStanda
   if (name === 'Purchase') return 'PURCHASE';
   if (name === 'Lead') return 'LEAD';
   if (name === 'SignUp') return 'SIGN_UP';
-  throw new Error(`Unsupported standard event: ${name}`);
+  throw new Error(`Unsupported standard event: ${String(name)}`);
 }

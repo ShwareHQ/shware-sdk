@@ -65,13 +65,17 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
     }
   }
 
+  // The variable annotation makes the emitted .d.ts reference the local
+  // PaymentStatus alias instead of stripe's internal module path (TS2883)
+  const payment_status: PaymentStatus = session.payment_status;
+
   return {
     id: session.id,
     url: session.url,
     coupon,
     livemode: session.livemode,
     expires_at: session.expires_at,
-    payment_status: session.payment_status satisfies PaymentStatus as PaymentStatus,
+    payment_status,
     currency: session.currency,
     amount_total: session.amount_total,
     line_items: session.line_items?.data.map(mapLineItem),
@@ -166,8 +170,8 @@ export function mapSubscriptionStatus(status: Stripe.Subscription.Status): Subsc
     case 'unpaid':
       return SubscriptionStatus.UNPAID;
     default: {
-      console.error(`Invalid stripe status: ${status}`);
-      throw new Error(`Invalid stripe status: ${status}`);
+      console.error(`Invalid stripe status: ${String(status)}`);
+      throw new Error(`Invalid stripe status: ${String(status)}`);
     }
   }
 }
