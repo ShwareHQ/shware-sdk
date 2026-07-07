@@ -45,7 +45,7 @@
     "build": "tsup",
     "test": "vitest run",
     "check-types": "tsc --noEmit",
-    "lint": "oxlint . --fix"
+    "lint": "oxlint --type-aware . --fix"
   },
   "dependencies": {
     "@shware/utils": "workspace:^",

@@ -74,7 +74,7 @@
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "oxlint . --fix",
+    "lint": "oxlint --type-aware . --fix",
     "build": "tsup",
     "build:tsup": "tsup",
     "build:unbuild": "unbuild"
