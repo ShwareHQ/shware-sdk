@@ -234,7 +234,7 @@ export type Config = {
   client_id?: string;
   content_group?: string;
 
-  cookie_domain?: 'none' | 'auto' | string;
+  cookie_domain?: 'none' | 'auto' | (string & {});
   cookie_expires?: number;
   cookie_flags?: string;
   cookie_path?: string;
@@ -304,9 +304,9 @@ export type SurveyQA = {
   completed?: boolean;
 };
 
-export type NPSScore = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | number;
-export type CASTScore = 1 | 2 | 3 | 4 | 5 | number;
-export type CESScore = 1 | 2 | 3 | 4 | 5 | number;
+export type NPSScore = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | (number & {});
+export type CASTScore = 1 | 2 | 3 | 4 | 5 | (number & {});
+export type CESScore = 1 | 2 | 3 | 4 | 5 | (number & {});
 
 /** ref: https://support.google.com/analytics/answer/9216061 */
 export type EnhancedMeasurementEvents = {
@@ -808,7 +808,7 @@ export interface Gtag {
    * @param domain - The domain used to store the analytics cookie.
    * @default 'auto'
    */
-  gtag(event: 'set', option: 'cookie_domain', domain: 'none' | 'auto' | string): void;
+  gtag(event: 'set', option: 'cookie_domain', domain: 'none' | 'auto' | (string & {})): void;
 
   /**
    * Every time a hit is sent to Google Analytics, the cookie expiration time is updated to be the

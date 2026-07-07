@@ -126,7 +126,7 @@ export interface StandardClaims {
   website?: string;
   email?: string;
   email_verified?: boolean;
-  gender?: 'female' | 'male' | string;
+  gender?: 'female' | 'male' | (string & {});
   birthdate?: string; // ISO 8601-1 [ISO8601‑1] YYYY-MM-DD format.
   zoneinfo?: string; // IANA Time Zone Database [IANA.time‑zones]
   locale?: string; // BCP47 [RFC5646] language tag.

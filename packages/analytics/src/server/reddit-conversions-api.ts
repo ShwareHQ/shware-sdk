@@ -15,7 +15,7 @@ export interface RedditEvent {
   /** Unix epoch timestamp in milliseconds, event_at can't be older than seven days. */
   event_at: number;
 
-  action_source: 'WEBSITE' | 'APP' | string;
+  action_source: 'WEBSITE' | 'APP' | (string & {});
 
   type: {
     tracking_type: ServerStandardEvent | 'CUSTOM';

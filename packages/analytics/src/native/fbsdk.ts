@@ -9,7 +9,6 @@ export async function sendFBEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  const { logEvent } = AppEventsLogger;
   const [_, fbEventName, fbEventProperties] = mapFBEvent(name, properties);
-  logEvent(fbEventName, fbEventProperties as Params);
+  AppEventsLogger.logEvent(fbEventName, fbEventProperties as Params);
 }

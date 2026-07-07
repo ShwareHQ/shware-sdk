@@ -9,7 +9,7 @@ export interface Options {
 }
 
 export function timing(options: Options = { enabled: true }) {
-  const { enabled = true, crossOrigin } = options;
+  const { enabled, crossOrigin } = options;
   let start = performance.now();
   const headers: string[] = [];
   const timers = new Map<string, Timer>();

@@ -28,14 +28,14 @@ class Subscription<
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Subscription<NS, PE, PI, I | K> => {
     this.plans.set(planId, { ...metadata, plan });
-    return this as Subscription<NS, PE, PI, I | K>;
+    return this;
   };
 
   default = <const T extends readonly [I, ...I[]]>(
     planIds: T & (IsUnique<T> extends true ? unknown : never)
   ) => {
     planIds.forEach((planId) => this.defaultPlans.add(planId));
-    this.config[addMethod](this as never);
+    this.config[addMethod](this);
     return this.config;
   };
 }

@@ -46,7 +46,7 @@ export async function fetch(
   }: RequestInit & RetryOptions = {}
 ): Promise<Response> {
   let retryCount = 0;
-  let lastError: unknown | null = null;
+  let lastError: unknown = null;
   let lastResponse: Response | null = null;
 
   while (retryCount <= retries) {
