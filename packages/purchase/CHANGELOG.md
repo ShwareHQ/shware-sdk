@@ -1,5 +1,13 @@
 # @shware/purchase
 
+## 1.8.9
+
+### Patch Changes
+
+- update deps, fix oxlint, add page_referrer
+- Updated dependencies
+  - @shware/utils@1.4.5
+
 ## 1.8.8
 
 ### Patch Changes

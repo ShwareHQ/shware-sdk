@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.4.5
+
+### Patch Changes
+
+- update deps, fix oxlint, add page_referrer
+
 ## 1.4.4
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 3.6.4
+
+### Patch Changes
+
+- update deps, fix oxlint, add page_referrer
+- Updated dependencies
+  - @shware/utils@1.4.5
+
 ## 3.6.3
 
 ### Patch Changes
