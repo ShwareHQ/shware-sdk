@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { PRINCIPAL_NAME_INDEX_NAME, resolveIndexesFor } from './common';
 import { MapSession } from './map-session';
 import type { SessionRepository } from './types';

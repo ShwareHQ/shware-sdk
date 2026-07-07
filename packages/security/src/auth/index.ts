@@ -1,4 +1,4 @@
-import { createHash, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { invariant } from '@shware/utils';
 import { type Principal, Provider } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';

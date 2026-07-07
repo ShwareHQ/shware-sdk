@@ -2,7 +2,7 @@
  * Conversions API Payload Builder: https://www.linkedin.com/developers/payload-builder
  * https://learn.microsoft.com/en-us/linkedin/marketing/conversions/conversions-overview?view=li-lms-2025-09
  */
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';

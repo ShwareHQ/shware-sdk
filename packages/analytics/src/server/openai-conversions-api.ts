@@ -3,7 +3,7 @@
  * https://developers.openai.com/ads/conversions-api
  * https://developers.openai.com/ads/supported-events
  */
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { type EventData, NON_AD_EVENTS, mapOAIEvent } from '../track/oaiq';
