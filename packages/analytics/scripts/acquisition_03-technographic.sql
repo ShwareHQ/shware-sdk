@@ -19,6 +19,6 @@ select
 from application.visitor v
 left join application.event e on v.id = e.visitor_id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.properties ->> 'environment' = '$environment'
+  and v.tags ->> 'environment' = '$environment'
 group by 1
 order by success_rate_pct desc;

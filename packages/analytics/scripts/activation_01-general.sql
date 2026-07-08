@@ -167,7 +167,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
-      and v.properties ->> 'utm_source' = 'x'
+      and v.tags ->> 'utm_source' = 'x'
   )
 group by event_name
 order by event_count desc;
@@ -191,8 +191,8 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
-      and nullif(v.properties ->> 'utm_source', '') is null
-      and nullif(v.properties ->> 'gad_source', '') is null
+      and nullif(v.tags ->> 'utm_source', '') is null
+      and nullif(v.tags ->> 'gad_source', '') is null
   )
 group by event_name
 order by event_count desc;

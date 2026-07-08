@@ -86,7 +86,7 @@ limit 10;
 -- Visitor by device type (Pie chart)
 select
   count(v.id) as visitor_count,
-  coalesce(v.properties ->> 'device_type', 'unknown') as device_type
+  coalesce(v.tags ->> 'device_type', 'unknown') as device_type
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
@@ -108,7 +108,7 @@ select
   count(v.id) as visitor_count
 from application.visitor v
 left join application.iso_3166_1 c
-on v.properties ->> 'country' = c.alpha2
+on v.tags ->> 'country' = c.alpha2
 where
   v.created_at between $__timeFrom() and $__timeTo()
 group by country
@@ -118,7 +118,7 @@ limit 20;
 -- Visitor by OS (Bar chart)
 select
   count(v.id) as visitor_count,
-  coalesce(v.properties ->> 'os_name', 'Unknown') as os_name
+  coalesce(v.tags ->> 'os_name', 'Unknown') as os_name
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
@@ -131,7 +131,7 @@ limit 20;
 -- Visitor by browser (Bar chart)
 select
   count(v.id) as visitor_count,
-  coalesce(v.properties ->> 'browser_name', 'Unknown') as browser_name
+  coalesce(v.tags ->> 'browser_name', 'Unknown') as browser_name
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
@@ -144,7 +144,7 @@ limit 20;
 -- Visitor by language (Bar chart)
 select
   count(v.id) as visitor_count,
-  coalesce(v.properties ->> 'language', 'Unknown') as language
+  coalesce(v.tags ->> 'language', 'Unknown') as language
 from application.visitor v
 where
   v.created_at between $__timeFrom() and $__timeTo()
@@ -157,8 +157,8 @@ limit 20;
 -- Sources (utm_source, gad_source) (Bar chart)
 select
   case
-    when nullif(v.properties ->> 'utm_source', '') is not null then v.properties ->> 'utm_source' || ' (utm)'
-    when nullif(v.properties ->> 'gad_source', '') is not null then v.properties ->> 'gad_source' || ' (gad)'
+    when nullif(v.tags ->> 'utm_source', '') is not null then v.tags ->> 'utm_source' || ' (utm)'
+    when nullif(v.tags ->> 'gad_source', '') is not null then v.tags ->> 'gad_source' || ' (gad)'
     else 'unknown'
   end as source,
   count(*) as event_count
