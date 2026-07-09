@@ -126,16 +126,130 @@ export interface AdvertisingInfo {
   yclid?: string; // Yandex Ads
 }
 
+/**
+ * UTM campaign parameters.
+ * Value unions follow GA4 default channel group definitions:
+ * https://support.google.com/analytics/answer/9756891
+ */
 export interface UTMParams {
-  utm_source?: string;
-  utm_medium?: string;
-  utm_campaign?: string;
+  /** Referrer of the traffic, matched against GA4 source lists (search/social/video/shopping sites) */
+  utm_source?:
+    | 'google'
+    | 'bing'
+    | 'baidu'
+    | 'duckduckgo'
+    | 'yahoo'
+    | 'yandex'
+    | 'meta'
+    | 'facebook'
+    | 'instagram'
+    | 'twitter'
+    | 'x'
+    | 'linkedin'
+    | 'tiktok'
+    | 'pinterest'
+    | 'reddit'
+    | 'snapchat'
+    | 'youtube'
+    | 'vimeo'
+    | 'twitch'
+    | 'newsletter'
+    | 'email'
+    | 'sms'
+    | 'firebase' // Mobile Push Notifications: source exactly matches "firebase"
+    | '(direct)' // Direct: with medium "(none)" / "(not set)"
+    | (string & {});
+  /**
+   * Marketing medium, the primary input for GA4 channel classification:
+   * - Paid *:  `^(.*cp.*|ppc|retargeting|paid.*)$`
+   * - Display: `^(display|banner|expandable|interstitial|cpm)$`
+   * - Organic Social: `^(social|social-network|social-media|sm|social network|social media)$`
+   * - Organic Video: `^(.*video.*)$`
+   * - Organic Search: `organic`
+   * - Referral: `^(referral|app|link)$`
+   * - Email: `email|e-mail|e_mail|e mail`
+   * - Mobile Push: `^(.*(mobile|notification).*|push$)`
+   */
+  utm_medium?:
+    // Paid: ^(.*cp.*|ppc|retargeting|paid.*)$
+    | 'cpc'
+    | 'cpm'
+    | 'cpv'
+    | 'cpa'
+    | 'ppc'
+    | 'retargeting'
+    | `${string}cp${string}`
+    | `paid${string}`
+    // Display
+    | 'display'
+    | 'banner'
+    | 'expandable'
+    | 'interstitial'
+    // Organic Social
+    | 'social'
+    | 'social-network'
+    | 'social-media'
+    | 'sm'
+    | 'social network'
+    | 'social media'
+    // Organic Video: ^(.*video.*)$
+    | 'video'
+    | `${string}video${string}`
+    // Organic Search
+    | 'organic'
+    // Referral
+    | 'referral'
+    | 'app'
+    | 'link'
+    // Email
+    | 'email'
+    | 'e-mail'
+    | 'e_mail'
+    | 'e mail'
+    // Affiliates
+    | 'affiliate'
+    // Audio
+    | 'audio'
+    // SMS
+    | 'sms'
+    // Mobile Push Notifications: ^(.*(mobile|notification).*|push$)
+    | `${string}push`
+    | `${string}mobile${string}`
+    | `${string}notification${string}`
+    // Direct
+    | '(none)'
+    | '(not set)'
+    | (string & {});
+  /**
+   * Campaign name. GA4 special cases:
+   * - Cross-network: contains "cross-network"
+   * - Shopping: `^(.*(([^a-df-z]|^)shop|shopping).*)$`
+   */
+  utm_campaign?:
+    | `${string}cross-network${string}`
+    | `${string}shop${string}`
+    | `${string}shopping${string}`
+    | (string & {});
+  /** Paid keyword of the campaign */
   utm_term?: string;
+  /** Used to differentiate creatives/links pointing to the same URL */
   utm_content?: string;
+  /** Campaign ID (maps to the GA4 "campaign id" dimension) */
   utm_id?: string;
-  utm_source_platform?: string;
-  utm_creative_format?: string;
-  utm_marketing_tactic?: string;
+  /** Platform responsible for directing the traffic */
+  utm_source_platform?:
+    | 'Manual'
+    | 'Google Ads'
+    | 'DV360'
+    | 'CM360'
+    | 'SA360'
+    | 'SFMC'
+    | 'Shopping Free Listings'
+    | (string & {});
+  /** Type of the creative */
+  utm_creative_format?: 'display' | 'native' | 'video' | 'search' | (string & {});
+  /** Targeting criteria applied to the campaign */
+  utm_marketing_tactic?: 'remarketing' | 'prospecting' | (string & {});
 }
 
 export interface TrackTags

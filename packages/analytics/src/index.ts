@@ -25,5 +25,6 @@ export type {
   TrackProperties,
   AllowedPropertyValues,
   UserProvidedData,
+  UTMParams,
 } from './track/types';
 export type { VisitorProperties } from './visitor/types';
