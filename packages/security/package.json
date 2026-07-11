@@ -12,14 +12,24 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./oauth2/provider": {
-      "types": "./dist/oauth2/provider/index.d.ts",
-      "import": "./dist/oauth2/provider/index.mjs",
-      "require": "./dist/oauth2/provider/index.cjs"
+      "import": {
+        "types": "./dist/oauth2/provider/index.d.ts",
+        "default": "./dist/oauth2/provider/index.mjs"
+      },
+      "require": {
+        "types": "./dist/oauth2/provider/index.d.cts",
+        "default": "./dist/oauth2/provider/index.cjs"
+      }
     }
   },
   "publishConfig": {
@@ -27,7 +37,7 @@
   },
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsup",
+    "build": "tsdown",
     "test": "vitest run",
     "check-types": "tsc --noEmit",
     "lint": "oxlint --type-aware src --fix"
@@ -43,9 +53,9 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.1.1",
     "ts-node": "^10.9.2",
-    "typescript": "6.0.3",
-    "vitest": "^4.1.9"
+    "typescript": "7.0.2",
+    "vitest": "^4.1.10"
   }
 }

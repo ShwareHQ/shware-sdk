@@ -12,29 +12,54 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./polyfills": {
-      "types": "./dist/polyfills/index.d.ts",
-      "import": "./dist/polyfills/index.mjs",
-      "require": "./dist/polyfills/index.cjs"
+      "import": {
+        "types": "./dist/polyfills/index.d.ts",
+        "default": "./dist/polyfills/index.mjs"
+      },
+      "require": {
+        "types": "./dist/polyfills/index.d.cts",
+        "default": "./dist/polyfills/index.cjs"
+      }
     },
     "./hono": {
-      "types": "./dist/hono/index.d.ts",
-      "import": "./dist/hono/index.mjs",
-      "require": "./dist/hono/index.cjs"
+      "import": {
+        "types": "./dist/hono/index.d.ts",
+        "default": "./dist/hono/index.mjs"
+      },
+      "require": {
+        "types": "./dist/hono/index.d.cts",
+        "default": "./dist/hono/index.cjs"
+      }
     },
     "./webhook": {
-      "types": "./dist/webhook/index.d.ts",
-      "import": "./dist/webhook/index.mjs",
-      "require": "./dist/webhook/index.cjs"
+      "import": {
+        "types": "./dist/webhook/index.d.ts",
+        "default": "./dist/webhook/index.mjs"
+      },
+      "require": {
+        "types": "./dist/webhook/index.d.cts",
+        "default": "./dist/webhook/index.cjs"
+      }
     },
     "./google-one-tap": {
-      "types": "./dist/google-one-tap/index.d.ts",
-      "import": "./dist/google-one-tap/index.mjs",
-      "require": "./dist/google-one-tap/index.cjs"
+      "import": {
+        "types": "./dist/google-one-tap/index.d.ts",
+        "default": "./dist/google-one-tap/index.mjs"
+      },
+      "require": {
+        "types": "./dist/google-one-tap/index.d.cts",
+        "default": "./dist/google-one-tap/index.cjs"
+      }
     }
   },
   "publishConfig": {
@@ -42,21 +67,21 @@
   },
   "scripts": {
     "dev": "tsc --watch",
-    "build": "tsup",
+    "build": "tsdown",
     "test": "vitest run",
     "check-types": "tsc --noEmit",
     "lint": "oxlint --type-aware . --fix"
   },
   "dependencies": {
     "@shware/utils": "workspace:^",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.10",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   },
   "peerDependencies": {
     "hono": "^4.12.28",

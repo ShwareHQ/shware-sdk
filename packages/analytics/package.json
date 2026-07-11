@@ -12,59 +12,114 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./native": {
-      "types": "./dist/native/index.d.ts",
-      "import": "./dist/native/index.mjs",
-      "require": "./dist/native/index.cjs"
+      "import": {
+        "types": "./dist/native/index.d.ts",
+        "default": "./dist/native/index.mjs"
+      },
+      "require": {
+        "types": "./dist/native/index.d.cts",
+        "default": "./dist/native/index.cjs"
+      }
     },
     "./native/fbsdk": {
-      "types": "./dist/native/fbsdk.d.ts",
-      "import": "./dist/native/fbsdk.mjs",
-      "require": "./dist/native/fbsdk.cjs"
+      "import": {
+        "types": "./dist/native/fbsdk.d.ts",
+        "default": "./dist/native/fbsdk.mjs"
+      },
+      "require": {
+        "types": "./dist/native/fbsdk.d.cts",
+        "default": "./dist/native/fbsdk.cjs"
+      }
     },
     "./native/firebase": {
-      "types": "./dist/native/firebase.d.ts",
-      "import": "./dist/native/firebase.mjs",
-      "require": "./dist/native/firebase.cjs"
+      "import": {
+        "types": "./dist/native/firebase.d.ts",
+        "default": "./dist/native/firebase.mjs"
+      },
+      "require": {
+        "types": "./dist/native/firebase.d.cts",
+        "default": "./dist/native/firebase.cjs"
+      }
     },
     "./web": {
-      "types": "./dist/web/index.d.ts",
-      "import": "./dist/web/index.mjs",
-      "require": "./dist/web/index.cjs"
+      "import": {
+        "types": "./dist/web/index.d.ts",
+        "default": "./dist/web/index.mjs"
+      },
+      "require": {
+        "types": "./dist/web/index.d.cts",
+        "default": "./dist/web/index.cjs"
+      }
     },
     "./next": {
-      "types": "./dist/next/index.d.ts",
-      "import": "./dist/next/index.mjs",
-      "require": "./dist/next/index.cjs"
+      "import": {
+        "types": "./dist/next/index.d.ts",
+        "default": "./dist/next/index.mjs"
+      },
+      "require": {
+        "types": "./dist/next/index.d.cts",
+        "default": "./dist/next/index.cjs"
+      }
     },
     "./react-router": {
-      "types": "./dist/react-router/index.d.ts",
-      "import": "./dist/react-router/index.mjs",
-      "require": "./dist/react-router/index.cjs"
+      "import": {
+        "types": "./dist/react-router/index.d.ts",
+        "default": "./dist/react-router/index.mjs"
+      },
+      "require": {
+        "types": "./dist/react-router/index.d.cts",
+        "default": "./dist/react-router/index.cjs"
+      }
     },
     "./tanstack": {
-      "types": "./dist/tanstack/index.d.ts",
-      "import": "./dist/tanstack/index.mjs",
-      "require": "./dist/tanstack/index.cjs"
+      "import": {
+        "types": "./dist/tanstack/index.d.ts",
+        "default": "./dist/tanstack/index.mjs"
+      },
+      "require": {
+        "types": "./dist/tanstack/index.d.cts",
+        "default": "./dist/tanstack/index.cjs"
+      }
     },
     "./third-parties": {
-      "types": "./dist/third-parties/index.d.ts",
-      "import": "./dist/third-parties/index.mjs",
-      "require": "./dist/third-parties/index.cjs"
+      "import": {
+        "types": "./dist/third-parties/index.d.ts",
+        "default": "./dist/third-parties/index.mjs"
+      },
+      "require": {
+        "types": "./dist/third-parties/index.d.cts",
+        "default": "./dist/third-parties/index.cjs"
+      }
     },
     "./third-parties/posthog": {
-      "types": "./dist/third-parties/posthog.d.ts",
-      "import": "./dist/third-parties/posthog.mjs",
-      "require": "./dist/third-parties/posthog.cjs"
+      "import": {
+        "types": "./dist/third-parties/posthog.d.ts",
+        "default": "./dist/third-parties/posthog.mjs"
+      },
+      "require": {
+        "types": "./dist/third-parties/posthog.d.cts",
+        "default": "./dist/third-parties/posthog.cjs"
+      }
     },
     "./server": {
-      "types": "./dist/server/index.d.ts",
-      "import": "./dist/server/index.mjs",
-      "require": "./dist/server/index.cjs"
+      "import": {
+        "types": "./dist/server/index.d.ts",
+        "default": "./dist/server/index.mjs"
+      },
+      "require": {
+        "types": "./dist/server/index.d.cts",
+        "default": "./dist/server/index.cjs"
+      }
     }
   },
   "publishConfig": {
@@ -73,11 +128,9 @@
   "scripts": {
     "dev": "tsc --watch",
     "check-types": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "oxlint --type-aware . --fix",
-    "build": "tsup",
-    "build:tsup": "tsup",
-    "build:unbuild": "unbuild"
+    "build": "tsdown"
   },
   "dependencies": {
     "@shware/utils": "workspace:^",
@@ -90,10 +143,10 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/facebook-nodejs-business-sdk": "^24",
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^25.1.0",

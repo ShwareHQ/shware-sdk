@@ -9,12 +9,12 @@ describe('error details', () => {
 
     expect(details.list).toEqual([
       {
-        type: DetailType.REQUEST_INFO,
+        '@type': DetailType.REQUEST_INFO,
         requestId: '123456',
         servingData: '/v1/tests',
       },
       {
-        type: DetailType.ERROR_INFO,
+        '@type': DetailType.ERROR_INFO,
         reason: 'ACCESS_DENIED',
       },
     ]);

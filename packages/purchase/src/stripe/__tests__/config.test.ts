@@ -40,7 +40,7 @@ describe('StripeConfig', () => {
     expect(config.getMode('com.example.credits.starter')).toBe('payment');
     expect(config.getMode('com.example.free')).toBe('payment');
     expect(() => config.getPlan('com.example.credits.starter')).toThrow(
-      'Plan not found for product com.example.credits.starter'
+      'Product com.example.credits.starter is not a subscription'
     );
 
     // subscription mode (has plan)

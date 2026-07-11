@@ -79,7 +79,8 @@ export class AppStoreConfig<
   };
 
   subscription = <K extends PE>(plan: K extends PL ? never : K) => {
-    return new Subscription<NS, PE, K | PL, PI>(this, plan);
+    // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc requires the cast (tsgolint false positive)
+    return new Subscription<NS, PE, K | PL, PI>(this as never, plan);
   };
 
   consumable = <K extends `${NS}.${Lowercase<string>}`>(
