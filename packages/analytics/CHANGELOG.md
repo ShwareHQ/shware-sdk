@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 3.7.0
+
+### Minor Changes
+
+- update deps, ts 7, tsdown
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.5.0
+
 ## 3.6.4
 
 ### Patch Changes

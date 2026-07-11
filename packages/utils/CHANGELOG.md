@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.5.0
+
+### Minor Changes
+
+- update deps, ts 7, tsdown
+
 ## 1.4.5
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@shware/security",
-  "version": "2.5.3",
+  "version": "2.6.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -13,7 +13,7 @@
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/index.d.ts",
+        "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
       },
       "require": {
@@ -23,7 +23,7 @@
     },
     "./oauth2/provider": {
       "import": {
-        "types": "./dist/oauth2/provider/index.d.ts",
+        "types": "./dist/oauth2/provider/index.d.mts",
         "default": "./dist/oauth2/provider/index.mjs"
       },
       "require": {

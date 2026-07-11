@@ -1,5 +1,16 @@
 # @shware/security
 
+## 2.6.0
+
+### Minor Changes
+
+- update deps, ts 7, tsdown
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.5.0
+
 ## 2.5.3
 
 ### Patch Changes

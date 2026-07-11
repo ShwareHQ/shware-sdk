@@ -1,5 +1,16 @@
 # @shware/purchase
 
+## 1.9.0
+
+### Minor Changes
+
+- update deps, ts 7, tsdown
+
+### Patch Changes
+
+- Updated dependencies
+  - @shware/utils@1.5.0
+
 ## 1.8.9
 
 ### Patch Changes

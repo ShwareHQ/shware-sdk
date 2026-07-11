@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "2.11.4",
+  "version": "2.12.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -13,7 +13,7 @@
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/index.d.ts",
+        "types": "./dist/index.d.mts",
         "default": "./dist/index.mjs"
       },
       "require": {
@@ -23,7 +23,7 @@
     },
     "./polyfills": {
       "import": {
-        "types": "./dist/polyfills/index.d.ts",
+        "types": "./dist/polyfills/index.d.mts",
         "default": "./dist/polyfills/index.mjs"
       },
       "require": {
@@ -33,7 +33,7 @@
     },
     "./hono": {
       "import": {
-        "types": "./dist/hono/index.d.ts",
+        "types": "./dist/hono/index.d.mts",
         "default": "./dist/hono/index.mjs"
       },
       "require": {
@@ -43,7 +43,7 @@
     },
     "./webhook": {
       "import": {
-        "types": "./dist/webhook/index.d.ts",
+        "types": "./dist/webhook/index.d.mts",
         "default": "./dist/webhook/index.mjs"
       },
       "require": {
@@ -53,7 +53,7 @@
     },
     "./google-one-tap": {
       "import": {
-        "types": "./dist/google-one-tap/index.d.ts",
+        "types": "./dist/google-one-tap/index.d.mts",
         "default": "./dist/google-one-tap/index.mjs"
       },
       "require": {
@@ -84,9 +84,9 @@
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "hono": "^4.12.28",
-    "i18next": "^26.3.4",
-    "react": "^19"
+    "hono": "^4.12.29",
+    "i18next": "^26.3.6",
+    "react": "^19.2.7"
   },
   "peerDependenciesMeta": {
     "hono": {
