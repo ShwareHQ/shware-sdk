@@ -1,5 +1,17 @@
 # @shware/security
 
+## 3.0.0
+
+### Major Changes
+
+- Replace TypeScript enums with erasable const declarations.
+
+  BREAKING CHANGES:
+
+  - `Provider` is now a type-only union derived from the new `PROVIDERS` array; dot access like `Provider.APPLE` becomes the string literal `'APPLE'`
+  - `ALL_PROVIDERS` is removed — use `PROVIDERS`
+  - `OidcScopes` type is renamed to `OidcScope` (a value of the type is a single scope); the new `OIDC_SCOPES` array is exported as a value for the first time
+
 ## 2.6.0
 
 ### Minor Changes

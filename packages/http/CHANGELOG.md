@@ -1,5 +1,15 @@
 # @shware/http
 
+## 3.0.0
+
+### Major Changes
+
+- Replace TypeScript enums with erasable const objects.
+
+  BREAKING CHANGES:
+
+  - `DetailType` and `PurchaseError` are const objects with derived union types; value dot access (`DetailType.ERROR_INFO`) is unchanged, but member-as-type positions must switch to `typeof DetailType.ERROR_INFO`, and `z.nativeEnum(...)`-style consumers should move to the derived union
+
 ## 2.12.0
 
 ### Minor Changes

@@ -1,5 +1,5 @@
 import { type Stripe } from 'stripe';
-import { SubscriptionStatus } from '../subscription/index';
+import type { SubscriptionStatus } from '../subscription/index';
 
 export function mapTime<T extends number | null>(
   stripeTimestampSeconds: T
@@ -154,21 +154,21 @@ export type ProductPrice = {
 export function mapSubscriptionStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
     case 'active':
-      return SubscriptionStatus.ACTIVE;
+      return 'ACTIVE';
     case 'canceled':
-      return SubscriptionStatus.CANCELED;
+      return 'CANCELED';
     case 'incomplete':
-      return SubscriptionStatus.INCOMPLETE;
+      return 'INCOMPLETE';
     case 'incomplete_expired':
-      return SubscriptionStatus.INCOMPLETE_EXPIRED;
+      return 'INCOMPLETE_EXPIRED';
     case 'past_due':
-      return SubscriptionStatus.PAST_DUE;
+      return 'PAST_DUE';
     case 'paused':
-      return SubscriptionStatus.PAUSED;
+      return 'PAUSED';
     case 'trialing':
-      return SubscriptionStatus.TRIALING;
+      return 'TRIALING';
     case 'unpaid':
-      return SubscriptionStatus.UNPAID;
+      return 'UNPAID';
     default: {
       console.error(`Invalid stripe status: ${String(status)}`);
       throw new Error(`Invalid stripe status: ${String(status)}`);

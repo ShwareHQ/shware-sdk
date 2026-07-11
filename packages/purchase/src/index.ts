@@ -1,9 +1,9 @@
 export {
-  Platform,
-  SubscriptionStatus,
-  ALL_PLATFORMS,
-  AVAILABLE_STATUS,
-  ALL_SUBSCRIPTION_STATUS,
+  PLATFORMS,
+  SUBSCRIPTION_STATUSES,
+  AVAILABLE_STATUSES,
+  type Platform,
+  type SubscriptionStatus,
 } from './subscription/index';
 
 export { AppStoreConfig } from './app-store/config';

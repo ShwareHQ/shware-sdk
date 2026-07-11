@@ -103,14 +103,16 @@ export type NativeCredential = {
   access_token?: string;
 };
 
-export enum OidcScopes {
-  openid = 'openid',
-  profile = 'profile',
-  email = 'email',
-  phone = 'phone',
-  address = 'address',
-  offline_access = 'offline_access',
-}
+export const OIDC_SCOPES = [
+  'openid',
+  'profile',
+  'email',
+  'phone',
+  'address',
+  'offline_access',
+] as const;
+
+export type OidcScope = (typeof OIDC_SCOPES)[number];
 
 // https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
 export interface StandardClaims {

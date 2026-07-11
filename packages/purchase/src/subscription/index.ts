@@ -1,10 +1,6 @@
-export enum Platform {
-  APPLE = 'APPLE',
-  GOOGLE = 'GOOGLE',
-  STRIPE = 'STRIPE',
-}
+export const PLATFORMS = ['APPLE', 'GOOGLE', 'STRIPE'] as const;
 
-export const ALL_PLATFORMS = [Platform.APPLE, Platform.GOOGLE, Platform.STRIPE] as const;
+export type Platform = (typeof PLATFORMS)[number];
 
 /**
  * [Stripe Subscription Status](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)
@@ -12,7 +8,7 @@ export const ALL_PLATFORMS = [Platform.APPLE, Platform.GOOGLE, Platform.STRIPE] 
  *
  * provision product for customer when Status = TRIALING, ACTIVE, IN_GRACE_PERIOD
  */
-export enum SubscriptionStatus {
+export const SUBSCRIPTION_STATUSES = [
   /**
    * The subscription is currently in a trial period and it’s safe to provision your product for
    * your customer. The subscription transitions automatically to active when the first payment
@@ -22,7 +18,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Apple, Google, Stripe
    * */
-  TRIALING = 'TRIALING',
+  'TRIALING',
 
   /**
    * The subscription is in good standing and the most recent payment is successful. It’s safe to
@@ -30,7 +26,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Apple, Google, Stripe
    * */
-  ACTIVE = 'ACTIVE',
+  'ACTIVE',
 
   /**
    * Apple: The subscription enters the billing retry period. If the subtype is GRACE_PERIOD,
@@ -42,7 +38,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Apple, Google
    * */
-  IN_GRACE_PERIOD = 'IN_GRACE_PERIOD',
+  'IN_GRACE_PERIOD',
 
   /**
    * A successful payment needs to be made within 23 hours to activate the subscription. Or the
@@ -51,7 +47,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Stripe
    * */
-  INCOMPLETE = 'INCOMPLETE',
+  'INCOMPLETE',
 
   /**
    * The initial payment on the subscription failed and no successful payment was made within 23
@@ -60,7 +56,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Stripe
    * */
-  INCOMPLETE_EXPIRED = 'INCOMPLETE_EXPIRED',
+  'INCOMPLETE_EXPIRED',
 
   /**
    * Subscription was created but awaiting payment during signup. In this state, all items are
@@ -68,7 +64,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Google
    * */
-  PENDING = 'PENDING',
+  'PENDING',
 
   /**
    * Pending transaction for subscription is canceled. If this pending purchase was for an
@@ -76,7 +72,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Google
    * */
-  PENDING_PURCHASE_CANCELED = 'PENDING_PURCHASE_CANCELED',
+  'PENDING_PURCHASE_CANCELED',
 
   /**
    * Payment on the latest finalized invoice either failed or wasn’t attempted. The subscription
@@ -87,7 +83,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Stripe
    * */
-  PAST_DUE = 'PAST_DUE',
+  'PAST_DUE',
 
   /**
    * Subscription is on hold (suspended). The state is only available when the subscription is an
@@ -96,7 +92,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Google
    * */
-  ON_HOLD = 'ON_HOLD',
+  'ON_HOLD',
 
   /**
    * The subscription has been canceled. During cancellation, automatic collection for all unpaid
@@ -104,7 +100,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Apple, Google, Stripe
    * */
-  CANCELED = 'CANCELED',
+  'CANCELED',
 
   /**
    * The latest invoice hasn’t been paid but the subscription remains in place. The latest invoice
@@ -115,7 +111,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Stripe
    * */
-  UNPAID = 'UNPAID',
+  'UNPAID',
 
   /**
    * Google: Subscription is paused. The state is only available when the subscription is an auto
@@ -128,7 +124,7 @@ export enum SubscriptionStatus {
    *
    * Platform: Google, Stripe
    * */
-  PAUSED = 'PAUSED',
+  'PAUSED',
 
   /**
    * For example, a user buys a subscription and receives a purchase token A. The
@@ -148,35 +144,21 @@ export enum SubscriptionStatus {
    *
    * Platform: Google
    * */
-  REPLACED = 'REPLACED',
+  'REPLACED',
 
   /**
-   * Google: 	Subscription is expired. All items have expiryTime in the past.
+   * Google: Subscription is expired. All items have expiryTime in the past.
    *
    * Platform: Apple, Google
    * */
-  EXPIRED = 'EXPIRED',
-}
-
-export const AVAILABLE_STATUS = [
-  SubscriptionStatus.ACTIVE,
-  SubscriptionStatus.TRIALING,
-  SubscriptionStatus.IN_GRACE_PERIOD,
-];
-
-export const ALL_SUBSCRIPTION_STATUS = [
-  SubscriptionStatus.TRIALING,
-  SubscriptionStatus.ACTIVE,
-  SubscriptionStatus.IN_GRACE_PERIOD,
-  SubscriptionStatus.INCOMPLETE,
-  SubscriptionStatus.INCOMPLETE_EXPIRED,
-  SubscriptionStatus.PENDING,
-  SubscriptionStatus.PENDING_PURCHASE_CANCELED,
-  SubscriptionStatus.PAST_DUE,
-  SubscriptionStatus.ON_HOLD,
-  SubscriptionStatus.CANCELED,
-  SubscriptionStatus.UNPAID,
-  SubscriptionStatus.PAUSED,
-  SubscriptionStatus.REPLACED,
-  SubscriptionStatus.EXPIRED,
+  'EXPIRED',
 ] as const;
+
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+/** statuses where it is safe to provision your product for the customer */
+export const AVAILABLE_STATUSES = [
+  'ACTIVE',
+  'TRIALING',
+  'IN_GRACE_PERIOD',
+] as const satisfies readonly SubscriptionStatus[];

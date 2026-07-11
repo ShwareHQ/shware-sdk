@@ -21,34 +21,21 @@ export interface CsrfToken {
   parameterName: string;
 }
 
-export enum Provider {
+export const PROVIDERS = [
   // oauth2
-  APPLE = 'APPLE',
-  DISCORD = 'DISCORD',
-  FACEBOOK = 'FACEBOOK',
-  GITHUB = 'GITHUB',
-  GOOGLE = 'GOOGLE',
-  LINKEDIN = 'LINKEDIN',
-  MICROSOFT = 'MICROSOFT',
-  SLACK = 'SLACK',
-  WECHAT = 'WECHAT',
-  X = 'X',
+  'APPLE',
+  'DISCORD',
+  'FACEBOOK',
+  'GITHUB',
+  'GOOGLE',
+  'LINKEDIN',
+  'MICROSOFT',
+  'SLACK',
+  'WECHAT',
+  'X',
   // contact
-  EMAIL = 'EMAIL',
-  PHONE = 'PHONE',
-}
-
-export const ALL_PROVIDERS = [
-  Provider.APPLE,
-  Provider.DISCORD,
-  Provider.FACEBOOK,
-  Provider.GITHUB,
-  Provider.GOOGLE,
-  Provider.LINKEDIN,
-  Provider.MICROSOFT,
-  Provider.SLACK,
-  Provider.WECHAT,
-  Provider.X,
-  Provider.EMAIL,
-  Provider.PHONE,
+  'EMAIL',
+  'PHONE',
 ] as const;
+
+export type Provider = (typeof PROVIDERS)[number];

@@ -1,5 +1,18 @@
 # @shware/purchase
 
+## 3.0.0
+
+### Major Changes
+
+- Replace TypeScript enums with erasable const declarations.
+
+  BREAKING CHANGES:
+
+  - `Platform` and `SubscriptionStatus` are now type-only unions derived from the new `PLATFORMS` and `SUBSCRIPTION_STATUSES` arrays; dot access like `SubscriptionStatus.ACTIVE` becomes the string literal `'ACTIVE'`
+  - `ALL_PLATFORMS` and `ALL_SUBSCRIPTION_STATUS` are removed — use `PLATFORMS` / `SUBSCRIPTION_STATUSES` (as-const tuples, ready for `pgEnum` / `z.enum`)
+  - `AVAILABLE_STATUS` is renamed to `AVAILABLE_STATUSES`
+  - Google Play RTDN enums (`SubscriptionNotificationType`, `OneTimeProductNotificationType`, `VoidedPurchaseProductType`, `VoidedPurchaseRefundType`, `GooglePlaySubscriptionState`) are const objects now: dot access is unchanged, but numeric reverse lookups like `SubscriptionNotificationType[2]` no longer exist, and member-as-type positions need `typeof`
+
 ## 2.0.1
 
 ### Patch Changes

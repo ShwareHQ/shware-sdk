@@ -471,7 +471,7 @@ export class Auth implements AuthService {
     }
     await this.kv.removeItem(key);
     const claims: StandardClaims = { sub: email, email, email_verified: true };
-    const principal = await handler(request, Provider.EMAIL, { claims, data: {} });
+    const principal = await handler(request, 'EMAIL', { claims, data: {} });
 
     // save session
     const session = this.repository.createSession();
