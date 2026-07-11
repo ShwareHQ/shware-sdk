@@ -1,5 +1,19 @@
 # @shware/purchase
 
+## 2.0.0
+
+### Major Changes
+
+- Decouple plan and billing period in purchase configs.
+
+  BREAKING CHANGES:
+
+  - `StripeConfig` / `AppStoreConfig` / `GooglePlayConfig` gain a caller-defined billing period generic: `create<NS, Plan, BillingPeriod>`
+  - stripe: `product(id, plan)` → `product(id, plan, billingPeriod)`; a plan+period pair may be declared on only one product chain (version prices within that chain)
+  - app-store: `subscription(plan)` → `subscription(plan, billingPeriod)`; the duplicate-plan guard now keys on the plan:period pair, so one plan can ship both monthly and yearly
+  - google-play: `basePlan(planId, plan, metadata?)` → `basePlan(planId, plan, billingPeriod, metadata?)`
+  - new `getBillingPeriod` lookups mirroring `getPlan` on all three configs
+
 ## 1.9.0
 
 ### Minor Changes
