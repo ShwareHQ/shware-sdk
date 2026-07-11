@@ -70,6 +70,55 @@ describe('GooglePlayConfig', () => {
     expect(() => config.getBillingPeriod('com.example.sub.starter', 'nonexistent')).toThrow();
   });
 
+  it('should return default base plan ids', () => {
+    expect(config.getDefaultPlanIds('com.example.sub.starter')).toEqual([
+      'monthly_v2',
+      'yearly_v1',
+    ]);
+    expect(config.getDefaultPlanIds('com.example.sub.premium')).toEqual([
+      'monthly_v1',
+      'yearly_v1',
+    ]);
+
+    expect(() => config.getDefaultPlanIds('com.example.credit.starter')).toThrow(
+      'Subscription not found for com.example.credit.starter'
+    );
+    expect(() => config.getDefaultPlanIds('nonexistent')).toThrow();
+  });
+
+  it('should reject duplicate declarations at runtime', () => {
+    const fresh = GooglePlayConfig.create<'com.example', Plan, BillingPeriod>({
+      package: 'com.example.app',
+      audience: 'com.example.api',
+    });
+    fresh
+      .subscription('com.example.sub.pro')
+      .basePlan('monthly_v1', Plan.PREMIUM, 'monthly')
+      .default(['monthly_v1']);
+
+    // statement-style re-entry compiles (the variable's type never accumulates) but must throw
+    expect(() =>
+      fresh
+        .subscription('com.example.sub.pro')
+        .basePlan('monthly_v2', Plan.PREMIUM, 'monthly')
+        .default(['monthly_v2'])
+    ).toThrow('Duplicate subscription com.example.sub.pro');
+
+    const chain = fresh.subscription('com.example.sub.max');
+    chain.basePlan('monthly_v1', Plan.PREMIUM, 'monthly');
+    expect(() => chain.basePlan('monthly_v1', Plan.PREMIUM, 'monthly')).toThrow(
+      'Duplicate base plan monthly_v1'
+    );
+    expect(() => chain.default(['undeclared_v1'] as never)).toThrow(
+      'Default base plan undeclared_v1 is not declared'
+    );
+
+    fresh.onetime('com.example.credit.x');
+    expect(() => fresh.onetime('com.example.credit.x')).toThrow(
+      'Duplicate product com.example.credit.x'
+    );
+  });
+
   it('should reject invalid configurations at the type level', () => {
     // checked by tsc, never executed
     const typeChecks = () => {

@@ -103,6 +103,46 @@ describe('AppStoreConfig', () => {
     expect(() => config.getBillingPeriod('nonexistent')).toThrow();
   });
 
+  it('should return default product id per plan and period', () => {
+    expect(config.getDefaultProductId(Plan.STARTER, 'monthly')).toBe('com.example.sub.starter.v2');
+    expect(config.getDefaultProductId(Plan.STARTER, 'yearly')).toBe(
+      'com.example.sub.starter.yearly.v1'
+    );
+    expect(config.getDefaultProductId(Plan.PRO, 'monthly')).toBe('com.example.sub.pro.v2');
+
+    expect(() => config.getDefaultProductId(Plan.PRO, 'yearly')).toThrow(
+      'Subscription not found for PRO:yearly'
+    );
+  });
+
+  it('should reject duplicate declarations at runtime', () => {
+    const fresh = AppStoreConfig.create<'com.example', Plan, BillingPeriod>({
+      appId: '123456',
+      bundleId: 'com.example.app',
+    });
+    fresh
+      .subscription(Plan.STARTER, 'monthly')
+      .product('com.example.sub.s.v1')
+      .default('com.example.sub.s.v1');
+
+    // statement-style re-entry compiles (the variable's type never accumulates) but must throw
+    expect(() =>
+      fresh
+        .subscription(Plan.STARTER, 'monthly')
+        .product('com.example.sub.s.v2')
+        .default('com.example.sub.s.v2')
+    ).toThrow('Duplicate plan STARTER:monthly');
+    expect(() => fresh.consumable('com.example.sub.s.v1')).toThrow(
+      'Duplicate product com.example.sub.s.v1'
+    );
+
+    const chain = fresh.subscription(Plan.PRO, 'monthly');
+    chain.product('com.example.sub.p.v1');
+    expect(() => chain.product('com.example.sub.p.v1')).toThrow(
+      'Duplicate product com.example.sub.p.v1'
+    );
+  });
+
   it('should reject invalid configurations at the type level', () => {
     // checked by tsc, never executed
     const typeChecks = () => {

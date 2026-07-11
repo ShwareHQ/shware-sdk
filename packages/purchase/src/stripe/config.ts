@@ -36,15 +36,22 @@ class Product<
     this.defaultPriceId = null;
   }
 
+  /**
+   * Non-default prices stay declared on purpose: they keep resolving for
+   * grandfathered subscribers and serve as price-experiment arms. Never
+   * create new checkouts with a legacy price unless that is intentional.
+   */
   price = <K extends PriceId>(
     priceId: K extends I ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Product<NS, PE, BP, PL, PI, I | K> => {
+    invariant(!this.prices.has(priceId), `Duplicate price ${priceId}`);
     this.prices.set(priceId, metadata);
     return this as Product<NS, PE, BP, PL, PI, I | K>;
   };
 
   default = (defaultPriceId: I) => {
+    invariant(this.prices.has(defaultPriceId), `Default price ${defaultPriceId} is not declared`);
     this.defaultPriceId = defaultPriceId;
     this.config[addMethod](this as never);
     return this.config;
@@ -78,7 +85,18 @@ export class StripeConfig<
     return Array.from(this.products.keys());
   }
 
+  // runtime mirror of the type-level guards: generic accumulation only
+  // protects a single fluent chain, not statement-style re-entry or casts
   [addMethod] = (product: Product<NS, PE, BP, PL, PI>) => {
+    invariant(!this.products.has(product.id), `Duplicate product ${product.id}`);
+    if (product.plan !== null) {
+      for (const existing of this.products.values()) {
+        invariant(
+          existing.plan !== product.plan || existing.billingPeriod !== product.billingPeriod,
+          `Duplicate plan ${product.plan}:${product.billingPeriod}`
+        );
+      }
+    }
     this.products.set(product.id, product);
     return this;
   };

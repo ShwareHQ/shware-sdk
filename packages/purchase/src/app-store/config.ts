@@ -27,15 +27,25 @@ class Subscription<
     this.defaultProductId = null;
   }
 
+  /**
+   * Non-default products stay declared on purpose: they keep resolving for
+   * grandfathered subscribers and serve as price-experiment arms. Never
+   * sell a legacy product to new users unless that is intentional.
+   */
   product = <K extends `${NS}.${Lowercase<string>}`>(
     productId: K extends PI ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Subscription<NS, PE, BP, PL, PI | K, I | K> => {
+    invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.products.set(productId, metadata);
     return this as Subscription<NS, PE, BP, PL, PI | K, I | K>;
   };
 
   default = (defaultProductId: I) => {
+    invariant(
+      this.products.has(defaultProductId),
+      `Default product ${defaultProductId} is not declared`
+    );
     this.defaultProductId = defaultProductId;
     this.config[addMethod](this as never);
     return this.config;
@@ -63,9 +73,16 @@ export class AppStoreConfig<
     return Array.from(this.products.keys());
   }
 
+  // runtime mirror of the type-level guards: generic accumulation only
+  // protects a single fluent chain, not statement-style re-entry or casts
   [addMethod] = (subscription: Subscription<NS, PE, BP, PL, PI>) => {
-    subscription.products.forEach((metadata, productId) => this.products.set(productId, metadata));
-    this.subscriptions.set(`${subscription.plan}:${subscription.billingPeriod}`, subscription);
+    const key = `${subscription.plan}:${subscription.billingPeriod}`;
+    invariant(!this.subscriptions.has(key), `Duplicate plan ${key}`);
+    subscription.products.forEach((metadata, productId) => {
+      invariant(!this.products.has(productId), `Duplicate product ${productId}`);
+      this.products.set(productId, metadata);
+    });
+    this.subscriptions.set(key, subscription);
     return this;
   };
 
@@ -97,15 +114,28 @@ export class AppStoreConfig<
     productId: K extends PI ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ) => {
+    invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.consumables.add(productId);
     this.products.set(productId, metadata);
     return this as AppStoreConfig<NS, PE, BP, PL, PI | K>;
   };
 
   nonConsumable = <K extends `${NS}.${Lowercase<string>}`>(productId: K extends PI ? never : K) => {
+    invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.nonConsumables.add(productId);
     this.products.set(productId, null);
     return this as AppStoreConfig<NS, PE, BP, PL, PI | K>;
+  };
+
+  /** Product id that new subscribers should purchase for the plan and billing period. */
+  getDefaultProductId = (plan: PE, billingPeriod: BP): string => {
+    const subscription = this.subscriptions.get(`${plan}:${billingPeriod}`);
+    invariant(subscription, `Subscription not found for ${plan}:${billingPeriod}`);
+    invariant(
+      subscription.defaultProductId,
+      `Default product not found for ${plan}:${billingPeriod}`
+    );
+    return subscription.defaultProductId;
   };
 
   getPlan = (productId: string): PE => {

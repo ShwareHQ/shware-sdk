@@ -77,6 +77,35 @@ describe('StripeConfig', () => {
     expect(() => config.getBillingPeriod('nonexistent')).toThrow();
   });
 
+  it('should reject duplicate declarations at runtime', () => {
+    const fresh = StripeConfig.create<'com.example', Plan, BillingPeriod>({
+      allowPromotionCodes: true,
+      cancellationCouponId: 'coupon_123456',
+      returnUrl: 'https://example.com/return',
+      cancelUrl: 'https://example.com/cancel',
+      successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+    });
+    fresh
+      .product('com.example.sub.pro', Plan.STARTER, 'monthly')
+      .price('price_1')
+      .default('price_1');
+
+    // statement-style re-entry compiles (the variable's type never accumulates) but must throw
+    expect(() =>
+      fresh
+        .product('com.example.sub.pro2', Plan.STARTER, 'monthly')
+        .price('price_2')
+        .default('price_2')
+    ).toThrow('Duplicate plan STARTER:monthly');
+    expect(() => fresh.product('com.example.sub.pro').price('price_3').default('price_3')).toThrow(
+      'Duplicate product com.example.sub.pro'
+    );
+
+    const chain = fresh.product('com.example.credits.x');
+    chain.price('price_x1');
+    expect(() => chain.price('price_x1')).toThrow('Duplicate price price_x1');
+  });
+
   it('should reject invalid configurations at the type level', () => {
     // checked by tsc, never executed
     const typeChecks = () => {

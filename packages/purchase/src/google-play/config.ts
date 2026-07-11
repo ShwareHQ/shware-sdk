@@ -23,12 +23,18 @@ class Subscription<
     this.defaultPlans = new Set();
   }
 
+  /**
+   * Non-default base plans stay declared on purpose: they keep resolving for
+   * grandfathered subscribers and serve as price-experiment arms. Never sell
+   * a legacy base plan to new users unless that is intentional.
+   */
   basePlan = <K extends Lowercase<string>>(
     planId: K extends I ? never : K,
     plan: PE,
     billingPeriod: BP,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Subscription<NS, PE, BP, PI, I | K> => {
+    invariant(!this.plans.has(planId), `Duplicate base plan ${planId}`);
     this.plans.set(planId, { ...metadata, plan, billingPeriod });
     return this;
   };
@@ -36,7 +42,10 @@ class Subscription<
   default = <const T extends readonly [I, ...I[]]>(
     planIds: T & (IsUnique<T> extends true ? unknown : never)
   ) => {
-    planIds.forEach((planId) => this.defaultPlans.add(planId));
+    planIds.forEach((planId) => {
+      invariant(this.plans.has(planId), `Default base plan ${planId} is not declared`);
+      this.defaultPlans.add(planId);
+    });
     this.config[addMethod](this);
     return this.config;
   };
@@ -56,9 +65,17 @@ export class GooglePlayConfig<
   private subscriptions: Map<string, Subscription<NS, PE, BP, PI>>;
   private products: Map<string, (Metadata & { plan?: PE; billingPeriod?: BP }) | null>;
 
+  // runtime mirror of the type-level guards: generic accumulation only
+  // protects a single fluent chain, not statement-style re-entry or casts
   [addMethod] = (subscription: Subscription<NS, PE, BP, PI>) => {
+    invariant(
+      !this.subscriptions.has(subscription.productId),
+      `Duplicate subscription ${subscription.productId}`
+    );
     subscription.plans.forEach((metadata, planId) => {
-      this.products.set(this.getId(subscription.productId, planId), metadata);
+      const id = this.getId(subscription.productId, planId);
+      invariant(!this.products.has(id), `Duplicate product ${id}`);
+      this.products.set(id, metadata);
     });
     this.subscriptions.set(subscription.productId, subscription);
     return this;
@@ -94,9 +111,17 @@ export class GooglePlayConfig<
     productId: K extends PI ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ) => {
+    invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.onetimes.add(productId);
     this.products.set(productId, metadata);
     return this as GooglePlayConfig<NS, PE, BP, PI | K>;
+  };
+
+  /** Base plan ids that new subscribers should purchase for the product. */
+  getDefaultPlanIds = (productId: string): string[] => {
+    const subscription = this.subscriptions.get(productId);
+    invariant(subscription, `Subscription not found for ${productId}`);
+    return Array.from(subscription.defaultPlans);
   };
 
   getPlan = (productId: string, planId: string): PE => {
