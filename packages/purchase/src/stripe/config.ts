@@ -9,20 +9,29 @@ const addMethod = Symbol('addMethod');
 class Product<
   NS extends Lowercase<string> = Lowercase<string>,
   PE extends string = string,
+  BP extends string = string,
+  PL extends string = never,
   PI extends string = never,
   I extends PriceId = never,
 > {
   readonly id: string;
-  readonly config: StripeConfig<NS, PE, PI>;
+  readonly config: StripeConfig<NS, PE, BP, PL, PI>;
   readonly plan: PE | null;
+  readonly billingPeriod: BP | null;
   readonly prices: Map<PriceId, Metadata>;
 
   defaultPriceId: I | null;
 
-  constructor(config: StripeConfig<NS, PE, PI>, id: string, plan: PE | null = null) {
+  constructor(
+    config: StripeConfig<NS, PE, BP, PL, PI>,
+    id: string,
+    plan: PE | null = null,
+    billingPeriod: BP | null = null
+  ) {
     this.id = id;
     this.config = config;
     this.plan = plan;
+    this.billingPeriod = billingPeriod;
     this.prices = new Map();
     this.defaultPriceId = null;
   }
@@ -30,9 +39,9 @@ class Product<
   price = <K extends PriceId>(
     priceId: K extends I ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
-  ): Product<NS, PE, PI, I | K> => {
+  ): Product<NS, PE, BP, PL, PI, I | K> => {
     this.prices.set(priceId, metadata);
-    return this as Product<NS, PE, PI, I | K>;
+    return this as Product<NS, PE, BP, PL, PI, I | K>;
   };
 
   default = (defaultPriceId: I) => {
@@ -53,9 +62,11 @@ type Options = {
 export class StripeConfig<
   NS extends Lowercase<string> = Lowercase<string>,
   PE extends string = string,
+  BP extends string = string,
+  PL extends string = never,
   PI extends string = never,
 > {
-  private products: Map<string, Product<NS, PE, PI>> = new Map();
+  private products: Map<string, Product<NS, PE, BP, PL, PI>> = new Map();
 
   public returnUrl: string;
   public cancelUrl: string;
@@ -67,7 +78,7 @@ export class StripeConfig<
     return Array.from(this.products.keys());
   }
 
-  [addMethod] = (product: Product<NS, PE, PI>) => {
+  [addMethod] = (product: Product<NS, PE, BP, PL, PI>) => {
     this.products.set(product.id, product);
     return this;
   };
@@ -80,22 +91,41 @@ export class StripeConfig<
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 
-  static create = <NS extends Lowercase<string>, PE extends string>(options: Options) => {
-    return new StripeConfig<NS, PE>(options);
+  static create = <NS extends Lowercase<string>, PE extends string, BP extends string = string>(
+    options: Options
+  ) => {
+    return new StripeConfig<NS, PE, BP>(options);
   };
 
-  product = <K extends `${NS}.${Lowercase<string>}`>(
-    productId: K extends PI ? never : K,
-    plan: PE | null = null
-  ) => {
-    return new Product<NS, PE, K | PI>(this, productId, plan);
-  };
+  /**
+   * One-time products take no extra args; subscriptions require both plan and billingPeriod.
+   * A plan+period pair may be declared on only one product — version its prices in that chain.
+   */
+  product: {
+    <K extends `${NS}.${Lowercase<string>}`>(
+      productId: K extends PI ? never : K
+    ): Product<NS, PE, BP, PL, K | PI>;
+    <K extends `${NS}.${Lowercase<string>}`, L extends PE, P extends BP>(
+      productId: K extends PI ? never : K,
+      plan: L,
+      billingPeriod: `${L}:${P}` extends PL ? never : P
+    ): Product<NS, PE, BP, `${L}:${P}` | PL, K | PI>;
+  } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) =>
+    // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- widens to the overloads' accumulated generics
+    new Product(this, productId, plan, billingPeriod) as never;
 
   getPlan = (productId: string): PE => {
     const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     invariant(product.plan, `Product ${productId} is not a subscription`);
     return product.plan;
+  };
+
+  getBillingPeriod = (productId: string): BP => {
+    const product = this.products.get(productId);
+    invariant(product, `Product not found for ${productId}`);
+    invariant(product.billingPeriod, `Product ${productId} is not a subscription`);
+    return product.billingPeriod;
   };
 
   getMode = (productId: string): 'payment' | 'subscription' => {

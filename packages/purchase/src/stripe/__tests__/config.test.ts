@@ -6,7 +6,9 @@ describe('StripeConfig', () => {
     STARTER = 'STARTER',
   }
 
-  const config = StripeConfig.create<'com.example', Plan>({
+  type BillingPeriod = 'monthly' | 'yearly';
+
+  const config = StripeConfig.create<'com.example', Plan, BillingPeriod>({
     allowPromotionCodes: true,
     cancellationCouponId: 'coupon_123456',
     returnUrl: 'https://example.com/return',
@@ -19,7 +21,7 @@ describe('StripeConfig', () => {
     .price('price_credits_500', { credits: 500, expiresIn: '60d' })
     .default('price_credits_100')
     // Subscription product
-    .product('com.example.sub.starter', Plan.STARTER)
+    .product('com.example.sub.starter', Plan.STARTER, 'monthly')
     .price('price_starter_monthly1', { credits: 1000, expiresIn: '30d' })
     .price('price_starter_monthly2', { credits: 12000, expiresIn: '365d' })
     .default('price_starter_monthly1')
@@ -50,6 +52,35 @@ describe('StripeConfig', () => {
     // non-existent product
     expect(() => config.getMode('nonexistent')).toThrow();
     expect(() => config.getPlan('nonexistent')).toThrow();
+  });
+
+  it('should return correct billing period', () => {
+    expect(config.getBillingPeriod('com.example.sub.starter')).toBe('monthly');
+
+    // one-time products have no billing period
+    expect(() => config.getBillingPeriod('com.example.credits.starter')).toThrow(
+      'Product com.example.credits.starter is not a subscription'
+    );
+
+    // non-existent product
+    expect(() => config.getBillingPeriod('nonexistent')).toThrow();
+  });
+
+  it('should reject invalid configurations at the type level', () => {
+    // checked by tsc, never executed
+    const typeChecks = () => {
+      // @ts-expect-error duplicate productId
+      config.product('com.example.free');
+      // @ts-expect-error plan without billingPeriod
+      config.product('com.example.sub.pro', Plan.STARTER);
+      // @ts-expect-error billingPeriod outside the caller-defined union
+      config.product('com.example.sub.pro', Plan.STARTER, 'weekly');
+      // @ts-expect-error duplicate plan+period pair must live in the existing product chain
+      config.product('com.example.sub.starter2', Plan.STARTER, 'monthly');
+      // same plan with a different period is allowed
+      config.product('com.example.sub.starter.yearly', Plan.STARTER, 'yearly');
+    };
+    expect(typeChecks).toBeInstanceOf(Function);
   });
 
   it('should return correct priceId', () => {

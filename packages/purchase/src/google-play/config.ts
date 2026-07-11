@@ -7,15 +7,16 @@ const addMethod = Symbol('addMethod');
 class Subscription<
   NS extends Lowercase<string> = Lowercase<string>,
   PE extends string = string,
+  BP extends string = string,
   PI extends string = never,
   I extends Lowercase<string> = never,
 > {
   readonly productId: string;
-  readonly config: GooglePlayConfig<NS, PE, PI>;
-  readonly plans: Map<string, Metadata & { plan?: PE }>;
+  readonly config: GooglePlayConfig<NS, PE, BP, PI>;
+  readonly plans: Map<string, Metadata & { plan?: PE; billingPeriod?: BP }>;
   readonly defaultPlans: Set<string>;
 
-  constructor(config: GooglePlayConfig<NS, PE, PI>, productId: string) {
+  constructor(config: GooglePlayConfig<NS, PE, BP, PI>, productId: string) {
     this.config = config;
     this.productId = productId;
     this.plans = new Map();
@@ -25,9 +26,10 @@ class Subscription<
   basePlan = <K extends Lowercase<string>>(
     planId: K extends I ? never : K,
     plan: PE,
+    billingPeriod: BP,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
-  ): Subscription<NS, PE, PI, I | K> => {
-    this.plans.set(planId, { ...metadata, plan });
+  ): Subscription<NS, PE, BP, PI, I | K> => {
+    this.plans.set(planId, { ...metadata, plan, billingPeriod });
     return this;
   };
 
@@ -45,15 +47,16 @@ type Options = { package: string; audience: string };
 export class GooglePlayConfig<
   NS extends Lowercase<string> = Lowercase<string>,
   PE extends string = string,
+  BP extends string = string,
   PI extends string = never,
 > {
   readonly package: string;
   readonly audience: string;
   private onetimes: Set<string>;
-  private subscriptions: Map<string, Subscription<NS, PE, PI>>;
-  private products: Map<string, (Metadata & { plan?: PE }) | null>;
+  private subscriptions: Map<string, Subscription<NS, PE, BP, PI>>;
+  private products: Map<string, (Metadata & { plan?: PE; billingPeriod?: BP }) | null>;
 
-  [addMethod] = (subscription: Subscription<NS, PE, PI>) => {
+  [addMethod] = (subscription: Subscription<NS, PE, BP, PI>) => {
     subscription.plans.forEach((metadata, planId) => {
       this.products.set(this.getId(subscription.productId, planId), metadata);
     });
@@ -73,12 +76,18 @@ export class GooglePlayConfig<
     this.subscriptions = new Map();
   }
 
-  static create = <NS extends Lowercase<string>, PE extends string = string>(options: Options) => {
-    return new GooglePlayConfig<NS, PE>(options);
+  static create = <
+    NS extends Lowercase<string>,
+    PE extends string = string,
+    BP extends string = string,
+  >(
+    options: Options
+  ) => {
+    return new GooglePlayConfig<NS, PE, BP>(options);
   };
 
   subscription = <K extends `${NS}.${Lowercase<string>}`>(productId: K extends PI ? never : K) => {
-    return new Subscription<NS, PE, PI | K>(this, productId);
+    return new Subscription<NS, PE, BP, PI | K>(this, productId);
   };
 
   onetime = <K extends `${NS}.${Lowercase<string>}`>(
@@ -87,7 +96,7 @@ export class GooglePlayConfig<
   ) => {
     this.onetimes.add(productId);
     this.products.set(productId, metadata);
-    return this as GooglePlayConfig<NS, PE, PI | K>;
+    return this as GooglePlayConfig<NS, PE, BP, PI | K>;
   };
 
   getPlan = (productId: string, planId: string): PE => {
@@ -96,6 +105,14 @@ export class GooglePlayConfig<
     invariant(metadata, `Product not found for ${id}`);
     invariant(metadata.plan, `Plan not found for ${id}`);
     return metadata.plan;
+  };
+
+  getBillingPeriod = (productId: string, planId: string): BP => {
+    const id = this.getId(productId, planId);
+    const metadata = this.products.get(id);
+    invariant(metadata, `Product not found for ${id}`);
+    invariant(metadata.billingPeriod, `Billing period not found for ${id}`);
+    return metadata.billingPeriod;
   };
 
   getMode = (productId: string): 'payment' | 'subscription' => {

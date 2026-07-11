@@ -3,23 +3,23 @@ import { GooglePlayConfig } from '../config';
 
 describe('GooglePlayConfig', () => {
   enum Plan {
-    STARTER_MONTHLY = 'STARTER_MONTHLY',
-    STARTER_YEARLY = 'STARTER_YEARLY',
-    PREMIUM_MONTHLY = 'PREMIUM_MONTHLY',
-    PREMIUM_YEARLY = 'PREMIUM_YEARLY',
+    STARTER = 'STARTER',
+    PREMIUM = 'PREMIUM',
   }
 
-  const config = GooglePlayConfig.create<'com.example', Plan>({
+  type BillingPeriod = 'monthly' | 'yearly';
+
+  const config = GooglePlayConfig.create<'com.example', Plan, BillingPeriod>({
     package: 'com.example.app',
     audience: 'com.example.api',
   })
     .subscription('com.example.sub.starter')
-    .basePlan('monthly_v1', Plan.STARTER_MONTHLY, { credits: 100, expiresIn: '30d' })
-    .basePlan('yearly_v1', Plan.STARTER_YEARLY, { credits: 200, expiresIn: '365d' })
+    .basePlan('monthly_v1', Plan.STARTER, 'monthly', { credits: 100, expiresIn: '30d' })
+    .basePlan('yearly_v1', Plan.STARTER, 'yearly', { credits: 200, expiresIn: '365d' })
     .default(['monthly_v1', 'yearly_v1'])
     .subscription('com.example.sub.premium')
-    .basePlan('monthly_v1', Plan.PREMIUM_MONTHLY, { credits: 300, expiresIn: '30d' })
-    .basePlan('yearly_v1', Plan.PREMIUM_YEARLY, { credits: 400, expiresIn: '365d' })
+    .basePlan('monthly_v1', Plan.PREMIUM, 'monthly', { credits: 300, expiresIn: '30d' })
+    .basePlan('yearly_v1', Plan.PREMIUM, 'yearly', { credits: 400, expiresIn: '365d' })
     .default(['monthly_v1', 'yearly_v1'])
     .onetime('com.example.credit.starter', { credits: 100, expiresIn: '30d' })
     .onetime('com.example.credit.premium', { credits: 200, expiresIn: '60d' });
@@ -39,14 +39,61 @@ describe('GooglePlayConfig', () => {
 
   it('should return correct plan', () => {
     // subscription products with basePlan
-    expect(config.getPlan('com.example.sub.starter', 'monthly_v1')).toBe(Plan.STARTER_MONTHLY);
-    expect(config.getPlan('com.example.sub.starter', 'yearly_v1')).toBe(Plan.STARTER_YEARLY);
-    expect(config.getPlan('com.example.sub.premium', 'monthly_v1')).toBe(Plan.PREMIUM_MONTHLY);
-    expect(config.getPlan('com.example.sub.premium', 'yearly_v1')).toBe(Plan.PREMIUM_YEARLY);
+    expect(config.getPlan('com.example.sub.starter', 'monthly_v1')).toBe(Plan.STARTER);
+    expect(config.getPlan('com.example.sub.starter', 'yearly_v1')).toBe(Plan.STARTER);
+    expect(config.getPlan('com.example.sub.premium', 'monthly_v1')).toBe(Plan.PREMIUM);
+    expect(config.getPlan('com.example.sub.premium', 'yearly_v1')).toBe(Plan.PREMIUM);
 
     // non-existent
     expect(() => config.getPlan('nonexistent', 'monthly_v1')).toThrow();
     expect(() => config.getPlan('com.example.sub.starter', 'nonexistent')).toThrow();
+  });
+
+  it('should return correct billing period', () => {
+    expect(config.getBillingPeriod('com.example.sub.starter', 'monthly_v1')).toBe('monthly');
+    expect(config.getBillingPeriod('com.example.sub.starter', 'yearly_v1')).toBe('yearly');
+    expect(config.getBillingPeriod('com.example.sub.premium', 'monthly_v1')).toBe('monthly');
+    expect(config.getBillingPeriod('com.example.sub.premium', 'yearly_v1')).toBe('yearly');
+
+    // onetime products have no billing period
+    expect(() => config.getBillingPeriod('com.example.credit.starter', 'monthly_v1')).toThrow();
+
+    // non-existent
+    expect(() => config.getBillingPeriod('nonexistent', 'monthly_v1')).toThrow();
+    expect(() => config.getBillingPeriod('com.example.sub.starter', 'nonexistent')).toThrow();
+  });
+
+  it('should reject invalid configurations at the type level', () => {
+    // checked by tsc, never executed
+    const typeChecks = () => {
+      // @ts-expect-error duplicate productId
+      config.onetime('com.example.credit.starter');
+      // @ts-expect-error productId outside the namespace
+      config.onetime('org.other.credit.starter');
+
+      const chain = config
+        .subscription('com.example.sub.pro')
+        .basePlan('monthly_v1', Plan.PREMIUM, 'monthly');
+      // same plan+period on another basePlan version is allowed (google play versioning)
+      chain.basePlan('monthly_v2', Plan.PREMIUM, 'monthly');
+      // @ts-expect-error duplicate planId within the subscription
+      chain.basePlan('monthly_v1', Plan.PREMIUM, 'monthly');
+      // @ts-expect-error billing period outside the caller-defined union
+      chain.basePlan('monthly_v3', Plan.PREMIUM, 'weekly');
+      // @ts-expect-error default may only reference declared planIds
+      chain.default(['nonexistent_v1']);
+      // @ts-expect-error default planIds must be unique
+      chain.default(['monthly_v1', 'monthly_v1']);
+      chain.default(['monthly_v1']);
+
+      // full valid chain: versioned base plans sharing a plan+period, both as defaults
+      config
+        .subscription('com.example.sub.max')
+        .basePlan('monthly_v1', Plan.PREMIUM, 'monthly')
+        .basePlan('monthly_v2', Plan.PREMIUM, 'monthly')
+        .default(['monthly_v1', 'monthly_v2']);
+    };
+    expect(typeChecks).toBeInstanceOf(Function);
   });
 
   it('should return correct credit amount', () => {
