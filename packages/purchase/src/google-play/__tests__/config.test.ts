@@ -15,8 +15,10 @@ describe('GooglePlayConfig', () => {
   })
     .subscription('com.example.sub.starter')
     .basePlan('monthly_v1', Plan.STARTER, 'monthly', { credits: 100, expiresIn: '30d' })
+    // versioned base plan sharing the same plan+period
+    .basePlan('monthly_v2', Plan.STARTER, 'monthly', { credits: 150, expiresIn: '30d' })
     .basePlan('yearly_v1', Plan.STARTER, 'yearly', { credits: 200, expiresIn: '365d' })
-    .default(['monthly_v1', 'yearly_v1'])
+    .default(['monthly_v2', 'yearly_v1'])
     .subscription('com.example.sub.premium')
     .basePlan('monthly_v1', Plan.PREMIUM, 'monthly', { credits: 300, expiresIn: '30d' })
     .basePlan('yearly_v1', Plan.PREMIUM, 'yearly', { credits: 400, expiresIn: '365d' })
@@ -52,6 +54,11 @@ describe('GooglePlayConfig', () => {
   it('should return correct billing period', () => {
     expect(config.getBillingPeriod('com.example.sub.starter', 'monthly_v1')).toBe('monthly');
     expect(config.getBillingPeriod('com.example.sub.starter', 'yearly_v1')).toBe('yearly');
+
+    // versioned base plans share the same plan+period but keep their own metadata
+    expect(config.getBillingPeriod('com.example.sub.starter', 'monthly_v2')).toBe('monthly');
+    expect(config.getPlan('com.example.sub.starter', 'monthly_v2')).toBe(Plan.STARTER);
+    expect(config.getCreditAmount('com.example.sub.starter', 'monthly_v2')).toBe(150);
     expect(config.getBillingPeriod('com.example.sub.premium', 'monthly_v1')).toBe('monthly');
     expect(config.getBillingPeriod('com.example.sub.premium', 'yearly_v1')).toBe('yearly');
 

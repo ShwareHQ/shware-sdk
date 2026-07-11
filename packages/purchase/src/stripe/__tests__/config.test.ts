@@ -25,15 +25,20 @@ describe('StripeConfig', () => {
     .price('price_starter_monthly1', { credits: 1000, expiresIn: '30d' })
     .price('price_starter_monthly2', { credits: 12000, expiresIn: '365d' })
     .default('price_starter_monthly1')
+    // Same plan, different billing period
+    .product('com.example.sub.starter.yearly', Plan.STARTER, 'yearly')
+    .price('price_starter_yearly1', { credits: 12000, expiresIn: '365d' })
+    .default('price_starter_yearly1')
     // Free tier (no credits)
     .product('com.example.free')
     .price('price_free')
     .default('price_free');
 
   it('should manage products correctly', () => {
-    expect(config.productIds).toHaveLength(3);
+    expect(config.productIds).toHaveLength(4);
     expect(config.productIds).toContain('com.example.credits.starter');
     expect(config.productIds).toContain('com.example.sub.starter');
+    expect(config.productIds).toContain('com.example.sub.starter.yearly');
     expect(config.productIds).toContain('com.example.free');
   });
 
@@ -57,6 +62,12 @@ describe('StripeConfig', () => {
   it('should return correct billing period', () => {
     expect(config.getBillingPeriod('com.example.sub.starter')).toBe('monthly');
 
+    // the same plan resolves to different periods by product
+    expect(config.getPlan('com.example.sub.starter.yearly')).toBe(Plan.STARTER);
+    expect(config.getBillingPeriod('com.example.sub.starter.yearly')).toBe('yearly');
+    expect(config.getMode('com.example.sub.starter.yearly')).toBe('subscription');
+    expect(config.getPriceId('com.example.sub.starter.yearly')).toBe('price_starter_yearly1');
+
     // one-time products have no billing period
     expect(() => config.getBillingPeriod('com.example.credits.starter')).toThrow(
       'Product com.example.credits.starter is not a subscription'
@@ -77,8 +88,9 @@ describe('StripeConfig', () => {
       config.product('com.example.sub.pro', Plan.STARTER, 'weekly');
       // @ts-expect-error duplicate plan+period pair must live in the existing product chain
       config.product('com.example.sub.starter2', Plan.STARTER, 'monthly');
-      // same plan with a different period is allowed
-      config.product('com.example.sub.starter.yearly', Plan.STARTER, 'yearly');
+      // @ts-expect-error the yearly pair is taken by com.example.sub.starter.yearly as well
+      config.product('com.example.sub.starter2', Plan.STARTER, 'yearly');
+      // (the main config chain itself proves same plan + different period compiles)
     };
     expect(typeChecks).toBeInstanceOf(Function);
   });
