@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppStoreConfig } from '../config';
 
 describe('AppStoreConfig', () => {
-  enum Plan {
-    STARTER = 'STARTER',
-    PRO = 'PRO',
-    PREMIUM = 'PREMIUM',
-  }
+  const Plan = {
+    STARTER: 'STARTER',
+    PRO: 'PRO',
+    PREMIUM: 'PREMIUM',
+  } as const;
+  type Plan = (typeof Plan)[keyof typeof Plan];
 
   type BillingPeriod = 'monthly' | 'yearly';
 

@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { StripeConfig } from '../config';
 
 describe('StripeConfig', () => {
-  enum Plan {
-    STARTER = 'STARTER',
-  }
+  const Plan = {
+    STARTER: 'STARTER',
+  } as const;
+  type Plan = (typeof Plan)[keyof typeof Plan];
 
   type BillingPeriod = 'monthly' | 'yearly';
 

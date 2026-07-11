@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { GooglePlayConfig } from '../config';
 
 describe('GooglePlayConfig', () => {
-  enum Plan {
-    STARTER = 'STARTER',
-    PREMIUM = 'PREMIUM',
-  }
+  const Plan = {
+    STARTER: 'STARTER',
+    PREMIUM: 'PREMIUM',
+  } as const;
+  type Plan = (typeof Plan)[keyof typeof Plan];
 
   type BillingPeriod = 'monthly' | 'yearly';
 

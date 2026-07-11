@@ -1,39 +1,41 @@
 /** reference: https://github.com/googleapis/googleapis/blob/master/google/rpc/error_details.proto */
 import type { ResolvedErrorReason } from './reason';
 
-export enum DetailType {
-  ERROR_INFO = 'type.googleapis.com/google.rpc.ErrorInfo',
-  RETRY_INFO = 'type.googleapis.com/google.rpc.RetryInfo',
-  DEBUG_INFO = 'type.googleapis.com/google.rpc.DebugInfo',
-  QUOTA_FAILURE = 'type.googleapis.com/google.rpc.QuotaFailure',
-  PRECONDITION_FAILURE = 'type.googleapis.com/google.rpc.PreconditionFailure',
-  BAD_REQUEST = 'type.googleapis.com/google.rpc.BadRequest',
-  REQUEST_INFO = 'type.googleapis.com/google.rpc.RequestInfo',
-  RESOURCE_INFO = 'type.googleapis.com/google.rpc.ResourceInfo',
-  HELP = 'type.googleapis.com/google.rpc.Help',
-  LOCALIZED_MESSAGE = 'type.googleapis.com/google.rpc.LocalizedMessage',
-}
+export const DetailType = {
+  ERROR_INFO: 'type.googleapis.com/google.rpc.ErrorInfo',
+  RETRY_INFO: 'type.googleapis.com/google.rpc.RetryInfo',
+  DEBUG_INFO: 'type.googleapis.com/google.rpc.DebugInfo',
+  QUOTA_FAILURE: 'type.googleapis.com/google.rpc.QuotaFailure',
+  PRECONDITION_FAILURE: 'type.googleapis.com/google.rpc.PreconditionFailure',
+  BAD_REQUEST: 'type.googleapis.com/google.rpc.BadRequest',
+  REQUEST_INFO: 'type.googleapis.com/google.rpc.RequestInfo',
+  RESOURCE_INFO: 'type.googleapis.com/google.rpc.ResourceInfo',
+  HELP: 'type.googleapis.com/google.rpc.Help',
+  LOCALIZED_MESSAGE: 'type.googleapis.com/google.rpc.LocalizedMessage',
+} as const;
+
+export type DetailType = (typeof DetailType)[keyof typeof DetailType];
 
 export interface ErrorInfo {
-  '@type': DetailType.ERROR_INFO;
+  '@type': typeof DetailType.ERROR_INFO;
   reason: ResolvedErrorReason;
   domain?: string;
   metadata?: Record<string, string>;
 }
 
 export interface RetryInfo {
-  '@type': DetailType.RETRY_INFO;
+  '@type': typeof DetailType.RETRY_INFO;
   retryDelay: number;
 }
 
 export interface DebugInfo {
-  '@type': DetailType.DEBUG_INFO;
+  '@type': typeof DetailType.DEBUG_INFO;
   stackEntries: string[];
   detail: string;
 }
 
 export interface QuotaFailure {
-  '@type': DetailType.QUOTA_FAILURE;
+  '@type': typeof DetailType.QUOTA_FAILURE;
   violations: {
     subject: string;
     description: string;
@@ -47,12 +49,12 @@ export interface QuotaFailure {
 }
 
 export interface PreconditionFailure {
-  '@type': DetailType.PRECONDITION_FAILURE;
+  '@type': typeof DetailType.PRECONDITION_FAILURE;
   violations: { type: string; subject: string; description: string }[];
 }
 
 export interface BadRequest {
-  '@type': DetailType.BAD_REQUEST;
+  '@type': typeof DetailType.BAD_REQUEST;
   fieldViolations: {
     field: string;
     description: string;
@@ -62,13 +64,13 @@ export interface BadRequest {
 }
 
 export interface RequestInfo {
-  '@type': DetailType.REQUEST_INFO;
+  '@type': typeof DetailType.REQUEST_INFO;
   requestId: string;
   servingData: string;
 }
 
 export interface ResourceInfo {
-  '@type': DetailType.RESOURCE_INFO;
+  '@type': typeof DetailType.RESOURCE_INFO;
   resourceType: string;
   resourceName: string;
   owner: string;
@@ -76,12 +78,12 @@ export interface ResourceInfo {
 }
 
 export interface Help {
-  '@type': DetailType.HELP;
+  '@type': typeof DetailType.HELP;
   links: { url: string; description: string }[];
 }
 
 export interface LocalizedMessage {
-  '@type': DetailType.LOCALIZED_MESSAGE;
+  '@type': typeof DetailType.LOCALIZED_MESSAGE;
   locale: string;
   message: string;
 }
