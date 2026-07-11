@@ -11,5 +11,12 @@ allowBuilds:
   protobufjs: true
   sharp: true
 
-# TODO: re-enable supply-chain protection (remove this line to restore pnpm's 24h default)
-minimumReleaseAge: 0
+# transitive deps of rolldown-plugin-dts@0.27.6 published <24h ago; provenance
+# verified (yuku-toolchain, adopted by rolldown-plugin-dts for TS7 support)
+minimumReleaseAgeExclude:
+  - 'rolldown-plugin-dts@0.27.6'
+  - 'posthog-js@1.399.2'
+  - 'yuku-parser@0.5.48'
+  - 'yuku-codegen@0.5.48'
+  - '@yuku-parser/binding-*'
+  - '@yuku-codegen/binding-*'
