@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 4.0.1
+
+### Patch Changes
+
+- add apple notification event handler
+
 ## 4.0.0
 
 ### Major Changes

@@ -1,6 +1,6 @@
 {
   "name": "@shware/purchase",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -75,9 +75,13 @@
     "vitest": "^4.1.10"
   },
   "peerDependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "stripe": "^22.3.1"
   },
   "peerDependenciesMeta": {
+    "@apple/app-store-server-library": {
+      "optional": true
+    },
     "stripe": {
       "optional": true
     }
