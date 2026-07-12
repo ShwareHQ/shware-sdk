@@ -5,11 +5,13 @@ import { cache, config } from '../setup/index';
 import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
 
 async function createVisitor(): Promise<Visitor> {
+  const tags = await config.getTags();
   const dto: CreateVisitorDTO = {
     device_id: await config.getDeviceId(),
     platform: config.platform,
     environment: config.environment,
-    properties: (await config.getTags()) as VisitorProperties,
+    tags,
+    properties: tags as VisitorProperties,
   };
 
   const response = await fetch(`${config.endpoint}/visitors`, {
@@ -63,11 +65,12 @@ export async function getVisitor(): Promise<Visitor> {
 
 export async function setVisitor(dto: UpdateVisitorDTO) {
   const { id } = await getVisitor();
+  const tags = await config.getTags();
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
     method: 'PATCH',
     credentials: 'include',
     headers: await config.getHeaders(),
-    body: JSON.stringify(dto),
+    body: JSON.stringify({ ...dto, tags }),
   });
 
   if (!response.ok) throw new Error('Failed to set visitor');

@@ -75,7 +75,7 @@ export const tagsSchema = object({
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
-  // meta ads
+  // Meta Ads
   fbc: optional(string()),
   fbp: optional(string()),
   fbclid: optional(string()),
@@ -87,12 +87,12 @@ export const tagsSchema = object({
   campaign_name: optional(string()),
   placement: optional(string()),
   site_source_name: optional(string()),
-  // google ads
+  // Google Ads
   gclid: optional(string()),
   gclsrc: optional(string()),
   gad_source: optional(string()),
   gad_campaignid: optional(string()),
-  // reddit ads
+  // Reddit ads
   rdt_cid: optional(string()),
   rdt_uuid: optional(string()),
   // click ids
@@ -155,6 +155,7 @@ export const createVisitorSchema = object({
   device_id: string().check(trim(), minLength(1), maxLength(36)),
   platform: _enum(ALL_PLATFORMS),
   environment: _enum(ALL_ENVIRONMENTS),
+  tags: tagsSchema,
   properties: optional(
     record(
       string().check(trim(), minLength(1), maxLength(128)),
@@ -205,7 +206,7 @@ export const createLinkSchema = object({
   /** Marketing medium, for example: cpc, banner, email */
   utm_medium: string().check(minLength(1), maxLength(256)), // required
 
-  /** Product, slogan, promo code, for example: spring_sale */
+  /** Product, slogan, promo code, for example, spring_sale */
   utm_campaign: string().check(minLength(1), maxLength(256)), // required
 
   /** Paid keyword */
@@ -221,18 +222,18 @@ export const createLinkSchema = object({
   /**
    * The platform responsible for directing traffic to a given Analytics property (such as a buying
    * platform that sets budgets and targeting criteria or a platform that manages organic traffic
-   * data). For example: Search Ads 360 or Display & Video 360.
+   * data). For example, Search Ads 360 or Display & Video 360.
    */
   utm_source_platform: optional(noEmptyString),
 
   /**
-   * Type of creative, for example: display, native, video, search, utm_creative_format is not
+   * Type of creative, for example, display, native, video, search, utm_creative_format is not
    * currently reported in Google Analytics 4 properties.
    */
   utm_creative_format: optional(noEmptyString),
 
   /**
-   * Targeting criteria applied to a campaign, for example: remarketing, prospecting,
+   * Targeting criteria applied to a campaign, for example, remarketing, prospecting,
    * utm_marketing_tactic is not currently reported in Google Analytics 4 properties.
    * */
   utm_marketing_tactic: optional(noEmptyString),
