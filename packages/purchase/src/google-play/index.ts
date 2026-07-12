@@ -5,10 +5,12 @@ export {
   type OneTimeProductNotification,
   type VoidedPurchaseNotification,
   type TestNotification,
-  GooglePlaySubscriptionState,
+  GOOGLE_PLAY_SUBSCRIPTION_STATES,
+  type GooglePlaySubscriptionState,
   SubscriptionNotificationType,
   OneTimeProductNotificationType,
   VoidedPurchaseProductType,
   VoidedPurchaseRefundType,
 } from './real-time-developer-notification';
 export { GooglePlayConfig } from './config';
+export { mapSubscriptionStatus } from './mapper';
