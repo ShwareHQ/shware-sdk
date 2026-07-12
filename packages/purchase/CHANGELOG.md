@@ -1,5 +1,19 @@
 # @shware/purchase
 
+## 4.0.0
+
+### Major Changes
+
+- Add Google Play subscription status mapper; replace the GooglePlaySubscriptionState const object with an array.
+
+  BREAKING CHANGES:
+
+  - `GooglePlaySubscriptionState` is now a type-only union derived from the new `GOOGLE_PLAY_SUBSCRIPTION_STATES` as-const array; dot access like `GooglePlaySubscriptionState.SUBSCRIPTION_STATE_ACTIVE` becomes the string literal `'SUBSCRIPTION_STATE_ACTIVE'`
+
+  New:
+
+  - `mapSubscriptionStatus(state)` on `@shware/purchase/google-play` maps subscriptionsv2 states to `SubscriptionStatus` (`SUBSCRIPTION_STATE_UNSPECIFIED` throws)
+
 ## 3.0.0
 
 ### Major Changes
