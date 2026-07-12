@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 3.8.1
+
+### Patch Changes
+
+- update properties field
+
+## 3.8.0
+
+### Minor Changes
+
+- add visitor.tags
+
 ## 3.7.0
 
 ### Minor Changes
