@@ -1,7 +1,7 @@
+import type { UpdateVisitorDTO } from '../schema/index';
 import { type PixelId, type RDT, mapRDTEvent } from '../track/rdt';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
   // oxlint-disable-next-line typescript/no-empty-object-type
@@ -32,15 +32,15 @@ export function sendRedditEvent<T extends EventName>(
 }
 
 export function setRedditUser(pixelId: PixelId) {
-  return ({ user_id, data }: UpdateVisitorDTO) => {
+  return ({ user_id, user_data }: UpdateVisitorDTO) => {
     if (!window.rdt) {
       console.warn('rdt has not been initialized');
       return;
     }
 
     window.rdt('init', pixelId, {
-      email: getFirst(data?.email),
-      phoneNumber: getFirst(data?.phone_number),
+      email: getFirst(user_data?.email),
+      phoneNumber: getFirst(user_data?.phone_number),
       externalId: user_id,
     });
   };

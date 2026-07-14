@@ -26,4 +26,11 @@ export const expiringStorage = {
       return null;
     }
   },
+  removeItem: (key: string) => {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error('Failed to remove item with expiry:', error);
+    }
+  },
 };

@@ -1,8 +1,8 @@
 import { fetch } from '@shware/utils';
 import { keys } from '../constants/storage';
-import type { CreateVisitorDTO } from '../schema/index';
+import type { CreateVisitorDTO, UpdateVisitorDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
-import type { UpdateVisitorDTO, Visitor, VisitorProperties } from './types';
+import type { Visitor, VisitorProperties } from './types';
 
 async function createVisitor(): Promise<Visitor> {
   const tags = await config.getTags();
@@ -63,20 +63,21 @@ export async function getVisitor(): Promise<Visitor> {
   return cache.visitor;
 }
 
-export async function setVisitor(dto: UpdateVisitorDTO) {
+export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
   const { id } = await getVisitor();
   const tags = await config.getTags();
+  const body: UpdateVisitorDTO = { ...dto, tags };
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
     method: 'PATCH',
     credentials: 'include',
     headers: await config.getHeaders(),
-    body: JSON.stringify({ ...dto, tags }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) throw new Error('Failed to set visitor');
   const data = (await response.json()) as Visitor;
 
-  config.thirdPartyUserSetters.forEach((setter) => setter(dto));
+  config.thirdPartyUserSetters.forEach((setter) => setter(body));
   cache.visitor = data;
   return data;
 }

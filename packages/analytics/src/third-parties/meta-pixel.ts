@@ -1,7 +1,7 @@
+import type { UpdateVisitorDTO } from '../schema/index';
 import { type FBQ, type PixelId, mapFBEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
   // oxlint-disable-next-line typescript/no-empty-object-type
@@ -33,19 +33,19 @@ export function sendFBEvent<T extends EventName>(
 }
 
 export function setFBUser(pixelId: PixelId) {
-  return ({ user_id, data }: UpdateVisitorDTO) => {
+  return ({ user_id, user_data }: UpdateVisitorDTO) => {
     if (typeof window === 'undefined' || !window.fbq) {
       console.warn('fbq has not been initialized');
       return;
     }
 
-    const address = getFirst(data?.address);
+    const address = getFirst(user_data?.address);
 
     window.fbq('init', pixelId, {
-      em: getFirst(data?.email),
+      em: getFirst(user_data?.email),
       fn: address?.first_name,
       ln: address?.last_name,
-      ph: getFirst(data?.phone_number),
+      ph: getFirst(user_data?.phone_number),
       external_id: user_id,
       ct: address?.city,
       st: address?.street,

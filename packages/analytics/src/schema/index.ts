@@ -4,6 +4,7 @@ import {
   array,
   boolean,
   coerce,
+  e164,
   email,
   iso,
   maxLength,
@@ -16,6 +17,8 @@ import {
   refine,
   regex,
   string,
+  toLowerCase,
+  toUpperCase,
   transform,
   trim,
   union,
@@ -164,9 +167,44 @@ export const createVisitorSchema = object({
   ),
 });
 
+const emailValue = pipe(string().check(trim(), toLowerCase(), maxLength(320)), email());
+
+/** E.164: a plus sign (+) prefix, country code, then digits only, no dashes/parens/spaces. */
+const phoneValue = pipe(string().check(trim()), e164());
+
+const addressValue = object({
+  first_name: optional(string().check(trim(), maxLength(128))),
+  last_name: optional(string().check(trim(), maxLength(128))),
+  street: optional(string().check(trim(), maxLength(256))),
+  city: optional(string().check(trim(), maxLength(128))),
+  /** User province, state, or region. Example: `Hampshire` */
+  region: optional(string().check(trim(), maxLength(128))),
+  postal_code: optional(string().check(trim(), maxLength(32))),
+  /** 2-letter country code, per the ISO 3166-1 alpha-2 standard. Example: `UK` */
+  country: optional(string().check(trim(), toUpperCase(), regex(/^[A-Z]{2}$/))),
+});
+
+/**
+ * User-provided data (UPD) used for enhanced conversions, Customer Match, and demographics.
+ * Values are sent unhashed; Google normalizes and hashes them before they reach its servers.
+ *
+ * Multiple values may be sent to increase the match rate: up to 3 emails, 3 phone numbers, and
+ * 2 addresses.
+ *
+ * @see https://support.google.com/analytics/answer/14078702
+ * @see https://support.google.com/google-ads/answer/13258081
+ */
+export const userProvidedDataSchema = object({
+  email: optional(union([emailValue, array(emailValue).check(minLength(1), maxLength(3))])),
+  phone_number: optional(union([phoneValue, array(phoneValue).check(minLength(1), maxLength(3))])),
+  address: optional(union([addressValue, array(addressValue).check(minLength(1), maxLength(2))])),
+});
+
 export const updateVisitorSchema = object({
   user_id: optional(uuid()),
+  user_data: optional(userProvidedDataSchema),
   distinct_id: optional(string().check(trim(), minLength(1), maxLength(36))),
+  tags: tagsSchema,
   properties: optional(
     record(
       string().check(trim(), minLength(1), maxLength(128)),
@@ -243,4 +281,5 @@ export type CreateTrackEventDTO = z.output<typeof createTrackEventSchema>;
 export type CreateFeedbackDTO = z.output<typeof createFeedbackSchema>;
 export type CreateLinkDTO = z.output<typeof createLinkSchema>;
 export type CreateVisitorDTO = z.output<typeof createVisitorSchema>;
+export type UserProvidedDataDTO = z.output<typeof userProvidedDataSchema>;
 export type UpdateVisitorDTO = z.output<typeof updateVisitorSchema>;

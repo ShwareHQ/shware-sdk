@@ -1,7 +1,7 @@
+import type { UpdateVisitorDTO } from '../schema/index';
 import { NON_AD_EVENTS, type OAIQ, type OAIQUser, mapOAIEvent } from '../track/oaiq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
   // oxlint-disable-next-line typescript/no-empty-object-type
@@ -55,14 +55,14 @@ async function sha256(value: string): Promise<string> {
  * so the `init` call is deferred until the digests resolve.
  */
 export function setOpenAIUser(pixelId: string) {
-  return ({ user_id, data }: UpdateVisitorDTO) => {
+  return ({ user_id, user_data }: UpdateVisitorDTO) => {
     if (typeof window === 'undefined' || !window.oaiq) {
       console.warn('oaiq has not been initialized');
       return;
     }
 
-    const email = getFirst(data?.email)?.trim().toLowerCase();
-    const address = getFirst(data?.address);
+    const email = getFirst(user_data?.email)?.trim().toLowerCase();
+    const address = getFirst(user_data?.address);
 
     const base: OAIQUser = {
       country: address?.country?.trim().toUpperCase(),

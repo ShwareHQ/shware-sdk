@@ -1,7 +1,7 @@
+import type { UpdateVisitorDTO } from '../schema/index';
 import type { Lintrk } from '../track/lintrk';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
   // oxlint-disable-next-line typescript/no-empty-object-type
@@ -38,13 +38,13 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
   };
 }
 
-export function setLinkedinUser({ data }: UpdateVisitorDTO) {
+export function setLinkedinUser({ user_data }: UpdateVisitorDTO) {
   if (typeof window === 'undefined' || !window.lintrk) {
     console.warn('lintrk has not been initialized');
     return;
   }
 
-  const email = getFirst(data?.email);
+  const email = getFirst(user_data?.email);
   if (!email) return;
   window.lintrk('setUserData', { email });
 }

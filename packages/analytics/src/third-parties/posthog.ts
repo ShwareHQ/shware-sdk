@@ -1,7 +1,7 @@
 import { posthog } from 'posthog-js';
+import type { UpdateVisitorDTO } from '../schema/index';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { UpdateVisitorDTO } from '../visitor/types';
 
 const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 
@@ -19,7 +19,7 @@ export function sendPosthogEvent<T extends EventName>(
   }
 }
 
-export function setPosthogUser({ user_id, distinct_id, data }: UpdateVisitorDTO) {
+export function setPosthogUser({ user_id, distinct_id, user_data }: UpdateVisitorDTO) {
   if (!distinct_id && !user_id) return;
-  posthog.identify(distinct_id ?? user_id, { email: getFirst(data?.email) });
+  posthog.identify(distinct_id ?? user_id, { email: getFirst(user_data?.email) });
 }

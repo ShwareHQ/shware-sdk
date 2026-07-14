@@ -1,6 +1,6 @@
+import type { UpdateVisitorDTO } from '../schema/index';
 import type { Gtag } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
-import type { UpdateVisitorDTO } from '../visitor/types';
 
 declare global {
   // oxlint-disable-next-line typescript/no-empty-object-type
@@ -18,12 +18,12 @@ export function sendGAEvent<T extends EventName>(
   window.gtag('event', name, properties);
 }
 
-export function setGAUser({ user_id, data, properties }: UpdateVisitorDTO) {
+export function setGAUser({ user_id, user_data, properties }: UpdateVisitorDTO) {
   if (!window.gtag) {
     console.warn('GA has not been initialized');
     return;
   }
   if (user_id) window.gtag('set', 'user_id', user_id);
-  if (data) window.gtag('set', 'user_data', data);
-  if (properties) window.gtag('set', 'user_properties', properties);
+  if (user_data) window.gtag('set', 'user_data', user_data);
+  if (properties) window.gtag('set', 'user_properties', properties as never);
 }

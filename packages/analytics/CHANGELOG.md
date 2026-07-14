@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 3.8.2
+
+### Patch Changes
+
+- update visitor schema
+- Updated dependencies
+  - @shware/utils@1.5.1
+
 ## 3.8.1
 
 ### Patch Changes
