@@ -1,5 +1,18 @@
 # @shware/analytics
 
+## 4.0.0
+
+### Major Changes
+
+- Persist Meta `_fbc` and Reddit `_rdt_cid` click-id cookies server-side instead of on the client.
+
+  **BREAKING:** the client-side `useClickIdPersistence` hook has been removed and the `Analytics` component no longer writes `_fbc`/`_rdt_cid` via `document.cookie`. To keep click-id persistence you must now set these cookies server-side — either register `clickIdMiddleware` on TanStack Start, or call `resolveClickIdCookies` in your framework's request handler. Apps that don't migrate will lose `_fbc`/`_rdt_cid` persistence.
+
+  New server-side APIs:
+
+  - `resolveClickIdCookies` (plus `parseFbc`, `formatFbc`, `toSetCookieHeaders`) from `@shware/analytics/server` — a framework-agnostic helper that sets `_fbc`/`_rdt_cid` on the document response following Meta's conditional-write rule: write on a new or changed `fbclid`, preserve the original `creationTime` otherwise, and clear values older than 90 days. This resolves the Events Manager "expired fbclid" warning and keeps the cookie alive for the full 90 days in Safari, where a JavaScript-set cookie on an fbclid-decorated landing page is capped to 24 hours.
+  - `clickIdMiddleware` / `createClickIdMiddleware` from `@shware/analytics/tanstack` — a TanStack Start request middleware that wraps the helper and sets the cookies on the document response (with `Cache-Control: private, no-store`). `refresh` defaults to `true` as a best-effort ITP self-heal.
+
 ## 3.8.2
 
 ### Patch Changes

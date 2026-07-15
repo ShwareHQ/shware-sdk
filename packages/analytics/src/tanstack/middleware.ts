@@ -43,7 +43,7 @@ export interface ClickIdMiddlewareOptions {
  * ```ts
  * // start.ts
  * import { createStart } from '@tanstack/react-start'
- * import { clickIdMiddleware } from '@shware/analytics/tanstack/middleware'
+ * import { clickIdMiddleware } from '@shware/analytics/tanstack'
  * export const startInstance = createStart(() => ({ requestMiddleware: [clickIdMiddleware] }))
  * ```
  *
