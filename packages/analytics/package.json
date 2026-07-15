@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.8.2",
+  "version": "4.0.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -89,16 +89,6 @@
       "require": {
         "types": "./dist/tanstack/index.d.cts",
         "default": "./dist/tanstack/index.cjs"
-      }
-    },
-    "./tanstack/middleware": {
-      "import": {
-        "types": "./dist/tanstack/middleware.d.mts",
-        "default": "./dist/tanstack/middleware.mjs"
-      },
-      "require": {
-        "types": "./dist/tanstack/middleware.d.cts",
-        "default": "./dist/tanstack/middleware.cjs"
       }
     },
     "./third-parties": {
