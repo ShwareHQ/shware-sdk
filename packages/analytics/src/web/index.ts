@@ -1,4 +1,3 @@
-import { expiringStorage } from '@shware/utils';
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
@@ -49,10 +48,10 @@ export async function getTags() {
     source: 'web',
     source_url: window.location.href,
     page_referrer: document.referrer || undefined,
-    // Meta Ads
-    fbc: parsed._fbc ?? expiringStorage.getItem<string>(keys.fbc) ?? undefined,
+    // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)
+    fbc: parsed._fbc ?? undefined,
     fbp: parsed._fbp,
-    fbclid: params.get('fbclid') ?? expiringStorage.getItem<string>(keys.fbclid) ?? undefined,
+    fbclid: params.get('fbclid') ?? undefined,
     ad_id: params.get('ad_id') ?? undefined,
     ad_name: params.get('ad_name') ?? undefined,
     adset_id: params.get('adset_id') ?? undefined,
@@ -66,12 +65,8 @@ export async function getTags() {
     gclsrc: params.get('gclsrc') ?? undefined,
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
-    // Reddit Ads
-    rdt_cid:
-      params.get('rdt_cid') ??
-      parsed._rdt_cid ??
-      expiringStorage.getItem<string>(keys.rdt_cid) ??
-      undefined,
+    // Reddit Ads — _rdt_cid is set server-side (see @shware/analytics/server resolveClickIdCookies)
+    rdt_cid: params.get('rdt_cid') ?? parsed._rdt_cid ?? undefined,
     rdt_uuid: parsed._rdt_uuid,
     // LinkedIn Ads: get click id from url params or first-party cookie
     li_fat_id: params.get('li_fat_id') ?? parsed.li_fat_id ?? undefined,
