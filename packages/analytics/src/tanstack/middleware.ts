@@ -9,9 +9,11 @@ export interface ClickIdMiddlewareOptions {
   /** subdomainIndex for a freshly built `_fbc` (com=0, example.com=1, www.example.com=2). Default 1. */
   subdomainIndex?: number;
   /**
-   * Re-issue a still-valid `_fbc` on every request as a best-effort ITP self-heal. Off by default
-   * (matches Meta's conditional-write rule). Enabling it attaches a per-user `Set-Cookie` — and thus
-   * `no-store` — to every page response, defeating CDN caching. See {@link resolveClickIdCookies}.
+   * Re-issue a still-valid `_fbc` on every request as an ITP self-heal (restores the long-lived
+   * HTTP cookie if the Meta Pixel's `document.cookie` write re-capped it to 24h in Safari). On by
+   * default. Note it attaches a per-user `Set-Cookie` — and thus `no-store` — to every page
+   * response carrying an `_fbc`, defeating CDN caching of those pages; set false to strictly follow
+   * Meta's conditional-write rule and keep them cacheable. See {@link resolveClickIdCookies}.
    */
   refresh?: boolean;
   /**
@@ -53,7 +55,8 @@ export function createClickIdMiddleware(options: ClickIdMiddlewareOptions = {}) 
   return createMiddleware({ type: 'request' }).server(async ({ request, next, handlerType }) => {
     const result = await next();
 
-    // Only decorate top-level document/router responses, never serverFn RPC responses.
+    // Skip serverFn RPC responses. 'router' covers SSR document requests *and* custom server
+    // routes (API endpoints) — those also get cookies when the URL carries a click id.
     if (handlerType !== 'router') return result;
     if (options.shouldPersist && !options.shouldPersist(request)) return result;
 

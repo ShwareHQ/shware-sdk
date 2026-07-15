@@ -52,7 +52,7 @@ describe('resolveClickIdCookies — _fbc', () => {
     expect(fbc).toBe(`fb.1.${NOW}.ABC123`);
   });
 
-  it('does not rewrite when the same fbclid returns in the URL (preserves creationTime)', () => {
+  it('does not rewrite the value when the same fbclid returns in the URL (preserves creationTime)', () => {
     const existing = `fb.1.${NOW}.ABC123`;
     const later = NOW + 30 * DAY_MS;
     const { cookie, fbc } = fbcCookie(
@@ -60,8 +60,9 @@ describe('resolveClickIdCookies — _fbc', () => {
       `_fbc=${existing}`,
       later
     );
-    // Same fbclid → Meta's rule says don't set; the original creationTime survives.
-    expect(cookie).toBeUndefined();
+    // Same fbclid → the value and creationTime survive; the default refresh re-issues it
+    // unchanged at its remaining lifetime.
+    expect(cookie).toMatchObject({ value: existing, maxAge: ((90 - 30) * DAY_MS) / 1000 });
     expect(fbc).toBe(existing);
   });
 
@@ -77,30 +78,28 @@ describe('resolveClickIdCookies — _fbc', () => {
     expect(fbc).toBe(`fb.1.${later}.XYZ`);
   });
 
-  it('leaves a valid same-fbclid cookie untouched by default (Meta conditional-write), but exposes fbc', () => {
+  it('re-issues a valid cookie unchanged at remaining lifetime by default (ITP self-heal)', () => {
     const existing = `fb.1.${NOW}.ABC123`;
     const later = NOW + 10 * DAY_MS;
     const { cookie, fbc } = fbcCookie('https://edensign.io/', `_fbc=${existing}`, later);
-    expect(cookie).toBeUndefined();
-    expect(fbc).toBe(existing);
-  });
-
-  it('re-issues a valid cookie at remaining lifetime when refresh is enabled (opt-in ITP self-heal)', () => {
-    const existing = `fb.1.${NOW}.ABC123`;
-    const later = NOW + 10 * DAY_MS;
-    const { cookie, fbc } = fbcCookie('https://edensign.io/', `_fbc=${existing}`, later, {
-      refresh: true,
-    });
     expect(cookie?.value).toBe(existing);
     expect(cookie?.maxAge).toBe(((90 - 10) * DAY_MS) / 1000);
     expect(fbc).toBe(existing);
   });
 
+  it('leaves a valid same-fbclid cookie untouched with refresh: false (strict Meta conditional-write), but exposes fbc', () => {
+    const existing = `fb.1.${NOW}.ABC123`;
+    const later = NOW + 10 * DAY_MS;
+    const { cookie, fbc } = fbcCookie('https://edensign.io/', `_fbc=${existing}`, later, {
+      refresh: false,
+    });
+    expect(cookie).toBeUndefined();
+    expect(fbc).toBe(existing);
+  });
+
   it('preserves a foreign subdomainIndex when refreshing (e.g. Pixel-set fb.2.*)', () => {
     const existing = `fb.2.${NOW}.PIXEL`;
-    const { cookie } = fbcCookie('https://edensign.io/', `_fbc=${existing}`, NOW + DAY_MS, {
-      refresh: true,
-    });
+    const { cookie } = fbcCookie('https://edensign.io/', `_fbc=${existing}`, NOW + DAY_MS);
     expect(cookie?.value).toBe(existing);
   });
 
