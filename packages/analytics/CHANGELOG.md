@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 3.8.3
+
+### Patch Changes
+
+- fix: bundle bowser into dist (tsdown `noExternal`) to fix ESM/CJS interop. bowser's entry points (`main`/`browser`) resolve to the CJS-only `es5.js` with no `exports` map, so any environment that loads the package as raw ESM — e.g. Vite dev with the package excluded from `optimizeDeps` (TanStack Start does this transitively) — threw `SyntaxError: The requested module 'bowser/es5.js' does not provide an export named 'default'` and broke client hydration. The published dist no longer imports `bowser`, so consumers need no `optimizeDeps` workaround; `bowser` moved from dependencies to devDependencies.
+
 ## 3.8.2
 
 ### Patch Changes

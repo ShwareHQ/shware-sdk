@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.8.2",
+  "version": "3.8.3",
   "private": false,
   "repository": {
     "type": "git",
@@ -134,7 +134,6 @@
   },
   "dependencies": {
     "@shware/utils": "workspace:^",
-    "bowser": "^2.14.1",
     "cookie": "^2.0.1",
     "uuid": "^14.0.1",
     "web-vitals": "^5.3.0",
@@ -145,6 +144,7 @@
     "@types/facebook-nodejs-business-sdk": "^24.0.0",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
+    "bowser": "^2.14.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
