@@ -91,6 +91,16 @@
         "default": "./dist/tanstack/index.cjs"
       }
     },
+    "./tanstack/middleware": {
+      "import": {
+        "types": "./dist/tanstack/middleware.d.mts",
+        "default": "./dist/tanstack/middleware.mjs"
+      },
+      "require": {
+        "types": "./dist/tanstack/middleware.d.cts",
+        "default": "./dist/tanstack/middleware.cjs"
+      }
+    },
     "./third-parties": {
       "import": {
         "types": "./dist/third-parties/index.d.mts",
@@ -151,6 +161,7 @@
   "peerDependencies": {
     "@react-native-firebase/analytics": "^25.1.0",
     "@tanstack/react-router": "^1.170.17",
+    "@tanstack/react-start": "^1.168.0",
     "expo-application": "^57.0.0",
     "expo-clipboard": "^57.0.0",
     "expo-crypto": "^57.0.0",
@@ -172,6 +183,9 @@
       "optional": true
     },
     "@tanstack/react-router": {
+      "optional": true
+    },
+    "@tanstack/react-start": {
       "optional": true
     },
     "expo-application": {
