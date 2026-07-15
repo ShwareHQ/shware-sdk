@@ -3,7 +3,6 @@
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
-import { useClickIdPersistence } from '../hooks/use-click-id-persistence';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import type { PixelId as MetaPixelId } from '../track/fbq';
@@ -37,8 +36,6 @@ export function Analytics({
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
-  useClickIdPersistence();
-
   const pathname = usePathname();
   useWebAnalytics(pathname);
   useOutboundClickAnalytics();

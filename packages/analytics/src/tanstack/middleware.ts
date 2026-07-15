@@ -35,7 +35,7 @@ export interface ClickIdMiddlewareOptions {
  *
  * Setting `_fbc` here — on the top document via an HTTP `Set-Cookie` header, before any client JS
  * runs — is what Meta officially recommends and the only reliable way to keep the cookie alive for
- * 90 days in Safari: ITP caps JavaScript-set cookies on an fbclid-decorated landing page to 24
+ * 90 days in Safari: ITP caps JavaScript-set cookies on a fbclid-decorated landing page to 24
  * hours, and a document response is never classified as CNAME/IP cloaking (it is the reference the
  * browser measures cloaking against).
  *
@@ -66,7 +66,7 @@ export function createClickIdMiddleware(options: ClickIdMiddlewareOptions = {}) 
       domain: options.domain,
       secure: options.secure,
       subdomainIndex: options.subdomainIndex,
-      refresh: options.refresh,
+      refresh: options.refresh ?? true,
     });
 
     if (cookies.length > 0) {
