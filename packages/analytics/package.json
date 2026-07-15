@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "3.8.3",
+  "version": "4.0.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -151,6 +151,7 @@
   "peerDependencies": {
     "@react-native-firebase/analytics": "^25.1.0",
     "@tanstack/react-router": "^1.170.17",
+    "@tanstack/react-start": "^1.168.0",
     "expo-application": "^57.0.0",
     "expo-clipboard": "^57.0.0",
     "expo-crypto": "^57.0.0",
@@ -172,6 +173,9 @@
       "optional": true
     },
     "@tanstack/react-router": {
+      "optional": true
+    },
+    "@tanstack/react-start": {
       "optional": true
     },
     "expo-application": {
