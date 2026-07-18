@@ -105,7 +105,6 @@
     "import/no-duplicates": "error",
     "import/no-self-import": "error",
     "node/no-exports-assign": "error",
-    "node/no-sync": "error",
     "promise/no-multiple-resolved": "error",
     "promise/no-return-wrap": "error",
     "promise/valid-params": "error",
