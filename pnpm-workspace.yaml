@@ -20,3 +20,4 @@ minimumReleaseAgeExclude:
   - 'yuku-codegen@0.5.48'
   - '@yuku-parser/binding-*'
   - '@yuku-codegen/binding-*'
+  - '@changesets/cli@2.31.1'
