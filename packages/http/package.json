@@ -84,7 +84,7 @@
     "typescript": "^7.0.2"
   },
   "peerDependencies": {
-    "hono": "^4.12.29",
+    "hono": "^4.12.31",
     "i18next": "^26.3.6",
     "react": "^19.2.7"
   },
