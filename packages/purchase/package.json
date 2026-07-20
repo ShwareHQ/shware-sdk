@@ -76,7 +76,7 @@
   },
   "peerDependencies": {
     "@apple/app-store-server-library": "^3.1.0",
-    "stripe": "^22.3.1"
+    "stripe": "^22.3.2"
   },
   "peerDependenciesMeta": {
     "@apple/app-store-server-library": {
