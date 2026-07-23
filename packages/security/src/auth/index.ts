@@ -1,6 +1,6 @@
 import { createHash, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { invariant } from '@shware/utils';
-import { type Principal, Provider } from '../core/index';
+import type { Principal } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import type { OAuth2ErrorType } from '../oauth2/error';

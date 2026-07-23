@@ -3,8 +3,10 @@ import type { Gtag } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 declare global {
-  // oxlint-disable-next-line typescript/no-empty-object-type
-  interface Window extends Gtag {}
+  interface Window {
+    /** Undefined until the Google tag (gtag.js) script has loaded. */
+    gtag?: Gtag['gtag'];
+  }
 }
 
 export function sendGAEvent<T extends EventName>(

@@ -24,7 +24,7 @@ export function zValidator<S extends ZodType | ZodMiniType>(
       ({ code, path, message }) => ({
         field: path.join('.'),
         description: message,
-        reason: code?.toUpperCase() ?? 'INVALID_ARGUMENT',
+        reason: code.toUpperCase(),
         localizedMessage: { locale: 'en-US', message: message },
       })
     );

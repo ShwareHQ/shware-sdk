@@ -4,8 +4,10 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 
 declare global {
-  // oxlint-disable-next-line typescript/no-empty-object-type
-  interface Window extends FBQ {}
+  interface Window {
+    /** Undefined until the Meta Pixel script has loaded. */
+    fbq?: FBQ['fbq'];
+  }
 }
 
 const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];

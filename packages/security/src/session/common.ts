@@ -9,8 +9,9 @@ export function resolveIndexesFor(session: Session): string | null {
 
   const jsonString = session.getAttribute(SPRING_SECURITY_CONTEXT);
   if (typeof jsonString === 'string') {
-    const context = JSON.parse(jsonString) as SecurityContext;
-    return context?.authentication?.name ?? context.authentication?.principal?.name ?? null;
+    // The attribute is externally stored JSON, so it may parse to null.
+    const context = JSON.parse(jsonString) as SecurityContext | null;
+    return context?.authentication?.name ?? context?.authentication?.principal?.name ?? null;
   }
   return null;
 }

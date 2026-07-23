@@ -128,7 +128,7 @@ export function mapRDTEvent<T extends EventName>(
         conversionId: eventId,
         value: p?.value,
         currency: p?.currency.toUpperCase(),
-        itemCount: p?.items?.reduce((acc, i) => acc + (i.quantity ?? 1), 0),
+        itemCount: p?.items.reduce((acc, i) => acc + (i.quantity ?? 1), 0),
         products: mapItems(p?.items),
       },
     ];
@@ -140,7 +140,7 @@ export function mapRDTEvent<T extends EventName>(
         conversionId: eventId,
         value: p?.value,
         currency: p?.currency.toUpperCase(),
-        itemCount: p?.items?.reduce((acc, i) => acc + (i.quantity ?? 1), 0),
+        itemCount: p?.items.reduce((acc, i) => acc + (i.quantity ?? 1), 0),
         products: mapItems(p?.items),
       },
     ];
@@ -202,6 +202,6 @@ export function mapServerStandardEvent(name: keyof StandardEvents): ServerStanda
   if (name === 'AddToWishlist') return 'ADD_TO_WISHLIST';
   if (name === 'Purchase') return 'PURCHASE';
   if (name === 'Lead') return 'LEAD';
-  if (name === 'SignUp') return 'SIGN_UP';
-  throw new Error(`Unsupported standard event: ${String(name)}`);
+  // `name` is narrowed to 'SignUp' here, so the mapping is exhaustive
+  return 'SIGN_UP';
 }

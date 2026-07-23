@@ -4,8 +4,10 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 
 declare global {
-  // oxlint-disable-next-line typescript/no-empty-object-type
-  interface Window extends RDT {}
+  interface Window {
+    /** Undefined until the Reddit Pixel script has loaded. */
+    rdt?: RDT['rdt'];
+  }
 }
 
 const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];

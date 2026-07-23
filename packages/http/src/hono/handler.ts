@@ -43,10 +43,8 @@ export function errorHandler<E extends Env = never>(
   const details = Details.new().requestInfo({ requestId, servingData });
 
   if (error instanceof StatusError) {
-    error.body?.error?.details?.push(...details.list);
-    const badRequest = error.body?.error?.details.find(
-      (d) => d['@type'] === DetailType.BAD_REQUEST
-    );
+    error.body?.error.details.push(...details.list);
+    const badRequest = error.body?.error.details.find((d) => d['@type'] === DetailType.BAD_REQUEST);
     if (badRequest) console.warn(servingData, badRequest);
     console.error(servingData, JSON.stringify(error.body?.error ?? {}, null, 2));
     return c.json(error.body, error.status as ContentfulStatusCode);

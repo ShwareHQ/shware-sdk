@@ -10,8 +10,9 @@ export async function sendFirebaseEvent<T extends EventName>(
 ) {
   if (name === 'screen_view') {
     await logEvent(analytics, 'screen_view', {
-      firebase_screen: (properties as StandardEvents['screen_view'])?.screen_name,
-      firebase_screen_class: (properties as StandardEvents['screen_view'])?.screen_class,
+      firebase_screen: (properties as StandardEvents['screen_view'] | undefined)?.screen_name,
+      firebase_screen_class: (properties as StandardEvents['screen_view'] | undefined)
+        ?.screen_class,
     });
   } else {
     await logEvent(analytics, name, properties);

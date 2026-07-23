@@ -22,7 +22,7 @@ export function useOutboundClickAnalytics() {
             outbound: true,
             link_id: anchor.id || '',
             link_url: anchor.href,
-            link_text: anchor.textContent?.trim() || '',
+            link_text: anchor.textContent.trim() || '',
             link_domain: url.hostname,
             link_classes: anchor.className || '',
           });

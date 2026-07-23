@@ -126,7 +126,7 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
   }
 
   async rename(session: RedisSession) {
-    if (session.originalSessionId === null || session.originalSessionId === session.getId()) return;
+    if (session.originalSessionId === session.getId()) return;
     await this.remove(session.originalSessionId);
     await this.save(session);
   }
@@ -184,7 +184,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   private async getSession(id: string, allowExpired: boolean): Promise<RedisSession | null> {
     const key = this.getSessionKey(id);
     const entries = await this.redis.hgetall(key);
-    if (!entries || Object.keys(entries).length === 0) return null;
+    if (Object.keys(entries).length === 0) return null;
     const loaded = new MapSession(id);
     if (!entries.creationTime) throw new Error('creationTime attribute not found');
     if (!entries.lastAccessedTime) throw new Error('lastAccessedTime attribute not found');
@@ -333,7 +333,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
 
     const principalKey = this.getPrincipalKey(indexValue);
     const sessionIds = await this.redis.smembers(principalKey);
-    if (!sessionIds || sessionIds.length === 0) {
+    if (sessionIds.length === 0) {
       return new Map<string, RedisSession>();
     }
     const sessions = new Map<string, RedisSession>();

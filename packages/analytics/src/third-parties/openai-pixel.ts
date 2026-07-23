@@ -4,8 +4,10 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 
 declare global {
-  // oxlint-disable-next-line typescript/no-empty-object-type
-  interface Window extends OAIQ {}
+  interface Window {
+    /** Undefined until the OpenAI pixel script has loaded. */
+    oaiq?: OAIQ['oaiq'];
+  }
 }
 
 /** Drop `undefined` fields so the SDK only receives populated values. */
@@ -60,6 +62,8 @@ export function setOpenAIUser(pixelId: string) {
       console.warn('oaiq has not been initialized');
       return;
     }
+    // Capture the narrowed reference so the deferred `init` closure keeps it non-optional.
+    const oaiq = window.oaiq;
 
     const email = getFirst(user_data?.email)?.trim().toLowerCase();
     const address = getFirst(user_data?.address);
@@ -71,7 +75,7 @@ export function setOpenAIUser(pixelId: string) {
     };
 
     const init = (hashed: Partial<OAIQUser>) => {
-      window.oaiq('init', { pixelId, user: clean({ ...base, ...hashed }) });
+      oaiq('init', { pixelId, user: clean({ ...base, ...hashed }) });
     };
 
     Promise.all([email ? sha256(email) : undefined, user_id ? sha256(user_id) : undefined])

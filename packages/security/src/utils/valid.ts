@@ -37,7 +37,7 @@ export function valid<S extends ZodType | ZodMiniType>(schema: S, json: unknown)
   const fieldViolations = result.error.issues.map(({ code, path, message }) => ({
     field: path.join('.'),
     description: message,
-    reason: code?.toUpperCase() ?? 'INVALID_ARGUMENT',
+    reason: code.toUpperCase(),
     localizedMessage: { locale: 'en-US', message: message },
   }));
 

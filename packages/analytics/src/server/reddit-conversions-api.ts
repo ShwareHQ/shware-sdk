@@ -77,7 +77,7 @@ export function getServerEvent(
   event: TrackEvent<any>,
   data: UserProvidedData
 ): RedditEvent {
-  const { id, name, properties, tags } = event;
+  const { id, name, properties, tags, platform } = event;
   const [type, params] = mapRDTEvent(name, properties, id);
 
   return {
@@ -110,8 +110,8 @@ export function getServerEvent(
       ip_address: data.ip_address,
       phone_number: getFirst(data.phone_number),
       user_agent: data.user_agent,
-      idfa: tags.platform === 'ios' ? tags.advertising_id : undefined,
-      aaid: tags.platform === 'android' ? tags.advertising_id : undefined,
+      idfa: platform === 'ios' ? tags.advertising_id : undefined,
+      aaid: platform === 'android' ? tags.advertising_id : undefined,
       uuid: tags.rdt_uuid,
       screen_dimensions:
         tags.screen_width && tags.screen_height
