@@ -6,7 +6,6 @@ export { createLink, getLink, type Link } from './link/index';
 export {
   ALL_PLATFORMS,
   ALL_ENVIRONMENTS,
-  createTrackEventSchemaV1,
   createTrackEventSchema,
   createVisitorSchema,
   updateVisitorSchema,

@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 4.1.0
+
+### Minor Changes
+
+- remove deprecated fields and schema
+
 ## 4.0.1
 
 ### Patch Changes

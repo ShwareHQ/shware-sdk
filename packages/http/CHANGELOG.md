@@ -1,5 +1,11 @@
 # @shware/http
 
+## 3.0.1
+
+### Patch Changes
+
+- Type-aware lint fixes. Error-body parsing (`getErrorMessage`, `getErrorInfo`, `getFieldViolations`) now types wire bodies honestly and no longer throws on malformed payloads like `{ error: null }`; Google One Tap fails gracefully instead of throwing when the GSI script did not load.
+
 ## 3.0.0
 
 ### Major Changes

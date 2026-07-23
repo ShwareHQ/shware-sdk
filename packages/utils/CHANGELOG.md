@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.5.2
+
+### Patch Changes
+
+- Type-aware lint fixes (void-consistent debounce timer callbacks, `??=` in `once`); no behavior change.
+
 ## 1.5.1
 
 ### Patch Changes
