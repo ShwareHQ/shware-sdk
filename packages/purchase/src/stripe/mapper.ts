@@ -241,6 +241,40 @@ export interface BeginCheckoutProperties {
   items: Item[];
 }
 
+// Google Ads rejects conversion transaction IDs longer than 64 characters.
+// https://support.google.com/google-ads/answer/6386790
+const GOOGLE_ADS_TRANSACTION_ID_MAX = 64;
+
+/**
+ * GA4 purchase events feed Google Ads conversions, whose transaction IDs are
+ * capped at 64 characters — but Stripe checkout session ids exceed that:
+ * around 2021 they grew from ~32 chars (`cs_live_` + 24 random chars) to ~66
+ * (`cs_live_a` + 57), with no announcement. Stripe treats id length/format as
+ * opaque and backwards-compatible, guaranteeing only that ids never exceed
+ * 255 chars, so they may grow again at any time.
+ *
+ * Dropping the fixed `cs_live_`/`cs_test_` prefix brings the id under 64
+ * while staying reversible: prepend the prefix (livemode tells which) to
+ * reconstruct the full session id for Stripe dashboard lookups. The payment
+ * intent id (~27 chars) is not a substitute — it only exists on
+ * `mode: 'payment'` sessions (subscription-mode sessions carry it on the
+ * invoice instead), and its short length is just as unguaranteed as the
+ * session id's was.
+ *
+ * Must stay deterministic: GA4/Google Ads dedupe purchases by
+ * transaction_id, and the same session may be tracked from multiple paths.
+ */
+function toTransactionId(sessionId: string): string {
+  const stripped = sessionId.replace(/^cs_(live|test)_/, '');
+  if (stripped.length > GOOGLE_ADS_TRANSACTION_ID_MAX) {
+    console.warn(
+      `transaction_id still exceeds ${GOOGLE_ADS_TRANSACTION_ID_MAX} chars after stripping ` +
+        `the prefix — Stripe may have lengthened session ids again; truncating: ${sessionId}`
+    );
+  }
+  return stripped.slice(0, GOOGLE_ADS_TRANSACTION_ID_MAX);
+}
+
 export function getPurchaseProperties(session: CheckoutSession): PurchaseProperties {
   let value: number;
   let currency: string;
@@ -253,7 +287,7 @@ export function getPurchaseProperties(session: CheckoutSession): PurchasePropert
   }
 
   return {
-    transaction_id: session.id,
+    transaction_id: toTransactionId(session.id),
     value: price(value, currency),
     currency: currency.toUpperCase(),
     coupon: session.coupon,
