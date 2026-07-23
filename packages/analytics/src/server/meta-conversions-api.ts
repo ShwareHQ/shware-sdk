@@ -39,6 +39,7 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
   if (data.gender) {
     if (data.gender === 'female') {
       userData.setGender('f');
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- user-provided data may carry values outside the declared union at runtime
     } else if (data.gender === 'male') {
       userData.setGender('m');
     }
@@ -197,6 +198,7 @@ function getCustomData({ name, properties }: TrackEvent<any>) {
     delivery_category,
     ...custom_properties
   } = fbEventProperties;
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- custom event properties may carry `value: null` at runtime despite the declared type
   if (value !== undefined && value !== null) data.setValue(value);
   if (currency) data.setCurrency(currency);
   if (content_name) data.setContentName(content_name);
@@ -223,7 +225,7 @@ function getCustomData({ name, properties }: TrackEvent<any>) {
   if (status) data.setStatus(status.toString());
   // if (item_number) data.setItemNumber(item_number);
   if (delivery_category) data.setDeliveryCategory(delivery_category);
-  if (custom_properties) data.setCustomProperties(custom_properties);
+  data.setCustomProperties(custom_properties);
   return data;
 }
 

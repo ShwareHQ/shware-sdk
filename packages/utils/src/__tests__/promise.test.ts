@@ -3,7 +3,7 @@ import { once } from '../promise';
 
 describe('once', () => {
   it('should call the function only once', async () => {
-    const fn = vi.fn().mockResolvedValue('result');
+    const fn = vi.fn<() => Promise<string>>().mockResolvedValue('result');
     const onceFn = once(fn);
 
     await onceFn();
@@ -14,7 +14,7 @@ describe('once', () => {
   });
 
   it('should return cached result on subsequent calls', async () => {
-    const fn = vi.fn().mockResolvedValue('cached-result');
+    const fn = vi.fn<() => Promise<string>>().mockResolvedValue('cached-result');
     const onceFn = once(fn);
 
     const result1 = await onceFn();
@@ -27,7 +27,9 @@ describe('once', () => {
   });
 
   it('should pass arguments to the original function', async () => {
-    const fn = vi.fn().mockResolvedValue('result');
+    const fn = vi
+      .fn<(a: string, b: string, c: number) => Promise<string>>()
+      .mockResolvedValue('result');
     const onceFn = once(fn);
     await onceFn('arg1', 'arg2', 123);
     expect(fn).toHaveBeenCalledWith('arg1', 'arg2', 123);
@@ -35,7 +37,7 @@ describe('once', () => {
 
   it('should allow retry after error', async () => {
     const fn = vi
-      .fn()
+      .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error('first error'))
       .mockResolvedValueOnce('success');
     const onceFn = once(fn);
@@ -51,7 +53,7 @@ describe('once', () => {
 
   it('should reset promise on error to allow concurrent retries', async () => {
     let callCount = 0;
-    const fn = vi.fn().mockImplementation(() => {
+    const fn = vi.fn<() => Promise<string>>().mockImplementation(() => {
       callCount++;
       if (callCount === 1) {
         return Promise.reject(new Error('error'));
@@ -69,7 +71,9 @@ describe('once', () => {
   });
 
   it('should cache result even with different arguments on subsequent calls', async () => {
-    const fn = vi.fn().mockImplementation((x: number) => Promise.resolve(x * 2));
+    const fn = vi
+      .fn<(x: number) => Promise<number>>()
+      .mockImplementation((x: number) => Promise.resolve(x * 2));
     const onceFn = once(fn);
 
     const result1 = await onceFn(5);

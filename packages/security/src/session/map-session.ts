@@ -61,7 +61,7 @@ export class MapSession implements Session {
     return Array.from(this.sessionAttrs.keys());
   }
 
-  setAttribute(name: string, value: string | number) {
+  setAttribute(name: string, value: string | number | null) {
     if (value === null) {
       this.removeAttribute(name);
     } else {

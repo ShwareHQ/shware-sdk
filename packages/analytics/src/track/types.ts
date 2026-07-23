@@ -51,8 +51,6 @@ export interface PlatformInfo {
   browser?: string;
   browser_name?: string;
   browser_version?: string;
-  /** @deprecated */
-  platform: Platform;
 }
 
 export interface DeviceInfo {
@@ -77,8 +75,6 @@ export interface EnvironmentInfo {
   release?: string;
   language?: string;
   time_zone?: string;
-  /** @deprecated */
-  environment: Environment;
 }
 
 export interface SourceInfo {

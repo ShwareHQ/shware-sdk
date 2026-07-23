@@ -80,11 +80,7 @@ async function sendEvents(events: Item[]) {
       const eventId = data[index].id;
       options.onSucceed?.({ id: eventId });
       index++;
-      if (
-        !config.thirdPartyTrackers ||
-        !options.enableThirdPartyTracking ||
-        IGNORED_EVENTS.includes(name)
-      ) {
+      if (!options.enableThirdPartyTracking || IGNORED_EVENTS.includes(name)) {
         continue;
       }
       config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, eventId));

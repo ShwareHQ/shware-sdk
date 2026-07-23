@@ -279,7 +279,7 @@ export function getPurchaseProperties(session: CheckoutSession): PurchasePropert
   let value: number;
   let currency: string;
   if (!session.amount_total || !session.currency) {
-    value = session.line_items?.reduce((acc, item) => acc + (item.amount_total ?? 0), 0) ?? 0;
+    value = session.line_items?.reduce((acc, item) => acc + item.amount_total, 0) ?? 0;
     currency = session.line_items?.[0]?.currency ?? 'usd';
   } else {
     value = session.amount_total;

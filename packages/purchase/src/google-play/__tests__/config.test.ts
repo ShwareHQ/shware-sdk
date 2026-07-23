@@ -37,7 +37,7 @@ describe('GooglePlayConfig', () => {
     expect(config.getMode('com.example.credit.premium')).toBe('payment');
 
     // non-existent product
-    expect(() => config.getMode('nonexistent')).toThrow();
+    expect(() => config.getMode('nonexistent')).toThrow('Mode not found for product nonexistent');
   });
 
   it('should return correct plan', () => {
@@ -48,8 +48,12 @@ describe('GooglePlayConfig', () => {
     expect(config.getPlan('com.example.sub.premium', 'yearly_v1')).toBe(Plan.PREMIUM);
 
     // non-existent
-    expect(() => config.getPlan('nonexistent', 'monthly_v1')).toThrow();
-    expect(() => config.getPlan('com.example.sub.starter', 'nonexistent')).toThrow();
+    expect(() => config.getPlan('nonexistent', 'monthly_v1')).toThrow(
+      'Product not found for nonexistent:monthly_v1'
+    );
+    expect(() => config.getPlan('com.example.sub.starter', 'nonexistent')).toThrow(
+      'Product not found for com.example.sub.starter:nonexistent'
+    );
   });
 
   it('should return correct billing period', () => {
@@ -64,11 +68,17 @@ describe('GooglePlayConfig', () => {
     expect(config.getBillingPeriod('com.example.sub.premium', 'yearly_v1')).toBe('yearly');
 
     // onetime products have no billing period
-    expect(() => config.getBillingPeriod('com.example.credit.starter', 'monthly_v1')).toThrow();
+    expect(() => config.getBillingPeriod('com.example.credit.starter', 'monthly_v1')).toThrow(
+      'Product not found for com.example.credit.starter:monthly_v1'
+    );
 
     // non-existent
-    expect(() => config.getBillingPeriod('nonexistent', 'monthly_v1')).toThrow();
-    expect(() => config.getBillingPeriod('com.example.sub.starter', 'nonexistent')).toThrow();
+    expect(() => config.getBillingPeriod('nonexistent', 'monthly_v1')).toThrow(
+      'Product not found for nonexistent:monthly_v1'
+    );
+    expect(() => config.getBillingPeriod('com.example.sub.starter', 'nonexistent')).toThrow(
+      'Product not found for com.example.sub.starter:nonexistent'
+    );
   });
 
   it('should return default base plan ids', () => {
@@ -84,7 +94,9 @@ describe('GooglePlayConfig', () => {
     expect(() => config.getDefaultPlanIds('com.example.credit.starter')).toThrow(
       'Subscription not found for com.example.credit.starter'
     );
-    expect(() => config.getDefaultPlanIds('nonexistent')).toThrow();
+    expect(() => config.getDefaultPlanIds('nonexistent')).toThrow(
+      'Subscription not found for nonexistent'
+    );
   });
 
   it('should reject duplicate declarations at runtime', () => {
@@ -165,9 +177,15 @@ describe('GooglePlayConfig', () => {
     expect(config.getCreditAmount('com.example.credit.premium')).toBe(200);
 
     // non-existent
-    expect(() => config.getCreditAmount('nonexistent', 'monthly_v1')).toThrow();
-    expect(() => config.getCreditAmount('com.example.sub.starter', 'nonexistent')).toThrow();
-    expect(() => config.getCreditAmount('nonexistent')).toThrow();
+    expect(() => config.getCreditAmount('nonexistent', 'monthly_v1')).toThrow(
+      'Product not found for nonexistent:monthly_v1'
+    );
+    expect(() => config.getCreditAmount('com.example.sub.starter', 'nonexistent')).toThrow(
+      'Product not found for com.example.sub.starter:nonexistent'
+    );
+    expect(() => config.getCreditAmount('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
   });
 
   it('should return correct credit expiration', () => {
@@ -196,9 +214,15 @@ describe('GooglePlayConfig', () => {
     );
 
     // non-existent product
-    expect(() => config.getCreditExpiresAt('nonexistent', 'monthly_v1')).toThrow();
-    expect(() => config.getCreditExpiresAt('com.example.sub.starter', 'nonexistent')).toThrow();
-    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow();
+    expect(() => config.getCreditExpiresAt('nonexistent', 'monthly_v1')).toThrow(
+      'Product not found for nonexistent:monthly_v1'
+    );
+    expect(() => config.getCreditExpiresAt('com.example.sub.starter', 'nonexistent')).toThrow(
+      'Product not found for com.example.sub.starter:nonexistent'
+    );
+    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
 
     vi.useRealTimers();
   });

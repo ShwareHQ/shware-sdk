@@ -8,7 +8,8 @@ import type {
 
 declare global {
   interface Window {
-    google: {
+    /** Set by the external GSI script once it loads — absent until then. */
+    google?: {
       accounts: GoogleAccounts;
     };
   }
@@ -52,7 +53,7 @@ let script: HTMLScriptElement | null = null;
 function loadScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (script) {
-      if (window.google?.accounts?.id) {
+      if (window.google?.accounts.id) {
         resolve();
       } else {
         script.addEventListener('load', () => resolve());
@@ -97,13 +98,19 @@ export async function prompt({
   // When the caller wants FedCM but the browser lacks it, bail early instead
   // of letting GIS throw an async `NotSupportedError: Missing request type`
   // from navigator.credentials.get. Callers should fall back to requestCode().
-  if (use_fedcm_for_prompt !== false && !isFedcmSupported()) {
+  if (use_fedcm_for_prompt && !isFedcmSupported()) {
     return { authorized: false, unsupported: true, reason: 'fedcm_unsupported' };
   }
 
   try {
     await loadScript();
   } catch {
+    return { authorized: false, unsupported: true, reason: 'script_load_failed' };
+  }
+
+  const accounts = window.google?.accounts;
+  if (!accounts) {
+    // The script loaded but did not expose the API — treat it as a load failure.
     return { authorized: false, unsupported: true, reason: 'script_load_failed' };
   }
 
@@ -116,7 +123,7 @@ export async function prompt({
     };
 
     try {
-      window.google.accounts.id.initialize({
+      accounts.id.initialize({
         ux_mode: 'popup',
         context: 'signin',
         auto_select,
@@ -128,7 +135,7 @@ export async function prompt({
         native_callback: (credential) => settle({ authorized: true, credential }),
       });
 
-      window.google.accounts.id.prompt((notification) => {
+      accounts.id.prompt((notification) => {
         if (settled) return;
 
         const skipped = notification.isSkippedMoment();
@@ -188,6 +195,14 @@ export async function requestCode({
 }: CodeProps): Promise<CodeResult> {
   await loadScript();
 
+  const accounts = window.google?.accounts;
+  if (!accounts) {
+    // The script loaded but did not expose the API — surface a config error.
+    const error = new Error('Google Identity Services API is unavailable') as ClientConfigError;
+    error.type = 'unknown';
+    return { ok: false, error };
+  }
+
   return new Promise<CodeResult>((resolve) => {
     let settled = false;
     const settle = (result: CodeResult) => {
@@ -196,7 +211,7 @@ export async function requestCode({
       resolve(result);
     };
 
-    const client = window.google.accounts.oauth2.initCodeClient({
+    const client = accounts.oauth2.initCodeClient({
       client_id,
       scope,
       ux_mode,

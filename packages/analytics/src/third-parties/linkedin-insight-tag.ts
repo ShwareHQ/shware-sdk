@@ -4,8 +4,10 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 
 declare global {
-  // oxlint-disable-next-line typescript/no-empty-object-type
-  interface Window extends Lintrk {}
+  interface Window {
+    /** Undefined until the LinkedIn Insight Tag script has loaded. */
+    lintrk?: Lintrk['lintrk'];
+  }
 }
 
 /**

@@ -197,7 +197,7 @@ export class StatusError extends Error {
   readonly body?: ErrorBody;
 
   constructor(status: number, body?: ErrorBody) {
-    super(body?.error?.message ?? `Status Error: ${status}`);
+    super(body?.error.message ?? `Status Error: ${status}`);
     this.name = 'StatusError';
     this.status = status;
     this.body = body;

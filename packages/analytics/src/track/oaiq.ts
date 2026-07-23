@@ -158,7 +158,7 @@ const ZERO_DECIMAL_CURRENCIES = new Set([
 const THREE_DECIMAL_CURRENCIES = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 
 /** Convert a major-unit amount (e.g., 129.99) into ISO 4217 minor units (e.g., 12,999). */
-export function toMinorUnits(value?: number, currency?: string): number | undefined {
+export function toMinorUnits(value?: number | null, currency?: string): number | undefined {
   if (value === undefined || value === null || Number.isNaN(value)) return undefined;
   const code = currency?.toUpperCase();
   const exponent =

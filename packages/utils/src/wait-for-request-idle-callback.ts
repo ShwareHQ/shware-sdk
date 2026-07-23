@@ -14,7 +14,9 @@ export function waitForRequestIdleCallback(options: Options = {}): Promise<void>
 
     if (ric) {
       const handle = ric(() => resolve(), { timeout });
-      cancel = () => window.cancelIdleCallback?.(handle);
+      // Same as requestIdleCallback: absent on browsers without the API.
+      const cic = window.cancelIdleCallback as typeof window.cancelIdleCallback | undefined;
+      cancel = () => cic?.(handle);
     } else {
       const handle = window.setTimeout(() => resolve(), 1500);
       cancel = () => window.clearTimeout(handle);

@@ -4,9 +4,17 @@ import { type BadRequest, DetailType, type ErrorInfo } from './detail';
 import type { ResolvedErrorReason } from './reason';
 import type { ErrorBody } from './status';
 
+/**
+ * `ErrorBody` as it arrives off the wire: bodies parsed from an HTTP error
+ * response with `JSON.parse` guarantee no field at runtime.
+ */
+type LooseErrorBody = {
+  error?: Partial<ErrorBody['error']>;
+};
+
 export function getErrorInfo(data: unknown): ErrorInfo | null {
   if (typeof data !== 'object' || data === null || !('error' in data)) return null;
-  const { error } = data as ErrorBody;
+  const { error } = data as LooseErrorBody;
   const errorInfo = error?.details?.find((d) => d['@type'] === DetailType.ERROR_INFO);
   return errorInfo ?? null;
 }
@@ -29,7 +37,7 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
     return { reason: null, message: t('UNKNOWN') };
   }
 
-  const { error } = data as ErrorBody;
+  const { error } = data as LooseErrorBody;
 
   // 1. from server via Accept-Language header or lng param
   const localizedMessage = error?.details?.find((d) => d['@type'] === DetailType.LOCALIZED_MESSAGE);
@@ -45,10 +53,11 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
   }
 
   // 3. error message in english
-  if (hasText(error.message)) return { reason: null, message: error.message };
+  const message = error?.message;
+  if (hasText(message)) return { reason: null, message };
 
   // 4. from server via status code
-  if (error.status) return { reason: null, message: t(error.status) };
+  if (error?.status) return { reason: null, message: t(error.status) };
 
   // 5. unknown error
   console.error('Unknown API error:', data);
@@ -66,7 +75,7 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
  */
 export function getFieldViolations(data: unknown): BadRequest['fieldViolations'] {
   if (typeof data !== 'object' || data === null || !('error' in data)) return [];
-  const { error } = data as ErrorBody;
+  const { error } = data as LooseErrorBody;
   const badRequest = error?.details?.find((d) => d['@type'] === DetailType.BAD_REQUEST);
   return badRequest?.fieldViolations ?? [];
 }

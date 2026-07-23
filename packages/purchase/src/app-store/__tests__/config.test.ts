@@ -60,7 +60,7 @@ describe('AppStoreConfig', () => {
     expect(config.getMode('com.example.role-skin.blue')).toBe('payment');
 
     // non-existent product
-    expect(() => config.getMode('nonexistent')).toThrow();
+    expect(() => config.getMode('nonexistent')).toThrow('Mode not found for product nonexistent');
   });
 
   it('should return correct plan', () => {
@@ -74,17 +74,29 @@ describe('AppStoreConfig', () => {
     expect(config.getPlan('com.example.sub.premium.v2')).toBe(Plan.PREMIUM);
 
     // consumable products (should throw because they have no plan)
-    expect(() => config.getPlan('com.example.credits.starter.v1')).toThrow();
-    expect(() => config.getPlan('com.example.credits.pro.v1')).toThrow();
-    expect(() => config.getPlan('com.example.credits.premium.v1')).toThrow();
+    expect(() => config.getPlan('com.example.credits.starter.v1')).toThrow(
+      'Plan not found for product com.example.credits.starter.v1'
+    );
+    expect(() => config.getPlan('com.example.credits.pro.v1')).toThrow(
+      'Plan not found for product com.example.credits.pro.v1'
+    );
+    expect(() => config.getPlan('com.example.credits.premium.v1')).toThrow(
+      'Plan not found for product com.example.credits.premium.v1'
+    );
 
     // non-consumable products (should throw because they have no plan)
-    expect(() => config.getPlan('com.example.role-skin.red')).toThrow();
-    expect(() => config.getPlan('com.example.role-skin.green')).toThrow();
-    expect(() => config.getPlan('com.example.role-skin.blue')).toThrow();
+    expect(() => config.getPlan('com.example.role-skin.red')).toThrow(
+      'Plan not found for product com.example.role-skin.red'
+    );
+    expect(() => config.getPlan('com.example.role-skin.green')).toThrow(
+      'Plan not found for product com.example.role-skin.green'
+    );
+    expect(() => config.getPlan('com.example.role-skin.blue')).toThrow(
+      'Plan not found for product com.example.role-skin.blue'
+    );
 
     // non-existent product
-    expect(() => config.getPlan('nonexistent')).toThrow();
+    expect(() => config.getPlan('nonexistent')).toThrow('Plan not found for product nonexistent');
   });
 
   it('should return correct billing period', () => {
@@ -98,10 +110,14 @@ describe('AppStoreConfig', () => {
     expect(() => config.getBillingPeriod('com.example.credits.starter.v1')).toThrow(
       'Billing period not found for product com.example.credits.starter.v1'
     );
-    expect(() => config.getBillingPeriod('com.example.role-skin.red')).toThrow();
+    expect(() => config.getBillingPeriod('com.example.role-skin.red')).toThrow(
+      'Billing period not found for product com.example.role-skin.red'
+    );
 
     // non-existent product
-    expect(() => config.getBillingPeriod('nonexistent')).toThrow();
+    expect(() => config.getBillingPeriod('nonexistent')).toThrow(
+      'Billing period not found for product nonexistent'
+    );
   });
 
   it('should return default product id per plan and period', () => {
@@ -215,12 +231,20 @@ describe('AppStoreConfig', () => {
     expect(config.getCreditAmount('com.example.credits.premium.v1')).toBe(300);
 
     // non-consumable products (should throw because they have no credit config)
-    expect(() => config.getCreditAmount('com.example.role-skin.red')).toThrow();
-    expect(() => config.getCreditAmount('com.example.role-skin.green')).toThrow();
-    expect(() => config.getCreditAmount('com.example.role-skin.blue')).toThrow();
+    expect(() => config.getCreditAmount('com.example.role-skin.red')).toThrow(
+      'Credits not available for non-consumable product com.example.role-skin.red'
+    );
+    expect(() => config.getCreditAmount('com.example.role-skin.green')).toThrow(
+      'Credits not available for non-consumable product com.example.role-skin.green'
+    );
+    expect(() => config.getCreditAmount('com.example.role-skin.blue')).toThrow(
+      'Credits not available for non-consumable product com.example.role-skin.blue'
+    );
 
     // non-existent product
-    expect(() => config.getCreditAmount('nonexistent')).toThrow();
+    expect(() => config.getCreditAmount('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
   });
 
   it('should return correct credit expiration', () => {
@@ -258,13 +282,22 @@ describe('AppStoreConfig', () => {
       '2025-01-31T00:00:00.000Z'
     );
 
-    // non-consumable products (should throw because they have no credit config)
-    expect(() => config.getCreditExpiresAt('com.example.role-skin.red')).toThrow();
-    expect(() => config.getCreditExpiresAt('com.example.role-skin.green')).toThrow();
-    expect(() => config.getCreditExpiresAt('com.example.role-skin.blue')).toThrow();
+    // non-consumable products (should throw because they have no credit config;
+    // the null metadata fails the same truthiness invariant as a missing product)
+    expect(() => config.getCreditExpiresAt('com.example.role-skin.red')).toThrow(
+      'Product not found for com.example.role-skin.red'
+    );
+    expect(() => config.getCreditExpiresAt('com.example.role-skin.green')).toThrow(
+      'Product not found for com.example.role-skin.green'
+    );
+    expect(() => config.getCreditExpiresAt('com.example.role-skin.blue')).toThrow(
+      'Product not found for com.example.role-skin.blue'
+    );
 
     // non-existent product
-    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow();
+    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
 
     vi.useRealTimers();
   });

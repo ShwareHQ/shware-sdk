@@ -7,7 +7,7 @@ export default defineConfig({
   // bowser is CJS-only (main/browser -> es5.js, no exports map); bundle it so
   // consumers' dev-mode ESM resolution (e.g. Vite optimizeDeps exclusions)
   // never hits the raw CJS file.
-  noExternal: ['bowser'],
+  deps: { alwaysBundle: ['bowser'] },
   sourcemap: true,
   dts: true,
 });

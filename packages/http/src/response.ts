@@ -88,7 +88,8 @@ export const Pages = {
   prepend<T>(item: T) {
     return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
       if (!data) return data;
-      const [first, ...rest] = data.pages;
+      const first = data.pages.at(0);
+      const rest = data.pages.slice(1);
       if (!first) return { ...data, pages: [{ data: [item], paging: {} }] };
       return { ...data, pages: [{ ...first, data: [item, ...first.data] }, ...rest] };
     };
@@ -97,7 +98,7 @@ export const Pages = {
     return (data: InfinitePageData<T> | undefined): InfinitePageData<T> | undefined => {
       if (!data) return data;
       const pages = data.pages;
-      const last = pages[pages.length - 1];
+      const last = pages.at(-1);
       if (!last) return { ...data, pages: [{ data: [item], paging: {} }] };
       return { ...data, pages: [...pages.slice(0, -1), { ...last, data: [...last.data, item] }] };
     };

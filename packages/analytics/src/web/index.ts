@@ -9,7 +9,9 @@ import type { TrackTags } from '../track/types';
 export function getDeviceId() {
   const cached = localStorage.getItem(keys.device_id);
   if (cached) return cached;
-  const id = crypto?.randomUUID ? crypto.randomUUID() : uuidv4();
+  // lib.dom types `crypto.randomUUID` as always present, but it is missing in
+  // insecure contexts and older browsers, so probe it before use.
+  const id = (crypto as Partial<Crypto>).randomUUID ? crypto.randomUUID() : uuidv4();
   localStorage.setItem(keys.device_id, id);
   return id;
 }
@@ -32,6 +34,7 @@ export async function getTags() {
     browser: `${browser.name} ${browser.version}`,
     browser_name: browser.name,
     browser_version: browser.version,
+    // oxlint-disable-next-line typescript/no-deprecated -- required TrackTags field kept for transition compat
     platform: 'web',
     device: platform.model,
     device_id: getDeviceId(),
@@ -44,6 +47,7 @@ export async function getTags() {
     release: config.release,
     language: navigator.language,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    // oxlint-disable-next-line typescript/no-deprecated -- required TrackTags field kept for transition compat
     environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
     source: 'web',
     source_url: window.location.href,

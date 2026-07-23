@@ -56,8 +56,8 @@ describe('StripeConfig', () => {
     expect(config.getPlan('com.example.sub.starter')).toBe(Plan.STARTER);
 
     // non-existent product
-    expect(() => config.getMode('nonexistent')).toThrow();
-    expect(() => config.getPlan('nonexistent')).toThrow();
+    expect(() => config.getMode('nonexistent')).toThrow('Product not found for nonexistent');
+    expect(() => config.getPlan('nonexistent')).toThrow('Product not found for nonexistent');
   });
 
   it('should return correct billing period', () => {
@@ -75,7 +75,9 @@ describe('StripeConfig', () => {
     );
 
     // non-existent product
-    expect(() => config.getBillingPeriod('nonexistent')).toThrow();
+    expect(() => config.getBillingPeriod('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
   });
 
   it('should reject duplicate declarations at runtime', () => {
@@ -130,7 +132,7 @@ describe('StripeConfig', () => {
     expect(config.getPriceId('com.example.sub.starter')).toBe('price_starter_monthly1');
     expect(config.getPriceId('com.example.free')).toBe('price_free');
 
-    expect(() => config.getPriceId('nonexistent')).toThrow();
+    expect(() => config.getPriceId('nonexistent')).toThrow('Product not found for nonexistent');
   });
 
   it('should return correct credit amount', () => {
@@ -144,8 +146,12 @@ describe('StripeConfig', () => {
     expect(config.getCreditAmount('com.example.sub.starter', 'price_starter_monthly2')).toBe(12000);
 
     // errors
-    expect(() => config.getCreditAmount('nonexistent')).toThrow();
-    expect(() => config.getCreditAmount('com.example.credits.starter', 'price_invalid')).toThrow();
+    expect(() => config.getCreditAmount('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
+    expect(() => config.getCreditAmount('com.example.credits.starter', 'price_invalid')).toThrow(
+      'Price not found for price_invalid'
+    );
   });
 
   it('should return correct credit expiration', () => {
@@ -167,10 +173,12 @@ describe('StripeConfig', () => {
     );
 
     // errors
-    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow();
-    expect(() =>
-      config.getCreditExpiresAt('com.example.credits.starter', 'price_invalid')
-    ).toThrow();
+    expect(() => config.getCreditExpiresAt('nonexistent')).toThrow(
+      'Product not found for nonexistent'
+    );
+    expect(() => config.getCreditExpiresAt('com.example.credits.starter', 'price_invalid')).toThrow(
+      'Price not found for price_invalid'
+    );
 
     vi.useRealTimers();
   });
