@@ -134,16 +134,13 @@ export function csrf(config: CSRFConfig = {}): MiddlewareHandler {
     }
 
     // 2. ignore configured origin
-    if (config.origin && config.origin.includes(c.req.header('origin') ?? '')) {
+    if (config.origin?.includes(c.req.header('origin') ?? '')) {
       await next();
       return;
     }
 
     // 3. ignore configured secFetchSite
-    if (
-      config.secFetchSite &&
-      config.secFetchSite.includes((c.req.header('sec-fetch-site') ?? '') as never)
-    ) {
+    if (config.secFetchSite?.includes((c.req.header('sec-fetch-site') ?? '') as never)) {
       await next();
       return;
     }

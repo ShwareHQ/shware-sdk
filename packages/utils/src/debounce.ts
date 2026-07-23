@@ -91,7 +91,8 @@ export function debounce<F extends Procedure>(
     const time = Date.now();
 
     if (shouldInvoke(time)) {
-      return trailingEdge();
+      trailingEdge();
+      return;
     }
 
     // Restart the timer
@@ -102,7 +103,8 @@ export function debounce<F extends Procedure>(
     // Force invoke when maxWait is exceeded
     if (lastArgs) {
       cancelTimer();
-      return invokeFunc();
+      invokeFunc();
+      return;
     }
     maxTimeout = null;
   }
@@ -169,9 +171,7 @@ export function debounce<F extends Procedure>(
     }
 
     // Ensure timer is set
-    if (timeout === null) {
-      timeout = startTimer(timerExpired, wait);
-    }
+    timeout ??= startTimer(timerExpired, wait);
 
     return result;
   };

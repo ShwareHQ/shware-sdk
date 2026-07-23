@@ -44,7 +44,7 @@ export function createGithubProvider(): Provider {
       }
       const emails = (await emailResponse.json()) as GithubEmail[];
       data.email = emails.find((email) => email.primary)?.email || data.email;
-      const email_verified = emails.find((email) => email.email === data.email)?.verified || false;
+      const email_verified = emails.find((email) => email.email === data.email)?.verified ?? false;
       return {
         data,
         claims: {

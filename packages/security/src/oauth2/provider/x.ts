@@ -79,7 +79,7 @@ export function createXProvider(options?: XOptions): Provider {
           name: profile.data.name,
           picture: profile.data.profile_image_url,
           email: profile.data.email,
-          email_verified: profile.data.verified || false,
+          email_verified: profile.data.verified ?? false,
           preferred_username: profile.data.username,
           profile: `https://x.com/${profile.data.username}`,
           website: profile.data.url,

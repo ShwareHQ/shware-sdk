@@ -36,7 +36,7 @@ export interface DBAdapter {
 
 export class DBIndexedSessionRepository implements SessionRepository<DBSession> {
   private defaultMaxInactiveInterval = 1800;
-  private db: DBAdapter;
+  private readonly db: DBAdapter;
 
   constructor(db: DBAdapter) {
     this.db = db;

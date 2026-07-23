@@ -31,7 +31,7 @@ export const googleOneTapSchema = object({
 });
 
 export class OAuth2Client {
-  private config: OAuth2ClientConfig;
+  private readonly config: OAuth2ClientConfig;
   constructor(config: OAuth2ClientConfig) {
     this.config = config;
   }

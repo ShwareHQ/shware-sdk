@@ -73,7 +73,7 @@ export class StripeConfig<
   PL extends string = never,
   PI extends string = never,
 > {
-  private products: Map<string, Product<NS, PE, BP, PL, PI>> = new Map();
+  private readonly products: Map<string, Product<NS, PE, BP, PL, PI>> = new Map();
 
   public returnUrl: string;
   public cancelUrl: string;
@@ -172,7 +172,7 @@ export class StripeConfig<
     return product.prices.get(product.defaultPriceId)?.credits ?? 0;
   };
 
-  private getCreditExpiresIn = (productId: string, priceId?: string): number => {
+  private readonly getCreditExpiresIn = (productId: string, priceId?: string): number => {
     const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     if (priceId) {

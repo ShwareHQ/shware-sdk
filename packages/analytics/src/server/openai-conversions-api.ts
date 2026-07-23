@@ -104,7 +104,7 @@ export function getServerEvent(
   const { type, data: eventData } = mapOAIEvent(event.name, event.properties);
 
   return {
-    id: event.tags.idempotency_key ?? event.id.toString(),
+    id: event.tags.idempotency_key ?? event.id,
     type,
     // For custom events the original track name is the OpenAI custom_event_name; this matches
     // the browser pixel so the two deduplicate. Standard events omit it.

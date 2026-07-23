@@ -241,7 +241,7 @@ export class Auth implements AuthService {
     return response;
   };
 
-  private redirect = (error: OAuth2ErrorType, description?: string): Response => {
+  private readonly redirect = (error: OAuth2ErrorType, description?: string): Response => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const uri = new URL(this.oauth2Client.errorUri);
     uri.searchParams.set('error', error);

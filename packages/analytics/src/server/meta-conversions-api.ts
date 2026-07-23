@@ -237,7 +237,7 @@ export function getServerEvent(
   const customData = getCustomData(event);
   const [_, eventName] = mapFBEvent(event.name, event.properties);
   const serverEvent = new ServerEvent()
-    .setEventId(event.tags.idempotency_key ?? event.id.toString())
+    .setEventId(event.tags.idempotency_key ?? event.id)
     .setEventName(eventName)
     .setEventTime(Math.round(Date.now() / 1000))
     .setUserData(userData)
@@ -271,7 +271,7 @@ export async function sendEvent(
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
-  if (IGNORED_EVENTS.includes(event.name)) return;
+  if (IGNORED_EVENTS.includes(event.name)) return undefined;
   const request = new EventRequest(accessToken, pixelId);
   const fbEvent = getServerEvent(event, data, appPackageName);
   request.setEvents([fbEvent]);
@@ -289,7 +289,7 @@ export async function sendEvents(
   const fbEvents = events
     .filter((event) => !IGNORED_EVENTS.includes(event.name))
     .map((event) => getServerEvent(event, data, appPackageName));
-  if (fbEvents.length === 0) return;
+  if (fbEvents.length === 0) return undefined;
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);
   return request.execute();

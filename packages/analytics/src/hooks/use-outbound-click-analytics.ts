@@ -11,7 +11,7 @@ export function useOutboundClickAnalytics() {
       // Find the closest anchor element from the clicked target
       const target = event.target as HTMLElement;
       const anchor = target.closest('a');
-      if (!anchor || !anchor.href) return;
+      if (!anchor?.href) return;
 
       try {
         const url = new URL(anchor.href, window.location.origin);
