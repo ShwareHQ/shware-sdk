@@ -61,9 +61,9 @@ export class GooglePlayConfig<
 > {
   readonly package: string;
   readonly audience: string;
-  private onetimes: Set<string>;
-  private subscriptions: Map<string, Subscription<NS, PE, BP, PI>>;
-  private products: Map<string, (Metadata & { plan?: PE; billingPeriod?: BP }) | null>;
+  private readonly onetimes: Set<string>;
+  private readonly subscriptions: Map<string, Subscription<NS, PE, BP, PI>>;
+  private readonly products: Map<string, (Metadata & { plan?: PE; billingPeriod?: BP }) | null>;
 
   // runtime mirror of the type-level guards: generic accumulation only
   // protects a single fluent chain, not statement-style re-entry or casts
@@ -81,7 +81,7 @@ export class GooglePlayConfig<
     return this;
   };
 
-  private getId = (productId: string, planId?: string) => {
+  private readonly getId = (productId: string, planId?: string) => {
     return planId ? `${productId}:${planId}` : productId;
   };
 
@@ -153,7 +153,7 @@ export class GooglePlayConfig<
     return metadata.credits;
   };
 
-  private getCreditExpiresIn = (productId: string, planId?: string): number => {
+  private readonly getCreditExpiresIn = (productId: string, planId?: string): number => {
     const id = this.getId(productId, planId);
     const metadata = this.products.get(id);
     invariant(metadata, `Product not found for ${id}`);

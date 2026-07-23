@@ -62,7 +62,9 @@ export async function fetch(
       const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
 
       const timeout = Math.min(retryAfter ?? delay + jitter, maxDelay);
-      await new Promise((resolve) => setTimeout(resolve, timeout));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, timeout);
+      });
     } catch (error) {
       lastError = error;
       if (retryCount === retries) throw error;
@@ -71,7 +73,9 @@ export async function fetch(
       const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
 
       const timeout = Math.min(delay + jitter, maxDelay);
-      await new Promise((resolve) => setTimeout(resolve, timeout));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, timeout);
+      });
     }
 
     retryCount++;

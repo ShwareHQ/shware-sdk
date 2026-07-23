@@ -76,7 +76,7 @@ export async function sendEvents(
   const userIds: { idType: UserIdType; idValue: string }[] = [];
   const externalIds: [string, ...string[]] | undefined = data.user_id ? [data.user_id] : undefined;
   const userInfo =
-    address && address.first_name && address.last_name
+    address?.first_name && address.last_name
       ? {
           firstName: address.first_name,
           lastName: address.last_name,

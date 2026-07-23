@@ -9,7 +9,7 @@ const DEFAULT_MAX_INACTIVE_INTERVAL = 1800;
 
 export class MapSession implements Session {
   private id: string;
-  private sessionAttrs = new Map<string, string | number>();
+  private readonly sessionAttrs = new Map<string, string | number>();
   private creationTime = Date.now();
   private lastAccessedTime = this.creationTime;
   private maxInactiveInterval = DEFAULT_MAX_INACTIVE_INTERVAL;

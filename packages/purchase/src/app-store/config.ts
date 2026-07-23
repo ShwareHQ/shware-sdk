@@ -64,10 +64,10 @@ export class AppStoreConfig<
   readonly appId: string;
   readonly bundleId: string;
 
-  private products: Map<string, Metadata | null>;
-  private consumables: Set<string>;
-  private subscriptions: Map<string, Subscription<NS, PE, BP, PL, PI>>;
-  private nonConsumables: Set<string>;
+  private readonly products: Map<string, Metadata | null>;
+  private readonly consumables: Set<string>;
+  private readonly subscriptions: Map<string, Subscription<NS, PE, BP, PL, PI>>;
+  private readonly nonConsumables: Set<string>;
 
   get productIds(): string[] {
     return Array.from(this.products.keys());
@@ -167,7 +167,7 @@ export class AppStoreConfig<
     return config.credits;
   };
 
-  private getCreditExpiresIn = (productId: string): number => {
+  private readonly getCreditExpiresIn = (productId: string): number => {
     const config = this.products.get(productId);
     invariant(config, `Product not found for ${productId}`);
     return ms(config.expiresIn);

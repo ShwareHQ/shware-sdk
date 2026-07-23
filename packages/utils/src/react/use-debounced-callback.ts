@@ -26,8 +26,8 @@ export function useDebouncedCallback<Args extends unknown[]>(
   });
 
   useEffect(() => {
-    if (!flushOnExit) return;
-    if (typeof document === 'undefined') return;
+    if (!flushOnExit) return undefined;
+    if (typeof document === 'undefined') return undefined;
 
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
