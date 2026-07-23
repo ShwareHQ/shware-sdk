@@ -1,5 +1,13 @@
 # @shware/purchase
 
+## 4.0.2
+
+### Patch Changes
+
+- Keep GA4 purchase transaction_id within Google Ads' 64-character limit.
+
+  `getPurchaseProperties` no longer uses the raw checkout session id (~66 chars since Stripe lengthened ids around 2021) as `transaction_id`: it strips the fixed `cs_live_`/`cs_test_` prefix — reversible, so the full id can still be reconstructed for Stripe dashboard lookups — and clamps to 64 chars with a console warning in case Stripe lengthens ids again. The transform is deterministic, so GA4/Google Ads purchase dedup is unaffected.
+
 ## 4.0.1
 
 ### Patch Changes
