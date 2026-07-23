@@ -3,7 +3,6 @@ import {
   null as _null,
   array,
   boolean,
-  coerce,
   e164,
   email,
   iso,
@@ -54,7 +53,6 @@ export const tagsSchema = object({
   browser: optional(string()),
   browser_name: optional(string()),
   browser_version: optional(string()),
-  platform: _enum(ALL_PLATFORMS),
   device: optional(string()),
   device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   device_type: optional(string()),
@@ -71,7 +69,6 @@ export const tagsSchema = object({
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),
-  environment: _enum(ALL_ENVIRONMENTS),
   source_url: optional(string()),
   source: optional(_enum(['web', 'app', 'offline'])),
   page_referrer: optional(string()),
@@ -126,20 +123,6 @@ export const propertiesSchema = optional(
     union([string().check(maxLength(512)), number(), boolean(), _null(), items])
   ).check(refine((data) => Object.keys(data).length <= 64))
 );
-
-/** @deprecated */
-export const createTrackEventSchemaV1 = array(
-  object({
-    name: string().check(trim(), minLength(1), maxLength(64)),
-    visitor_id: coerce.bigint(),
-    session_id: uuid(),
-    platform: _enum(ALL_PLATFORMS),
-    environment: _enum(ALL_ENVIRONMENTS),
-    timestamp: iso.datetime(),
-    tags: tagsSchema,
-    properties: propertiesSchema,
-  })
-).check(minLength(1), maxLength(100));
 
 export const createTrackEventSchema = array(
   object({

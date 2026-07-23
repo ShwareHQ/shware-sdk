@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 4.0.3
+
+### Patch Changes
+
+- Type-aware lint fixes (readonly modifiers, dead-branch cleanup); no behavior change.
+
 ## 4.0.2
 
 ### Patch Changes

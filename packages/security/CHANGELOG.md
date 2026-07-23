@@ -1,5 +1,11 @@
 # @shware/security
 
+## 3.0.1
+
+### Patch Changes
+
+- Type-aware lint fixes. `Session.setAttribute` now accepts `null` type-visibly (removes the attribute, as before); reading a session whose stored context JSON parses to `null` no longer throws.
+
 ## 3.0.0
 
 ### Major Changes
