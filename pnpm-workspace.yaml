@@ -15,7 +15,7 @@ allowBuilds:
 # verified (yuku-toolchain, adopted by rolldown-plugin-dts for TS7 support)
 minimumReleaseAgeExclude:
   - 'rolldown-plugin-dts@0.27.6'
-  - 'posthog-js@1.399.2'
+  - posthog-js@1.399.2 || 1.406.2
   - 'yuku-parser@0.5.48'
   - 'yuku-codegen@0.5.48'
   - '@yuku-parser/binding-*'
@@ -25,5 +25,66 @@ minimumReleaseAgeExclude:
   - '@tanstack/react-start@1.168.32'
   - '@tanstack/router-plugin@1.168.23'
   - '@tanstack/start-plugin-core@1.171.24'
-  - tsdown@0.22.12
+  - tsdown@0.22.12 || 0.22.13
   - verkit@0.1.0
+  # oxc type-aware-linting stable release wave (published 2026-07-21, npm
+  # provenance attestations verified for all four)
+  - oxlint@1.75.0
+  - oxlint-tsgolint@7.0.2001
+  - oxfmt@0.60.0
+  - '@oxfmt/binding-android-arm-eabi@0.60.0'
+  - '@oxfmt/binding-android-arm64@0.60.0'
+  - '@oxfmt/binding-darwin-arm64@0.60.0'
+  - '@oxfmt/binding-darwin-x64@0.60.0'
+  - '@oxfmt/binding-freebsd-x64@0.60.0'
+  - '@oxfmt/binding-linux-arm-gnueabihf@0.60.0'
+  - '@oxfmt/binding-linux-arm-musleabihf@0.60.0'
+  - '@oxfmt/binding-linux-arm64-gnu@0.60.0'
+  - '@oxfmt/binding-linux-arm64-musl@0.60.0'
+  - '@oxfmt/binding-linux-ppc64-gnu@0.60.0'
+  - '@oxfmt/binding-linux-riscv64-gnu@0.60.0'
+  - '@oxfmt/binding-linux-riscv64-musl@0.60.0'
+  - '@oxfmt/binding-linux-s390x-gnu@0.60.0'
+  - '@oxfmt/binding-linux-x64-gnu@0.60.0'
+  - '@oxfmt/binding-linux-x64-musl@0.60.0'
+  - '@oxfmt/binding-openharmony-arm64@0.60.0'
+  - '@oxfmt/binding-win32-arm64-msvc@0.60.0'
+  - '@oxfmt/binding-win32-ia32-msvc@0.60.0'
+  - '@oxfmt/binding-win32-x64-msvc@0.60.0'
+  - '@oxlint-tsgolint/darwin-arm64@7.0.2001'
+  - '@oxlint-tsgolint/darwin-x64@7.0.2001'
+  - '@oxlint-tsgolint/linux-arm64@7.0.2001'
+  - '@oxlint-tsgolint/linux-x64@7.0.2001'
+  - '@oxlint-tsgolint/win32-arm64@7.0.2001'
+  - '@oxlint-tsgolint/win32-x64@7.0.2001'
+  - '@oxlint/binding-android-arm-eabi@1.75.0'
+  - '@oxlint/binding-android-arm64@1.75.0'
+  - '@oxlint/binding-darwin-arm64@1.75.0'
+  - '@oxlint/binding-darwin-x64@1.75.0'
+  - '@oxlint/binding-freebsd-x64@1.75.0'
+  - '@oxlint/binding-linux-arm-gnueabihf@1.75.0'
+  - '@oxlint/binding-linux-arm-musleabihf@1.75.0'
+  - '@oxlint/binding-linux-arm64-gnu@1.75.0'
+  - '@oxlint/binding-linux-arm64-musl@1.75.0'
+  - '@oxlint/binding-linux-ppc64-gnu@1.75.0'
+  - '@oxlint/binding-linux-riscv64-gnu@1.75.0'
+  - '@oxlint/binding-linux-riscv64-musl@1.75.0'
+  - '@oxlint/binding-linux-s390x-gnu@1.75.0'
+  - '@oxlint/binding-linux-x64-gnu@1.75.0'
+  - '@oxlint/binding-linux-x64-musl@1.75.0'
+  - '@oxlint/binding-openharmony-arm64@1.75.0'
+  - '@oxlint/binding-win32-arm64-msvc@1.75.0'
+  - '@oxlint/binding-win32-ia32-msvc@1.75.0'
+  - '@oxlint/binding-win32-x64-msvc@1.75.0'
+  - '@next/env@16.2.11'
+  - '@next/swc-darwin-arm64@16.2.11'
+  - '@next/swc-darwin-x64@16.2.11'
+  - '@next/swc-linux-arm64-gnu@16.2.11'
+  - '@next/swc-linux-arm64-musl@16.2.11'
+  - '@next/swc-linux-x64-gnu@16.2.11'
+  - '@next/swc-linux-x64-musl@16.2.11'
+  - '@next/swc-win32-arm64-msvc@16.2.11'
+  - '@next/swc-win32-x64-msvc@16.2.11'
+  - '@posthog/browser-common@0.2.0'
+  - next@16.2.11
+  - react@19.2.8
