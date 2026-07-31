@@ -6,7 +6,7 @@ export const Code = {
   // HTTP Mapping: 200 OK
   OK: 200,
 
-  // The operation was cancelled, typically by the caller.
+  // The operation was canceled, typically by the caller.
   //
   // HTTP Mapping: 499 Client Closed Request
   CANCELLED: 499,
