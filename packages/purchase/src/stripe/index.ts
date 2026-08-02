@@ -12,6 +12,7 @@ export {
   getPurchaseProperties,
   getBeginCheckoutProperties,
   type Price,
+  type LineItem,
   type CheckoutSession,
   type PaymentStatus,
   type PurchaseProperties,

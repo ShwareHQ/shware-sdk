@@ -41,7 +41,15 @@ export function createCheckoutSessionSchema(productIds: string[]) {
   });
 }
 
-export interface CancellationDetails extends output<typeof cancellationDetailsSchema> {
+// The schema validates what a client may send; this is the stored/returned shape,
+// so `feedback` and `reason` take stripe's own open-ended enums — since 22.4 both
+// carry `OtherString`, and a Subscription.cancellation_details is assigned here
+// verbatim.
+export interface CancellationDetails extends Omit<
+  output<typeof cancellationDetailsSchema>,
+  'feedback'
+> {
+  feedback?: Stripe.Subscription.CancellationDetails.Feedback | null;
   reason?: Stripe.Subscription.CancellationDetails.Reason | null;
 }
 

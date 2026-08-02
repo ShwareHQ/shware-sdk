@@ -32,7 +32,19 @@ export function mapPrice(price: Stripe.Price): Price {
   };
 }
 
-export function mapLineItem(item: Stripe.LineItem) {
+export interface LineItem {
+  id: string;
+  currency: string;
+  quantity: number | null;
+  description: string | null;
+  amount_tax: number;
+  amount_total: number;
+  amount_subtotal: number;
+  amount_discount: number;
+  price: Price | null;
+}
+
+export function mapLineItem(item: Stripe.LineItem): LineItem {
   return {
     id: item.price
       ? typeof item.price.product === 'string'
@@ -54,7 +66,23 @@ export function mapLineItem(item: Stripe.LineItem) {
 // Open-ended since stripe 22.4: a status the API adds later is not a type error.
 export type PaymentStatus = Stripe.Checkout.Session.PaymentStatus;
 
-export function mapCheckoutSession(session: Stripe.Checkout.Session) {
+// Declared rather than inferred from mapCheckoutSession: an inferred shape is
+// structural, so a consumer's declaration emit has to spell out payment_status
+// through stripe's internal module path — TS2883 in any package that reaches
+// stripe transitively instead of depending on it (see line_items/price too).
+export interface CheckoutSession {
+  id: string;
+  url: string | null;
+  coupon: string | undefined;
+  livemode: boolean;
+  expires_at: number;
+  payment_status: PaymentStatus;
+  currency: string | null;
+  amount_total: number | null;
+  line_items: LineItem[] | undefined;
+}
+
+export function mapCheckoutSession(session: Stripe.Checkout.Session): CheckoutSession {
   let coupon: string | undefined = undefined;
   if (Array.isArray(session.discounts) && session.discounts.length !== 0) {
     const discount = session.discounts[0];
@@ -135,7 +163,6 @@ export function mapCharge(charge: Stripe.Charge) {
   };
 }
 
-export type CheckoutSession = ReturnType<typeof mapCheckoutSession>;
 export type ProductPrice = {
   id: string;
   type: Stripe.Price.Type;
