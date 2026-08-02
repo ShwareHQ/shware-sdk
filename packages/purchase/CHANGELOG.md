@@ -1,5 +1,14 @@
 # @shware/purchase
 
+## 4.2.0
+
+### Minor Changes
+
+- `CheckoutSession` is a declared interface, and `CancellationDetails.feedback` follows stripe's open enum.
+
+  - 4.1.0 removed the annotation that kept stripe's internal module path out of the declaration emit, so the shape inferred from `mapCheckoutSession` spelled `payment_status` as `Stripe.Checkout.Session.PaymentStatus`. A consumer that reaches stripe transitively instead of depending on it then failed with TS2883 — "the inferred type cannot be named without a reference to `../../node_modules/stripe/esm/resources/Checkout`" — on every function returning a `CheckoutSession`. `CheckoutSession` and the new `LineItem` export are now declared interfaces returned by `mapCheckoutSession` and `mapLineItem`, so consumers name them through this package. The shapes are unchanged.
+  - `CancellationDetails.feedback` is `Stripe.Subscription.CancellationDetails.Feedback | null` rather than the schema's eight literals, matching how `reason` is already declared. stripe 22.4 opened that enum with `OtherString`, so storing a `Subscription.cancellation_details` verbatim — what the interface exists for — no longer type-errors. `cancellationDetailsSchema` still validates client input against the eight literals; a consumer exhausting `feedback` in a `switch` with a `never` guard now needs a fallback branch.
+
 ## 4.1.0
 
 ### Minor Changes
