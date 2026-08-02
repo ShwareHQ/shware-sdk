@@ -1,5 +1,11 @@
 # @shware/http
 
+## 3.1.1
+
+### Patch Changes
+
+- `hono` peer range moves to `^4.12.33`. No source change.
+
 ## 3.1.0
 
 ### Minor Changes

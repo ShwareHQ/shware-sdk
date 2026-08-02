@@ -1,5 +1,15 @@
 # @shware/purchase
 
+## 4.1.0
+
+### Minor Changes
+
+- Stripe 22.4: `PaymentStatus` mirrors stripe's now open-ended enum.
+
+  - stripe 22.4 opened its string enums with `OtherString`, so `Checkout.Session.payment_status` is no longer just the three known statuses. The exported `PaymentStatus` is now an alias of `Stripe.Checkout.Session.PaymentStatus` rather than a hand-maintained copy, so it tracks the API instead of asserting a status stripe may extend. Comparisons and literal autocomplete are unchanged; a consumer assigning it to their own three-value type or exhausting it in a `switch` with a `never` guard now needs a fallback branch.
+  - The same widening reaches `Stripe.Price.Type`, `Invoice.status` and the other stripe enums re-exported by the mappers.
+  - `stripe` peer range moves to `^22.4.0`.
+
 ## 4.0.3
 
 ### Patch Changes
