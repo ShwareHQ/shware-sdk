@@ -50,7 +50,9 @@ export function mapLineItem(item: Stripe.LineItem) {
   };
 }
 
-export type PaymentStatus = 'no_payment_required' | 'paid' | 'unpaid';
+// Re-exported under our own name so consumers need not reach into stripe's namespace.
+// Open-ended since stripe 22.4: a status the API adds later is not a type error.
+export type PaymentStatus = Stripe.Checkout.Session.PaymentStatus;
 
 export function mapCheckoutSession(session: Stripe.Checkout.Session) {
   let coupon: string | undefined = undefined;
@@ -65,17 +67,13 @@ export function mapCheckoutSession(session: Stripe.Checkout.Session) {
     }
   }
 
-  // The variable annotation makes the emitted .d.ts reference the local
-  // PaymentStatus alias instead of stripe's internal module path (TS2883)
-  const payment_status: PaymentStatus = session.payment_status;
-
   return {
     id: session.id,
     url: session.url,
     coupon,
     livemode: session.livemode,
     expires_at: session.expires_at,
-    payment_status,
+    payment_status: session.payment_status,
     currency: session.currency,
     amount_total: session.amount_total,
     line_items: session.line_items?.data.map(mapLineItem),

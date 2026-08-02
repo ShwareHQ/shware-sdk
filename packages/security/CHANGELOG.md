@@ -1,5 +1,15 @@
 # @shware/security
 
+## 3.1.0
+
+### Minor Changes
+
+- `ioredis` moves to `^6.0.0`.
+
+  - The session and KV repositories take a `Redis` instance from the caller, so a consumer still on ioredis 5 has to upgrade with this release for the instance to type-check.
+  - v6 requires Node.js 20+ and opens connections with a `HELLO 3` handshake, falling back to RESP2 when the server rejects it — Redis 6+ on the server side, or `protocol: 2` to keep the v5 handshake. Reply mapping defaults to `legacy`, so `hgetall`, `zrevrangebyscore` and `smembers` return the same shapes the repositories already parse; the full crud, attribute and session-id-rotation suite passes against a live Redis.
+  - `jose` moves to `^6.2.7`.
+
 ## 3.0.1
 
 ### Patch Changes

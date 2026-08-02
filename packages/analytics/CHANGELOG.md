@@ -1,5 +1,15 @@
 # @shware/analytics
 
+## 4.2.0
+
+### Minor Changes
+
+- Support `@react-native-firebase/analytics` 26 and `web-vitals` 6.
+
+  - RNFB 26 made the modular `logEvent` fire-and-forget (`void` instead of `Promise<void>`), so `sendFirebaseEvent` no longer awaits it. The function itself stays `async` and callers that await it keep compiling; the await simply no longer tracks the native call, which RNFB does not report on either. Peer range moves to `^26.0.0`.
+  - `web-vitals` moves to `^6.0.1`. `Metric` gains `navigationId` and `'soft-navigation'` as a `navigationType`, so a reporter that exhausts `navigationType` needs the extra branch. `useReportWebVitals` reports the same CLS, LCP, INP, FCP and TTFB and does not opt into `reportSoftNavs`, so soft navigations still produce no metrics at runtime.
+  - Peer ranges follow their upstreams: `next@^16.2.12`, `posthog-js@^1.409.5`, `react-native@^0.86.2`, `react-router@^8.3.0`, `@tanstack/react-start@^1.168.34`.
+
 ## 4.1.0
 
 ### Minor Changes
