@@ -12,39 +12,67 @@ export async function forwardToGoogleTagGateway(request: Request, gaId: string) 
   const target = `https://${GATEWAY_HOST}${pathname}${search}`;
 
   const headers = new Headers();
-  headers.set('host', GATEWAY_HOST);
 
-  // Forward cookies
-  const cookie = request.headers.get('cookie');
-  if (cookie) headers.set('cookie', cookie);
+  // Forward the browser-identifying headers a load balancer would pass through:
+  // cookies for first-party measurement, user-agent + client hints so GA doesn't
+  // classify hits as bot traffic and the gateway can serve UA-appropriate scripts.
+  for (const [name, value] of request.headers) {
+    if (
+      name === 'cookie' ||
+      name === 'user-agent' ||
+      name === 'accept-language' ||
+      name === 'referer' ||
+      name === 'x-forwarded-for' ||
+      name.startsWith('sec-ch-')
+    ) {
+      headers.set(name, value);
+    }
+  }
 
-  // Convert Vercel geo headers to Google Tag Gateway format
+  // Convert geo headers to Google Tag Gateway format
   // https://developers.google.com/tag-platform/tag-manager/gateway/setup-guide
-  const { country, region } = getGeolocation(request);
+  const { country, region, city, latitude, longitude, ip_address } = getGeolocation(request);
+
+  // A CDN in front (Vercel/Cloudflare/CloudFront) normally sets x-forwarded-for already;
+  // fall back to the platform-specific client-IP header if it was stripped.
+  if (ip_address && !headers.has('x-forwarded-for')) {
+    headers.set('x-forwarded-for', ip_address);
+  }
 
   if (country && region) {
     headers.set('x-forwarded-countryregion', `${country}-${region}`);
   } else if (country) {
     headers.set('x-forwarded-country', country);
-  } else if (region) {
-    headers.set('x-forwarded-region', region);
+  }
+
+  // City-level geolocation, format per the official Fastly/Google Cloud configs:
+  // latlong=<lat>,<lng>;city=<city>
+  const geolocation = [
+    latitude !== undefined && longitude !== undefined && `latlong=${latitude},${longitude}`,
+    city && `city=${city}`,
+  ].filter(Boolean);
+
+  if (geolocation.length > 0) {
+    headers.set('x-forwarded-geolocation', geolocation.join(';'));
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
 
-  // Buffer the body instead of streaming it. The conversion endpoint
-  // (g/measurement/conversion) answers POSTs with a 302 to www.google.com, and we want
-  // to follow that hop on the server so the browser never sees a Google domain (the whole
-  // point of the first-party gateway). Following a redirect requires re-issuing the
-  // request, which undici cannot do with a one-shot `request.body` stream — it throws
-  // "fetch failed", surfacing as a 500. A buffered body is replayable, so the redirect
-  // is followed transparently here.
-  const body = hasBody ? await request.arrayBuffer() : undefined;
-
+  // The conversion endpoint (g/measurement/conversion) answers POSTs with a 302 to
+  // www.google.com. Pass that redirect through to the browser instead of following it
+  // here: the hop only carries signal when the browser makes it with its own google.com
+  // cookies (Google Signals / cross-domain conversion linking). Not following redirects
+  // also means the one-shot body stream never needs to be replayed, so it can be
+  // forwarded as-is.
   const response = await fetch(target, {
     method: request.method,
     headers,
-    body,
+    body: hasBody ? request.body : undefined,
+    redirect: 'manual',
+    // Opt out of Next.js fetch caching (the official CloudFront config likewise
+    // requires CachingDisabled): measurement hits must never be served from cache.
+    cache: 'no-store',
+    ...(hasBody && { duplex: 'half' as const }),
   });
 
   // Strip content-encoding/content-length because fetch() auto-decompresses

@@ -1,5 +1,18 @@
 # @shware/http
 
+## 3.2.0
+
+### Minor Changes
+
+- b72741b: Align `forwardToGoogleTagGateway` with the official Google Tag Gateway reference architectures, and export `getGeolocation`.
+
+  - Pass gateway redirects (e.g. the 302 from `g/measurement/conversion`) through to the browser instead of following them server-side, so the browser makes the hop with its own google.com cookies (Google Signals / cross-domain conversion linking). This also restores streaming of the request body — no more buffering workaround.
+  - Forward `user-agent`, `sec-ch-*` client hints, `accept-language` and `referer` so GA does not classify hits as bot traffic.
+  - Forward the visitor IP via `x-forwarded-for`, falling back to the platform-specific client-IP header.
+  - Send city-level geolocation via `x-forwarded-geolocation` (`latlong=<lat>,<lng>;city=<city>`).
+  - Opt out of Next.js fetch caching with `cache: 'no-store'`.
+  - Export `getGeolocation` from the package entry point.
+
 ## 3.1.1
 
 ### Patch Changes
