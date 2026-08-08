@@ -58,7 +58,7 @@ export function throttle<F extends Procedure>(
     // 3. If still within wait period, no timer exists, and trailing is enabled
     else if (!timeout && trailing) {
       timeout = setTimeout(() => {
-        previous = leading === false ? 0 : Date.now();
+        previous = !leading ? 0 : Date.now();
         timeout = null;
         // Use the latest saved args
         if (lastArgs) {
@@ -84,7 +84,7 @@ export function throttle<F extends Procedure>(
     if (timeout && lastArgs) {
       clearTimeout(timeout);
       timeout = null;
-      previous = leading === false ? 0 : Date.now();
+      previous = !leading ? 0 : Date.now();
       const args = lastArgs;
       lastArgs = null;
       return func.apply(lastThis, args) as ReturnType<F>;

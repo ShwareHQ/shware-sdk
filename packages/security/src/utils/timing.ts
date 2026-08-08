@@ -52,7 +52,7 @@ export function timing({ enabled, crossOrigin }: Options) {
           : `${name};dur=${dur}`;
         headers.push(metric);
       } else {
-        const metric = value ? `${name};desc="${value}"` : `${name}`;
+        const metric = value ? `${name};desc="${value}"` : name;
         headers.push(metric);
       }
     },

@@ -33,7 +33,7 @@ export async function getLink(id: string): Promise<Link | null> {
       console.error(`Failed to get link(${id}): ${response.status} ${await response.text()}`);
       return null;
     }
-    return response.json() as Promise<Link>;
+    return (await response.json()) as Link;
   } catch {
     console.error(`Failed to get link(${id}): network error`);
     return null;

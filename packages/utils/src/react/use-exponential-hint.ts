@@ -52,7 +52,7 @@ function shouldShowHint(key: string, baseDays: number, maxDismissals: number): b
   if (Date.now() < state.lastDismissedAt) return false;
 
   // Calculate required wait time: baseDays^dismissCount days
-  const requiredDays = Math.pow(baseDays, state.dismissCount);
+  const requiredDays = baseDays ** state.dismissCount;
   const daysSinceLastDismiss = (Date.now() - state.lastDismissedAt) / MS_PER_DAY;
 
   return daysSinceLastDismiss >= requiredDays;

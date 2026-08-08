@@ -17,7 +17,7 @@ export class MapSession implements Session {
   constructor(id?: string);
   constructor(session: Session);
   constructor(input?: string | Session) {
-    if (typeof input === 'undefined') {
+    if (input === undefined) {
       this.id = generateId();
     } else if (typeof input === 'string') {
       this.id = input;

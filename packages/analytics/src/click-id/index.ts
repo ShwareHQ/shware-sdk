@@ -105,7 +105,7 @@ function searchParams(url: string): URLSearchParams {
   } catch {
     // Fall back to a manual split so a relative or slightly malformed URL still yields the query.
     const q = url.indexOf('?');
-    return new URLSearchParams(q >= 0 ? url.slice(q + 1) : '');
+    return new URLSearchParams(q !== -1 ? url.slice(q + 1) : '');
   }
 }
 

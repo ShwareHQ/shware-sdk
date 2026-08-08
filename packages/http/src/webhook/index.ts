@@ -5,8 +5,8 @@ const WEBHOOK_TOLERANCE_IN_SECONDS = 5 * 60; // 5 minutes
 
 function verifyTimestamp(webhookTimestamp: string) {
   const now = Math.floor(Date.now() / 1000);
-  const timestamp = parseInt(webhookTimestamp, 10);
-  if (isNaN(timestamp)) {
+  const timestamp = Number.parseInt(webhookTimestamp, 10);
+  if (Number.isNaN(timestamp)) {
     throw Status.invalidArgument('invalid webhook timestamp').error();
   }
   if (timestamp < now - WEBHOOK_TOLERANCE_IN_SECONDS) {
@@ -53,7 +53,7 @@ export function verifyStandardWebhook<T = unknown>(
     if (timingSafeEqual(encoder.encode(signature), encoder.encode(expectedSignature))) {
       try {
         return JSON.parse(payload) as T;
-      } catch (_) {
+      } catch {
         console.error('invalid payload', payload);
         throw Status.invalidArgument('invalid webhook payload').error();
       }
