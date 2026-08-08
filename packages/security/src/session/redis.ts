@@ -371,7 +371,7 @@ export class RedisKVRepository implements KVRepository {
   }
 
   async getItem(key: string): Promise<string | null> {
-    return await this.redis.get(key);
+    return this.redis.get(key);
   }
 
   async removeItem(key: string) {

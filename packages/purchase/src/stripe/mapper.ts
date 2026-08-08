@@ -1,4 +1,4 @@
-import { type Stripe } from 'stripe';
+import type { Stripe } from 'stripe';
 import type { SubscriptionStatus } from '../subscription/index';
 
 export function mapTime<T extends number | null>(

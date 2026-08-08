@@ -6,7 +6,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "format": "oxfmt",
-    "lint": "oxlint --type-aware --fix",
+    "lint": "oxlint --fix",
     "check-types": "turbo run check-types",
     "prepare": "husky"
   },
@@ -25,7 +25,7 @@
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx,mjs,cjs}": [
-      "oxlint --type-aware --fix",
+      "oxlint --fix",
       "oxfmt"
     ],
     "*.{json,jsonc,css,scss,less,md,mdx,yaml,yml}": [

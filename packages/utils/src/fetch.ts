@@ -58,7 +58,7 @@ export async function fetch(
       }
 
       const retryAfter = parseRetryAfter(response);
-      const delay = delayFactor * Math.pow(2, retryCount);
+      const delay = delayFactor * 2 ** retryCount;
       const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
 
       const timeout = Math.min(retryAfter ?? delay + jitter, maxDelay);
@@ -69,7 +69,7 @@ export async function fetch(
       lastError = error;
       if (retryCount === retries) throw error;
 
-      const delay = delayFactor * Math.pow(2, retryCount);
+      const delay = delayFactor * 2 ** retryCount;
       const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
 
       const timeout = Math.min(delay + jitter, maxDelay);

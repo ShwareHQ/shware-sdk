@@ -5,7 +5,7 @@ export function waitForRequestIdleCallback(options: Options = {}): Promise<void>
     const { timeout = 4000, signal } = options;
 
     if (signal?.aborted) {
-      reject(signal.reason);
+      reject(signal.reason as Error);
       return;
     }
 
@@ -26,7 +26,7 @@ export function waitForRequestIdleCallback(options: Options = {}): Promise<void>
       'abort',
       () => {
         cancel();
-        reject(signal.reason);
+        reject(signal.reason as Error);
       },
       { once: true }
     );

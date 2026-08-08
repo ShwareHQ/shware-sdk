@@ -38,7 +38,7 @@ export function valid<S extends ZodType | ZodMiniType>(schema: S, json: unknown)
     field: path.join('.'),
     description: message,
     reason: code.toUpperCase(),
-    localizedMessage: { locale: 'en-US', message: message },
+    localizedMessage: { locale: 'en-US', message },
   }));
 
   const error = {

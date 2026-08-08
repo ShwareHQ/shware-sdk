@@ -25,7 +25,7 @@ export function zValidator<S extends ZodType | ZodMiniType>(
         field: path.join('.'),
         description: message,
         reason: code.toUpperCase(),
-        localizedMessage: { locale: 'en-US', message: message },
+        localizedMessage: { locale: 'en-US', message },
       })
     );
     const details = Details.new().badRequest({ fieldViolations });

@@ -9,7 +9,7 @@ export function once<A extends unknown[], T>(fn: (...args: A) => Promise<T>) {
         cache = result;
         return result;
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         promise = null;
         throw error;
       });
