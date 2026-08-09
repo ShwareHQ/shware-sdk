@@ -307,9 +307,15 @@ importers:
 
   packages/workflow:
     dependencies:
+      '@types/ms':
+        specifier: ^2.1.0
+        version: 2.1.0
       '@xyflow/react':
         specifier: ^12.11.2
         version: 12.11.2(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      ms:
+        specifier: ^2.1.3
+        version: 2.1.3
       zod:
         specifier: ^4.4.3
         version: 4.4.3
