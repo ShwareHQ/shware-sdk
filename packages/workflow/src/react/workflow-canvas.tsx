@@ -1,12 +1,16 @@
 import {
   Background,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
+  type EdgeProps,
   Handle,
   MarkerType,
   type Node,
   type NodeProps,
   Position,
   ReactFlow,
+  getSmoothStepPath,
 } from '@xyflow/react';
 import { Clock, LogOut } from 'lucide-react';
 import { type CSSProperties, useMemo } from 'react';
@@ -20,7 +24,14 @@ import {
   layout,
 } from './layout';
 
-/** 只读 workflow 画布：消费 IR 渲染，结构 code-owned，UI 不提供编辑。 */
+/**
+ * 只读 workflow 画布：消费 IR 渲染，结构 code-owned，UI 不提供编辑。
+ *
+ * 渲染原则：HTML-first、像素可控——节点卡片与边标签一律 HTML（字体/行高
+ * 对齐 tailwind 规格，支持 corner-shape 等新 CSS）；SVG 仅保留 react-flow
+ * 架构必需的连线 path 与箭头 marker，其参数（stroke/箭头尺寸颜色）全部
+ * 经 props 显式控制。不用 SVG EdgeText（尺寸随字体 bbox 浮动，不可钉死）。
+ */
 export interface WorkflowCanvasProps {
   ir: WorkflowIR;
 }
@@ -131,6 +142,66 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
 
 const nodeTypes = { wf: WorkflowNode };
 
+/** 边标签胶囊：28px 高、全圆角，字体对齐 tailwind text-xs（12px / 16px）。 */
+const edgeLabelStyle: CSSProperties = {
+  position: 'absolute',
+  display: 'flex',
+  alignItems: 'center',
+  height: 28,
+  padding: '0 14px',
+  borderRadius: 14,
+  background: '#fff',
+  border: '1px solid #e2e8f0',
+  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  fontSize: 12,
+  lineHeight: '16px',
+  fontWeight: 500,
+  color: '#475569',
+  pointerEvents: 'none',
+};
+
+/** HTML 标签的自定义边：SVG EdgeText 的高度随字体 bbox 浮动，HTML 才能钉死像素。 */
+function WorkflowEdge({
+  id,
+  sourceX,
+  sourceY,
+  sourcePosition,
+  targetX,
+  targetY,
+  targetPosition,
+  label,
+  markerEnd,
+  style,
+}: EdgeProps) {
+  const [path, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {!!label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              ...edgeLabelStyle,
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const edgeTypes = { wf: WorkflowEdge };
+
 export function WorkflowCanvas({ ir }: WorkflowCanvasProps) {
   const { nodes, edges } = useMemo(() => layout(ir), [ir]);
   return (
@@ -139,20 +210,16 @@ export function WorkflowCanvas({ ir }: WorkflowCanvasProps) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         minZoom={0.2}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         defaultEdgeOptions={{
-          type: 'smoothstep',
+          type: 'wf',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#94a3b8' },
           style: { stroke: '#cbd5e1' },
-          // 分支标签：全圆角胶囊，从背景里浮出来
-          labelStyle: { fontSize: 11, fontWeight: 500, fill: '#475569' },
-          labelBgStyle: { fill: '#fff', stroke: '#e2e8f0', strokeWidth: 1 },
-          labelBgPadding: [14, 8],
-          labelBgBorderRadius: 15,
         }}
       >
         <Background gap={16} />
