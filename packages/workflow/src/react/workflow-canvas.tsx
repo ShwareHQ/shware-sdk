@@ -86,11 +86,15 @@ const baseCard: CSSProperties = {
   ...superellipse,
 };
 
+/** flex 列垂直居中：上下留白恒等，不依赖 padding 与行高的手工对账。 */
 const cardStyle: CSSProperties = {
   ...baseCard,
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
   width: CARD_SIZE.w,
   height: CARD_SIZE.h,
-  padding: '14px 16px',
+  padding: '0 16px',
   borderRadius: 12,
 };
 
