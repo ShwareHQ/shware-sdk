@@ -11,7 +11,6 @@ import {
   type NodeProps,
   Position,
   ReactFlow,
-  getSmoothStepPath,
 } from '@xyflow/react';
 import {
   AlarmClock,
@@ -216,6 +215,42 @@ const edgeLabelStyle: CSSProperties = {
 
 type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
 
+/* ------------------------------- 连线路径生成 ------------------------------- */
+
+/** 所有拐角统一半径。 */
+const BEND = 12;
+/**
+ * 拐角控制点系数：圆弧的经典值是 0.552，外拉到 0.9 让肩部更方，
+ * 逼近 corner-shape: superellipse 的观感（CSS corner-shape 不适用于 SVG path，
+ * 用三次贝塞尔手工造）。
+ */
+const SQUIRCLE = 0.9;
+
+/** 从 (x1,y1) 经拐点 (cx,cy) 弯到 (x2,y2) 的超椭圆肩。 */
+function corner(x1: number, y1: number, cx: number, cy: number, x2: number, y2: number): string {
+  const c1x = x1 + (cx - x1) * SQUIRCLE;
+  const c1y = y1 + (cy - y1) * SQUIRCLE;
+  const c2x = x2 + (cx - x2) * SQUIRCLE;
+  const c2y = y2 + (cy - y2) * SQUIRCLE;
+  return `C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`;
+}
+
+/** 正交三段路线（下-横-下），splitY 为水平段所在 y。 */
+function orthogonalPath(sx: number, sy: number, tx: number, ty: number, splitY: number): string {
+  const dx = tx - sx;
+  if (Math.abs(dx) < 1) return `M ${sx} ${sy} L ${tx} ${ty}`;
+  const dir = Math.sign(dx);
+  const r = Math.max(0, Math.min(BEND, Math.abs(dx) / 2, splitY - sy, ty - splitY));
+  return [
+    `M ${sx} ${sy}`,
+    `L ${sx} ${splitY - r}`,
+    corner(sx, splitY - r, sx, splitY, sx + dir * r, splitY),
+    `L ${tx - dir * r} ${splitY}`,
+    corner(tx - dir * r, splitY, tx, splitY, tx, splitY + r),
+    `L ${tx} ${ty}`,
+  ].join(' ');
+}
+
 /**
  * HTML 标签的自定义边：SVG EdgeText 的高度随字体 bbox 浮动，HTML 才能钉死像素。
  * 标签锚点两档（不用路径中点——短水平段会被胶囊整段盖住）：
@@ -226,30 +261,20 @@ function WorkflowEdge({
   id,
   sourceX,
   sourceY,
-  sourcePosition,
   targetX,
   targetY,
-  targetPosition,
   label,
   markerEnd,
   style,
   data,
 }: EdgeProps<WfEdge>) {
-  const [path] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 12, // 大圆角：分叉读作"一条主线劈开"而非直角折线
-    // 带标签的边 = 分叉边：短柄 24px 即劈开，不用默认的区间中线
-    ...(label ? { centerY: sourceY + 24 } : {}),
-  });
+  // 分叉边（带标签）：短柄 28px 即劈开；其余（汇合等）水平段走区间中线
+  const splitY = label ? sourceY + 28 : (sourceY + targetY) / 2;
+  const path = orthogonalPath(sourceX, sourceY, targetX, targetY, splitY);
   // 标签垂在劈开线下方，钉在所属臂的立柱上
   const labelPos = {
     x: data?.anchor === 'source' ? sourceX : targetX,
-    y: sourceY + 54,
+    y: sourceY + 56,
   };
   return (
     <>
