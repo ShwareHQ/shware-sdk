@@ -1,3 +1,5 @@
+import type { WorkflowIR } from './ir';
+
 /**
  * Workflow DSL 表面定义 —— 仅类型表达，无运行时实现。
  *
@@ -54,14 +56,14 @@ export type TimeOfDay = `${string}:${string}`;
  * 个性化共用。幻影类型 __t 让自由函数从引用上取到属性类型。
  */
 export interface UserPropertyRef<T> {
-  readonly kind: 'user_property';
+  readonly type: 'user_property';
   readonly path: string;
   readonly __t?: T;
 }
 
 /** 事件引用：performed 谓词的实参；未来 payload where 子句、payload 取值挂这里。 */
 export interface EventRef<P = unknown> {
-  readonly kind: 'event_ref';
+  readonly type: 'event_ref';
   readonly name: string;
   readonly __p?: P;
 }
@@ -335,7 +337,7 @@ export type DateTime = string;
 
 /** 触发器引用：trigger.xxx() 的产物，可跨 workflow 复用。 */
 export interface TriggerRef {
-  readonly kind: 'event' | 'segment' | 'date' | 'webhook';
+  readonly type: 'event' | 'segment' | 'date' | 'webhook';
 }
 
 /** 触发器工厂：四种入流方式，对齐 customer.io 的 campaign trigger 类型。 */
@@ -390,11 +392,6 @@ export interface WorkflowOptions {
 
   /** 纯退出条件：不计转化的离场（取关、失去资格等）。与 goal 可并存。 */
   exitWhen?: Condition;
-}
-
-/** 编译产物：可序列化 JSON 图。形状是下一步的设计课题。 */
-export interface WorkflowIR {
-  readonly __ir: 'workflow';
 }
 
 export interface WorkflowBuilder extends FlowBuilder {
