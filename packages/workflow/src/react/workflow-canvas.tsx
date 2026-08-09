@@ -243,11 +243,13 @@ function WorkflowEdge({
     targetY,
     targetPosition,
     borderRadius: 12, // 大圆角：分叉读作"一条主线劈开"而非直角折线
+    // 带标签的边 = 分叉边：短柄 24px 即劈开，不用默认的区间中线
+    ...(label ? { centerY: sourceY + 24 } : {}),
   });
-  // 标签垂在分叉线（fork gap 144 的中线 72）下方，钉在所属臂的立柱上
+  // 标签垂在劈开线下方，钉在所属臂的立柱上
   const labelPos = {
     x: data?.anchor === 'source' ? sourceX : targetX,
-    y: sourceY + 104,
+    y: sourceY + 54,
   };
   return (
     <>
