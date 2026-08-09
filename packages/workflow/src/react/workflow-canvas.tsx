@@ -104,12 +104,12 @@ const iconStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 8,
+  gap: 6,
   width: ICON_SIZE.w,
   height: ICON_SIZE.h,
   borderRadius: 10,
-  fontSize: 13,
-  lineHeight: '20px',
+  fontSize: 12,
+  lineHeight: '16px',
   fontWeight: 600,
   color: '#334155',
 };
@@ -166,7 +166,7 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
         style={iconStyle}
         title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
       >
-        <Icon size={15} color="#334155" strokeWidth={2} aria-hidden />
+        <Icon size={14} color="#334155" strokeWidth={2} aria-hidden />
         {data.title}
       </div>
     ) : (
