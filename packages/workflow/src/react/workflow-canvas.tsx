@@ -12,15 +12,33 @@ import {
   ReactFlow,
   getSmoothStepPath,
 } from '@xyflow/react';
-import { Clock, LogOut } from 'lucide-react';
+import {
+  AlarmClock,
+  BellRing,
+  CalendarClock,
+  ClipboardList,
+  Filter,
+  GitBranch,
+  Hourglass,
+  LogOut,
+  type LucideIcon,
+  Mail,
+  MessageCircle,
+  MessageSquareText,
+  MessagesSquare,
+  Send,
+  Shuffle,
+  User,
+  Zap,
+} from 'lucide-react';
 import { type CSSProperties, useMemo } from 'react';
 import type { WorkflowIR } from '../ir';
 import {
   CARD_SIZE,
-  COMPACT_SIZE,
   type CanvasNodeData,
   ICON_SIZE,
   type NodeIcon,
+  type NodeStats,
   layout,
 } from './layout';
 
@@ -34,15 +52,35 @@ import {
  */
 export interface WorkflowCanvasProps {
   ir: WorkflowIR;
+  /** 节点 id → 当前停留人数（引擎统计接口提供；缺省不渲染徽标）。 */
+  stats?: NodeStats;
 }
+
+const ICONS: Record<NodeIcon, LucideIcon> = {
+  trigger: Zap,
+  email: Mail,
+  sms: MessageSquareText,
+  push: BellRing,
+  in_app: MessageCircle,
+  slack: MessagesSquare,
+  survey: ClipboardList,
+  delay: AlarmClock,
+  time_window: CalendarClock,
+  wait_until: Hourglass,
+  branch: GitBranch,
+  filter: Filter,
+  cohort: Shuffle,
+  exit: LogOut,
+  send_event: Send,
+};
 
 const superellipse = { cornerShape: 'superellipse(1.2)' } as CSSProperties;
 
+/** 无描边，纯阴影浮起（customer.io 同款）。 */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: '#fff',
-  border: '1px solid #e2e8f0',
-  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06)',
+  boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.04), 0 2px 4px rgba(15, 23, 42, 0.08)',
   fontFamily: 'ui-sans-serif, system-ui, sans-serif',
   overflow: 'hidden',
   ...superellipse,
@@ -56,17 +94,6 @@ const cardStyle: CSSProperties = {
   borderRadius: 12,
 };
 
-const compactStyle: CSSProperties = {
-  ...baseCard,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  width: COMPACT_SIZE.w,
-  height: COMPACT_SIZE.h,
-  padding: '0 14px',
-  borderRadius: 10,
-};
-
 const iconStyle: CSSProperties = {
   ...baseCard,
   display: 'flex',
@@ -77,8 +104,17 @@ const iconStyle: CSSProperties = {
   borderRadius: 10,
 };
 
+const headerStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+
 const titleStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
   fontSize: 13,
+  lineHeight: '20px',
   fontWeight: 600,
   color: '#0f172a',
   whiteSpace: 'nowrap',
@@ -86,19 +122,21 @@ const titleStyle: CSSProperties = {
   textOverflow: 'ellipsis',
 };
 
+const countStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  fontSize: 13,
+  lineHeight: '20px',
+  fontWeight: 600,
+  color: '#0f172a',
+};
+
 const subtitleStyle: CSSProperties = {
   marginTop: 4,
   fontSize: 12,
+  lineHeight: '16px',
   color: '#64748b',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-};
-
-const compactTitleStyle: CSSProperties = {
-  fontSize: 13,
-  fontWeight: 500,
-  color: '#334155',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -106,27 +144,29 @@ const compactTitleStyle: CSSProperties = {
 
 const handleStyle: CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0 };
 
-const ICONS: Record<NodeIcon, typeof Clock> = { clock: Clock, exit: LogOut };
-
 type WfNode = Node<CanvasNodeData, 'wf'>;
 
 function WorkflowNode({ data }: NodeProps<WfNode>) {
-  const Icon = data.icon ? ICONS[data.icon] : undefined;
+  const Icon = ICONS[data.icon];
 
   const body =
     data.variant === 'icon' ? (
       // 纯图标卡（exit）：文字收进 tooltip
       <div style={iconStyle} title={data.title} aria-label={data.title}>
-        {Icon && <Icon size={16} color="#64748b" strokeWidth={2} aria-hidden />}
-      </div>
-    ) : data.variant === 'compact' ? (
-      <div style={compactStyle}>
-        {Icon && <Icon size={15} color="#64748b" strokeWidth={2} aria-hidden />}
-        <span style={compactTitleStyle}>{data.title}</span>
+        <Icon size={16} color="#64748b" strokeWidth={2} aria-hidden />
       </div>
     ) : (
       <div style={cardStyle}>
-        <div style={titleStyle}>{data.title}</div>
+        <div style={headerStyle}>
+          <Icon size={15} color="#334155" strokeWidth={2} aria-hidden />
+          <span style={titleStyle}>{data.title}</span>
+          {data.count !== undefined && (
+            <span style={countStyle}>
+              <User size={14} color="#64748b" strokeWidth={2} aria-hidden />
+              {data.count}
+            </span>
+          )}
+        </div>
         {data.subtitle !== undefined && <div style={subtitleStyle}>{data.subtitle}</div>}
       </div>
     );
@@ -202,8 +242,8 @@ function WorkflowEdge({
 
 const edgeTypes = { wf: WorkflowEdge };
 
-export function WorkflowCanvas({ ir }: WorkflowCanvasProps) {
-  const { nodes, edges } = useMemo(() => layout(ir), [ir]);
+export function WorkflowCanvas({ ir, stats }: WorkflowCanvasProps) {
+  const { nodes, edges } = useMemo(() => layout(ir, stats), [ir, stats]);
   return (
     <div style={{ width: '100%', height: '100%' }}>
       <ReactFlow

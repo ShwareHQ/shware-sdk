@@ -5,25 +5,41 @@ import type { ConditionIR, NodeIR, WorkflowIR } from '../ir';
  *
  * IR 是结构化的树（非任意图），所以不需要 dagre/elkjs：垂直主脊 +
  * 分支列左右展开 + 汇合边，customer.io 同款视觉，递归一次算完。
- * 布局是纯函数：同一份 IR 永远得到同一张图（diff 截图稳定）。
+ * 布局是纯函数：同一份 IR（+ 可选 stats）永远得到同一张图。
  */
 
 export type NodeCategory = 'trigger' | 'message' | 'delay' | 'control' | 'data' | 'exit';
 
-export type NodeIcon = 'clock' | 'exit';
+export type NodeIcon =
+  | 'trigger'
+  | 'email'
+  | 'sms'
+  | 'push'
+  | 'in_app'
+  | 'slack'
+  | 'survey'
+  | 'delay'
+  | 'time_window'
+  | 'wait_until'
+  | 'branch'
+  | 'filter'
+  | 'cohort'
+  | 'exit'
+  | 'send_event';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   title: string;
   subtitle?: string;
   category: NodeCategory;
-  /** card：常规两行卡；compact：单行小卡（delay 家族）；icon：纯图标（exit）。 */
-  variant: 'card' | 'compact' | 'icon';
-  icon?: NodeIcon;
+  /** card：常规卡（图标 + 标题 + 副标题 + 人数徽标）；icon：纯图标（exit）。 */
+  variant: 'card' | 'icon';
+  icon: NodeIcon;
+  /** 当前停留在该节点的人数（运行时统计，经 stats 注入）。 */
+  count?: number;
 }
 
 /** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。 */
 export const CARD_SIZE = { w: 260, h: 76 } as const;
-export const COMPACT_SIZE = { w: 200, h: 44 } as const;
 export const ICON_SIZE = { w: 40, h: 40 } as const;
 
 export interface CanvasNode {
@@ -40,14 +56,15 @@ export interface CanvasEdge {
   label?: string;
 }
 
+/** 节点 id → 当前停留人数（将来由引擎统计接口提供）。 */
+export type NodeStats = Record<string, number>;
+
 const W = CARD_SIZE.w;
 const VGAP = 64;
 const HGAP = 56;
 
 function nodeSize(n: NodeIR): { w: number; h: number } {
-  if (n.type === 'exit') return ICON_SIZE;
-  if (n.type === 'delay' || n.type === 'random_delay') return COMPACT_SIZE;
-  return CARD_SIZE;
+  return n.type === 'exit' ? ICON_SIZE : CARD_SIZE;
 }
 
 /** 有子分组的节点统一抽象：branch 的 cases/otherwise、cohort 的臂、waitUntil 的超时侧线。 */
@@ -101,37 +118,40 @@ function nodeWidth(n: NodeIR): number {
   );
 }
 
+const CHANNEL_TITLE: Record<string, string> = {
+  email: 'Email',
+  sms: 'SMS',
+  push: 'Push Notification',
+  in_app: 'In-App Message',
+  slack: 'Slack Message',
+  survey: 'Survey',
+};
+
 function nodeData(n: NodeIR): CanvasNodeData {
   switch (n.type) {
-    case 'message': {
-      const channel: Record<string, string> = {
-        email: 'Email',
-        sms: 'SMS',
-        push: 'Push Notification',
-        in_app: 'In-App Message',
-        slack: 'Slack Message',
-        survey: 'Survey',
-      };
+    case 'message':
       return {
-        title: channel[n.channel] ?? n.channel,
+        title: CHANNEL_TITLE[n.channel] ?? n.channel,
         subtitle: n.template,
         category: 'message',
         variant: 'card',
+        icon: n.channel,
       };
-    }
     case 'delay':
       return {
-        title: `Wait ${n.duration.value}`,
+        title: 'Time Delay',
+        subtitle: `Wait ${n.duration.value}`,
         category: 'delay',
-        variant: 'compact',
-        icon: 'clock',
+        variant: 'card',
+        icon: 'delay',
       };
     case 'random_delay':
       return {
-        title: `Wait ${n.min.value} – ${n.max.value}`,
+        title: 'Randomized Delay',
+        subtitle: `Wait ${n.min.value} – ${n.max.value}`,
         category: 'delay',
-        variant: 'compact',
-        icon: 'clock',
+        variant: 'card',
+        icon: 'delay',
       };
     case 'time_window':
       return {
@@ -139,6 +159,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
         subtitle: `${n.days.join(' ')} ${n.between[0]}–${n.between[1]}`,
         category: 'delay',
         variant: 'card',
+        icon: 'time_window',
       };
     case 'wait_until':
       return {
@@ -146,6 +167,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
         subtitle: `timeout ${n.timeout.value}`,
         category: 'delay',
         variant: 'card',
+        icon: 'wait_until',
       };
     case 'branch': {
       const arms = n.cases.length + 1;
@@ -154,6 +176,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
         subtitle: `${arms} arms, first match`,
         category: 'control',
         variant: 'card',
+        icon: 'branch',
       };
     }
     case 'filter':
@@ -162,6 +185,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
         subtitle: n.reason ?? 'only continue if…',
         category: 'control',
         variant: 'card',
+        icon: 'filter',
       };
     case 'cohort':
       return {
@@ -169,6 +193,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
         subtitle: n.arms.map((a) => `${a.name} ${a.weight}%`).join(' / '),
         category: 'control',
         variant: 'card',
+        icon: 'cohort',
       };
     case 'exit':
       return {
@@ -179,7 +204,13 @@ function nodeData(n: NodeIR): CanvasNodeData {
         icon: 'exit',
       };
     case 'send_event':
-      return { title: 'Send Event', subtitle: n.event, category: 'data', variant: 'card' };
+      return {
+        title: 'Send Event',
+        subtitle: n.event,
+        category: 'data',
+        variant: 'card',
+        icon: 'send_event',
+      };
   }
 }
 
@@ -188,13 +219,22 @@ interface Tail {
   label?: string;
 }
 
-export function layout(ir: WorkflowIR): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+export function layout(
+  ir: WorkflowIR,
+  stats?: NodeStats
+): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   const nodes: CanvasNode[] = [];
   const edges: CanvasEdge[] = [];
   let edgeSeq = 0;
 
   const addNode = (id: string, x: number, y: number, data: CanvasNodeData): void => {
-    nodes.push({ id, type: 'wf', position: { x, y }, data });
+    const count = stats?.[id];
+    nodes.push({
+      id,
+      type: 'wf',
+      position: { x, y },
+      data: count === undefined ? data : { ...data, count },
+    });
   };
 
   const addEdges = (tails: Tail[], target: string): void => {
@@ -280,6 +320,7 @@ export function layout(ir: WorkflowIR): { nodes: CanvasNode[]; edges: CanvasEdge
     subtitle: triggerSubtitle,
     category: 'trigger',
     variant: 'card',
+    icon: 'trigger',
   });
 
   const { bottom, tails } = layoutSeq(ir.flow, 0, CARD_SIZE.h + VGAP, [{ id: '__trigger' }]);
