@@ -9,35 +9,26 @@ import {
 } from '@xyflow/react';
 import { type CSSProperties, useMemo } from 'react';
 import type { WorkflowIR } from '../ir';
-import { type CanvasNodeData, type NodeCategory, layout } from './layout';
+import { type CanvasNodeData, layout } from './layout';
 
 /** 只读 workflow 画布：消费 IR 渲染，结构 code-owned，UI 不提供编辑。 */
 export interface WorkflowCanvasProps {
   ir: WorkflowIR;
 }
 
-const CATEGORY_COLOR: Record<NodeCategory, string> = {
-  trigger: '#eab308',
-  message: '#8b5cf6',
-  delay: '#f97316',
-  control: '#14b8a6',
-  data: '#3b82f6',
-  exit: '#94a3b8',
-};
-
-const cardStyle = (category: NodeCategory): CSSProperties => ({
+const cardStyle = {
   width: 260,
   height: 76,
   boxSizing: 'border-box',
   padding: '14px 16px',
   background: '#fff',
   border: '1px solid #e2e8f0',
-  borderLeft: `4px solid ${CATEGORY_COLOR[category]}`,
-  borderRadius: 8,
+  borderRadius: 12,
+  cornerShape: 'superellipse(1.2)',
   boxShadow: '0 1px 2px rgba(15, 23, 42, 0.06)',
   fontFamily: 'ui-sans-serif, system-ui, sans-serif',
   overflow: 'hidden',
-});
+} as CSSProperties;
 
 const titleStyle: CSSProperties = {
   fontSize: 13,
@@ -63,7 +54,7 @@ type WfNode = Node<CanvasNodeData, 'wf'>;
 
 function WorkflowNode({ data }: NodeProps<WfNode>) {
   return (
-    <div style={cardStyle(data.category)}>
+    <div style={cardStyle}>
       <Handle type="target" position={Position.Top} style={handleStyle} isConnectable={false} />
       <div style={titleStyle}>{data.title}</div>
       {data.subtitle !== undefined && <div style={subtitleStyle}>{data.subtitle}</div>}

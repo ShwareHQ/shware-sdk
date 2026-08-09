@@ -1,3 +1,4 @@
+import ms from 'ms';
 import {
   type ChannelIR,
   type ConditionIR,
@@ -60,18 +61,13 @@ export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 /** 'HH:mm'。TODO: 运行时校验格式，模板字面量类型对前导零表达力不足。 */
 export type TimeOfDay = `${string}:${string}`;
 
-const UNIT_MS = {
-  second: 1_000,
-  minute: 60_000,
-  hour: 3_600_000,
-  day: 86_400_000,
-  week: 604_800_000,
-} as const;
-
+/** 时长解析交给 ms（类型安全的 StringValue）；Duration 是它的更严子集（全词单位）。 */
 function durationIR(value: Duration): DurationIR {
-  const m = /^(\d+(?:\.\d+)?) (second|minute|hour|day|week)s?$/.exec(value);
-  if (!m) throw new Error(`Invalid duration: '${value}'`);
-  return { value, ms: Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] };
+  const millis = ms(value);
+  if (typeof millis !== 'number' || Number.isNaN(millis) || millis < 0) {
+    throw new Error(`Invalid duration: '${value}'`);
+  }
+  return { value, ms: millis };
 }
 
 /* ------------------------------ 引用（类型载体） ------------------------------ */
