@@ -66,7 +66,7 @@ export type NodeStats = Record<string, number>;
  * 将来的插入动作按钮）；汇合处比序列稍松让合流线有余量。
  */
 const W = CARD_SIZE.w;
-const VGAP = 56; // 序列内 node → node
+const VGAP = 40; // 序列内 node → node
 const FORK_GAP = 144; // 分叉节点底 → 臂顶（分叉线在 72，标签垂在 104）
 const REJOIN_EXTRA = 24; // 汇合处在 VGAP 之上追加
 const HGAP = 88;
