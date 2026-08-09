@@ -1,0 +1,26 @@
+{
+  "name": "workflow-playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@shware/workflow": "workspace:*",
+    "@xyflow/react": "^12.11.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.1.4",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.4"
+  }
+}

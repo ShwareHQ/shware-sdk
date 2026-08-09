@@ -115,36 +115,40 @@ export const activationNudge = workflow('activation_nudge', {
 
 /* ------------------------- 类型安全走查（编译期报错示例） ------------------------- */
 /* tsc 会校验以下注释确实各压制了一个错误（若未报错则 @ts-expect-error 本身报错）。 */
+/* 包在永不调用的函数里：这些是类型层断言，运行时不能执行（部分会真抛错）。 */
 
-// @ts-expect-error trigger 必须是 trigger.xxx() 资产（字符串速记已随 E 泛型一起移除）
-workflow('bad_trigger', { trigger: 'sign_up' });
+const _typeChecks = () => {
+  // @ts-expect-error trigger 必须是 trigger.xxx() 资产（字符串速记已随 E 泛型一起移除）
+  workflow('bad_trigger', { trigger: 'sign_up' });
 
-// @ts-expect-error trigger.event 只接受引用表里存在的事件（属性访问检查）
-trigger.event(e.no_such_event);
+  // @ts-expect-error trigger.event 只接受引用表里存在的事件（属性访问检查）
+  trigger.event(e.no_such_event);
 
-// @ts-expect-error contains 只收 string 引用（docs_count 是 number）——运算符收窄由谓词签名表达
-contains(u.docs_count, '1');
+  // @ts-expect-error contains 只收 string 引用（docs_count 是 number）——运算符收窄由谓词签名表达
+  contains(u.docs_count, '1');
 
-// @ts-expect-error 谓词的值类型从引用流入（subscription_status 没有 'archived'）
-eq(u.subscription_status, 'archived');
+  // @ts-expect-error 谓词的值类型从引用流入（subscription_status 没有 'archived'）
+  eq(u.subscription_status, 'archived');
 
-// @ts-expect-error 引用表只有 schema 里声明的属性
-exists(u.no_such_property);
+  // @ts-expect-error 引用表只有 schema 里声明的属性
+  exists(u.no_such_property);
 
-// @ts-expect-error props 值超出模板声明的类型（plan 只能是 free/pro/max）
-flow((w) => w.email(upgradeRecovery, { plan: 'enterprise' }));
+  // @ts-expect-error props 值超出模板声明的类型（plan 只能是 free/pro/max）
+  flow((w) => w.email(upgradeRecovery, { plan: 'enterprise' }));
 
-// @ts-expect-error 模板声明了必填 props，缺失报错
-flow((w) => w.email(upgradeRecovery));
+  // @ts-expect-error 模板声明了必填 props，缺失报错
+  flow((w) => w.email(upgradeRecovery));
 
-// @ts-expect-error 引用的用户属性类型与 props 声明不匹配（email: string ≠ plan 枚举）
-flow((w) => w.email(upgradeRecovery, { plan: u.email }));
+  // @ts-expect-error 引用的用户属性类型与 props 声明不匹配（email: string ≠ plan 枚举）
+  flow((w) => w.email(upgradeRecovery, { plan: u.email }));
 
-// @ts-expect-error 时长拼写错误
-flow((w) => w.delay('1 huor'));
+  // @ts-expect-error 时长拼写错误
+  flow((w) => w.delay('1 huor'));
 
-// @ts-expect-error sendEvent 只接受引用表里存在的事件
-flow((w) => w.sendEvent(e.no_such_event));
+  // @ts-expect-error sendEvent 只接受引用表里存在的事件
+  flow((w) => w.sendEvent(e.no_such_event));
 
-// @ts-expect-error sendEvent payload 类型校验（value 必须是 number）
-flow((w) => w.sendEvent(e.purchase, { value: 'high', currency: 'USD' }));
+  // @ts-expect-error sendEvent payload 类型校验（value 必须是 number）
+  flow((w) => w.sendEvent(e.purchase, { value: 'high', currency: 'USD' }));
+};
+void _typeChecks;

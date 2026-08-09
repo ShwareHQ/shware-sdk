@@ -1,7 +1,18 @@
-import type { WorkflowIR } from './ir';
+import {
+  type ChannelIR,
+  type ConditionIR,
+  type DurationIR,
+  type GoalIR,
+  IR_VERSION,
+  type NodeIR,
+  type PropValueIR,
+  type TriggerIR,
+  type WorkflowIR,
+  WorkflowIR as WorkflowIRSchema,
+} from './ir';
 
 /**
- * Workflow DSL 表面定义 —— 仅类型表达，无运行时实现。
+ * Workflow DSL —— 表面类型 + 编译实现（构造期把链式调用/表达式收集成 IR）。
  *
  * 设计原则：
  * 1. 全声明式：链式调用与条件表达式构造的是可序列化的图（IR），不是运行时
@@ -49,6 +60,20 @@ export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 /** 'HH:mm'。TODO: 运行时校验格式，模板字面量类型对前导零表达力不足。 */
 export type TimeOfDay = `${string}:${string}`;
 
+const UNIT_MS = {
+  second: 1_000,
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+  week: 604_800_000,
+} as const;
+
+function durationIR(value: Duration): DurationIR {
+  const m = /^(\d+(?:\.\d+)?) (second|minute|hour|day|week)s?$/.exec(value);
+  if (!m) throw new Error(`Invalid duration: '${value}'`);
+  return { value, ms: Number(m[1]) * UNIT_MS[m[2] as keyof typeof UNIT_MS] };
+}
+
 /* ------------------------------ 引用（类型载体） ------------------------------ */
 
 /**
@@ -75,17 +100,26 @@ export type UserRefs<U> = { readonly [K in keyof U]-?: UserPropertyRef<U[K]> };
 export type EventRefs<E> = { readonly [K in keyof E]-?: EventRef<E[K]> };
 
 /**
- * 引用表构造：业务侧在 schema 处各调一次并导出（运行时实现为 Proxy）。
+ * 引用表构造：业务侧在 schema 处各调一次并导出（Proxy 实现，属性访问即引用）。
  *
- *   export const u = user<UserProperties>();
- *   export const e = event<Events>();
+ *   export const u = user<UserProperty>();
+ *   export const e = event<Event>();
  *
  * 之后谓词与个性化全部走属性访问：eq(u.subscription_status, 'active')、
  * performed(e.purchase, { within: '30 days' })、{ plan: u.subscription_plan }。
  * TODO: 嵌套属性路径（u.address.city）。
  */
-export declare function user<U extends UserPropertyBase>(): UserRefs<U>;
-export declare function event<E extends EventMap>(): EventRefs<E>;
+export function user<U extends UserPropertyBase>(): UserRefs<U> {
+  return new Proxy({} as UserRefs<U>, {
+    get: (_target, prop) => ({ type: 'user_property', path: String(prop) }),
+  });
+}
+
+export function event<E extends EventMap>(): EventRefs<E> {
+  return new Proxy({} as EventRefs<E>, {
+    get: (_target, prop) => ({ type: 'event_ref', name: String(prop) }),
+  });
+}
 
 export type PropInput<T> = T | UserPropertyRef<T>;
 export type PropsInput<P> = { [K in keyof P]: PropInput<P[K]> };
@@ -144,13 +178,25 @@ export interface TemplateFactory {
   ): TemplateRef<'survey', P>;
 }
 
+const makeTemplate =
+  <C extends Channel>(channel: C) =>
+  <P extends object = EmptyProps>(key: string, content?: TemplateContent<P>): TemplateRef<C, P> =>
+    ({ channel, key, content }) as TemplateRef<C, P>;
+
 /**
- * 模板定义：自由对象，不依赖 f——模板的类型（props 形状）在声明处自足。
+ * 模板定义：自由对象——模板的类型（props 形状）在声明处自足。
  *
  *   const welcome = template.email('onboarding_welcome');
  *   const offer = template.email('n2_offer', OfferEmail);   // P 从组件 props 推导
  */
-export declare const template: TemplateFactory;
+export const template: TemplateFactory = {
+  email: makeTemplate('email'),
+  sms: makeTemplate('sms'),
+  push: makeTemplate('push'),
+  inApp: makeTemplate('in_app'),
+  slack: makeTemplate('slack'),
+  survey: makeTemplate('survey'),
+};
 
 /* ------------------------------ 条件（表达式） ------------------------------ */
 
@@ -159,61 +205,124 @@ export interface Condition {
   readonly __condition: true;
 }
 
+interface ConditionInternal extends Condition {
+  readonly ir: ConditionIR;
+}
+
+const cond = (ir: ConditionIR): Condition => {
+  const impl: ConditionInternal = { __condition: true, ir };
+  return impl;
+};
+
+const condIR = (c: Condition): ConditionIR => (c as ConditionInternal).ir;
+
 /*
  * 属性谓词：自由函数（drizzle 的 eq/gt/inArray 同款风格），类型从
  * UserPropertyRef 的幻影类型流入——运算符对属性类型的收窄由签名约束表达：
  * gt/lt/between 只收 string|number 引用，contains 只收 string 引用，
  * boolean 属性传给 gt 直接编译报错。对齐 customer.io 条件面板。
+ * 值参数一律 NoInfer：类型只从引用流入，杜绝 eq(ref, 'typo') 把错值并进 T。
  * TODO: JSON array 'where at least one'、JSON object 'has the property'。
  */
-/* 值参数一律 NoInfer：类型只从引用流入，杜绝 eq(ref, 'typo') 把错值并进 T 的推导陷阱。 */
-export declare function eq<T>(ref: UserPropertyRef<T>, value: NoInfer<T>): Condition;
-export declare function ne<T>(ref: UserPropertyRef<T>, value: NoInfer<T>): Condition;
-export declare function gt<T extends string | number>(
+
+type Scalar = string | number | boolean;
+
+function prop(
+  ref: UserPropertyRef<unknown>,
+  op:
+    | 'eq'
+    | 'ne'
+    | 'gt'
+    | 'lt'
+    | 'between'
+    | 'in_array'
+    | 'not_in_array'
+    | 'exists'
+    | 'not_exists'
+    | 'contains'
+    | 'not_contains',
+  value?: Scalar,
+  values?: readonly Scalar[]
+): Condition {
+  return cond({
+    type: 'property',
+    path: ref.path,
+    op,
+    ...(value !== undefined ? { value } : {}),
+    ...(values !== undefined ? { values: [...values] } : {}),
+  });
+}
+
+export function eq<T>(ref: UserPropertyRef<T>, value: NoInfer<T>): Condition {
+  return prop(ref, 'eq', value as Scalar);
+}
+export function ne<T>(ref: UserPropertyRef<T>, value: NoInfer<T>): Condition {
+  return prop(ref, 'ne', value as Scalar);
+}
+export function gt<T extends string | number>(
   ref: UserPropertyRef<T>,
   value: NoInfer<T>
-): Condition;
-export declare function lt<T extends string | number>(
+): Condition {
+  return prop(ref, 'gt', value);
+}
+export function lt<T extends string | number>(
   ref: UserPropertyRef<T>,
   value: NoInfer<T>
-): Condition;
-export declare function between<T extends string | number>(
+): Condition {
+  return prop(ref, 'lt', value);
+}
+export function between<T extends string | number>(
   ref: UserPropertyRef<T>,
   min: NoInfer<T>,
   max: NoInfer<T>
-): Condition;
-export declare function inArray<T>(
-  ref: UserPropertyRef<T>,
-  values: readonly NoInfer<T>[]
-): Condition;
-export declare function notInArray<T>(
-  ref: UserPropertyRef<T>,
-  values: readonly NoInfer<T>[]
-): Condition;
-export declare function exists(ref: UserPropertyRef<unknown>): Condition;
-export declare function notExists(ref: UserPropertyRef<unknown>): Condition;
-export declare function contains<T extends string>(
-  ref: UserPropertyRef<T>,
-  value: string
-): Condition;
-export declare function notContains<T extends string>(
-  ref: UserPropertyRef<T>,
-  value: string
-): Condition;
+): Condition {
+  return prop(ref, 'between', undefined, [min, max]);
+}
+export function inArray<T>(ref: UserPropertyRef<T>, values: readonly NoInfer<T>[]): Condition {
+  return prop(ref, 'in_array', undefined, values as readonly Scalar[]);
+}
+export function notInArray<T>(ref: UserPropertyRef<T>, values: readonly NoInfer<T>[]): Condition {
+  return prop(ref, 'not_in_array', undefined, values as readonly Scalar[]);
+}
+export function exists(ref: UserPropertyRef<unknown>): Condition {
+  return prop(ref, 'exists');
+}
+export function notExists(ref: UserPropertyRef<unknown>): Condition {
+  return prop(ref, 'not_exists');
+}
+export function contains<T extends string>(ref: UserPropertyRef<T>, value: string): Condition {
+  return prop(ref, 'contains', value);
+}
+export function notContains<T extends string>(ref: UserPropertyRef<T>, value: string): Condition {
+  return prop(ref, 'not_contains', value);
+}
 
 /**
  * 事件谓词：做过某事件（可限时间窗口与次数）。
  * "没做过" = not(performed(...))，组合子表达，不设 notPerformed。
  */
-export declare function performed(
+export function performed(
   event: EventRef,
   opts?: { within?: Duration; count?: number }
-): Condition;
+): Condition {
+  return cond({
+    type: 'performed',
+    event: event.name,
+    ...(opts?.within !== undefined ? { within: durationIR(opts.within) } : {}),
+    ...(opts?.count !== undefined ? { count: opts.count } : {}),
+  });
+}
 
 /** 条件组合子：任意嵌套。 */
-export declare function and(...conditions: readonly Condition[]): Condition;
-export declare function or(...conditions: readonly Condition[]): Condition;
-export declare function not(condition: Condition): Condition;
+export function and(...conditions: readonly Condition[]): Condition {
+  return cond({ type: 'and', conditions: conditions.map(condIR) });
+}
+export function or(...conditions: readonly Condition[]): Condition {
+  return cond({ type: 'or', conditions: conditions.map(condIR) });
+}
+export function not(condition: Condition): Condition {
+  return cond({ type: 'not', condition: condIR(condition) });
+}
 
 /**
  * Segment：命名的条件表达式，顶层资产——进 UI 侧边栏、跨 workflow 复用、
@@ -227,18 +336,37 @@ export interface SegmentRef extends Condition {
   readonly name: string;
 }
 
+interface SegmentInternal extends SegmentRef {
+  readonly ir: ConditionIR;
+  /** segment 自身的定义（SegmentIR.condition），与"按名引用"区分。 */
+  readonly definition: ConditionIR;
+}
+
 /**
- * Segment 定义：自由函数，不依赖 f——条件表达式的类型在谓词处已经检查完毕。
+ * Segment 定义：自由函数——条件表达式的类型在谓词处已经检查完毕。
  *
  *   export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }));
  */
-export declare function segment(name: string, condition: Condition): SegmentRef;
+export function segment(name: string, condition: Condition): SegmentRef {
+  const impl: SegmentInternal = {
+    __condition: true,
+    __segment: true,
+    name,
+    ir: { type: 'segment', segment: name },
+    definition: condIR(condition),
+  };
+  return impl;
+}
 
 /* ---------------------------------- 流程 ---------------------------------- */
 
 /** 可复用流程片段（flow(...) 的产物），branch 臂等处直接引用。 */
 export interface Flow {
   readonly __flow: true;
+}
+
+interface FlowInternal extends Flow {
+  readonly nodes: NodeIR[];
 }
 
 /** 子流程：命名片段，或内联回调（仅构造期执行一次，builder 进 builder 出）。 */
@@ -252,6 +380,15 @@ export type BranchCase = readonly [condition: Condition, flow: SubFlow];
  * 裸子流程只能出现一次且必须在最后（运行时校验）。
  */
 export type BranchArm = BranchCase | SubFlow;
+
+function resolveSubFlow(sub: SubFlow): NodeIR[] {
+  if (typeof sub === 'function') {
+    const builder = new FlowBuilderImpl();
+    sub(builder);
+    return builder.nodes;
+  }
+  return (sub as FlowInternal).nodes;
+}
 
 export interface FlowBuilder {
   /* ------ Messages（六渠道底层同为 message 节点，分方法以获得渠道级类型约束） ------ */
@@ -293,7 +430,7 @@ export interface FlowBuilder {
    *
    *   .branch([activeSubscriber, upgradeFlow], firstTimeFlow)   // True/False
    *   .branch([vip, vipFlow], [trial, trialFlow], defaultFlow)  // Multi-Split
-   *   .branch([not(usedWhiteboards), eduFlow])                  // 单臂：未命中继续主线
+   *   .branch([not(usedStaging), eduFlow])                      // 单臂：未命中继续主线
    *
    * 可选首参 label：进 IR 作节点名（UI 标题 / 观测定位），不构成跳转目标——
    * 不提供 goto 语义；周期性/循环需求用 sendEvent 自触发（见 sendEvent）。
@@ -330,6 +467,173 @@ export interface FlowBuilder {
   sendEvent<P extends object>(event: EventRef<P>, ...payload: MessageArgs<P>): this;
 }
 
+class FlowBuilderImpl implements FlowBuilder {
+  /** 收集中的节点：id 在 toIR 的编号遍历里统一分配，这里先占位 ''。 */
+  readonly nodes: NodeIR[] = [];
+
+  private pushNode(node: NodeIR): this {
+    this.nodes.push(node);
+    return this;
+  }
+
+  private message(channel: ChannelIR, tpl: TemplateRef<Channel, object>, props?: object): this {
+    return this.pushNode({
+      id: '',
+      type: 'message',
+      channel,
+      template: tpl.key,
+      props: (props ?? {}) as Record<string, PropValueIR>,
+    });
+  }
+
+  email<P extends object>(t: TemplateRef<'email', P>, ...args: MessageArgs<P>): this {
+    return this.message('email', t, args[0]);
+  }
+  sms<P extends object>(t: TemplateRef<'sms', P>, ...args: MessageArgs<P>): this {
+    return this.message('sms', t, args[0]);
+  }
+  push<P extends object>(t: TemplateRef<'push', P>, ...args: MessageArgs<P>): this {
+    return this.message('push', t, args[0]);
+  }
+  inApp<P extends object>(t: TemplateRef<'in_app', P>, ...args: MessageArgs<P>): this {
+    return this.message('in_app', t, args[0]);
+  }
+  slack<P extends object>(t: TemplateRef<'slack', P>, ...args: MessageArgs<P>): this {
+    return this.message('slack', t, args[0]);
+  }
+  survey<P extends object>(t: TemplateRef<'survey', P>, ...args: MessageArgs<P>): this {
+    return this.message('survey', t, args[0]);
+  }
+
+  delay(duration: Duration): this;
+  delay(range: { min: Duration; max: Duration }): this;
+  delay(d: Duration | { min: Duration; max: Duration }): this {
+    if (typeof d === 'string') {
+      return this.pushNode({ id: '', type: 'delay', duration: durationIR(d) });
+    }
+    return this.pushNode({
+      id: '',
+      type: 'random_delay',
+      min: durationIR(d.min),
+      max: durationIR(d.max),
+    });
+  }
+
+  timeWindow(opts: {
+    days?: readonly Weekday[];
+    between: readonly [TimeOfDay, TimeOfDay];
+    tz?: 'user' | (string & {});
+  }): this {
+    return this.pushNode({
+      id: '',
+      type: 'time_window',
+      days: [...(opts.days ?? (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const))],
+      between: [opts.between[0], opts.between[1]],
+      tz: opts.tz ?? 'user',
+    });
+  }
+
+  waitUntil(
+    condition: Condition,
+    opts: { timeout: Duration; onTimeout?: 'continue' | 'exit' | SubFlow }
+  ): this {
+    const onTimeout = opts.onTimeout ?? 'continue';
+    return this.pushNode({
+      id: '',
+      type: 'wait_until',
+      condition: condIR(condition),
+      timeout: durationIR(opts.timeout),
+      onTimeout:
+        onTimeout === 'continue' || onTimeout === 'exit' ? onTimeout : resolveSubFlow(onTimeout),
+    });
+  }
+
+  branch(...arms: readonly BranchArm[]): this;
+  branch(label: string, ...arms: readonly BranchArm[]): this;
+  branch(...args: readonly (string | BranchArm)[]): this {
+    const label = typeof args[0] === 'string' ? args[0] : undefined;
+    const arms = (label === undefined ? args : args.slice(1)) as readonly BranchArm[];
+
+    const cases: { condition: ConditionIR; flow: NodeIR[] }[] = [];
+    let otherwise: NodeIR[] | undefined;
+    arms.forEach((arm, i) => {
+      if (Array.isArray(arm)) {
+        if (otherwise !== undefined) {
+          throw new Error('branch(): default arm (bare sub-flow) must be the last argument');
+        }
+        const [condition, sub] = arm as BranchCase;
+        cases.push({ condition: condIR(condition), flow: resolveSubFlow(sub) });
+      } else {
+        if (otherwise !== undefined) {
+          throw new Error('branch(): only one default arm (bare sub-flow) is allowed');
+        }
+        if (i !== arms.length - 1) {
+          throw new Error('branch(): default arm (bare sub-flow) must be the last argument');
+        }
+        otherwise = resolveSubFlow(arm as SubFlow);
+      }
+    });
+
+    return this.pushNode({
+      id: '',
+      type: 'branch',
+      ...(label !== undefined ? { label } : {}),
+      cases,
+      ...(otherwise !== undefined ? { otherwise } : {}),
+    });
+  }
+
+  filter(condition: Condition, opts?: { reason?: string }): this {
+    return this.pushNode({
+      id: '',
+      type: 'filter',
+      condition: condIR(condition),
+      ...(opts?.reason !== undefined ? { reason: opts.reason } : {}),
+    });
+  }
+
+  cohort(arms: Record<string, { weight: number; flow?: SubFlow }>): this {
+    const entries = Object.entries(arms);
+    const total = entries.reduce((sum, [, a]) => sum + a.weight, 0);
+    if (total !== 100) {
+      throw new Error(`cohort(): weights must sum to 100, got ${total}`);
+    }
+    return this.pushNode({
+      id: '',
+      type: 'cohort',
+      arms: entries.map(([name, a]) => ({
+        name,
+        weight: a.weight,
+        flow: a.flow ? resolveSubFlow(a.flow) : [],
+      })),
+    });
+  }
+
+  exit(reason?: string): this {
+    return this.pushNode({ id: '', type: 'exit', ...(reason !== undefined ? { reason } : {}) });
+  }
+
+  sendEvent<P extends object>(ev: EventRef<P>, ...payload: MessageArgs<P>): this {
+    return this.pushNode({
+      id: '',
+      type: 'send_event',
+      event: ev.name,
+      payload: (payload[0] ?? {}) as Record<string, PropValueIR>,
+    });
+  }
+}
+
+/**
+ * 可复用流程片段：自由函数——个性化走 u.xxx、事件走 e.xxx 之后，
+ * 流程层不再携带任何 schema 泛型。
+ */
+export function flow(build: (w: FlowBuilder) => FlowBuilder): Flow {
+  const builder = new FlowBuilderImpl();
+  build(builder);
+  const impl: FlowInternal = { __flow: true, nodes: builder.nodes };
+  return impl;
+}
+
 /* --------------------------------- trigger --------------------------------- */
 
 /** 'YYYY-MM-DD HH:mm:ss'。TODO: 运行时校验；模板字面量类型对前导零表达力不足。 */
@@ -339,6 +643,15 @@ export type DateTime = string;
 export interface TriggerRef {
   readonly type: 'event' | 'segment' | 'date' | 'webhook';
 }
+
+interface TriggerInternal extends TriggerRef {
+  readonly ir: TriggerIR;
+}
+
+const makeTrigger = (ir: TriggerIR): TriggerRef => {
+  const impl: TriggerInternal = { type: ir.type, ir };
+  return impl;
+};
 
 /** 触发器工厂：四种入流方式，对齐 customer.io 的 campaign trigger 类型。 */
 export interface TriggerFactory {
@@ -363,11 +676,21 @@ export interface TriggerFactory {
 }
 
 /**
- * 触发器定义：自由对象，不依赖 f——事件名从 e.xxx 引用取得。
+ * 触发器定义：自由对象——事件名从 e.xxx 引用取得。
  *
  *   const login = trigger.event(e.login, { filter: newUsers7d });
  */
-export declare const trigger: TriggerFactory;
+export const trigger: TriggerFactory = {
+  event: (ev, opts) =>
+    makeTrigger({
+      type: 'event',
+      event: ev.name,
+      ...(opts?.filter !== undefined ? { filter: condIR(opts.filter) } : {}),
+    }),
+  segment: (seg) => makeTrigger({ type: 'segment', segment: seg.name }),
+  date: (at) => makeTrigger({ type: 'date', at }),
+  webhook: () => makeTrigger({ type: 'webhook' }),
+};
 
 /* --------------------------------- workflow --------------------------------- */
 
@@ -398,13 +721,96 @@ export interface WorkflowBuilder extends FlowBuilder {
   toIR(): WorkflowIR;
 }
 
-/* -------------------------------- 顶层构造器 -------------------------------- */
+/* ------------------------------- 编译（→ IR） ------------------------------- */
 
 /**
- * 可复用流程片段：自由函数——个性化走 u.xxx、事件走 e.xxx 之后，
- * 流程层不再携带任何 schema 泛型。
+ * 节点 id 分配：结构路径派生（规则见 ir.ts 文件头）。
+ * 就地写入 toIR 时深拷贝出的树，不触碰 builder 收集的原始节点。
  */
-export declare function flow(build: (w: FlowBuilder) => FlowBuilder): Flow;
+function assignIds(nodes: NodeIR[], prefix: string): void {
+  nodes.forEach((node, i) => {
+    const id = prefix === '' ? String(i) : `${prefix}.${i}`;
+    node.id = id;
+    switch (node.type) {
+      case 'branch':
+        node.cases.forEach((c, ci) => assignIds(c.flow, `${id}.c${ci}`));
+        if (node.otherwise) assignIds(node.otherwise, `${id}.o`);
+        break;
+      case 'cohort':
+        node.arms.forEach((arm) => assignIds(arm.flow, `${id}.${arm.name}`));
+        break;
+      case 'wait_until':
+        if (Array.isArray(node.onTimeout)) assignIds(node.onTimeout, `${id}.t`);
+        break;
+      default:
+        break;
+    }
+  });
+}
+
+/** canonical JSON：键排序、无空白——contentHash 的稳定输入。 */
+function canonicalJSON(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalJSON((value as Record<string, unknown>)[k])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** 稳定内容哈希。当前为 FNV-1a 64（同步、零依赖）；生产可换 SHA-256 截断。 */
+function fnv1a64(input: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= BigInt(input.charCodeAt(i));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
+  constructor(
+    private readonly name: string,
+    private readonly options: WorkflowOptions
+  ) {
+    super();
+  }
+
+  private goalIR(): GoalIR | undefined {
+    const goal = this.options.goal;
+    if (goal === undefined) return undefined;
+    if ('__condition' in goal) {
+      return { condition: condIR(goal), exitOnMatch: true };
+    }
+    return {
+      condition: condIR(goal.condition),
+      ...(goal.within !== undefined ? { within: durationIR(goal.within) } : {}),
+      exitOnMatch: goal.exitOnMatch ?? true,
+    };
+  }
+
+  toIR(): WorkflowIR {
+    const flowNodes = structuredClone(this.nodes);
+    assignIds(flowNodes, '');
+    const goal = this.goalIR();
+    const body = {
+      irVersion: IR_VERSION,
+      name: this.name,
+      trigger: (this.options.trigger as TriggerInternal).ir,
+      ...(goal !== undefined ? { goal } : {}),
+      ...(this.options.exitWhen !== undefined ? { exitWhen: condIR(this.options.exitWhen) } : {}),
+      flow: flowNodes,
+    };
+    // schema 自校验：编译器输出必须过 IR 的权威定义
+    return WorkflowIRSchema.parse({ ...body, contentHash: fnv1a64(canonicalJSON(body)) });
+  }
+}
 
 /** Workflow 定义：名字 + 配置（trigger / goal / exitWhen）+ 链式步骤。 */
-export declare function workflow(name: string, options: WorkflowOptions): WorkflowBuilder;
+export function workflow(name: string, options: WorkflowOptions): WorkflowBuilder {
+  return new WorkflowBuilderImpl(name, options);
+}

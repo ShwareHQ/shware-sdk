@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "paths": {
+      "@shware/workflow/react": ["../../packages/workflow/src/react/index.ts"],
+      "@shware/workflow/examples": ["../../packages/workflow/src/examples.ts"],
+      "@shware/workflow": ["../../packages/workflow/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

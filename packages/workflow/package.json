@@ -20,6 +20,26 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react/index.d.mts",
+        "default": "./dist/react/index.mjs"
+      },
+      "require": {
+        "types": "./dist/react/index.d.cts",
+        "default": "./dist/react/index.cjs"
+      }
+    },
+    "./examples": {
+      "import": {
+        "types": "./dist/examples.d.mts",
+        "default": "./dist/examples.mjs"
+      },
+      "require": {
+        "types": "./dist/examples.d.cts",
+        "default": "./dist/examples.cjs"
+      }
     }
   },
   "scripts": {
