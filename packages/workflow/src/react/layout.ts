@@ -63,8 +63,8 @@ export type NodeStats = Record<string, number>;
 
 /** 间距放宽：线段中段预留将来的插入动作按钮（customer.io 的 + icon）位置。 */
 const W = CARD_SIZE.w;
-const VGAP = 96;
-const HGAP = 64;
+const VGAP = 128;
+const HGAP = 88;
 
 function nodeSize(n: NodeIR): { w: number; h: number } {
   return n.type === 'exit' ? ICON_SIZE : CARD_SIZE;
