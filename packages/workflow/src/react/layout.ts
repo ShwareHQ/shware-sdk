@@ -40,7 +40,7 @@ export interface CanvasNodeData extends Record<string, unknown> {
 
 /** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。 */
 export const CARD_SIZE = { w: 260, h: 72 } as const;
-export const ICON_SIZE = { w: 40, h: 40 } as const;
+export const ICON_SIZE = { w: 92, h: 40 } as const;
 
 export interface CanvasNode {
   id: string;
@@ -54,6 +54,8 @@ export interface CanvasEdge {
   source: string;
   target: string;
   label?: string;
+  /** 标签锚点：target=臂入口拐角（实臂）；source=决策节点正下方（空臂直落）。 */
+  data?: { anchor: 'source' | 'target' };
 }
 
 /** 节点 id → 当前停留人数（将来由引擎统计接口提供）。 */
@@ -197,8 +199,9 @@ function nodeData(n: NodeIR): CanvasNodeData {
       };
     case 'exit':
       return {
-        // 纯图标卡：title 作 hover tooltip / 无障碍标签
-        title: n.reason ? `Exit · ${n.reason}` : 'Exit',
+        title: 'Exit',
+        // reason 不占画布，进 hover tooltip
+        ...(n.reason !== undefined ? { subtitle: n.reason } : {}),
         category: 'exit',
         variant: 'icon',
         icon: 'exit',
@@ -217,6 +220,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
 interface Tail {
   id: string;
   label?: string;
+  anchor?: 'source' | 'target';
 }
 
 export function layout(
@@ -244,6 +248,7 @@ export function layout(
         source: t.id,
         target,
         ...(t.label !== undefined ? { label: t.label } : {}),
+        ...(t.anchor !== undefined ? { data: { anchor: t.anchor } } : {}),
       });
     }
   };
@@ -288,10 +293,12 @@ export function layout(
       groups.forEach((g, gi) => {
         const center = gx + (widths[gi] ?? W) / 2;
         if (g.nodes.length === 0) {
-          // 空分组：父节点直接向下汇合，边带分组标签
-          groupTails.push({ id: n.id, label: g.label });
+          // 空分组：父节点直接向下汇合，标签锚在父节点正下方
+          groupTails.push({ id: n.id, label: g.label, anchor: 'source' });
         } else {
-          const r = layoutSeq(g.nodes, center, groupTop, [{ id: n.id, label: g.label }]);
+          const r = layoutSeq(g.nodes, center, groupTop, [
+            { id: n.id, label: g.label, anchor: 'target' },
+          ]);
           groupTails.push(...r.tails);
           maxBottom = Math.max(maxBottom, r.bottom);
         }

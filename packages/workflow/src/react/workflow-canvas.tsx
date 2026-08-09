@@ -2,6 +2,7 @@ import {
   Background,
   BaseEdge,
   Controls,
+  type Edge,
   EdgeLabelRenderer,
   type EdgeProps,
   Handle,
@@ -103,9 +104,14 @@ const iconStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  gap: 8,
   width: ICON_SIZE.w,
   height: ICON_SIZE.h,
   borderRadius: 10,
+  fontSize: 13,
+  lineHeight: '20px',
+  fontWeight: 600,
+  color: '#334155',
 };
 
 const headerStyle: CSSProperties = {
@@ -155,9 +161,13 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
 
   const body =
     data.variant === 'icon' ? (
-      // 纯图标卡（exit）：文字收进 tooltip
-      <div style={iconStyle} title={data.title} aria-label={data.title}>
-        <Icon size={16} color="#64748b" strokeWidth={2} aria-hidden />
+      // 小胶囊卡（exit）：图标 + 短文案，reason 进 tooltip
+      <div
+        style={iconStyle}
+        title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
+      >
+        <Icon size={15} color="#334155" strokeWidth={2} aria-hidden />
+        {data.title}
       </div>
     ) : (
       <div style={cardStyle}>
@@ -204,7 +214,14 @@ const edgeLabelStyle: CSSProperties = {
   pointerEvents: 'none',
 };
 
-/** HTML 标签的自定义边：SVG EdgeText 的高度随字体 bbox 浮动，HTML 才能钉死像素。 */
+type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
+
+/**
+ * HTML 标签的自定义边：SVG EdgeText 的高度随字体 bbox 浮动，HTML 才能钉死像素。
+ * 标签锚点两档（不用路径中点——短水平段会被胶囊整段盖住）：
+ * - target：臂入口拐角上方（实臂，customer.io 的分支标签位）
+ * - source：决策节点正下方（空臂直落，避免多条汇合边的标签在远端相撞）
+ */
 function WorkflowEdge({
   id,
   sourceX,
@@ -216,8 +233,9 @@ function WorkflowEdge({
   label,
   markerEnd,
   style,
-}: EdgeProps) {
-  const [path, labelX, labelY] = getSmoothStepPath({
+  data,
+}: EdgeProps<WfEdge>) {
+  const [path, , labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -225,6 +243,8 @@ function WorkflowEdge({
     targetY,
     targetPosition,
   });
+  const anchorSource = data?.anchor === 'source';
+  const labelPos = anchorSource ? { x: sourceX, y: sourceY + 28 } : { x: targetX, y: labelY };
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
@@ -233,7 +253,7 @@ function WorkflowEdge({
           <div
             style={{
               ...edgeLabelStyle,
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              transform: `translate(-50%, -50%) translate(${labelPos.x}px, ${labelPos.y}px)`,
             }}
           >
             {label}
