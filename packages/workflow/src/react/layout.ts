@@ -10,11 +10,20 @@ import type { ConditionIR, NodeIR, WorkflowIR } from '../ir';
 
 export type NodeCategory = 'trigger' | 'message' | 'delay' | 'control' | 'data' | 'exit';
 
+export type NodeIcon = 'clock' | 'exit';
+
 export interface CanvasNodeData extends Record<string, unknown> {
   title: string;
   subtitle?: string;
   category: NodeCategory;
+  /** compact：单行小卡（delay 家族 / exit），带图标；card：常规两行卡。 */
+  variant: 'card' | 'compact';
+  icon?: NodeIcon;
 }
+
+/** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。 */
+export const CARD_SIZE = { w: 260, h: 76 } as const;
+export const COMPACT_SIZE = { w: 200, h: 44 } as const;
 
 export interface CanvasNode {
   id: string;
@@ -30,10 +39,15 @@ export interface CanvasEdge {
   label?: string;
 }
 
-const W = 260;
-const H = 76;
+const W = CARD_SIZE.w;
 const VGAP = 64;
 const HGAP = 56;
+
+function nodeSize(n: NodeIR): { w: number; h: number } {
+  return n.type === 'delay' || n.type === 'random_delay' || n.type === 'exit'
+    ? COMPACT_SIZE
+    : CARD_SIZE;
+}
 
 /** 有子分组的节点统一抽象：branch 的 cases/otherwise、cohort 的臂、waitUntil 的超时侧线。 */
 interface Group {
@@ -80,7 +94,7 @@ function seqWidth(nodes: NodeIR[]): number {
 
 function nodeWidth(n: NodeIR): number {
   const groups = groupsOf(n);
-  if (!groups) return W;
+  if (!groups) return nodeSize(n).w;
   return (
     groups.reduce((sum, g) => sum + Math.max(W, seqWidth(g.nodes)), 0) + HGAP * (groups.length - 1)
   );
@@ -97,44 +111,73 @@ function nodeData(n: NodeIR): CanvasNodeData {
         slack: 'Slack Message',
         survey: 'Survey',
       };
-      return { title: channel[n.channel] ?? n.channel, subtitle: n.template, category: 'message' };
+      return {
+        title: channel[n.channel] ?? n.channel,
+        subtitle: n.template,
+        category: 'message',
+        variant: 'card',
+      };
     }
     case 'delay':
-      return { title: 'Time Delay', subtitle: `Wait ${n.duration.value}`, category: 'delay' };
+      return {
+        title: `Wait ${n.duration.value}`,
+        category: 'delay',
+        variant: 'compact',
+        icon: 'clock',
+      };
     case 'random_delay':
       return {
-        title: 'Randomized Delay',
-        subtitle: `${n.min.value} – ${n.max.value}`,
+        title: `Wait ${n.min.value} – ${n.max.value}`,
         category: 'delay',
+        variant: 'compact',
+        icon: 'clock',
       };
     case 'time_window':
       return {
         title: 'Time Window',
         subtitle: `${n.days.join(' ')} ${n.between[0]}–${n.between[1]}`,
         category: 'delay',
+        variant: 'card',
       };
     case 'wait_until':
-      return { title: 'Wait Until…', subtitle: `timeout ${n.timeout.value}`, category: 'delay' };
+      return {
+        title: 'Wait Until…',
+        subtitle: `timeout ${n.timeout.value}`,
+        category: 'delay',
+        variant: 'card',
+      };
     case 'branch': {
       const arms = n.cases.length + 1;
       return {
         title: n.label ?? (n.cases.length > 1 ? 'Multi-Split Branch' : 'True/False Branch'),
         subtitle: `${arms} arms, first match`,
         category: 'control',
+        variant: 'card',
       };
     }
     case 'filter':
-      return { title: 'Filter', subtitle: n.reason ?? 'only continue if…', category: 'control' };
+      return {
+        title: 'Filter',
+        subtitle: n.reason ?? 'only continue if…',
+        category: 'control',
+        variant: 'card',
+      };
     case 'cohort':
       return {
         title: 'Random Cohort',
         subtitle: n.arms.map((a) => `${a.name} ${a.weight}%`).join(' / '),
         category: 'control',
+        variant: 'card',
       };
     case 'exit':
-      return { title: 'Exit', subtitle: n.reason, category: 'exit' };
+      return {
+        title: n.reason ? `Exit · ${n.reason}` : 'Exit',
+        category: 'exit',
+        variant: 'compact',
+        icon: 'exit',
+      };
     case 'send_event':
-      return { title: 'Send Event', subtitle: n.event, category: 'data' };
+      return { title: 'Send Event', subtitle: n.event, category: 'data', variant: 'card' };
   }
 }
 
@@ -177,9 +220,10 @@ export function layout(ir: WorkflowIR): { nodes: CanvasNode[]; edges: CanvasEdge
     let tails = incoming;
 
     for (const n of seq) {
-      addNode(n.id, cx - W / 2, curY, nodeData(n));
+      const size = nodeSize(n);
+      addNode(n.id, cx - size.w / 2, curY, nodeData(n));
       addEdges(tails, n.id);
-      curY += H + VGAP;
+      curY += size.h + VGAP;
 
       if (n.type === 'exit') {
         tails = []; // 终止：不再向下连
@@ -229,17 +273,23 @@ export function layout(ir: WorkflowIR): { nodes: CanvasNode[]; edges: CanvasEdge
         : t.type === 'date'
           ? t.at
           : 'webhook';
-  addNode('__trigger', -W / 2, 0, {
+  addNode('__trigger', -CARD_SIZE.w / 2, 0, {
     title: 'Trigger',
     subtitle: triggerSubtitle,
     category: 'trigger',
+    variant: 'card',
   });
 
-  const { bottom, tails } = layoutSeq(ir.flow, 0, H + VGAP, [{ id: '__trigger' }]);
+  const { bottom, tails } = layoutSeq(ir.flow, 0, CARD_SIZE.h + VGAP, [{ id: '__trigger' }]);
 
   // 收尾 Exit 节点（customer.io 同款显式终点）；全部提前 exit 则不需要
   if (tails.length > 0) {
-    addNode('__end', -W / 2, bottom, { title: 'Exit', category: 'exit' });
+    addNode('__end', -COMPACT_SIZE.w / 2, bottom, {
+      title: 'Exit',
+      category: 'exit',
+      variant: 'compact',
+      icon: 'exit',
+    });
     addEdges(tails, '__end');
   }
 
