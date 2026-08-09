@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "workflow-playground",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "workflow-playground", "dev"],
+      "port": 5173
+    }
+  ]
+}
