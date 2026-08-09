@@ -286,7 +286,8 @@ export function layout(
       const widths = groups.map((g) => Math.max(W, seqWidth(g.nodes)));
       const total = widths.reduce((a, b) => a + b, 0) + HGAP * (groups.length - 1);
       let gx = cx - total / 2;
-      const groupTop = curY;
+      // 分叉多留 16px：容纳圆角劈开 + 垂在分叉线下方的标签
+      const groupTop = curY + 16;
       let maxBottom = groupTop;
       const groupTails: Tail[] = [];
 
