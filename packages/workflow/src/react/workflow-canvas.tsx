@@ -151,8 +151,8 @@ export function WorkflowCanvas({ ir }: WorkflowCanvasProps) {
           // 分支标签：全圆角胶囊，从背景里浮出来
           labelStyle: { fontSize: 11, fontWeight: 500, fill: '#475569' },
           labelBgStyle: { fill: '#fff', stroke: '#e2e8f0', strokeWidth: 1 },
-          labelBgPadding: [10, 5],
-          labelBgBorderRadius: 12,
+          labelBgPadding: [14, 8],
+          labelBgBorderRadius: 15,
         }}
       >
         <Background gap={16} />
