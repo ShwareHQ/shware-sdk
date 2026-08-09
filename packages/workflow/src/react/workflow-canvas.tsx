@@ -11,7 +11,14 @@ import {
 import { Clock, LogOut } from 'lucide-react';
 import { type CSSProperties, useMemo } from 'react';
 import type { WorkflowIR } from '../ir';
-import { CARD_SIZE, COMPACT_SIZE, type CanvasNodeData, type NodeIcon, layout } from './layout';
+import {
+  CARD_SIZE,
+  COMPACT_SIZE,
+  type CanvasNodeData,
+  ICON_SIZE,
+  type NodeIcon,
+  layout,
+} from './layout';
 
 /** 只读 workflow 画布：消费 IR 渲染，结构 code-owned，UI 不提供编辑。 */
 export interface WorkflowCanvasProps {
@@ -46,6 +53,16 @@ const compactStyle: CSSProperties = {
   width: COMPACT_SIZE.w,
   height: COMPACT_SIZE.h,
   padding: '0 14px',
+  borderRadius: 10,
+};
+
+const iconStyle: CSSProperties = {
+  ...baseCard,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: ICON_SIZE.w,
+  height: ICON_SIZE.h,
   borderRadius: 10,
 };
 
@@ -86,7 +103,12 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
   const Icon = data.icon ? ICONS[data.icon] : undefined;
 
   const body =
-    data.variant === 'compact' ? (
+    data.variant === 'icon' ? (
+      // 纯图标卡（exit）：文字收进 tooltip
+      <div style={iconStyle} title={data.title} aria-label={data.title}>
+        {Icon && <Icon size={16} color="#64748b" strokeWidth={2} aria-hidden />}
+      </div>
+    ) : data.variant === 'compact' ? (
       <div style={compactStyle}>
         {Icon && <Icon size={15} color="#64748b" strokeWidth={2} aria-hidden />}
         <span style={compactTitleStyle}>{data.title}</span>
@@ -126,6 +148,11 @@ export function WorkflowCanvas({ ir }: WorkflowCanvasProps) {
           type: 'smoothstep',
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#94a3b8' },
           style: { stroke: '#cbd5e1' },
+          // 分支标签：全圆角胶囊，从背景里浮出来
+          labelStyle: { fontSize: 11, fontWeight: 500, fill: '#475569' },
+          labelBgStyle: { fill: '#fff', stroke: '#e2e8f0', strokeWidth: 1 },
+          labelBgPadding: [10, 5],
+          labelBgBorderRadius: 12,
         }}
       >
         <Background gap={16} />
