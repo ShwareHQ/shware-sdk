@@ -140,7 +140,7 @@
     "typescript/adjacent-overload-signatures": "error",
     "typescript/await-thenable": "error",
     "typescript/ban-ts-comment": "error",
-    "typescript/consistent-return": "error",
+    "typescript/consistent-return": "off",
     "typescript/consistent-type-exports": "error",
     "typescript/consistent-type-imports": "error",
     "typescript/dot-notation": "error",
@@ -184,14 +184,20 @@
     "typescript/prefer-find": "error",
     "typescript/prefer-includes": "error",
     "typescript/prefer-namespace-keyword": "error",
-    "typescript/prefer-nullish-coalescing": ["error", { "ignorePrimitives": { "string": true } }],
+    "typescript/prefer-nullish-coalescing": [
+      "error",
+      { "ignorePrimitives": { "string": true, "boolean": true } }
+    ],
     "typescript/prefer-optional-chain": "error",
     "typescript/prefer-promise-reject-errors": "error",
     "typescript/prefer-readonly": "error",
     "typescript/prefer-regexp-exec": "error",
-    "typescript/prefer-string-starts-ends-with": "error",
+    "typescript/prefer-string-starts-ends-with": [
+      "error",
+      { "allowSingleElementEquality": "always" }
+    ],
     "typescript/prefer-ts-expect-error": "error",
-    "typescript/strict-void-return": "error",
+    "typescript/strict-void-return": "off",
     "typescript/require-array-sort-compare": "error",
     "typescript/restrict-plus-operands": "error",
     "typescript/restrict-template-expressions": "error",
