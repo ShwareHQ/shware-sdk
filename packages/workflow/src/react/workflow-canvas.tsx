@@ -218,7 +218,7 @@ type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
 /* ------------------------------- 连线路径生成 ------------------------------- */
 
 /** 所有拐角统一半径。 */
-const BEND = 12;
+const BEND = 16;
 /**
  * 拐角控制点系数：圆弧的经典值是 0.552，外拉到 0.9 让肩部更方，
  * 逼近 corner-shape: superellipse 的观感（CSS corner-shape 不适用于 SVG path，
