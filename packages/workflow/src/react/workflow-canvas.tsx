@@ -244,10 +244,10 @@ function WorkflowEdge({
     targetPosition,
     borderRadius: 12, // 大圆角：分叉读作"一条主线劈开"而非直角折线
   });
-  // 标签垂在分叉线（gap 80 的中线 40）下方，钉在所属臂的立柱上
+  // 标签垂在分叉线（arm gap 112 的中线 56）下方，钉在所属臂的立柱上
   const labelPos = {
     x: data?.anchor === 'source' ? sourceX : targetX,
-    y: sourceY + 56,
+    y: sourceY + 80,
   };
   return (
     <>
