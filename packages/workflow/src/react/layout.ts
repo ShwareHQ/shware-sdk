@@ -16,14 +16,15 @@ export interface CanvasNodeData extends Record<string, unknown> {
   title: string;
   subtitle?: string;
   category: NodeCategory;
-  /** compact：单行小卡（delay 家族 / exit），带图标；card：常规两行卡。 */
-  variant: 'card' | 'compact';
+  /** card：常规两行卡；compact：单行小卡（delay 家族）；icon：纯图标（exit）。 */
+  variant: 'card' | 'compact' | 'icon';
   icon?: NodeIcon;
 }
 
 /** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。 */
 export const CARD_SIZE = { w: 260, h: 76 } as const;
 export const COMPACT_SIZE = { w: 200, h: 44 } as const;
+export const ICON_SIZE = { w: 40, h: 40 } as const;
 
 export interface CanvasNode {
   id: string;
@@ -44,9 +45,9 @@ const VGAP = 64;
 const HGAP = 56;
 
 function nodeSize(n: NodeIR): { w: number; h: number } {
-  return n.type === 'delay' || n.type === 'random_delay' || n.type === 'exit'
-    ? COMPACT_SIZE
-    : CARD_SIZE;
+  if (n.type === 'exit') return ICON_SIZE;
+  if (n.type === 'delay' || n.type === 'random_delay') return COMPACT_SIZE;
+  return CARD_SIZE;
 }
 
 /** 有子分组的节点统一抽象：branch 的 cases/otherwise、cohort 的臂、waitUntil 的超时侧线。 */
@@ -171,9 +172,10 @@ function nodeData(n: NodeIR): CanvasNodeData {
       };
     case 'exit':
       return {
+        // 纯图标卡：title 作 hover tooltip / 无障碍标签
         title: n.reason ? `Exit · ${n.reason}` : 'Exit',
         category: 'exit',
-        variant: 'compact',
+        variant: 'icon',
         icon: 'exit',
       };
     case 'send_event':
@@ -284,10 +286,10 @@ export function layout(ir: WorkflowIR): { nodes: CanvasNode[]; edges: CanvasEdge
 
   // 收尾 Exit 节点（customer.io 同款显式终点）；全部提前 exit 则不需要
   if (tails.length > 0) {
-    addNode('__end', -COMPACT_SIZE.w / 2, bottom, {
+    addNode('__end', -ICON_SIZE.w / 2, bottom, {
       title: 'Exit',
       category: 'exit',
-      variant: 'compact',
+      variant: 'icon',
       icon: 'exit',
     });
     addEdges(tails, '__end');
