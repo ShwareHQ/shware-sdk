@@ -1,7 +1,7 @@
 import './index.css';
 import type { WorkflowBuilder } from '@shware/workflow';
 import * as examples from '@shware/workflow/examples';
-import { WorkflowCanvas } from '@shware/workflow/react';
+import { type NodeStats, WorkflowCanvas, layout } from '@shware/workflow/react';
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -18,6 +18,19 @@ const workflows: Record<string, WorkflowBuilder> = {
 function App() {
   const [selected, setSelected] = useState('checkoutRecovery');
   const ir = useMemo(() => (workflows[selected] ?? examples.checkoutRecovery).toIR(), [selected]);
+
+  /** Mock 停留人数：等待类节点上演示徽标（真实数据将来自引擎统计接口）。 */
+  const stats = useMemo<NodeStats>(() => {
+    const mock: NodeStats = {};
+    for (const node of layout(ir).nodes) {
+      if (node.data.category === 'delay') {
+        let seed = 0;
+        for (let i = 0; i < node.id.length; i++) seed += node.id.charCodeAt(i);
+        mock[node.id] = (seed * 37) % 500;
+      }
+    }
+    return mock;
+  }, [ir]);
 
   return (
     <div className="flex h-full flex-col">
@@ -39,7 +52,7 @@ function App() {
         </span>
       </header>
       <main className="min-h-0 flex-1 bg-slate-50">
-        <WorkflowCanvas key={selected} ir={ir} />
+        <WorkflowCanvas key={selected} ir={ir} stats={stats} />
       </main>
     </div>
   );
