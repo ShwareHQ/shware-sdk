@@ -61,9 +61,14 @@ export interface CanvasEdge {
 /** 节点 id → 当前停留人数（将来由引擎统计接口提供）。 */
 export type NodeStats = Record<string, number>;
 
-/** 间距放宽：线段中段预留将来的插入动作按钮（customer.io 的 + icon）位置。 */
+/**
+ * 间距分层：直落序列紧凑，分叉处铺开（容纳圆角劈开 + 垂标签 +
+ * 将来的插入动作按钮）；汇合处比序列稍松让合流线有余量。
+ */
 const W = CARD_SIZE.w;
-const VGAP = 128;
+const VGAP = 56; // 序列内 node → node
+const FORK_GAP = 144; // 分叉节点底 → 臂顶（分叉线在 72，标签垂在 104）
+const REJOIN_EXTRA = 24; // 汇合处在 VGAP 之上追加
 const HGAP = 88;
 
 function nodeSize(n: NodeIR): { w: number; h: number } {
@@ -271,24 +276,25 @@ export function layout(
       const size = nodeSize(n);
       addNode(n.id, cx - size.w / 2, curY, nodeData(n));
       addEdges(tails, n.id);
-      curY += size.h + VGAP;
+      const bottom = curY + size.h;
 
       if (n.type === 'exit') {
         tails = []; // 终止：不再向下连
+        curY = bottom + VGAP;
         continue;
       }
 
       const groups = groupsOf(n);
       if (!groups) {
         tails = [{ id: n.id }];
+        curY = bottom + VGAP;
         continue;
       }
 
       const widths = groups.map((g) => Math.max(W, seqWidth(g.nodes)));
       const total = widths.reduce((a, b) => a + b, 0) + HGAP * (groups.length - 1);
       let gx = cx - total / 2;
-      // 分叉多留 16px：容纳圆角劈开 + 垂在分叉线下方的标签
-      const groupTop = curY + 16;
+      const groupTop = bottom + FORK_GAP;
       let maxBottom = groupTop;
       const groupTails: Tail[] = [];
 
@@ -308,7 +314,7 @@ export function layout(
       });
 
       tails = groupTails;
-      curY = maxBottom;
+      curY = maxBottom + REJOIN_EXTRA;
     }
 
     return { bottom: curY, tails };
