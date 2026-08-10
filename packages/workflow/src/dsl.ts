@@ -196,6 +196,37 @@ export const template: TemplateFactory = {
   survey: makeTemplate('survey'),
 };
 
+/* ----------------------------- 模板 registry ----------------------------- */
+
+/** 一个邮件模块：默认导出组件（+ 可选 subject）。 */
+export interface TemplateModule {
+  default: (props: never) => unknown;
+  subject?: unknown;
+}
+
+/** 从组件的 props 签名反推模板 props——契约只写一次，写在组件上。 */
+export type PropsOf<M> = M extends { default: (props: infer P) => unknown }
+  ? P extends object
+    ? P
+    : EmptyProps
+  : EmptyProps;
+
+export interface BoundTemplateFactory<R extends Record<string, TemplateModule>> {
+  email<K extends keyof R & string>(key: K): TemplateRef<'email', PropsOf<R[K]>>;
+}
+
+/**
+ * 绑定到 registry 的模板工厂：**key 由 registry 定类型**——引用未注册的
+ * 模板直接编译报错，props 类型从组件签名流入（与 u/e 引用表同一模式）。
+ *
+ *   import type { Emails } from '../emails';   // type-only：不引入 react 运行时
+ *   const t = templates<Emails>();
+ *   export const welcome = t.email('welcome');
+ */
+export function templates<R extends Record<string, TemplateModule>>(): BoundTemplateFactory<R> {
+  return { email: (key) => template.email(key) as never };
+}
+
 /* ------------------------------ 条件（表达式） ------------------------------ */
 
 /** 不透明条件句柄：谓词、组合子、segment 的产物都是它。 */

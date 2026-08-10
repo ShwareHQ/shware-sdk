@@ -3,11 +3,12 @@
   "name": "workflow-engine-demo",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
   "workflows": [
     {
       "name": "journey",
       "binding": "JOURNEY",
-      "class_name": "JourneyRunner",
+      "class_name": "DemoJourneyRunner",
     },
   ],
   "d1_databases": [

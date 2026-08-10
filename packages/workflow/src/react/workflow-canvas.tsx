@@ -6,7 +6,6 @@ import {
   EdgeLabelRenderer,
   type EdgeProps,
   Handle,
-  MarkerType,
   type Node,
   type NodeProps,
   Position,
@@ -268,7 +267,6 @@ function WorkflowEdge({
   targetX,
   targetY,
   label,
-  markerEnd,
   style,
   data,
 }: EdgeProps<WfEdge>) {
@@ -282,7 +280,9 @@ function WorkflowEdge({
   };
   return (
     <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      <BaseEdge id={id} path={path} style={style} />
+      {/* 连接点：端点空心圆替代箭头，描边粗细与颜色都与连线一致 */}
+      <circle cx={targetX} cy={targetY - 4} r={3.5} fill="#fff" stroke="#cbd5e1" strokeWidth={1} />
       {!!label && (
         <EdgeLabelRenderer>
           <div
@@ -317,7 +317,6 @@ export function WorkflowCanvas({ ir, stats }: WorkflowCanvasProps) {
         elementsSelectable={false}
         defaultEdgeOptions={{
           type: 'wf',
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#94a3b8' },
           style: { stroke: '#cbd5e1' },
         }}
       >

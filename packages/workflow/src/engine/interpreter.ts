@@ -15,6 +15,19 @@ import type { FactSource, JourneyContext, JourneyOutcome } from './ports';
 /** wait_until 的候选事件重评估上限：超过按超时处理（防订阅风暴耗尽步数）。 */
 const MAX_WAIT_CHECKS = 16;
 
+/**
+ * 渠道 → 收件地址所在的用户属性。引擎在发送前解析，sender 保持无状态。
+ * TODO: 允许应用覆盖这张表（目前是约定：email 由 UserPropertyBase 保证存在）。
+ */
+const RECIPIENT_PROPERTY: Record<string, string | undefined> = {
+  email: 'email',
+  sms: 'phone',
+  push: 'push_token',
+  slack: 'slack_user_id',
+  survey: 'email',
+  in_app: undefined,
+};
+
 type FlowSignal =
   | { kind: 'fall_through' }
   | { kind: 'exit'; reason?: string }
@@ -77,11 +90,15 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     case 'message': {
       await ctx.step.do(`${node.id}:send`, async () => {
         const props = await resolveValues(node.props, ctx.facts);
+        const recipientPath = RECIPIENT_PROPERTY[node.channel];
+        const recipient =
+          recipientPath === undefined ? undefined : await ctx.facts.getProperty(recipientPath);
         await ctx.messages.send({
           channel: node.channel,
           template: node.template,
           props,
           userId: ctx.userId,
+          recipient: recipient === undefined ? undefined : String(recipient),
           idempotencyKey: `${ctx.instanceId}:${node.id}`,
         });
       });
