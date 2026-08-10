@@ -27,13 +27,16 @@ import {
   MessagesSquare,
   Send,
   Shuffle,
+  SquareArrowOutUpRight,
   User,
   Zap,
 } from 'lucide-react';
-import { type CSSProperties, useMemo } from 'react';
+import { type CSSProperties, createContext, useContext, useMemo } from 'react';
 import type { WorkflowIR } from '../ir';
 import {
   CARD_SIZE,
+  type CanvasEdge,
+  type CanvasNode,
   type CanvasNodeData,
   ICON_SIZE,
   type NodeIcon,
@@ -53,7 +56,15 @@ export interface WorkflowCanvasProps {
   ir: WorkflowIR;
   /** 节点 id → 当前停留人数（引擎统计接口提供；缺省不渲染徽标）。 */
   stats?: NodeStats;
+  /**
+   * 打开消息节点引用的模板（宿主决定跳转方式：路由/新窗口/侧栏）。
+   * 传了才在消息卡右上角渲染跳转图标——库不假设宿主有模板预览页。
+   */
+  onOpenTemplate?: (templateKey: string) => void;
 }
+
+/** 跳转回调经 context 下发：react-flow 的 node data 只应承载可序列化数据。 */
+const OpenTemplateContext = createContext<((templateKey: string) => void) | undefined>(undefined);
 
 const ICONS: Record<NodeIcon, LucideIcon> = {
   trigger: Zap,
@@ -156,10 +167,24 @@ const subtitleStyle: CSSProperties = {
 
 const handleStyle: CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0 };
 
+/** 模板跳转按钮：卡片右上角，无边框图标按钮。 */
+const linkButtonStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: '#94a3b8',
+  cursor: 'pointer',
+  pointerEvents: 'auto',
+};
+
 type WfNode = Node<CanvasNodeData, 'wf'>;
 
 function WorkflowNode({ data }: NodeProps<WfNode>) {
   const Icon = ICONS[data.icon];
+  const onOpenTemplate = useContext(OpenTemplateContext);
+  const templateKey = data.templateKey;
 
   const body =
     data.variant === 'icon' ? (
@@ -181,6 +206,18 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
               <User size={14} color="#64748b" strokeWidth={2} aria-hidden />
               {data.count}
             </span>
+          )}
+          {onOpenTemplate !== undefined && templateKey !== undefined && (
+            <button
+              type="button"
+              className="nodrag nopan"
+              style={linkButtonStyle}
+              title={`Open template: ${templateKey}`}
+              aria-label={`Open template ${templateKey}`}
+              onClick={() => onOpenTemplate(templateKey)}
+            >
+              <SquareArrowOutUpRight size={14} strokeWidth={2} aria-hidden />
+            </button>
           )}
         </div>
         {data.subtitle !== undefined && <div style={subtitleStyle}>{data.subtitle}</div>}
@@ -301,8 +338,16 @@ function WorkflowEdge({
 
 const edgeTypes = { wf: WorkflowEdge };
 
-export function WorkflowCanvas({ ir, stats }: WorkflowCanvasProps) {
+export function WorkflowCanvas({ ir, stats, onOpenTemplate }: WorkflowCanvasProps) {
   const { nodes, edges } = useMemo(() => layout(ir, stats), [ir, stats]);
+  return (
+    <OpenTemplateContext value={onOpenTemplate}>
+      <CanvasSurface nodes={nodes} edges={edges} />
+    </OpenTemplateContext>
+  );
+}
+
+function CanvasSurface({ nodes, edges }: { nodes: CanvasNode[]; edges: CanvasEdge[] }) {
   return (
     <div style={{ width: '100%', height: '100%' }}>
       <ReactFlow
