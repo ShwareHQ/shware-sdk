@@ -106,7 +106,9 @@ const iconStyle: CSSProperties = {
   gap: 6,
   width: ICON_SIZE.w,
   height: ICON_SIZE.h,
-  borderRadius: 10,
+  // 全圆角胶囊：radius = 高度一半；还原正圆端（superellipse 会把端头削方）
+  borderRadius: 16,
+  ...({ cornerShape: 'round' } as CSSProperties),
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 600,
@@ -195,14 +197,14 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
 
 const nodeTypes = { wf: WorkflowNode };
 
-/** 边标签胶囊：28px 高、全圆角，字体对齐 tailwind text-xs（12px / 16px）。 */
+/** 边标签胶囊：32px 高（8 网格）、全圆角，字体对齐 tailwind text-xs（12px / 16px）。 */
 const edgeLabelStyle: CSSProperties = {
   position: 'absolute',
   display: 'flex',
   alignItems: 'center',
-  height: 28,
+  height: 32,
   padding: '0 14px',
-  borderRadius: 14,
+  borderRadius: 16,
   background: '#fff',
   border: '1px solid #e2e8f0',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
