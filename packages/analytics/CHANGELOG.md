@@ -1,5 +1,21 @@
 # @shware/analytics
 
+## 5.0.0
+
+### Major Changes
+
+- `useTrackImpression` drops its element type parameter and returns a callback ref: the signature is now `useTrackImpression<T extends EventName>(name, properties?): RefCallback<Element>`.
+
+  The old signature `<R extends Element = HTMLDivElement, T extends EventName = EventName>` put two independent axes in one type-argument list. TypeScript has no partial type-argument inference, so writing `useTrackImpression<HTMLDivElement>(...)` to name the ref element silently pinned `T` to its loose `EventName` default and bypassed the standard-event payload typing (e.g. `view_promotion`'s required `items`) — and lint autofixes that strip a type argument equal to its default re-broke inference the other way. A callback ref is contravariant in the element type, so it attaches to any element without an `R` parameter; `name` is now the only inference site and explicit type arguments are never needed.
+
+  Also fixes a missed-impression bug: the old implementation observed `ref.current` from an effect keyed on `[ref.current]`, which never re-runs when a ref mutates, so elements that mounted after the first render were never observed. The node now flows through state, and late-mounted elements are tracked.
+
+  Migration:
+
+  - Remove explicit type arguments: `useTrackImpression<HTMLDivElement>('view_promotion', p)` → `useTrackImpression('view_promotion', p)`.
+  - Payloads for GA4 standard events are now actually type-checked; `view_promotion` requires `items: (Item & PromotionItem)[]`.
+  - The return value is a `RefCallback<Element>`, not a `RefObject` — code reading `.current` from it must create its own ref and compose the two.
+
 ## 4.2.0
 
 ### Minor Changes
