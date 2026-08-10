@@ -4,6 +4,8 @@ import * as examples from '@shware/workflow/examples';
 import { type NodeStats, WorkflowCanvas, layout } from '@shware/workflow/react';
 import { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { collectTemplateRefs } from './template-refs';
+import { TemplatesPage } from './templates-page';
 
 const workflows: Record<string, WorkflowBuilder> = {
   checkoutRecovery: examples.checkoutRecovery,
@@ -15,8 +17,23 @@ const workflows: Record<string, WorkflowBuilder> = {
   activationNudge: examples.activationNudge,
 };
 
+/** 模板清单从全部示例流程的 IR 反查（见 template-refs.ts）。 */
+const templateRefs = collectTemplateRefs(
+  Object.values(workflows).map((workflow) => workflow.toIR())
+);
+
+type View = 'canvas' | 'templates';
+
+const tabClass = (active: boolean) =>
+  `rounded-md px-2.5 py-1 text-[13px] ${
+    active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+  }`;
+
 function App() {
+  const [view, setView] = useState<View>('canvas');
   const [selected, setSelected] = useState('checkoutRecovery');
+  const [templateKey, setTemplateKey] = useState<string | undefined>(undefined);
+
   const ir = useMemo(() => (workflows[selected] ?? examples.checkoutRecovery).toIR(), [selected]);
 
   /** Mock 停留人数：等待类节点上演示徽标（真实数据将来自引擎统计接口）。 */
@@ -32,27 +49,56 @@ function App() {
     return mock;
   }, [ir]);
 
+  const openTemplate = (key: string) => {
+    setTemplateKey(key);
+    setView('templates');
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-4 py-2.5">
         <strong className="text-sm font-semibold text-slate-900">Workflow Playground</strong>
-        <select
-          value={selected}
-          onChange={(event) => setSelected(event.target.value)}
-          className="rounded-md border border-slate-300 px-2 py-1 text-[13px]"
-        >
-          {Object.keys(workflows).map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <span className="font-mono text-xs text-slate-500">
-          {ir.name} · v1 · #{ir.contentHash.slice(0, 8)}
-        </span>
+        <nav className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setView('canvas')}
+            className={tabClass(view === 'canvas')}
+          >
+            Workflows
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('templates')}
+            className={tabClass(view === 'templates')}
+          >
+            Templates
+          </button>
+        </nav>
+        {view === 'canvas' && (
+          <>
+            <select
+              value={selected}
+              onChange={(event) => setSelected(event.target.value)}
+              className="rounded-md border border-slate-300 px-2 py-1 text-[13px]"
+            >
+              {Object.keys(workflows).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <span className="font-mono text-xs text-slate-500">
+              {ir.name} · v1 · #{ir.contentHash.slice(0, 8)}
+            </span>
+          </>
+        )}
       </header>
       <main className="min-h-0 flex-1 bg-slate-50">
-        <WorkflowCanvas key={selected} ir={ir} stats={stats} />
+        {view === 'canvas' ? (
+          <WorkflowCanvas key={selected} ir={ir} stats={stats} onOpenTemplate={openTemplate} />
+        ) : (
+          <TemplatesPage refs={templateRefs} selected={templateKey} onSelect={setTemplateKey} />
+        )}
       </main>
     </div>
   );

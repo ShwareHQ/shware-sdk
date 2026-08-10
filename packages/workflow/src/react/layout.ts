@@ -36,6 +36,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
   icon: NodeIcon;
   /** 当前停留在该节点的人数（运行时统计，经 stats 注入）。 */
   count?: number;
+  /** 消息节点引用的模板 key：宿主据此跳转到模板预览。 */
+  templateKey?: string;
 }
 
 /** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。全部对齐 16/8 网格。 */
@@ -171,6 +173,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
         category: 'message',
         variant: 'card',
         icon: n.channel,
+        templateKey: n.template,
       };
     case 'delay':
       return {
