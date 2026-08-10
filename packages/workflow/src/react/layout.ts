@@ -81,10 +81,36 @@ interface Group {
   nodes: NodeIR[];
 }
 
+/** 属性运算符 → 标签符号（eq/ne/gt/lt 用数学符号，集合与文本类保留短词）。 */
+const OP_LABEL: Record<string, string> = {
+  eq: '=',
+  ne: '≠',
+  gt: '>',
+  lt: '<',
+  between: 'between',
+  in_array: 'in',
+  not_in_array: 'not in',
+  exists: 'exists',
+  not_exists: 'not exists',
+  contains: 'contains',
+  not_contains: 'not contains',
+};
+
 function conditionLabel(c: ConditionIR, fallback: string): string {
   if (c.type === 'segment') return c.segment;
   if (c.type === 'not') return `not ${conditionLabel(c.condition, fallback)}`;
-  if (c.type === 'property') return `${c.path} ${c.op}`;
+  if (c.type === 'property') {
+    const op = OP_LABEL[c.op] ?? c.op;
+    const value =
+      c.op === 'between'
+        ? `${c.values?.[0]} – ${c.values?.[1]}`
+        : c.op === 'in_array' || c.op === 'not_in_array'
+          ? `[${c.values?.join(', ')}]`
+          : c.value !== undefined
+            ? String(c.value)
+            : '';
+    return value === '' ? `${c.path} ${op}` : `${c.path} ${op} ${value}`;
+  }
   if (c.type === 'performed') return `did ${c.event}`;
   return fallback;
 }
