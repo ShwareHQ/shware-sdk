@@ -81,7 +81,7 @@ const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: '#fff',
   boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.04), 0 2px 4px rgba(15, 23, 42, 0.08)',
-  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
   ...superellipse,
 };
@@ -205,7 +205,7 @@ const edgeLabelStyle: CSSProperties = {
   borderRadius: 14,
   background: '#fff',
   border: '1px solid #e2e8f0',
-  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+  fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 500,
