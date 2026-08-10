@@ -1,13 +1,13 @@
-import { useEffect, useEffectEvent, useRef } from 'react';
+import { type RefCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { track } from '../track/index';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
-export function useTrackImpression<
-  R extends Element = HTMLDivElement,
-  T extends EventName = EventName,
->(name: TrackName<T>, properties?: TrackProperties<T>) {
+export function useTrackImpression<T extends EventName = EventName>(
+  name: TrackName<T>,
+  properties?: TrackProperties<T>
+): RefCallback<Element> {
   const fired = useRef(false);
-  const ref = useRef<R | null>(null);
+  const [node, setNode] = useState<Element | null>(null);
 
   const onTrack = useEffectEvent(() => {
     if (fired.current) return;
@@ -16,6 +16,8 @@ export function useTrackImpression<
   });
 
   useEffect(() => {
+    if (!node) return;
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry.isIntersecting) return;
@@ -25,9 +27,14 @@ export function useTrackImpression<
       { threshold: 0.5 }
     );
 
-    if (ref.current) observer.observe(ref.current);
+    observer.observe(node);
     return () => observer.disconnect();
-  }, [ref.current]);
+  }, [node]);
 
-  return ref;
+  // A callback ref (contravariant in the element type) instead of a RefObject:
+  // it attaches to any element without an R type parameter, so `name` stays the
+  // only inference site and explicit type arguments are never needed. It also
+  // observes elements that mount late, which the previous [ref.current] effect
+  // dependency missed.
+  return setNode;
 }
