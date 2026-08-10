@@ -104,7 +104,7 @@ const iconStyle: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
-  // 宽度自适应内容；图标侧 padding 略小是 icon+文案组合的排版惯例
+  // 宽度自适应内容；图标侧 12 / 文字侧 16（icon+文案的光学平衡，定稿）
   width: 'fit-content',
   height: ICON_SIZE.h,
   padding: '0 16px 0 12px',
@@ -205,7 +205,7 @@ const edgeLabelStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   height: 32,
-  padding: '0 14px',
+  padding: '0 12px',
   borderRadius: 16,
   background: '#fff',
   border: '1px solid #e2e8f0',
