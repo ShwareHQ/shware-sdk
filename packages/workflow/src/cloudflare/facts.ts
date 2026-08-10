@@ -1,0 +1,45 @@
+import type { FactSource } from '../engine/ports';
+import { ConditionIR, type ScalarIR } from '../ir';
+import type { D1DatabaseLike } from './bindings';
+
+/** D1 上的单用户事实源：条件求值逻辑在 engine/condition.ts，这里只做读取。 */
+export class D1FactSource implements FactSource {
+  constructor(
+    private readonly db: D1DatabaseLike,
+    private readonly userId: string
+  ) {}
+
+  async countEvents(event: string, sinceMs?: number): Promise<number> {
+    const row =
+      sinceMs === undefined
+        ? await this.db
+            .prepare('SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND name = ?')
+            .bind(this.userId, event)
+            .first<{ c: number }>()
+        : await this.db
+            .prepare('SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND name = ? AND ts >= ?')
+            .bind(this.userId, event, sinceMs)
+            .first<{ c: number }>();
+    return row?.c ?? 0;
+  }
+
+  async getProperty(path: string): Promise<ScalarIR | undefined> {
+    const row = await this.db
+      .prepare('SELECT props FROM profiles WHERE user_id = ?')
+      .bind(this.userId)
+      .first<{ props: string }>();
+    if (!row) return undefined;
+    const props = JSON.parse(row.props) as Record<string, ScalarIR | null | undefined>;
+    const value = props[path];
+    return value ?? undefined;
+  }
+
+  async getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
+    const row = await this.db
+      .prepare('SELECT condition FROM segments WHERE name = ?')
+      .bind(name)
+      .first<{ condition: string }>();
+    if (!row) return undefined;
+    return ConditionIR.parse(JSON.parse(row.condition));
+  }
+}

@@ -40,6 +40,26 @@
         "types": "./dist/examples.d.cts",
         "default": "./dist/examples.cjs"
       }
+    },
+    "./engine": {
+      "import": {
+        "types": "./dist/engine/index.d.mts",
+        "default": "./dist/engine/index.mjs"
+      },
+      "require": {
+        "types": "./dist/engine/index.d.cts",
+        "default": "./dist/engine/index.cjs"
+      }
+    },
+    "./cloudflare": {
+      "import": {
+        "types": "./dist/cloudflare/index.d.mts",
+        "default": "./dist/cloudflare/index.mjs"
+      },
+      "require": {
+        "types": "./dist/cloudflare/index.d.cts",
+        "default": "./dist/cloudflare/index.cjs"
+      }
     }
   },
   "scripts": {

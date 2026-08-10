@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "workflow-engine-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workflows": [
+    {
+      "name": "journey",
+      "binding": "JOURNEY",
+      "class_name": "JourneyRunner",
+    },
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "journey-db",
+      "database_id": "journey-db-local",
+    },
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "WORKFLOW_KV",
+      "id": "workflow_kv_local",
+    },
+  ],
+}

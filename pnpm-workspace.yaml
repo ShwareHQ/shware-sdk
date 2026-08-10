@@ -7,6 +7,7 @@ allowBuilds:
   '@firebase/util': true
   core-js: true
   esbuild: true
+  workerd: true
   msgpackr-extract: true
   protobufjs: true
   sharp: true

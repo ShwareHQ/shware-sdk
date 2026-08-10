@@ -1,0 +1,18 @@
+{
+  "name": "workflow-cloudflare-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:init": "wrangler d1 execute journey-db --local --file=../../packages/workflow/src/cloudflare/schema.sql",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@shware/workflow": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "wrangler": "^4.63.0"
+  }
+}

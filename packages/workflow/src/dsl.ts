@@ -1,5 +1,7 @@
 import ms from 'ms';
 import {
+  type BundleIR,
+  BundleIR as BundleIRSchema,
   type ChannelIR,
   type ConditionIR,
   type DurationIR,
@@ -809,4 +811,40 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
 /** Workflow 定义：名字 + 配置（trigger / goal / exitWhen）+ 链式步骤。 */
 export function workflow(name: string, options: WorkflowOptions): WorkflowBuilder {
   return new WorkflowBuilderImpl(name, options);
+}
+
+/* --------------------------------- bundle --------------------------------- */
+
+/**
+ * 部署单元编译：workflows + segments (+ 模板清单) → BundleIR。
+ * `deploy` 的输入（terraform-apply 心智），服务端按 contentHash 逐定义 diff。
+ */
+export function compileBundle(input: {
+  workflows: readonly WorkflowBuilder[];
+  segments?: readonly SegmentRef[];
+  templates?: readonly TemplateRef[];
+}): BundleIR {
+  const segments = (input.segments ?? []).map((segment) => {
+    const { name, definition } = segment as SegmentInternal;
+    return {
+      irVersion: IR_VERSION,
+      name,
+      contentHash: fnv1a64(canonicalJSON(definition)),
+      condition: definition,
+    };
+  });
+
+  const templates = (input.templates ?? []).map((template) => ({
+    irVersion: IR_VERSION,
+    key: template.key,
+    channel: template.channel,
+  }));
+
+  const bundle = {
+    irVersion: IR_VERSION,
+    workflows: input.workflows.map((builder) => builder.toIR()),
+    segments,
+    templates,
+  };
+  return BundleIRSchema.parse(bundle);
 }
