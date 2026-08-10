@@ -104,8 +104,10 @@ const iconStyle: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
-  width: ICON_SIZE.w,
+  // 宽度自适应内容；图标侧 padding 略小是 icon+文案组合的排版惯例
+  width: 'fit-content',
   height: ICON_SIZE.h,
+  padding: '0 16px 0 12px',
   // 全圆角胶囊：radius = 高度一半；还原正圆端（superellipse 会把端头削方）
   borderRadius: 16,
   ...({ cornerShape: 'round' } as CSSProperties),
