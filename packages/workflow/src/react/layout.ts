@@ -40,7 +40,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
 
 /** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。全部对齐 16/8 网格。 */
 export const CARD_SIZE = { w: 256, h: 64 } as const;
-export const ICON_SIZE = { w: 72, h: 32 } as const;
+/** icon 变体渲染为自适应宽度胶囊，此处 w 是定位用的估计值（实测 'Exit' ≈ 69px）。 */
+export const ICON_SIZE = { w: 68, h: 32 } as const;
 
 export interface CanvasNode {
   id: string;
