@@ -103,7 +103,7 @@ export type EventRefs<E> = { readonly [K in keyof E]-?: EventRef<E[K]> };
  *
  * 之后谓词与个性化全部走属性访问：eq(u.subscription_status, 'active')、
  * performed(e.purchase, { within: '30 days' })、{ plan: u.subscription_plan }。
- * TODO: 嵌套属性路径（u.address.city）。
+ * 属性刻意只支持单层：数据源是 db 表、天然扁平，不做嵌套路径。
  */
 export function user<U extends UserPropertyBase>(): UserRefs<U> {
   return new Proxy({} as UserRefs<U>, {
