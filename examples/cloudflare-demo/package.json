@@ -9,9 +9,13 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@shware/workflow": "workspace:*"
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.1.0",
+    "@shware/workflow": "workspace:*",
+    "react": "^19.2.8"
   },
   "devDependencies": {
+    "@types/react": "^19.2.18",
     "typescript": "^7.0.2",
     "wrangler": "^4.63.0"
   }

@@ -76,6 +76,16 @@ class CfEngineStep implements EngineStep {
  * contentHash 从 KV 载入（内容寻址不可变，在 step 外读取也是 replay 安全的）。
  */
 export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams> {
+  /**
+   * 消息出口：应用可覆盖以接入真实渠道（如 CfEmailSender + react-email 渲染器）。
+   * 缺省按环境选 webhook / 日志发送器。
+   */
+  protected createMessageSender(): MessageSender {
+    return this.env.MESSAGE_WEBHOOK_URL
+      ? new WebhookMessageSender(this.env.MESSAGE_WEBHOOK_URL)
+      : new LogMessageSender();
+  }
+
   async run(event: WorkflowEvent<JourneyParams>, step: WorkflowStep): Promise<JourneyOutcome> {
     const { workflowName, contentHash, userId } = event.payload;
     const env = this.env;
@@ -86,9 +96,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     }
     const ir = WorkflowIR.parse(JSON.parse(raw));
 
-    const messages: MessageSender = env.MESSAGE_WEBHOOK_URL
-      ? new WebhookMessageSender(env.MESSAGE_WEBHOOK_URL)
-      : new LogMessageSender();
+    const messages = this.createMessageSender();
 
     // send_event 直接回注 Router 逻辑（同 Worker 内函数调用，跨 workflow 事件边）
     const events: EventSink = {

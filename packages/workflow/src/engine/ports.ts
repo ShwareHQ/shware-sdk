@@ -46,6 +46,8 @@ export interface OutboundMessage {
   /** 已解析：user_property 引用被替换为实际值。 */
   props: Record<string, ScalarIR | undefined>;
   userId: string;
+  /** 渠道对应的收件地址，引擎从 profile 解析——sender 因此无需读库。 */
+  recipient?: string | undefined;
   /** `${instanceId}:${nodeId}`——发送方用它做去重（replay/重试安全）。 */
   idempotencyKey: string;
 }

@@ -7,9 +7,10 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "noEmit": true,
+    "jsx": "react-jsx",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["src", "../../packages/workflow/src/cloudflare/workers.d.ts"]
+  "include": ["src", "emails", "../../packages/workflow/src/cloudflare/workers.d.ts"]
 }
