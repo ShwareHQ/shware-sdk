@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 5.1.0
+
+### Minor Changes
+
+- Refresh `visitor.tags` on every visit. A returning visitor was fetched with `GET /visitors/:id`, which sends no body, so the only thing that ever wrote `tags` again was `setVisitor` — and hosts call that when they identify a user. Anyone who never signed in therefore kept the browser, screen, and release captured on their first ever page load, leaving `tags` permanently equal to `initial_tags`. The lookup is now a `PATCH` carrying the current `getTags()`, so `tags` is genuinely last-touch. It replaces the existing request rather than adding one.
+
+  Backends need to be ready for it: `PATCH /visitors/:id` now runs on every visit, not just at identify, and any side effect that previously lived on the `GET` (server-derived fields such as IP geolocation) has to move there too, or it will silently stop being refreshed. Derive those fields after merging the client's tags so a caller cannot spoof them.
+
 ## 5.0.0
 
 ### Major Changes
