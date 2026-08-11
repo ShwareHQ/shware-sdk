@@ -2,20 +2,24 @@ import { fullHash, stripMeta } from './hash';
 import type { BundleIR, NodeIR, SegmentIR, WorkflowIR } from './ir';
 
 /**
- * Plan —— 本地定义 vs 线上已部署的差异（terraform plan 同款心智）。
+ * Plan — the diff between local definitions and what is deployed (terraform
+ * plan, same mental model).
  *
- * 这是 code-first 相对 UI 画布的核心优势：部署前能机器判定"改了什么、
- * 影响多少在途用户"。纯函数、零 IO——CLI、UI、CI 三方共用同一份结论。
+ * This is the core advantage of code-first over a UI canvas: before deploying,
+ * a machine can answer "what changed, and how many in-flight users does it
+ * affect". Pure function, zero IO — CLI, UI and CI share one verdict.
  *
- * 状态判定基于两层比较：
- * - contentHash 不同 → `changed`（执行语义变了，在途用户涉及迁移）
- * - contentHash 相同、完整内容不同 → `metadata_only`（只改了描述/label，
- *   不影响任何执行；这正是元数据不进哈希的价值所在）
+ * Status comes from two levels of comparison:
+ * - contentHash differs → `changed` (semantics moved; in-flight users may need
+ *   migration)
+ * - contentHash equal but full content differs → `metadata_only` (description
+ *   or labels only, nothing about execution) — exactly what keeping metadata
+ *   out of the hash buys us.
  */
 
 export type ChangeStatus = 'added' | 'removed' | 'changed' | 'metadata_only' | 'unchanged';
 
-/** 语义变更是否需要人工关注（新增/删除/改语义都算；纯元数据不算）。 */
+/** Whether a status warrants human attention (metadata-only edits do not). */
 export function isSemanticChange(status: ChangeStatus): boolean {
   return status === 'added' || status === 'removed' || status === 'changed';
 }
@@ -23,23 +27,24 @@ export function isSemanticChange(status: ChangeStatus): boolean {
 export interface NodeChange {
   id: string;
   status: 'added' | 'removed' | 'changed';
-  /** 节点类型：removed 时取线上的，其余取本地的。 */
+  /** Node type: taken from the deployed side when removed, local otherwise. */
   type: NodeIR['type'];
 }
 
 export interface WorkflowChange {
   name: string;
   status: ChangeStatus;
-  /** 线上的 contentHash（added 时无）。 */
+  /** Deployed contentHash (absent when added). */
   before?: string;
-  /** 本地的 contentHash（removed 时无）。 */
+  /** Local contentHash (absent when removed). */
   after?: string;
-  /** workflow 级语义字段的变更（trigger / goal / exitWhen）。 */
+  /** Workflow-level semantic fields that moved (trigger / goal / exitWhen). */
   fields: ('trigger' | 'goal' | 'exitWhen')[];
   /**
-   * 节点级明细。按结构路径 id 比对——**插入节点会让后续兄弟 id 位移**，
-   * 于是一次插入可能报成一串 changed。这是结构 id 的已知取舍（见 ir.ts），
-   * 结论仍然正确，只是噪音偏多。
+   * Node-level detail, matched by structural-path id — so **inserting a node
+   * shifts the ids of its later siblings**, and one insert can report as a run
+   * of `changed` entries. That is the known trade-off of structural ids (see
+   * ir.ts): the verdict stays correct, it is just noisier than ideal.
    */
   nodes: NodeChange[];
 }
@@ -55,11 +60,11 @@ export interface BundlePlan {
   workflows: WorkflowChange[];
   segments: ResourceChange[];
   templates: ResourceChange[];
-  /** 是否存在语义变更（纯元数据变更不计）。 */
+  /** Whether any semantic change exists (metadata-only edits do not count). */
   hasChanges: boolean;
 }
 
-/** 深度遍历节点树，展平成 id → 节点（分支臂 / cohort 臂 / 超时子流程都下钻）。 */
+/** Walk the node tree into a flat id → node map (branch arms, cohort arms and timeout flows included). */
 function flatten(nodes: readonly NodeIR[], into: Map<string, NodeIR>): Map<string, NodeIR> {
   for (const node of nodes) {
     into.set(node.id, node);
@@ -81,14 +86,14 @@ function flatten(nodes: readonly NodeIR[], into: Map<string, NodeIR>): Map<strin
   return into;
 }
 
-/** 节点的执行语义指纹：剥元数据、且不含子流程（子节点各自单独比对）。 */
+/** A node's semantic fingerprint: metadata stripped, child flows excluded (they diff on their own). */
 function nodeFingerprint(node: NodeIR): string {
   const bare: Record<string, unknown> = { ...node };
   delete bare.cases;
   delete bare.otherwise;
   delete bare.arms;
   if (node.type === 'wait_until' && Array.isArray(node.onTimeout)) {
-    // 子流程单独比对，但"有无超时子流程"本身是语义
+    // child flow diffs separately, but *having* a timeout flow is itself semantic
     bare.onTimeout = '<flow>';
   }
   return fullHash(stripMeta(bare));
@@ -215,7 +220,7 @@ function diffTemplates(local: BundleIR['templates'], deployed: BundleIR['templat
   return changes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** 空 bundle：首次部署时 deployed 缺省用它，全部资源报 added。 */
+/** Empty bundle: the default `deployed` on a first deploy, so everything reports as added. */
 const EMPTY: Pick<BundleIR, 'workflows' | 'segments' | 'templates'> = {
   workflows: [],
   segments: [],
@@ -223,7 +228,7 @@ const EMPTY: Pick<BundleIR, 'workflows' | 'segments' | 'templates'> = {
 };
 
 /**
- * 计算部署计划。deployed 省略 = 首次部署。
+ * Compute a deployment plan. Omitting `deployed` means a first deploy.
  *
  *   const changes = plan(compileBundle({ workflows }), await fetchDeployed());
  *   if (changes.hasChanges) { ... }

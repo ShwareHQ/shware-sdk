@@ -2,9 +2,10 @@ import * as offer from './offer';
 import * as welcome from './welcome';
 
 /**
- * 邮件 registry：唯一注册处。
- * key 在这里定义，DSL 侧 `templates<Emails>()` 据此做编译期校验——
- * 引用未注册的 key 直接编译不过（不需要测试兜底）。
+ * Email registry: the single place templates are registered.
+ * Keys are defined here, and the DSL's `templates<Emails>()` checks against
+ * them at compile time — referencing an unregistered key simply does not
+ * compile, so no test is needed to catch it.
  */
 export const emails = {
   demo_welcome: welcome,

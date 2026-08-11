@@ -17,7 +17,7 @@ const workflows: Record<string, WorkflowBuilder> = {
   activationNudge: examples.activationNudge,
 };
 
-/** 模板清单从全部示例流程的 IR 反查（见 template-refs.ts）。 */
+/** The template list is derived from every example flow's IR (see template-refs.ts). */
 const templateRefs = collectTemplateRefs(
   Object.values(workflows).map((workflow) => workflow.toIR())
 );
@@ -36,7 +36,7 @@ function App() {
 
   const ir = useMemo(() => (workflows[selected] ?? examples.checkoutRecovery).toIR(), [selected]);
 
-  /** Mock 停留人数：等待类节点上演示徽标（真实数据将来自引擎统计接口）。 */
+  /** Mock waiting counts to demo the badge on delay nodes (real data will come from the engine's stats API). */
   const stats = useMemo<NodeStats>(() => {
     const mock: NodeStats = {};
     for (const node of layout(ir).nodes) {

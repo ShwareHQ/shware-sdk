@@ -1,9 +1,10 @@
 /**
- * Cloudflare 绑定的结构化最小接口。
+ * A minimal structural interface over the Cloudflare bindings.
  *
- * 刻意不依赖 @cloudflare/workers-types：它注入全局类型会与本包 react 侧的
- * DOM lib 冲突；结构化子集 + cloudflare:workers 的 ambient 声明足够编译，
- * 运行时由真实绑定满足（结构兼容）。
+ * @cloudflare/workers-types is deliberately not used: the global types it
+ * injects clash with the DOM lib this package's react side needs. A structural
+ * subset plus the ambient cloudflare:workers declaration is enough to compile,
+ * and the real bindings satisfy it structurally at runtime.
  */
 
 export interface KVNamespaceLike {
@@ -32,25 +33,25 @@ export interface WorkflowBindingLike {
   get(id: string): Promise<WorkflowInstanceLike>;
 }
 
-/** Journey 引擎需要的全部绑定（wrangler 配置对应命名）。 */
+/** Every binding the journey engine needs (names match the wrangler config). */
 export interface JourneyEnv {
-  /** BundleIR 存储：`wf:${contentHash}` → WorkflowIR JSON。 */
+  /** BundleIR storage: `wf:${contentHash}` → WorkflowIR JSON. */
   WORKFLOW_KV: KVNamespaceLike;
   /** events / profiles / segments / triggers / entries / subscriptions。 */
   DB: D1DatabaseLike;
-  /** JourneyRunner 的 workflow 绑定（创建实例 / 唤醒）。 */
+  /** JourneyRunner's workflow binding (creating instances and waking them). */
   JOURNEY: WorkflowBindingLike;
-  /** 可选：消息出口 webhook（缺省 console 日志发送器）。 */
+  /** Optional message-delivery webhook (defaults to the console logging sender). */
   MESSAGE_WEBHOOK_URL?: string;
 }
 
-/** Router 唤醒等待中实例所用的事件类型（sendEvent 的 type）。 */
+/** The event type the router uses to wake waiting instances (sendEvent's `type`). */
 export const WAKE_EVENT_TYPE = 'wake';
 
-/** 旅程实例参数：Ingest Router 创建实例时传入。 */
+/** Journey instance parameters, passed by the ingest router when it creates one. */
 export interface JourneyParams {
   workflowName: string;
-  /** 入流时 pin 的 IR 版本。 */
+  /** The IR version pinned at entry. */
   contentHash: string;
   userId: string;
   trigger: { event: string; payload: Record<string, unknown> };

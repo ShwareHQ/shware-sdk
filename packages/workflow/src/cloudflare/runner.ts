@@ -13,9 +13,10 @@ import { ingestEvent } from './router';
 import { LogMessageSender, WebhookMessageSender } from './senders';
 
 /**
- * CF WorkflowStep → EngineStep 适配。
- * waitForEvent：先在 step 内登记订阅（Router 据表唤醒），等待，事后清理；
- * CF 超时是 throw 语义，翻译成端口的 'timeout' 返回值。
+ * Adapts CF's WorkflowStep to EngineStep.
+ * waitForEvent registers the subscription inside a step first (the router wakes
+ * instances from that table), waits, then cleans up. CF signals a timeout by
+ * throwing, which is translated into the port's 'timeout' return value.
  */
 class CfEngineStep implements EngineStep {
   constructor(
@@ -72,13 +73,15 @@ class CfEngineStep implements EngineStep {
 }
 
 /**
- * 通用旅程执行器：一个类跑所有 workflow——IR 是数据，按入流时 pin 的
- * contentHash 从 KV 载入（内容寻址不可变，在 step 外读取也是 replay 安全的）。
+ * The generic journey executor: one class runs every workflow, because IR is
+ * data. It is loaded from KV by the contentHash pinned at entry — content
+ * addressing makes it immutable, so reading it outside a step is replay-safe.
  */
 export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams> {
   /**
-   * 消息出口：应用可覆盖以接入真实渠道（如 CfEmailSender + react-email 渲染器）。
-   * 缺省按环境选 webhook / 日志发送器。
+   * Message outlet; an app overrides this to plug in real channels (say
+   * CfEmailSender with a react-email renderer). By default it picks the webhook
+   * or logging sender based on the environment.
    */
   protected createMessageSender(): MessageSender {
     return this.env.MESSAGE_WEBHOOK_URL
@@ -98,7 +101,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
 
     const messages = this.createMessageSender();
 
-    // send_event 直接回注 Router 逻辑（同 Worker 内函数调用，跨 workflow 事件边）
+    // send_event feeds straight back into the router logic — an in-Worker call forming the event edge between workflows
     const events: EventSink = {
       emit: async (name, payload) => {
         await ingestEvent(env, { userId, event: name, payload });

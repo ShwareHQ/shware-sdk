@@ -3,7 +3,7 @@ import { type ReactElement, createElement, useEffect, useState } from 'react';
 import { emailModules } from './emails';
 import type { TemplateRefInfo } from './template-refs';
 
-/** 模板预览页：左侧是从 IR 反查出的模板清单，右侧渲染 react-email 组件。 */
+/** Template preview page: the list on the left comes from IR, the react-email component renders on the right. */
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
   selected: string | undefined;
@@ -19,7 +19,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   survey: 'Survey',
 };
 
-/** props 值可能是用户属性引用，展示成 {{ path }} 以区别于字面量。 */
+/** A prop value may be a user-property reference; render it as {{ path }} to distinguish it from a literal. */
 function formatPropValue(value: unknown): string {
   if (value !== null && typeof value === 'object' && 'type' in value) {
     const ref = value as { type: string; path?: string };
@@ -42,7 +42,7 @@ function useRenderedEmail(key: string | undefined) {
       return;
     }
     let cancelled = false;
-    // 模块契约用 never 收窄 props（逆变），调用处还原成具体形状
+    // The module contract narrows props with never (contravariance); restore a concrete shape at the call site
     const props = (mod.preview ?? {}) as Record<string, unknown>;
     const Component = mod.default as (p: Record<string, unknown>) => ReactElement;
     const buildSubject = mod.subject as ((p: Record<string, unknown>) => string) | undefined;
@@ -64,14 +64,14 @@ function useRenderedEmail(key: string | undefined) {
 }
 
 export function TemplatesPage({ refs, selected, onSelect }: TemplatesPageProps) {
-  // at(0) 而非 [0]：返回类型带 undefined，空清单的分支才是真分支
+  // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
   const activeModule = active ? emailModules[active.key] : undefined;
   const { html, subject, error } = useRenderedEmail(active?.key);
 
   return (
     <div className="flex h-full min-h-0">
-      {/* 模板清单 */}
+      {/* Template list */}
       <aside className="w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white">
         <div className="px-4 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
           Templates · {refs.length}
@@ -110,7 +110,7 @@ export function TemplatesPage({ refs, selected, onSelect }: TemplatesPageProps) 
         </ul>
       </aside>
 
-      {/* 预览 */}
+      {/* Preview */}
       <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
         {active === undefined ? (
           <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
@@ -131,7 +131,7 @@ export function TemplatesPage({ refs, selected, onSelect }: TemplatesPageProps) 
                   {subject}
                 </div>
               )}
-              {/* 每个引用处一行：同一模板在不同流程里可传不同 props */}
+              {/* One line per use site: the same template can take different props in different flows */}
               <ul className="mt-2 space-y-0.5">
                 {active.usages.map((usage) => (
                   <li key={`${usage.workflow}:${usage.nodeId}`} className="text-xs text-slate-500">

@@ -3,21 +3,25 @@ import { evaluateCondition, relevantEvents } from './condition';
 import type { FactSource, JourneyContext, JourneyOutcome } from './ports';
 
 /**
- * IR 解释器：单个用户旅程实例的执行核心。
+ * IR interpreter: the execution core for one user's journey instance.
  *
- * 纯逻辑——不 import 任何运行时平台的东西，全部外部效应经 JourneyContext
- * 端口注入；durable 语义（checkpoint/replay）由 EngineStep 适配器承担。
+ * Pure logic — it imports nothing platform-specific; every external effect
+ * arrives through the JourneyContext ports, and durable semantics
+ * (checkpoint/replay) are the EngineStep adapter's job.
  *
- * step 命名规则：IR 节点 id 就是 step 名（结构路径派生，天然确定且唯一），
- * 一个节点多个 step 时加后缀（`${id}:guard`、`${id}:check:${n}`）。
+ * Step naming: an IR node id *is* the step name (derived from the structural
+ * path, so it is deterministic and unique). When one node needs several steps,
+ * a suffix is appended (`${id}:guard`, `${id}:check:${n}`).
  */
 
-/** wait_until 的候选事件重评估上限：超过按超时处理（防订阅风暴耗尽步数）。 */
+/** Cap on wait_until re-evaluations: beyond it we treat the wait as timed out, so a subscription storm cannot exhaust the step budget. */
 const MAX_WAIT_CHECKS = 16;
 
 /**
- * 渠道 → 收件地址所在的用户属性。引擎在发送前解析，sender 保持无状态。
- * TODO: 允许应用覆盖这张表（目前是约定：email 由 UserPropertyBase 保证存在）。
+ * Channel → the user property holding its recipient address. The engine
+ * resolves it before sending, which keeps senders stateless.
+ * TODO: let the app override this table (today it is a convention, with
+ * UserPropertyBase guaranteeing `email` exists).
  */
 const RECIPIENT_PROPERTY: Record<string, string | undefined> = {
   email: 'email',
@@ -54,7 +58,7 @@ export async function runJourney(ir: WorkflowIR, ctx: JourneyContext): Promise<J
 
 async function runFlow(nodes: NodeIR[], ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSignal> {
   for (const node of nodes) {
-    // 节点边界守卫：goal / exitWhen（MVP 语义：睡醒后、执行前检查）
+    // Node-boundary guards: goal / exitWhen (MVP semantics — checked after waking, before running)
     const guard = await checkGuards(node.id, ir, ctx);
     if (guard) return guard;
 
@@ -111,7 +115,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     }
 
     case 'random_delay': {
-      // 随机值在 step 内产生并持久化：replay 时不重掷
+      // The random value is drawn and persisted inside the step, so replay does not re-roll it
       const ms = await ctx.step.do(`${node.id}:roll`, async () => {
         const span = node.max.ms - node.min.ms;
         return node.min.ms + Math.floor(Math.random() * Math.max(span, 0));
@@ -146,12 +150,12 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             return i;
           }
         }
-        return -1; // 无命中 → 默认分支 / 直接继续
+        return -1; // no match → default arm, or simply continue
       });
       const flow = matched >= 0 ? node.cases[matched]?.flow : node.otherwise;
       if (flow === undefined) return FALL_THROUGH;
       const signal = await runFlow(flow, ir, ctx);
-      // 结构化合流：臂 fall through 后继续 branch 之后的节点
+      // Structural rejoin: once an arm falls through, execution resumes after the branch
       return signal;
     }
 
@@ -163,7 +167,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     }
 
     case 'cohort': {
-      // 确定性分桶：同一用户在同一节点永远进同一臂，replay 无需持久化
+      // Deterministic bucketing: the same user always lands in the same arm at the same node, so replay needs no checkpoint
       const bucket = hashToBucket(`${ctx.userId}:${node.id}`);
       let cumulative = 0;
       for (const arm of node.arms) {
@@ -196,7 +200,7 @@ async function waitUntil(
   );
 
   for (let attempt = 0; attempt < MAX_WAIT_CHECKS; attempt++) {
-    // 先查一次：进入等待前条件可能已满足（也覆盖无缓冲平台的登记竞态）
+    // Check once up front: the condition may already hold, which also covers the registration race on platforms without buffering
     const met = await ctx.step.do(`${node.id}:check:${attempt}`, async () =>
       evaluateCondition(node.condition, ctx.facts, Date.now())
     );
@@ -213,12 +217,12 @@ async function waitUntil(
       timeoutMs: remaining,
     });
     if (wake === 'timeout') {
-      // 超时后终检：极限竞态下事件可能在超时瞬间落库
+      // Final check after timeout: in a tight race the event may land exactly as the timer fires
       return ctx.step.do(`${node.id}:final`, async () =>
         evaluateCondition(node.condition, ctx.facts, Date.now())
       );
     }
-    // 被唤醒 → 回到循环头重评估（至少一次唤醒语义）
+    // Woken → back to the top of the loop to re-evaluate (at-least-once wake-up semantics)
   }
   return false;
 }
@@ -235,7 +239,7 @@ async function resolveValues(
   return resolved;
 }
 
-/** FNV-1a 32 → [0, 100)：cohort 分桶。 */
+/** FNV-1a 32 → [0, 100): cohort bucketing. */
 function hashToBucket(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
@@ -246,8 +250,8 @@ function hashToBucket(input: string): number {
 }
 
 /**
- * 下一个时间窗口起点（UTC；tz 支持是后续课题）。
- * 返回 null 表示当前已在窗口内、无需等待。
+ * Start of the next time window (UTC; timezone support is a later topic).
+ * Returns null when we are already inside the window and need not wait.
  */
 function nextWindowStart(nowMs: number, days: readonly string[], startHHmm: string): number | null {
   const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -266,7 +270,7 @@ function nextWindowStart(nowMs: number, days: readonly string[], startHHmm: stri
       mm
     );
     if (start > nowMs) return start;
-    // 今天窗口已开始：视为在窗口内（结束边界的精确处理留给 tz 课题）
+    // Today's window has already opened: treat as inside it (the closing edge is left to the timezone topic)
     if (offset === 0 && dayKey === DAY_KEYS[now.getUTCDay()]) return null;
   }
   return null;

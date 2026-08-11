@@ -1,53 +1,63 @@
 import * as z from 'zod/mini';
 
 /**
- * IR（Intermediate Representation）—— DSL 的编译产物，可序列化 JSON。
- * 引擎解释执行、UI（react-flow）渲染、diff / 审计的三方合同。
+ * IR (Intermediate Representation) — what the DSL compiles to: serializable
+ * JSON. It is the three-way contract between the engine that interprets it,
+ * the UI (react-flow) that renders it, and diff / audit tooling.
  *
- * 校验策略：zod/mini schema 是 IR 的权威定义，TS 类型从 schema 推导或与
- * schema 同名手写（递归类型 zod 推导不了，手写后用 ZodMiniType<T> 注解锚定，
- * 两者漂移会编译报错）。IR 跨越进程边界（数据库、网络、UI），运行时校验必需。
+ * Validation strategy: the zod/mini schemas are the authoritative definition.
+ * TS types are either inferred from a schema or hand-written under the same
+ * name (zod cannot infer recursive types; the hand-written type is anchored
+ * with a ZodMiniType<T> annotation, so any drift fails to compile). IR crosses
+ * process boundaries (database, network, UI), so runtime validation is a must.
  *
- * ## 版本化（两条独立的轴）
+ * ## Versioning (two independent axes)
  *
- * 1. IR 格式版本（irVersion）：IR schema 自身的演进。加可选字段不升版本；
- *    结构不兼容（改判别值、删字段、改语义）才递增。读取方按 irVersion 分发
- *    到对应版本的 schema/迁移器；写入方永远写当前版本。
- * 2. 内容版本（contentHash）：单个定义的**执行语义**的内容寻址标识——
- *    剥掉元数据（meta / label）后的 canonical JSON 哈希，见 hash.ts。用途：
- *    - 用户入流时 pin 住 contentHash，在途旅程按 pin 的版本执行到结束
- *      （默认策略；结构兼容的热更新是未来的显式迁移课题）；
- *    - 部署时 diff：hash 相同 = 定义未变，跳过发布；
- *    - 审计：任何时刻能回答"这个用户当时走的是哪个版本"。
+ * 1. IR format version (irVersion): evolution of the IR schema itself. Adding
+ *    optional fields does not bump it; only structurally incompatible changes
+ *    do (changing a discriminant, dropping a field, altering semantics).
+ *    Readers dispatch on irVersion to the matching schema/migrator; writers
+ *    always write the current version.
+ * 2. Content version (contentHash): a content-addressed id for a single
+ *    definition's **execution semantics** — the canonical-JSON hash after
+ *    metadata (meta / label) is stripped, see hash.ts. It is used to:
+ *    - pin a version when a user enters, so an in-flight journey runs the
+ *      pinned version to completion (the default policy; compatible hot
+ *      updates are a future explicit-migration topic);
+ *    - diff on deploy: same hash means unchanged, skip publishing;
+ *    - audit: answer "which version was this user on" at any point.
  *
- * ## 节点 id
+ * ## Node ids
  *
- * 编译期按结构路径派生，稳定且确定：根层 '0'、'1'…；branch 第 i 个 case 的
- * 第 j 个子节点 '{branchId}.c{i}.{j}'，默认分支 '{branchId}.o.{j}'；cohort 臂
- * 用臂名 '{cohortId}.{armName}.{j}'；waitUntil 超时子流程 '{id}.t.{j}'。
- * 改节点参数不动 id；插入节点会移动后续兄弟的 id（已知取舍——在途用户定位
- * 依赖 pin 版本而非跨版本 id 对齐，跨版本迁移映射是显式迁移器的职责）。
+ * Derived from the structural path at compile time — stable and deterministic:
+ * root level '0', '1', …; the j-th child of a branch's i-th case is
+ * '{branchId}.c{i}.{j}', the default arm '{branchId}.o.{j}'; cohort arms use
+ * the arm name '{cohortId}.{armName}.{j}'; a waitUntil timeout flow '{id}.t.{j}'.
+ * Editing a node's parameters keeps its id; inserting a node shifts the ids of
+ * its later siblings (a known trade-off — locating in-flight users relies on
+ * the pinned version rather than cross-version id alignment, and cross-version
+ * mapping is an explicit migrator's job).
  */
 
 export const IR_VERSION = 1;
 
-/* --------------------------------- 基础值 --------------------------------- */
+/* -------------------------------- Base values ------------------------------- */
 
 export const ScalarIR = z.union([z.string(), z.number(), z.boolean()]);
 export type ScalarIR = z.infer<typeof ScalarIR>;
 
-/** 时长：value 保留 DSL 原文（'23 hours'，给 UI 展示），ms 是引擎用的毫秒数。 */
+/** Duration: `value` keeps the DSL literal ('23 hours', for display), `ms` is what the engine uses. */
 export const DurationIR = z.object({ value: z.string(), ms: z.number() });
 export type DurationIR = z.infer<typeof DurationIR>;
 
-/** 用户属性引用——与 DSL 的 UserPropertyRef 序列化后同构（幻影类型剥离）。 */
+/** User-property reference — isomorphic to the DSL's UserPropertyRef once serialized (phantom type dropped). */
 export const UserPropertyRefIR = z.object({
   type: z.literal('user_property'),
   path: z.string(),
 });
 export type UserPropertyRefIR = z.infer<typeof UserPropertyRefIR>;
 
-/** 消息 props / 事件 payload 的值：字面量或用户属性引用。 */
+/** A message prop / event payload value: either a literal or a user-property reference. */
 export const PropValueIR = z.union([ScalarIR, UserPropertyRefIR]);
 export type PropValueIR = z.infer<typeof PropValueIR>;
 
@@ -57,7 +67,7 @@ export type ChannelIR = z.infer<typeof ChannelIR>;
 export const WeekdayIR = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 export type WeekdayIR = z.infer<typeof WeekdayIR>;
 
-/* ---------------------------------- 条件 ---------------------------------- */
+/* -------------------------------- Conditions -------------------------------- */
 
 export const PropertyOperatorIR = z.enum([
   'eq',
@@ -75,16 +85,16 @@ export const PropertyOperatorIR = z.enum([
 export type PropertyOperatorIR = z.infer<typeof PropertyOperatorIR>;
 
 /**
- * 条件表达式树。value/values 的形状随 op 变化：
- * eq/ne/gt/lt/contains/not_contains → value；in_array/not_in_array → values；
- * between → values = [min, max]；exists/not_exists → 两者皆无。
- * TODO: 按 op 收窄的运行时 refine。
+ * Condition expression tree. The shape of value/values follows `op`:
+ * eq/ne/gt/lt/contains/not_contains → value; in_array/not_in_array → values;
+ * between → values = [min, max]; exists/not_exists → neither.
+ * TODO: runtime refinement narrowing by op.
  */
 export type ConditionIR =
   | { type: 'and'; conditions: ConditionIR[] }
   | { type: 'or'; conditions: ConditionIR[] }
   | { type: 'not'; condition: ConditionIR }
-  /** 按名引用命名 segment（定义在 SegmentIR，独立版本化）。 */
+  /** Reference a named segment by name (defined in SegmentIR, versioned separately). */
   | { type: 'segment'; segment: string }
   | {
       type: 'property';
@@ -122,7 +132,7 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
   ])
 );
 
-/* ---------------------------------- 触发 ---------------------------------- */
+/* --------------------------------- Triggers --------------------------------- */
 
 export const TriggerIR = z.discriminatedUnion('type', [
   z.object({ type: z.literal('event'), event: z.string(), filter: z.optional(ConditionIR) }),
@@ -132,12 +142,12 @@ export const TriggerIR = z.discriminatedUnion('type', [
 ]);
 export type TriggerIR = z.infer<typeof TriggerIR>;
 
-/* ---------------------------------- 节点 ---------------------------------- */
+/* ----------------------------------- Nodes ---------------------------------- */
 
 interface NodeBaseIR {
-  /** 结构路径派生的稳定 id（规则见文件头）。 */
+  /** Stable id derived from the structural path (rules in the file header). */
   id: string;
-  /** 可选节点名：UI 标题 / 观测定位（branch 的可选首参 label 落在这里）。 */
+  /** Optional node name: UI title / observability handle (branch's optional first argument lands here). */
   label?: string | undefined;
 }
 
@@ -165,13 +175,13 @@ export type NodeIR =
   | (NodeBaseIR & {
       type: 'branch';
       cases: { label?: string | undefined; condition: ConditionIR; flow: NodeIR[] }[];
-      /** 默认分支（DSL 的裸尾参数）。缺省 = 未命中直接继续主线。 */
+      /** Default arm (the DSL's bare tail argument). Absent = fall through to the main line. */
       otherwise?: NodeIR[] | undefined;
     })
   | (NodeBaseIR & { type: 'filter'; condition: ConditionIR; reason?: string | undefined })
   | (NodeBaseIR & {
       type: 'cohort';
-      /** 有序数组（DSL 对象的插入序），weight 总和 = 100。 */
+      /** Ordered array (the DSL object's insertion order); weights sum to 100. */
       arms: { name: string; weight: number; flow: NodeIR[] }[];
     })
   | (NodeBaseIR & { type: 'exit'; reason?: string | undefined })
@@ -237,7 +247,7 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
   ])
 );
 
-/* ------------------------------ 顶层定义与部署单元 ------------------------------ */
+/* ---------------------- Top-level definitions and bundle --------------------- */
 
 export const GoalIR = z.object({
   condition: ConditionIR,
@@ -247,8 +257,9 @@ export const GoalIR = z.object({
 export type GoalIR = z.infer<typeof GoalIR>;
 
 /**
- * 给人看的元数据：**不参与 contentHash**（见 hash.ts）。
- * 改描述/标签不影响执行语义，因此不让在途用户的 pin 版本失效、也不进 plan。
+ * Human-facing metadata: **excluded from contentHash** (see hash.ts).
+ * Editing a description or tag does not touch execution semantics, so it never
+ * invalidates the version in-flight users are pinned to, nor shows up in plan.
  */
 export const MetaIR = z.object({
   description: z.optional(z.string()),
@@ -277,7 +288,7 @@ export const SegmentIR = z.object({
 });
 export type SegmentIR = z.infer<typeof SegmentIR>;
 
-/** 模板清单项：IR 只记录引用与 props 形状约定，内容体在模板系统（独立课题）。 */
+/** Template manifest entry: IR records only the reference; the body lives in the template system. */
 export const TemplateIR = z.object({
   irVersion: z.literal(IR_VERSION),
   key: z.string(),
@@ -286,8 +297,9 @@ export const TemplateIR = z.object({
 export type TemplateIR = z.infer<typeof TemplateIR>;
 
 /**
- * 部署单元：一次 `deploy`（terraform apply 同款心智）产出的完整快照。
- * 服务端 diff 各定义的 contentHash 决定发布/跳过/下线。
+ * Deployment unit: the complete snapshot one `deploy` produces (terraform
+ * apply, same mental model). The server diffs each definition's contentHash to
+ * decide publish / skip / retire.
  */
 export const BundleIR = z.object({
   irVersion: z.literal(IR_VERSION),

@@ -3,8 +3,9 @@ import type { EmailRenderer } from '../../../packages/workflow/src/cloudflare/se
 import { emails } from '../emails';
 
 /**
- * 应用侧渲染器：registry 查表 → react-email 渲染。
- * 引擎只传 key + 已解析的标量 props，组件从不进入引擎的世界。
+ * App-side renderer: registry lookup, then react-email rendering.
+ * The engine only ever passes a key plus resolved scalar props — components
+ * never enter the engine's world.
  */
 export const renderEmail: EmailRenderer = async (key, props) => {
   const mod = emails[key as keyof typeof emails];

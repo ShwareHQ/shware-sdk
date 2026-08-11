@@ -9,9 +9,11 @@ import {
   workflow,
 } from '../../../packages/workflow/src/dsl';
 /**
- * 秒级时长的演示流程：本地 wrangler dev 里肉眼看完整链路
- * （事件 → 触发 → 睡眠 → 分支/等待 → 渲染发送 → goal 退出）。
- * 直连 workspace 源码（免 build）；真实项目 import '@shware/workflow'。
+ * Demo flows on a seconds-long timescale, so the whole pipeline is visible by
+ * eye under a local wrangler dev: event → trigger → sleep → branch/wait →
+ * render and send → goal exit.
+ * These import workspace source directly to avoid a build step; a real project
+ * would import '@shware/workflow'.
  */
 import type { Emails } from '../emails';
 
@@ -32,15 +34,15 @@ interface DemoUser {
 const e = event<DemoEvent>();
 export const u = user<DemoUser>();
 
-/** key 由 emails registry 定类型；props 从组件签名推导（type-only import，无运行时依赖）。 */
+/** The emails registry types the key; props are inferred from the component signature (a type-only import, no runtime dependency). */
 const t = templates<Emails>();
 const welcome = t.email('demo_welcome');
 const offer = t.email('demo_offer');
-// t.email('typo') ← 编译报错：key 不在 registry 里
+// t.email('typo') ← fails to compile: the key is not in the registry
 
 const purchased = segment('demo_purchased', performed(e.demo_purchase));
 
-/** 分支演示：注册 → 5s → 点过链接走 A、否则走 B；下单（goal）随时退出。 */
+/** Branch demo: sign up → 5s → clicked goes down A, everyone else down B; an order (the goal) exits at any point. */
 export const demoRecovery = workflow('demo_recovery', {
   trigger: trigger.event(e.demo_signup),
   goal: purchased,
@@ -55,7 +57,7 @@ export const demoRecovery = workflow('demo_recovery', {
     (w) => w.email(offer, { coupon: 'COMEBACK20', expiresIn: '48 hours' })
   );
 
-/** wait_until 演示：等 demo_click 唤醒，20s 超时则继续。 */
+/** wait_until demo: wait to be woken by demo_click, or continue after a 20s timeout. */
 export const demoWaiter = workflow('demo_waiter', {
   trigger: trigger.event(e.demo_signup),
 })

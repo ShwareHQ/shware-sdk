@@ -45,25 +45,30 @@ import {
 } from './layout';
 
 /**
- * 只读 workflow 画布：消费 IR 渲染，结构 code-owned，UI 不提供编辑。
+ * Read-only workflow canvas: renders IR. Structure is code-owned, so the UI
+ * offers no editing.
  *
- * 渲染原则：HTML-first、像素可控——节点卡片与边标签一律 HTML（字体/行高
- * 对齐 tailwind 规格，支持 corner-shape 等新 CSS）；SVG 仅保留 react-flow
- * 架构必需的连线 path 与箭头 marker，其参数（stroke/箭头尺寸颜色）全部
- * 经 props 显式控制。不用 SVG EdgeText（尺寸随字体 bbox 浮动，不可钉死）。
+ * Rendering principle — HTML-first and pixel-exact: node cards and edge labels
+ * are always HTML (fonts and line heights on tailwind's scale, and new CSS such
+ * as corner-shape is available). SVG is kept only for what react-flow's
+ * architecture requires — the connector paths and their endpoint markers — with
+ * every parameter passed explicitly. SVG EdgeText is not used: its size follows
+ * the font's bounding box and cannot be pinned to exact pixels.
  */
 export interface WorkflowCanvasProps {
   ir: WorkflowIR;
-  /** 节点 id → 当前停留人数（引擎统计接口提供；缺省不渲染徽标）。 */
+  /** Node id → users currently waiting there (from the engine's stats API); no badge without it. */
   stats?: NodeStats;
   /**
-   * 打开消息节点引用的模板（宿主决定跳转方式：路由/新窗口/侧栏）。
-   * 传了才在消息卡右上角渲染跳转图标——库不假设宿主有模板预览页。
+   * Open the template a message node references; the host decides how to
+   * navigate (route, new window, side panel). The icon only appears on message
+   * cards when this is provided — the library never assumes the host has a
+   * template preview.
    */
   onOpenTemplate?: (templateKey: string) => void;
 }
 
-/** 跳转回调经 context 下发：react-flow 的 node data 只应承载可序列化数据。 */
+/** The callback travels by context: react-flow node data should carry serializable data only. */
 const OpenTemplateContext = createContext<((templateKey: string) => void) | undefined>(undefined);
 
 const ICONS: Record<NodeIcon, LucideIcon> = {
@@ -86,7 +91,7 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
 
 const superellipse = { cornerShape: 'superellipse(1.2)' } as CSSProperties;
 
-/** 无描边，纯阴影浮起（customer.io 同款）。 */
+/** No border — elevation comes from shadow alone (customer.io's look). */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: '#fff',
@@ -96,7 +101,7 @@ const baseCard: CSSProperties = {
   ...superellipse,
 };
 
-/** flex 列垂直居中：上下留白恒等，不依赖 padding 与行高的手工对账。 */
+/** Flex column, centred: top and bottom whitespace stay equal without hand-balancing padding against line height. */
 const cardStyle: CSSProperties = {
   ...baseCard,
   display: 'flex',
@@ -114,11 +119,11 @@ const iconStyle: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
-  // 宽度自适应内容；图标侧 12 / 文字侧 16（icon+文案的光学平衡，定稿）
+  // Width follows content; 12 on the icon side, 16 on the text side — optical balance for icon+label
   width: 'fit-content',
   height: ICON_SIZE.h,
   padding: '0 16px 0 12px',
-  // 全圆角胶囊：radius = 高度一半；还原正圆端（superellipse 会把端头削方）
+  // Stadium pill: radius = half the height, with round corners restored (superellipse would flatten the ends)
   borderRadius: 16,
   ...({ cornerShape: 'round' } as CSSProperties),
   fontSize: 12,
@@ -167,7 +172,7 @@ const subtitleStyle: CSSProperties = {
 
 const handleStyle: CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0 };
 
-/** 模板跳转按钮：卡片右上角，无边框图标按钮。 */
+/** Open-template button: a borderless icon button in the card's top-right corner. */
 const linkButtonStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -188,7 +193,7 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
 
   const body =
     data.variant === 'icon' ? (
-      // 小胶囊卡（exit）：图标 + 短文案，reason 进 tooltip
+      // Small pill (exit): icon plus a short label, with reason in the tooltip
       <div
         style={iconStyle}
         title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
@@ -235,7 +240,7 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
 
 const nodeTypes = { wf: WorkflowNode };
 
-/** 边标签胶囊：32px 高（8 网格）、全圆角，字体对齐 tailwind text-xs（12px / 16px）。 */
+/** Edge label pill: 32px tall (8-grid), fully rounded, typography on tailwind's text-xs (12px / 16px). */
 const edgeLabelStyle: CSSProperties = {
   position: 'absolute',
   display: 'flex',
@@ -255,18 +260,19 @@ const edgeLabelStyle: CSSProperties = {
 
 type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
 
-/* ------------------------------- 连线路径生成 ------------------------------- */
+/* ----------------------------- Connector routing ---------------------------- */
 
-/** 所有拐角统一半径。 */
+/** One bend radius for every corner. */
 const BEND = 16;
 /**
- * 拐角控制点系数：圆弧的经典值是 0.552，外拉到 0.9 让肩部更方，
- * 逼近 corner-shape: superellipse 的观感（CSS corner-shape 不适用于 SVG path，
- * 用三次贝塞尔手工造）。
+ * Corner control-point factor. A circular arc's classic value is 0.552; pulling
+ * it out to 0.9 squares the shoulder off, approximating the look of
+ * corner-shape: superellipse. (CSS corner-shape does not apply to SVG paths, so
+ * the shape is built by hand from cubic béziers.)
  */
 const SQUIRCLE = 0.9;
 
-/** 从 (x1,y1) 经拐点 (cx,cy) 弯到 (x2,y2) 的超椭圆肩。 */
+/** A superellipse shoulder bending from (x1,y1) through the corner (cx,cy) to (x2,y2). */
 function corner(x1: number, y1: number, cx: number, cy: number, x2: number, y2: number): string {
   const c1x = x1 + (cx - x1) * SQUIRCLE;
   const c1y = y1 + (cy - y1) * SQUIRCLE;
@@ -275,7 +281,7 @@ function corner(x1: number, y1: number, cx: number, cy: number, x2: number, y2: 
   return `C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`;
 }
 
-/** 正交三段路线（下-横-下），splitY 为水平段所在 y。 */
+/** Three-segment orthogonal route (down, across, down); `splitY` is where the horizontal run sits. */
 function orthogonalPath(sx: number, sy: number, tx: number, ty: number, splitY: number): string {
   const dx = tx - sx;
   if (Math.abs(dx) < 1) return `M ${sx} ${sy} L ${tx} ${ty}`;
@@ -292,10 +298,14 @@ function orthogonalPath(sx: number, sy: number, tx: number, ty: number, splitY: 
 }
 
 /**
- * HTML 标签的自定义边：SVG EdgeText 的高度随字体 bbox 浮动，HTML 才能钉死像素。
- * 标签锚点两档（不用路径中点——短水平段会被胶囊整段盖住）：
- * - target：臂入口拐角上方（实臂，customer.io 的分支标签位）
- * - source：决策节点正下方（空臂直落，避免多条汇合边的标签在远端相撞）
+ * Custom edge with an HTML label: SVG EdgeText's height floats with the font's
+ * bounding box, and only HTML can be pinned to exact pixels.
+ *
+ * Labels anchor one of two ways — never at the path midpoint, since a short
+ * horizontal run would disappear entirely behind the pill:
+ * - target: above the arm's entry corner (a real arm; customer.io's position)
+ * - source: right below the deciding node (empty pass-through arm, which also
+ *   keeps several merge-edge labels from colliding at the far end)
  */
 function WorkflowEdge({
   id,
@@ -307,10 +317,10 @@ function WorkflowEdge({
   style,
   data,
 }: EdgeProps<WfEdge>) {
-  // 分叉边（带标签）：短柄 28px 即劈开；其余（汇合等）水平段走区间中线
+  // Fork edges (labelled) split after a 28px stem; everything else (merges) runs through the midpoint
   const splitY = label ? sourceY + 28 : (sourceY + targetY) / 2;
   const path = orthogonalPath(sourceX, sourceY, targetX, targetY, splitY);
-  // 标签垂在劈开线下方，钉在所属臂的立柱上
+  // The label hangs below the split line, pinned to its own arm's column
   const labelPos = {
     x: data?.anchor === 'source' ? sourceX : targetX,
     y: sourceY + 56,
@@ -318,7 +328,7 @@ function WorkflowEdge({
   return (
     <>
       <BaseEdge id={id} path={path} style={style} />
-      {/* 连接点：端点空心圆替代箭头，描边粗细与颜色都与连线一致 */}
+      {/* Connection point: a hollow circle instead of an arrowhead, matching the wire's stroke and colour */}
       <circle cx={targetX} cy={targetY - 4} r={3.5} fill="#fff" stroke="#cbd5e1" strokeWidth={1} />
       {!!label && (
         <EdgeLabelRenderer>

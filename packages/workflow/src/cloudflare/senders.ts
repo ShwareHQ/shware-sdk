@@ -1,14 +1,15 @@
 import type { MessageSender, OutboundMessage } from '../engine/ports';
 import type { ScalarIR } from '../ir';
 
-/** Cloudflare Email Service 的 send_email 绑定（结构化子集）。 */
+/** Cloudflare Email Service's send_email binding (structural subset). */
 export interface EmailBindingLike {
   send(message: { to: string; from: string; subject: string; html: string }): Promise<unknown>;
 }
 
 /**
- * 模板渲染器：由应用注入——包内保持零 react-email 依赖。
- * 应用侧实现通常是 registry 查表 + @react-email/render。
+ * Template renderer, injected by the app — this package stays free of any
+ * react-email dependency. An app-side implementation is typically a registry
+ * lookup plus @react-email/render.
  */
 export type EmailRenderer = (
   template: string,
@@ -16,8 +17,9 @@ export type EmailRenderer = (
 ) => Promise<{ subject: string; html: string }>;
 
 /**
- * 经 Cloudflare Email Service 直发（绑定调用，无出网 HTTP）。
- * 抛错交给 CF step 重试；投递侧按 idempotencyKey 去重。
+ * Send straight through Cloudflare Email Service — a binding call, no outbound
+ * HTTP. Throwing hands retries to the CF step; the delivery side de-duplicates
+ * on idempotencyKey.
  */
 export class CfEmailSender implements MessageSender {
   constructor(
@@ -38,7 +40,7 @@ export class CfEmailSender implements MessageSender {
   }
 }
 
-/** 开发用发送器：结构化日志，肉眼验证链路。 */
+/** Development sender: structured logs, for eyeballing the pipeline. */
 export class LogMessageSender implements MessageSender {
   async send(message: OutboundMessage): Promise<void> {
     console.log(`[send] ${JSON.stringify(message)}`);
@@ -46,8 +48,9 @@ export class LogMessageSender implements MessageSender {
 }
 
 /**
- * Webhook 发送器：POST 给外部投递服务（Resend/SES 网关等），
- * 幂等键随行——重试/replay 的去重由接收方按 idempotencyKey 执行。
+ * Webhook sender: POST to an external delivery service (a Resend/SES gateway,
+ * say). The idempotency key travels with it, so the receiver de-duplicates
+ * retries and replays on idempotencyKey.
  */
 export class WebhookMessageSender implements MessageSender {
   constructor(private readonly url: string) {}

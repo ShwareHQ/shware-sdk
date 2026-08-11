@@ -1,7 +1,8 @@
 /**
- * cloudflare:workers 的最小 ambient 声明——只覆盖 JourneyRunner 用到的面。
- * 不引 @cloudflare/workers-types（全局类型与 react/DOM 冲突）；
- * 形状对齐官方 API：https://developers.cloudflare.com/workflows/build/workers-api/
+ * Minimal ambient declaration for cloudflare:workers — only the surface
+ * JourneyRunner actually uses. @cloudflare/workers-types is avoided because its
+ * global types clash with react/DOM. Shapes follow the official API:
+ * https://developers.cloudflare.com/workflows/build/workers-api/
  */
 declare module 'cloudflare:workers' {
   export interface WorkflowEvent<Params = unknown> {

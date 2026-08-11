@@ -1,28 +1,32 @@
 /**
- * 内容哈希 —— contentHash 只覆盖**执行语义**。
+ * Content hashing — contentHash covers execution semantics only.
  *
- * 给人看的元数据（description / tags / owner / 节点 label）不参与哈希，
- * 因为它们不影响"一个用户会走哪条路"：
- * - 改一句描述不该让在途用户 pin 的版本失效；
- * - 也不该在 plan 里报出一条"有变更"的噪音。
+ * Human-facing metadata (description / tags / owner, node labels) is excluded,
+ * because it cannot change which path a user takes:
+ * - rewording a description must not invalidate the version an in-flight
+ *   journey is pinned to;
+ * - nor should it surface as a change in `plan`.
  *
- * 与之相对，**存储永远存完整 IR**（含最新描述）。contentHash 只承担两个
- * 职责：判定语义是否变化（plan / 迁移），以及给在途实例 pin 版本。所以
- * 改描述后：UI 立刻显示新描述、plan 显示无变更、在途用户不受影响。
+ * Storage, by contrast, always keeps the full IR (including the latest
+ * description). contentHash carries exactly two responsibilities: deciding
+ * whether semantics moved (plan / migration), and pinning a version for
+ * in-flight instances. So after a description edit: the UI shows the new text,
+ * plan reports no change, and in-flight users are untouched.
  */
 
 /**
- * 不参与哈希的键。
- * - meta：workflow 级元数据（description / tags / owner）
- * - label：节点名与分支臂名（UI 标题 / 观测定位，不改变执行路径）
- * - contentHash：哈希自身
+ * Keys excluded from hashing.
+ * - meta: workflow-level metadata (description / tags / owner)
+ * - label: node and branch-arm names (UI titles / observability, never routing)
+ * - contentHash: the hash itself
  *
- * 注意 cohort 臂的 `name` **参与**哈希：它进节点 id（`{id}.{armName}.{j}`），
- * 而节点 id 就是 durable step 名——改它会改变执行身份。
+ * Note that a cohort arm's `name` IS hashed: it becomes part of the node id
+ * (`{id}.{armName}.{j}`), and node ids are durable step names — renaming an arm
+ * changes execution identity.
  */
 const UNHASHED_KEYS = new Set(['meta', 'label', 'contentHash']);
 
-/** 递归剥离元数据字段，得到纯执行语义的结构。 */
+/** Recursively drop metadata fields, leaving pure execution semantics. */
 export function stripMeta(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripMeta);
   if (value !== null && typeof value === 'object') {
@@ -36,9 +40,9 @@ export function stripMeta(value: unknown): unknown {
   return value;
 }
 
-/** canonical JSON：键排序、无空白——哈希的稳定输入。 */
+/** Canonical JSON: sorted keys, no whitespace — a stable hash input. */
 export function canonicalJSON(value: unknown): string {
-  // JSON.stringify(undefined) 返回 undefined 而非字符串；缺省字段统一记作 null
+  // JSON.stringify(undefined) returns undefined, not a string; absent fields become null
   if (value === undefined) return 'null';
   if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -52,7 +56,7 @@ export function canonicalJSON(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** 稳定内容哈希。当前为 FNV-1a 64（同步、零依赖）；生产可换 SHA-256 截断。 */
+/** Stable content hash. FNV-1a 64 for now (sync, zero deps); swap for truncated SHA-256 in production. */
 export function fnv1a64(input: string): string {
   let hash = 0xcbf29ce484222325n;
   const prime = 0x100000001b3n;
@@ -64,12 +68,12 @@ export function fnv1a64(input: string): string {
   return hash.toString(16).padStart(16, '0');
 }
 
-/** 执行语义的内容哈希（剥元数据 → canonical JSON → FNV-1a 64）。 */
+/** Content hash of execution semantics (strip metadata → canonical JSON → FNV-1a 64). */
 export function semanticHash(value: unknown): string {
   return fnv1a64(canonicalJSON(stripMeta(value)));
 }
 
-/** 完整内容的 canonical 形式——用于区分"语义没变、只改了元数据"。 */
+/** Canonical hash of the full content — used to tell "semantics unchanged, metadata edited" apart. */
 export function fullHash(value: unknown): string {
   return fnv1a64(canonicalJSON(value));
 }
