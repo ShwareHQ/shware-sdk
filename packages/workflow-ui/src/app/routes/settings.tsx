@@ -1,6 +1,6 @@
 import { createRoute } from '@tanstack/react-router';
-import { clsx } from 'clsx';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../../components/button';
 import { superellipse } from '../../components/corner-shape';
 import {
   type SupportedLng,
@@ -30,20 +30,14 @@ function Settings() {
         <p className="mt-1 text-xs text-gray-500">{t('settings.languageHint')}</p>
         <div className="mt-3 flex gap-2">
           {supportedLngs.map((lng: SupportedLng) => (
-            <button
+            <Button
               key={lng}
-              type="button"
+              size="sm"
+              variant={current === lng ? 'default' : 'secondary'}
               onClick={() => void i18n.changeLanguage(lng)}
-              style={superellipse}
-              className={clsx(
-                'rounded-xl px-3 py-1.5 text-[13px] font-medium transition-colors',
-                current === lng
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              )}
             >
               {languageNames[lng]}
-            </button>
+            </Button>
           ))}
         </div>
       </section>

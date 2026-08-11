@@ -87,7 +87,7 @@ function WorkflowDetail() {
       <div className="flex shrink-0 items-center gap-4 border-b border-gray-200 bg-white px-6 py-3">
         <Link
           to="/workflows"
-          className="flex size-7 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-gray-100"
+          className="flex size-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100"
           style={superellipse}
           aria-label={t('common.back')}
         >
@@ -108,7 +108,7 @@ function WorkflowDetail() {
               params={{ name }}
               activeOptions={{ exact: tab.exact }}
               className={clsx(
-                'rounded-lg px-2.5 py-1 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                'rounded-md px-2.5 py-1 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-100'
               )}
               activeProps={{ className: '!bg-gray-900 !text-white' }}
               style={superellipse}

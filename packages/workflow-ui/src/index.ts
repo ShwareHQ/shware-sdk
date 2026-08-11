@@ -3,6 +3,9 @@
  * (`workflow-ui`) composes exactly these — nothing is held back for it.
  */
 export * from './config';
+export { Button } from './components/button';
+export type { Size as ButtonSize } from './components/button';
+export { superellipse } from './components/corner-shape';
 export { WorkflowCanvas } from './components/workflow-canvas';
 export type { WorkflowCanvasProps } from './components/workflow-canvas';
 export { TemplatesPage } from './components/templates-page';
