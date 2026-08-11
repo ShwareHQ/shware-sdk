@@ -1,11 +1,13 @@
 import { render } from '@react-email/render';
 import { type ReactElement, createElement, useEffect, useState } from 'react';
-import { emailModules } from './emails';
+import type { EmailModule } from '../config';
 import type { TemplateRefInfo } from './template-refs';
 
 /** Template preview page: the list on the left comes from IR, the react-email component renders on the right. */
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
+  /** Email registry from the user's config; keys match the DSL's template keys. */
+  emails: Record<string, EmailModule | undefined>;
   selected: string | undefined;
   onSelect: (key: string) => void;
 }
@@ -28,7 +30,10 @@ function formatPropValue(value: unknown): string {
   return String(value);
 }
 
-function useRenderedEmail(key: string | undefined) {
+function useRenderedEmail(
+  emails: Record<string, EmailModule | undefined>,
+  key: string | undefined
+) {
   const [state, setState] = useState<{ html?: string; subject?: string; error?: string }>({});
 
   useEffect(() => {
@@ -36,7 +41,7 @@ function useRenderedEmail(key: string | undefined) {
       setState({});
       return;
     }
-    const mod = emailModules[key];
+    const mod = emails[key];
     if (!mod) {
       setState({});
       return;
@@ -58,16 +63,16 @@ function useRenderedEmail(key: string | undefined) {
     return () => {
       cancelled = true;
     };
-  }, [key]);
+  }, [emails, key]);
 
   return state;
 }
 
-export function TemplatesPage({ refs, selected, onSelect }: TemplatesPageProps) {
+export function TemplatesPage({ refs, emails, selected, onSelect }: TemplatesPageProps) {
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
-  const activeModule = active ? emailModules[active.key] : undefined;
-  const { html, subject, error } = useRenderedEmail(active?.key);
+  const activeModule = active ? emails[active.key] : undefined;
+  const { html, subject, error } = useRenderedEmail(emails, active?.key);
 
   return (
     <div className="flex h-full min-h-0">
@@ -78,7 +83,7 @@ export function TemplatesPage({ refs, selected, onSelect }: TemplatesPageProps) 
         </div>
         <ul>
           {refs.map((ref) => {
-            const registered = emailModules[ref.key] !== undefined;
+            const registered = emails[ref.key] !== undefined;
             const isActive = ref.key === active?.key;
             return (
               <li key={ref.key}>
@@ -157,7 +162,7 @@ export function TemplatesPage({ refs, selected, onSelect }: TemplatesPageProps) 
                     A workflow references{' '}
                     <code className="font-mono text-slate-700">{active.key}</code>, but no
                     react-email component is registered for it in{' '}
-                    <code className="font-mono text-slate-700">src/emails/index.ts</code>.
+                    <code className="font-mono text-slate-700">workflow.config.ts</code>.
                   </p>
                 </div>
               ) : error !== undefined ? (

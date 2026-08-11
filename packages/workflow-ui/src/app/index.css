@@ -1,0 +1,15 @@
+@import '@fontsource-variable/inter';
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+/*
+ * Tailwind's automatic content detection starts from the project being served,
+ * which is the user's — so the studio's own sources must be declared. Paths are
+ * relative to this file.
+ */
+@source '.';
+@source '../components';
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+}

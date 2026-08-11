@@ -2,15 +2,20 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "ignoreDeprecations": "6.0",
+    "outDir": "dist",
+    "rootDir": "src",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
-    "noEmit": true,
+    "declaration": true,
+    "declarationMap": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "strict": true
+    "strict": true,
+    "types": ["node", "vite/client"]
   },
-  "include": ["src", "workflow.config.ts"]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }
