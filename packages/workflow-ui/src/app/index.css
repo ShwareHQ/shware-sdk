@@ -21,10 +21,10 @@
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 
   /*
-   * The studio's grey scale, addressed as `gray-*` everywhere and defined once
-   * here — currently Tailwind's zinc. Swap these eleven values for slate,
-   * neutral or a bespoke ramp and the whole app follows; no component names a
-   * palette directly, and SVG fills read the same variables.
+   * The studio's grey scale. Everything addresses it as `gray-*` and nothing
+   * addresses a Tailwind palette by name; these eleven values are the single
+   * place a ramp is chosen. Swap them for another and the whole app follows,
+   * SVG fills included — they read the same variables.
    */
   --color-gray-50: oklch(0.985 0 0);
   --color-gray-100: oklch(0.967 0.001 286.375);
@@ -56,17 +56,14 @@
   --color-page: var(--color-gray-50);
   --color-card: #fff;
   /*
-   * Canvas. Its surface is set explicitly because react-flow's dark colorMode
-   * paints its own `--xy-background-color-default` (#141414) otherwise, which
-   * lands between our page and card and flattens both. Node cards get their own
-   * role rather than reusing `card`: they float on a grid and have to read as
-   * lifted, where a page card only has to read as separated.
+   * The canvas surface, set explicitly because react-flow's dark colorMode
+   * otherwise paints its own `--xy-background-color-default` (#141414), which
+   * lands right next to the card colour and flattens the cards into it.
    */
-  --color-canvas: var(--color-page);
-  --color-canvas-card: var(--color-card);
+  --color-canvas: var(--color-gray-50);
   --color-edge: var(--color-gray-300);
-  --color-card-ring: rgb(24 24 27 / 0.04);
-  --color-card-shadow: rgb(24 24 27 / 0.08);
+  --color-card-ring: oklch(from var(--color-gray-900) l c h / 0.04);
+  --color-card-shadow: oklch(from var(--color-gray-900) l c h / 0.08);
   /*
    * Chart series, deepening as the funnel narrows. The ramp has to invert
    * between themes: `gray-900` is the strongest line on a white page and an
@@ -91,12 +88,10 @@
   --color-card: var(--color-gray-900);
   /* Pure black under the grid, so the cards above it have the most room to lift. */
   --color-canvas: #000;
-  /* One step brighter than a page card, so it separates from the grid behind it. */
-  --color-canvas-card: var(--color-gray-800);
   --color-edge: var(--color-gray-700);
   /* A drop shadow reads as nothing on a dark page; the ring does the lifting. */
-  --color-card-ring: rgb(255 255 255 / 0.08);
-  --color-card-shadow: rgb(0 0 0 / 0.4);
+  --color-card-ring: oklch(from var(--color-gray-100) l c h / 0.08);
+  --color-card-shadow: oklch(from var(--color-gray-950) l c h / 0.6);
   --color-chart-1: var(--color-gray-600);
   --color-chart-2: var(--color-gray-500);
   --color-chart-3: var(--color-gray-300);
