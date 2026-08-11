@@ -47,6 +47,11 @@ const rate = (part: number | undefined, whole: number | undefined) =>
 
 const COLUMNS = ['delivered', 'opened', 'clicked', 'converted'] as const;
 
+/*
+ * The studio's palette is monochrome; colour is reserved for state. Running /
+ * draft is state, so it keeps green and grey.
+ */
+
 export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
   const { t } = useTranslation();
   const byName = new Map((reports ?? []).map((report) => [report.name, report]));
@@ -121,13 +126,13 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                   <span
                     className={clsx(
                       'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
-                      report ? 'bg-slate-900/5 text-slate-700' : 'bg-slate-100 text-slate-400'
+                      report ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'
                     )}
                   >
                     <span
                       className={clsx(
                         'size-1.5 rounded-full',
-                        report ? 'bg-slate-900' : 'bg-slate-300'
+                        report ? 'bg-green-500' : 'bg-slate-400'
                       )}
                     />
                     {report ? t('status.running') : t('status.draft')}
