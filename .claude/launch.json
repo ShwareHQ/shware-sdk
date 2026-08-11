@@ -5,7 +5,8 @@
       "name": "workflow-playground",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-F", "workflow-playground", "dev"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }
