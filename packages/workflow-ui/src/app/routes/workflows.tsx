@@ -106,7 +106,7 @@ function WorkflowDetail() {
               params={{ name }}
               activeOptions={{ exact: tab.exact }}
               className={clsx(
-                'rounded-md px-2.5 py-1 text-[13px] text-slate-600 transition-colors hover:bg-slate-100'
+                'rounded-md px-2.5 py-1 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100'
               )}
               activeProps={{ className: '!bg-slate-900 !text-white' }}
             >
