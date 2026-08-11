@@ -31,18 +31,25 @@ async function createVisitor(): Promise<Visitor> {
 async function getOrCreateVisitor(): Promise<Visitor> {
   const visitorId = config.storage.getItem(keys.visitor_id);
   if (visitorId && visitorId !== 'undefined') {
+    // PATCH, not GET: `tags` is the last-touch counterpart to `initial_tags`,
+    // and the only thing that ever refreshed it was `setVisitor`, which hosts
+    // call when they identify a user. A visitor who never signs in therefore
+    // kept the browser, screen, and release captured on their first ever page
+    // load — for the rest of their life — leaving `tags` permanently equal to
+    // `initial_tags` and the two columns pointless.
+    //
+    // Costs nothing extra: this replaces the request that was already here.
+    const tags = await config.getTags();
     const response = await fetch(`${config.endpoint}/visitors/${visitorId}`, {
-      method: 'GET',
+      method: 'PATCH',
       credentials: 'include',
       headers: await config.getHeaders(),
+      body: JSON.stringify({ tags } satisfies UpdateVisitorDTO),
     });
 
     if (!response.ok) return createVisitor();
     const data = (await response.json()) as Visitor;
 
-    // The legacy system used int64 ids (SnowflakeId); the new system switched to UUID_v7. The GET
-    // endpoint accepts both, and querying with a legacy id returns the new UUID_v7,
-    // so we write it back here to refresh the stored id for a smooth migration.
     if (data.id) {
       config.storage.setItem(keys.visitor_id, data.id);
     }
