@@ -55,7 +55,15 @@
   /* Surfaces: `page` is what a view sits on, `card` is what sits on the page. */
   --color-page: var(--color-gray-50);
   --color-card: #fff;
-  /* Canvas: connector strokes, and the ring/shadow that lifts a node card. */
+  /*
+   * Canvas. Its surface is set explicitly because react-flow's dark colorMode
+   * paints its own `--xy-background-color-default` (#141414) otherwise, which
+   * lands between our page and card and flattens both. Node cards get their own
+   * role rather than reusing `card`: they float on a grid and have to read as
+   * lifted, where a page card only has to read as separated.
+   */
+  --color-canvas: var(--color-page);
+  --color-canvas-card: var(--color-card);
   --color-edge: var(--color-gray-300);
   --color-card-ring: rgb(24 24 27 / 0.04);
   --color-card-shadow: rgb(24 24 27 / 0.08);
@@ -81,6 +89,10 @@
   --color-selected: var(--color-gray-800);
   --color-page: var(--color-gray-950);
   --color-card: var(--color-gray-900);
+  /* Pure black under the grid, so the cards above it have the most room to lift. */
+  --color-canvas: #000;
+  /* One step brighter than a page card, so it separates from the grid behind it. */
+  --color-canvas-card: var(--color-gray-800);
   --color-edge: var(--color-gray-700);
   /* A drop shadow reads as nothing on a dark page; the ring does the lifting. */
   --color-card-ring: rgb(255 255 255 / 0.08);

@@ -100,7 +100,7 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
 /** No border — elevation comes from shadow alone (customer.io's look). */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
-  background: 'var(--color-card)',
+  background: 'var(--color-canvas-card)',
   boxShadow: '0 0 0 1px var(--color-card-ring), 0 2px 4px var(--color-card-shadow)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
@@ -254,7 +254,7 @@ const edgeLabelStyle: CSSProperties = {
   height: 32,
   padding: '0 12px',
   borderRadius: 16,
-  background: 'var(--color-card)',
+  background: 'var(--color-canvas-card)',
   border: '1px solid var(--color-border)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   fontSize: 12,
@@ -339,7 +339,7 @@ function WorkflowEdge({
         cx={targetX}
         cy={targetY - 4}
         r={3.5}
-        fill="var(--color-card)"
+        fill="var(--color-canvas-card)"
         stroke="var(--color-edge)"
         strokeWidth={1}
       />
@@ -392,6 +392,8 @@ function CanvasSurface({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         colorMode={colorMode}
+        // Overrides react-flow's own dark surface, which sits between our page and card
+        style={{ background: 'var(--color-canvas)' }}
         fitView
         minZoom={0.2}
         nodesDraggable={false}
