@@ -41,6 +41,7 @@ import {
   type CanvasNode,
   type CanvasNodeData,
   ICON_SIZE,
+  type NodeCategory,
   type NodeIcon,
   layout,
 } from './layout';
@@ -78,6 +79,20 @@ export interface WorkflowCanvasProps {
 
 /** The callback travels by context: react-flow node data should carry serializable data only. */
 const OpenTemplateContext = createContext<((templateKey: string) => void) | undefined>(undefined);
+
+/**
+ * One hue per category, not per icon: six colours make a message, a wait and a
+ * branch tell themselves apart at a glance; fifteen would just be noise. Values
+ * live in CSS so they shift with the theme.
+ */
+const CATEGORY_COLOR: Record<NodeCategory, string> = {
+  trigger: 'var(--color-icon-trigger)',
+  message: 'var(--color-icon-message)',
+  delay: 'var(--color-icon-delay)',
+  control: 'var(--color-icon-control)',
+  data: 'var(--color-icon-data)',
+  exit: 'var(--color-icon-exit)',
+};
 
 const ICONS: Record<NodeIcon, LucideIcon> = {
   trigger: Zap,
@@ -210,13 +225,13 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
         style={iconStyle}
         title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
       >
-        <Icon size={14} color="var(--color-secondary)" strokeWidth={2} aria-hidden />
+        <Icon size={14} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
         {data.title}
       </div>
     ) : (
       <div style={cardStyle}>
         <div style={headerStyle}>
-          <Icon size={15} color="var(--color-secondary)" strokeWidth={2} aria-hidden />
+          <Icon size={15} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
           <span style={titleStyle}>{data.title}</span>
           {data.count !== undefined && (
             <span style={countStyle}>
@@ -276,6 +291,15 @@ type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
 
 /** One bend radius for every corner. */
 const BEND = 16;
+const DOT_R = 3.5;
+/**
+ * react-flow anchors its 1px handles just outside the node box, so both ends of
+ * a connector stop one pixel short of the card: the line leaves the bottom edge
+ * with a visible hairline under it, and the endpoint dot floats above the top
+ * edge. Growing the path by this much at each end — and placing the dot's
+ * bottom at the same point — closes both seams.
+ */
+const HANDLE_INSET = 1;
 /**
  * Corner control-point factor. A circular arc's classic value is 0.552; pulling
  * it out to 0.9 squares the shoulder off, approximating the look of
@@ -331,7 +355,13 @@ function WorkflowEdge({
 }: EdgeProps<WfEdge>) {
   // Fork edges (labelled) split after a 28px stem; everything else (merges) runs through the midpoint
   const splitY = label ? sourceY + 28 : (sourceY + targetY) / 2;
-  const path = orthogonalPath(sourceX, sourceY, targetX, targetY, splitY);
+  const path = orthogonalPath(
+    sourceX,
+    sourceY - HANDLE_INSET,
+    targetX,
+    targetY + HANDLE_INSET,
+    splitY
+  );
   // The label hangs below the split line, pinned to its own arm's column
   const labelPos = {
     x: data?.anchor === 'source' ? sourceX : targetX,
@@ -343,8 +373,8 @@ function WorkflowEdge({
       {/* Connection point: a hollow circle instead of an arrowhead, matching the wire's stroke and colour */}
       <circle
         cx={targetX}
-        cy={targetY - 4}
-        r={3.5}
+        cy={targetY + HANDLE_INSET - DOT_R}
+        r={DOT_R}
         fill="var(--color-card)"
         stroke="var(--color-edge)"
         strokeWidth={1}
@@ -410,7 +440,7 @@ function CanvasSurface({
           style: { stroke: 'var(--color-edge)' },
         }}
       >
-        <Background gap={16} />
+        <Background gap={16} color="var(--color-grid)" />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
