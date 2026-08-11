@@ -123,7 +123,7 @@ function Segments() {
           return (
             <li
               key={ref.name}
-              className="rounded-xl border border-gray-200 bg-white px-5 py-4"
+              className="rounded-2xl border border-gray-200 bg-white px-5 py-4"
               style={superellipse}
             >
               <div className="flex items-center gap-2">

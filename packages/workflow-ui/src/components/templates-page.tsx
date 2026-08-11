@@ -127,7 +127,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
             <div className="min-h-0 flex-1 overflow-auto p-6">
               {activeModule === undefined ? (
                 <div
-                  className="mx-auto max-w-xl rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center"
+                  className="mx-auto max-w-xl rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center"
                   style={superellipse}
                 >
                   <p className="text-sm font-medium text-gray-900">{t('emails.notRegistered')}</p>
@@ -139,7 +139,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                 <div className="text-center text-sm text-gray-500">{t('emails.rendering')}</div>
               ) : error !== undefined ? (
                 <div
-                  className="mx-auto max-w-xl rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700"
+                  className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700"
                   style={superellipse}
                 >
                   {error}
@@ -148,7 +148,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                 <iframe
                   title={`${active.key} preview`}
                   srcDoc={html ?? ''}
-                  className="mx-auto h-full w-full max-w-2xl rounded-xl border border-gray-200 bg-white"
+                  className="mx-auto h-full w-full max-w-2xl rounded-2xl border border-gray-200 bg-white"
                   style={superellipse}
                 />
               )}
