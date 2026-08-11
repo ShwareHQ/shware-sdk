@@ -7,4 +7,7 @@ import { getRouter } from './router';
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('missing #root element');
 
+/* Names the tab after the project; the sidebar always reads "Workflow Studio". */
+if (config.title !== undefined) document.title = config.title;
+
 createRoot(rootElement).render(<RouterProvider router={getRouter(config)} />);
