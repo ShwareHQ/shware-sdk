@@ -45,8 +45,13 @@ export interface CanvasNodeData extends Record<string, unknown> {
 
 /** Card sizes: the single source shared by layout and renderer, all on the 16/8 grid. */
 export const CARD_SIZE = { w: 288, h: 64 } as const;
-/** The icon variant renders as an auto-width pill; `w` here is a positioning estimate ('Exit' measures ≈ 69px). */
-export const ICON_SIZE = { w: 68, h: 32 } as const;
+/**
+ * The icon variant renders as an auto-width pill, so only its height is known
+ * here. It is laid out in a card-width box and centred inside it: guessing the
+ * pill's width instead put its visual centre a couple of pixels off the column
+ * the connectors are drawn down, which reads as a crooked line.
+ */
+export const ICON_SIZE = { w: CARD_SIZE.w, h: 32 } as const;
 
 export interface CanvasNode {
   id: string;

@@ -141,6 +141,19 @@ const cardStyle: CSSProperties = {
   borderRadius: 12,
 };
 
+/**
+ * The pill sits in a card-width box and centres itself in it. react-flow anchors
+ * handles at the measured box's midpoint, so letting the auto-width pill *be*
+ * the box put its centre wherever the label happened to end — a couple of
+ * pixels off the column the connectors run down.
+ */
+const iconWrapStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'center',
+  width: ICON_SIZE.w,
+  height: ICON_SIZE.h,
+};
+
 const iconStyle: CSSProperties = {
   ...baseCard,
   display: 'flex',
@@ -222,12 +235,14 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
   const body =
     data.variant === 'icon' ? (
       // Small pill (exit): icon plus a short label, with reason in the tooltip
-      <div
-        style={iconStyle}
-        title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
-      >
-        <Icon size={14} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
-        {data.title}
+      <div style={iconWrapStyle}>
+        <div
+          style={iconStyle}
+          title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
+        >
+          <Icon size={14} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
+          {data.title}
+        </div>
       </div>
     ) : (
       <div style={cardStyle}>
