@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { EmailModule } from '../config';
 import type { TemplateRefInfo } from './template-refs';
 
@@ -38,6 +39,7 @@ function formatPropValue(value: unknown): string {
 }
 
 export function TemplatesPage({ refs, emails, selected, onSelect, preview }: TemplatesPageProps) {
+  const { t } = useTranslation();
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
   const activeModule = active ? emails[active.key] : undefined;
@@ -48,7 +50,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
       {/* Template list */}
       <aside className="w-72 shrink-0 overflow-y-auto border-r border-slate-200 bg-white">
         <div className="px-4 py-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
-          Templates · {refs.length}
+          {t('emails.title')} · {refs.length}
         </div>
         <ul>
           {refs.map((ref) => {
@@ -69,7 +71,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                     <span className="truncate font-mono text-[13px] text-slate-900">{ref.key}</span>
                     {!registered && (
                       <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                        no content
+                        {t('emails.noContent')}
                       </span>
                     )}
                   </div>
@@ -88,7 +90,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
       <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
         {active === undefined ? (
           <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
-            No templates referenced by the example workflows.
+            {t('emails.empty')}
           </div>
         ) : (
           <>
@@ -101,7 +103,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
               </div>
               {subject !== undefined && (
                 <div className="mt-1 text-sm text-slate-600">
-                  <span className="text-slate-400">Subject: </span>
+                  <span className="text-slate-400">{t('emails.subject')}: </span>
                   {subject}
                 </div>
               )}
@@ -126,16 +128,13 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
             <div className="min-h-0 flex-1 overflow-auto p-6">
               {activeModule === undefined ? (
                 <div className="mx-auto max-w-xl rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
-                  <p className="text-sm font-medium text-slate-900">No component registered</p>
+                  <p className="text-sm font-medium text-slate-900">{t('emails.notRegistered')}</p>
                   <p className="mt-2 text-sm text-slate-500">
-                    A workflow references{' '}
-                    <code className="font-mono text-slate-700">{active.key}</code>, but no
-                    react-email component is registered for it in{' '}
-                    <code className="font-mono text-slate-700">workflow.config.ts</code>.
+                    {t('emails.notRegisteredHint', { key: active.key })}
                   </p>
                 </div>
               ) : loading ? (
-                <div className="text-center text-sm text-slate-500">Rendering…</div>
+                <div className="text-center text-sm text-slate-500">{t('emails.rendering')}</div>
               ) : error !== undefined ? (
                 <div className="mx-auto max-w-xl rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
                   {error}

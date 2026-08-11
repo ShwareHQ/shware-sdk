@@ -1,4 +1,4 @@
-import { type WorkflowReport, defineConfig } from '@shware/workflow-ui/config';
+import { type MetricPoint, type WorkflowReport, defineConfig } from '@shware/workflow-ui/config';
 import * as examples from '@shware/workflow/examples';
 import { emails } from './src/emails';
 
@@ -30,25 +30,69 @@ const pseudoRandom = (seed: string, max: number) => {
   return hash % max;
 };
 
+/** 30 days ending today, so the x axis reads like a real report. */
+const DAYS = 30;
+const dates = Array.from({ length: DAYS }, (_, index) => {
+  const date = new Date();
+  date.setDate(date.getDate() - (DAYS - 1 - index));
+  return date.toISOString().slice(0, 10);
+});
+
+/** A gently wobbling series, funnel-shaped: delivered > opened > clicked > converted. */
+const seriesFor = (seed: string, base: number) =>
+  dates.map((date, index) => {
+    const wobble = 0.75 + pseudoRandom(`${seed}:${date}`, 50) / 100;
+    const trend = 1 + Math.sin((index / DAYS) * Math.PI * 2) * 0.15;
+    return Math.round(base * wobble * trend);
+  });
+
+const metricsFor = (name: string): MetricPoint[] => {
+  const delivered = seriesFor(`${name}:delivered`, 900);
+  return dates.map((date, index) => {
+    const sent = delivered[index] ?? 0;
+    const opened = Math.round(sent * (0.32 + pseudoRandom(`${name}:o:${date}`, 18) / 100));
+    const clicked = Math.round(opened * (0.18 + pseudoRandom(`${name}:c:${date}`, 14) / 100));
+    const converted = Math.round(clicked * (0.12 + pseudoRandom(`${name}:v:${date}`, 16) / 100));
+    return { date, delivered: sent, opened, clicked, converted };
+  });
+};
+
+const reportFor = (name: string): WorkflowReport => {
+  const points = metricsFor(name);
+  const sum = (key: keyof Omit<MetricPoint, 'date'>) =>
+    points.reduce((total, point) => total + point[key], 0);
+
+  const entered = 2_000 + pseudoRandom(name, 8_000);
+  const active = pseudoRandom(`${name}:active`, Math.floor(entered / 4));
+
+  return {
+    name,
+    entered,
+    active,
+    completed: entered - active,
+    delivered: sum('delivered'),
+    opened: sum('opened'),
+    clicked: sum('clicked'),
+    converted: sum('converted'),
+    /* The list draws sparklines from these; one point per day is plenty. */
+    series: {
+      delivered: points.map((point) => point.delivered),
+      opened: points.map((point) => point.opened),
+      clicked: points.map((point) => point.clicked),
+      converted: points.map((point) => point.converted),
+    },
+  };
+};
+
 export default defineConfig({
   title: 'Workflow Studio · demo',
   workflows,
   emails,
+  segments: Object.values(examples.segments),
   stats: {
     reports: (): WorkflowReport[] =>
-      Object.values(workflows).map((builder) => {
-        const { name } = builder.toIR();
-        const entered = 2_000 + pseudoRandom(name, 8_000);
-        const active = pseudoRandom(`${name}:active`, Math.floor(entered / 4));
-        const completed = entered - active;
-        return {
-          name,
-          entered,
-          active,
-          completed,
-          converted: Math.floor(completed * (0.08 + pseudoRandom(`${name}:cvr`, 20) / 100)),
-        };
-      }),
+      Object.values(workflows).map((builder) => reportFor(builder.toIR().name)),
+    metrics: (workflowName) => metricsFor(workflowName),
     nodeStats: (workflowName) => {
       const builder = Object.values(workflows).find((w) => w.toIR().name === workflowName);
       if (!builder) return {};
