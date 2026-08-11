@@ -62,6 +62,20 @@
    */
   --color-canvas: var(--color-gray-50);
   --color-edge: var(--color-gray-300);
+  /* react-flow's default dot is #91919a, outside the ramp; this replaces it. */
+  --color-grid: var(--color-gray-400);
+  /*
+   * Node icons, one hue per NodeCategory rather than per icon: the point is to
+   * tell a message from a wait from a branch at a glance, and six colours do
+   * that where fifteen would just be noise. Exit stays grey — it is an ending,
+   * not a kind of work.
+   */
+  --color-icon-trigger: var(--color-amber-500);
+  --color-icon-message: var(--color-sky-500);
+  --color-icon-delay: var(--color-violet-500);
+  --color-icon-control: var(--color-pink-500);
+  --color-icon-data: var(--color-emerald-500);
+  --color-icon-exit: var(--color-muted);
   --color-card-ring: oklch(from var(--color-gray-900) l c h / 0.04);
   --color-card-shadow: oklch(from var(--color-gray-900) l c h / 0.08);
   /*
@@ -89,6 +103,14 @@
   /* Pure black under the grid, so the cards above it have the most room to lift. */
   --color-canvas: #000;
   --color-edge: var(--color-gray-700);
+  --color-grid: var(--color-gray-700);
+  /* One step brighter, so the hues keep their bite against a dark card. */
+  --color-icon-trigger: var(--color-amber-400);
+  --color-icon-message: var(--color-sky-400);
+  --color-icon-delay: var(--color-violet-400);
+  --color-icon-control: var(--color-pink-400);
+  --color-icon-data: var(--color-emerald-400);
+  --color-icon-exit: var(--color-muted);
   /* A drop shadow reads as nothing on a dark page; the ring does the lifting. */
   --color-card-ring: oklch(from var(--color-gray-100) l c h / 0.08);
   --color-card-shadow: oklch(from var(--color-gray-950) l c h / 0.6);
