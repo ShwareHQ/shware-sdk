@@ -108,7 +108,7 @@ function Segments() {
 
   if (refs.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-gray-500">
+      <div className="text-muted flex h-full items-center justify-center text-sm">
         {t('segments.empty')}
       </div>
     );
@@ -123,21 +123,21 @@ function Segments() {
           return (
             <li
               key={ref.name}
-              className="rounded-2xl border border-gray-200 bg-white px-5 py-4"
+              className="border-border bg-card rounded-2xl border px-5 py-4"
               style={superellipse}
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[13px] font-medium">{ref.name}</span>
                 {definition === undefined && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
                     {t('segments.notDefined')}
                   </span>
                 )}
               </div>
               {definition !== undefined && (
-                <p className="mt-1.5 font-mono text-xs text-gray-600">{describe(definition)}</p>
+                <p className="text-secondary mt-1.5 font-mono text-xs">{describe(definition)}</p>
               )}
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="text-muted mt-2 text-xs">
                 {t('segments.usedBy')}: {ref.usedBy.join(', ')}
               </p>
             </li>

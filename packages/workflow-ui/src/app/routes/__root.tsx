@@ -36,14 +36,14 @@ function RootLayout() {
   const { t } = useTranslation();
 
   return (
-    <div className="flex h-full font-sans text-gray-900">
-      <aside className="flex w-52 shrink-0 flex-col border-r border-gray-200 bg-white">
+    <div className="text-primary flex h-full font-sans">
+      <aside className="border-border bg-card flex w-52 shrink-0 flex-col border-r">
         <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
           <div
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gray-900"
+            className="bg-primary flex size-7 shrink-0 items-center justify-center rounded-lg"
             style={superellipse}
           >
-            <Workflow className="size-4 text-white" strokeWidth={2} />
+            <Workflow className="text-card size-4" strokeWidth={2} />
           </div>
           <strong className="text-sm font-semibold">Workflow Studio</strong>
         </div>
@@ -56,9 +56,9 @@ function RootLayout() {
               activeOptions={{ exact: item.exact }}
               className={clsx(
                 'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium',
-                'text-gray-600 transition-colors hover:bg-gray-100'
+                'text-secondary hover:bg-hover transition-colors'
               )}
-              activeProps={{ className: '!bg-gray-900 !text-white' }}
+              activeProps={{ className: '!bg-selected !text-primary' }}
               style={superellipse}
             >
               <item.icon className="size-4 shrink-0" strokeWidth={2} />
@@ -68,7 +68,7 @@ function RootLayout() {
         </nav>
       </aside>
 
-      <main className="min-h-0 min-w-0 flex-1 bg-gray-50">
+      <main className="bg-page min-h-0 min-w-0 flex-1">
         <Outlet />
       </main>
 

@@ -59,12 +59,12 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
   return (
     <div className="h-full overflow-auto">
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur">
-          <tr className="text-left text-xs font-medium text-gray-500">
-            <th className="min-w-0 border-b border-gray-200 px-6 py-3">{t('common.name')}</th>
-            <th className="w-24 border-b border-gray-200 px-3 py-3" />
+        <thead className="bg-page/95 sticky top-0 z-10 backdrop-blur">
+          <tr className="text-muted text-left text-xs font-medium">
+            <th className="border-border min-w-0 border-b px-6 py-3">{t('common.name')}</th>
+            <th className="border-border w-24 border-b px-3 py-3" />
             {COLUMNS.map((column) => (
-              <th key={column} className="w-28 border-b border-gray-200 px-3 py-3">
+              <th key={column} className="border-border w-28 border-b px-3 py-3">
                 {t(`workflows.columns.${column}`)}
               </th>
             ))}
@@ -85,22 +85,19 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
               <tr
                 key={key}
                 onClick={() => onOpen(key)}
-                className="cursor-pointer align-top transition-colors hover:bg-white"
+                className="hover:bg-card cursor-pointer align-top transition-colors"
               >
-                <td className="border-b border-gray-100 px-6 py-4">
+                <td className="border-border border-b px-6 py-4">
                   <div className="flex items-start gap-3">
-                    <WorkflowIcon
-                      className="mt-0.5 size-4 shrink-0 text-gray-400"
-                      strokeWidth={2}
-                    />
+                    <WorkflowIcon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
                     <div className="min-w-0">
-                      <div className="font-medium text-gray-900">{ir.name}</div>
+                      <div className="text-primary font-medium">{ir.name}</div>
                       {ir.meta?.description !== undefined && (
-                        <p className="mt-1 truncate text-[13px] text-gray-500">
+                        <p className="text-muted mt-1 truncate text-[13px]">
                           {ir.meta.description}
                         </p>
                       )}
-                      <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
+                      <div className="text-muted mt-2 flex items-center gap-3 text-xs">
                         <span className="flex items-center gap-1">
                           <Mail className="size-3.5" strokeWidth={2} />
                           {shape.messages}
@@ -112,7 +109,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                         {ir.meta?.tags?.map((tag) => (
                           <span
                             key={tag}
-                            className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-600"
+                            className="bg-selected text-secondary rounded-full px-2 py-0.5 text-[11px]"
                           >
                             {tag}
                           </span>
@@ -122,17 +119,19 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                   </div>
                 </td>
 
-                <td className="border-b border-gray-100 px-3 py-4">
+                <td className="border-border border-b px-3 py-4">
                   <span
                     className={clsx(
                       'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
-                      report ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+                      report
+                        ? 'bg-green-50 text-green-700 dark:bg-green-400/10 dark:text-green-300'
+                        : 'bg-selected text-muted'
                     )}
                   >
                     <span
                       className={clsx(
                         'size-1.5 rounded-full',
-                        report ? 'bg-green-500' : 'bg-gray-400'
+                        report ? 'bg-green-500' : 'bg-muted'
                       )}
                     />
                     {report ? t('status.running') : t('status.draft')}
@@ -140,7 +139,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                 </td>
 
                 {COLUMNS.map((column) => (
-                  <td key={column} className="border-b border-gray-100 px-3 py-4">
+                  <td key={column} className="border-border border-b px-3 py-4">
                     <div className="tabular-nums">{values[column]}</div>
                     <Sparkline values={report?.series?.[column] ?? []} className="mt-1" />
                   </td>

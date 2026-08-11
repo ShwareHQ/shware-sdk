@@ -2,11 +2,15 @@ import { clsx } from 'clsx';
 import { CircleAlert, CircleCheck, Info, TriangleAlert, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { Toaster } from 'sonner';
+import { useTheme } from '../theme/root-provider';
 
 /** Toasts, styled to match the canvas: superellipse corners, Inter, the gray ramp. */
 export function ToastProvider() {
+  const { resolved } = useTheme();
+
   return (
     <Toaster
+      theme={resolved}
       position="top-center"
       icons={{
         success: <CircleCheck className="size-5 text-emerald-500" strokeWidth={2} />,
@@ -24,13 +28,13 @@ export function ToastProvider() {
         classNames: {
           toast: clsx(
             'flex w-90 items-center gap-x-2 font-sans',
-            'rounded-3xl bg-white py-4 pr-4 pl-3 ring-1 ring-gray-200',
-            'shadow-[0_4px_12px_rgba(15,23,42,0.1)]'
+            'bg-card ring-border rounded-3xl py-4 pr-4 pl-3 ring-1',
+            'shadow-[0_4px_12px_var(--color-card-shadow)]'
           ),
-          title: 'text-sm font-medium text-gray-900',
-          description: 'mt-1 text-xs font-normal text-gray-500',
+          title: 'text-sm font-medium text-primary',
+          description: 'mt-1 text-xs font-normal text-muted',
           closeButton: clsx(
-            'order-last ml-auto size-5 p-0.5 text-gray-400 hover:text-gray-900',
+            'text-muted hover:text-primary order-last ml-auto size-5 p-0.5',
             'transition-colors duration-200'
           ),
         },

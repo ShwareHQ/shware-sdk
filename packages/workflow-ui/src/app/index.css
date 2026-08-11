@@ -39,20 +39,56 @@
   --color-gray-950: oklch(0.141 0.005 285.823);
 
   /*
-   * Semantic aliases. The studio is monochrome, so `accent` is reserved for the
-   * one-per-view call to action — currently Tailwind's sky.
+   * Semantic aliases — the only colours components should name. The ramp above
+   * is a palette; these are roles, and they are what flips between themes. The
+   * studio is monochrome, so `accent` stays reserved for the one-per-view call
+   * to action — currently Tailwind's sky.
    */
   --color-accent: var(--color-sky-600);
   --color-accent-hover: oklch(from var(--color-accent) l c h / 0.1);
   --color-primary: var(--color-gray-900);
+  --color-secondary: var(--color-gray-600);
+  --color-muted: var(--color-gray-500);
   --color-border: var(--color-gray-200);
+  --color-hover: var(--color-gray-50);
+  --color-selected: var(--color-gray-100);
+  /* Surfaces: `page` is what a view sits on, `card` is what sits on the page. */
+  --color-page: var(--color-gray-50);
+  --color-card: #fff;
+  /* Canvas: connector strokes, and the ring/shadow that lifts a node card. */
+  --color-edge: var(--color-gray-300);
+  --color-card-ring: rgb(24 24 27 / 0.04);
+  --color-card-shadow: rgb(24 24 27 / 0.08);
+  /*
+   * Chart series, deepening as the funnel narrows. The ramp has to invert
+   * between themes: `gray-900` is the strongest line on a white page and an
+   * invisible one on a black page.
+   */
+  --color-chart-1: var(--color-gray-400);
+  --color-chart-2: var(--color-gray-500);
+  --color-chart-3: var(--color-gray-700);
+  --color-chart-4: var(--color-gray-900);
 }
 
 .dark {
   color-scheme: dark;
   --color-accent: var(--color-sky-400);
   --color-primary: var(--color-gray-100);
-  --color-border: var(--color-gray-700);
+  --color-secondary: var(--color-gray-400);
+  --color-muted: var(--color-gray-500);
+  --color-border: var(--color-gray-800);
+  --color-hover: var(--color-gray-900);
+  --color-selected: var(--color-gray-800);
+  --color-page: var(--color-gray-950);
+  --color-card: var(--color-gray-900);
+  --color-edge: var(--color-gray-700);
+  /* A drop shadow reads as nothing on a dark page; the ring does the lifting. */
+  --color-card-ring: rgb(255 255 255 / 0.08);
+  --color-card-shadow: rgb(0 0 0 / 0.4);
+  --color-chart-1: var(--color-gray-600);
+  --color-chart-2: var(--color-gray-500);
+  --color-chart-3: var(--color-gray-300);
+  --color-chart-4: var(--color-gray-100);
 }
 
 /*

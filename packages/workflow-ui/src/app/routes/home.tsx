@@ -9,10 +9,10 @@ import { collectSegmentRefs } from './segments';
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4" style={superellipse}>
-      <div className="text-xs text-gray-500">{label}</div>
+    <div className="border-border bg-card rounded-2xl border px-5 py-4" style={superellipse}>
+      <div className="text-muted text-xs">{label}</div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-      {hint !== undefined && <div className="mt-1 text-xs text-gray-400">{hint}</div>}
+      {hint !== undefined && <div className="text-muted mt-1 text-xs">{hint}</div>}
     </div>
   );
 }
@@ -48,7 +48,7 @@ function Home() {
   return (
     <div className="h-full overflow-auto p-6">
       <h1 className="text-lg font-semibold">{t('home.title')}</h1>
-      <p className="mt-1 text-sm text-gray-500">{t('home.subtitle')}</p>
+      <p className="text-muted mt-1 text-sm">{t('home.subtitle')}</p>
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat label={t('home.workflows')} value={String(irs.length)} />

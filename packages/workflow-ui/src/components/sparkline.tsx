@@ -21,7 +21,7 @@ export function Sparkline({ values, width = 76, height = 26, className }: Sparkl
           y1={height - 1}
           x2={width}
           y2={height - 1}
-          stroke="var(--color-gray-200)"
+          stroke="var(--color-border)"
           strokeWidth={1.5}
         />
       </svg>
@@ -48,7 +48,7 @@ export function Sparkline({ values, width = 76, height = 26, className }: Sparkl
       <polyline
         points={points}
         fill="none"
-        stroke={flat ? 'var(--color-gray-200)' : 'var(--color-gray-900)'}
+        stroke={flat ? 'var(--color-border)' : 'var(--color-primary)'}
         strokeWidth={1.5}
         strokeLinejoin="round"
         strokeLinecap="round"

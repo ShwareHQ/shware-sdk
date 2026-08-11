@@ -6,6 +6,7 @@ import {
   TanstackQueryProvider,
   getTanstackQueryContext,
 } from './integrations/tanstack-query/root-provider';
+import { ThemeProvider } from './integrations/theme/root-provider';
 import { routeTree } from './routes';
 
 /**
@@ -23,9 +24,11 @@ export const getRouter = (config: WorkflowUIConfig) => {
     defaultPreload: 'intent',
     scrollRestoration: true,
     Wrap: (props: { children: ReactNode }) => (
-      <I18nProvider i18n={i18n}>
-        <TanstackQueryProvider queryClient={queryClient}>{props.children}</TanstackQueryProvider>
-      </I18nProvider>
+      <ThemeProvider>
+        <I18nProvider i18n={i18n}>
+          <TanstackQueryProvider queryClient={queryClient}>{props.children}</TanstackQueryProvider>
+        </I18nProvider>
+      </ThemeProvider>
     ),
   });
 };

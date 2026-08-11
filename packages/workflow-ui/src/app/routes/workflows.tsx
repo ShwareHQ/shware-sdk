@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
+import { useTheme } from '../integrations/theme/root-provider';
 import { Route as rootRoute } from './__root';
 
 /* ---------------------------------- List ---------------------------------- */
@@ -29,7 +30,7 @@ function WorkflowsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-gray-500">
+      <div className="text-muted flex h-full items-center justify-center text-sm">
         {t('workflows.empty')}
       </div>
     );
@@ -73,9 +74,9 @@ function WorkflowDetail() {
 
   if (ir === undefined) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-gray-500">
+      <div className="text-muted flex h-full flex-col items-center justify-center gap-3 text-sm">
         <p>{t('workflows.notFound', { name })}</p>
-        <Link to="/workflows" className="text-gray-900 underline">
+        <Link to="/workflows" className="text-primary underline">
           {t('common.back')}
         </Link>
       </div>
@@ -84,10 +85,10 @@ function WorkflowDetail() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-4 border-b border-gray-200 bg-white px-6 py-3">
+      <div className="border-border bg-card flex shrink-0 items-center gap-4 border-b px-6 py-3">
         <Link
           to="/workflows"
-          className="flex size-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100"
+          className="text-muted hover:bg-hover flex size-7 items-center justify-center rounded-lg transition-colors"
           style={superellipse}
           aria-label={t('common.back')}
         >
@@ -95,7 +96,7 @@ function WorkflowDetail() {
         </Link>
         <div className="min-w-0">
           <div className="text-sm font-semibold">{ir.name}</div>
-          <div className="truncate font-mono text-xs text-gray-500">
+          <div className="text-muted truncate font-mono text-xs">
             v{ir.irVersion} · #{ir.contentHash.slice(0, 8)}
             {ir.meta?.description !== undefined && ` · ${ir.meta.description}`}
           </div>
@@ -108,9 +109,9 @@ function WorkflowDetail() {
               params={{ name }}
               activeOptions={{ exact: tab.exact }}
               className={clsx(
-                'rounded-md px-2.5 py-1 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-100'
+                'text-secondary hover:bg-hover rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors'
               )}
-              activeProps={{ className: '!bg-gray-900 !text-white' }}
+              activeProps={{ className: '!bg-primary !text-card' }}
               style={superellipse}
             >
               {t(tab.label)}
@@ -138,6 +139,7 @@ function CanvasTab() {
   const { name } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
   const navigate = useNavigate();
+  const { resolved } = useTheme();
 
   const ir = config.workflows[name]?.toIR();
 
@@ -153,6 +155,7 @@ function CanvasTab() {
     <WorkflowCanvas
       key={name}
       ir={ir}
+      colorMode={resolved}
       {...(stats !== undefined ? { stats } : {})}
       onOpenTemplate={(key) => void navigate({ to: '/emails/$key', params: { key } })}
     />

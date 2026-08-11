@@ -49,8 +49,8 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
   return (
     <div className="flex h-full min-h-0">
       {/* Template list */}
-      <aside className="w-72 shrink-0 overflow-y-auto border-r border-gray-200 bg-white">
-        <div className="px-4 py-3 text-xs font-semibold tracking-wide text-gray-400 uppercase">
+      <aside className="border-border bg-card w-72 shrink-0 overflow-y-auto border-r">
+        <div className="text-muted px-4 py-3 text-xs font-semibold tracking-wide uppercase">
           {t('emails.title')} · {refs.length}
         </div>
         <ul>
@@ -63,18 +63,18 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                   type="button"
                   onClick={() => onSelect(ref.key)}
                   className={`w-full border-l-2 px-4 py-2.5 text-left ${
-                    isActive ? 'border-gray-900 bg-gray-50' : 'border-transparent hover:bg-gray-50'
+                    isActive ? 'border-primary bg-selected' : 'hover:bg-hover border-transparent'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-mono text-[13px] text-gray-900">{ref.key}</span>
+                    <span className="text-primary truncate font-mono text-[13px]">{ref.key}</span>
                     {!registered && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
                         {t('emails.noContent')}
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-gray-500">
+                  <div className="text-muted mt-0.5 truncate text-xs">
                     {CHANNEL_LABEL[ref.channel] ?? ref.channel} ·{' '}
                     {[...new Set(ref.usages.map((usage) => usage.workflow))].join(', ')}
                   </div>
@@ -86,32 +86,32 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
       </aside>
 
       {/* Preview */}
-      <section className="flex min-w-0 flex-1 flex-col bg-gray-50">
+      <section className="bg-page flex min-w-0 flex-1 flex-col">
         {active === undefined ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
+          <div className="text-muted flex flex-1 items-center justify-center text-sm">
             {t('emails.empty')}
           </div>
         ) : (
           <>
-            <div className="border-b border-gray-200 bg-white px-6 py-3">
+            <div className="border-border bg-card border-b px-6 py-3">
               <div className="flex items-center gap-3">
-                <span className="font-mono text-sm font-semibold text-gray-900">{active.key}</span>
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                <span className="text-primary font-mono text-sm font-semibold">{active.key}</span>
+                <span className="bg-selected text-secondary rounded-full px-2 py-0.5 text-xs">
                   {CHANNEL_LABEL[active.channel] ?? active.channel}
                 </span>
               </div>
               {subject !== undefined && (
-                <div className="mt-1 text-sm text-gray-600">
-                  <span className="text-gray-400">{t('emails.subject')}: </span>
+                <div className="text-secondary mt-1 text-sm">
+                  <span className="text-muted">{t('emails.subject')}: </span>
                   {subject}
                 </div>
               )}
               {/* One line per use site: the same template can take different props in different flows */}
               <ul className="mt-2 space-y-0.5">
                 {active.usages.map((usage) => (
-                  <li key={`${usage.workflow}:${usage.nodeId}`} className="text-xs text-gray-500">
-                    <span className="text-gray-600">{usage.workflow}</span>
-                    <span className="text-gray-300"> #{usage.nodeId}</span>
+                  <li key={`${usage.workflow}:${usage.nodeId}`} className="text-muted text-xs">
+                    <span className="text-secondary">{usage.workflow}</span>
+                    <span className="text-muted/60"> #{usage.nodeId}</span>
                     {Object.keys(usage.props).length > 0 && (
                       <span className="ml-2 font-mono">
                         {Object.entries(usage.props)
@@ -127,19 +127,19 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
             <div className="min-h-0 flex-1 overflow-auto p-6">
               {activeModule === undefined ? (
                 <div
-                  className="mx-auto max-w-xl rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center"
+                  className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
                   style={superellipse}
                 >
-                  <p className="text-sm font-medium text-gray-900">{t('emails.notRegistered')}</p>
-                  <p className="mt-2 text-sm text-gray-500">
+                  <p className="text-primary text-sm font-medium">{t('emails.notRegistered')}</p>
+                  <p className="text-muted mt-2 text-sm">
                     {t('emails.notRegisteredHint', { key: active.key })}
                   </p>
                 </div>
               ) : loading ? (
-                <div className="text-center text-sm text-gray-500">{t('emails.rendering')}</div>
+                <div className="text-muted text-center text-sm">{t('emails.rendering')}</div>
               ) : error !== undefined ? (
                 <div
-                  className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700"
+                  className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300"
                   style={superellipse}
                 >
                   {error}
@@ -148,7 +148,7 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                 <iframe
                   title={`${active.key} preview`}
                   srcDoc={html ?? ''}
-                  className="mx-auto h-full w-full max-w-2xl rounded-2xl border border-gray-200 bg-white"
+                  className="border-border bg-card mx-auto h-full w-full max-w-2xl rounded-2xl border"
                   style={superellipse}
                 />
               )}
