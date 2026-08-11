@@ -22,10 +22,10 @@ export interface MetricsChartProps {
  * series is the one that needs the most contrast to stay readable.
  */
 export const METRIC_SERIES = [
-  { key: 'delivered', color: '#94a3b8' },
-  { key: 'opened', color: '#64748b' },
-  { key: 'clicked', color: '#334155' },
-  { key: 'converted', color: '#0f172a' },
+  { key: 'delivered', color: 'var(--color-gray-400)' },
+  { key: 'opened', color: 'var(--color-gray-500)' },
+  { key: 'clicked', color: 'var(--color-gray-700)' },
+  { key: 'converted', color: 'var(--color-gray-900)' },
 ] as const;
 
 const PADDING = { top: 12, right: 16, bottom: 28, left: 48 };
@@ -77,7 +77,7 @@ export function MetricsChart({ points, height = 280, ariaLabel = 'Metrics' }: Me
             x2={VIEW_WIDTH - PADDING.right}
             y1={y(tick)}
             y2={y(tick)}
-            stroke="#e2e8f0"
+            stroke="var(--color-gray-200)"
             strokeWidth={1}
           />
           <text
@@ -86,7 +86,7 @@ export function MetricsChart({ points, height = 280, ariaLabel = 'Metrics' }: Me
             textAnchor="end"
             dominantBaseline="middle"
             fontSize={11}
-            fill="#94a3b8"
+            fill="var(--color-gray-400)"
           >
             {tick.toLocaleString()}
           </text>
@@ -101,7 +101,7 @@ export function MetricsChart({ points, height = 280, ariaLabel = 'Metrics' }: Me
             y={height - 8}
             textAnchor="middle"
             fontSize={11}
-            fill="#94a3b8"
+            fill="var(--color-gray-400)"
           >
             {point.date.slice(5)}
           </text>

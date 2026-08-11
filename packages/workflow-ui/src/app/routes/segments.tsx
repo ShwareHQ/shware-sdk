@@ -2,6 +2,7 @@ import type { ConditionIR, WorkflowIR } from '@shware/workflow';
 import { createRoute } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { superellipse } from '../../components/corner-shape';
 import { Route as rootRoute } from './__root';
 
 /**
@@ -107,7 +108,7 @@ function Segments() {
 
   if (refs.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-500">
+      <div className="flex h-full items-center justify-center text-sm text-gray-500">
         {t('segments.empty')}
       </div>
     );
@@ -120,7 +121,11 @@ function Segments() {
         {refs.map((ref) => {
           const definition = defined.get(ref.name);
           return (
-            <li key={ref.name} className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+            <li
+              key={ref.name}
+              className="rounded-xl border border-gray-200 bg-white px-5 py-4"
+              style={superellipse}
+            >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-[13px] font-medium">{ref.name}</span>
                 {definition === undefined && (
@@ -130,9 +135,9 @@ function Segments() {
                 )}
               </div>
               {definition !== undefined && (
-                <p className="mt-1.5 font-mono text-xs text-slate-600">{describe(definition)}</p>
+                <p className="mt-1.5 font-mono text-xs text-gray-600">{describe(definition)}</p>
               )}
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-gray-500">
                 {t('segments.usedBy')}: {ref.usedBy.join(', ')}
               </p>
             </li>

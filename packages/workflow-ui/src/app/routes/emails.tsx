@@ -11,7 +11,7 @@ import { Route as rootRoute } from './__root';
 function EmailsEmpty() {
   const { t } = useTranslation();
   return (
-    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+    <div className="flex h-full items-center justify-center text-sm text-gray-500">
       {t('emails.empty')}
     </div>
   );

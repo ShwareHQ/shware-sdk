@@ -4,6 +4,7 @@ import { clsx } from 'clsx';
 import { ArrowLeft } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { superellipse } from '../../components/corner-shape';
 import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
 import { Route as rootRoute } from './__root';
@@ -28,7 +29,7 @@ function WorkflowsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-slate-500">
+      <div className="flex h-full items-center justify-center text-sm text-gray-500">
         {t('workflows.empty')}
       </div>
     );
@@ -72,9 +73,9 @@ function WorkflowDetail() {
 
   if (ir === undefined) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-500">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-gray-500">
         <p>{t('workflows.notFound', { name })}</p>
-        <Link to="/workflows" className="text-slate-900 underline">
+        <Link to="/workflows" className="text-gray-900 underline">
           {t('common.back')}
         </Link>
       </div>
@@ -83,17 +84,18 @@ function WorkflowDetail() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-6 py-3">
+      <div className="flex shrink-0 items-center gap-4 border-b border-gray-200 bg-white px-6 py-3">
         <Link
           to="/workflows"
-          className="flex size-7 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100"
+          className="flex size-7 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100"
+          style={superellipse}
           aria-label={t('common.back')}
         >
           <ArrowLeft className="size-4" strokeWidth={2} />
         </Link>
         <div className="min-w-0">
           <div className="text-sm font-semibold">{ir.name}</div>
-          <div className="truncate font-mono text-xs text-slate-500">
+          <div className="truncate font-mono text-xs text-gray-500">
             v{ir.irVersion} · #{ir.contentHash.slice(0, 8)}
             {ir.meta?.description !== undefined && ` · ${ir.meta.description}`}
           </div>
@@ -106,9 +108,10 @@ function WorkflowDetail() {
               params={{ name }}
               activeOptions={{ exact: tab.exact }}
               className={clsx(
-                'rounded-md px-2.5 py-1 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100'
+                'rounded-md px-2.5 py-1 text-[13px] font-medium text-gray-600 transition-colors hover:bg-gray-100'
               )}
-              activeProps={{ className: '!bg-slate-900 !text-white' }}
+              activeProps={{ className: '!bg-gray-900 !text-white' }}
+              style={superellipse}
             >
               {t(tab.label)}
             </Link>
