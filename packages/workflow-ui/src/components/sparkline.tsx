@@ -48,7 +48,7 @@ export function Sparkline({ values, width = 76, height = 26, className }: Sparkl
       <polyline
         points={points}
         fill="none"
-        stroke={flat ? '#e2e8f0' : '#0f766e'}
+        stroke={flat ? '#e2e8f0' : '#0f172a'}
         strokeWidth={1.5}
         strokeLinejoin="round"
         strokeLinecap="round"

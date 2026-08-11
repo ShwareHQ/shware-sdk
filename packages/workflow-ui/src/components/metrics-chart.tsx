@@ -17,11 +17,15 @@ export interface MetricsChartProps {
   ariaLabel?: string;
 }
 
+/*
+ * A single monochrome ramp, darkening as the funnel narrows: the smallest
+ * series is the one that needs the most contrast to stay readable.
+ */
 export const METRIC_SERIES = [
-  { key: 'delivered', color: '#0f766e' },
-  { key: 'opened', color: '#0ea5e9' },
-  { key: 'clicked', color: '#f59e0b' },
-  { key: 'converted', color: '#8b5cf6' },
+  { key: 'delivered', color: '#94a3b8' },
+  { key: 'opened', color: '#64748b' },
+  { key: 'clicked', color: '#334155' },
+  { key: 'converted', color: '#0f172a' },
 ] as const;
 
 const PADDING = { top: 12, right: 16, bottom: 28, left: 48 };

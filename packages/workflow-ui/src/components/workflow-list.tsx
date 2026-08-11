@@ -89,7 +89,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                       strokeWidth={2}
                     />
                     <div className="min-w-0">
-                      <div className="font-medium text-teal-700">{ir.name}</div>
+                      <div className="font-medium text-slate-900">{ir.name}</div>
                       {ir.meta?.description !== undefined && (
                         <p className="mt-1 truncate text-[13px] text-slate-500">
                           {ir.meta.description}
@@ -121,13 +121,13 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                   <span
                     className={clsx(
                       'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
-                      report ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      report ? 'bg-slate-900/5 text-slate-700' : 'bg-slate-100 text-slate-400'
                     )}
                   >
                     <span
                       className={clsx(
                         'size-1.5 rounded-full',
-                        report ? 'bg-emerald-500' : 'bg-slate-400'
+                        report ? 'bg-slate-900' : 'bg-slate-300'
                       )}
                     />
                     {report ? t('status.running') : t('status.draft')}
