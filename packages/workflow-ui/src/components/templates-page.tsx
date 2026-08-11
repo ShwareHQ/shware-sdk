@@ -1,15 +1,22 @@
-import { render } from '@react-email/render';
-import { type ReactElement, createElement, useEffect, useState } from 'react';
 import type { EmailModule } from '../config';
 import type { TemplateRefInfo } from './template-refs';
 
 /** Template preview page: the list on the left comes from IR, the react-email component renders on the right. */
+export interface TemplatePreview {
+  html?: string;
+  subject?: string;
+  error?: string;
+  loading: boolean;
+}
+
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
   /** Email registry from the user's config; keys match the DSL's template keys. */
   emails: Record<string, EmailModule | undefined>;
   selected: string | undefined;
   onSelect: (key: string) => void;
+  /** Rendered output for the selected template, produced by the caller. */
+  preview: TemplatePreview;
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -30,49 +37,11 @@ function formatPropValue(value: unknown): string {
   return String(value);
 }
 
-function useRenderedEmail(
-  emails: Record<string, EmailModule | undefined>,
-  key: string | undefined
-) {
-  const [state, setState] = useState<{ html?: string; subject?: string; error?: string }>({});
-
-  useEffect(() => {
-    if (key === undefined) {
-      setState({});
-      return;
-    }
-    const mod = emails[key];
-    if (!mod) {
-      setState({});
-      return;
-    }
-    let cancelled = false;
-    // The module contract narrows props with never (contravariance); restore a concrete shape at the call site
-    const props = (mod.preview ?? {}) as Record<string, unknown>;
-    const Component = mod.default as (p: Record<string, unknown>) => ReactElement;
-    const buildSubject = mod.subject as ((p: Record<string, unknown>) => string) | undefined;
-    void (async () => {
-      try {
-        const html = await render(createElement(Component, props));
-        const subject = buildSubject?.(props);
-        if (!cancelled) setState({ html, ...(subject !== undefined ? { subject } : {}) });
-      } catch (error) {
-        if (!cancelled) setState({ error: error instanceof Error ? error.message : String(error) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [emails, key]);
-
-  return state;
-}
-
-export function TemplatesPage({ refs, emails, selected, onSelect }: TemplatesPageProps) {
+export function TemplatesPage({ refs, emails, selected, onSelect, preview }: TemplatesPageProps) {
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
   const activeModule = active ? emails[active.key] : undefined;
-  const { html, subject, error } = useRenderedEmail(emails, active?.key);
+  const { html, subject, error, loading } = preview;
 
   return (
     <div className="flex h-full min-h-0">
@@ -165,6 +134,8 @@ export function TemplatesPage({ refs, emails, selected, onSelect }: TemplatesPag
                     <code className="font-mono text-slate-700">workflow.config.ts</code>.
                   </p>
                 </div>
+              ) : loading ? (
+                <div className="text-center text-sm text-slate-500">Rendering…</div>
               ) : error !== undefined ? (
                 <div className="mx-auto max-w-xl rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
                   {error}

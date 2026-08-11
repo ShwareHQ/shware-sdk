@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import type { StatsSource, WorkflowReport } from '../config';
+import type { WorkflowReport } from '../config';
 
 /**
  * Reports: per-workflow totals from the configured stats source.
@@ -10,7 +9,10 @@ import type { StatsSource, WorkflowReport } from '../config';
 export interface ReportsPageProps {
   /** Workflow names known from the local definitions, so gaps are visible. */
   workflowNames: string[];
-  stats?: StatsSource | undefined;
+  /** Whether a stats source exists at all — drives the empty state. */
+  configured: boolean;
+  loading?: boolean;
+  rows?: WorkflowReport[];
 }
 
 const percent = (part: number, whole: number) =>
@@ -18,46 +20,8 @@ const percent = (part: number, whole: number) =>
 
 const number = (value: number) => value.toLocaleString();
 
-function useReports(stats: StatsSource | undefined) {
-  const [state, setState] = useState<{
-    rows?: WorkflowReport[];
-    error?: string;
-    loading: boolean;
-  }>({ loading: stats?.reports !== undefined });
-
-  useEffect(() => {
-    const load = stats?.reports;
-    if (load === undefined) {
-      setState({ loading: false });
-      return;
-    }
-    let cancelled = false;
-    setState({ loading: true });
-    void (async () => {
-      try {
-        const rows = await load();
-        if (!cancelled) setState({ rows, loading: false });
-      } catch (error) {
-        if (!cancelled) {
-          setState({
-            error: error instanceof Error ? error.message : String(error),
-            loading: false,
-          });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [stats]);
-
-  return state;
-}
-
-export function ReportsPage({ workflowNames, stats }: ReportsPageProps) {
-  const { rows, error, loading } = useReports(stats);
-
-  if (stats?.reports === undefined) {
+export function ReportsPage({ workflowNames, configured, loading, rows }: ReportsPageProps) {
+  if (!configured) {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="max-w-md rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
@@ -74,16 +38,6 @@ export function ReportsPage({ workflowNames, stats }: ReportsPageProps) {
 
   if (loading) {
     return <div className="p-8 text-sm text-slate-500">Loading reports…</div>;
-  }
-
-  if (error !== undefined) {
-    return (
-      <div className="p-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-          {error}
-        </div>
-      </div>
-    );
   }
 
   const byName = new Map((rows ?? []).map((row) => [row.name, row]));

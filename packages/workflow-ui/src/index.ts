@@ -6,7 +6,7 @@ export * from './config';
 export { WorkflowCanvas } from './components/workflow-canvas';
 export type { WorkflowCanvasProps } from './components/workflow-canvas';
 export { TemplatesPage } from './components/templates-page';
-export type { TemplatesPageProps } from './components/templates-page';
+export type { TemplatePreview, TemplatesPageProps } from './components/templates-page';
 export { ReportsPage } from './components/reports-page';
 export type { ReportsPageProps } from './components/reports-page';
 export { collectTemplateRefs } from './components/template-refs';
