@@ -97,11 +97,17 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
   send_event: Send,
 };
 
-/** No border — elevation comes from shadow alone (customer.io's look). */
+/**
+ * A real 1px border, matching the page cards, plus a drop shadow for lift. The
+ * border used to be a `0 0 0 1px` ring inside the shadow, but at 4% alpha it
+ * was too faint to give the card an edge. boxSizing is border-box, so the
+ * border sits inside CARD_SIZE and the grid stays on its 8px steps.
+ */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: 'var(--color-card)',
-  boxShadow: '0 0 0 1px var(--color-card-ring), 0 2px 4px var(--color-card-shadow)',
+  border: '1px solid var(--color-border)',
+  boxShadow: '0 2px 4px var(--color-card-shadow)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
   ...superellipse,
