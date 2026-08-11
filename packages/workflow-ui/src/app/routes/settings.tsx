@@ -23,7 +23,7 @@ function Settings() {
       <h1 className="text-lg font-semibold">{t('settings.title')}</h1>
 
       <section
-        className="mt-5 max-w-xl rounded-xl border border-gray-200 bg-white p-5"
+        className="mt-5 max-w-xl rounded-2xl border border-gray-200 bg-white p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.language')}</h2>
@@ -36,7 +36,7 @@ function Settings() {
               onClick={() => void i18n.changeLanguage(lng)}
               style={superellipse}
               className={clsx(
-                'rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors',
+                'rounded-xl px-3 py-1.5 text-[13px] font-medium transition-colors',
                 current === lng
                   ? 'bg-gray-900 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -49,7 +49,7 @@ function Settings() {
       </section>
 
       <section
-        className="mt-4 max-w-xl rounded-xl border border-gray-200 bg-white p-5"
+        className="mt-4 max-w-xl rounded-2xl border border-gray-200 bg-white p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.statsSource')}</h2>

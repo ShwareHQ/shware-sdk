@@ -9,7 +9,7 @@ import { collectSegmentRefs } from './segments';
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-5 py-4" style={superellipse}>
+    <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4" style={superellipse}>
       <div className="text-xs text-gray-500">{label}</div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
       {hint !== undefined && <div className="mt-1 text-xs text-gray-400">{hint}</div>}

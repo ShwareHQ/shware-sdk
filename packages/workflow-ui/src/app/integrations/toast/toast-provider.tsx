@@ -24,7 +24,7 @@ export function ToastProvider() {
         classNames: {
           toast: clsx(
             'flex w-90 items-center gap-x-2 font-sans',
-            'rounded-2xl bg-white py-4 pr-4 pl-3 ring-1 ring-gray-200',
+            'rounded-3xl bg-white py-4 pr-4 pl-3 ring-1 ring-gray-200',
             'shadow-[0_4px_12px_rgba(15,23,42,0.1)]'
           ),
           title: 'text-sm font-medium text-gray-900',

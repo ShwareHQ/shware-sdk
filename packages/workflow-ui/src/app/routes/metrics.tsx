@@ -9,7 +9,7 @@ const number = (value: number) => value.toLocaleString();
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3" style={superellipse}>
+    <div className="rounded-2xl border border-gray-200 bg-white px-4 py-3" style={superellipse}>
       <div className="text-xs text-gray-500">{label}</div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
     </div>
@@ -42,7 +42,7 @@ function MetricsTab() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div
-          className="max-w-md rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center"
+          className="max-w-md rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center"
           style={superellipse}
         >
           <p className="text-sm font-medium">{t('metrics.noSource')}</p>
@@ -69,7 +69,10 @@ function MetricsTab() {
         />
       </div>
 
-      <section className="mt-6 rounded-xl border border-gray-200 bg-white p-5" style={superellipse}>
+      <section
+        className="mt-6 rounded-2xl border border-gray-200 bg-white p-5"
+        style={superellipse}
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">{t('metrics.overTime')}</h2>
           <div className="flex items-center gap-4">
