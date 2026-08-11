@@ -76,7 +76,6 @@
   --color-icon-control: var(--color-pink-500);
   --color-icon-data: var(--color-emerald-500);
   --color-icon-exit: var(--color-muted);
-  --color-card-ring: oklch(from var(--color-gray-900) l c h / 0.04);
   --color-card-shadow: oklch(from var(--color-gray-900) l c h / 0.08);
   /*
    * Chart series, deepening as the funnel narrows. The ramp has to invert
@@ -111,8 +110,6 @@
   --color-icon-control: var(--color-pink-400);
   --color-icon-data: var(--color-emerald-400);
   --color-icon-exit: var(--color-muted);
-  /* A drop shadow reads as nothing on a dark page; the ring does the lifting. */
-  --color-card-ring: oklch(from var(--color-gray-100) l c h / 0.08);
   --color-card-shadow: oklch(from var(--color-gray-950) l c h / 0.6);
   --color-chart-1: var(--color-gray-600);
   --color-chart-2: var(--color-gray-500);
