@@ -7,11 +7,13 @@ import {
   languageNames,
   supportedLngs,
 } from '../integrations/i18n/root-provider';
+import { type Theme, themes, useTheme } from '../integrations/theme/root-provider';
 import { Route as rootRoute } from './__root';
 
 function Settings() {
   const { config } = settingsRoute.useRouteContext();
   const { t, i18n } = useTranslation();
+  const { theme, setTheme } = useTheme();
 
   const current = supportedLngs.find((lng) => i18n.resolvedLanguage === lng) ?? 'en-US';
   const sources = (['reports', 'nodeStats', 'metrics'] as const).filter(
@@ -23,11 +25,11 @@ function Settings() {
       <h1 className="text-lg font-semibold">{t('settings.title')}</h1>
 
       <section
-        className="mt-5 max-w-xl rounded-2xl border border-gray-200 bg-white p-5"
+        className="border-border bg-card mt-5 max-w-xl rounded-2xl border p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.language')}</h2>
-        <p className="mt-1 text-xs text-gray-500">{t('settings.languageHint')}</p>
+        <p className="text-muted mt-1 text-xs">{t('settings.languageHint')}</p>
         <div className="mt-3 flex gap-2">
           {supportedLngs.map((lng: SupportedLng) => (
             <Button
@@ -43,11 +45,31 @@ function Settings() {
       </section>
 
       <section
-        className="mt-4 max-w-xl rounded-2xl border border-gray-200 bg-white p-5"
+        className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"
+        style={superellipse}
+      >
+        <h2 className="text-sm font-medium">{t('settings.theme')}</h2>
+        <p className="text-muted mt-1 text-xs">{t('settings.themeHint')}</p>
+        <div className="mt-3 flex gap-2">
+          {themes.map((option: Theme) => (
+            <Button
+              key={option}
+              size="sm"
+              variant={theme === option ? 'default' : 'secondary'}
+              onClick={() => setTheme(option)}
+            >
+              {t(`settings.themes.${option}`)}
+            </Button>
+          ))}
+        </div>
+      </section>
+
+      <section
+        className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.statsSource')}</h2>
-        <p className="mt-2 font-mono text-xs text-gray-600">
+        <p className="text-secondary mt-2 font-mono text-xs">
           {sources.length > 0 ? sources.join(', ') : t('common.notConfigured')}
         </p>
       </section>

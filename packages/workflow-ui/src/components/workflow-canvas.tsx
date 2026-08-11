@@ -67,6 +67,13 @@ export interface WorkflowCanvasProps {
    * template preview.
    */
   onOpenTemplate?: (templateKey: string) => void;
+  /**
+   * Drives react-flow's own chrome (background dots, zoom controls). The card
+   * and connector colours come from CSS variables and follow the host's theme
+   * on their own; this is only for the parts react-flow paints itself. Passed
+   * in rather than sniffed from the DOM, so an embedding app stays in control.
+   */
+  colorMode?: 'light' | 'dark';
 }
 
 /** The callback travels by context: react-flow node data should carry serializable data only. */
@@ -93,8 +100,8 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
 /** No border — elevation comes from shadow alone (customer.io's look). */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
-  background: '#fff',
-  boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.04), 0 2px 4px rgba(15, 23, 42, 0.08)',
+  background: 'var(--color-card)',
+  boxShadow: '0 0 0 1px var(--color-card-ring), 0 2px 4px var(--color-card-shadow)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
   ...superellipse,
@@ -128,7 +135,7 @@ const iconStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 600,
-  color: 'var(--color-gray-700)',
+  color: 'var(--color-secondary)',
 };
 
 const headerStyle: CSSProperties = {
@@ -143,7 +150,7 @@ const titleStyle: CSSProperties = {
   fontSize: 13,
   lineHeight: '20px',
   fontWeight: 600,
-  color: 'var(--color-gray-900)',
+  color: 'var(--color-primary)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -156,14 +163,14 @@ const countStyle: CSSProperties = {
   fontSize: 13,
   lineHeight: '20px',
   fontWeight: 600,
-  color: 'var(--color-gray-900)',
+  color: 'var(--color-primary)',
 };
 
 const subtitleStyle: CSSProperties = {
   marginTop: 4,
   fontSize: 12,
   lineHeight: '16px',
-  color: 'var(--color-gray-500)',
+  color: 'var(--color-muted)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -178,7 +185,7 @@ const linkButtonStyle: CSSProperties = {
   padding: 0,
   border: 'none',
   background: 'transparent',
-  color: 'var(--color-gray-400)',
+  color: 'var(--color-muted)',
   cursor: 'pointer',
   pointerEvents: 'auto',
 };
@@ -197,17 +204,17 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
         style={iconStyle}
         title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
       >
-        <Icon size={14} color="var(--color-gray-700)" strokeWidth={2} aria-hidden />
+        <Icon size={14} color="var(--color-secondary)" strokeWidth={2} aria-hidden />
         {data.title}
       </div>
     ) : (
       <div style={cardStyle}>
         <div style={headerStyle}>
-          <Icon size={15} color="var(--color-gray-700)" strokeWidth={2} aria-hidden />
+          <Icon size={15} color="var(--color-secondary)" strokeWidth={2} aria-hidden />
           <span style={titleStyle}>{data.title}</span>
           {data.count !== undefined && (
             <span style={countStyle}>
-              <User size={14} color="var(--color-gray-500)" strokeWidth={2} aria-hidden />
+              <User size={14} color="var(--color-muted)" strokeWidth={2} aria-hidden />
               {data.count}
             </span>
           )}
@@ -247,13 +254,13 @@ const edgeLabelStyle: CSSProperties = {
   height: 32,
   padding: '0 12px',
   borderRadius: 16,
-  background: '#fff',
-  border: '1px solid var(--color-gray-200)',
+  background: 'var(--color-card)',
+  border: '1px solid var(--color-border)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 500,
-  color: 'var(--color-gray-600)',
+  color: 'var(--color-secondary)',
   pointerEvents: 'none',
 };
 
@@ -332,8 +339,8 @@ function WorkflowEdge({
         cx={targetX}
         cy={targetY - 4}
         r={3.5}
-        fill="#fff"
-        stroke="var(--color-gray-300)"
+        fill="var(--color-card)"
+        stroke="var(--color-edge)"
         strokeWidth={1}
       />
       {!!label && (
@@ -354,16 +361,29 @@ function WorkflowEdge({
 
 const edgeTypes = { wf: WorkflowEdge };
 
-export function WorkflowCanvas({ ir, stats, onOpenTemplate }: WorkflowCanvasProps) {
+export function WorkflowCanvas({
+  ir,
+  stats,
+  onOpenTemplate,
+  colorMode = 'light',
+}: WorkflowCanvasProps) {
   const { nodes, edges } = useMemo(() => layout(ir, stats), [ir, stats]);
   return (
     <OpenTemplateContext value={onOpenTemplate}>
-      <CanvasSurface nodes={nodes} edges={edges} />
+      <CanvasSurface nodes={nodes} edges={edges} colorMode={colorMode} />
     </OpenTemplateContext>
   );
 }
 
-function CanvasSurface({ nodes, edges }: { nodes: CanvasNode[]; edges: CanvasEdge[] }) {
+function CanvasSurface({
+  nodes,
+  edges,
+  colorMode,
+}: {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  colorMode: 'light' | 'dark';
+}) {
   return (
     <div style={{ width: '100%', height: '100%' }}>
       <ReactFlow
@@ -371,6 +391,7 @@ function CanvasSurface({ nodes, edges }: { nodes: CanvasNode[]; edges: CanvasEdg
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        colorMode={colorMode}
         fitView
         minZoom={0.2}
         nodesDraggable={false}
@@ -378,7 +399,7 @@ function CanvasSurface({ nodes, edges }: { nodes: CanvasNode[]; edges: CanvasEdg
         elementsSelectable={false}
         defaultEdgeOptions={{
           type: 'wf',
-          style: { stroke: 'var(--color-gray-300)' },
+          style: { stroke: 'var(--color-edge)' },
         }}
       >
         <Background gap={16} />
