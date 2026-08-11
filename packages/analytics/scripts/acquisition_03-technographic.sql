@@ -22,3 +22,17 @@ where v.created_at between $__timeFrom() and $__timeTo()
   and v.tags ->> 'environment' = '$environment'
 group by 1
 order by success_rate_pct desc;
+
+-- Visitor by version
+select
+  round(100.0 * count(v.id) / sum(count(v.id)) over (), 2) as percentage,
+  count(v.id) as visitor_count,
+  coalesce(v.tags ->> 'release', 'Unknown') as ver
+from application.visitor v
+where
+  v.created_at between $__timeFrom() and $__timeTo()
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
+group by ver
+  order by visitor_count desc
+limit 20;
