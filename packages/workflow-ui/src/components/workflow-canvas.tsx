@@ -311,6 +311,10 @@ type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
 
 /** One bend radius for every corner. */
 const BEND = 16;
+/** How far a labelled fork runs straight down before it turns. */
+const FORK_STEM = 28;
+/** Where a label pill hangs below the deciding node. */
+const LABEL_DROP = 56;
 const DOT_R = 3.5;
 /**
  * react-flow anchors its 1px handles just outside the node box, so both ends of
@@ -320,6 +324,18 @@ const DOT_R = 3.5;
  * bottom at the same point — closes both seams.
  */
 const HANDLE_INSET = 1;
+
+/** Endpoint dot, sized off DOT_R so the SVG geometry and the HTML marker agree. */
+const dotStyle: CSSProperties = {
+  position: 'absolute',
+  boxSizing: 'border-box',
+  width: DOT_R * 2,
+  height: DOT_R * 2,
+  borderRadius: '50%',
+  background: 'var(--color-card)',
+  border: '1px solid var(--color-edge)',
+  pointerEvents: 'none',
+};
 /**
  * Corner control-point factor. A circular arc's classic value is 0.552; pulling
  * it out to 0.9 squares the shoulder off, approximating the look of
@@ -373,8 +389,18 @@ function WorkflowEdge({
   style,
   data,
 }: EdgeProps<WfEdge>) {
-  // Fork edges (labelled) split after a 28px stem; everything else (merges) runs through the midpoint
-  const splitY = label ? sourceY + 28 : (sourceY + targetY) / 2;
+  /*
+   * Both label anchors have to end up sitting ON their own line. A target
+   * anchor already does — the pill hangs in the target's column, which the path
+   * descends through. A source anchor hangs directly under the deciding node,
+   * where the path has already turned away at FORK_STEM, leaving the pill
+   * stranded in open space; so for those the stem runs all the way down to the
+   * pill and turns behind it.
+   */
+  const anchoredAtSource = data?.anchor === 'source';
+  const splitY = label
+    ? sourceY + (anchoredAtSource ? LABEL_DROP : FORK_STEM)
+    : (sourceY + targetY) / 2;
   const path = orthogonalPath(
     sourceX,
     sourceY - HANDLE_INSET,
@@ -383,24 +409,25 @@ function WorkflowEdge({
     splitY
   );
   // The label hangs below the split line, pinned to its own arm's column
-  const labelPos = {
-    x: data?.anchor === 'source' ? sourceX : targetX,
-    y: sourceY + 56,
-  };
+  const labelPos = { x: anchoredAtSource ? sourceX : targetX, y: sourceY + LABEL_DROP };
   return (
     <>
       <BaseEdge id={id} path={path} style={style} />
-      {/* Connection point: a hollow circle instead of an arrowhead, matching the wire's stroke and colour */}
-      <circle
-        cx={targetX}
-        cy={targetY + HANDLE_INSET - DOT_R}
-        r={DOT_R}
-        fill="var(--color-card)"
-        stroke="var(--color-edge)"
-        strokeWidth={1}
-      />
-      {!!label && (
-        <EdgeLabelRenderer>
+      <EdgeLabelRenderer>
+        {/*
+          Connection point: a hollow dot instead of an arrowhead. Drawn as HTML
+          rather than SVG because SVG paints in document order — a long
+          pass-through connector running down the same column is a later sibling
+          and would draw straight through a dot belonging to an earlier edge.
+          The HTML layer sits above every path, so no line can cross it.
+        */}
+        <div
+          style={{
+            ...dotStyle,
+            transform: `translate(-50%, -50%) translate(${targetX}px, ${targetY + HANDLE_INSET - DOT_R}px)`,
+          }}
+        />
+        {!!label && (
           <div
             style={{
               ...edgeLabelStyle,
@@ -409,8 +436,8 @@ function WorkflowEdge({
           >
             {label}
           </div>
-        </EdgeLabelRenderer>
-      )}
+        )}
+      </EdgeLabelRenderer>
     </>
   );
 }
