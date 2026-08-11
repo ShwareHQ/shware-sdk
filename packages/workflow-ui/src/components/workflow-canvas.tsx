@@ -113,16 +113,17 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
 };
 
 /**
- * A real 1px border, matching the page cards, plus a drop shadow for lift. The
- * border used to be a `0 0 0 1px` ring inside the shadow, but at 4% alpha it
- * was too faint to give the card an edge. boxSizing is border-box, so the
- * border sits inside CARD_SIZE and the grid stays on its 8px steps.
+ * A 1px border and nothing else — no drop shadow. It takes --color-edge rather
+ * than --color-border, so a card's outline and the connectors between cards are
+ * the same weight: on a canvas the wiring is as much a first-class line as the
+ * boxes, and one darker step is what replaces the lift the shadow used to give.
+ * boxSizing is border-box, so the border sits inside CARD_SIZE and the layout
+ * stays on its 8px steps.
  */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: 'var(--color-card)',
-  border: '1px solid var(--color-border)',
-  boxShadow: '0 2px 4px var(--color-card-shadow)',
+  border: '1px solid var(--color-edge)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
   ...superellipse,
@@ -267,7 +268,11 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
 
 const nodeTypes = { wf: WorkflowNode };
 
-/** Edge label pill: 32px tall (8-grid), fully rounded, typography on tailwind's text-xs (12px / 16px). */
+/**
+ * Edge label pill: 32px tall (8-grid), fully rounded, typography on tailwind's
+ * text-xs (12px / 16px). Border on --color-edge like every other outline on the
+ * canvas — cards, the exit pill and the connectors all draw at one weight.
+ */
 const edgeLabelStyle: CSSProperties = {
   position: 'absolute',
   display: 'flex',
@@ -276,7 +281,7 @@ const edgeLabelStyle: CSSProperties = {
   padding: '0 12px',
   borderRadius: 16,
   background: 'var(--color-card)',
-  border: '1px solid var(--color-border)',
+  border: '1px solid var(--color-edge)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   fontSize: 12,
   lineHeight: '16px',
