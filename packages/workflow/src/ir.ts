@@ -13,8 +13,8 @@ import * as z from 'zod/mini';
  * 1. IR 格式版本（irVersion）：IR schema 自身的演进。加可选字段不升版本；
  *    结构不兼容（改判别值、删字段、改语义）才递增。读取方按 irVersion 分发
  *    到对应版本的 schema/迁移器；写入方永远写当前版本。
- * 2. 内容版本（contentHash）：单个定义的内容寻址标识——canonical JSON
- *    （键序稳定、无空白、不含 contentHash 自身）的 SHA-256 截断。用途：
+ * 2. 内容版本（contentHash）：单个定义的**执行语义**的内容寻址标识——
+ *    剥掉元数据（meta / label）后的 canonical JSON 哈希，见 hash.ts。用途：
  *    - 用户入流时 pin 住 contentHash，在途旅程按 pin 的版本执行到结束
  *      （默认策略；结构兼容的热更新是未来的显式迁移课题）；
  *    - 部署时 diff：hash 相同 = 定义未变，跳过发布；
@@ -246,10 +246,22 @@ export const GoalIR = z.object({
 });
 export type GoalIR = z.infer<typeof GoalIR>;
 
+/**
+ * 给人看的元数据：**不参与 contentHash**（见 hash.ts）。
+ * 改描述/标签不影响执行语义，因此不让在途用户的 pin 版本失效、也不进 plan。
+ */
+export const MetaIR = z.object({
+  description: z.optional(z.string()),
+  tags: z.optional(z.array(z.string())),
+  owner: z.optional(z.string()),
+});
+export type MetaIR = z.infer<typeof MetaIR>;
+
 export const WorkflowIR = z.object({
   irVersion: z.literal(IR_VERSION),
   name: z.string(),
   contentHash: z.string(),
+  meta: z.optional(MetaIR),
   trigger: TriggerIR,
   goal: z.optional(GoalIR),
   exitWhen: z.optional(ConditionIR),
