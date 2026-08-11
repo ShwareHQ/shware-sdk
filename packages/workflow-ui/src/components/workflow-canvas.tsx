@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { type CSSProperties, createContext, useContext, useMemo } from 'react';
 import type { NodeStats } from '../config';
+import { superellipse } from './corner-shape';
 import {
   CARD_SIZE,
   type CanvasEdge,
@@ -89,8 +90,6 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
   send_event: Send,
 };
 
-const superellipse = { cornerShape: 'superellipse(1.2)' } as CSSProperties;
-
 /** No border — elevation comes from shadow alone (customer.io's look). */
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
@@ -129,7 +128,7 @@ const iconStyle: CSSProperties = {
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 600,
-  color: '#334155',
+  color: 'var(--color-gray-700)',
 };
 
 const headerStyle: CSSProperties = {
@@ -144,7 +143,7 @@ const titleStyle: CSSProperties = {
   fontSize: 13,
   lineHeight: '20px',
   fontWeight: 600,
-  color: '#0f172a',
+  color: 'var(--color-gray-900)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -157,14 +156,14 @@ const countStyle: CSSProperties = {
   fontSize: 13,
   lineHeight: '20px',
   fontWeight: 600,
-  color: '#0f172a',
+  color: 'var(--color-gray-900)',
 };
 
 const subtitleStyle: CSSProperties = {
   marginTop: 4,
   fontSize: 12,
   lineHeight: '16px',
-  color: '#64748b',
+  color: 'var(--color-gray-500)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -179,7 +178,7 @@ const linkButtonStyle: CSSProperties = {
   padding: 0,
   border: 'none',
   background: 'transparent',
-  color: '#94a3b8',
+  color: 'var(--color-gray-400)',
   cursor: 'pointer',
   pointerEvents: 'auto',
 };
@@ -198,17 +197,17 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
         style={iconStyle}
         title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
       >
-        <Icon size={14} color="#334155" strokeWidth={2} aria-hidden />
+        <Icon size={14} color="var(--color-gray-700)" strokeWidth={2} aria-hidden />
         {data.title}
       </div>
     ) : (
       <div style={cardStyle}>
         <div style={headerStyle}>
-          <Icon size={15} color="#334155" strokeWidth={2} aria-hidden />
+          <Icon size={15} color="var(--color-gray-700)" strokeWidth={2} aria-hidden />
           <span style={titleStyle}>{data.title}</span>
           {data.count !== undefined && (
             <span style={countStyle}>
-              <User size={14} color="#64748b" strokeWidth={2} aria-hidden />
+              <User size={14} color="var(--color-gray-500)" strokeWidth={2} aria-hidden />
               {data.count}
             </span>
           )}
@@ -249,12 +248,12 @@ const edgeLabelStyle: CSSProperties = {
   padding: '0 12px',
   borderRadius: 16,
   background: '#fff',
-  border: '1px solid #e2e8f0',
+  border: '1px solid var(--color-gray-200)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 500,
-  color: '#475569',
+  color: 'var(--color-gray-600)',
   pointerEvents: 'none',
 };
 
@@ -329,7 +328,14 @@ function WorkflowEdge({
     <>
       <BaseEdge id={id} path={path} style={style} />
       {/* Connection point: a hollow circle instead of an arrowhead, matching the wire's stroke and colour */}
-      <circle cx={targetX} cy={targetY - 4} r={3.5} fill="#fff" stroke="#cbd5e1" strokeWidth={1} />
+      <circle
+        cx={targetX}
+        cy={targetY - 4}
+        r={3.5}
+        fill="#fff"
+        stroke="var(--color-gray-300)"
+        strokeWidth={1}
+      />
       {!!label && (
         <EdgeLabelRenderer>
           <div
@@ -372,7 +378,7 @@ function CanvasSurface({ nodes, edges }: { nodes: CanvasNode[]; edges: CanvasEdg
         elementsSelectable={false}
         defaultEdgeOptions={{
           type: 'wf',
-          style: { stroke: '#cbd5e1' },
+          style: { stroke: 'var(--color-gray-300)' },
         }}
       >
         <Background gap={16} />
