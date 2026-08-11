@@ -13,19 +13,22 @@ import {
 } from '../segments';
 
 /**
- * Onboarding 教育系列（功能采用 drip）。
+ * Onboarding education series (a feature-adoption drip).
  *
- * 结构：login 触发（限新用户，仅首次入流）→ Welcome → 每周一封教育邮件，
- * 每封只发给还没用过对应功能的人；用过的直接跳过、合流到下一个模块。
- * 同等流程在 UI 画布上约 40 个节点（8 组「分支 + 邮件 + 延迟」+ 汇合线）。
+ * Shape: triggered by login (new users only, first entry only) -> Welcome ->
+ * one educational email a week, each sent only to people who have not used the
+ * matching feature yet; everyone else skips straight past and rejoins at the
+ * next module.
+ * The same flow on a UI canvas runs to roughly 40 nodes: eight
+ * branch + email + delay groups plus their rejoin edges.
  */
 
-/* --------------------------------- 触发 --------------------------------- */
+/* --------------------------------- Trigger ---------------------------------- */
 
-/** 登录即入流，filter 挡住老用户。TODO: 仅首次入流（re-entry 策略）待 options 支持。 */
+/** Login puts a user in, with the filter holding back existing ones. TODO: first-entry-only, once options support a re-entry policy. */
 const login = trigger.event(e.login, { filter: newUsers7d });
 
-/* ------------------- 模板（真实项目放 templates/，示例就近定义） ------------------- */
+/* ------- Templates (a real project keeps these in templates/; inlined here) ------- */
 
 const welcome = template.email('onboarding_welcome');
 
@@ -40,7 +43,7 @@ const edu = {
   publishing: template.email('edu_publishing'),
 };
 
-/** 教育模块：发一封教育邮件，等一周（合流继续下一模块）。 */
+/** One education module: send the email, wait a week, then rejoin for the next module. */
 const eduModule =
   (template: TemplateRef<'email'>): SubFlow =>
   (w) =>

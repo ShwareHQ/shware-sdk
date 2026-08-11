@@ -2,21 +2,22 @@ import { not, performed, segment, template, trigger, workflow } from '../dsl';
 import { e } from '../schema';
 
 /**
- * 沉默用户召回（re-engagement）。
+ * Re-engaging dormant users.
  *
- * 走查重点：segment 进入触发（非事件触发）+ waitUntil 等待回归 +
- * 臂内 exit 的单臂 branch + cohort A/B 验证优惠是否必要。
+ * What this one shows: a segment-entry trigger (not an event trigger),
+ * waitUntil for the user to come back, a single-arm branch whose arm exits,
+ * and a cohort A/B that tests whether the incentive is needed at all.
  */
 
-/* ------------------------------ 触发与条件 ------------------------------ */
+/* --------------------------- Triggers and conditions -------------------------- */
 
-/** 30 天没登录——segment 进入触发：从"活跃"变为"沉默"的瞬间入流。 */
+/** No login for 30 days — a segment-entry trigger fires the moment a user goes from active to dormant. */
 const inactive30d = segment('inactive_30d', not(performed(e.login, { within: '30 days' })));
 
-/** 回来了 = 近 7 天登录过。 */
+/** Came back = logged in within the last 7 days. */
 const cameBack = performed(e.login, { within: '7 days' });
 
-/* --------------------------------- 模板 --------------------------------- */
+/* --------------------------------- Templates -------------------------------- */
 
 const missYou = template.email('reengage_miss_you');
 const highlights = template.email('reengage_product_highlights');
@@ -28,13 +29,13 @@ export const reengagement = workflow('reengagement', {
   trigger: trigger.segment(inactive30d),
 })
   .email(missYou)
-  .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' }) // 最多等一周
-  .branch([cameBack, (w) => w.exit('reengaged')]) // 已回归：结束；未回归：继续主线
+  .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' }) // wait a week at most
+  .branch([cameBack, (w) => w.exit('reengaged')]) // back already: done. Still gone: carry on down the main line
   .email(highlights)
   .delay('7 days')
   .branch([
     not(cameBack),
-    // 仍未回归才进入 A/B：对照组验证优惠券是否真的必要
+    // Only the still-dormant reach the A/B: the control arm tests whether the coupon is needed at all
     (w) =>
       w.cohort({
         control: { weight: 50 },

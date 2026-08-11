@@ -2,8 +2,9 @@ import type { ConditionIR, ScalarIR } from '../ir';
 import type { FactSource } from './ports';
 
 /**
- * ConditionIR 求值：纯逻辑，事实经 FactSource 注入——D1 实现与测试内存
- * 实现共享同一份语义，杜绝两套求值器漂移。
+ * ConditionIR evaluation: pure logic, with facts injected through FactSource,
+ * so the D1 implementation and the in-memory test one share a single set of
+ * semantics and cannot drift into two evaluators.
  */
 export async function evaluateCondition(
   condition: ConditionIR,
@@ -84,8 +85,9 @@ function compareProperty(
 }
 
 /**
- * 条件关心的事件名集合：wait_until / goal 的唤醒订阅依据。
- * segment 引用会展开（需要 FactSource 解析定义）。
+ * The set of event names a condition cares about — what wait_until and goal
+ * subscribe to for wake-ups. Segment references are expanded, which is why a
+ * FactSource is needed to resolve their definitions.
  */
 export async function relevantEvents(condition: ConditionIR, facts: FactSource): Promise<string[]> {
   const found = new Set<string>();

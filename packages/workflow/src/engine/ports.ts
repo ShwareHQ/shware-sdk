@@ -1,29 +1,32 @@
 import type { ChannelIR, ConditionIR, ScalarIR } from '../ir';
 
 /**
- * 引擎端口：解释器唯一依赖的外部世界形状。
+ * Engine ports: the only shape of the outside world the interpreter depends on.
  *
- * 设计约束（AWS-proof，见引擎设计记录）：
- * - waitForEvent 语义是"**至少一次唤醒 + 醒后重评估**"——唤醒只是提示，
- *   不承诺事件缓冲/去重（Cloudflare 有缓冲、AWS callback token 没有，
- *   端口取两者交集）；条件真值永远由调用方醒后重查。
- * - 一切非确定性（随机、当前时间、外部 IO）必须发生在 step.do 内，
- *   结果被持久化后 replay 才能对齐。
+ * Design constraints (AWS-proof, see the engine design notes):
+ * - waitForEvent means "**at least one wake-up, re-evaluate after waking**".
+ *   A wake-up is only a hint; no event buffering or de-duplication is promised
+ *   (Cloudflare buffers, AWS callback tokens do not — the port takes the
+ *   intersection). The truth of a condition is always re-read by the caller
+ *   once awake.
+ * - Every source of non-determinism (randomness, current time, external IO)
+ *   must happen inside step.do, so its result is persisted and replay lines up.
  */
 
 export interface EngineStep {
-  /** 持久化步骤：fn 的返回值被 checkpoint，replay 时跳过执行直接取结果。 */
+  /** Durable step: fn's return value is checkpointed; on replay the result is reused without re-running. */
   do<T>(name: string, fn: () => Promise<T>): Promise<T>;
 
-  /** 持久化睡眠：挂起不计费。 */
+  /** Durable sleep: suspended time is not billed. */
   sleep(name: string, ms: number): Promise<void>;
 
-  /** 睡到绝对时刻（time_window 用）。 */
+  /** Sleep until an absolute instant (used by time_window). */
   sleepUntil(name: string, timestampMs: number): Promise<void>;
 
   /**
-   * 等待外部唤醒或超时。events 是关心的事件名列表——适配器据此注册订阅
-   * （Cloudflare：写订阅表 + waitForEvent；AWS：签发 callback token）。
+   * Wait for an external wake-up or a timeout. `events` lists the event names
+   * of interest, which the adapter uses to register a subscription (Cloudflare:
+   * write the subscription table + waitForEvent; AWS: issue a callback token).
    */
   waitForEvent(
     name: string,
@@ -31,24 +34,24 @@ export interface EngineStep {
   ): Promise<'event' | 'timeout'>;
 }
 
-/** 单用户视角的事实源：条件求值的读取接口（D1 / 内存实现同一份求值逻辑）。 */
+/** Facts from a single user's point of view: the read interface condition evaluation uses (D1 and in-memory share one evaluator). */
 export interface FactSource {
-  /** 事件发生次数；sinceMs 给出则只数窗口内。 */
+  /** How many times an event occurred; with `sinceMs`, only within that window. */
   countEvents(event: string, sinceMs?: number): Promise<number>;
   getProperty(path: string): Promise<ScalarIR | undefined>;
-  /** 按名解析 segment 定义（部署时随 Bundle 落库）。 */
+  /** Resolve a segment definition by name (stored with the bundle at deploy time). */
   getSegmentCondition(name: string): Promise<ConditionIR | undefined>;
 }
 
 export interface OutboundMessage {
   channel: ChannelIR;
   template: string;
-  /** 已解析：user_property 引用被替换为实际值。 */
+  /** Already resolved: user_property references have been replaced by actual values. */
   props: Record<string, ScalarIR | undefined>;
   userId: string;
-  /** 渠道对应的收件地址，引擎从 profile 解析——sender 因此无需读库。 */
+  /** The channel's recipient address, resolved from the profile by the engine — so senders never read the database. */
   recipient?: string | undefined;
-  /** `${instanceId}:${nodeId}`——发送方用它做去重（replay/重试安全）。 */
+  /** `${instanceId}:${nodeId}` — senders de-duplicate on it, making replays and retries safe. */
   idempotencyKey: string;
 }
 
@@ -56,14 +59,14 @@ export interface MessageSender {
   send(message: OutboundMessage): Promise<void>;
 }
 
-/** send_event 的出口：回注入口（跨 workflow 组合的事件边）。 */
+/** send_event's outlet: feeds back into ingest (the event edge between workflows). */
 export interface EventSink {
   emit(event: string, payload: Record<string, ScalarIR | undefined>): Promise<void>;
 }
 
 export interface JourneyContext {
   userId: string;
-  /** 实例标识：进入幂等键与日志。 */
+  /** Instance identity: feeds the idempotency key and the logs. */
   instanceId: string;
   step: EngineStep;
   facts: FactSource;

@@ -4,8 +4,9 @@ import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE } from './bindings
 import { D1FactSource } from './facts';
 
 /**
- * Ingest Router：事件入口的三件事——落库、唤醒等待中的实例、匹配触发器
- * 创建新旅程。加上 /deploy（Bundle 落库）与 /identify（profile 合并）。
+ * Ingest router. An incoming event does three things: it is stored, it wakes
+ * waiting instances, and it is matched against triggers to start new journeys.
+ * Plus /deploy (persist a bundle) and /identify (merge a profile).
  */
 
 export interface IngestInput {
@@ -48,7 +49,7 @@ async function wakeSubscribers(env: JourneyEnv, userId: string, event: string): 
       await instance.sendEvent({ type: WAKE_EVENT_TYPE, payload: { event } });
       woke++;
     } catch {
-      // 实例已结束/不存在：清掉悬挂订阅
+      // Instance finished or never existed: drop the dangling subscription
       await env.DB.prepare('DELETE FROM subscriptions WHERE wake_handle = ?')
         .bind(row.handle)
         .run();
@@ -70,14 +71,14 @@ async function startTriggeredJourneys(
 
   const started: string[] = [];
   for (const row of results) {
-    // trigger filter：入流门槛
+    // trigger filter: the entry gate
     if (row.filter !== null) {
       const condition = ConditionIR.parse(JSON.parse(row.filter));
       const facts = new D1FactSource(env.DB, input.userId);
       if (!(await evaluateCondition(condition, facts, ts))) continue;
     }
 
-    // 入流策略 MVP：once——同一 workflow 同一用户只进一次
+    // Entry policy, MVP: once — a user enters a given workflow a single time
     const existing = await env.DB.prepare(
       'SELECT 1 AS x FROM entries WHERE workflow = ? AND user_id = ?'
     )
@@ -104,7 +105,7 @@ async function startTriggeredJourneys(
   return started;
 }
 
-/** 实例 id：可寻址（Router 直接 get 唤醒）+ ≤100 字符 + 合法字符集。 */
+/** Instance id: addressable (the router gets it directly to wake it), ≤100 chars, legal charset. */
 function buildInstanceId(workflow: string, hash: string, userId: string, ts: number): string {
   const uid = userId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32);
   return `${workflow.slice(0, 32)}-${hash.slice(0, 8)}-${uid}-${ts.toString(36)}`;
@@ -112,7 +113,7 @@ function buildInstanceId(workflow: string, hash: string, userId: string, ts: num
 
 /* ---------------------------------- deploy ---------------------------------- */
 
-/** Bundle 部署：terraform-apply 心智——workflows 进 KV（内容寻址），触发路由与 segment 定义换装进 D1。 */
+/** Bundle deploy, terraform-apply style: workflows go to KV (content-addressed) while trigger routes and segment definitions are swapped into D1. */
 export async function deployBundle(
   env: JourneyEnv,
   bundle: unknown
@@ -143,7 +144,7 @@ export async function deployBundle(
         )
         .run();
     }
-    // segment/date/webhook 触发：后续阶段（segment 需成员物化，date 走 cron+Queues）
+    // segment/date/webhook triggers come later (segments need materialized membership; date goes through cron + Queues)
     deployed.push(`${workflow.name}@${workflow.contentHash.slice(0, 8)}`);
   }
   return { workflows: deployed };

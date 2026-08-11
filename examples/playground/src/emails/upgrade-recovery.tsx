@@ -6,7 +6,7 @@ export interface UpgradeRecoveryProps {
 
 export const subject = (props: UpgradeRecoveryProps) => `Finish upgrading to ${props.plan}`;
 
-/** 预览用样例 props（模板页渲染时注入）。 */
+/** Sample props for previewing (injected when the template page renders it). */
 export const preview: UpgradeRecoveryProps = { plan: 'business' };
 
 export default function UpgradeRecovery({ plan }: UpgradeRecoveryProps) {

@@ -7,12 +7,12 @@ import { demoBundle } from './journeys';
 import { renderEmail } from './render';
 
 interface DemoEnv extends JourneyEnv {
-  /** Cloudflare Email Service 的 send_email 绑定（本地 dev 无绑定时走日志回退）。 */
+  /** Cloudflare Email Service's send_email binding (local dev has none, so it falls back to logging). */
   EMAIL?: EmailBindingLike;
   EMAIL_FROM?: string;
 }
 
-/** 本地开发回退：打印渲染结果，链路与真实发送完全一致（只换最后一跳）。 */
+/** Local-dev fallback: print what was rendered. The pipeline is identical to a real send — only the last hop differs. */
 const logEmailBinding: EmailBindingLike = {
   async send(message) {
     console.log(
@@ -23,7 +23,7 @@ const logEmailBinding: EmailBindingLike = {
   },
 };
 
-/** 应用覆盖消息出口：CF Email Service + react-email 渲染器。 */
+/** The app overrides the message outlet: CF Email Service plus a react-email renderer. */
 export class DemoJourneyRunner extends JourneyRunner {
   protected override createMessageSender(): MessageSender {
     const env = this.env as DemoEnv;
@@ -39,14 +39,14 @@ export default {
   async fetch(request: Request, env: DemoEnv): Promise<Response> {
     const url = new URL(request.url);
 
-    // 演示便捷端点：服务端编译 demo bundle 并部署（真实项目走 CLI POST /deploy）
+    // Demo convenience endpoint: compile and deploy the bundle server-side (a real project would POST /deploy from a CLI)
     if (request.method === 'POST' && url.pathname === '/deploy-demo') {
       const result = await deployBundle(env, demoBundle());
       return Response.json(result);
     }
 
-    // 邮件预览：registry + 渲染器直接出 HTML（react-email dev 的轻量替代，
-    // 也是将来画布卡片缩略图的数据源）
+    // Email preview: registry plus renderer straight to HTML — a lightweight
+    // stand-in for react-email dev, and the future data source for card thumbnails
     if (request.method === 'GET' && url.pathname.startsWith('/preview/')) {
       const key = url.pathname.slice('/preview/'.length);
       const props = Object.fromEntries(url.searchParams);

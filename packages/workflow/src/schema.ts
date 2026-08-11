@@ -1,9 +1,10 @@
 import { event, user } from './dsl';
 
 /**
- * 业务侧 schema：事件与用户属性的类型定义。
- * 最终形态应从 analytics 埋点 schema 生成/导入，这里先手写示例。
- * 示例产品：团队协作文档工作区（Notion/Linear 一类的 SaaS）。
+ * App-side schema: the type definitions for events and user properties.
+ * Eventually this should be generated from (or imported out of) the analytics
+ * tracking schema; for now it is a hand-written sample.
+ * Sample product: a collaborative docs workspace, the Notion/Linear kind of SaaS.
  */
 
 type Empty = Record<never, never>;
@@ -15,7 +16,7 @@ export interface Event {
   purchase: { value: number; currency: string };
   subscription_cancelled: { reason: 'too_expensive' | 'not_useful' | 'missing_features' | 'other' };
 
-  /* 功能使用事件：onboarding 教育系列的判定依据。 */
+  /* Feature-usage events: what the onboarding education series keys off. */
   doc_created: Empty;
   template_used: Empty;
   teammate_invited: Empty;
@@ -27,7 +28,7 @@ export interface Event {
   mobile_app_opened: Empty;
   doc_published: Empty;
 
-  /** workflow 自发事件：激活提醒到期（无 payload）。 */
+  /** Workflow-emitted event: the activation nudge came due (no payload). */
   activation_nudge_due: Empty;
 }
 
@@ -40,6 +41,6 @@ export interface UserProperty {
   docs_count: number;
 }
 
-/** 引用表：整个 DSL 仅有的两个类型注入点（drizzle 的 table 对象）。 */
+/** Reference tables: the DSL's only two type injection points (drizzle's table objects). */
 export const u = user<UserProperty>();
 export const e = event<Event>();

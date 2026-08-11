@@ -17,37 +17,43 @@ import {
 } from './ir';
 
 /**
- * Workflow DSL —— 表面类型 + 编译实现（构造期把链式调用/表达式收集成 IR）。
+ * Workflow DSL — surface types plus the compiler (chained calls and
+ * expressions are collected into IR at construction time).
  *
- * 设计原则：
- * 1. 全声明式：链式调用与条件表达式构造的是可序列化的图（IR），不是运行时
- *    代码。子流程回调只在构造期执行一次（builder 进、builder 出），运行时值
- *    一律是数据引用（UserPropertyRef），不允许闭包。
- * 2. drizzle 式类型策略：泛型只存在于两个引用表上（`u = user<UserProperty>()`、
- *    `e = event<Event>()`——仅有的类型注入点），其余全部是零泛型的自由
- *    函数/对象（谓词 eq/gt/…、组合子 and/or/not、segment/template/trigger/
- *    flow/workflow），类型从引用的幻影类型流入。没有中心 factory。
- * 3. 三层结构：引用表（u / e）→ 可复用资产（template / segment / trigger）
- *    → 流程原语（workflow + FlowBuilder 链）+ 条件表达式（谓词组合）。
- * 4. options = 配置（trigger / goal / exitWhen），链 = 纯步骤。
+ * Design principles:
+ * 1. Fully declarative: chains and condition expressions build a serializable
+ *    graph (IR), never runtime code. Sub-flow callbacks run exactly once at
+ *    construction (builder in, builder out) and runtime values are always data
+ *    references (UserPropertyRef) — closures are not allowed.
+ * 2. drizzle-style typing: generics live only on the two reference tables
+ *    (`u = user<UserProperty>()` and `e = event<Event>()`, the only type
+ *    injection points). Everything else is a generic-free free function or
+ *    object (predicates eq/gt/…, combinators and/or/not, segment / template /
+ *    trigger / flow / workflow), with types flowing in from a reference's
+ *    phantom type. There is no central factory.
+ * 3. Three layers: reference tables (u / e) → reusable assets (template /
+ *    segment / trigger) → flow primitives (workflow + FlowBuilder chain) and
+ *    condition expressions (predicate composition).
+ * 4. options = configuration (trigger / goal / exitWhen); the chain = steps.
  */
 
-/* ---------------------------------- 基础 ---------------------------------- */
+/* ----------------------------------- Base ----------------------------------- */
 
 /**
- * 事件名 → payload 形状。由业务侧（analytics 埋点 schema）提供。
- * 约束用 object 而非 Record：interface 没有隐式索引签名，Record 约束会拒绝
- * interface 定义的 schema；事件名靠 keyof E 取，payload 靠 E[N] 取。
+ * Event name → payload shape, supplied by the app (its analytics schema).
+ * Constrained to `object` rather than `Record`: interfaces have no implicit
+ * index signature, so a Record constraint would reject an interface-defined
+ * schema. Event names come from `keyof E`, payloads from `E[N]`.
  */
 export type EventMap = object;
 
-/** 用户属性基础形状，业务侧扩展具体字段。 */
+/** Base shape of user properties; the app extends it with concrete fields. */
 export interface UserPropertyBase {
   userId: string;
   email: string;
 }
 
-/** 时长字面量：'1 hour' / '23 hours' / '30 days'，拼写错误编译期报错。 */
+/** Duration literal: '1 hour' / '23 hours' / '30 days' — typos fail to compile. */
 export type Duration = `${number} ${
   | 'second'
   | 'seconds'
@@ -62,10 +68,10 @@ export type Duration = `${number} ${
 
 export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
-/** 'HH:mm'。TODO: 运行时校验格式，模板字面量类型对前导零表达力不足。 */
+/** 'HH:mm'. TODO: validate at runtime — template literal types cannot express leading zeros. */
 export type TimeOfDay = `${string}:${string}`;
 
-/** 时长解析交给 ms（类型安全的 StringValue）；Duration 是它的更严子集（全词单位）。 */
+/** Duration parsing delegates to `ms` (typed StringValue); Duration is its stricter, full-word subset. */
 function durationIR(value: Duration): DurationIR {
   const millis = ms(value);
   if (typeof millis !== 'number' || Number.isNaN(millis) || millis < 0) {
@@ -74,11 +80,12 @@ function durationIR(value: Duration): DurationIR {
   return { value, ms: millis };
 }
 
-/* ------------------------------ 引用（类型载体） ------------------------------ */
+/* --------------------------- References (type carriers) --------------------------- */
 
 /**
- * 用户属性引用（drizzle 的 column 对应物）：谓词（eq/gt/…）与消息 props
- * 个性化共用。幻影类型 __t 让自由函数从引用上取到属性类型。
+ * User-property reference (drizzle's column equivalent), shared by predicates
+ * (eq/gt/…) and message-prop personalization. The phantom type __t is how a
+ * free function reads the property's type off the reference.
  */
 export interface UserPropertyRef<T> {
   readonly type: 'user_property';
@@ -86,28 +93,32 @@ export interface UserPropertyRef<T> {
   readonly __t?: T;
 }
 
-/** 事件引用：performed 谓词的实参；未来 payload where 子句、payload 取值挂这里。 */
+/** Event reference: the argument to `performed`; future payload where-clauses and value refs hang off it. */
 export interface EventRef<P = unknown> {
   readonly type: 'event_ref';
   readonly name: string;
   readonly __p?: P;
 }
 
-/** 属性引用表：u.subscription_status 即 UserPropertyRef（drizzle 的 users.email）。 */
+/** Property reference table: `u.subscription_status` is a UserPropertyRef (drizzle's `users.email`). */
 export type UserRefs<U> = { readonly [K in keyof U]-?: UserPropertyRef<U[K]> };
 
-/** 事件引用表：e.purchase 即 EventRef。 */
+/** Event reference table: `e.purchase` is an EventRef. */
 export type EventRefs<E> = { readonly [K in keyof E]-?: EventRef<E[K]> };
 
 /**
- * 引用表构造：业务侧在 schema 处各调一次并导出（Proxy 实现，属性访问即引用）。
+ * Build the reference tables: the app calls each once in its schema module and
+ * exports the result (implemented with a Proxy — property access *is* the reference).
  *
  *   export const u = user<UserProperty>();
  *   export const e = event<Event>();
  *
- * 之后谓词与个性化全部走属性访问：eq(u.subscription_status, 'active')、
- * performed(e.purchase, { within: '30 days' })、{ plan: u.subscription_plan }。
- * 属性刻意只支持单层：数据源是 db 表、天然扁平，不做嵌套路径。
+ * From then on predicates and personalization are all property access:
+ * eq(u.subscription_status, 'active'), performed(e.purchase, { within: '30 days' }),
+ * { plan: u.subscription_plan }.
+ *
+ * Properties are deliberately single-level: the data source is a database
+ * table and is naturally flat, so nested paths are out of scope.
  */
 export function user<U extends UserPropertyBase>(): UserRefs<U> {
   return new Proxy({} as UserRefs<U>, {
@@ -124,19 +135,19 @@ export function event<E extends EventMap>(): EventRefs<E> {
 export type PropInput<T> = T | UserPropertyRef<T>;
 export type PropsInput<P> = { [K in keyof P]: PropInput<P[K]> };
 
-/** 模板未声明 props 时可省略实参；声明了则必填。 */
+/** Props may be omitted when a template declares none, and are required when it does. */
 export type MessageArgs<P> =
   Record<never, never> extends P ? [props?: PropsInput<P>] : [props: PropsInput<P>];
 
-/* ---------------------------------- 模板 ---------------------------------- */
+/* --------------------------------- Templates -------------------------------- */
 
 export type Channel = 'email' | 'sms' | 'push' | 'in_app' | 'slack' | 'survey';
 
 export type EmptyProps = Record<never, never>;
 
 /**
- * 模板引用：顶层命名资产，跨 workflow 复用、单独版本化。
- * props 形状在声明处指定，使用处类型检查。
+ * Template reference: a top-level named asset, reusable across workflows and
+ * versioned on its own. The props shape is declared here and checked at use.
  */
 export interface TemplateRef<C extends Channel = Channel, P extends object = EmptyProps> {
   readonly channel: C;
@@ -145,9 +156,11 @@ export interface TemplateRef<C extends Channel = Channel, P extends object = Emp
 }
 
 /**
- * 模板内容：接收 props 的组件（react-email 等）。传组件而非 JSX 元素——
- * 组件形式让 P 从组件的 props 签名推导，模板 key、内容、使用处三方对齐。
- * 内容系统（渲染、liquid 兼容、多语言）是独立课题，先占位类型。
+ * Template content: a component taking props (react-email and friends). Pass
+ * the component, not a JSX element — that way P is inferred from the
+ * component's own props signature, keeping the key, the content and every use
+ * site aligned. The content system (rendering, liquid compat, i18n) is a
+ * separate topic; this is a placeholder type.
  */
 export type TemplateContent<P extends object> = (props: P) => unknown;
 
@@ -184,10 +197,11 @@ const makeTemplate =
     ({ channel, key, content }) as TemplateRef<C, P>;
 
 /**
- * 模板定义：自由对象——模板的类型（props 形状）在声明处自足。
+ * Template definition: a plain object — a template's type (its props shape) is
+ * self-contained at the declaration site.
  *
  *   const welcome = template.email('onboarding_welcome');
- *   const offer = template.email('n2_offer', OfferEmail);   // P 从组件 props 推导
+ *   const offer = template.email('n2_offer', OfferEmail);   // P inferred from the component
  */
 export const template: TemplateFactory = {
   email: makeTemplate('email'),
@@ -198,15 +212,15 @@ export const template: TemplateFactory = {
   survey: makeTemplate('survey'),
 };
 
-/* ----------------------------- 模板 registry ----------------------------- */
+/* ----------------------------- Template registry ---------------------------- */
 
-/** 一个邮件模块：默认导出组件（+ 可选 subject）。 */
+/** One email module: a default-exported component (plus an optional subject). */
 export interface TemplateModule {
   default: (props: never) => unknown;
   subject?: unknown;
 }
 
-/** 从组件的 props 签名反推模板 props——契约只写一次，写在组件上。 */
+/** Derive template props from the component's signature — the contract is written once, on the component. */
 export type PropsOf<M> = M extends { default: (props: infer P) => unknown }
   ? P extends object
     ? P
@@ -218,10 +232,11 @@ export interface BoundTemplateFactory<R extends Record<string, TemplateModule>> 
 }
 
 /**
- * 绑定到 registry 的模板工厂：**key 由 registry 定类型**——引用未注册的
- * 模板直接编译报错，props 类型从组件签名流入（与 u/e 引用表同一模式）。
+ * Template factory bound to a registry: **the registry types the key** — so
+ * referencing an unregistered template fails to compile, while props types
+ * flow in from the component signature (same pattern as the u/e tables).
  *
- *   import type { Emails } from '../emails';   // type-only：不引入 react 运行时
+ *   import type { Emails } from '../emails';   // type-only: no react at runtime
  *   const t = templates<Emails>();
  *   export const welcome = t.email('welcome');
  */
@@ -229,9 +244,9 @@ export function templates<R extends Record<string, TemplateModule>>(): BoundTemp
   return { email: (key) => template.email(key) as never };
 }
 
-/* ------------------------------ 条件（表达式） ------------------------------ */
+/* --------------------------- Conditions (expressions) -------------------------- */
 
-/** 不透明条件句柄：谓词、组合子、segment 的产物都是它。 */
+/** Opaque condition handle — what predicates, combinators and segments all produce. */
 export interface Condition {
   readonly __condition: true;
 }
@@ -248,11 +263,14 @@ const cond = (ir: ConditionIR): Condition => {
 const condIR = (c: Condition): ConditionIR => (c as ConditionInternal).ir;
 
 /*
- * 属性谓词：自由函数（drizzle 的 eq/gt/inArray 同款风格），类型从
- * UserPropertyRef 的幻影类型流入——运算符对属性类型的收窄由签名约束表达：
- * gt/lt/between 只收 string|number 引用，contains 只收 string 引用，
- * boolean 属性传给 gt 直接编译报错。对齐 customer.io 条件面板。
- * 值参数一律 NoInfer：类型只从引用流入，杜绝 eq(ref, 'typo') 把错值并进 T。
+ * Property predicates: free functions in drizzle's eq/gt/inArray style, with
+ * types flowing in from UserPropertyRef's phantom type. Operator applicability
+ * is expressed as a signature constraint: gt/lt/between only accept
+ * string|number references, contains only string ones, so passing a boolean
+ * property to gt fails to compile. Mirrors customer.io's condition panel.
+ *
+ * Value parameters are always NoInfer: types flow in from the reference only,
+ * which stops eq(ref, 'typo') from widening T to include the bad value.
  * TODO: JSON array 'where at least one'、JSON object 'has the property'。
  */
 
@@ -329,8 +347,9 @@ export function notContains<T extends string>(ref: UserPropertyRef<T>, value: st
 }
 
 /**
- * 事件谓词：做过某事件（可限时间窗口与次数）。
- * "没做过" = not(performed(...))，组合子表达，不设 notPerformed。
+ * Event predicate: performed an event (optionally within a window / at least N times).
+ * "Did not perform" is `not(performed(...))` — expressed by the combinator, so
+ * there is no separate notPerformed.
  */
 export function performed(
   event: EventRef,
@@ -344,7 +363,7 @@ export function performed(
   });
 }
 
-/** 条件组合子：任意嵌套。 */
+/** Condition combinators: nest freely. */
 export function and(...conditions: readonly Condition[]): Condition {
   return cond({ type: 'and', conditions: conditions.map(condIR) });
 }
@@ -356,10 +375,12 @@ export function not(condition: Condition): Condition {
 }
 
 /**
- * Segment：命名的条件表达式，顶层资产——进 UI 侧边栏、跨 workflow 复用、
- * IR 里按名引用、成员数持续物化可观测（segment 触发的前提）。
- * 匿名复用 = 普通 const 表达式；一次性判断 = 使用处内联表达式。
- * TODO 规则种类补齐（对齐 customer.io 面板）：form / page / device / screen /
+ * Segment: a named condition expression and a top-level asset — it shows up in
+ * the UI sidebar, is reusable across workflows, is referenced by name in IR,
+ * and has a continuously materialized membership count (the prerequisite for
+ * segment triggers). Anonymous reuse is just a const expression; a one-off
+ * check is an inline expression at the use site.
+ * TODO, to match customer.io's panel: form / page / device / screen /
  * opt-out / message data（email opened、sms clicked、webhook …）
  */
 export interface SegmentRef extends Condition {
@@ -369,12 +390,13 @@ export interface SegmentRef extends Condition {
 
 interface SegmentInternal extends SegmentRef {
   readonly ir: ConditionIR;
-  /** segment 自身的定义（SegmentIR.condition），与"按名引用"区分。 */
+  /** The segment's own definition (SegmentIR.condition), as opposed to a by-name reference. */
   readonly definition: ConditionIR;
 }
 
 /**
- * Segment 定义：自由函数——条件表达式的类型在谓词处已经检查完毕。
+ * Segment definition: a free function — the expression's types were already
+ * checked at the predicates.
  *
  *   export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }));
  */
@@ -389,9 +411,9 @@ export function segment(name: string, condition: Condition): SegmentRef {
   return impl;
 }
 
-/* ---------------------------------- 流程 ---------------------------------- */
+/* ----------------------------------- Flow ----------------------------------- */
 
-/** 可复用流程片段（flow(...) 的产物），branch 臂等处直接引用。 */
+/** A reusable flow fragment (what `flow(...)` returns), referenced directly by branch arms. */
 export interface Flow {
   readonly __flow: true;
 }
@@ -400,15 +422,15 @@ interface FlowInternal extends Flow {
   readonly nodes: NodeIR[];
 }
 
-/** 子流程：命名片段，或内联回调（仅构造期执行一次，builder 进 builder 出）。 */
+/** Sub-flow: a named fragment, or an inline callback (runs once at construction — builder in, builder out). */
 export type SubFlow = Flow | ((w: FlowBuilder) => FlowBuilder);
 
-/** branch 分支臂：[条件, 子流程] 二元组（[if, then] 的排列约定）。 */
+/** A branch arm: the [condition, sub-flow] tuple — an [if, then] ordering convention. */
 export type BranchCase = readonly [condition: Condition, flow: SubFlow];
 
 /**
- * branch 的实参：二元组分支臂，或裸子流程 = 默认分支（otherwise）。
- * 裸子流程只能出现一次且必须在最后（运行时校验）。
+ * A branch argument: either a tuple arm, or a bare sub-flow meaning the default
+ * arm. The bare form may appear once, and must come last (checked at runtime).
  */
 export type BranchArm = BranchCase | SubFlow;
 
@@ -422,7 +444,7 @@ function resolveSubFlow(sub: SubFlow): NodeIR[] {
 }
 
 export interface FlowBuilder {
-  /* ------ Messages（六渠道底层同为 message 节点，分方法以获得渠道级类型约束） ------ */
+  /* ---- Messages: all six channels are one message node; separate methods buy channel-level typing ---- */
   email<P extends object>(template: TemplateRef<'email', P>, ...props: MessageArgs<P>): this;
   sms<P extends object>(template: TemplateRef<'sms', P>, ...props: MessageArgs<P>): this;
   push<P extends object>(template: TemplateRef<'push', P>, ...props: MessageArgs<P>): this;
@@ -431,11 +453,11 @@ export interface FlowBuilder {
   survey<P extends object>(template: TemplateRef<'survey', P>, ...props: MessageArgs<P>): this;
 
   /* --------------------------------- Delays --------------------------------- */
-  /** Time Delay；传 { min, max } 即 Randomized Delay。 */
+  /** Time Delay; passing { min, max } makes it a Randomized Delay. */
   delay(duration: Duration): this;
   delay(range: { min: Duration; max: Duration }): this;
 
-  /** Time Window：暂停直到进入窗口（如工作日 09:00–17:00）。tz: 'user' 用用户时区。 */
+  /** Time Window: hold until inside the window (e.g. weekdays 09:00–17:00). tz: 'user' uses the user's timezone. */
   timeWindow(opts: {
     days?: readonly Weekday[];
     between: readonly [TimeOfDay, TimeOfDay];
@@ -443,8 +465,9 @@ export interface FlowBuilder {
   }): this;
 
   /**
-   * Wait Until：条件满足走主线，超时走 onTimeout（默认 'continue'）。
-   * 引擎侧对应"事件等待 + 定时器竞速"，durable runtime 的原生原语。
+   * Wait Until: continue on the main line once the condition holds, or take
+   * onTimeout when it expires (default 'continue'). On the engine side this is
+   * "await event racing a timer" — a native primitive of durable runtimes.
    */
   waitUntil(
     condition: Condition,
@@ -453,53 +476,61 @@ export interface FlowBuilder {
 
   /* ------------------------------ Flow Control ------------------------------ */
   /**
-   * 条件分支：有序 first-match（Step Functions Choice / Knock branch 同款语义）。
-   * 一个原语覆盖 UI 的 True/False Branch（两臂）和 Multi-Split Branch（N 臂）。
-   * 分支臂是 [条件, 子流程] 二元组；裸子流程尾参数 = 默认分支（otherwise）。
-   * 无命中且无默认分支时直接继续主线。结构化合流语义：命中臂执行完继续
-   * branch 之后的节点，不想合流在臂内显式 .exit()。
+   * Conditional branch: ordered first-match (same semantics as Step Functions
+   * Choice / Knock branch). This one primitive covers both the UI's True/False
+   * Branch (two arms) and Multi-Split Branch (N arms). Arms are
+   * [condition, sub-flow] tuples; a bare sub-flow in tail position is the
+   * default arm. With no match and no default, execution simply continues.
+   * Rejoin is structural: after the matching arm finishes, execution resumes
+   * at the node following the branch — to opt out, call .exit() inside the arm.
    *
    *   .branch([activeSubscriber, upgradeFlow], firstTimeFlow)   // True/False
    *   .branch([vip, vipFlow], [trial, trialFlow], defaultFlow)  // Multi-Split
-   *   .branch([not(usedStaging), eduFlow])                      // 单臂：未命中继续主线
+   *   .branch([not(usedStaging), eduFlow])                      // single arm: no match continues
    *
-   * 可选首参 label：进 IR 作节点名（UI 标题 / 观测定位），不构成跳转目标——
-   * 不提供 goto 语义；周期性/循环需求用 sendEvent 自触发（见 sendEvent）。
-   * UI 分支标签从条件（segment 名）自动派生。
+   * The optional first argument `label` becomes the node's name in IR (UI title
+   * / observability handle). It is not a jump target — there is no goto here;
+   * periodic or looping needs are expressed with a self-triggering sendEvent
+   * (see sendEvent). Arm labels in the UI are derived from the condition.
    */
   branch(...arms: readonly BranchArm[]): this;
   branch(label: string, ...arms: readonly BranchArm[]): this;
 
   /**
-   * 门（gate）：条件不满足即退出，满足则继续。一等节点，不是 branch 糖——
-   * Zapier "only continue if" / Iterable Filter tile 的同款语义，UI 单独渲染。
+   * Gate: exit unless the condition holds, otherwise continue. A first-class
+   * node rather than sugar over branch — same semantics as Zapier's "only
+   * continue if" / Iterable's Filter tile, and rendered on its own in the UI.
    */
   filter(condition: Condition, opts?: { reason?: string }): this;
 
-  /** Random Cohort Branch（A/B）：weight 总和须为 100（运行时校验）。 */
+  /** Random Cohort Branch (A/B): weights must sum to 100 (checked at runtime). */
   cohort(arms: Record<string, { weight: number; flow?: SubFlow }>): this;
 
   /**
-   * Exit：立即结束整个 workflow（对应 UI 的 Exit 节点），reason 进审计日志。
-   * 在 branch 臂内使用即"终止不合流"——臂走到 exit 就结束，不再汇入
-   * branch 之后的主线；不写 exit 的臂执行完自然合流。
+   * Exit: end the whole workflow immediately (the UI's Exit node); `reason`
+   * goes into the audit log. Inside a branch arm this means "terminate, do not
+   * rejoin" — the arm stops here instead of falling through to the main line,
+   * while an arm without exit rejoins naturally.
    */
   exit(reason?: string): this;
 
   /* ---------------------------------- Data ---------------------------------- */
   /**
-   * 发出类型化事件（customer.io 的 Send Event 同款）。事件从 e.xxx 引用取得
-   * （payload 类型随引用流入，与 trigger.event 同机制）。跨 workflow 组合：
-   * 事件可触发其他 workflow，调用图可静态分析；也是"循环"的官方形态——
-   * workflow 内部保持树，结尾 sendEvent 自触发 + goal + 触发频率上限实现
-   * 周期流程。payload 值可用 u.xxx 引用。
-   * TODO: Data 品类其余步骤——webhook 出站 / 更新 profile / journey attributes。
+   * Emit a typed event (customer.io's Send Event). The event comes from an
+   * e.xxx reference, so payload types flow in the same way trigger.event works.
+   * This is how workflows compose: an event can trigger another workflow, and
+   * the resulting call graph is statically analyzable. It is also the official
+   * shape of a "loop" — the workflow itself stays a tree, and a trailing
+   * self-triggering sendEvent plus a goal plus a trigger rate limit gives you a
+   * periodic flow. Payload values may reference u.xxx.
+   * TODO: the rest of the Data category — outbound webhook / profile update /
+   * journey attributes.
    */
   sendEvent<P extends object>(event: EventRef<P>, ...payload: MessageArgs<P>): this;
 }
 
 class FlowBuilderImpl implements FlowBuilder {
-  /** 收集中的节点：id 在 toIR 的编号遍历里统一分配，这里先占位 ''。 */
+  /** Nodes as collected; ids are assigned in one pass inside toIR, so '' is a placeholder here. */
   readonly nodes: NodeIR[] = [];
 
   private pushNode(node: NodeIR): this {
@@ -655,8 +686,8 @@ class FlowBuilderImpl implements FlowBuilder {
 }
 
 /**
- * 可复用流程片段：自由函数——个性化走 u.xxx、事件走 e.xxx 之后，
- * 流程层不再携带任何 schema 泛型。
+ * A reusable flow fragment: a free function. Once personalization goes through
+ * u.xxx and events through e.xxx, the flow layer carries no schema generics.
  */
 export function flow(build: (w: FlowBuilder) => FlowBuilder): Flow {
   const builder = new FlowBuilderImpl();
@@ -667,10 +698,10 @@ export function flow(build: (w: FlowBuilder) => FlowBuilder): Flow {
 
 /* --------------------------------- trigger --------------------------------- */
 
-/** 'YYYY-MM-DD HH:mm:ss'。TODO: 运行时校验；模板字面量类型对前导零表达力不足。 */
+/** 'YYYY-MM-DD HH:mm:ss'. TODO: validate at runtime — template literals cannot express leading zeros. */
 export type DateTime = string;
 
-/** 触发器引用：trigger.xxx() 的产物，可跨 workflow 复用。 */
+/** Trigger reference: what trigger.xxx() returns, reusable across workflows. */
 export interface TriggerRef {
   readonly type: 'event' | 'segment' | 'date' | 'webhook';
 }
@@ -684,30 +715,34 @@ const makeTrigger = (ir: TriggerIR): TriggerRef => {
   return impl;
 };
 
-/** 触发器工厂：四种入流方式，对齐 customer.io 的 campaign trigger 类型。 */
+/** Trigger factory: four ways in, mirroring customer.io's campaign trigger types. */
 export interface TriggerFactory {
   /**
-   * 事件触发：事件名来自 e.xxx 引用（类型随引用流入，工厂本身零泛型）。
-   * filter = 入流门槛（对 profile 的条件，customer.io 的 trigger Filters）：
-   * 事件发生且满足 filter 才入流。TODO: payload 过滤（where 子句，P 为此保留）。
+   * Event trigger: the event name comes from an e.xxx reference (types flow in
+   * from it, so the factory itself needs no generics). `filter` is the entry
+   * gate — a condition on the profile, customer.io's trigger Filters: the user
+   * enters only if the event fired *and* the filter holds.
+   * TODO: payload filtering (a where clause; P is reserved for it).
    */
   event<P>(event: EventRef<P>, opts?: { filter?: Condition }): TriggerRef;
 
   /**
-   * segment 进入触发：用户从"不满足"变为"满足"的瞬间入流。
-   * 只接受命名 segment——进入语义要求持续物化的成员表，匿名表达式给不了。
+   * Segment-entry trigger: the user enters the moment they go from not
+   * matching to matching. Only a named segment is accepted — entry semantics
+   * need a continuously materialized membership table, which an anonymous
+   * expression cannot provide.
    */
   segment(segment: SegmentRef): TriggerRef;
 
-  /** 定时触发（一次性，如 '2026-12-25 09:00:00' 圣诞营销）。TODO: cron 周期。 */
+  /** Scheduled trigger (one-shot, e.g. '2026-12-25 09:00:00' for a holiday push). TODO: cron. */
   date(at: DateTime): TriggerRef;
 
-  /** webhook 触发：第三方或外部代码经 URL 触发，运行时分配端点。 */
+  /** Webhook trigger: third-party or external code fires it via a URL; the runtime allocates the endpoint. */
   webhook(): TriggerRef;
 }
 
 /**
- * 触发器定义：自由对象——事件名从 e.xxx 引用取得。
+ * Trigger definition: a plain object — event names come from e.xxx references.
  *
  *   const login = trigger.event(e.login, { filter: newUsers7d });
  */
@@ -725,38 +760,40 @@ export const trigger: TriggerFactory = {
 
 /* --------------------------------- workflow --------------------------------- */
 
-/** 转化目标的完整配置（customer.io 的 Goal & Exit 同款语义）。 */
+/** Full conversion-goal configuration (customer.io's Goal & Exit semantics). */
 export interface GoalOptions {
   condition: Condition;
-  /** 转化归因窗口：入流后多久内达成才计入转化。缺省不限。 */
+  /** Attribution window: how long after entry a match still counts as a conversion. Unbounded by default. */
   within?: Duration;
-  /** 达成即退出（exit on conversion）。缺省 true——吸收 UI 图里大量 True→Exit 分支。 */
+  /** Exit on conversion. Defaults to true — this is what absorbs all those True→Exit arms in a UI canvas. */
   exitOnMatch?: boolean;
 }
 
 export interface WorkflowOptions {
-  /** 触发器：trigger.xxx() 资产。TODO: 多 trigger、入流频率/re-entry 策略。 */
+  /** Trigger: a trigger.xxx() asset. TODO: multiple triggers, entry frequency / re-entry policy. */
   trigger: TriggerRef;
 
   /**
-   * 转化目标：进报表（转化率/归因），且默认达成即退出。
-   * 每个节点执行前检查。速记形态直接传条件，完整形态用 GoalOptions。
+   * Conversion goal: feeds reporting (conversion rate / attribution) and by
+   * default exits on match. Checked before each node runs. Pass a condition
+   * for the shorthand, or GoalOptions for the full form.
    */
   goal?: Condition | GoalOptions;
 
-  /** 纯退出条件：不计转化的离场（取关、失去资格等）。与 goal 可并存。 */
+  /** Plain exit condition: leaving without counting as a conversion (unsubscribed, no longer eligible). Coexists with goal. */
   exitWhen?: Condition;
 
   /*
-   * 以下是给人看的元数据：进 IR 的 meta 字段，**不参与 contentHash**。
-   * 改它们不会让在途用户的 pin 版本失效，也不会在 plan 里报变更。
+   * Everything below is human-facing metadata: it lands in IR's `meta` field
+   * and is **excluded from contentHash**. Editing it neither invalidates the
+   * version in-flight users are pinned to nor shows up as a change in plan.
    */
 
-  /** 一句话说明这条流程在做什么（UI 列表、plan 输出）。 */
+  /** One line on what this flow does (UI lists, plan output). */
   description?: string;
-  /** 分组标签（UI 筛选）。 */
+  /** Grouping tags (UI filtering). */
   tags?: readonly string[];
-  /** 负责人（UI 展示、告警路由）。 */
+  /** Owner (shown in the UI, used for alert routing). */
   owner?: string;
 }
 
@@ -764,11 +801,11 @@ export interface WorkflowBuilder extends FlowBuilder {
   toIR(): WorkflowIR;
 }
 
-/* ------------------------------- 编译（→ IR） ------------------------------- */
+/* ---------------------------- Compilation (→ IR) ---------------------------- */
 
 /**
- * 节点 id 分配：结构路径派生（规则见 ir.ts 文件头）。
- * 就地写入 toIR 时深拷贝出的树，不触碰 builder 收集的原始节点。
+ * Assign node ids from the structural path (rules in ir.ts's header). Written
+ * in place into the tree toIR deep-cloned, never into the builder's own nodes.
  */
 function assignIds(nodes: NodeIR[], prefix: string): void {
   nodes.forEach((node, i) => {
@@ -836,13 +873,13 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
       ...(this.options.exitWhen !== undefined ? { exitWhen: condIR(this.options.exitWhen) } : {}),
       flow: flowNodes,
     };
-    // semanticHash 会剥掉 meta / label——元数据变更不改 contentHash
-    // schema 自校验：编译器输出必须过 IR 的权威定义
+    // semanticHash strips meta / label, so metadata edits leave contentHash alone
+    // Self-check: the compiler's output must pass IR's authoritative schema
     return WorkflowIRSchema.parse({ ...body, contentHash: semanticHash(body) });
   }
 }
 
-/** Workflow 定义：名字 + 配置（trigger / goal / exitWhen）+ 链式步骤。 */
+/** Workflow definition: a name, configuration (trigger / goal / exitWhen), and chained steps. */
 export function workflow(name: string, options: WorkflowOptions): WorkflowBuilder {
   return new WorkflowBuilderImpl(name, options);
 }
@@ -850,8 +887,9 @@ export function workflow(name: string, options: WorkflowOptions): WorkflowBuilde
 /* --------------------------------- bundle --------------------------------- */
 
 /**
- * 部署单元编译：workflows + segments (+ 模板清单) → BundleIR。
- * `deploy` 的输入（terraform-apply 心智），服务端按 contentHash 逐定义 diff。
+ * Compile a deployment unit: workflows + segments (+ template manifest) → BundleIR.
+ * This is `deploy`'s input (terraform-apply mental model); the server diffs each
+ * definition by contentHash.
  */
 export function compileBundle(input: {
   workflows: readonly WorkflowBuilder[];

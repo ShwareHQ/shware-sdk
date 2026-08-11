@@ -5,9 +5,10 @@ import * as onboardingWelcome from './onboarding-welcome';
 import * as upgradeRecovery from './upgrade-recovery';
 
 /**
- * 邮件 registry：key 与 DSL 里 template.email(key) 的 key 一一对应。
- * 只注册了 checkout 挽回与 welcome 四封——其余 key 在模板页显示为
- * "未注册"，这正是"流程引用了但内容还没写"的审计信号。
+ * Email registry: keys map one-to-one onto the DSL's template.email(key).
+ * Only four are registered here — checkout recovery plus welcome. Every other
+ * key shows up as "no content" on the template page, which is precisely the
+ * audit signal for "a flow references this but nobody has written it yet".
  */
 export const emails = {
   u1_upgrade_recovery: upgradeRecovery,
@@ -19,8 +20,9 @@ export const emails = {
 export type Emails = typeof emails;
 
 /**
- * 单个模板模块的形状：默认导出组件，可选 subject / preview props。
- * props 用 never（逆变位）以接纳任意 props 形状的组件。
+ * Shape of one template module: a default-exported component plus optional
+ * subject / preview props. `never` sits in the contravariant position so any
+ * props shape is accepted.
  */
 export interface EmailModule {
   default: (props: never) => ReactElement;
@@ -28,5 +30,5 @@ export interface EmailModule {
   preview?: object;
 }
 
-/** 按 key 查模块：未注册的 key 返回 undefined（类型上要体现）。 */
+/** Look a module up by key; unregistered keys return undefined, and the type says so. */
 export const emailModules: Record<string, EmailModule | undefined> = emails;

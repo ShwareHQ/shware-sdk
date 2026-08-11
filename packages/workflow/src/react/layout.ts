@@ -1,11 +1,13 @@
 import type { ConditionIR, NodeIR, WorkflowIR } from '../ir';
 
 /**
- * IR → react-flow 节点/边的树布局。
+ * Tree layout: IR → react-flow nodes and edges.
  *
- * IR 是结构化的树（非任意图），所以不需要 dagre/elkjs：垂直主脊 +
- * 分支列左右展开 + 汇合边，customer.io 同款视觉，递归一次算完。
- * 布局是纯函数：同一份 IR（+ 可选 stats）永远得到同一张图。
+ * IR is a structured tree rather than an arbitrary graph, so dagre/elkjs are
+ * unnecessary: a vertical spine, branch columns fanning out left and right,
+ * and rejoin edges — customer.io's look, computed in a single recursion.
+ * Layout is a pure function: the same IR (plus optional stats) always yields
+ * the same picture.
  */
 
 export type NodeCategory = 'trigger' | 'message' | 'delay' | 'control' | 'data' | 'exit';
@@ -31,18 +33,18 @@ export interface CanvasNodeData extends Record<string, unknown> {
   title: string;
   subtitle?: string;
   category: NodeCategory;
-  /** card：常规卡（图标 + 标题 + 副标题 + 人数徽标）；icon：纯图标（exit）。 */
+  /** card: the regular card (icon + title + subtitle + count badge); icon: icon-only pill (exit). */
   variant: 'card' | 'icon';
   icon: NodeIcon;
-  /** 当前停留在该节点的人数（运行时统计，经 stats 注入）。 */
+  /** How many users currently sit on this node (runtime stats, injected via `stats`). */
   count?: number;
-  /** 消息节点引用的模板 key：宿主据此跳转到模板预览。 */
+  /** Template key referenced by a message node; the host uses it to open a preview. */
   templateKey?: string;
 }
 
-/** 卡片尺寸：布局与渲染的单一来源（组件按 variant 取用）。全部对齐 16/8 网格。 */
+/** Card sizes: the single source shared by layout and renderer, all on the 16/8 grid. */
 export const CARD_SIZE = { w: 288, h: 64 } as const;
-/** icon 变体渲染为自适应宽度胶囊，此处 w 是定位用的估计值（实测 'Exit' ≈ 69px）。 */
+/** The icon variant renders as an auto-width pill; `w` here is a positioning estimate ('Exit' measures ≈ 69px). */
 export const ICON_SIZE = { w: 68, h: 32 } as const;
 
 export interface CanvasNode {
@@ -57,34 +59,35 @@ export interface CanvasEdge {
   source: string;
   target: string;
   label?: string;
-  /** 标签锚点：target=臂入口拐角（实臂）；source=决策节点正下方（空臂直落）。 */
+  /** Label anchor: `target` = the arm's entry corner (real arm); `source` = just below the deciding node (empty pass-through arm). */
   data?: { anchor: 'source' | 'target' };
 }
 
-/** 节点 id → 当前停留人数（将来由引擎统计接口提供）。 */
+/** Node id → users currently waiting there (to be served by the engine's stats API). */
 export type NodeStats = Record<string, number>;
 
 /**
- * 间距分层：直落序列紧凑，分叉处铺开（容纳圆角劈开 + 垂标签 +
- * 将来的插入动作按钮）；汇合处比序列稍松让合流线有余量。
+ * Tiered spacing: straight sequences stay tight, forks open up (room for the
+ * rounded split, the hanging labels, and a future insert-action button), and
+ * rejoins get slightly more than a sequence gap so merge lines have space.
  */
 const W = CARD_SIZE.w;
-const VGAP = 48; // 序列内 node → node
-const FORK_GAP = 112; // 分叉节点底 → 臂顶（短柄 24 即劈开，标签垂在 54）
-const REJOIN_EXTRA = 24; // 汇合处在 VGAP 之上追加
+const VGAP = 48; // node → node inside a sequence
+const FORK_GAP = 112; // branching node's bottom → arm top (stem splits at 28, labels hang at 56)
+const REJOIN_EXTRA = 24; // added on top of VGAP at a rejoin
 const HGAP = 88;
 
 function nodeSize(n: NodeIR): { w: number; h: number } {
   return n.type === 'exit' ? ICON_SIZE : CARD_SIZE;
 }
 
-/** 有子分组的节点统一抽象：branch 的 cases/otherwise、cohort 的臂、waitUntil 的超时侧线。 */
+/** Common abstraction for nodes with child groups: branch cases/otherwise, cohort arms, waitUntil's timeout lane. */
 interface Group {
   label: string;
   nodes: NodeIR[];
 }
 
-/** 属性运算符 → 标签符号（eq/ne/gt/lt 用数学符号，集合与文本类保留短词）。 */
+/** Property operator → label symbol (math signs for eq/ne/gt/lt; set and text operators keep short words). */
 const OP_LABEL: Record<string, string> = {
   eq: '=',
   ne: '≠',
@@ -236,7 +239,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
     case 'exit':
       return {
         title: 'Exit',
-        // reason 不占画布，进 hover tooltip
+        // reason stays off the canvas and lives in the hover tooltip
         ...(n.reason !== undefined ? { subtitle: n.reason } : {}),
         category: 'exit',
         variant: 'icon',
@@ -289,7 +292,7 @@ export function layout(
     }
   };
 
-  /** 递归布局一段序列：cx 为水平中心线，返回底部 y 与继续向下的尾巴。 */
+  /** Lay out one sequence recursively: `cx` is the centre line; returns the bottom y and the tails that continue downward. */
   function layoutSeq(
     seq: NodeIR[],
     cx: number,
@@ -309,7 +312,7 @@ export function layout(
       const bottom = curY + size.h;
 
       if (n.type === 'exit') {
-        tails = []; // 终止：不再向下连
+        tails = []; // terminal: nothing connects downward
         curY = bottom + VGAP;
         continue;
       }
@@ -331,7 +334,7 @@ export function layout(
       groups.forEach((g, gi) => {
         const center = gx + (widths[gi] ?? W) / 2;
         if (g.nodes.length === 0) {
-          // 空分组：父节点直接向下汇合，标签锚在父节点正下方
+          // Empty group: the parent rejoins straight down, so anchor the label right below it
           groupTails.push({ id: n.id, label: g.label, anchor: 'source' });
         } else {
           const r = layoutSeq(g.nodes, center, groupTop, [
@@ -350,7 +353,7 @@ export function layout(
     return { bottom: curY, tails };
   }
 
-  // Trigger 节点
+  // Trigger node
   const t = ir.trigger;
   const triggerSubtitle =
     t.type === 'event'
@@ -370,7 +373,7 @@ export function layout(
 
   const { bottom, tails } = layoutSeq(ir.flow, 0, CARD_SIZE.h + VGAP, [{ id: '__trigger' }]);
 
-  // 收尾 Exit 节点（customer.io 同款显式终点）；全部提前 exit 则不需要
+  // Closing Exit node (customer.io's explicit terminus); unnecessary when every path exits early
   if (tails.length > 0) {
     addNode('__end', -ICON_SIZE.w / 2, bottom, {
       title: 'Exit',

@@ -2,7 +2,7 @@ import type { FactSource } from '../engine/ports';
 import { ConditionIR, type ScalarIR } from '../ir';
 import type { D1DatabaseLike } from './bindings';
 
-/** D1 上的单用户事实源：条件求值逻辑在 engine/condition.ts，这里只做读取。 */
+/** Single-user fact source over D1: evaluation lives in engine/condition.ts, this only reads. */
 export class D1FactSource implements FactSource {
   constructor(
     private readonly db: D1DatabaseLike,
