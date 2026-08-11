@@ -67,6 +67,10 @@ const subscriberSplit = flow((w) =>
 export const checkoutRecovery = workflow('checkout_recovery', {
   trigger: checkoutStarted,
   goal: purchaser,
+  // 以下元数据不参与 contentHash：改文案不影响在途用户、plan 也不报变更
+  description: '弃购 1 小时后按订阅状态分流挽回：订阅者讲价值，首购者给折扣',
+  tags: ['revenue', 'lifecycle'],
+  owner: 'growth@example.com',
 })
   .delay('1 hour')
   .branch(

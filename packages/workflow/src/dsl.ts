@@ -1,4 +1,5 @@
 import ms from 'ms';
+import { semanticHash } from './hash';
 import {
   type BundleIR,
   BundleIR as BundleIRSchema,
@@ -7,6 +8,7 @@ import {
   type DurationIR,
   type GoalIR,
   IR_VERSION,
+  type MetaIR,
   type NodeIR,
   type PropValueIR,
   type TriggerIR,
@@ -744,6 +746,18 @@ export interface WorkflowOptions {
 
   /** 纯退出条件：不计转化的离场（取关、失去资格等）。与 goal 可并存。 */
   exitWhen?: Condition;
+
+  /*
+   * 以下是给人看的元数据：进 IR 的 meta 字段，**不参与 contentHash**。
+   * 改它们不会让在途用户的 pin 版本失效，也不会在 plan 里报变更。
+   */
+
+  /** 一句话说明这条流程在做什么（UI 列表、plan 输出）。 */
+  description?: string;
+  /** 分组标签（UI 筛选）。 */
+  tags?: readonly string[];
+  /** 负责人（UI 展示、告警路由）。 */
+  owner?: string;
 }
 
 export interface WorkflowBuilder extends FlowBuilder {
@@ -777,30 +791,6 @@ function assignIds(nodes: NodeIR[], prefix: string): void {
   });
 }
 
-/** canonical JSON：键排序、无空白——contentHash 的稳定输入。 */
-function canonicalJSON(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJSON).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canonicalJSON((value as Record<string, unknown>)[k])}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-/** 稳定内容哈希。当前为 FNV-1a 64（同步、零依赖）；生产可换 SHA-256 截断。 */
-function fnv1a64(input: string): string {
-  let hash = 0xcbf29ce484222325n;
-  const prime = 0x100000001b3n;
-  const mask = 0xffffffffffffffffn;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= BigInt(input.charCodeAt(i));
-    hash = (hash * prime) & mask;
-  }
-  return hash.toString(16).padStart(16, '0');
-}
-
 class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   constructor(
     private readonly name: string,
@@ -822,20 +812,33 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
     };
   }
 
+  private metaIR(): MetaIR | undefined {
+    const { description, tags, owner } = this.options;
+    if (description === undefined && tags === undefined && owner === undefined) return undefined;
+    return {
+      ...(description !== undefined ? { description } : {}),
+      ...(tags !== undefined ? { tags: [...tags] } : {}),
+      ...(owner !== undefined ? { owner } : {}),
+    };
+  }
+
   toIR(): WorkflowIR {
     const flowNodes = structuredClone(this.nodes);
     assignIds(flowNodes, '');
     const goal = this.goalIR();
+    const meta = this.metaIR();
     const body = {
       irVersion: IR_VERSION,
       name: this.name,
+      ...(meta !== undefined ? { meta } : {}),
       trigger: (this.options.trigger as TriggerInternal).ir,
       ...(goal !== undefined ? { goal } : {}),
       ...(this.options.exitWhen !== undefined ? { exitWhen: condIR(this.options.exitWhen) } : {}),
       flow: flowNodes,
     };
+    // semanticHash 会剥掉 meta / label——元数据变更不改 contentHash
     // schema 自校验：编译器输出必须过 IR 的权威定义
-    return WorkflowIRSchema.parse({ ...body, contentHash: fnv1a64(canonicalJSON(body)) });
+    return WorkflowIRSchema.parse({ ...body, contentHash: semanticHash(body) });
   }
 }
 
@@ -860,7 +863,7 @@ export function compileBundle(input: {
     return {
       irVersion: IR_VERSION,
       name,
-      contentHash: fnv1a64(canonicalJSON(definition)),
+      contentHash: semanticHash(definition),
       condition: definition,
     };
   });
