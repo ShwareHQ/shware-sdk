@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { type Plugin, type ViteDevServer, createServer } from 'vite';
+import { type Plugin, type ViteDevServer, createServer, searchForWorkspaceRoot } from 'vite';
 
 /**
  * The studio dev server.
@@ -80,11 +80,16 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
     configFile: false,
     envFile: false,
     plugins: [react(), tailwindcss(), configPlugin(configPath)],
-    // The config, and everything it imports, lives outside the app root
     server: {
       port: options.port ?? 4321,
       open: options.open ?? false,
-      fs: { allow: [cwd, appRoot] },
+      /*
+       * Both workspace roots have to be readable: the user's project (the
+       * config and everything it imports) and ours — under pnpm our own
+       * dependencies (fonts, css) resolve into a store beside the workspace
+       * root rather than anywhere below the app.
+       */
+      fs: { allow: [searchForWorkspaceRoot(cwd), searchForWorkspaceRoot(packageRoot), appRoot] },
     },
     // The app and the user's project each have their own react; one copy only
     resolve: { dedupe: ['react', 'react-dom'] },

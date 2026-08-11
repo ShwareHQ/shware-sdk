@@ -50,13 +50,25 @@ real numbers.
     --open           Open the browser on start
 ```
 
+## How it is built
+
+- **TanStack Router** drives the studio, so every view is a shareable URL:
+  `/workflows/$name`, `/templates/$key`, `/reports`. Routes are defined in code
+  rather than by file convention — the studio ships inside a package, and a
+  generated `routeTree.gen.ts` would have to be written into a consumer's
+  `node_modules`.
+- **TanStack Query** owns every read from your `stats` source and the email
+  rendering, with `QueryCache.onError` wired to a toast: a failing stats call
+  looks nothing like "no data configured".
+- **sonner** for toasts, styled to match the canvas.
+
 ## Embedding
 
-The CLI composes exported components, so a host app can mount the same views:
+Routes fetch, components render — so the exported components carry no router
+and no query client, and a host app can mount them directly:
 
 ```tsx
 import { WorkflowCanvas, TemplatesPage, ReportsPage } from '@shware/workflow-ui';
 ```
 
-Navigation is component state rather than a router, so an embedding app keeps
-ownership of its URL.
+The host keeps ownership of its own URL and data fetching.
