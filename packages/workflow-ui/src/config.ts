@@ -78,7 +78,10 @@ export interface WorkflowUIConfig {
   segments?: SegmentRef[];
   /** Optional runtime data source for the reports view and canvas badges. */
   stats?: StatsSource;
-  /** Title shown in the header. */
+  /**
+   * Browser tab title. The sidebar always reads "Workflow Studio" — this names
+   * the project, which matters when several studios are open at once.
+   */
   title?: string;
 }
 

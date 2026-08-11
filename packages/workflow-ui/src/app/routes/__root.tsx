@@ -32,7 +32,6 @@ const NAV = [
 ] as const;
 
 function RootLayout() {
-  const { config } = Route.useRouteContext();
   const { t } = useTranslation();
 
   return (
@@ -42,9 +41,7 @@ function RootLayout() {
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-900">
             <Workflow className="size-4 text-white" strokeWidth={2} />
           </div>
-          <strong className="truncate text-sm font-semibold">
-            {config.title ?? 'Workflow Studio'}
-          </strong>
+          <strong className="text-sm font-semibold">Workflow Studio</strong>
         </div>
 
         <nav className="flex flex-col gap-0.5 p-3 pt-1">
