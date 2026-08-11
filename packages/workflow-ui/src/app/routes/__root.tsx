@@ -8,7 +8,9 @@ import type { WorkflowUIConfig } from '../../config';
 import { ToastProvider } from '../integrations/toast/toast-provider';
 
 /**
- * Shell: a header across the top and a full-height sidebar down the left.
+ * Shell: one full-height sidebar down the left, carrying the brand at its top,
+ * with the active view filling everything to its right. Each view brings its
+ * own header, so there is no second bar across the top competing with it.
  *
  * Routes are defined in code rather than by file convention. The studio ships
  * inside a package, so a file-based `routeTree.gen.ts` would have to be written
@@ -34,17 +36,18 @@ function RootLayout() {
   const { t } = useTranslation();
 
   return (
-    <div className="flex h-full flex-col font-sans text-slate-900">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-slate-900">
-          <Workflow className="size-4 text-white" strokeWidth={2} />
+    <div className="flex h-full font-sans text-slate-900">
+      <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white">
+        <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-slate-900">
+            <Workflow className="size-4 text-white" strokeWidth={2} />
+          </div>
+          <strong className="truncate text-sm font-semibold">
+            {config.title ?? 'Workflow Studio'}
+          </strong>
         </div>
-        <strong className="text-sm font-semibold">{config.title ?? 'Workflow Studio'}</strong>
-        <div id="studio-header-slot" className="flex min-w-0 flex-1 items-center gap-3" />
-      </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-slate-200 bg-white p-3">
+        <nav className="flex flex-col gap-0.5 p-3 pt-1">
           {NAV.map((item) => (
             <Link
               key={item.to}
@@ -60,12 +63,12 @@ function RootLayout() {
               {t(item.label)}
             </Link>
           ))}
-        </aside>
+        </nav>
+      </aside>
 
-        <main className="min-h-0 min-w-0 flex-1 bg-slate-50">
-          <Outlet />
-        </main>
-      </div>
+      <main className="min-h-0 min-w-0 flex-1 bg-slate-50">
+        <Outlet />
+      </main>
 
       <ToastProvider />
     </div>
