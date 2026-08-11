@@ -13,3 +13,16 @@
 @theme {
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 }
+
+/*
+ * Must stay inside @layer base. Unlayered rules beat every layered one in the
+ * cascade, so an unlayered `* { margin: 0 }` here would silently defeat every
+ * `mt-*` / `ml-*` utility in the app.
+ */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+}

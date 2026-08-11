@@ -1,4 +1,4 @@
-import type { WorkflowBuilder } from '@shware/workflow';
+import type { SegmentRef, WorkflowBuilder } from '@shware/workflow';
 import type { ReactElement } from 'react';
 
 /**
@@ -19,7 +19,7 @@ export interface EmailModule {
 /** Node id → how many users currently sit on that node. */
 export type NodeStats = Record<string, number>;
 
-/** Per-workflow totals for the reports view. */
+/** Per-workflow totals for the list and metrics views. */
 export interface WorkflowReport {
   /** Workflow name, matching the IR. */
   name: string;
@@ -29,6 +29,27 @@ export interface WorkflowReport {
   converted: number;
   /** Currently in flight. */
   active: number;
+  /** Messages delivered; rates below are computed against it. */
+  delivered?: number;
+  opened?: number;
+  clicked?: number;
+  /** Recent daily counts, oldest first — drives the sparklines in the list. */
+  series?: {
+    delivered?: number[];
+    opened?: number[];
+    clicked?: number[];
+    converted?: number[];
+  };
+}
+
+/** One day (or bucket) of a workflow's delivery funnel. */
+export interface MetricPoint {
+  /** ISO date or any label; used verbatim on the x axis. */
+  date: string;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  converted: number;
 }
 
 /**
@@ -40,6 +61,8 @@ export interface StatsSource {
   reports?: () => Promise<WorkflowReport[]> | WorkflowReport[];
   /** Users waiting on each node of one workflow (drives the canvas badges). */
   nodeStats?: (workflowName: string) => Promise<NodeStats> | NodeStats;
+  /** Time series for one workflow's Metrics tab. */
+  metrics?: (workflowName: string) => Promise<MetricPoint[]> | MetricPoint[];
 }
 
 export interface WorkflowUIConfig {
@@ -47,6 +70,12 @@ export interface WorkflowUIConfig {
   workflows: Record<string, WorkflowBuilder>;
   /** Email registry, keyed by the template key used in `template.email(key)`. */
   emails?: Record<string, EmailModule>;
+  /**
+   * Named segments, so the studio can show each definition rather than just the
+   * name a condition references. Pass the same values you hand to
+   * `compileBundle({ segments })`.
+   */
+  segments?: SegmentRef[];
   /** Optional runtime data source for the reports view and canvas badges. */
   stats?: StatsSource;
   /** Title shown in the header. */
