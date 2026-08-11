@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "workflow-playground",
+      "name": "workflow-studio",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-F", "workflow-playground", "dev"],
-      "port": 5173,
+      "port": 4321,
       "autoPort": true
     }
   ]

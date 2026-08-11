@@ -1,4 +1,3 @@
-import type { ReactElement } from 'react';
 import * as firstTimeRecovery from './first-time-recovery';
 import * as limitedTimeOffer from './limited-time-offer';
 import * as onboardingWelcome from './onboarding-welcome';
@@ -18,17 +17,3 @@ export const emails = {
 } as const;
 
 export type Emails = typeof emails;
-
-/**
- * Shape of one template module: a default-exported component plus optional
- * subject / preview props. `never` sits in the contravariant position so any
- * props shape is accepted.
- */
-export interface EmailModule {
-  default: (props: never) => ReactElement;
-  subject?: (props: never) => string;
-  preview?: object;
-}
-
-/** Look a module up by key; unregistered keys return undefined, and the type says so. */
-export const emailModules: Record<string, EmailModule | undefined> = emails;

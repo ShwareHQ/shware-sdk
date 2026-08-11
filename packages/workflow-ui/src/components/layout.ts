@@ -1,4 +1,5 @@
-import type { ConditionIR, NodeIR, WorkflowIR } from '../ir';
+import type { ConditionIR, NodeIR, WorkflowIR } from '@shware/workflow';
+import type { NodeStats } from '../config';
 
 /**
  * Tree layout: IR → react-flow nodes and edges.
@@ -62,9 +63,6 @@ export interface CanvasEdge {
   /** Label anchor: `target` = the arm's entry corner (real arm); `source` = just below the deciding node (empty pass-through arm). */
   data?: { anchor: 'source' | 'target' };
 }
-
-/** Node id → users currently waiting there (to be served by the engine's stats API). */
-export type NodeStats = Record<string, number>;
 
 /**
  * Tiered spacing: straight sequences stay tight, forks open up (room for the

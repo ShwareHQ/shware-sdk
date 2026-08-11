@@ -1,3 +1,4 @@
+import type { WorkflowIR } from '@shware/workflow';
 import {
   Background,
   BaseEdge,
@@ -32,7 +33,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { type CSSProperties, createContext, useContext, useMemo } from 'react';
-import type { WorkflowIR } from '../ir';
+import type { NodeStats } from '../config';
 import {
   CARD_SIZE,
   type CanvasEdge,
@@ -40,7 +41,6 @@ import {
   type CanvasNodeData,
   ICON_SIZE,
   type NodeIcon,
-  type NodeStats,
   layout,
 } from './layout';
 

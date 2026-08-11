@@ -1,7 +1,0 @@
-@import '@fontsource-variable/inter';
-@import 'tailwindcss';
-@import '@xyflow/react/dist/style.css';
-
-@theme {
-  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
-}
