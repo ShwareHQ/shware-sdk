@@ -8,8 +8,28 @@ import type { ReactElement } from 'react';
  * convention magic: whatever you export here is what the studio shows.
  */
 
-/** One email module: a default-exported component plus optional subject / preview props. */
-export interface EmailModule {
+/**
+ * The envelope: everything about an email except its body. Values are plain
+ * strings so they stay serializable, and may carry `{{ path }}` placeholders
+ * the engine fills at send time — the same data-reference rule the DSL follows,
+ * since a closure here could not survive the trip to the runtime.
+ *
+ * Every field is optional; the studio only shows what you set.
+ */
+export interface EmailEnvelope {
+  from?: string;
+  to?: string;
+  replyTo?: string;
+  /** Preview text after the subject in most inboxes. */
+  preheader?: string;
+  cc?: string[];
+  bcc?: string[];
+  /** Extra SMTP headers, e.g. `{ 'X-Campaign': 'onboarding' }`. */
+  headers?: Record<string, string>;
+}
+
+/** One email module: a default-exported component plus its envelope and preview props. */
+export interface EmailModule extends EmailEnvelope {
   default: (props: never) => ReactElement;
   subject?: (props: never) => string;
   /** Sample props used when previewing this template. */
