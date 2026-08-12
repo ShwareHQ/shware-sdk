@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { IR_VERSION, WorkflowIR } from './ir';
+import { IR_VERSION, WorkflowIR } from '../src/ir';
 
-/** Expected compiled shape of `checkoutRecovery` (workflows/index.ts). */
+/** Expected compiled shape of `checkoutRecovery` (tests/fixtures.ts). */
 const checkoutRecoveryIR = {
   irVersion: IR_VERSION,
   name: 'checkout_recovery',
@@ -69,10 +69,10 @@ describe('WorkflowIR schema', () => {
       ...checkoutRecoveryIR,
       flow: [{ id: '0', type: 'goto', target: '1' }],
     };
-    expect(() => WorkflowIR.parse(bad)).toThrow();
+    expect(() => WorkflowIR.parse(bad)).toThrow(/invalid/i);
   });
 
   test('rejects mismatched irVersion (readers dispatch by format version)', () => {
-    expect(() => WorkflowIR.parse({ ...checkoutRecoveryIR, irVersion: 999 })).toThrow();
+    expect(() => WorkflowIR.parse({ ...checkoutRecoveryIR, irVersion: 999 })).toThrow(/invalid/i);
   });
 });

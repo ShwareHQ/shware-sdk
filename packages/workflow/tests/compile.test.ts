@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'vitest';
-import { type Duration, flow, template, trigger, workflow } from './dsl';
-import { WorkflowIR } from './ir';
-import { e } from './schema';
-import { activeSubscriber, purchaser } from './segments';
-import { checkoutRecovery } from './workflows/index';
-import { onboardingEdu } from './workflows/onboarding';
-import { reengagement } from './workflows/reengagement';
-import { winback } from './workflows/winback';
+import { type Duration, flow, template, trigger, workflow } from '../src/index';
+import { WorkflowIR } from '../src/ir';
+import {
+  activeSubscriber,
+  allWorkflows,
+  checkoutRecovery,
+  e,
+  purchaser,
+  reengagement,
+  winback,
+} from './fixtures';
 
 describe('compile: workflow -> IR', () => {
   test('checkoutRecovery compiles to the expected tree', () => {
@@ -26,7 +29,7 @@ describe('compile: workflow -> IR', () => {
     });
 
     const branch = ir.flow[1];
-    if (branch?.type !== 'branch') throw new Error('expected branch node');
+    if (branch.type !== 'branch') throw new Error('expected branch node');
     expect(branch.label).toBe('subscriber_split');
     expect(branch.cases).toHaveLength(1);
     expect(branch.cases[0]?.condition).toEqual({ type: 'segment', segment: 'active_subscriber' });
@@ -41,16 +44,14 @@ describe('compile: workflow -> IR', () => {
   });
 
   test('compiled IR passes the authoritative zod schema', () => {
-    for (const wf of [checkoutRecovery, onboardingEdu, winback, reengagement]) {
-      expect(() => WorkflowIR.parse(wf.toIR())).not.toThrow();
+    for (const builder of allWorkflows) {
+      expect(() => WorkflowIR.parse(builder.toIR())).not.toThrow();
     }
   });
 
   test('contentHash is deterministic and content-addressed', () => {
     expect(checkoutRecovery.toIR().contentHash).toBe(checkoutRecovery.toIR().contentHash);
-    const hashes = [checkoutRecovery, onboardingEdu, winback, reengagement].map(
-      (wf) => wf.toIR().contentHash
-    );
+    const hashes = allWorkflows.map((builder) => builder.toIR().contentHash);
     expect(new Set(hashes).size).toBe(hashes.length);
   });
 
@@ -59,7 +60,7 @@ describe('compile: workflow -> IR', () => {
     const branch = ir.flow.find((n) => n.type === 'branch');
     if (branch?.type !== 'branch') throw new Error('expected branch node');
     expect(branch.cases).toHaveLength(2);
-    // business arm ends with exit (no rejoin)
+    // the business arm ends with exit (no rejoin)
     expect(branch.cases[0]?.flow.at(-1)).toMatchObject({ type: 'exit', reason: 'handed_to_cs' });
     expect(branch.otherwise).toHaveLength(1);
   });
@@ -69,8 +70,8 @@ describe('compile: workflow -> IR', () => {
     expect(ir.trigger).toEqual({ type: 'segment', segment: 'inactive_30d' });
     const cohortHost = ir.flow.at(-1);
     if (cohortHost?.type !== 'branch') throw new Error('expected trailing branch node');
-    const cohort = cohortHost.cases[0]?.flow[0];
-    if (cohort?.type !== 'cohort') throw new Error('expected cohort node');
+    const cohort = cohortHost.cases[0].flow[0];
+    if (cohort.type !== 'cohort') throw new Error('expected cohort node');
     expect(cohort.arms.map((a) => a.name)).toEqual(['control', 'coupon']);
     expect(cohort.arms[1]?.flow[0]?.id).toBe(`${cohort.id}.coupon.0`);
   });

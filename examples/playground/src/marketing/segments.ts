@@ -1,5 +1,5 @@
-import { and, eq, performed, segment } from '../dsl';
-import { e, u } from '../schema';
+import { and, eq, performed, segment } from '@shware/workflow';
+import { e, u } from './schema';
 
 /**
  * Segments: named condition expressions in drizzle style — predicates,

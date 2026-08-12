@@ -1,17 +1,21 @@
 import { describe, expect, test } from 'vitest';
-import type { ConditionIR, ScalarIR } from '../ir';
-import { checkoutRecovery } from '../workflows/index';
-import { reengagement } from '../workflows/reengagement';
-import { winback } from '../workflows/winback';
-import { runJourney } from './interpreter';
-import type { EngineStep, FactSource, JourneyContext, OutboundMessage } from './ports';
+import {
+  type EngineStep,
+  type FactSource,
+  type JourneyContext,
+  type OutboundMessage,
+  runJourney,
+} from '../src/engine/index';
+import { compileBundle } from '../src/index';
+import type { ConditionIR, ScalarIR } from '../src/ir';
+import { allSegments, checkoutRecovery, nudge, reengagement, winback } from './fixtures';
 
 /* ------------------------------ in-memory ports ------------------------------ */
 
 class FakeStep implements EngineStep {
   readonly sleeps: { name: string; ms: number }[] = [];
   readonly stepNames: string[] = [];
-  /** scripted waitForEvent results, consumed in order; defaults to 'timeout'. */
+  /** Scripted waitForEvent results, consumed in order; defaults to 'timeout'. */
   wakeScript: ('event' | 'timeout')[] = [];
 
   async do<T>(name: string, fn: () => Promise<T>): Promise<T> {
@@ -29,10 +33,14 @@ class FakeStep implements EngineStep {
   }
 }
 
+/** Segment definitions come from the compiled bundle — one source of truth with the fixtures. */
+const SEGMENT_DEFS: Record<string, ConditionIR> = Object.fromEntries(
+  compileBundle({ workflows: [], segments: allSegments }).segments.map((s) => [s.name, s.condition])
+);
+
 class FakeFacts implements FactSource {
   events: { name: string; ts: number }[] = [];
   props: Record<string, ScalarIR> = {};
-  segments: Record<string, ConditionIR> = {};
 
   async countEvents(event: string, sinceMs?: number): Promise<number> {
     return this.events.filter((e) => e.name === event && (sinceMs === undefined || e.ts >= sinceMs))
@@ -42,13 +50,13 @@ class FakeFacts implements FactSource {
     return this.props[path];
   }
   async getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
-    return this.segments[name];
+    return SEGMENT_DEFS[name];
   }
 }
 
-function makeContext(overrides?: { facts?: FakeFacts; step?: FakeStep }) {
-  const step = overrides?.step ?? new FakeStep();
-  const facts = overrides?.facts ?? new FakeFacts();
+function makeContext() {
+  const step = new FakeStep();
+  const facts = new FakeFacts();
   const sent: OutboundMessage[] = [];
   const emitted: { event: string; payload: Record<string, ScalarIR | undefined> }[] = [];
   const ctx: JourneyContext = {
@@ -70,38 +78,13 @@ function makeContext(overrides?: { facts?: FakeFacts; step?: FakeStep }) {
   return { ctx, step, facts, sent, emitted };
 }
 
-/** Seed segment definitions the example workflows reference. */
-function seedSegments(facts: FakeFacts): void {
-  facts.segments.purchaser = {
-    type: 'performed',
-    event: 'purchase',
-    within: { value: '30 days', ms: 2_592_000_000 },
-  };
-  facts.segments.active_subscriber = {
-    type: 'and',
-    conditions: [
-      { type: 'property', path: 'subscription_status', op: 'eq', value: 'active' },
-      { type: 'property', path: 'auto_renew_enabled', op: 'eq', value: true },
-    ],
-  };
-  facts.segments.inactive_30d = {
-    type: 'not',
-    condition: {
-      type: 'performed',
-      event: 'login',
-      within: { value: '30 days', ms: 2_592_000_000 },
-    },
-  };
-}
-
 /* ---------------------------------- tests ---------------------------------- */
 
 describe('runJourney: checkoutRecovery', () => {
   const ir = checkoutRecovery.toIR();
 
   test('non-subscriber takes the otherwise arm: n1 -> 23h -> n2', async () => {
-    const { ctx, step, facts, sent } = makeContext();
-    seedSegments(facts);
+    const { ctx, step, sent } = makeContext();
 
     const outcome = await runJourney(ir, ctx);
 
@@ -116,8 +99,8 @@ describe('runJourney: checkoutRecovery', () => {
 
   test('active subscriber takes the case arm with personalized props', async () => {
     const { ctx, facts, sent } = makeContext();
-    seedSegments(facts);
     facts.props = {
+      email: 'user@example.com',
       subscription_status: 'active',
       auto_renew_enabled: true,
       subscription_plan: 'pro',
@@ -127,14 +110,15 @@ describe('runJourney: checkoutRecovery', () => {
 
     expect(outcome).toEqual({ status: 'completed' });
     expect(sent.map((m) => m.template)).toEqual(['u1_upgrade_recovery']);
-    // user_property ref resolved from the profile
+    // the user_property ref resolves from the profile
     expect(sent[0]?.props).toEqual({ plan: 'pro' });
+    // the recipient resolves from the channel's profile property
+    expect(sent[0]?.recipient).toBe('user@example.com');
     expect(sent[0]?.idempotencyKey).toBe('inst_1:1.c0.0');
   });
 
   test('goal (purchase) met at a node boundary exits before sending', async () => {
     const { ctx, facts, sent } = makeContext();
-    seedSegments(facts);
     facts.events.push({ name: 'purchase', ts: Date.now() });
 
     const outcome = await runJourney(ir, ctx);
@@ -149,7 +133,6 @@ describe('runJourney: winback', () => {
 
   test('business arm alerts CS then exits without rejoining', async () => {
     const { ctx, facts, sent } = makeContext();
-    seedSegments(facts);
     facts.props = { subscription_plan: 'business' };
 
     const outcome = await runJourney(ir, ctx);
@@ -160,24 +143,22 @@ describe('runJourney: winback', () => {
 
   test('pro arm rejoins the shared tail (final offer)', async () => {
     const { ctx, facts, sent } = makeContext();
-    seedSegments(facts);
     facts.props = { subscription_plan: 'pro' };
 
     const outcome = await runJourney(ir, ctx);
 
     expect(outcome).toEqual({ status: 'completed' });
-    expect(sent.map((m) => m.template)).toEqual(['winback_pro_offer', 'winback_final_offer']);
+    expect(sent.map((m) => m.template)).toEqual(['pro_tips', 'n2_limited_time_offer']);
   });
 });
 
 describe('runJourney: reengagement (wait_until)', () => {
   const ir = reengagement.toIR();
 
-  test('wake with condition met exits as reengaged', async () => {
+  test('wake with the condition met exits as reengaged', async () => {
     const { ctx, step, facts, sent } = makeContext();
-    seedSegments(facts);
     step.wakeScript = ['event'];
-    // first check false, post-wake check true: login arrives between
+    // first check false, post-wake check true: the login lands in between
     let checks = 0;
     facts.countEvents = async (event: string) => {
       if (event !== 'login') return 0;
@@ -188,32 +169,26 @@ describe('runJourney: reengagement (wait_until)', () => {
     const outcome = await runJourney(ir, ctx);
 
     expect(outcome).toEqual({ status: 'exited', reason: 'reengaged' });
-    expect(sent.map((m) => m.template)).toEqual(['reengage_miss_you']);
+    expect(sent.map((m) => m.template)).toEqual(['n1_first_time_recovery']);
   });
 
-  test('timeout continues the main line into the highlights email', async () => {
+  test('timeout continues the main line', async () => {
     const { ctx, sent } = makeContext();
-    seedSegments(ctx.facts as FakeFacts);
 
     const outcome = await runJourney(ir, ctx);
 
     expect(outcome).toEqual({ status: 'completed' });
     // still-inactive users then hit the trailing A/B: the coupon arm may add one send
-    expect(sent.slice(0, 2).map((m) => m.template)).toEqual([
-      'reengage_miss_you',
-      'reengage_product_highlights',
-    ]);
-    expect(sent.slice(2).every((m) => m.template === 'reengage_incentive')).toBe(true);
+    expect(sent.slice(0, 2).map((m) => m.template)).toEqual(['n1_first_time_recovery', 'pro_tips']);
+    expect(sent.slice(2).every((m) => m.template === 'n2_limited_time_offer')).toBe(true);
   });
 
   test('cohort bucketing is deterministic per user', async () => {
     const run = async (userId: string) => {
-      const { ctx, facts, sent } = makeContext();
-      seedSegments(facts);
+      const { ctx, sent } = makeContext();
       ctx.userId = userId;
-      // still inactive at the trailing branch so the cohort runs
       await runJourney(ir, ctx);
-      return sent.some((m) => m.template === 'reengage_incentive');
+      return sent.some((m) => m.template === 'n2_limited_time_offer');
     };
 
     const first = await run('user_a');
@@ -226,10 +201,20 @@ describe('runJourney: reengagement (wait_until)', () => {
   });
 });
 
+describe('runJourney: send_event', () => {
+  test('emits the event through the sink', async () => {
+    const { ctx, emitted } = makeContext();
+
+    const outcome = await runJourney(nudge.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed' });
+    expect(emitted).toEqual([{ event: 'nudge_due', payload: {} }]);
+  });
+});
+
 describe('step naming', () => {
   test('step names derive from structural node ids', async () => {
-    const { ctx, step, facts } = makeContext();
-    seedSegments(facts);
+    const { ctx, step } = makeContext();
 
     await runJourney(checkoutRecovery.toIR(), ctx);
 
