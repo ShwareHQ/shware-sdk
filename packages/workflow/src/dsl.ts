@@ -282,8 +282,11 @@ function prop(
     | 'eq'
     | 'ne'
     | 'gt'
+    | 'gte'
     | 'lt'
+    | 'lte'
     | 'between'
+    | 'not_between'
     | 'in_array'
     | 'not_in_array'
     | 'exists'
@@ -314,11 +317,23 @@ export function gt<T extends string | number>(
 ): Condition {
   return prop(ref, 'gt', value);
 }
+export function gte<T extends string | number>(
+  ref: UserPropertyRef<T>,
+  value: NoInfer<T>
+): Condition {
+  return prop(ref, 'gte', value);
+}
 export function lt<T extends string | number>(
   ref: UserPropertyRef<T>,
   value: NoInfer<T>
 ): Condition {
   return prop(ref, 'lt', value);
+}
+export function lte<T extends string | number>(
+  ref: UserPropertyRef<T>,
+  value: NoInfer<T>
+): Condition {
+  return prop(ref, 'lte', value);
 }
 export function between<T extends string | number>(
   ref: UserPropertyRef<T>,
@@ -326,6 +341,13 @@ export function between<T extends string | number>(
   max: NoInfer<T>
 ): Condition {
   return prop(ref, 'between', undefined, [min, max]);
+}
+export function notBetween<T extends string | number>(
+  ref: UserPropertyRef<T>,
+  min: NoInfer<T>,
+  max: NoInfer<T>
+): Condition {
+  return prop(ref, 'not_between', undefined, [min, max]);
 }
 export function inArray<T>(ref: UserPropertyRef<T>, values: readonly NoInfer<T>[]): Condition {
   return prop(ref, 'in_array', undefined, values as readonly Scalar[]);

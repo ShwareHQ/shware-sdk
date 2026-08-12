@@ -73,8 +73,11 @@ export const PropertyOperatorIR = z.enum([
   'eq',
   'ne',
   'gt',
+  'gte',
   'lt',
+  'lte',
   'between',
+  'not_between',
   'in_array',
   'not_in_array',
   'exists',
@@ -86,8 +89,8 @@ export type PropertyOperatorIR = z.infer<typeof PropertyOperatorIR>;
 
 /**
  * Condition expression tree. The shape of value/values follows `op`:
- * eq/ne/gt/lt/contains/not_contains → value; in_array/not_in_array → values;
- * between → values = [min, max]; exists/not_exists → neither.
+ * eq/ne/gt/gte/lt/lte/contains/not_contains → value; in_array/not_in_array →
+ * values; between/not_between → values = [min, max]; exists/not_exists → neither.
  * TODO: runtime refinement narrowing by op.
  */
 export type ConditionIR =

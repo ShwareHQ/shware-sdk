@@ -61,18 +61,17 @@ function compareProperty(
       return actual !== value;
     case 'gt':
       return actual !== undefined && value !== undefined && actual > value;
+    case 'gte':
+      return actual !== undefined && value !== undefined && actual >= value;
     case 'lt':
       return actual !== undefined && value !== undefined && actual < value;
-    case 'between': {
-      const [min, max] = values ?? [];
-      return (
-        actual !== undefined &&
-        min !== undefined &&
-        max !== undefined &&
-        actual >= min &&
-        actual <= max
-      );
-    }
+    case 'lte':
+      return actual !== undefined && value !== undefined && actual <= value;
+    case 'between':
+      return isBetween(actual, values);
+    case 'not_between':
+      // A missing property is outside any range, mirroring not_in_array.
+      return !isBetween(actual, values);
     case 'in_array':
       return actual !== undefined && (values ?? []).includes(actual);
     case 'not_in_array':
@@ -82,6 +81,13 @@ function compareProperty(
     case 'not_contains':
       return !(typeof actual === 'string' && typeof value === 'string' && actual.includes(value));
   }
+}
+
+function isBetween(actual: ScalarIR | undefined, values: ScalarIR[] | undefined): boolean {
+  const [min, max] = values ?? [];
+  return (
+    actual !== undefined && min !== undefined && max !== undefined && actual >= min && actual <= max
+  );
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   type FactSource,
   type JourneyContext,
   type OutboundMessage,
+  evaluateCondition,
   runJourney,
 } from '../src/engine/index';
 import { compileBundle } from '../src/index';
@@ -221,5 +222,47 @@ describe('step naming', () => {
     expect(step.stepNames).toContain('0:guard');
     expect(step.stepNames).toContain('1:eval');
     expect(step.stepNames).toContain('1.o.0:send');
+  });
+});
+
+describe('evaluateCondition: comparison operators', () => {
+  const evalWith = (condition: ConditionIR, props: Record<string, ScalarIR>) => {
+    const facts = new FakeFacts();
+    facts.props = props;
+    return evaluateCondition(condition, facts, 0);
+  };
+  const docsCount = (op: 'gt' | 'gte' | 'lt' | 'lte', value: number): ConditionIR => ({
+    type: 'property',
+    path: 'docs_count',
+    op,
+    value,
+  });
+
+  test('gte and lte include the boundary; gt and lt exclude it', async () => {
+    await expect(evalWith(docsCount('gt', 10), { docs_count: 10 })).resolves.toBe(false);
+    await expect(evalWith(docsCount('gte', 10), { docs_count: 10 })).resolves.toBe(true);
+    await expect(evalWith(docsCount('lt', 10), { docs_count: 10 })).resolves.toBe(false);
+    await expect(evalWith(docsCount('lte', 10), { docs_count: 10 })).resolves.toBe(true);
+    await expect(evalWith(docsCount('gte', 10), { docs_count: 11 })).resolves.toBe(true);
+    await expect(evalWith(docsCount('lte', 10), { docs_count: 9 })).resolves.toBe(true);
+  });
+
+  test('gte and lte on a missing property are false', async () => {
+    await expect(evalWith(docsCount('gte', 0), {})).resolves.toBe(false);
+    await expect(evalWith(docsCount('lte', 0), {})).resolves.toBe(false);
+  });
+
+  test('not_between excludes the inclusive range and treats a missing property as outside', async () => {
+    const cond: ConditionIR = {
+      type: 'property',
+      path: 'docs_count',
+      op: 'not_between',
+      values: [1, 9],
+    };
+    await expect(evalWith(cond, { docs_count: 5 })).resolves.toBe(false);
+    await expect(evalWith(cond, { docs_count: 1 })).resolves.toBe(false);
+    await expect(evalWith(cond, { docs_count: 9 })).resolves.toBe(false);
+    await expect(evalWith(cond, { docs_count: 10 })).resolves.toBe(true);
+    await expect(evalWith(cond, {})).resolves.toBe(true);
   });
 });
