@@ -12,6 +12,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `ir.test.ts`         | The zod schemas as the authoritative IR definition                       |
 | `plan.test.ts`       | Hash semantics (metadata exclusion) and deploy diffing                   |
 | `engine.test.ts`     | Interpreter semantics over in-memory ports                               |
+| `provenance.test.ts` | Callsite recording (meta.loc): capture, hash exclusion, portability      |
 | `public-api.test.ts` | Consumer-perspective smoke: public entry points only, end to end         |
 | `types.test-d.ts`    | Type-safety regressions (never executed, see below)                      |
 

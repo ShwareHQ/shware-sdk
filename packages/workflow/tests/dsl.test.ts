@@ -161,7 +161,7 @@ describe('triggers', () => {
 
 describe('flow nodes', () => {
   test('randomized delay compiles min and max', () => {
-    expect(nodeOf((w) => w.delay({ min: '1 hour', max: '4 hours' }))).toEqual({
+    expect(nodeOf((w) => w.delay({ min: '1 hour', max: '4 hours' }))).toMatchObject({
       id: '0',
       type: 'random_delay',
       min: { value: '1 hour', ms: 3_600_000 },
@@ -170,7 +170,7 @@ describe('flow nodes', () => {
   });
 
   test('time window defaults to every day in the user timezone', () => {
-    expect(nodeOf((w) => w.timeWindow({ between: ['09:00', '17:00'] }))).toEqual({
+    expect(nodeOf((w) => w.timeWindow({ between: ['09:00', '17:00'] }))).toMatchObject({
       id: '0',
       type: 'time_window',
       days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
@@ -221,7 +221,7 @@ describe('flow nodes', () => {
 
   test('a cohort arm without a flow compiles to an empty flow', () => {
     const node = nodeOf((w) => w.cohort({ control: { weight: 100 } }));
-    expect(node).toEqual({
+    expect(node).toMatchObject({
       id: '0',
       type: 'cohort',
       arms: [{ name: 'control', weight: 100, flow: [] }],
@@ -230,7 +230,7 @@ describe('flow nodes', () => {
 
   test('sendEvent payload resolves refs and literals', () => {
     const node = nodeOf((w) => w.sendEvent(e.purchase, { value: 1, currency: 'USD' }));
-    expect(node).toEqual({
+    expect(node).toMatchObject({
       id: '0',
       type: 'send_event',
       event: 'purchase',

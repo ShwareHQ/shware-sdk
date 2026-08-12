@@ -145,6 +145,27 @@ export const TriggerIR = z.discriminatedUnion('type', [
 ]);
 export type TriggerIR = z.infer<typeof TriggerIR>;
 
+/* --------------------------------- Provenance -------------------------------- */
+
+/**
+ * Source location of the builder call that produced a definition — the IR's
+ * source map. Lives under `meta`, so it is **excluded from contentHash**
+ * (see hash.ts): provenance never affects execution identity or plan.
+ * `file` is cwd-relative when compiled under Node, a URL under Vite dev.
+ */
+export const SourceLocIR = z.object({
+  file: z.string(),
+  line: z.number(),
+  column: z.number(),
+});
+export type SourceLocIR = z.infer<typeof SourceLocIR>;
+
+/** Node-level metadata: provenance only, for now. Excluded from contentHash. */
+export const NodeMetaIR = z.object({
+  loc: z.optional(SourceLocIR),
+});
+export type NodeMetaIR = z.infer<typeof NodeMetaIR>;
+
 /* ----------------------------------- Nodes ---------------------------------- */
 
 interface NodeBaseIR {
@@ -152,6 +173,8 @@ interface NodeBaseIR {
   id: string;
   /** Optional node name: UI title / observability handle (branch's optional first argument lands here). */
   label?: string | undefined;
+  /** Metadata (provenance); excluded from contentHash. */
+  meta?: NodeMetaIR | undefined;
 }
 
 export type NodeIR =
@@ -190,7 +213,7 @@ export type NodeIR =
   | (NodeBaseIR & { type: 'exit'; reason?: string | undefined })
   | (NodeBaseIR & { type: 'send_event'; event: string; payload: Record<string, PropValueIR> });
 
-const nodeBase = { id: z.string(), label: z.optional(z.string()) };
+const nodeBase = { id: z.string(), label: z.optional(z.string()), meta: z.optional(NodeMetaIR) };
 
 export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
   z.discriminatedUnion('type', [
@@ -268,6 +291,7 @@ export const MetaIR = z.object({
   description: z.optional(z.string()),
   tags: z.optional(z.array(z.string())),
   owner: z.optional(z.string()),
+  loc: z.optional(SourceLocIR),
 });
 export type MetaIR = z.infer<typeof MetaIR>;
 
@@ -287,6 +311,7 @@ export const SegmentIR = z.object({
   irVersion: z.literal(IR_VERSION),
   name: z.string(),
   contentHash: z.string(),
+  meta: z.optional(NodeMetaIR),
   condition: ConditionIR,
 });
 export type SegmentIR = z.infer<typeof SegmentIR>;

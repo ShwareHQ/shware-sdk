@@ -39,7 +39,7 @@ describe('metadata is excluded from contentHash', () => {
       .toIR();
 
     expect(after.contentHash).toBe(before.contentHash);
-    expect(after.meta).toEqual({
+    expect(after.meta).toMatchObject({
       description: 'A completely different description',
       tags: ['revenue'],
       owner: 'growth@example.com',
