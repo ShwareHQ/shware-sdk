@@ -158,6 +158,11 @@ function CanvasTab() {
       colorMode={resolved}
       {...(stats !== undefined ? { stats } : {})}
       onOpenTemplate={(key) => void navigate({ to: '/emails/$key', params: { key } })}
+      onOpenSource={(loc) =>
+        void fetch(
+          `/__open-in-editor?file=${encodeURIComponent(loc.file)}&line=${loc.line}&column=${loc.column}`
+        )
+      }
     />
   );
 }

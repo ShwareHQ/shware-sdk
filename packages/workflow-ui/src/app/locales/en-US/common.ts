@@ -5,6 +5,8 @@ export default {
     segments: 'Segments',
     emails: 'Emails',
     settings: 'Settings',
+    collapse: 'Collapse',
+    expand: 'Expand sidebar',
   },
   common: {
     name: 'Name',

@@ -2,7 +2,8 @@ import type { QueryClient } from '@tanstack/react-query';
 import { Link, Outlet, createRootRouteWithContext } from '@tanstack/react-router';
 import { clsx } from 'clsx';
 import type { i18n as I18n } from 'i18next';
-import { Home, Mail, Settings, Users, Workflow } from 'lucide-react';
+import { Home, Mail, PanelLeftClose, PanelLeftOpen, Settings, Users, Workflow } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import type { WorkflowUIConfig } from '../../config';
@@ -32,40 +33,100 @@ const NAV = [
   { to: '/settings', label: 'nav.settings', icon: Settings, exact: true },
 ] as const;
 
+const COLLAPSED_KEY = 'workflow-ui-sidebar-collapsed';
+
+/**
+ * Read synchronously in the initializer, not in an effect: the sidebar's width
+ * is layout, so recovering it a frame late would shove the whole view sideways
+ * on every load.
+ */
+const readCollapsed = () =>
+  typeof localStorage !== 'undefined' && localStorage.getItem(COLLAPSED_KEY) === 'true';
+
 function RootLayout() {
   const { t } = useTranslation();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  const toggle = useCallback(() => {
+    setCollapsed((open) => {
+      localStorage.setItem(COLLAPSED_KEY, String(!open));
+      return !open;
+    });
+  }, []);
+
+  /*
+   * Collapsed, a nav item is a square icon button and the label moves into the
+   * tooltip — the canvas is the view that most wants the width back, and it is
+   * also the one where the icons alone are unambiguous.
+   */
+  const itemClass = clsx(
+    'flex items-center rounded-lg text-[13px] font-medium',
+    'text-secondary hover:bg-hover transition-colors',
+    collapsed ? 'size-9 justify-center' : 'gap-2.5 px-3 py-2'
+  );
 
   return (
     <div className="text-primary flex h-full font-sans">
-      <aside className="border-border bg-card flex w-52 shrink-0 flex-col border-r">
-        <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
+      <aside
+        className={clsx(
+          'border-border bg-card flex shrink-0 flex-col border-r transition-[width] duration-150',
+          collapsed ? 'w-14' : 'w-52'
+        )}
+      >
+        <div
+          className={clsx(
+            'flex h-14 shrink-0 items-center gap-2.5',
+            collapsed ? 'justify-center px-0' : 'px-4'
+          )}
+        >
           <div
             className="bg-primary flex size-7 shrink-0 items-center justify-center rounded-lg"
             style={superellipse}
           >
             <Workflow className="text-card size-4" strokeWidth={2} />
           </div>
-          <strong className="text-sm font-semibold">Workflow Studio</strong>
+          {!collapsed && <strong className="text-sm font-semibold">Workflow Studio</strong>}
         </div>
 
-        <nav className="flex flex-col gap-1.5 p-3 pt-1">
+        <nav
+          className={clsx(
+            'flex flex-1 flex-col gap-1.5 pt-1',
+            collapsed ? 'items-center px-0' : 'p-3'
+          )}
+        >
           {NAV.map((item) => (
             <Link
               key={item.to}
               to={item.to}
               activeOptions={{ exact: item.exact }}
-              className={clsx(
-                'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium',
-                'text-secondary hover:bg-hover transition-colors'
-              )}
+              className={itemClass}
               activeProps={{ className: '!bg-selected !text-primary' }}
               style={superellipse}
+              title={collapsed ? t(item.label) : undefined}
             >
               <item.icon className="size-4 shrink-0" strokeWidth={2} />
-              {t(item.label)}
+              {!collapsed && t(item.label)}
             </Link>
           ))}
         </nav>
+
+        {/* Bottom rail: the toggle is the same shape as a nav item, so collapsing does not move it. */}
+        <div className={clsx('flex', collapsed ? 'justify-center pb-3' : 'p-3')}>
+          <button
+            type="button"
+            onClick={toggle}
+            className={itemClass}
+            style={superellipse}
+            title={collapsed ? t('nav.expand') : undefined}
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-4 shrink-0" strokeWidth={2} />
+            ) : (
+              <PanelLeftClose className="size-4 shrink-0" strokeWidth={2} />
+            )}
+            {!collapsed && t('nav.collapse')}
+          </button>
+        </div>
       </aside>
 
       <main className="bg-page min-h-0 min-w-0 flex-1">

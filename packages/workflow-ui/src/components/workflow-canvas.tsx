@@ -1,4 +1,4 @@
-import type { WorkflowIR } from '@shware/workflow';
+import type { SourceLocIR, WorkflowIR } from '@shware/workflow';
 import {
   Background,
   BaseEdge,
@@ -17,6 +17,7 @@ import {
   BellRing,
   CalendarClock,
   ClipboardList,
+  Code,
   Filter,
   GitBranch,
   Hourglass,
@@ -32,7 +33,7 @@ import {
   User,
   Zap,
 } from 'lucide-react';
-import { type CSSProperties, createContext, useContext, useMemo } from 'react';
+import { type CSSProperties, createContext, useContext, useMemo, useState } from 'react';
 import type { NodeStats } from '../config';
 import { superellipse } from './corner-shape';
 import {
@@ -69,6 +70,13 @@ export interface WorkflowCanvasProps {
    */
   onOpenTemplate?: (templateKey: string) => void;
   /**
+   * Jump to the source that produced a node (its recorded callsite, meta.loc).
+   * The host decides what "open" means — the studio posts to the dev server's
+   * open-in-editor endpoint. The code icon only appears on hover, and only on
+   * cards that carry a loc while this is provided.
+   */
+  onOpenSource?: (loc: SourceLocIR) => void;
+  /**
    * Drives react-flow's own chrome (background dots, zoom controls). The card
    * and connector colours come from CSS variables and follow the host's theme
    * on their own; this is only for the parts react-flow paints itself. Passed
@@ -77,8 +85,9 @@ export interface WorkflowCanvasProps {
   colorMode?: 'light' | 'dark';
 }
 
-/** The callback travels by context: react-flow node data should carry serializable data only. */
+/** The callbacks travel by context: react-flow node data should carry serializable data only. */
 const OpenTemplateContext = createContext<((templateKey: string) => void) | undefined>(undefined);
+const OpenSourceContext = createContext<((loc: SourceLocIR) => void) | undefined>(undefined);
 
 /**
  * One hue per category, not per icon: six colours make a message, a wait and a
@@ -139,6 +148,13 @@ const cardStyle: CSSProperties = {
   height: CARD_SIZE.h,
   padding: '0 16px',
   borderRadius: 12,
+  /*
+   * react-flow puts pointer-events: none on non-draggable, non-selectable
+   * node wrappers, which would swallow the hover that reveals the code
+   * button. Opting the card back in does not break pan/zoom: d3-zoom
+   * listens on an ancestor container and these events still bubble to it.
+   */
+  pointerEvents: 'auto',
 };
 
 /**
@@ -230,7 +246,11 @@ type WfNode = Node<CanvasNodeData, 'wf'>;
 function WorkflowNode({ data }: NodeProps<WfNode>) {
   const Icon = ICONS[data.icon];
   const onOpenTemplate = useContext(OpenTemplateContext);
+  const onOpenSource = useContext(OpenSourceContext);
+  const [hovered, setHovered] = useState(false);
   const templateKey = data.templateKey;
+  const loc = data.loc;
+  const canOpenSource = onOpenSource !== undefined && loc !== undefined;
 
   const body =
     data.variant === 'icon' ? (
@@ -245,7 +265,11 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
         </div>
       </div>
     ) : (
-      <div style={cardStyle}>
+      <div
+        style={cardStyle}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
         <div style={headerStyle}>
           <Icon size={15} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
           <span style={titleStyle}>{data.title}</span>
@@ -265,6 +289,24 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
               onClick={() => onOpenTemplate(templateKey)}
             >
               <SquareArrowOutUpRight size={14} strokeWidth={2} aria-hidden />
+            </button>
+          )}
+          {canOpenSource && (
+            // Always in the flex row (no layout shift); fades in on card hover
+            <button
+              type="button"
+              className="nodrag nopan"
+              style={{
+                ...linkButtonStyle,
+                opacity: hovered ? 1 : 0,
+                transition: 'opacity 120ms ease',
+                pointerEvents: hovered ? 'auto' : 'none',
+              }}
+              title={`Open source: ${loc.file}:${loc.line}`}
+              aria-label={`Open source at ${loc.file} line ${loc.line}`}
+              onClick={() => onOpenSource(loc)}
+            >
+              <Code size={14} strokeWidth={2} aria-hidden />
             </button>
           )}
         </div>
@@ -448,12 +490,15 @@ export function WorkflowCanvas({
   ir,
   stats,
   onOpenTemplate,
+  onOpenSource,
   colorMode = 'light',
 }: WorkflowCanvasProps) {
   const { nodes, edges } = useMemo(() => layout(ir, stats), [ir, stats]);
   return (
     <OpenTemplateContext value={onOpenTemplate}>
-      <CanvasSurface nodes={nodes} edges={edges} colorMode={colorMode} />
+      <OpenSourceContext value={onOpenSource}>
+        <CanvasSurface nodes={nodes} edges={edges} colorMode={colorMode} />
+      </OpenSourceContext>
     </OpenTemplateContext>
   );
 }
