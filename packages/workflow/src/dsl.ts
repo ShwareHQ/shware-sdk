@@ -11,10 +11,12 @@ import {
   type MetaIR,
   type NodeIR,
   type PropValueIR,
+  type SourceLocIR,
   type TriggerIR,
   type WorkflowIR,
   WorkflowIR as WorkflowIRSchema,
 } from './ir';
+import { captureLoc } from './provenance';
 
 /**
  * Workflow DSL — surface types plus the compiler (chained calls and
@@ -414,6 +416,8 @@ interface SegmentInternal extends SegmentRef {
   readonly ir: ConditionIR;
   /** The segment's own definition (SegmentIR.condition), as opposed to a by-name reference. */
   readonly definition: ConditionIR;
+  /** Callsite of the segment() call (provenance; lands in SegmentIR.meta.loc). */
+  readonly loc: SourceLocIR | undefined;
 }
 
 /**
@@ -429,6 +433,7 @@ export function segment(name: string, condition: Condition): SegmentRef {
     name,
     ir: { type: 'segment', segment: name },
     definition: condIR(condition),
+    loc: captureLoc(segment),
   };
   return impl;
 }
@@ -551,56 +556,73 @@ export interface FlowBuilder {
   sendEvent<P extends object>(event: EventRef<P>, ...payload: MessageArgs<P>): this;
 }
 
+/* oxlint-disable typescript/unbound-method --
+ * `captureLoc(this.xxx)` passes the method by identity as the stack-trace
+ * boundary for Error.captureStackTrace; it is never invoked, so `this`
+ * scoping cannot go wrong. */
 class FlowBuilderImpl implements FlowBuilder {
   /** Nodes as collected; ids are assigned in one pass inside toIR, so '' is a placeholder here. */
   readonly nodes: NodeIR[] = [];
 
-  private pushNode(node: NodeIR): this {
-    this.nodes.push(node);
+  /** Provenance: the callsite (captured in the public method) lands in meta.loc, outside the hash. */
+  private pushNode(node: NodeIR, loc: SourceLocIR | undefined): this {
+    this.nodes.push({ ...node, ...(loc !== undefined ? { meta: { loc } } : {}) });
     return this;
   }
 
-  private message(channel: ChannelIR, tpl: TemplateRef<Channel, object>, props?: object): this {
-    return this.pushNode({
-      id: '',
-      type: 'message',
-      channel,
-      template: tpl.key,
-      props: (props ?? {}) as Record<string, PropValueIR>,
-    });
+  private message(
+    channel: ChannelIR,
+    tpl: TemplateRef<Channel, object>,
+    props: object | undefined,
+    loc: SourceLocIR | undefined
+  ): this {
+    return this.pushNode(
+      {
+        id: '',
+        type: 'message',
+        channel,
+        template: tpl.key,
+        props: (props ?? {}) as Record<string, PropValueIR>,
+      },
+      loc
+    );
   }
 
   email<P extends object>(t: TemplateRef<'email', P>, ...args: MessageArgs<P>): this {
-    return this.message('email', t, args[0]);
+    return this.message('email', t, args[0], captureLoc(this.email));
   }
   sms<P extends object>(t: TemplateRef<'sms', P>, ...args: MessageArgs<P>): this {
-    return this.message('sms', t, args[0]);
+    return this.message('sms', t, args[0], captureLoc(this.sms));
   }
   push<P extends object>(t: TemplateRef<'push', P>, ...args: MessageArgs<P>): this {
-    return this.message('push', t, args[0]);
+    return this.message('push', t, args[0], captureLoc(this.push));
   }
   inApp<P extends object>(t: TemplateRef<'in_app', P>, ...args: MessageArgs<P>): this {
-    return this.message('in_app', t, args[0]);
+    return this.message('in_app', t, args[0], captureLoc(this.inApp));
   }
   slack<P extends object>(t: TemplateRef<'slack', P>, ...args: MessageArgs<P>): this {
-    return this.message('slack', t, args[0]);
+    return this.message('slack', t, args[0], captureLoc(this.slack));
   }
   survey<P extends object>(t: TemplateRef<'survey', P>, ...args: MessageArgs<P>): this {
-    return this.message('survey', t, args[0]);
+    return this.message('survey', t, args[0], captureLoc(this.survey));
   }
 
   delay(duration: Duration): this;
   delay(range: { min: Duration; max: Duration }): this;
   delay(d: Duration | { min: Duration; max: Duration }): this {
+    const loc = captureLoc(this.delay);
     if (typeof d === 'string') {
-      return this.pushNode({ id: '', type: 'delay', duration: durationIR(d) });
+      return this.pushNode({ id: '', type: 'delay', duration: durationIR(d) }, loc);
     }
-    return this.pushNode({
-      id: '',
-      type: 'random_delay',
-      min: durationIR(d.min),
-      max: durationIR(d.max),
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'random_delay',
+        min: durationIR(d.min),
+        max: durationIR(d.max),
+      },
+      loc
+    );
   }
 
   timeWindow(opts: {
@@ -608,33 +630,41 @@ class FlowBuilderImpl implements FlowBuilder {
     between: readonly [TimeOfDay, TimeOfDay];
     tz?: 'user' | (string & {});
   }): this {
-    return this.pushNode({
-      id: '',
-      type: 'time_window',
-      days: [...(opts.days ?? (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const))],
-      between: [opts.between[0], opts.between[1]],
-      tz: opts.tz ?? 'user',
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'time_window',
+        days: [...(opts.days ?? (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const))],
+        between: [opts.between[0], opts.between[1]],
+        tz: opts.tz ?? 'user',
+      },
+      captureLoc(this.timeWindow)
+    );
   }
 
   waitUntil(
     condition: Condition,
     opts: { timeout: Duration; onTimeout?: 'continue' | 'exit' | SubFlow }
   ): this {
+    const loc = captureLoc(this.waitUntil);
     const onTimeout = opts.onTimeout ?? 'continue';
-    return this.pushNode({
-      id: '',
-      type: 'wait_until',
-      condition: condIR(condition),
-      timeout: durationIR(opts.timeout),
-      onTimeout:
-        onTimeout === 'continue' || onTimeout === 'exit' ? onTimeout : resolveSubFlow(onTimeout),
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'wait_until',
+        condition: condIR(condition),
+        timeout: durationIR(opts.timeout),
+        onTimeout:
+          onTimeout === 'continue' || onTimeout === 'exit' ? onTimeout : resolveSubFlow(onTimeout),
+      },
+      loc
+    );
   }
 
   branch(...arms: readonly BranchArm[]): this;
   branch(label: string, ...arms: readonly BranchArm[]): this;
   branch(...args: readonly (string | BranchArm)[]): this {
+    const loc = captureLoc(this.branch);
     const label = typeof args[0] === 'string' ? args[0] : undefined;
     const arms = (label === undefined ? args : args.slice(1)) as readonly BranchArm[];
 
@@ -658,54 +688,71 @@ class FlowBuilderImpl implements FlowBuilder {
       }
     });
 
-    return this.pushNode({
-      id: '',
-      type: 'branch',
-      ...(label !== undefined ? { label } : {}),
-      cases,
-      ...(otherwise !== undefined ? { otherwise } : {}),
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'branch',
+        ...(label !== undefined ? { label } : {}),
+        cases,
+        ...(otherwise !== undefined ? { otherwise } : {}),
+      },
+      loc
+    );
   }
 
   filter(condition: Condition, opts?: { reason?: string }): this {
-    return this.pushNode({
-      id: '',
-      type: 'filter',
-      condition: condIR(condition),
-      ...(opts?.reason !== undefined ? { reason: opts.reason } : {}),
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'filter',
+        condition: condIR(condition),
+        ...(opts?.reason !== undefined ? { reason: opts.reason } : {}),
+      },
+      captureLoc(this.filter)
+    );
   }
 
   cohort(arms: Record<string, { weight: number; flow?: SubFlow }>): this {
+    const loc = captureLoc(this.cohort);
     const entries = Object.entries(arms);
     const total = entries.reduce((sum, [, a]) => sum + a.weight, 0);
     if (total !== 100) {
       throw new Error(`cohort(): weights must sum to 100, got ${total}`);
     }
-    return this.pushNode({
-      id: '',
-      type: 'cohort',
-      arms: entries.map(([name, a]) => ({
-        name,
-        weight: a.weight,
-        flow: a.flow ? resolveSubFlow(a.flow) : [],
-      })),
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'cohort',
+        arms: entries.map(([name, a]) => ({
+          name,
+          weight: a.weight,
+          flow: a.flow ? resolveSubFlow(a.flow) : [],
+        })),
+      },
+      loc
+    );
   }
 
   exit(reason?: string): this {
-    return this.pushNode({ id: '', type: 'exit', ...(reason !== undefined ? { reason } : {}) });
+    return this.pushNode(
+      { id: '', type: 'exit', ...(reason !== undefined ? { reason } : {}) },
+      captureLoc(this.exit)
+    );
   }
 
   sendEvent<P extends object>(ev: EventRef<P>, ...payload: MessageArgs<P>): this {
-    return this.pushNode({
-      id: '',
-      type: 'send_event',
-      event: ev.name,
-      payload: (payload[0] ?? {}) as Record<string, PropValueIR>,
-    });
+    return this.pushNode(
+      {
+        id: '',
+        type: 'send_event',
+        event: ev.name,
+        payload: (payload[0] ?? {}) as Record<string, PropValueIR>,
+      },
+      captureLoc(this.sendEvent)
+    );
   }
 }
+/* oxlint-enable typescript/unbound-method */
 
 /**
  * A reusable flow fragment: a free function. Once personalization goes through
@@ -853,7 +900,9 @@ function assignIds(nodes: NodeIR[], prefix: string): void {
 class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   constructor(
     private readonly name: string,
-    private readonly options: WorkflowOptions
+    private readonly options: WorkflowOptions,
+    /** Callsite of the workflow() call (provenance; lands in meta.loc). */
+    private readonly loc: SourceLocIR | undefined
   ) {
     super();
   }
@@ -873,11 +922,19 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
 
   private metaIR(): MetaIR | undefined {
     const { description, tags, owner } = this.options;
-    if (description === undefined && tags === undefined && owner === undefined) return undefined;
+    if (
+      description === undefined &&
+      tags === undefined &&
+      owner === undefined &&
+      this.loc === undefined
+    ) {
+      return undefined;
+    }
     return {
       ...(description !== undefined ? { description } : {}),
       ...(tags !== undefined ? { tags: [...tags] } : {}),
       ...(owner !== undefined ? { owner } : {}),
+      ...(this.loc !== undefined ? { loc: this.loc } : {}),
     };
   }
 
@@ -903,7 +960,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
 
 /** Workflow definition: a name, configuration (trigger / goal / exitWhen), and chained steps. */
 export function workflow(name: string, options: WorkflowOptions): WorkflowBuilder {
-  return new WorkflowBuilderImpl(name, options);
+  return new WorkflowBuilderImpl(name, options, captureLoc(workflow));
 }
 
 /* --------------------------------- bundle --------------------------------- */
@@ -919,11 +976,12 @@ export function compileBundle(input: {
   templates?: readonly TemplateRef[];
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
-    const { name, definition } = segment as SegmentInternal;
+    const { name, definition, loc } = segment as SegmentInternal;
     return {
       irVersion: IR_VERSION,
       name,
       contentHash: semanticHash(definition),
+      ...(loc !== undefined ? { meta: { loc } } : {}),
       condition: definition,
     };
   });

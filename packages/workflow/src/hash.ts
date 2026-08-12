@@ -16,7 +16,8 @@
 
 /**
  * Keys excluded from hashing.
- * - meta: workflow-level metadata (description / tags / owner)
+ * - meta: metadata at any level — workflow (description / tags / owner) and
+ *   node/segment provenance (`loc`, the callsite source map)
  * - label: node and branch-arm names (UI titles / observability, never routing)
  * - contentHash: the hash itself
  *
