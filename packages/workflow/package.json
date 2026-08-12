@@ -21,16 +21,6 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./examples": {
-      "import": {
-        "types": "./dist/examples.d.mts",
-        "default": "./dist/examples.mjs"
-      },
-      "require": {
-        "types": "./dist/examples.d.cts",
-        "default": "./dist/examples.cjs"
-      }
-    },
     "./engine": {
       "import": {
         "types": "./dist/engine/index.d.mts",
@@ -57,7 +47,7 @@
     "build": "tsdown",
     "test": "vitest run --passWithNoTests",
     "check-types": "tsc --noEmit",
-    "lint": "oxlint --type-aware src --fix"
+    "lint": "oxlint --type-aware src tests --fix"
   },
   "dependencies": {
     "@types/ms": "^2.1.0",

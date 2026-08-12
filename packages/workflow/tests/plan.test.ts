@@ -1,11 +1,16 @@
 import { describe, expect, test } from 'vitest';
-import { compileBundle, eq, segment, trigger, workflow } from './dsl';
-import { plan } from './plan';
-import { e, u } from './schema';
-import { activeSubscriber, purchaser } from './segments';
-import { gettingStarted, proTips } from './templates';
-import { activationNudge, checkoutRecovery } from './workflows/index';
-import { winback } from './workflows/winback';
+import { compileBundle, eq, plan, segment, trigger, workflow } from '../src/index';
+import {
+  activeSubscriber,
+  checkoutRecovery,
+  e,
+  gettingStarted,
+  proTips,
+  purchaser,
+  reengagement,
+  u,
+  winback,
+} from './fixtures';
 
 const base = () =>
   workflow('checkout_recovery', {
@@ -123,10 +128,10 @@ describe('plan', () => {
     const result = plan(bundleOf(edited), deployed);
     const change = result.workflows[0];
 
-    expect(change?.status).toBe('changed');
-    expect(change?.fields).toEqual(['trigger']);
-    expect(change?.nodes).toEqual([{ id: '0', status: 'changed', type: 'delay' }]);
-    expect(change?.before).not.toBe(change?.after);
+    expect(change.status).toBe('changed');
+    expect(change.fields).toEqual(['trigger']);
+    expect(change.nodes).toEqual([{ id: '0', status: 'changed', type: 'delay' }]);
+    expect(change.before).not.toBe(change.after);
     expect(result.hasChanges).toBe(true);
   });
 
@@ -150,18 +155,18 @@ describe('plan', () => {
   });
 });
 
-describe('plan smoke test on real example workflows', () => {
-  test('reports added / removed / unchanged across a realistic bundle', () => {
+describe('plan smoke test across a realistic bundle', () => {
+  test('reports added / removed / unchanged', () => {
     const segments = [purchaser, activeSubscriber];
     const deployed = compileBundle({ workflows: [checkoutRecovery, winback], segments });
-    const local = compileBundle({ workflows: [checkoutRecovery, activationNudge], segments });
+    const local = compileBundle({ workflows: [checkoutRecovery, reengagement], segments });
 
     const result = plan(local, deployed);
     const byName = Object.fromEntries(result.workflows.map((w) => [w.name, w.status]));
 
     expect(byName).toEqual({
-      activation_nudge: 'added',
       checkout_recovery: 'unchanged',
+      reengagement: 'added',
       winback: 'removed',
     });
     expect(result.hasChanges).toBe(true);

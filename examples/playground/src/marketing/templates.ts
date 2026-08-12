@@ -1,5 +1,5 @@
-import { template } from '../dsl';
-import type { UserProperty } from '../schema';
+import { template } from '@shware/workflow';
+import type { UserProperty } from './schema';
 
 /**
  * Message templates: top-level named assets. The props shape is declared here

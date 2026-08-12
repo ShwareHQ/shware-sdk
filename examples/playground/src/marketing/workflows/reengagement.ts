@@ -1,4 +1,4 @@
-import { not, performed, segment, template, trigger, workflow } from '../dsl';
+import { not, performed, segment, template, trigger, workflow } from '@shware/workflow';
 import { e } from '../schema';
 
 /**

@@ -1,4 +1,4 @@
-import { event, user } from './dsl';
+import { event, user } from '@shware/workflow';
 
 /**
  * App-side schema: the type definitions for events and user properties.

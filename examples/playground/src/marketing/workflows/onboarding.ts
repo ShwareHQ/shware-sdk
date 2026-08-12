@@ -1,4 +1,4 @@
-import { type SubFlow, type TemplateRef, not, template, trigger, workflow } from '../dsl';
+import { type SubFlow, type TemplateRef, not, template, trigger, workflow } from '@shware/workflow';
 import { e } from '../schema';
 import {
   newUsers7d,

@@ -912,11 +912,26 @@ export function compileBundle(input: {
     channel: template.channel,
   }));
 
-  const bundle = {
-    irVersion: IR_VERSION,
-    workflows: input.workflows.map((builder) => builder.toIR()),
-    segments,
-    templates,
-  };
-  return BundleIRSchema.parse(bundle);
+  const workflows = input.workflows.map((builder) => builder.toIR());
+
+  // Names are wire identity (routing tables, entry ledger, by-name refs):
+  // duplicates would silently last-write-win on deploy, so fail the compile.
+  assertUniqueNames(
+    workflows.map((w) => w.name),
+    'workflow'
+  );
+  assertUniqueNames(
+    segments.map((s) => s.name),
+    'segment'
+  );
+
+  return BundleIRSchema.parse({ irVersion: IR_VERSION, workflows, segments, templates });
+}
+
+function assertUniqueNames(names: readonly string[], kind: string): void {
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (seen.has(name)) throw new Error(`compileBundle: duplicate ${kind} name '${name}'`);
+    seen.add(name);
+  }
 }

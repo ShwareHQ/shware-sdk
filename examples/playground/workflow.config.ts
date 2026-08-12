@@ -1,6 +1,6 @@
 import { type MetricPoint, type WorkflowReport, defineConfig } from '@shware/workflow-ui/config';
-import * as examples from '@shware/workflow/examples';
 import { emails } from './src/emails';
+import * as examples from './src/marketing';
 
 /**
  * What `pnpm dev` (i.e. `workflow-ui`) reads.
