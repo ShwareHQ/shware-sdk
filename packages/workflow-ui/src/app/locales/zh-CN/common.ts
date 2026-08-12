@@ -5,6 +5,8 @@ export default {
     segments: '用户分群',
     emails: '邮件',
     settings: '设置',
+    collapse: '收起',
+    expand: '展开侧边栏',
   },
   common: {
     name: '名称',
