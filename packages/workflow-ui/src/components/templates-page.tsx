@@ -1,3 +1,6 @@
+import { clsx } from 'clsx';
+import { ChevronRight } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EmailModule } from '../config';
 import { superellipse } from './corner-shape';
@@ -39,8 +42,30 @@ function formatPropValue(value: unknown): string {
   return String(value);
 }
 
+/**
+ * One label/value row. A fragment rather than a wrapper so the rows land
+ * directly in the parent grid: the label column then sizes to the longest label
+ * — a custom header name can be any length and must not wrap — and every row
+ * stays aligned with the others.
+ *
+ * One type size throughout. `mono` switches the face for values that are
+ * machine strings (addresses with placeholders, header values, node ids), never
+ * the size, so the rows keep a single baseline rhythm.
+ */
+function Field({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
+  return (
+    <>
+      <dt className="text-muted whitespace-nowrap">{label}</dt>
+      <dd className={clsx('text-secondary min-w-0 break-words', mono && 'font-mono text-[13px]')}>
+        {children}
+      </dd>
+    </>
+  );
+}
+
 export function TemplatesPage({ refs, emails, selected, onSelect, preview }: TemplatesPageProps) {
   const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
   const activeModule = active ? emails[active.key] : undefined;
@@ -93,6 +118,12 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
           </div>
         ) : (
           <>
+            {/*
+              Collapsed shows the two lines that identify a message — who it is
+              from and what it says. Everything else (recipients, reply-to,
+              preheader, headers, and which workflows send it) is one click away,
+              so the header does not push the preview itself off the screen.
+            */}
             <div className="border-border bg-card border-b px-6 py-3">
               <div className="flex items-center gap-3">
                 <span className="text-primary font-mono text-sm font-semibold">{active.key}</span>
@@ -100,28 +131,69 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                   {CHANNEL_LABEL[active.channel] ?? active.channel}
                 </span>
               </div>
-              {subject !== undefined && (
-                <div className="text-secondary mt-1 text-sm">
-                  <span className="text-muted">{t('emails.subject')}: </span>
-                  {subject}
-                </div>
-              )}
-              {/* One line per use site: the same template can take different props in different flows */}
-              <ul className="mt-2 space-y-0.5">
-                {active.usages.map((usage) => (
-                  <li key={`${usage.workflow}:${usage.nodeId}`} className="text-muted text-xs">
-                    <span className="text-secondary">{usage.workflow}</span>
-                    <span className="text-muted/60"> #{usage.nodeId}</span>
-                    {Object.keys(usage.props).length > 0 && (
-                      <span className="ml-2 font-mono">
-                        {Object.entries(usage.props)
-                          .map(([name, value]) => `${name}=${formatPropValue(value)}`)
-                          .join('  ')}
-                      </span>
+
+              <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
+                <Field label={t('emails.from')}>{activeModule?.from ?? t('common.none')}</Field>
+                <Field label={t('emails.subject')}>{subject ?? t('common.none')}</Field>
+
+                {expanded && (
+                  <>
+                    {activeModule?.to !== undefined && (
+                      <Field label={t('emails.to')} mono>
+                        {activeModule.to}
+                      </Field>
                     )}
-                  </li>
-                ))}
-              </ul>
+                    {activeModule?.replyTo !== undefined && (
+                      <Field label={t('emails.replyTo')}>{activeModule.replyTo}</Field>
+                    )}
+                    {activeModule?.preheader !== undefined && (
+                      <Field label={t('emails.preheader')}>{activeModule.preheader}</Field>
+                    )}
+                    {activeModule?.cc !== undefined && (
+                      <Field label={t('emails.cc')}>{activeModule.cc.join(', ')}</Field>
+                    )}
+                    {activeModule?.bcc !== undefined && (
+                      <Field label={t('emails.bcc')}>{activeModule.bcc.join(', ')}</Field>
+                    )}
+                    {activeModule?.headers !== undefined &&
+                      Object.entries(activeModule.headers).map(([name, value]) => (
+                        <Field key={name} label={name} mono>
+                          {value}
+                        </Field>
+                      ))}
+
+                    {/* One line per use site: the same template can take different props in different flows */}
+                    <Field label={t('emails.sentBy')} mono>
+                      {active.usages.map((usage) => (
+                        <div key={`${usage.workflow}:${usage.nodeId}`}>
+                          {usage.workflow}
+                          <span className="text-muted"> #{usage.nodeId}</span>
+                          {Object.keys(usage.props).length > 0 && (
+                            <span className="text-muted">
+                              {'  '}
+                              {Object.entries(usage.props)
+                                .map(([name, value]) => `${name}=${formatPropValue(value)}`)
+                                .join('  ')}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </Field>
+                  </>
+                )}
+              </dl>
+
+              <button
+                type="button"
+                onClick={() => setExpanded((open) => !open)}
+                className="text-muted hover:text-primary mt-2 -ml-1 flex items-center gap-1 rounded px-1 text-xs transition-colors"
+              >
+                <ChevronRight
+                  className={clsx('size-3.5 transition-transform', expanded && 'rotate-90')}
+                  strokeWidth={2}
+                />
+                {t(expanded ? 'emails.hideDetails' : 'emails.showDetails')}
+              </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto p-6">

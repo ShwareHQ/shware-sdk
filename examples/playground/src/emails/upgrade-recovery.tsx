@@ -4,6 +4,10 @@ export interface UpgradeRecoveryProps {
   plan: 'free' | 'pro' | 'business';
 }
 
+export const from = 'Acme <hello@acme.io>';
+export const to = '{{ user.email }}';
+export const replyTo = 'Acme Support <support@acme.io>';
+
 export const subject = (props: UpgradeRecoveryProps) => `Finish upgrading to ${props.plan}`;
 
 /** Sample props for previewing (injected when the template page renders it). */

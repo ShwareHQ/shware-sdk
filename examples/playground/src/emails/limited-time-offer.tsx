@@ -5,6 +5,11 @@ export interface LimitedTimeOfferProps {
   expiresIn: string;
 }
 
+export const from = 'Acme <offers@acme.io>';
+export const to = '{{ user.email }}';
+export const preheader = 'Expires in 24 hours';
+export const headers = { 'X-Campaign': 'checkout-recovery' };
+
 export const subject = (props: LimitedTimeOfferProps) =>
   `${props.coupon} — your discount expires in ${props.expiresIn}`;
 
