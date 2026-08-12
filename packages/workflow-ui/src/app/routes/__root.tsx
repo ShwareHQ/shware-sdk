@@ -63,9 +63,13 @@ function RootLayout() {
    *
    * That fixes the rail's width too: 12px of nav padding + 12px of item padding
    * + a 16px icon + 12px, i.e. 64px, is what leaves the icon centred once shut.
+   *
+   * The height is pinned for the same reason it is not padded: with `py-2` the
+   * box was as tall as its content, so losing the label shrank every item by
+   * 4px the instant the state flipped.
    */
   const itemClass = clsx(
-    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium',
+    'flex h-9 items-center gap-2.5 rounded-lg px-3 text-[13px] font-medium',
     'text-secondary hover:bg-hover overflow-hidden whitespace-nowrap transition-colors'
   );
 
