@@ -55,45 +55,42 @@ function RootLayout() {
   }, []);
 
   /*
-   * Collapsed, a nav item is a square icon button and the label moves into the
-   * tooltip — the canvas is the view that most wants the width back, and it is
-   * also the one where the icons alone are unambiguous.
+   * Identical padding in both states, so the icon sits at the same x whether the
+   * rail is open or shut and the collapse animates as pure width. Centring the
+   * icon instead would apply the moment the class flips, throwing it to the
+   * middle of a still-full-width panel and then dragging it back left as the
+   * width caught up — the animation read as a bounce.
+   *
+   * That fixes the rail's width too: 12px of nav padding + 12px of item padding
+   * + a 16px icon + 12px, i.e. 64px, is what leaves the icon centred once shut.
    */
   const itemClass = clsx(
-    'flex items-center rounded-lg text-[13px] font-medium',
-    'text-secondary hover:bg-hover transition-colors',
-    collapsed ? 'size-9 justify-center' : 'gap-2.5 px-3 py-2'
+    'flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium',
+    'text-secondary hover:bg-hover overflow-hidden whitespace-nowrap transition-colors'
   );
 
   return (
     <div className="text-primary flex h-full font-sans">
       <aside
         className={clsx(
-          'border-border bg-card flex shrink-0 flex-col border-r transition-[width] duration-150',
-          collapsed ? 'w-14' : 'w-52'
+          'border-border bg-card flex shrink-0 flex-col overflow-hidden border-r',
+          'transition-[width] duration-200 ease-out',
+          collapsed ? 'w-16' : 'w-52'
         )}
       >
-        <div
-          className={clsx(
-            'flex h-14 shrink-0 items-center gap-2.5',
-            collapsed ? 'justify-center px-0' : 'px-4'
-          )}
-        >
+        <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
           <div
             className="bg-primary flex size-7 shrink-0 items-center justify-center rounded-lg"
             style={superellipse}
           >
             <Workflow className="text-card size-4" strokeWidth={2} />
           </div>
-          {!collapsed && <strong className="text-sm font-semibold">Workflow Studio</strong>}
+          {!collapsed && (
+            <strong className="text-sm font-semibold whitespace-nowrap">Workflow Studio</strong>
+          )}
         </div>
 
-        <nav
-          className={clsx(
-            'flex flex-1 flex-col gap-1.5 pt-1',
-            collapsed ? 'items-center px-0' : 'p-3'
-          )}
-        >
+        <nav className="flex flex-1 flex-col gap-1.5 p-3 pt-1">
           {NAV.map((item) => (
             <Link
               key={item.to}
@@ -111,7 +108,7 @@ function RootLayout() {
         </nav>
 
         {/* Bottom rail: the toggle is the same shape as a nav item, so collapsing does not move it. */}
-        <div className={clsx('flex', collapsed ? 'justify-center pb-3' : 'p-3')}>
+        <div className="flex p-3">
           <button
             type="button"
             onClick={toggle}

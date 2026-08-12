@@ -85,13 +85,19 @@ function locToFsPath(rawFile: string, cwd: string): string {
 }
 
 /**
- * launch-editor finds a running JetBrains IDE and execs its native launcher
- * directly — which rejects `--line` on macOS (the binary only accepts IDE
- * args when relayed through `open --args`; JetBrains' own Toolbox scripts
- * wrap it exactly that way). When launch-editor reports failure, find the
- * running IDE ourselves and relaunch through `open`.
+ * On macOS, launch-editor finds a running JetBrains IDE but execs its native
+ * launcher directly — which rejects `--line` (the binary only accepts IDE args
+ * when relayed through `open --args`; JetBrains' own Toolbox scripts wrap it
+ * exactly that way) and prints a scary error while at it. So when a JetBrains
+ * IDE is running, relay through `open` ourselves and skip launch-editor
+ * entirely; every other editor still goes through launch-editor.
  */
-function openViaJetBrainsApp(fsPath: string, line: number, column: number): boolean {
+function openViaJetBrainsApp(
+  fsPath: string,
+  line: number,
+  column: number,
+  warn: (message: string) => void
+): boolean {
   if (process.platform !== 'darwin') return false;
   try {
     const processes = execSync('ps x -o comm=', { stdio: ['pipe', 'pipe', 'ignore'] })
@@ -102,16 +108,14 @@ function openViaJetBrainsApp(fsPath: string, line: number, column: number): bool
     const launcher = processes.find((path) => IDE.test(path));
     if (launcher === undefined) return false;
     const app = launcher.slice(0, launcher.indexOf('.app') + '.app'.length);
-    execFile('open', [
-      '-na',
-      app,
-      '--args',
-      '--line',
-      String(line),
-      '--column',
-      String(column),
-      fsPath,
-    ]);
+    execFile(
+      'open',
+      ['-na', app, '--args', '--line', String(line), '--column', String(column), fsPath],
+      (error) => {
+        // `open` failing is environmental (sandboxes block LaunchServices) — say so instead of failing silently
+        if (error) warn(`workflow-ui: 'open ${app}' failed: ${error.message}`);
+      }
+    );
     return true;
   } catch {
     return false;
@@ -163,10 +167,17 @@ function openInEditorPlugin(cwd: string): Plugin {
           }
         }
 
-        launch(`${fsPath}:${line}:${column}`, undefined, (_, errorMessage) => {
-          if (openViaJetBrainsApp(fsPath, line, column)) return;
-          server.config.logger.warn(`workflow-ui: could not open editor: ${errorMessage ?? ''}`);
-        });
+        const warn = (message: string) => server.config.logger.warn(message);
+        // An explicit LAUNCH_EDITOR choice always goes through launch-editor;
+        // otherwise a running JetBrains IDE takes the open-relay path directly.
+        const jetbrainsHandled =
+          process.env.LAUNCH_EDITOR === undefined &&
+          openViaJetBrainsApp(fsPath, line, column, warn);
+        if (!jetbrainsHandled) {
+          launch(`${fsPath}:${line}:${column}`, undefined, (_, errorMessage) => {
+            warn(`workflow-ui: could not open editor: ${errorMessage ?? ''}`);
+          });
+        }
         res.statusCode = 204;
         res.end();
       });
