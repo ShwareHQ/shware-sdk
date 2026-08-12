@@ -8,10 +8,13 @@ import {
   exists,
   type flow,
   gt,
+  gte,
   inArray,
   lt,
+  lte,
   ne,
   not,
+  notBetween,
   notContains,
   notExists,
   notInArray,
@@ -51,12 +54,18 @@ describe('predicates compile to condition IR', () => {
     });
     expect(conditionOf(ne(u.subscription_plan, 'free'))).toMatchObject({ op: 'ne', value: 'free' });
     expect(conditionOf(gt(u.docs_count, 10))).toMatchObject({ op: 'gt', value: 10 });
+    expect(conditionOf(gte(u.docs_count, 10))).toMatchObject({ op: 'gte', value: 10 });
     expect(conditionOf(lt(u.docs_count, 5))).toMatchObject({ op: 'lt', value: 5 });
+    expect(conditionOf(lte(u.docs_count, 5))).toMatchObject({ op: 'lte', value: 5 });
   });
 
   test('range and set operators carry values arrays', () => {
     expect(conditionOf(between(u.docs_count, 1, 9))).toMatchObject({
       op: 'between',
+      values: [1, 9],
+    });
+    expect(conditionOf(notBetween(u.docs_count, 1, 9))).toMatchObject({
+      op: 'not_between',
       values: [1, 9],
     });
     expect(conditionOf(inArray(u.subscription_plan, ['pro', 'business']))).toMatchObject({

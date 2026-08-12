@@ -17,7 +17,10 @@ import {
   exists,
   flow,
   gt,
+  gte,
   inArray,
+  lte,
+  notBetween,
   templates,
   trigger,
   workflow,
@@ -50,8 +53,17 @@ contains(u.docs_count, '1');
 // @ts-expect-error gt/lt/between reject boolean refs
 gt(u.auto_renew_enabled, true);
 
+// @ts-expect-error gte/lte reject boolean refs too
+gte(u.auto_renew_enabled, true);
+
+// @ts-expect-error ...on both sides of the pair
+lte(u.auto_renew_enabled, false);
+
 // @ts-expect-error between bounds must match the ref type
 between(u.docs_count, 1, '9');
+
+// @ts-expect-error notBetween bounds follow the same rule
+notBetween(u.docs_count, '1', 9);
 
 // @ts-expect-error inArray element type follows the ref
 inArray(u.subscription_plan, ['pro', 'vip']);
