@@ -1,6 +1,6 @@
 import { eq, template, trigger, workflow } from '@shware/workflow';
-import { e, u } from '../schema';
-import { purchaser } from '../segments';
+import { e, u } from './schema';
+import { purchaser } from './segments';
 
 /**
  * Subscription winback.

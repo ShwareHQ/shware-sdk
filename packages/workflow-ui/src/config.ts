@@ -2,10 +2,18 @@ import type { SegmentRef, WorkflowBuilder } from '@shware/workflow';
 import type { ReactElement } from 'react';
 
 /**
- * `workflow.config.ts` — what the CLI loads to know about your project.
+ * `workflow.config.ts` — optional project configuration.
  *
- * The config imports your definitions directly, so there is no scanning or
- * convention magic: whatever you export here is what the studio shows.
+ * Definitions are NOT listed here: the CLI discovers them by convention,
+ * next.js-style —
+ *   - `src/workflows/` (or `workflows/`): every exported workflow and segment
+ *     in the directory shows up in the studio, keyed by its export name;
+ *   - `src/emails/index.ts` (or `emails/index.ts`): the email registry
+ *     (`export const emails = { ... }`), which stays an explicit object
+ *     because it is what types `templates<Emails>()` keys at compile time.
+ *
+ * The config carries what conventions cannot: project settings (title, email
+ * addresses) and runtime wiring (the stats source).
  */
 
 /**
@@ -31,7 +39,12 @@ export interface EmailEnvelope {
 /** One email module: a default-exported component plus its envelope and preview props. */
 export interface EmailModule extends EmailEnvelope {
   default: (props: never) => ReactElement;
-  subject?: (props: never) => string;
+  /**
+   * A string template — a plain literal, or `emailSubject(u, '... {prop} ...')`
+   * when it personalizes. Data, never a closure: the studio edits it in place
+   * and the engine fills `{prop}` placeholders from the profile at send time.
+   */
+  subject?: string;
   /** Sample props used when previewing this template. */
   preview?: object;
 }
@@ -85,27 +98,46 @@ export interface StatsSource {
   metrics?: (workflowName: string) => Promise<MetricPoint[]> | MetricPoint[];
 }
 
+/**
+ * Email-sending settings for the project. This is data the code cannot derive:
+ * which sender identities exist. The studio's from / reply-to pickers list
+ * them, and "add address" in the UI writes back into this file.
+ */
+export interface EmailSettings {
+  /** Sender identities, e.g. 'Acme <hello@acme.io>'. */
+  addresses?: string[];
+}
+
 export interface WorkflowUIConfig {
-  /** Workflows to display, keyed by the name shown in the picker. */
-  workflows: Record<string, WorkflowBuilder>;
-  /** Email registry, keyed by the template key used in `template.email(key)`. */
-  emails?: Record<string, EmailModule>;
-  /**
-   * Named segments, so the studio can show each definition rather than just the
-   * name a condition references. Pass the same values you hand to
-   * `compileBundle({ segments })`.
-   */
-  segments?: SegmentRef[];
-  /** Optional runtime data source for the reports view and canvas badges. */
-  stats?: StatsSource;
   /**
    * Browser tab title. The sidebar always reads "Workflow Studio" — this names
    * the project, which matters when several studios are open at once.
    */
   title?: string;
+  /** Email settings: the sender address book, and whatever joins it later. */
+  emails?: EmailSettings;
+  /** Optional runtime data source for the reports view and canvas badges. */
+  stats?: StatsSource;
 }
 
 /** Identity helper that gives the config file full type checking. */
 export function defineConfig(config: WorkflowUIConfig): WorkflowUIConfig {
   return config;
+}
+
+/**
+ * What the app actually receives from the virtual config module: the
+ * discovered definitions merged with the user's (optional) config.
+ */
+export interface ResolvedStudioConfig {
+  title?: string;
+  /** Discovered workflows, keyed by export name. */
+  workflows: Record<string, WorkflowBuilder>;
+  /** The email registry from the conventional emails/index.ts (empty if none). */
+  emails: Record<string, EmailModule>;
+  /** Discovered named segments. */
+  segments: SegmentRef[];
+  /** Sender address book from the config (empty if none). */
+  addresses: string[];
+  stats?: StatsSource;
 }

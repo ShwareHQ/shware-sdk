@@ -1,13 +1,13 @@
 import { contains, eq, exists, flow, gt, trigger, workflow } from '@shware/workflow';
-import { e, u } from '../schema';
-import { activated, activeSubscriber, purchaser } from '../segments';
+import { e, u } from './schema';
+import { activated, activeSubscriber, purchaser } from './segments';
 import {
   firstTimeRecovery,
   gettingStarted,
   limitedTimeOffer,
   proTips,
   upgradeRecovery,
-} from '../templates';
+} from './templates';
 
 /* --------------------------- Triggers and conditions -------------------------- */
 

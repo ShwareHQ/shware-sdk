@@ -28,7 +28,7 @@ function Home() {
   const templateRefs = useMemo(() => collectTemplateRefs(irs), [irs]);
   /* Counted from the IR, not from config.segments, so this agrees with the Segments page. */
   const segmentRefs = useMemo(() => collectSegmentRefs(irs), [irs]);
-  const emails = config.emails ?? {};
+  const emails = config.emails;
   const missing = templateRefs.filter((ref) => emails[ref.key] === undefined).length;
 
   const { data: reports } = useQuery({

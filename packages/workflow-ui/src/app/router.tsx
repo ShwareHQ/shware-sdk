@@ -1,6 +1,6 @@
 import { createRouter } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import type { WorkflowUIConfig } from '../config';
+import type { ResolvedStudioConfig } from '../config';
 import { I18nProvider, getI18nContext } from './integrations/i18n/root-provider';
 import {
   TanstackQueryProvider,
@@ -14,7 +14,7 @@ import { routeTree } from './routes';
  * `/emails/$key`, `/segments`. The exported components stay router-free, so a
  * host app that embeds them keeps ownership of its own routing.
  */
-export const getRouter = (config: WorkflowUIConfig) => {
+export const getRouter = (config: ResolvedStudioConfig) => {
   const { queryClient } = getTanstackQueryContext();
   const { i18n } = getI18nContext();
 

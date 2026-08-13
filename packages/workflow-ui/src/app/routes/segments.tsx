@@ -100,7 +100,7 @@ function Segments() {
 
   /** Definitions live in the config; without them only the name is known. */
   const defined = new Map(
-    (config.segments ?? []).map((segment) => [
+    config.segments.map((segment) => [
       segment.name,
       (segment as unknown as { definition: ConditionIR }).definition,
     ])

@@ -1,11 +1,11 @@
 import { Button, Container, Head, Html, Preview, Text } from '@react-email/components';
 
-export const from = 'Acme <hello@acme.io>';
+export const from = 'Acme Growth <growth@acme.io>';
 export const to = '{{ user.email }}';
-export const replyTo = 'Acme Support <support@acme.io>';
+export const replyTo = 'Acme Growth <growth@acme.io>';
 export const preheader = 'Your cart is still waiting';
 
-export const subject = () => 'Your workspace is waiting';
+export const subject = 'Hi, {{ user.name }}, your workspace is waiting';
 
 export default function FirstTimeRecovery() {
   return (

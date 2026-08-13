@@ -1,12 +1,12 @@
 import { Button, Container, Head, Html, Preview, Text } from '@react-email/components';
 
-export const from = 'Acme <welcome@acme.io>';
+export const from = 'Acme <hello@acme.io>';
 export const to = '{{ user.email }}';
 export const replyTo = 'Acme Support <support@acme.io>';
 export const preheader = 'Create your first doc in under a minute';
 export const headers = { 'X-Campaign': 'onboarding' };
 
-export const subject = () => 'Welcome aboard';
+export const subject = 'Welcome aboard';
 
 export default function OnboardingWelcome() {
   return (
