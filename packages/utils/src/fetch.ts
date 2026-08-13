@@ -9,10 +9,12 @@ export interface RetryOptions {
   maxDelay?: number;
 
   /**
-   * A callback to further control if a request should be retried.
+   * A callback to further control if a request should be retried. It runs for every response,
+   * successful ones included, and may be async so that the body can be inspected. It receives a
+   * clone of the response, the body of the response returned to the caller is left unread.
    * default: 408 (Request Timeout) or 429 (Too Many Requests) or 5xx (Server Error).
    */
-  retryCondition?: (response: Response) => boolean;
+  retryCondition?: (response: Response) => boolean | Promise<boolean>;
 }
 
 function defaultRetryCondition(response: Response): boolean {
@@ -41,7 +43,7 @@ export async function fetch(
     retries = 3,
     delayFactor = 500,
     maxDelay = 30_000,
-    retryCondition = defaultRetryCondition,
+    retryCondition,
     ...init
   }: RequestInit & RetryOptions = {}
 ): Promise<Response> {
@@ -50,33 +52,36 @@ export async function fetch(
   let lastResponse: Response | null = null;
 
   while (retryCount <= retries) {
+    let response: Response | null = null;
+
     try {
-      const response = await globalThis.fetch(input, init);
+      response = await globalThis.fetch(input, init);
       lastResponse = response;
-      if (response.ok || !retryCondition(response) || retryCount === retries) {
-        return response;
-      }
-
-      const retryAfter = parseRetryAfter(response);
-      const delay = delayFactor * 2 ** retryCount;
-      const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
-
-      const timeout = Math.min(retryAfter ?? delay + jitter, maxDelay);
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, timeout);
-      });
     } catch (error) {
       lastError = error;
       if (retryCount === retries) throw error;
-
-      const delay = delayFactor * 2 ** retryCount;
-      const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
-
-      const timeout = Math.min(delay + jitter, maxDelay);
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, timeout);
-      });
     }
+
+    if (response) {
+      if (retryCount === retries) return response;
+
+      // the default condition only looks at the status, so it is handed the response directly and
+      // pays for no clone. errors thrown by a custom condition are the caller's, not ours: they
+      // propagate instead of being mistaken for a network failure
+      const retry = retryCondition
+        ? await retryCondition(response.clone())
+        : defaultRetryCondition(response);
+      if (!retry) return response;
+    }
+
+    const retryAfter = parseRetryAfter(response);
+    const delay = delayFactor * 2 ** retryCount;
+    const jitter = delay * 0.25 * (Math.random() * 2 - 1); // 25% jitter
+
+    const timeout = Math.min(retryAfter ?? delay + jitter, maxDelay);
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, timeout);
+    });
 
     retryCount++;
   }

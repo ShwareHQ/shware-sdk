@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.6.0
+
+### Minor Changes
+
+- `fetch` now runs `retryCondition` for every response, successful ones included, and awaits it, so APIs that report failures in the body of a 200 can be retried. The callback receives a clone, leaving the body of the returned response unread. Errors thrown by the callback now propagate instead of being retried as if they were network failures.
+
 ## 1.5.2
 
 ### Patch Changes
