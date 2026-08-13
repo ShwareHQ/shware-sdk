@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import { collectTemplateRefs } from '../../components/template-refs';
+import { lookup } from '../../utils/lookup';
 import { Route as rootRoute } from './__root';
 import { collectSegmentRefs } from './segments';
 
@@ -29,7 +30,7 @@ function Home() {
   /* Counted from the IR, not from config.segments, so this agrees with the Segments page. */
   const segmentRefs = useMemo(() => collectSegmentRefs(irs), [irs]);
   const emails = config.emails;
-  const missing = templateRefs.filter((ref) => emails[ref.key] === undefined).length;
+  const missing = templateRefs.filter((ref) => lookup(emails, ref.key) === undefined).length;
 
   const { data: reports } = useQuery({
     queryKey: ['reports'],

@@ -11,6 +11,7 @@ import {
   type MetaIR,
   type NodeIR,
   type PropValueIR,
+  type SegmentIR,
   type SourceLocIR,
   type TriggerIR,
   type WorkflowIR,
@@ -1021,13 +1022,14 @@ export function compileBundle(input: {
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
     const { name, definition, loc } = segment as SegmentInternal;
-    return {
+    const compiled: SegmentIR = {
       irVersion: IR_VERSION,
       name,
       contentHash: semanticHash(definition),
-      ...(loc !== undefined ? { meta: { loc } } : {}),
       condition: definition,
     };
+    if (loc !== undefined) compiled.meta = { loc };
+    return compiled;
   });
 
   const templates = (input.templates ?? []).map((template) => ({

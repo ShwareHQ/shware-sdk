@@ -252,17 +252,14 @@ export function removeAddress(configPath: string, address: string): PatchResult 
   if (index === -1) return fail(`address not in the list: ${address}`);
 
   const target = elements[index];
-  if (target === undefined) return fail(`address not in the list: ${address}`);
-  const next = elements[index + 1];
-  const previous = elements[index - 1];
   if (elements.length === 1) {
     splice(configPath, addressesArray.getStart(source) + 1, addressesArray.getEnd() - 1, '');
-  } else if (index === 0 && next !== undefined) {
+  } else if (index === 0) {
     // First of several: remove through to the next element's start (eats the comma)
-    splice(configPath, target.getStart(source), next.getStart(source), '');
-  } else if (previous !== undefined) {
+    splice(configPath, target.getStart(source), elements[1].getStart(source), '');
+  } else {
     // Otherwise remove from the previous element's end (eats the preceding comma)
-    splice(configPath, previous.getEnd(), target.getEnd(), '');
+    splice(configPath, elements[index - 1].getEnd(), target.getEnd(), '');
   }
   return { ok: true };
 }

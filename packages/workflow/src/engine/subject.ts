@@ -10,7 +10,7 @@ import type { ScalarIR } from '../ir';
  * deliberately lenient about whitespace, so hand-typed variants still fill.
  */
 
-const PLACEHOLDER = /\{\{\s*user\.([^{}\s]+)\s*\}\}/g;
+const PLACEHOLDER = /\{\{\s*user\.([^{}\s]+)\s*}}/g;
 
 /**
  * Fill a subject template from a property lookup. A missing property renders
@@ -21,11 +21,11 @@ export async function fillSubject(
   template: string,
   getProperty: (path: string) => Promise<ScalarIR | undefined>
 ): Promise<string> {
-  const paths = [...template.matchAll(PLACEHOLDER)].map((match) => match[1] ?? '');
+  const paths = [...template.matchAll(PLACEHOLDER)].map((match) => match[1]);
   const values = new Map<string, string>();
   for (const path of new Set(paths)) {
     const value = await getProperty(path);
-    values.set(path, value === undefined || value === null ? '' : String(value));
+    values.set(path, value === undefined ? '' : String(value));
   }
   return template.replace(PLACEHOLDER, (_, path: string) => values.get(path) ?? '');
 }

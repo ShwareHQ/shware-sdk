@@ -52,9 +52,9 @@ function compareProperty(
   const { op, value, values } = condition;
   switch (op) {
     case 'exists':
-      return actual !== undefined && actual !== null;
+      return actual !== undefined;
     case 'not_exists':
-      return actual === undefined || actual === null;
+      return actual === undefined;
     case 'eq':
       return actual === value;
     case 'ne':
@@ -84,10 +84,9 @@ function compareProperty(
 }
 
 function isBetween(actual: ScalarIR | undefined, values: ScalarIR[] | undefined): boolean {
-  const [min, max] = values ?? [];
-  return (
-    actual !== undefined && min !== undefined && max !== undefined && actual >= min && actual <= max
-  );
+  if (actual === undefined || values === undefined || values.length < 2) return false;
+  const [min, max] = values;
+  return actual >= min && actual <= max;
 }
 
 /**

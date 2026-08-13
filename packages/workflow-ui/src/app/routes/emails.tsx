@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { collectTemplateRefs } from '../../components/template-refs';
 import { TemplatesPage } from '../../components/templates-page';
 import type { EmailModule } from '../../config';
+import { lookup } from '../../utils/lookup';
 import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -26,7 +27,7 @@ export const emailsIndexRoute = createRoute({
     const refs = collectTemplateRefs(
       Object.values(context.config.workflows).map((builder) => builder.toIR())
     );
-    const first = refs[0];
+    const first = refs.at(0);
     if (first !== undefined) {
       // oxlint-disable-next-line typescript/only-throw-error
       throw redirect({ to: '/emails/$key', params: { key: first.key } });
@@ -65,7 +66,8 @@ function EmailView() {
     [config]
   );
   const emails = config.emails;
-  const { data, error, isPending } = useEmailPreview(emails[key], key);
+  const selected = lookup(emails, key);
+  const { data, error, isPending } = useEmailPreview(selected, key);
 
   const report = (promise: Promise<void>): Promise<void> =>
     reportSave(promise, { saved: t('emails.saved'), failed: t('emails.saveFailed') });
@@ -80,7 +82,7 @@ function EmailView() {
         ...(data?.html !== undefined ? { html: data.html } : {}),
         ...(data?.subject !== undefined ? { subject: data.subject } : {}),
         ...(error ? { error: error.message } : {}),
-        loading: isPending && emails[key] !== undefined,
+        loading: isPending && selected !== undefined,
       }}
       addresses={config.addresses}
       onSaveEnvelope={(templateKey, field, value) =>

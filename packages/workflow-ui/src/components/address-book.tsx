@@ -20,7 +20,7 @@ export function isValidEmailAddress(value: string): boolean {
   const trimmed = value.trim();
   if (EMAIL.test(trimmed)) return true;
   const named = /^(.+?)\s*<([^<>]+)>$/.exec(trimmed);
-  return named !== null && named[1]?.trim() !== '' && EMAIL.test(named[2] ?? '');
+  return named !== null && named[1].trim() !== '' && EMAIL.test(named[2]);
 }
 
 /** react-hook-form schema for a single address field; the message is the caller's translation. */

@@ -144,9 +144,8 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     case 'branch': {
       const matched = await ctx.step.do(`${node.id}:eval`, async () => {
         const now = Date.now();
-        for (let i = 0; i < node.cases.length; i++) {
-          const branchCase = node.cases[i];
-          if (branchCase && (await evaluateCondition(branchCase.condition, ctx.facts, now))) {
+        for (const [i, branchCase] of node.cases.entries()) {
+          if (await evaluateCondition(branchCase.condition, ctx.facts, now)) {
             return i;
           }
         }
@@ -233,8 +232,7 @@ async function resolveValues(
 ): Promise<Record<string, ScalarIR | undefined>> {
   const resolved: Record<string, ScalarIR | undefined> = {};
   for (const [key, value] of Object.entries(values)) {
-    resolved[key] =
-      typeof value === 'object' && value !== null ? await facts.getProperty(value.path) : value;
+    resolved[key] = typeof value === 'object' ? await facts.getProperty(value.path) : value;
   }
   return resolved;
 }
@@ -261,7 +259,7 @@ function nextWindowStart(nowMs: number, days: readonly string[], startHHmm: stri
   for (let offset = 0; offset < 8; offset++) {
     const candidate = new Date(nowMs + offset * 86_400_000);
     const dayKey = DAY_KEYS[candidate.getUTCDay()];
-    if (dayKey === undefined || !days.includes(dayKey)) continue;
+    if (!days.includes(dayKey)) continue;
     const start = Date.UTC(
       candidate.getUTCFullYear(),
       candidate.getUTCMonth(),

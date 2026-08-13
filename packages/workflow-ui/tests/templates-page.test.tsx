@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { TemplateRefInfo } from '../src/components/template-refs';
-import { TemplatesPage } from '../src/components/templates-page';
+import { type EnvelopeField, TemplatesPage } from '../src/components/templates-page';
 import type { EmailModule } from '../src/config';
 
 const ADDRESSES = ['Acme <hello@acme.io>', 'Acme Support <support@acme.io>'];
@@ -34,14 +34,16 @@ function setup({
   emails?: Record<string, EmailModule | undefined>;
   selected?: string | undefined;
 } = {}) {
-  const onSaveEnvelope = vi.fn(() => Promise.resolve());
-  const onManageAddresses = vi.fn();
+  const onSaveEnvelope = vi.fn<(key: string, field: EnvelopeField, value: string) => Promise<void>>(
+    () => Promise.resolve()
+  );
+  const onManageAddresses = vi.fn<() => void>();
   render(
     <TemplatesPage
       refs={refs}
       emails={emails}
       selected={selected}
-      onSelect={vi.fn()}
+      onSelect={vi.fn<(key: string) => void>()}
       preview={{ loading: false }}
       addresses={ADDRESSES}
       onSaveEnvelope={onSaveEnvelope}
