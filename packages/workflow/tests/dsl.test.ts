@@ -4,6 +4,7 @@ import {
   between,
   compileBundle,
   contains,
+  emailSubject,
   eq,
   exists,
   type flow,
@@ -122,6 +123,14 @@ describe('predicates compile to condition IR', () => {
       type: 'segment',
       segment: 'active_subscriber',
     });
+  });
+});
+
+describe('subject templates', () => {
+  test('emailSubject returns the template string unchanged', () => {
+    expect(emailSubject(u, 'Finish upgrading to {subscription_plan}')).toBe(
+      'Finish upgrading to {subscription_plan}'
+    );
   });
 });
 

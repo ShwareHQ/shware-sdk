@@ -12,10 +12,6 @@ export const renderEmail: EmailRenderer = async (key, props) => {
   if (!mod) throw new Error(`unknown email template: ${key}`);
 
   const html = await render(mod.default(props as never) as never);
-  const subject =
-    typeof mod.subject === 'function'
-      ? (mod.subject as (p: unknown) => string)(props)
-      : String(mod.subject ?? key);
-
-  return { subject, html };
+  // Subjects are string templates; the sender fills {prop} placeholders from the profile
+  return { subject: mod.subject ?? key, html };
 };

@@ -4,7 +4,7 @@ export interface WelcomeProps {
   plan: string;
 }
 
-export const subject = (props: WelcomeProps) => `Welcome to ${props.plan}`;
+export const subject = 'Welcome to your new plan';
 
 export default function Welcome({ plan }: WelcomeProps) {
   return (
