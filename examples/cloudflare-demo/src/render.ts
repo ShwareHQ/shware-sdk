@@ -8,10 +8,10 @@ import { emails } from '../emails';
  * never enter the engine's world.
  */
 export const renderEmail: EmailRenderer = async (key, props) => {
+  if (!Object.hasOwn(emails, key)) throw new Error(`unknown email template: ${key}`);
   const mod = emails[key as keyof typeof emails];
-  if (!mod) throw new Error(`unknown email template: ${key}`);
 
   const html = await render(mod.default(props as never) as never);
   // Subjects are string templates; the sender fills {prop} placeholders from the profile
-  return { subject: mod.subject ?? key, html };
+  return { subject: mod.subject, html };
 };

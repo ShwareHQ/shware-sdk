@@ -3,6 +3,7 @@ import { createRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import { METRIC_SERIES, MetricsChart } from '../../components/metrics-chart';
+import { lookup } from '../../utils/lookup';
 import { workflowDetailRoute } from './workflows';
 
 const number = (value: number) => value.toLocaleString();
@@ -21,7 +22,7 @@ function MetricsTab() {
   const { config } = workflowDetailRoute.useRouteContext();
   const { t } = useTranslation();
 
-  const ir = config.workflows[name]?.toIR();
+  const ir = lookup(config.workflows, name)?.toIR();
   const workflowName = ir?.name ?? '';
 
   const { data: points } = useQuery({

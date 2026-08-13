@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
+import { lookup } from '../../utils/lookup';
 import { useTheme } from '../integrations/theme/root-provider';
 import { Route as rootRoute } from './__root';
 
@@ -70,7 +71,7 @@ function WorkflowDetail() {
   const { config } = workflowDetailRoute.useRouteContext();
   const { t } = useTranslation();
 
-  const ir = config.workflows[name]?.toIR();
+  const ir = lookup(config.workflows, name)?.toIR();
 
   if (ir === undefined) {
     return (
@@ -141,7 +142,7 @@ function CanvasTab() {
   const navigate = useNavigate();
   const { resolved } = useTheme();
 
-  const ir = config.workflows[name]?.toIR();
+  const ir = lookup(config.workflows, name)?.toIR();
 
   const { data: stats } = useQuery({
     queryKey: ['node-stats', ir?.name],

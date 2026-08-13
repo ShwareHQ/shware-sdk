@@ -6,9 +6,9 @@ import { AddressBook, isValidEmailAddress } from '../src/components/address-book
 const ADDRESSES = ['Acme <hello@acme.io>', 'Acme Support <support@acme.io>'];
 
 function setup(addresses: string[] = ADDRESSES) {
-  const onAdd = vi.fn();
-  const onUpdate = vi.fn();
-  const onRemove = vi.fn();
+  const onAdd = vi.fn<(address: string) => void>();
+  const onUpdate = vi.fn<(address: string, newAddress: string) => void>();
+  const onRemove = vi.fn<(address: string) => void>();
   render(
     <AddressBook addresses={addresses} onAdd={onAdd} onUpdate={onUpdate} onRemove={onRemove} />
   );
