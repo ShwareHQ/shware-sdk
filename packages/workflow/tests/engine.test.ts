@@ -5,6 +5,7 @@ import {
   type JourneyContext,
   type OutboundMessage,
   evaluateCondition,
+  fillSubject,
   runJourney,
 } from '../src/engine/index';
 import { compileBundle } from '../src/index';
@@ -222,6 +223,28 @@ describe('step naming', () => {
     expect(step.stepNames).toContain('0:guard');
     expect(step.stepNames).toContain('1:eval');
     expect(step.stepNames).toContain('1.o.0:send');
+  });
+});
+
+describe('fillSubject: subject templates fill from the profile', () => {
+  const profile: Record<string, ScalarIR> = { subscription_plan: 'pro', docs_count: 42 };
+  const lookup = (path: string) => Promise.resolve(profile[path]);
+
+  test('placeholders resolve to property values, repeated and mixed with text', async () => {
+    await expect(fillSubject('Finish upgrading to {subscription_plan}', lookup)).resolves.toBe(
+      'Finish upgrading to pro'
+    );
+    await expect(
+      fillSubject('{subscription_plan}: {docs_count} docs on {subscription_plan}', lookup)
+    ).resolves.toBe('pro: 42 docs on pro');
+  });
+
+  test('a template without placeholders passes through untouched', async () => {
+    await expect(fillSubject('Welcome aboard', lookup)).resolves.toBe('Welcome aboard');
+  });
+
+  test('a missing property softens to an empty string instead of leaking the placeholder', async () => {
+    await expect(fillSubject('Hi {first_name}, welcome', lookup)).resolves.toBe('Hi , welcome');
   });
 });
 

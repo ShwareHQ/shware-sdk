@@ -13,6 +13,7 @@ import {
   type UserPropertyRef,
   between,
   contains,
+  emailSubject,
   eq,
   exists,
   flow,
@@ -100,6 +101,19 @@ flow((w) => w.sendEvent('purchase'));
 
 // @ts-expect-error payload fields follow the event's declared shape
 flow((w) => w.sendEvent(e.purchase, { value: 'high', currency: 'USD' }));
+
+/* ------------------------------ subject templates ------------------------------ */
+
+// placeholders resolve against the user-property table
+emailSubject(u, 'Finish upgrading to {subscription_plan}');
+emailSubject(u, '{email}, your {subscription_plan} plan has {docs_count} docs');
+emailSubject(u, 'no placeholders is fine too');
+
+// @ts-expect-error a typo inside the braces does not compile
+emailSubject(u, 'Finish upgrading to {subscription_plann}');
+
+// @ts-expect-error every placeholder is checked, not just the first
+emailSubject(u, '{email} and {not_a_property}');
 
 /* ------------------------------ template registries ---------------------------- */
 

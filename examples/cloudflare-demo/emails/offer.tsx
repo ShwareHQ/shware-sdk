@@ -5,7 +5,7 @@ export interface OfferProps {
   expiresIn: string;
 }
 
-export const subject = (props: OfferProps) => `${props.coupon} expires in ${props.expiresIn}`;
+export const subject = 'Your discount is about to expire';
 
 export default function Offer({ coupon, expiresIn }: OfferProps) {
   return (

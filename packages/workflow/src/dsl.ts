@@ -246,6 +246,42 @@ export function templates<R extends Record<string, TemplateModule>>(): BoundTemp
   return { email: (key) => template.email(key) as never };
 }
 
+/* ------------------------------ Subject templates ----------------------------- */
+
+/** Placeholder names inside a `{prop}` subject template, extracted at the type level. */
+export type SubjectPlaceholders<T extends string> = T extends `${string}{${infer P}}${infer Rest}`
+  ? P | SubjectPlaceholders<Rest>
+  : never;
+
+/**
+ * Valid when every `{placeholder}` names a user property; otherwise the type
+ * collapses to an error string naming the offending placeholders, so the
+ * compiler message says exactly what is wrong.
+ */
+type SubjectTemplate<T extends string, U> = [SubjectPlaceholders<T>] extends [keyof U & string]
+  ? T
+  : `unknown user property in subject: {${Exclude<SubjectPlaceholders<T>, keyof U> & string}}`;
+
+/**
+ * A personalizable subject line: a plain string template whose `{prop}`
+ * placeholders are checked against the user-property table at compile time —
+ * `emailSubject(u, 'Finish upgrading to {subscription_plan}')` compiles,
+ * a typo inside the braces does not.
+ *
+ * The template stays a plain string in the module (data, not a closure), which
+ * is what lets the studio edit it in place and the engine fill it from the
+ * profile at send time. The intersection with `SubjectTemplate` is the whole
+ * trick: T infers from the literal, the check rides along on the same
+ * parameter.
+ */
+export function emailSubject<U, T extends string>(
+  refs: UserRefs<U>,
+  template: T & SubjectTemplate<T, U>
+): T {
+  void refs; // type carrier only
+  return template;
+}
+
 /* --------------------------- Conditions (expressions) -------------------------- */
 
 /** Opaque condition handle — what predicates, combinators and segments all produce. */
