@@ -83,8 +83,7 @@ export default {
     notRegistered: 'No component registered',
     notRegisteredHint:
       'A workflow references {{key}}, but no react-email component is registered for it in the emails index.',
-    addAddress: '+ Add address…',
-    addAddressPrompt: 'New address, e.g. Acme <hello@acme.io>',
+    manageAddresses: 'Manage addresses…',
     saved: 'Saved to source',
     saveFailed: 'Could not save',
   },

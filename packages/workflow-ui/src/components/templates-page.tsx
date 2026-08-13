@@ -26,8 +26,8 @@ export interface TemplatesPageProps {
   addresses?: string[];
   /** Write an envelope field back to source. Editing UI only appears when provided. */
   onSaveEnvelope?: (key: string, field: EnvelopeField, value: string) => Promise<void>;
-  /** Append a new address to the address book (workflow.config.ts). */
-  onAddAddress?: (address: string) => Promise<void>;
+  /** Open the address book manager (the Settings page) — the pickers' tail item. */
+  onManageAddresses?: () => void;
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -63,26 +63,26 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const ADD_SENTINEL = '__add_address__';
+const MANAGE_SENTINEL = '__manage_addresses__';
 
 /**
- * from / reply-to picker: current value plus the address book, with an
- * "add address" tail that grows the book and selects the new entry in one go.
- * Styled as quiet text until hovered, so a read pass over the envelope table
- * does not look like a form.
+ * from / reply-to picker: current value plus the address book, with a
+ * "manage addresses" tail that jumps to the Settings page where the book is
+ * edited. Styled as quiet text until hovered, so a read pass over the
+ * envelope table does not look like a form.
  */
 function AddressSelect({
   value,
   addresses,
   noneLabel,
   onSave,
-  onAdd,
+  onManage,
 }: {
   value: string | undefined;
   addresses: string[];
   noneLabel: string;
   onSave: (value: string) => Promise<void>;
-  onAdd?: ((address: string) => Promise<void>) | undefined;
+  onManage?: (() => void) | undefined;
 }) {
   const { t } = useTranslation();
   const options =
@@ -92,14 +92,8 @@ function AddressSelect({
       value={value ?? ''}
       onChange={(event) => {
         const next = event.target.value;
-        if (next === ADD_SENTINEL) {
-          const address = window.prompt(t('emails.addAddressPrompt'))?.trim();
-          if (address !== undefined && address !== '') {
-            void (onAdd?.(address) ?? Promise.resolve())
-              .then(() => onSave(address))
-              // Rejection means validation failed — already reported by the host
-              .catch(() => undefined);
-          }
+        if (next === MANAGE_SENTINEL) {
+          onManage?.();
           return;
         }
         if (next !== '' && next !== value) void onSave(next);
@@ -112,7 +106,9 @@ function AddressSelect({
           {address}
         </option>
       ))}
-      {onAdd !== undefined && <option value={ADD_SENTINEL}>{t('emails.addAddress')}</option>}
+      {onManage !== undefined && (
+        <option value={MANAGE_SENTINEL}>{t('emails.manageAddresses')}</option>
+      )}
     </select>
   );
 }
@@ -167,7 +163,7 @@ export function TemplatesPage({
   preview,
   addresses = [],
   onSaveEnvelope,
-  onAddAddress,
+  onManageAddresses,
 }: TemplatesPageProps) {
   const { t } = useTranslation();
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
@@ -253,7 +249,7 @@ export function TemplatesPage({
                           addresses={addresses}
                           noneLabel={t('common.none')}
                           onSave={saveField('from')}
-                          onAdd={onAddAddress}
+                          onManage={onManageAddresses}
                         />
                       ) : (
                         (activeModule?.from ?? t('common.none'))
@@ -284,7 +280,7 @@ export function TemplatesPage({
                         addresses={addresses}
                         noneLabel={t('common.none')}
                         onSave={saveField('replyTo')}
-                        onAdd={onAddAddress}
+                        onManage={onManageAddresses}
                       />
                     ) : (
                       activeModule?.replyTo

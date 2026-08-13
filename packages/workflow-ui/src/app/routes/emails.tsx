@@ -3,11 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { createRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { type ReactElement, createElement, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
 import { collectTemplateRefs } from '../../components/template-refs';
 import { TemplatesPage } from '../../components/templates-page';
 import type { EmailModule } from '../../config';
-import { isValidEmailAddress } from '../address';
 import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -88,14 +86,7 @@ function EmailView() {
       onSaveEnvelope={(templateKey, field, value) =>
         report(studioPost('/__studio/envelope', { key: templateKey, field, value }))
       }
-      onAddAddress={(address) => {
-        // The picker's prompt has no form around it, so the shared schema gates it here
-        if (!isValidEmailAddress(address)) {
-          toast.error(t('settings.addressInvalid'));
-          return Promise.reject(new Error(t('settings.addressInvalid')));
-        }
-        return report(studioPost('/__studio/addresses', { address }));
-      }}
+      onManageAddresses={() => void navigate({ to: '/settings' })}
     />
   );
 }

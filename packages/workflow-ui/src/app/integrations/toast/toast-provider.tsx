@@ -30,7 +30,7 @@ export function ToastProvider() {
         classNames: {
           toast: clsx(
             'flex w-90 items-center gap-x-2 font-sans',
-            'bg-card ring-border rounded-3xl py-4 pr-4 pl-3 ring-1',
+            'bg-card ring-border rounded-2xl py-4 pr-4 pl-3 ring-1',
             'shadow-[0_4px_12px_var(--color-card-shadow)]'
           ),
           title: 'text-sm font-medium text-primary',
