@@ -41,31 +41,31 @@
     "@shware/workflow": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.101.4",
-    "@tanstack/react-router": "^1.170.25",
-    "@vitejs/plugin-react": "^5.1.4",
-    "@xyflow/react": "^12.11.2",
+    "@tanstack/react-router": "^1.170.27",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@xyflow/react": "^12.11.3",
     "clsx": "^2.1.1",
     "i18next": "^26.3.6",
     "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^1.30.0",
+    "lucide-react": "^1.31.0",
     "react-hook-form": "^7.85.0",
     "react-i18next": "^17.0.11",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
     "typescript-5": "npm:typescript@^5.9.3",
-    "vite": "^7.3.4",
+    "vite": "^8.2.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@repo/typescript-config": "workspace:*",
-    "@tanstack/react-devtools": "^0.10.9",
+    "@tanstack/react-devtools": "^0.10.10",
     "@tanstack/react-query-devtools": "^5.101.4",
     "@tanstack/react-router-devtools": "^1.167.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.4",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "jsdom": "^30.0.1",
@@ -75,7 +75,7 @@
     "vitest": "^4.1.10"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   }
 }
