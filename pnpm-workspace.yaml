@@ -16,7 +16,7 @@ allowBuilds:
 # verified (yuku-toolchain, adopted by rolldown-plugin-dts for TS7 support)
 minimumReleaseAgeExclude:
   - 'rolldown-plugin-dts@0.27.6'
-  - posthog-js@1.399.2 || 1.406.2
+  - posthog-js@1.399.2 || 1.406.2 || 1.416.0
   - 'yuku-parser@0.5.48'
   - 'yuku-codegen@0.5.48'
   - '@yuku-parser/binding-*'
@@ -90,3 +90,15 @@ minimumReleaseAgeExclude:
   - next@16.2.11
   - react@19.2.8
   - jose@6.2.7
+  - '@commitlint/cli@21.2.2'
+  - '@commitlint/config-conventional@21.2.2'
+  - '@commitlint/format@21.2.2'
+  - '@commitlint/is-ignored@21.2.2'
+  - '@commitlint/lint@21.2.2'
+  - '@commitlint/load@21.2.2'
+  - '@commitlint/parse@21.2.2'
+  - '@commitlint/resolve-extends@21.2.2'
+  - '@commitlint/rules@21.2.2'
+  - '@posthog/types@1.403.0'
+  - miniflare@5.20260811.0-alpha
+  - wrangler@4.122.0
