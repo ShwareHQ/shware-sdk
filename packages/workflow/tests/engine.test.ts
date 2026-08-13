@@ -231,12 +231,22 @@ describe('fillSubject: subject templates fill from the profile', () => {
   const lookup = (path: string) => Promise.resolve(profile[path]);
 
   test('placeholders resolve to property values, repeated and mixed with text', async () => {
-    await expect(fillSubject('Finish upgrading to {subscription_plan}', lookup)).resolves.toBe(
-      'Finish upgrading to pro'
-    );
     await expect(
-      fillSubject('{subscription_plan}: {docs_count} docs on {subscription_plan}', lookup)
+      fillSubject('Finish upgrading to {{ user.subscription_plan }}', lookup)
+    ).resolves.toBe('Finish upgrading to pro');
+    await expect(
+      fillSubject(
+        '{{ user.subscription_plan }}: {{ user.docs_count }} docs on {{ user.subscription_plan }}',
+        lookup
+      )
     ).resolves.toBe('pro: 42 docs on pro');
+  });
+
+  test('the filler is lenient about whitespace even though the type layer is not', async () => {
+    await expect(fillSubject('Hi {{user.subscription_plan}}!', lookup)).resolves.toBe('Hi pro!');
+    await expect(fillSubject('Hi {{  user.subscription_plan  }}!', lookup)).resolves.toBe(
+      'Hi pro!'
+    );
   });
 
   test('a template without placeholders passes through untouched', async () => {
@@ -244,7 +254,9 @@ describe('fillSubject: subject templates fill from the profile', () => {
   });
 
   test('a missing property softens to an empty string instead of leaking the placeholder', async () => {
-    await expect(fillSubject('Hi {first_name}, welcome', lookup)).resolves.toBe('Hi , welcome');
+    await expect(fillSubject('Hi {{ user.first_name }}, welcome', lookup)).resolves.toBe(
+      'Hi , welcome'
+    );
   });
 });
 

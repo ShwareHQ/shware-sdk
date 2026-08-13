@@ -31,13 +31,12 @@
   "scripts": {
     "dev": "tsc --watch",
     "build": "tsdown",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "check-types": "tsc --noEmit",
-    "lint": "oxlint --type-aware src --fix"
+    "lint": "oxlint --type-aware src tests --fix"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.7.1",
-    "@jridgewell/trace-mapping": "^0.3.31",
     "@react-email/render": "^2.1.0",
     "@shware/workflow": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
@@ -48,7 +47,6 @@
     "clsx": "^2.1.1",
     "i18next": "^26.3.6",
     "i18next-browser-languagedetector": "^8.2.1",
-    "launch-editor": "^2.14.1",
     "lucide-react": "^1.30.0",
     "react-hook-form": "^7.85.0",
     "react-i18next": "^17.0.11",
@@ -65,9 +63,12 @@
     "@tanstack/react-devtools": "^0.10.9",
     "@tanstack/react-query-devtools": "^5.101.4",
     "@tanstack/react-router-devtools": "^1.167.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.4",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "jsdom": "^30.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "typescript": "^7.0.2",

@@ -104,16 +104,16 @@ flow((w) => w.sendEvent(e.purchase, { value: 'high', currency: 'USD' }));
 
 /* ------------------------------ subject templates ------------------------------ */
 
-// placeholders resolve against the user-property table
-emailSubject(u, 'Finish upgrading to {subscription_plan}');
-emailSubject(u, '{email}, your {subscription_plan} plan has {docs_count} docs');
+// {{ user.prop }} placeholders resolve against the user-property table
+emailSubject(u, 'Finish upgrading to {{ user.subscription_plan }}');
+emailSubject(u, '{{ user.email }}: {{ user.docs_count }} docs on {{ user.subscription_plan }}');
 emailSubject(u, 'no placeholders is fine too');
 
 // @ts-expect-error a typo inside the braces does not compile
-emailSubject(u, 'Finish upgrading to {subscription_plann}');
+emailSubject(u, 'Finish upgrading to {{ user.subscription_plann }}');
 
 // @ts-expect-error every placeholder is checked, not just the first
-emailSubject(u, '{email} and {not_a_property}');
+emailSubject(u, '{{ user.email }} and {{ user.not_a_property }}');
 
 /* ------------------------------ template registries ---------------------------- */
 

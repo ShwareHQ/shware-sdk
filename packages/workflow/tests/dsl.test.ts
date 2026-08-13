@@ -128,8 +128,8 @@ describe('predicates compile to condition IR', () => {
 
 describe('subject templates', () => {
   test('emailSubject returns the template string unchanged', () => {
-    expect(emailSubject(u, 'Finish upgrading to {subscription_plan}')).toBe(
-      'Finish upgrading to {subscription_plan}'
+    expect(emailSubject(u, 'Finish upgrading to {{ user.subscription_plan }}')).toBe(
+      'Finish upgrading to {{ user.subscription_plan }}'
     );
   });
 });

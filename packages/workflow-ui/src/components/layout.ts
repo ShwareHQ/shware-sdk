@@ -1,4 +1,4 @@
-import type { ConditionIR, NodeIR, SourceLocIR, WorkflowIR } from '@shware/workflow';
+import type { ConditionIR, NodeIR, WorkflowIR } from '@shware/workflow';
 import type { NodeStats } from '../config';
 
 /**
@@ -41,8 +41,6 @@ export interface CanvasNodeData extends Record<string, unknown> {
   count?: number;
   /** Template key referenced by a message node; the host uses it to open a preview. */
   templateKey?: string;
-  /** Callsite that produced this node (IR meta.loc); the host uses it to jump to the editor. */
-  loc?: SourceLocIR;
 }
 
 /** Card sizes: the single source shared by layout and renderer, all on the 16/8 grid. */
@@ -312,11 +310,7 @@ export function layout(
 
     for (const n of seq) {
       const size = nodeSize(n);
-      const loc = n.meta?.loc;
-      addNode(n.id, cx - size.w / 2, curY, {
-        ...nodeData(n),
-        ...(loc !== undefined ? { loc } : {}),
-      });
+      addNode(n.id, cx - size.w / 2, curY, nodeData(n));
       addEdges(tails, n.id);
       const bottom = curY + size.h;
 
@@ -372,14 +366,12 @@ export function layout(
         : t.type === 'date'
           ? t.at
           : 'webhook';
-  // The trigger card carries the workflow() header's own callsite
   addNode('__trigger', -CARD_SIZE.w / 2, 0, {
     title: 'Trigger',
     subtitle: triggerSubtitle,
     category: 'trigger',
     variant: 'card',
     icon: 'trigger',
-    ...(ir.meta?.loc !== undefined ? { loc: ir.meta.loc } : {}),
   });
 
   const { bottom, tails } = layoutSeq(ir.flow, 0, CARD_SIZE.h + VGAP, [{ id: '__trigger' }]);

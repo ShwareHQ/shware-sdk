@@ -248,25 +248,33 @@ export function templates<R extends Record<string, TemplateModule>>(): BoundTemp
 
 /* ------------------------------ Subject templates ----------------------------- */
 
-/** Placeholder names inside a `{prop}` subject template, extracted at the type level. */
-export type SubjectPlaceholders<T extends string> = T extends `${string}{${infer P}}${infer Rest}`
-  ? P | SubjectPlaceholders<Rest>
-  : never;
+/**
+ * Placeholder names inside a `{{ user.prop }}` subject template, extracted at
+ * the type level. The syntax is Liquid-style on purpose — it matches what the
+ * rest of the ecosystem (customer.io, Braze) and the rest of this codebase
+ * (`to = '{{ user.email }}'`) already speak — and the `user.` prefix is a
+ * namespace, leaving room for `{{ event.x }}` later. The type accepts exactly
+ * the canonical single-space form; the engine's filler is lenient about
+ * whitespace at runtime.
+ */
+export type SubjectPlaceholders<T extends string> =
+  T extends `${string}{{ user.${infer K} }}${infer Rest}` ? K | SubjectPlaceholders<Rest> : never;
 
 /**
- * Valid when every `{placeholder}` names a user property; otherwise the type
+ * Valid when every `{{ user.prop }}` names a user property; otherwise the type
  * collapses to an error string naming the offending placeholders, so the
  * compiler message says exactly what is wrong.
  */
 type SubjectTemplate<T extends string, U> = [SubjectPlaceholders<T>] extends [keyof U & string]
   ? T
-  : `unknown user property in subject: {${Exclude<SubjectPlaceholders<T>, keyof U> & string}}`;
+  : `unknown user property in subject: {{ user.${Exclude<SubjectPlaceholders<T>, keyof U> & string} }}`;
 
 /**
- * A personalizable subject line: a plain string template whose `{prop}`
- * placeholders are checked against the user-property table at compile time —
- * `emailSubject(u, 'Finish upgrading to {subscription_plan}')` compiles,
- * a typo inside the braces does not.
+ * A personalizable subject line: a plain string template whose
+ * `{{ user.prop }}` placeholders are checked against the user-property table
+ * at compile time — a typo inside the braces does not compile:
+ *
+ *   emailSubject(u, 'Finish upgrading to {{ user.subscription_plan }}')
  *
  * The template stays a plain string in the module (data, not a closure), which
  * is what lets the studio edit it in place and the engine fill it from the
