@@ -10,8 +10,8 @@ export const to = '{{ user.email }}';
 export const preheader = 'Expires in 24 hours';
 export const headers = { 'X-Campaign': 'checkout-recovery' };
 
-export const subject = (props: LimitedTimeOfferProps) =>
-  `${props.coupon} — your discount expires in ${props.expiresIn}`;
+// Subjects personalize from user properties only (message props stay in the body)
+export const subject = 'Your discount code is inside — it expires soon';
 
 export const preview: LimitedTimeOfferProps = { coupon: '15OFF', expiresIn: '48 hours' };
 

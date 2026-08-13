@@ -1,4 +1,6 @@
 import { Button, Container, Head, Html, Preview, Text } from '@react-email/components';
+import { emailSubject } from '@shware/workflow';
+import { u } from '../workflows/schema';
 
 export interface UpgradeRecoveryProps {
   plan: 'free' | 'pro' | 'business';
@@ -8,7 +10,8 @@ export const from = 'Acme <hello@acme.io>';
 export const to = '{{ user.email }}';
 export const replyTo = 'Acme Support <support@acme.io>';
 
-export const subject = (props: UpgradeRecoveryProps) => `Finish upgrading to ${props.plan}`;
+/** A string template, not a closure: `{prop}` placeholders are compile-checked against u, and the studio can edit it in place. */
+export const subject = emailSubject(u, 'Finish upgrading to {subscription_plan}');
 
 /** Sample props for previewing (injected when the template page renders it). */
 export const preview: UpgradeRecoveryProps = { plan: 'business' };

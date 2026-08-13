@@ -24,6 +24,8 @@ export function ToastProvider() {
       toastOptions={{
         unstyled: true,
         closeButton: false,
+        // Long enough to read after a write-back reload lands the page back
+        duration: 5000,
         style: { cornerShape: 'superellipse(1.2)' } as CSSProperties,
         classNames: {
           toast: clsx(

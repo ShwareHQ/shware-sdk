@@ -3,10 +3,11 @@ import { Link, Outlet, createRootRouteWithContext } from '@tanstack/react-router
 import { clsx } from 'clsx';
 import type { i18n as I18n } from 'i18next';
 import { Home, Mail, PanelLeftClose, PanelLeftOpen, Settings, Users, Workflow } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
-import type { WorkflowUIConfig } from '../../config';
+import type { ResolvedStudioConfig } from '../../config';
+import { raisePendingToast } from '../integrations/toast/pending';
 import { ToastProvider } from '../integrations/toast/toast-provider';
 
 /**
@@ -21,7 +22,7 @@ import { ToastProvider } from '../integrations/toast/toast-provider';
  */
 export interface RouterContext {
   queryClient: QueryClient;
-  config: WorkflowUIConfig;
+  config: ResolvedStudioConfig;
   i18n: I18n;
 }
 
@@ -46,6 +47,9 @@ const readCollapsed = () =>
 function RootLayout() {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  // A save's confirmation survives the write-back reload (see pending.ts)
+  useEffect(raisePendingToast, []);
 
   const toggle = useCallback(() => {
     setCollapsed((open) => {
@@ -111,8 +115,13 @@ function RootLayout() {
           ))}
         </nav>
 
-        {/* Bottom rail: the toggle is the same shape as a nav item, so collapsing does not move it. */}
-        <div className="flex p-3">
+        {/*
+          Bottom rail: the toggle is the same shape as a nav item, so collapsing
+          does not move it. flex-col, like the nav above, so the button stretches
+          to the rail's width — as a row-direction flex item it would size to its
+          own text and its hover fill would stop short of the edges.
+        */}
+        <div className="flex flex-col p-3">
           <button
             type="button"
             onClick={toggle}

@@ -1,5 +1,3 @@
-import { clsx } from 'clsx';
-import { ChevronRight } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EmailModule } from '../config';
@@ -14,6 +12,8 @@ export interface TemplatePreview {
   loading: boolean;
 }
 
+export type EnvelopeField = 'from' | 'replyTo' | 'subject';
+
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
   /** Email registry from the user's config; keys match the DSL's template keys. */
@@ -22,6 +22,12 @@ export interface TemplatesPageProps {
   onSelect: (key: string) => void;
   /** Rendered output for the selected template, produced by the caller. */
   preview: TemplatePreview;
+  /** Sender address book (config's emails.addresses) — drives the from / reply-to pickers. */
+  addresses?: string[];
+  /** Write an envelope field back to source. Editing UI only appears when provided. */
+  onSaveEnvelope?: (key: string, field: EnvelopeField, value: string) => Promise<void>;
+  /** Append a new address to the address book (workflow.config.ts). */
+  onAddAddress?: (address: string) => Promise<void>;
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -46,30 +52,136 @@ function formatPropValue(value: unknown): string {
  * One label/value row. A fragment rather than a wrapper so the rows land
  * directly in the parent grid: the label column then sizes to the longest label
  * — a custom header name can be any length and must not wrap — and every row
- * stays aligned with the others.
- *
- * One type size throughout. `mono` switches the face for values that are
- * machine strings (addresses with placeholders, header values, node ids), never
- * the size, so the rows keep a single baseline rhythm.
+ * stays aligned with the others. One face, one size throughout.
  */
-function Field({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="text-muted whitespace-nowrap">{label}</dt>
-      <dd className={clsx('text-secondary min-w-0 break-words', mono && 'font-mono text-[13px]')}>
-        {children}
-      </dd>
+      <dd className="text-secondary min-w-0 break-words">{children}</dd>
     </>
   );
 }
 
-export function TemplatesPage({ refs, emails, selected, onSelect, preview }: TemplatesPageProps) {
+const ADD_SENTINEL = '__add_address__';
+
+/**
+ * from / reply-to picker: current value plus the address book, with an
+ * "add address" tail that grows the book and selects the new entry in one go.
+ * Styled as quiet text until hovered, so a read pass over the envelope table
+ * does not look like a form.
+ */
+function AddressSelect({
+  value,
+  addresses,
+  noneLabel,
+  onSave,
+  onAdd,
+}: {
+  value: string | undefined;
+  addresses: string[];
+  noneLabel: string;
+  onSave: (value: string) => Promise<void>;
+  onAdd?: ((address: string) => Promise<void>) | undefined;
+}) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const options =
+    value !== undefined && !addresses.includes(value) ? [value, ...addresses] : addresses;
+  return (
+    <select
+      value={value ?? ''}
+      onChange={(event) => {
+        const next = event.target.value;
+        if (next === ADD_SENTINEL) {
+          const address = window.prompt(t('emails.addAddressPrompt'))?.trim();
+          if (address !== undefined && address !== '') {
+            void (onAdd?.(address) ?? Promise.resolve())
+              .then(() => onSave(address))
+              // Rejection means validation failed — already reported by the host
+              .catch(() => undefined);
+          }
+          return;
+        }
+        if (next !== '' && next !== value) void onSave(next);
+      }}
+      className="hover:bg-hover -mx-1.5 -my-0.5 w-full min-w-0 cursor-pointer appearance-none truncate rounded px-1.5 py-0.5"
+    >
+      {value === undefined && <option value="">{noneLabel}</option>}
+      {options.map((address) => (
+        <option key={address} value={address}>
+          {address}
+        </option>
+      ))}
+      {onAdd !== undefined && <option value={ADD_SENTINEL}>{t('emails.addAddress')}</option>}
+    </select>
+  );
+}
+
+/** Click-to-edit text: a subject template is a string literal, so it edits in place. */
+function EditableText({
+  value,
+  noneLabel,
+  onSave,
+}: {
+  value: string | undefined;
+  noneLabel: string;
+  onSave: (value: string) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<string | undefined>(undefined);
+  if (draft === undefined) {
+    return (
+      <button
+        type="button"
+        onClick={() => setDraft(value ?? '')}
+        className="hover:bg-hover -mx-1.5 -my-0.5 w-full cursor-text truncate rounded px-1.5 py-0.5 text-left"
+      >
+        {value ?? noneLabel}
+      </button>
+    );
+  }
+  const commit = () => {
+    const next = draft.trim();
+    setDraft(undefined);
+    if (next !== '' && next !== value) void onSave(next);
+  };
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit();
+        if (event.key === 'Escape') setDraft(undefined);
+      }}
+      className="border-border -mx-1.5 -my-0.5 w-full rounded border px-1.5 py-0.5 outline-none"
+    />
+  );
+}
+
+export function TemplatesPage({
+  refs,
+  emails,
+  selected,
+  onSelect,
+  preview,
+  addresses = [],
+  onSaveEnvelope,
+  onAddAddress,
+}: TemplatesPageProps) {
+  const { t } = useTranslation();
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
   const activeModule = active ? emails[active.key] : undefined;
   const { html, subject, error, loading } = preview;
+
+  // Write-back needs a module file to patch, so editing waits for registration
+  const saveField =
+    onSaveEnvelope !== undefined && active !== undefined && activeModule !== undefined
+      ? (field: EnvelopeField) => (value: string) => onSaveEnvelope(active.key, field, value)
+      : undefined;
+  // From / subject / reply-to are email semantics; other channels skip the envelope rows
+  const isEmail = active?.channel === 'email';
 
   return (
     <div className="flex h-full min-h-0">
@@ -119,12 +231,11 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
         ) : (
           <>
             {/*
-              Collapsed shows the two lines that identify a message — who it is
-              from and what it says. Everything else (recipients, reply-to,
-              preheader, headers, and which workflows send it) is one click away,
-              so the header does not push the preview itself off the screen.
+              The full envelope, always visible — one face, one size, roomy
+              rows: an editing surface reads better as a calm table than as a
+              teaser that unfolds.
             */}
-            <div className="border-border bg-card border-b px-6 py-3">
+            <div className="border-border bg-card border-b px-6 py-4">
               <div className="flex items-center gap-3">
                 <span className="text-primary font-mono text-sm font-semibold">{active.key}</span>
                 <span className="bg-selected text-secondary rounded-full px-2 py-0.5 text-xs">
@@ -132,68 +243,88 @@ export function TemplatesPage({ refs, emails, selected, onSelect, preview }: Tem
                 </span>
               </div>
 
-              <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1.5 text-sm">
-                <Field label={t('emails.from')}>{activeModule?.from ?? t('common.none')}</Field>
-                <Field label={t('emails.subject')}>{subject ?? t('common.none')}</Field>
-
-                {expanded && (
+              <dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 text-sm">
+                {isEmail && (
                   <>
-                    {activeModule?.to !== undefined && (
-                      <Field label={t('emails.to')} mono>
-                        {activeModule.to}
-                      </Field>
-                    )}
-                    {activeModule?.replyTo !== undefined && (
-                      <Field label={t('emails.replyTo')}>{activeModule.replyTo}</Field>
-                    )}
-                    {activeModule?.preheader !== undefined && (
-                      <Field label={t('emails.preheader')}>{activeModule.preheader}</Field>
-                    )}
-                    {activeModule?.cc !== undefined && (
-                      <Field label={t('emails.cc')}>{activeModule.cc.join(', ')}</Field>
-                    )}
-                    {activeModule?.bcc !== undefined && (
-                      <Field label={t('emails.bcc')}>{activeModule.bcc.join(', ')}</Field>
-                    )}
-                    {activeModule?.headers !== undefined &&
-                      Object.entries(activeModule.headers).map(([name, value]) => (
-                        <Field key={name} label={name} mono>
-                          {value}
-                        </Field>
-                      ))}
-
-                    {/* One line per use site: the same template can take different props in different flows */}
-                    <Field label={t('emails.sentBy')} mono>
-                      {active.usages.map((usage) => (
-                        <div key={`${usage.workflow}:${usage.nodeId}`}>
-                          {usage.workflow}
-                          <span className="text-muted"> #{usage.nodeId}</span>
-                          {Object.keys(usage.props).length > 0 && (
-                            <span className="text-muted">
-                              {'  '}
-                              {Object.entries(usage.props)
-                                .map(([name, value]) => `${name}=${formatPropValue(value)}`)
-                                .join('  ')}
-                            </span>
-                          )}
-                        </div>
-                      ))}
+                    <Field label={t('emails.from')}>
+                      {saveField ? (
+                        <AddressSelect
+                          value={activeModule?.from}
+                          addresses={addresses}
+                          noneLabel={t('common.none')}
+                          onSave={saveField('from')}
+                          onAdd={onAddAddress}
+                        />
+                      ) : (
+                        (activeModule?.from ?? t('common.none'))
+                      )}
+                    </Field>
+                    <Field label={t('emails.subject')}>
+                      {saveField ? (
+                        <EditableText
+                          value={activeModule?.subject}
+                          noneLabel={t('common.none')}
+                          onSave={saveField('subject')}
+                        />
+                      ) : (
+                        (subject ?? t('common.none'))
+                      )}
                     </Field>
                   </>
                 )}
-              </dl>
 
-              <button
-                type="button"
-                onClick={() => setExpanded((open) => !open)}
-                className="text-muted hover:text-primary mt-2 -ml-1 flex items-center gap-1 rounded px-1 text-xs transition-colors"
-              >
-                <ChevronRight
-                  className={clsx('size-3.5 transition-transform', expanded && 'rotate-90')}
-                  strokeWidth={2}
-                />
-                {t(expanded ? 'emails.hideDetails' : 'emails.showDetails')}
-              </button>
+                {activeModule?.to !== undefined && (
+                  <Field label={t('emails.to')}>{activeModule.to}</Field>
+                )}
+                {isEmail && (activeModule?.replyTo !== undefined || saveField !== undefined) && (
+                  <Field label={t('emails.replyTo')}>
+                    {saveField ? (
+                      <AddressSelect
+                        value={activeModule?.replyTo}
+                        addresses={addresses}
+                        noneLabel={t('common.none')}
+                        onSave={saveField('replyTo')}
+                        onAdd={onAddAddress}
+                      />
+                    ) : (
+                      activeModule?.replyTo
+                    )}
+                  </Field>
+                )}
+                {activeModule?.preheader !== undefined && (
+                  <Field label={t('emails.preheader')}>{activeModule.preheader}</Field>
+                )}
+                {activeModule?.cc !== undefined && (
+                  <Field label={t('emails.cc')}>{activeModule.cc.join(', ')}</Field>
+                )}
+                {activeModule?.bcc !== undefined && (
+                  <Field label={t('emails.bcc')}>{activeModule.bcc.join(', ')}</Field>
+                )}
+                {activeModule?.headers !== undefined &&
+                  Object.entries(activeModule.headers).map(([name, value]) => (
+                    <Field key={name} label={name}>
+                      {value}
+                    </Field>
+                  ))}
+
+                {/* One line per use site: the same template can take different props in different flows */}
+                <Field label={t('emails.sentBy')}>
+                  {active.usages.map((usage) => (
+                    <div key={`${usage.workflow}:${usage.nodeId}`}>
+                      {usage.workflow}
+                      <span className="text-muted"> #{usage.nodeId}</span>
+                      {Object.keys(usage.props).length > 0 && (
+                        <span className="text-muted">
+                          {'  '}
+                          {Object.entries(usage.props)
+                            .map(([name, value]) => `${name}=${formatPropValue(value)}`)
+                            .join('  ')}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </Field>
+              </dl>
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto p-6">

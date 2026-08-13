@@ -1,5 +1,5 @@
 import { type SubFlow, type TemplateRef, not, template, trigger, workflow } from '@shware/workflow';
-import { e } from '../schema';
+import { e } from './schema';
 import {
   newUsers7d,
   usedApi,
@@ -10,7 +10,7 @@ import {
   usedPublishing,
   usedTemplates,
   usedWhiteboards,
-} from '../segments';
+} from './segments';
 
 /**
  * Onboarding education series (a feature-adoption drip).
