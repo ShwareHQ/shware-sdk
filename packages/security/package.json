@@ -46,7 +46,7 @@
     "@shware/utils": "workspace:^",
     "cookie": "^2.0.1",
     "ioredis": "^6.0.0",
-    "jose": "^6.2.8",
+    "jose": "^6.2.9",
     "path-to-regexp": "^8.4.2",
     "uuid": "^14.0.1",
     "zod": "^4.4.3"
