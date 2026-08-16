@@ -22,6 +22,7 @@ import {
   inArray,
   lte,
   notBetween,
+  performed,
   templates,
   trigger,
   workflow,
@@ -101,6 +102,21 @@ flow((w) => w.sendEvent('purchase'));
 
 // @ts-expect-error payload fields follow the event's declared shape
 flow((w) => w.sendEvent(e.purchase, { value: 'high', currency: 'USD' }));
+
+/* ------------------------------ payload where refs ----------------------------- */
+
+// payload refs are typed from the event's declared payload
+performed(e.sign_up, { where: (p) => eq(p.method, 'google') });
+trigger.event(e.purchase, { where: (p) => gt(p.value, 100) });
+
+// @ts-expect-error payload values follow the declared field type
+performed(e.sign_up, { where: (p) => eq(p.method, 'facebook') });
+
+// @ts-expect-error unknown payload fields do not compile
+performed(e.sign_up, { where: (p) => eq(p.platform, 'web') });
+
+// @ts-expect-error gt rejects non-numeric payload fields (currency is a string — value must match)
+trigger.event(e.purchase, { where: (p) => gt(p.currency, 100) });
 
 /* ------------------------------ subject templates ------------------------------ */
 

@@ -95,6 +95,11 @@ export type PropertyOperatorIR = z.infer<typeof PropertyOperatorIR>;
  * Condition expression tree. The shape of value/values follows `op`:
  * eq/ne/gt/gte/lt/lte/contains/not_contains → value; in_array/not_in_array →
  * values; between/not_between → values = [min, max]; exists/not_exists → neither.
+ *
+ * `payload` predicates test the payload of an event (dotted paths reach nested
+ * fields). They are only valid inside a `where` subtree — `performed.where`
+ * and the event trigger's `where` — where an event row is in scope; the
+ * compiler (compileBundle) and the evaluator both enforce the placement.
  * TODO: runtime refinement narrowing by op.
  */
 export type ConditionIR =
@@ -111,8 +116,18 @@ export type ConditionIR =
       values?: ScalarIR[] | undefined;
     }
   | {
+      /** Event payload predicate; `path` is dotted for nested fields ('tags.utm_source'). */
+      type: 'payload';
+      path: string;
+      op: PropertyOperatorIR;
+      value?: ScalarIR | undefined;
+      values?: ScalarIR[] | undefined;
+    }
+  | {
       type: 'performed';
       event: string;
+      /** Payload filter: only events matching it count (a payload-only subtree). */
+      where?: ConditionIR | undefined;
       within?: DurationIR | undefined;
       count?: number | undefined;
     };
@@ -131,8 +146,16 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
       values: z.optional(z.array(ScalarIR)),
     }),
     z.object({
+      type: z.literal('payload'),
+      path: z.string(),
+      op: PropertyOperatorIR,
+      value: z.optional(ScalarIR),
+      values: z.optional(z.array(ScalarIR)),
+    }),
+    z.object({
       type: z.literal('performed'),
       event: z.string(),
+      where: z.optional(ConditionIR),
       within: z.optional(DurationIR),
       count: z.optional(z.number()),
     }),
@@ -141,8 +164,18 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
 
 /* --------------------------------- Triggers --------------------------------- */
 
+/**
+ * Trigger shapes. The event trigger has two independent gates: `where` tests
+ * the triggering event's payload (payload-only subtree, evaluated against the
+ * incoming event before anything else), `filter` tests the user's profile.
+ */
 export const TriggerIR = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('event'), event: z.string(), filter: z.optional(ConditionIR) }),
+  z.object({
+    type: z.literal('event'),
+    event: z.string(),
+    where: z.optional(ConditionIR),
+    filter: z.optional(ConditionIR),
+  }),
   z.object({ type: z.literal('segment'), segment: z.string() }),
   z.object({ type: z.literal('date'), at: z.string() }),
   z.object({ type: z.literal('webhook') }),
@@ -211,6 +244,13 @@ export type NodeIR =
   | (NodeBaseIR & { type: 'filter'; condition: ConditionIR; reason?: string | undefined })
   | (NodeBaseIR & {
       type: 'cohort';
+      /**
+       * Explicit experiment key: bucketing hashes `userId:key` instead of the
+       * structural node id, so the assignment survives node insertion/moves and
+       * the experiment keeps one identity across workflow versions. Absent →
+       * the node id is used (fine for one-off splits).
+       */
+      key?: string | undefined;
       /** Ordered array (the DSL object's insertion order); weights sum to 100. */
       arms: { name: string; weight: number; flow: NodeIR[] }[];
     })
@@ -265,6 +305,7 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
     z.object({
       ...nodeBase,
       type: z.literal('cohort'),
+      key: z.optional(z.string()),
       arms: z.array(z.object({ name: z.string(), weight: z.number(), flow: z.array(NodeIR) })),
     }),
     z.object({ ...nodeBase, type: z.literal('exit'), reason: z.optional(z.string()) }),

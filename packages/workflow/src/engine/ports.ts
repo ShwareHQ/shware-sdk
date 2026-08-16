@@ -27,8 +27,14 @@ export interface EngineStep {
 
   /**
    * Durable: register interest in the named events (Cloudflare: write the
-   * subscription table; AWS: issue a callback token). Must complete before the
-   * caller's first condition check.
+   * subscription table; AWS: create a callback and store its id). Must
+   * complete before the caller's condition check for that attempt.
+   *
+   * Contract: one subscribe arms **at least one** wake-up — adapters whose
+   * wake handle is one-shot (AWS durable-function callbacks are consumed on
+   * delivery) satisfy it with exactly one. Callers therefore re-subscribe on
+   * every wait attempt; adapters where registrations persist (Cloudflare rows)
+   * make the repeat call idempotent.
    */
   subscribe(name: string, events: readonly string[]): Promise<void>;
 
@@ -44,8 +50,12 @@ export interface EngineStep {
 
 /** Facts from a single user's point of view: the read interface condition evaluation uses (D1 and in-memory share one evaluator). */
 export interface FactSource {
-  /** How many times an event occurred; with `sinceMs`, only within that window. */
-  countEvents(event: string, sinceMs?: number): Promise<number>;
+  /**
+   * How many times an event occurred. `sinceMs` bounds the window (within /
+   * anchoring); `where` is a payload-only condition tree — count only events
+   * whose payload matches (evaluate with matchesWhere from engine/condition).
+   */
+  countEvents(event: string, opts?: { sinceMs?: number; where?: ConditionIR }): Promise<number>;
   getProperty(path: string): Promise<ScalarIR | undefined>;
   /** Resolve a segment definition by name (stored with the bundle at deploy time). */
   getSegmentCondition(name: string): Promise<ConditionIR | undefined>;

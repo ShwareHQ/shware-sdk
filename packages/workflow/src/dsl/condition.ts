@@ -1,7 +1,13 @@
 import type { ConditionIR, SourceLocIR } from '../ir';
 import { captureLoc } from '../provenance';
 import { type Duration, durationIR } from './base';
-import type { EventRef, UserPropertyRef } from './refs';
+import {
+  type EventRef,
+  type PayloadRef,
+  type PayloadRefs,
+  type UserPropertyRef,
+  payloadRefs,
+} from './refs';
 
 /**
  * Conditions — drizzle-style predicate expressions: free functions (eq/gt/…)
@@ -48,8 +54,15 @@ export const condIR = (c: Condition): ConditionIR => {
 
 type Scalar = string | number | boolean;
 
+/**
+ * Predicates accept either kind of reference: a user property (profile
+ * condition) or an event payload field (only valid inside a `where` — the
+ * bundle compiler enforces the placement, since both produce `Condition`).
+ */
+type CondRef<T> = UserPropertyRef<T> | PayloadRef<T>;
+
 function prop(
-  ref: UserPropertyRef<unknown>,
+  ref: CondRef<unknown>,
   op:
     | 'eq'
     | 'ne'
@@ -69,7 +82,7 @@ function prop(
   values?: readonly Scalar[]
 ): Condition {
   return cond({
-    type: 'property',
+    type: ref.type === 'payload_ref' ? 'payload' : 'property',
     path: ref.path,
     op,
     ...(value !== undefined ? { value } : {}),
@@ -77,81 +90,85 @@ function prop(
   });
 }
 
-export function eq<T>(ref: UserPropertyRef<T>, value: NoInfer<T>): Condition {
+export function eq<T>(ref: CondRef<T>, value: NoInfer<T>): Condition {
   return prop(ref, 'eq', value as Scalar);
 }
-export function ne<T>(ref: UserPropertyRef<T>, value: NoInfer<T>): Condition {
+export function ne<T>(ref: CondRef<T>, value: NoInfer<T>): Condition {
   return prop(ref, 'ne', value as Scalar);
 }
-export function gt<T extends string | number>(
-  ref: UserPropertyRef<T>,
-  value: NoInfer<T>
-): Condition {
+export function gt<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
   return prop(ref, 'gt', value);
 }
-export function gte<T extends string | number>(
-  ref: UserPropertyRef<T>,
-  value: NoInfer<T>
-): Condition {
+export function gte<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
   return prop(ref, 'gte', value);
 }
-export function lt<T extends string | number>(
-  ref: UserPropertyRef<T>,
-  value: NoInfer<T>
-): Condition {
+export function lt<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
   return prop(ref, 'lt', value);
 }
-export function lte<T extends string | number>(
-  ref: UserPropertyRef<T>,
-  value: NoInfer<T>
-): Condition {
+export function lte<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
   return prop(ref, 'lte', value);
 }
 export function between<T extends string | number>(
-  ref: UserPropertyRef<T>,
+  ref: CondRef<T>,
   min: NoInfer<T>,
   max: NoInfer<T>
 ): Condition {
   return prop(ref, 'between', undefined, [min, max]);
 }
 export function notBetween<T extends string | number>(
-  ref: UserPropertyRef<T>,
+  ref: CondRef<T>,
   min: NoInfer<T>,
   max: NoInfer<T>
 ): Condition {
   return prop(ref, 'not_between', undefined, [min, max]);
 }
-export function inArray<T>(ref: UserPropertyRef<T>, values: readonly NoInfer<T>[]): Condition {
+export function inArray<T>(ref: CondRef<T>, values: readonly NoInfer<T>[]): Condition {
   return prop(ref, 'in_array', undefined, values as readonly Scalar[]);
 }
-export function notInArray<T>(ref: UserPropertyRef<T>, values: readonly NoInfer<T>[]): Condition {
+export function notInArray<T>(ref: CondRef<T>, values: readonly NoInfer<T>[]): Condition {
   return prop(ref, 'not_in_array', undefined, values as readonly Scalar[]);
 }
-export function exists(ref: UserPropertyRef<unknown>): Condition {
+export function exists(ref: CondRef<unknown>): Condition {
   return prop(ref, 'exists');
 }
-export function notExists(ref: UserPropertyRef<unknown>): Condition {
+export function notExists(ref: CondRef<unknown>): Condition {
   return prop(ref, 'not_exists');
 }
-export function contains<T extends string>(ref: UserPropertyRef<T>, value: string): Condition {
+export function contains<T extends string>(ref: CondRef<T>, value: string): Condition {
   return prop(ref, 'contains', value);
 }
-export function notContains<T extends string>(ref: UserPropertyRef<T>, value: string): Condition {
+export function notContains<T extends string>(ref: CondRef<T>, value: string): Condition {
   return prop(ref, 'not_contains', value);
 }
 
 /**
- * Event predicate: performed an event (optionally within a window / at least N times).
- * "Did not perform" is `not(performed(...))` — expressed by the combinator, so
- * there is no separate notPerformed.
+ * Event predicate: performed an event (optionally within a window / at least N
+ * times). "Did not perform" is `not(performed(...))` — expressed by the
+ * combinator, so there is no separate notPerformed.
+ *
+ * `where` narrows which events count by their payload — the callback receives
+ * a typed payload reference table, and the ordinary predicates apply:
+ *
+ *   performed(e.login, { where: (p) => and(eq(p.platform, 'web'), eq(p.tags.utm_source, 'meta')) })
+ *
+ * Time anchoring: evaluated inside a `goal` the count starts at workflow
+ * entry, inside `waitUntil` at the moment the wait began (the engine anchors
+ * them — a conversion or a wake must not be satisfied by pre-existing
+ * history). Everywhere else (branch/filter/exitWhen/segments) it looks over
+ * full history, bounded only by `within`.
  */
-export function performed(
-  event: EventRef,
-  opts?: { within?: Duration; count?: number }
+export function performed<P>(
+  event: EventRef<P>,
+  opts?: {
+    where?: (p: PayloadRefs<P>) => Condition;
+    within?: Duration;
+    count?: number;
+  }
 ): Condition {
   return cond({
     type: 'performed',
     event: event.name,
+    ...(opts?.where !== undefined ? { where: condIR(opts.where(payloadRefs<P>())) } : {}),
     ...(opts?.within !== undefined ? { within: durationIR(opts.within) } : {}),
     ...(opts?.count !== undefined ? { count: opts.count } : {}),
   });

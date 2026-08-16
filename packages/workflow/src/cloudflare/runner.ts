@@ -42,9 +42,11 @@ class CfEngineStep implements EngineStep {
   subscribe(name: string, events: readonly string[]): Promise<void> {
     return this.step.do(name, async () => {
       for (const event of events) {
+        // OR IGNORE on the (wake_handle, event) PK: the interpreter re-subscribes
+        // on every wait attempt (one-shot-callback contract) and rows persist here
         await this.db
           .prepare(
-            'INSERT INTO subscriptions (user_id, event, wake_handle, ts) VALUES (?, ?, ?, ?)'
+            'INSERT OR IGNORE INTO subscriptions (user_id, event, wake_handle, ts) VALUES (?, ?, ?, ?)'
           )
           .bind(this.userId, event, this.instanceId, Date.now())
           .run();

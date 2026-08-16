@@ -1,5 +1,16 @@
-import type { ConditionIR, ScalarIR } from '../ir';
+import type { ConditionIR, PropertyOperatorIR, ScalarIR } from '../ir';
 import type { FactSource } from './ports';
+
+/**
+ * Evaluation options.
+ * - anchorMs: the earliest instant `performed` counts events from — the goal
+ *   guard anchors at workflow entry (a conversion must happen *after* entry),
+ *   waitUntil at the moment the wait began (a wake must not be satisfied by
+ *   pre-existing history). Combined with `within` by taking the later bound.
+ */
+export interface EvaluateOptions {
+  anchorMs?: number;
+}
 
 /**
  * ConditionIR evaluation: pure logic, with facts injected through FactSource,
@@ -9,44 +20,99 @@ import type { FactSource } from './ports';
 export async function evaluateCondition(
   condition: ConditionIR,
   facts: FactSource,
-  nowMs: number
+  nowMs: number,
+  opts?: EvaluateOptions
 ): Promise<boolean> {
   switch (condition.type) {
     case 'and': {
       for (const child of condition.conditions) {
-        if (!(await evaluateCondition(child, facts, nowMs))) return false;
+        if (!(await evaluateCondition(child, facts, nowMs, opts))) return false;
       }
       return true;
     }
     case 'or': {
       for (const child of condition.conditions) {
-        if (await evaluateCondition(child, facts, nowMs)) return true;
+        if (await evaluateCondition(child, facts, nowMs, opts)) return true;
       }
       return false;
     }
     case 'not':
-      return !(await evaluateCondition(condition.condition, facts, nowMs));
+      return !(await evaluateCondition(condition.condition, facts, nowMs, opts));
     case 'segment': {
       const def = await facts.getSegmentCondition(condition.segment);
       if (def === undefined) {
         throw new Error(`Unknown segment: '${condition.segment}' (bundle not deployed?)`);
       }
-      return evaluateCondition(def, facts, nowMs);
+      return evaluateCondition(def, facts, nowMs, opts);
     }
     case 'performed': {
-      const since = condition.within !== undefined ? nowMs - condition.within.ms : undefined;
-      const count = await facts.countEvents(condition.event, since);
+      const bounds: number[] = [];
+      if (condition.within !== undefined) bounds.push(nowMs - condition.within.ms);
+      if (opts?.anchorMs !== undefined) bounds.push(opts.anchorMs);
+      const sinceMs = bounds.length > 0 ? Math.max(...bounds) : undefined;
+      const count = await facts.countEvents(condition.event, {
+        ...(sinceMs !== undefined ? { sinceMs } : {}),
+        ...(condition.where !== undefined ? { where: condition.where } : {}),
+      });
       return count >= (condition.count ?? 1);
     }
     case 'property': {
       const actual = await facts.getProperty(condition.path);
       return compareProperty(condition, actual);
     }
+    case 'payload':
+      // Placement is validated at compile; reaching here means hand-built IR
+      throw new Error(
+        'payload conditions are only valid inside performed({ where }) or a trigger where clause'
+      );
   }
 }
 
+/**
+ * Evaluate a where tree against one event's payload. Shared by performed
+ * counting (FactSource implementations) and the ingest router's trigger gate.
+ * Dotted paths descend nested objects; a missing or non-scalar leaf behaves
+ * like a missing property (exists sees objects, comparisons do not).
+ */
+export function matchesWhere(payload: unknown, where: ConditionIR): boolean {
+  switch (where.type) {
+    case 'and':
+      return where.conditions.every((child) => matchesWhere(payload, child));
+    case 'or':
+      return where.conditions.some((child) => matchesWhere(payload, child));
+    case 'not':
+      return !matchesWhere(payload, where.condition);
+    case 'payload': {
+      const raw = valueAtPath(payload, where.path);
+      if (where.op === 'exists') return raw !== undefined && raw !== null;
+      if (where.op === 'not_exists') return raw === undefined || raw === null;
+      const actual =
+        typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean'
+          ? raw
+          : undefined;
+      return compareProperty(where, actual);
+    }
+    default:
+      // compileBundle rejects these; defend against hand-built IR
+      throw new Error(`where clause may not contain a '${where.type}' condition`);
+  }
+}
+
+function valueAtPath(payload: unknown, path: string): unknown {
+  let current: unknown = payload;
+  for (const key of path.split('.')) {
+    if (current === null || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
 function compareProperty(
-  condition: Extract<ConditionIR, { type: 'property' }>,
+  condition: {
+    op: PropertyOperatorIR;
+    value?: ScalarIR | undefined;
+    values?: ScalarIR[] | undefined;
+  },
   actual: ScalarIR | undefined
 ): boolean {
   const { op, value, values } = condition;
@@ -126,6 +192,8 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
       case 'property':
         found.add(PROFILE_UPDATED_EVENT);
         break;
+      case 'payload':
+        break; // only appears inside performed.where, which is not walked
     }
   }
   await walk(condition);
