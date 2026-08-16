@@ -51,7 +51,10 @@ const eduModule =
 
 /* -------------------------------- workflow -------------------------------- */
 
-export const onboardingEdu = workflow('onboarding_edu', { trigger: login })
+export const onboardingEdu = workflow('onboarding_edu', {
+  name: 'Onboarding · Education Series',
+  trigger: login,
+})
   .email(welcome)
   .delay('1 week')
   .branch([not(usedTemplates), eduModule(edu.templates)])

@@ -1,8 +1,17 @@
-import type { WorkflowBuilder } from '@shware/workflow';
-import type { MetricPoint, StatsSource, WorkflowReport } from '@shware/workflow-ui/config';
+import type { SegmentRef, WorkflowBuilder } from '@shware/workflow';
+import type {
+  MetricPoint,
+  Profile,
+  ProfilePage,
+  SegmentReport,
+  StatsSource,
+  WorkflowReport,
+} from '@shware/workflow-ui/config';
 import { activationNudge, checkoutRecovery, christmasPromo, onboarding } from './workflows/index';
 import { onboardingEdu } from './workflows/onboarding';
+import * as reengagementModule from './workflows/reengagement';
 import { reengagement } from './workflows/reengagement';
+import * as segmentModule from './workflows/segments';
 import { winback } from './workflows/winback';
 
 /**
@@ -82,7 +91,78 @@ const reportFor = (name: string): WorkflowReport => {
   };
 };
 
+/**
+ * Segment sizes drift rather than wobble: membership is a population, so it
+ * trends instead of jumping day to day the way a send count does.
+ */
+const segmentReportFor = (name: string): SegmentReport => {
+  const base = 400 + pseudoRandom(name, 12_000);
+  const drift = (pseudoRandom(`${name}:drift`, 60) - 25) / 100;
+  const series = dates.map((date, index) => {
+    const progress = index / (DAYS - 1);
+    const noise = 0.98 + pseudoRandom(`${name}:${date}`, 5) / 100;
+    return Math.round(base * (1 + drift * progress) * noise);
+  });
+  return { name, size: series.at(-1) ?? base, series };
+};
+
+/** A segment is named but has no builder's toIR. */
+const isSegment = (value: unknown): value is SegmentRef =>
+  typeof value === 'object' && value !== null && 'name' in value && !('toIR' in value);
+
+/*
+ * Every segment the studio discovers, from the modules that declare them. The
+ * studio itself scans the whole workflows directory; a real stats API would
+ * return whatever it tracks and the UI would match by name, so this list only
+ * has to cover the demo. flatMap, not filter+map: the guard narrows inline,
+ * where filter's overload cannot against this union.
+ */
+const SEGMENT_NAMES = [segmentModule, reengagementModule].flatMap((module) =>
+  Object.values(module).flatMap((value) => (isSegment(value) ? [value.name] : []))
+);
+
+/* A stable cast of fake people, so paging through them is not a slideshow. */
+const FIRST = ['ava', 'noah', 'mia', 'liam', 'zoe', 'kai', 'iris', 'omar', 'lena', 'raj'];
+const LAST = ['chen', 'silva', 'novak', 'okafor', 'muller', 'tanaka', 'diaz', 'ahmed'];
+const PLANS = ['free', 'pro', 'business'];
+
+const profileFor = (segmentName: string, index: number): Profile => {
+  const seed = `${segmentName}:${index}`;
+  const first = FIRST[pseudoRandom(`${seed}:f`, FIRST.length)] ?? 'ava';
+  const last = LAST[pseudoRandom(`${seed}:l`, LAST.length)] ?? 'chen';
+  const created = new Date();
+  created.setDate(created.getDate() - pseudoRandom(`${seed}:age`, 720));
+
+  return {
+    id: `usr_${pseudoRandom(seed, 0xffffff).toString(16).padStart(6, '0')}`,
+    email: `${first}.${last}${index}@example.com`,
+    createdAt: created.toISOString(),
+    properties: {
+      first_name: first,
+      last_name: last,
+      subscription_plan: PLANS[pseudoRandom(`${seed}:plan`, PLANS.length)] ?? 'free',
+      subscription_status: pseudoRandom(`${seed}:status`, 10) > 2 ? 'active' : 'cancelled',
+      auto_renew_enabled: pseudoRandom(`${seed}:renew`, 10) > 3,
+      docs_created: pseudoRandom(`${seed}:docs`, 240),
+      last_seen_at: new Date(Date.now() - pseudoRandom(`${seed}:seen`, 30) * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      country: ['US', 'DE', 'JP', 'BR', 'NG'][pseudoRandom(`${seed}:cc`, 5)] ?? 'US',
+      marketing_opt_in: pseudoRandom(`${seed}:opt`, 10) > 4,
+    },
+  };
+};
+
 export const demoStats: StatsSource = {
+  segments: (): SegmentReport[] => SEGMENT_NAMES.map(segmentReportFor),
+  profiles: (segmentName, { limit, offset }): ProfilePage => {
+    const total = segmentReportFor(segmentName).size;
+    const count = Math.max(0, Math.min(limit, total - offset));
+    return {
+      total,
+      profiles: Array.from({ length: count }, (_, i) => profileFor(segmentName, offset + i)),
+    };
+  },
   reports: (): WorkflowReport[] => WORKFLOWS.map((builder) => reportFor(builder.toIR().name)),
   metrics: (workflowName) => metricsFor(workflowName),
   nodeStats: (workflowName) => {

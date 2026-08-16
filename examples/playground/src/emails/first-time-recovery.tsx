@@ -5,6 +5,8 @@ export const to = '{{ user.email }}';
 export const replyTo = 'Acme Contact <contact@acme.io>';
 export const preheader = 'Your cart is still waiting';
 
+export const name = 'Cart Recovery · First touch';
+
 export const subject = 'Hi, {{ user.name }}, your workspace is waiting';
 
 export default function FirstTimeRecovery() {

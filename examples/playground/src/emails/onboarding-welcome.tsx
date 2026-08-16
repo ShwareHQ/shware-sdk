@@ -6,6 +6,9 @@ export const replyTo = 'Acme Support <support@acme.io>';
 export const preheader = 'Create your first doc in under a minute';
 export const headers = { 'X-Campaign': 'onboarding' };
 
+export const name = 'Welcome · Day 0';
+export const description = 'First message after sign-up: one action, one promise about frequency.';
+
 export const subject = 'Welcome aboard';
 
 export default function OnboardingWelcome() {

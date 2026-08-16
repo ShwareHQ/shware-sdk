@@ -69,6 +69,7 @@ const subscriberSplit = flow((w) =>
  * The original's 12 nodes (5 Exits, 3 conditional branches) become 3 steps.
  */
 export const checkoutRecovery = workflow('checkout_recovery', {
+  name: 'Checkout Recovery',
   trigger: checkoutStarted,
   goal: purchaser,
   // The metadata below is excluded from contentHash: rewording it affects neither in-flight users nor plan
@@ -89,7 +90,7 @@ export const checkoutRecovery = workflow('checkout_recovery', {
  * multi-arm branch / cohort — plus inline conditions (no need to name a
  * segment first; write the expression at the use site).
  */
-export const onboarding = workflow('onboarding', { trigger: signedUp })
+export const onboarding = workflow('onboarding', { name: 'Onboarding · Core', trigger: signedUp })
   .waitUntil(activated, { timeout: '3 days', onTimeout: 'continue' })
   .timeWindow({
     days: ['mon', 'tue', 'wed', 'thu', 'fri'],
@@ -106,7 +107,10 @@ export const onboarding = workflow('onboarding', { trigger: signedUp })
   });
 
 /** Scheduled trigger: a holiday promo for active subscribers only. Segment and webhook triggers work the same way. */
-export const christmasPromo = workflow('christmas_promo', { trigger: christmasMorning })
+export const christmasPromo = workflow('christmas_promo', {
+  name: 'Christmas Promo',
+  trigger: christmasMorning,
+})
   .filter(activeSubscriber)
   .email(limitedTimeOffer, { coupon: 'XMAS25', expiresIn: '72 hours' });
 
@@ -119,11 +123,12 @@ export const christmasPromo = workflow('christmas_promo', { trigger: christmasMo
  * exit-on-match — even though both are the defaults, to show the shape.
  */
 export const activationNudge = workflow('activation_nudge', {
+  name: 'Activation Nudge',
   trigger: trigger.event(e.activation_nudge_due),
   goal: { condition: activated, within: '30 days', exitOnMatch: true },
 })
   .email(gettingStarted)
-  .delay('7 days')
+  .delay('8 days')
   .sendEvent(e.activation_nudge_due);
 
 /* ----------------- Type-safety tour (each line must fail to compile) ---------------- */
