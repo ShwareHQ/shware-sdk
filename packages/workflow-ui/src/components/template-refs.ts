@@ -62,3 +62,31 @@ export function collectTemplateRefs(irs: readonly WorkflowIR[]): TemplateRefInfo
   }
   return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
+
+/** Find one node by its structural id, arms and timeout lanes included. */
+export function findNode(ir: WorkflowIR, id: string): NodeIR | undefined {
+  let found: NodeIR | undefined;
+  walk(ir.flow, (node) => {
+    if (node.id === id) found = node;
+  });
+  return found;
+}
+
+/**
+ * How many nodes were built by each source position.
+ *
+ * A helper reused across arms — `const eduModule = (t) => (w) => w.email(t).delay('1 week')`
+ * — produces one call site and many nodes, so editing "this node's" value edits
+ * every node the helper made. That is faithful to the code, but the panel has to
+ * say so rather than imply the edit is local.
+ */
+export function nodesPerSourcePosition(ir: WorkflowIR): Map<string, number> {
+  const counts = new Map<string, number>();
+  walk(ir.flow, (node) => {
+    const loc = node.meta?.loc;
+    if (loc === undefined) return;
+    const key = `${loc.file}:${loc.line}:${loc.column}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  });
+  return counts;
+}

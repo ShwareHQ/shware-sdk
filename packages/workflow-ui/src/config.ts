@@ -38,6 +38,15 @@ export interface EmailEnvelope {
 
 /** One email module: a default-exported component plus its envelope and preview props. */
 export interface EmailModule extends EmailEnvelope {
+  /**
+   * Human label for the studio. The registry key is the template's identity —
+   * referenced by `t.xxx` and carried in IR — so it is not something to rename
+   * for readability; this is. Excluded from every hash by construction: nothing
+   * but the UI ever reads it.
+   */
+  name?: string;
+  /** What this message is for, in a sentence. Same rules as `name`. */
+  description?: string;
   default: (props: never) => ReactElement;
   /**
    * A string template — a plain literal, or `emailSubject(u, '... {prop} ...')`
@@ -86,12 +95,58 @@ export interface MetricPoint {
 }
 
 /**
+ * How many users a segment currently holds, and how that has moved.
+ *
+ * A segment's definition is code, but its size is not derivable from code at
+ * all — it is a fact about the user base, and the only thing that tells you
+ * whether a condition matches the population you meant.
+ */
+export interface SegmentReport {
+  /** Segment name, matching the one the DSL declares. */
+  name: string;
+  /** Users in the segment right now. */
+  size: number;
+  /** Recent daily sizes, oldest first — drives the sparkline in the list. */
+  series?: number[];
+}
+
+/**
+ * One person in the audience. `id` and the timestamps are the columns every
+ * project has; everything else it knows about them lives in `properties`,
+ * because a profile's shape is the user's schema, not ours.
+ */
+export interface Profile {
+  id: string;
+  email?: string;
+  /** ISO timestamp; rendered as a date. */
+  createdAt?: string;
+  /** Whatever the project stores — the same keys the DSL's `u.xxx` references. */
+  properties?: Record<string, unknown>;
+}
+
+/** One page of profiles, plus the total so the UI can say "showing N of M". */
+export interface ProfilePage {
+  profiles: Profile[];
+  total: number;
+}
+
+/** Paging window for a profile query. */
+export interface ProfileQuery {
+  limit: number;
+  offset: number;
+}
+
+/**
  * Where runtime numbers come from. Without one the studio renders the reports
  * view in demo mode and says so — it never passes mock data off as real.
  */
 export interface StatsSource {
   /** Totals per workflow. */
   reports?: () => Promise<WorkflowReport[]> | WorkflowReport[];
+  /** Size per segment. */
+  segments?: () => Promise<SegmentReport[]> | SegmentReport[];
+  /** Who is in one segment right now, a page at a time. */
+  profiles?: (segmentName: string, query: ProfileQuery) => Promise<ProfilePage> | ProfilePage;
   /** Users waiting on each node of one workflow (drives the canvas badges). */
   nodeStats?: (workflowName: string) => Promise<NodeStats> | NodeStats;
   /** Time series for one workflow's Metrics tab. */

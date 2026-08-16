@@ -1,6 +1,8 @@
+import { clsx } from 'clsx';
 import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { EmailModule } from '../config';
+import { displayName } from '../utils/label';
 import { superellipse } from './corner-shape';
 import type { TemplateRefInfo } from './template-refs';
 
@@ -12,7 +14,8 @@ export interface TemplatePreview {
   loading: boolean;
 }
 
-export type EnvelopeField = 'from' | 'replyTo' | 'subject';
+/** Mirrors the server's EnvelopeField; `name` / `description` are labels, the rest is envelope. */
+export type EnvelopeField = 'from' | 'replyTo' | 'subject' | 'name' | 'description';
 
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
@@ -113,8 +116,12 @@ function AddressSelect({
   );
 }
 
-/** Click-to-edit text: a subject template is a string literal, so it edits in place. */
-function EditableText({
+/**
+ * Click-to-edit for one source literal. Reads as text until clicked, so a panel
+ * of these still reads as a summary — which matters because most of what the
+ * studio shows is not editable, and the few things that are should not shout.
+ */
+export function EditableText({
   value,
   noneLabel,
   onSave,
@@ -200,7 +207,14 @@ export function TemplatesPage({
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-primary truncate font-mono text-[13px]">{ref.key}</span>
+                    <span
+                      className={clsx(
+                        'truncate text-[13px]',
+                        emails[ref.key]?.name === undefined ? 'text-muted italic' : 'text-primary'
+                      )}
+                    >
+                      {displayName(emails[ref.key]?.name, t('common.untitled'))}
+                    </span>
                     {!registered && (
                       <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
                         {t('emails.noContent')}
@@ -233,7 +247,14 @@ export function TemplatesPage({
             */}
             <div className="border-border bg-card border-b px-6 py-4">
               <div className="flex items-center gap-3">
-                <span className="text-primary font-mono text-sm font-semibold">{active.key}</span>
+                <span
+                  className={clsx(
+                    'text-sm font-semibold',
+                    activeModule?.name === undefined ? 'text-muted italic' : 'text-primary'
+                  )}
+                >
+                  {displayName(activeModule?.name, t('common.untitled'))}
+                </span>
                 <span className="bg-selected text-secondary rounded-full px-2 py-0.5 text-xs">
                   {CHANNEL_LABEL[active.channel] ?? active.channel}
                 </span>
@@ -268,6 +289,34 @@ export function TemplatesPage({
                     </Field>
                   </>
                 )}
+
+                {/*
+                  Labels, not envelope: nothing reads them but this panel, so
+                  they are the one part of a template that is safe to rename
+                  freely — the key beside the title stays the identity.
+                */}
+                <Field label={t('emails.name')}>
+                  {saveField ? (
+                    <EditableText
+                      value={activeModule?.name}
+                      noneLabel={t('common.none')}
+                      onSave={saveField('name')}
+                    />
+                  ) : (
+                    (activeModule?.name ?? t('common.none'))
+                  )}
+                </Field>
+                <Field label={t('emails.description')}>
+                  {saveField ? (
+                    <EditableText
+                      value={activeModule?.description}
+                      noneLabel={t('common.none')}
+                      onSave={saveField('description')}
+                    />
+                  ) : (
+                    (activeModule?.description ?? t('common.none'))
+                  )}
+                </Field>
 
                 {activeModule?.to !== undefined && (
                   <Field label={t('emails.to')}>{activeModule.to}</Field>

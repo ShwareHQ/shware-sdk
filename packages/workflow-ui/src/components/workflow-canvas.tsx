@@ -75,10 +75,16 @@ export interface WorkflowCanvasProps {
    * in rather than sniffed from the DOM, so an embedding app stays in control.
    */
   colorMode?: 'light' | 'dark';
+  /** Node id to show as selected; pairs with onSelectNode for an inspector panel. */
+  selectedId?: string | undefined;
+  /** Node clicked, or undefined when the click landed on empty canvas. */
+  onSelectNode?: (id: string | undefined) => void;
 }
 
 /** The callback travels by context: react-flow node data should carry serializable data only. */
 const OpenTemplateContext = createContext<((templateKey: string) => void) | undefined>(undefined);
+/** Same reason: selection is view state, not node data, so it must not enter the layout. */
+const SelectedContext = createContext<string | undefined>(undefined);
 
 /**
  * One hue per category, not per icon: six colours make a message, a wait and a
@@ -227,17 +233,29 @@ const linkButtonStyle: CSSProperties = {
 
 type WfNode = Node<CanvasNodeData, 'wf'>;
 
-function WorkflowNode({ data }: NodeProps<WfNode>) {
+function WorkflowNode({ id, data }: NodeProps<WfNode>) {
   const Icon = ICONS[data.icon];
   const onOpenTemplate = useContext(OpenTemplateContext);
   const templateKey = data.templateKey;
+  /*
+   * Selection reads as a focused form control: the card's own border takes the
+   * accent and a translucent halo sits outside it. A solid ring on top of the
+   * existing border instead looked like two borders stacked.
+   */
+  const selected =
+    useContext(SelectedContext) === id
+      ? {
+          borderColor: 'var(--color-accent)',
+          boxShadow: '0 0 0 3px var(--color-accent-ring)',
+        }
+      : undefined;
 
   const body =
     data.variant === 'icon' ? (
       // Small pill (exit): icon plus a short label, with reason in the tooltip
       <div style={iconWrapStyle}>
         <div
-          style={iconStyle}
+          style={{ ...iconStyle, ...selected }}
           title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
         >
           <Icon size={14} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
@@ -245,7 +263,7 @@ function WorkflowNode({ data }: NodeProps<WfNode>) {
         </div>
       </div>
     ) : (
-      <div style={cardStyle}>
+      <div style={{ ...cardStyle, ...selected }}>
         <div style={headerStyle}>
           <Icon size={15} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
           <span style={titleStyle}>{data.title}</span>
@@ -449,11 +467,20 @@ export function WorkflowCanvas({
   stats,
   onOpenTemplate,
   colorMode = 'light',
+  selectedId,
+  onSelectNode,
 }: WorkflowCanvasProps) {
   const { nodes, edges } = useMemo(() => layout(ir, stats), [ir, stats]);
   return (
     <OpenTemplateContext value={onOpenTemplate}>
-      <CanvasSurface nodes={nodes} edges={edges} colorMode={colorMode} />
+      <SelectedContext value={selectedId}>
+        <CanvasSurface
+          nodes={nodes}
+          edges={edges}
+          colorMode={colorMode}
+          {...(onSelectNode !== undefined ? { onSelectNode } : {})}
+        />
+      </SelectedContext>
     </OpenTemplateContext>
   );
 }
@@ -462,10 +489,12 @@ function CanvasSurface({
   nodes,
   edges,
   colorMode,
+  onSelectNode,
 }: {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   colorMode: 'light' | 'dark';
+  onSelectNode?: (id: string | undefined) => void;
 }) {
   return (
     <div style={{ width: '100%', height: '100%' }}>
@@ -475,6 +504,8 @@ function CanvasSurface({
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         colorMode={colorMode}
+        onNodeClick={(_event, node) => onSelectNode?.(node.id)}
+        onPaneClick={() => onSelectNode?.(undefined)}
         // Overrides react-flow's own dark surface, which sits between our page and card
         style={{ background: 'var(--color-canvas)' }}
         fitView

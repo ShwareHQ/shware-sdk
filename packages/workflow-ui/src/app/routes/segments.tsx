@@ -1,8 +1,15 @@
 import type { ConditionIR, WorkflowIR } from '@shware/workflow';
-import { createRoute } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
+import { clsx } from 'clsx';
+import { ArrowLeft } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
+import { SegmentList, describeCondition } from '../../components/segment-list';
+import { EditableText } from '../../components/templates-page';
+import { displayName } from '../../utils/label';
+import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
 /**
@@ -69,48 +76,39 @@ export function collectSegmentRefs(irs: WorkflowIR[]): { name: string; usedBy: s
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Render a condition tree as one readable line. */
-function describe(condition: ConditionIR): string {
-  switch (condition.type) {
-    case 'and':
-      return condition.conditions.map(describe).join(' and ');
-    case 'or':
-      return condition.conditions.map(describe).join(' or ');
-    case 'not':
-      return `not ${describe(condition.condition)}`;
-    case 'segment':
-      return condition.segment;
-    case 'performed':
-      return `did ${condition.event}${condition.where ? ` where ${describe(condition.where)}` : ''}${
-        condition.within ? ` within ${condition.within.value}` : ''
-      }`;
-    case 'property':
-      return `${condition.path} ${condition.op}${
-        condition.value !== undefined ? ` ${String(condition.value)}` : ''
-      }`;
-    case 'payload':
-      return `event.${condition.path} ${condition.op}${
-        condition.value !== undefined ? ` ${String(condition.value)}` : ''
-      }`;
-  }
-}
-
 function Segments() {
   const { config } = segmentsRoute.useRouteContext();
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const refs = useMemo(
     () => collectSegmentRefs(Object.values(config.workflows).map((builder) => builder.toIR())),
     [config]
   );
 
-  /** Definitions live in the config; without them only the name is known. */
-  const defined = new Map(
-    config.segments.map((segment) => [
-      segment.name,
-      (segment as unknown as { definition: ConditionIR }).definition,
-    ])
-  );
+  const items = useMemo(() => {
+    /** Definitions come from the discovered segments; a reference alone gives only a name. */
+    const declared = new Map(
+      config.segments.map((segment) => [
+        segment.name,
+        segment as unknown as { definition: ConditionIR; meta?: { name?: string } },
+      ])
+    );
+    return refs.map((ref) => {
+      const found = declared.get(ref.name);
+      return {
+        ...ref,
+        ...(found !== undefined ? { definition: found.definition } : {}),
+        ...(found?.meta?.name !== undefined ? { label: found.meta.name } : {}),
+      };
+    });
+  }, [refs, config]);
+
+  const { data: reports } = useQuery({
+    queryKey: ['segment-reports'],
+    queryFn: async () => (await config.stats?.segments?.()) ?? [],
+    enabled: config.stats?.segments !== undefined,
+  });
 
   if (refs.length === 0) {
     return (
@@ -121,35 +119,17 @@ function Segments() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
-      <h1 className="text-lg font-semibold">{t('segments.title')}</h1>
-      <ul className="mt-5 space-y-2">
-        {refs.map((ref) => {
-          const definition = defined.get(ref.name);
-          return (
-            <li
-              key={ref.name}
-              className="border-border bg-card rounded-2xl border px-5 py-4"
-              style={superellipse}
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[13px] font-medium">{ref.name}</span>
-                {definition === undefined && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
-                    {t('segments.notDefined')}
-                  </span>
-                )}
-              </div>
-              {definition !== undefined && (
-                <p className="text-secondary mt-1.5 font-mono text-xs">{describe(definition)}</p>
-              )}
-              <p className="text-muted mt-2 text-xs">
-                {t('segments.usedBy')}: {ref.usedBy.join(', ')}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
+    <div className="flex h-full flex-col">
+      <div className="px-6 pt-6 pb-4">
+        <h1 className="text-lg font-semibold">{t('segments.title')}</h1>
+      </div>
+      <div className="min-h-0 flex-1">
+        <SegmentList
+          items={items}
+          {...(reports !== undefined ? { reports } : {})}
+          onOpen={(name) => void navigate({ to: '/segments/$name', params: { name } })}
+        />
+      </div>
     </div>
   );
 }
@@ -158,4 +138,99 @@ export const segmentsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/segments',
   component: Segments,
+});
+
+/* --------------------------- Detail (tabbed shell) -------------------------- */
+
+const TABS = [{ to: '/segments/$name', label: 'segments.tabs.overview', exact: true }] as const;
+
+function SegmentDetail() {
+  const { name } = segmentDetailRoute.useParams();
+  const { config } = segmentDetailRoute.useRouteContext();
+  const { t } = useTranslation();
+
+  const declared = config.segments.find((segment) => segment.name === name) as
+    | {
+        definition: ConditionIR;
+        meta?: { name?: string; description?: string };
+        loc?: { file: string; line: number; column: number };
+      }
+    | undefined;
+  const definition = declared;
+  const declaredMeta = declared?.meta;
+  /*
+   * A segment's labels are its third argument, which may not be written yet —
+   * the insert path handles that, appending `{ name: '…' }` to the call.
+   */
+  const loc = declared?.loc;
+  const saveMeta = (field: 'name' | 'description') => (value: string) =>
+    reportSave(studioPost('/__studio/node', { ...loc, path: `2.${field}`, value }), {
+      saved: t('inspector.saved'),
+      failed: t('inspector.saveFailed'),
+    });
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="border-border bg-card flex shrink-0 items-center gap-4 border-b px-6 py-3">
+        <Link
+          to="/segments"
+          className="text-muted hover:bg-hover flex size-7 items-center justify-center rounded-lg transition-colors"
+          style={superellipse}
+          aria-label={t('common.back')}
+        >
+          <ArrowLeft className="size-4" strokeWidth={2} />
+        </Link>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">
+            {loc !== undefined ? (
+              <EditableText
+                value={declaredMeta?.name}
+                noneLabel={t('common.untitled')}
+                onSave={saveMeta('name')}
+              />
+            ) : (
+              displayName(declaredMeta?.name, t('common.untitled'))
+            )}
+          </div>
+          <div className="text-muted truncate text-xs">
+            {loc !== undefined ? (
+              <EditableText
+                value={declaredMeta?.description}
+                noneLabel={t('common.addDescription')}
+                onSave={saveMeta('description')}
+              />
+            ) : null}
+          </div>
+          <div className="text-muted truncate font-mono text-xs">
+            {definition ? describeCondition(definition.definition) : t('segments.notDefined')}
+          </div>
+        </div>
+        <nav className="ml-auto flex items-center gap-1">
+          {TABS.map((tab) => (
+            <Link
+              key={tab.to}
+              to={tab.to}
+              params={{ name }}
+              activeOptions={{ exact: tab.exact }}
+              className="text-secondary hover:bg-hover rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors"
+              activeProps={{ className: '!bg-primary !text-card' }}
+              style={superellipse}
+            >
+              {t(tab.label)}
+            </Link>
+          ))}
+        </nav>
+      </div>
+
+      <div className="min-h-0 flex-1">
+        <Outlet />
+      </div>
+    </div>
+  );
+}
+
+export const segmentDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/segments/$name',
+  component: SegmentDetail,
 });

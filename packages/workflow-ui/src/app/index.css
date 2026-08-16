@@ -46,6 +46,8 @@
    */
   --color-accent: var(--color-sky-600);
   --color-accent-hover: oklch(from var(--color-accent) l c h / 0.1);
+  /* Focus/selection halo. Derived, so it follows the accent into dark mode. */
+  --color-accent-ring: oklch(from var(--color-accent) l c h / 0.25);
   --color-primary: var(--color-gray-900);
   --color-secondary: var(--color-gray-600);
   --color-muted: var(--color-gray-500);
