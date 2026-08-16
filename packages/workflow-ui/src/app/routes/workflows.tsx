@@ -1,14 +1,24 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
 import { clsx } from 'clsx';
 import { ArrowLeft } from 'lucide-react';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
+import {
+  type EditableField,
+  NodeInspector,
+  type NodeSource,
+  fieldsOf,
+} from '../../components/node-inspector';
+import { findNode, nodesPerSourcePosition } from '../../components/template-refs';
+import { EditableText } from '../../components/templates-page';
 import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
+import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
 import { useTheme } from '../integrations/theme/root-provider';
+import { reportSave, studioGet, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
 /* ---------------------------------- List ---------------------------------- */
@@ -72,6 +82,17 @@ function WorkflowDetail() {
   const { t } = useTranslation();
 
   const ir = lookup(config.workflows, name)?.toIR();
+  /*
+   * Labels live in the workflow's own options object, which always exists —
+   * `trigger` is required — so both are editable whether or not they are there
+   * yet: absent means insert, present means replace.
+   */
+  const loc = ir?.meta?.loc;
+  const saveMeta = (field: 'name' | 'description') => (value: string) =>
+    reportSave(studioPost('/__studio/node', { ...loc, path: `1.${field}`, value }), {
+      saved: t('inspector.saved'),
+      failed: t('inspector.saveFailed'),
+    });
 
   if (ir === undefined) {
     return (
@@ -96,10 +117,27 @@ function WorkflowDetail() {
           <ArrowLeft className="size-4" strokeWidth={2} />
         </Link>
         <div className="min-w-0">
-          <div className="text-sm font-semibold">{ir.name}</div>
-          <div className="text-muted truncate font-mono text-xs">
-            v{ir.irVersion} · #{ir.contentHash.slice(0, 8)}
-            {ir.meta?.description !== undefined && ` · ${ir.meta.description}`}
+          <div className="text-sm font-semibold">
+            {loc !== undefined ? (
+              <EditableText
+                value={ir.meta?.name}
+                noneLabel={t('common.untitled')}
+                onSave={saveMeta('name')}
+              />
+            ) : (
+              displayName(ir.meta?.name, t('common.untitled'))
+            )}
+          </div>
+          <div className="text-muted truncate text-xs">
+            {loc !== undefined ? (
+              <EditableText
+                value={ir.meta?.description}
+                noneLabel={t('common.addDescription')}
+                onSave={saveMeta('description')}
+              />
+            ) : (
+              (ir.meta?.description ?? '')
+            )}
           </div>
         </div>
         <nav className="ml-auto flex items-center gap-1">
@@ -136,13 +174,38 @@ export const workflowDetailRoute = createRoute({
 
 /* --------------------------------- Canvas --------------------------------- */
 
+const SELECTION_KEY = 'workflow-ui:canvas-selection';
+
 function CanvasTab() {
   const { name } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
   const navigate = useNavigate();
   const { resolved } = useTheme();
+  const { t } = useTranslation();
+  /*
+   * Selection outlives the write-back reload. Saving edits a file, which
+   * full-reloads the page; without this the panel you just saved from vanishes
+   * and you lose your place. Same trick as the pending toast, same reason.
+   */
+  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
+    typeof sessionStorage === 'undefined'
+      ? undefined
+      : (sessionStorage.getItem(`${SELECTION_KEY}:${name}`) ?? undefined)
+  );
+  const select = useCallback(
+    (id: string | undefined) => {
+      setSelectedId(id);
+      const key = `${SELECTION_KEY}:${name}`;
+      if (id === undefined) sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, id);
+    },
+    [name]
+  );
 
   const ir = lookup(config.workflows, name)?.toIR();
+  const selected =
+    ir !== undefined && selectedId !== undefined ? findNode(ir, selectedId) : undefined;
+  const loc = selected?.meta?.loc;
 
   const { data: stats } = useQuery({
     queryKey: ['node-stats', ir?.name],
@@ -150,16 +213,77 @@ function CanvasTab() {
     enabled: ir !== undefined && config.stats?.nodeStats !== undefined,
   });
 
+  /*
+   * The DSL records where each node was built, but in the position of the
+   * module Vite served — the dev server owns the source map that turns that
+   * back into a line on disk, so resolving it is a round trip, not a lookup.
+   * One probe per field: whether a literal backs the value is a fact about that
+   * exact slot, and only the server can see it.
+   */
+  /* A condition's fields carry their own call site; a node's default to the node's. */
+  const fields = selected === undefined ? [] : fieldsOf(selected);
+  const locOf = (field: EditableField) => field.loc ?? loc;
+  const slotOf = (field: EditableField) => `${field.scope ?? ''}:${field.path.join('.')}`;
+  /* One call site can build many nodes; the panel says so before you edit it. */
+  const sharedBy =
+    ir !== undefined && loc !== undefined
+      ? nodesPerSourcePosition(ir).get(`${loc.file}:${loc.line}:${loc.column}`)
+      : undefined;
+  const probes = useQueries({
+    queries: fields.map((field) => ({
+      queryKey: ['node-source', locOf(field), field.path.join('.')],
+      queryFn: () =>
+        studioGet<NodeSource>('/__studio/node', {
+          ...locOf(field),
+          path: field.path.join('.'),
+        }),
+      enabled: locOf(field) !== undefined,
+    })),
+  });
+
+  const sources: Record<string, NodeSource> = {};
+  fields.forEach((field, index) => {
+    const data = probes[index]?.data;
+    if (data !== undefined) sources[slotOf(field)] = data;
+  });
+
   if (ir === undefined) return null;
 
   return (
-    <WorkflowCanvas
-      key={name}
-      ir={ir}
-      colorMode={resolved}
-      {...(stats !== undefined ? { stats } : {})}
-      onOpenTemplate={(key) => void navigate({ to: '/emails/$key', params: { key } })}
-    />
+    <div className="flex h-full min-h-0">
+      <div className="min-w-0 flex-1">
+        <WorkflowCanvas
+          key={name}
+          ir={ir}
+          colorMode={resolved}
+          {...(stats !== undefined ? { stats } : {})}
+          selectedId={selectedId}
+          onSelectNode={select}
+          onOpenTemplate={(key) => void navigate({ to: '/emails/$key', params: { key } })}
+        />
+      </div>
+      {selected !== undefined && (
+        <NodeInspector
+          node={selected}
+          sources={sources}
+          {...(sharedBy !== undefined ? { sharedBy } : {})}
+          onClose={() => select(undefined)}
+          onSave={(field: EditableField, value: string) =>
+            reportSave(
+              studioPost('/__studio/node', {
+                ...locOf(field),
+                path: field.path.join('.'),
+                value,
+              }),
+              {
+                saved: t('inspector.saved'),
+                failed: t('inspector.saveFailed'),
+              }
+            )
+          }
+        />
+      )}
+    </div>
   );
 }
 

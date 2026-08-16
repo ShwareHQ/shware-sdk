@@ -2,7 +2,8 @@ import { Route as rootRoute } from './__root';
 import { emailRoute, emailsIndexRoute } from './emails';
 import { homeRoute } from './home';
 import { workflowMetricsRoute } from './metrics';
-import { segmentsRoute } from './segments';
+import { segmentOverviewRoute } from './segment-overview';
+import { segmentDetailRoute, segmentsRoute } from './segments';
 import { settingsRoute } from './settings';
 import { workflowCanvasRoute, workflowDetailRoute, workflowsIndexRoute } from './workflows';
 
@@ -11,6 +12,7 @@ export const routeTree = rootRoute.addChildren([
   workflowsIndexRoute,
   workflowDetailRoute.addChildren([workflowCanvasRoute, workflowMetricsRoute]),
   segmentsRoute,
+  segmentDetailRoute.addChildren([segmentOverviewRoute]),
   emailsIndexRoute,
   emailRoute,
   settingsRoute,

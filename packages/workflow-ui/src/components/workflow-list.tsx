@@ -3,6 +3,7 @@ import { clsx } from 'clsx';
 import { AlarmClock, Mail, Workflow as WorkflowIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowReport } from '../config';
+import { displayName } from '../utils/label';
 import { Sparkline } from './sparkline';
 
 /**
@@ -91,7 +92,14 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                   <div className="flex items-start gap-3">
                     <WorkflowIcon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
                     <div className="min-w-0">
-                      <div className="text-primary font-medium">{ir.name}</div>
+                      <div
+                        className={clsx(
+                          'font-medium',
+                          ir.meta?.name === undefined ? 'text-muted italic' : 'text-primary'
+                        )}
+                      >
+                        {displayName(ir.meta?.name, t('common.untitled'))}
+                      </div>
                       {ir.meta?.description !== undefined && (
                         <p className="text-muted mt-1 truncate text-[13px]">
                           {ir.meta.description}
