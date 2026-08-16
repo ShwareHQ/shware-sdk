@@ -62,6 +62,11 @@ export function compileBundle(input: {
   // segment" in some user's journey into a compile error.
   assertSegmentRefsResolve(workflows, segments);
 
+  // Payload predicates and profile predicates share the Condition type, so
+  // placement is checked here: payload only inside where-trees, and where-trees
+  // contain nothing but payload predicates and combinators.
+  assertConditionPlacement(workflows, segments);
+
   return BundleIRSchema.parse({ irVersion: IR_VERSION, workflows, segments, templates });
 }
 
@@ -146,6 +151,101 @@ function collectNodeRefs(nodes: readonly NodeIR[], into: Set<string>): void {
         break;
       case 'cohort':
         for (const arm of node.arms) collectNodeRefs(arm.flow, into);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+/* --------------------- payload / profile placement checks --------------------- */
+
+function assertConditionPlacement(
+  workflows: readonly WorkflowIR[],
+  segments: readonly SegmentIR[]
+): void {
+  for (const workflow of workflows) {
+    if (workflow.trigger.type === 'event') {
+      if (workflow.trigger.where !== undefined) {
+        assertWhereTree(workflow.trigger.where, `workflow '${workflow.name}' trigger where`);
+      }
+      if (workflow.trigger.filter !== undefined) {
+        assertProfileTree(workflow.trigger.filter, `workflow '${workflow.name}' trigger filter`);
+      }
+    }
+    if (workflow.goal !== undefined) {
+      assertProfileTree(workflow.goal.condition, `workflow '${workflow.name}' goal`);
+    }
+    if (workflow.exitWhen !== undefined) {
+      assertProfileTree(workflow.exitWhen, `workflow '${workflow.name}' exitWhen`);
+    }
+    assertNodeTrees(workflow.flow, `workflow '${workflow.name}'`);
+  }
+  for (const segment of segments) {
+    assertProfileTree(segment.condition, `segment '${segment.name}'`);
+  }
+}
+
+/** A profile-context tree: payload predicates may appear only under a performed.where. */
+function assertProfileTree(condition: ConditionIR, owner: string): void {
+  switch (condition.type) {
+    case 'and':
+    case 'or':
+      for (const child of condition.conditions) assertProfileTree(child, owner);
+      break;
+    case 'not':
+      assertProfileTree(condition.condition, owner);
+      break;
+    case 'performed':
+      if (condition.where !== undefined) assertWhereTree(condition.where, owner);
+      break;
+    case 'payload':
+      throw new Error(
+        `compileBundle: ${owner} uses a payload predicate outside a where clause — payload refs are only valid inside performed({ where }) or trigger.event({ where })`
+      );
+    default:
+      break; // property / segment
+  }
+}
+
+/** A where tree: payload predicates and combinators only — no profile facts in event scope. */
+function assertWhereTree(condition: ConditionIR, owner: string): void {
+  switch (condition.type) {
+    case 'and':
+    case 'or':
+      for (const child of condition.conditions) assertWhereTree(child, owner);
+      break;
+    case 'not':
+      assertWhereTree(condition.condition, owner);
+      break;
+    case 'payload':
+      break;
+    default:
+      throw new Error(
+        `compileBundle: ${owner} where clause may only contain payload predicates and and/or/not, found '${condition.type}'`
+      );
+  }
+}
+
+function assertNodeTrees(nodes: readonly NodeIR[], owner: string): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'wait_until':
+        assertProfileTree(node.condition, owner);
+        if (Array.isArray(node.onTimeout)) assertNodeTrees(node.onTimeout, owner);
+        break;
+      case 'branch':
+        for (const branchCase of node.cases) {
+          assertProfileTree(branchCase.condition, owner);
+          assertNodeTrees(branchCase.flow, owner);
+        }
+        if (node.otherwise) assertNodeTrees(node.otherwise, owner);
+        break;
+      case 'filter':
+        assertProfileTree(node.condition, owner);
+        break;
+      case 'cohort':
+        for (const arm of node.arms) assertNodeTrees(arm.flow, owner);
         break;
       default:
         break;

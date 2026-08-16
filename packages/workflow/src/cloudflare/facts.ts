@@ -1,3 +1,4 @@
+import { matchesWhere } from '../engine/condition';
 import type { FactSource } from '../engine/ports';
 import { ConditionIR, type ScalarIR } from '../ir';
 import type { D1DatabaseLike } from './bindings';
@@ -9,7 +10,29 @@ export class D1FactSource implements FactSource {
     private readonly userId: string
   ) {}
 
-  async countEvents(event: string, sinceMs?: number): Promise<number> {
+  async countEvents(
+    event: string,
+    opts?: { sinceMs?: number; where?: ConditionIR }
+  ): Promise<number> {
+    const sinceMs = opts?.sinceMs;
+    const where = opts?.where;
+
+    if (where !== undefined) {
+      // Payload filtering happens in JS via the shared evaluator — one set of
+      // where semantics with the in-memory FactSource, per-user row counts are small
+      const { results } =
+        sinceMs === undefined
+          ? await this.db
+              .prepare('SELECT payload FROM events WHERE user_id = ? AND name = ?')
+              .bind(this.userId, event)
+              .all<{ payload: string }>()
+          : await this.db
+              .prepare('SELECT payload FROM events WHERE user_id = ? AND name = ? AND ts >= ?')
+              .bind(this.userId, event, sinceMs)
+              .all<{ payload: string }>();
+      return results.filter((row) => matchesWhere(JSON.parse(row.payload), where)).length;
+    }
+
     const row =
       sinceMs === undefined
         ? await this.db

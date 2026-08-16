@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { hashToBucket, murmur3 } from '../src/engine/bucket';
 import {
   type EngineStep,
@@ -8,10 +8,11 @@ import {
   PROFILE_UPDATED_EVENT,
   evaluateCondition,
   fillSubject,
+  matchesWhere,
   runJourney,
 } from '../src/engine/index';
 import { nextWindowStart } from '../src/engine/time-window';
-import { compileBundle, eq, performed, trigger, workflow } from '../src/index';
+import { type FlowBuilder, compileBundle, eq, performed, trigger, workflow } from '../src/index';
 import type { ConditionIR, ScalarIR } from '../src/ir';
 import {
   allSegments,
@@ -19,6 +20,7 @@ import {
   e,
   firstTimeRecovery,
   nudge,
+  proTips,
   reengagement,
   u,
   winback,
@@ -62,12 +64,19 @@ const SEGMENT_DEFS: Record<string, ConditionIR> = Object.fromEntries(
 );
 
 class FakeFacts implements FactSource {
-  events: { name: string; ts: number }[] = [];
+  events: { name: string; ts: number; payload?: Record<string, unknown> }[] = [];
   props: Record<string, ScalarIR> = {};
 
-  async countEvents(event: string, sinceMs?: number): Promise<number> {
-    return this.events.filter((e) => e.name === event && (sinceMs === undefined || e.ts >= sinceMs))
-      .length;
+  async countEvents(
+    event: string,
+    opts?: { sinceMs?: number; where?: ConditionIR }
+  ): Promise<number> {
+    return this.events.filter(
+      (e) =>
+        e.name === event &&
+        (opts?.sinceMs === undefined || e.ts >= opts.sinceMs) &&
+        (opts?.where === undefined || matchesWhere(e.payload ?? {}, opts.where))
+    ).length;
   }
   async getProperty(path: string): Promise<ScalarIR | undefined> {
     return this.props[path];
@@ -271,7 +280,8 @@ describe('waitUntil subscriptions', () => {
 
     await runJourney(waiter.toIR(), ctx);
 
-    const subscribeAt = step.stepNames.indexOf('0:subscribe');
+    // Re-armed per attempt (one subscribe = one wake-up), always before the check
+    const subscribeAt = step.stepNames.indexOf('0:subscribe:0');
     const firstCheckAt = step.stepNames.indexOf('0:check:0');
     expect(subscribeAt).toBeGreaterThanOrEqual(0);
     expect(subscribeAt).toBeLessThan(firstCheckAt);
@@ -304,6 +314,215 @@ describe('goal attribution window (goal.within)', () => {
 
     expect(outcome).toEqual({ status: 'completed' });
     expect(sent).toHaveLength(1);
+  });
+});
+
+describe('performed anchoring', () => {
+  test('goal ignores events from before workflow entry', async () => {
+    const wf = workflow('anchor_goal', {
+      trigger: trigger.event(e.begin_checkout),
+      goal: performed(e.purchase),
+    }).email(firstTimeRecovery);
+    const { ctx, facts, sent } = makeContext();
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs - 60_000 });
+
+    const outcome = await runJourney(wf.toIR(), ctx);
+
+    // the pre-entry purchase is not a conversion of this journey
+    expect(outcome).toEqual({ status: 'completed' });
+    expect(sent).toHaveLength(1);
+  });
+
+  test('goal counts events after entry', async () => {
+    const wf = workflow('anchor_goal', {
+      trigger: trigger.event(e.begin_checkout),
+      goal: performed(e.purchase),
+    }).email(firstTimeRecovery);
+    const { ctx, facts, sent } = makeContext();
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs + 1 });
+
+    const outcome = await runJourney(wf.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'goal' });
+    expect(sent).toHaveLength(0);
+  });
+
+  test('waitUntil ignores events from before the wait began', async () => {
+    const wf = workflow('anchor_wait', { trigger: trigger.event(e.sign_up) }).waitUntil(
+      performed(e.login),
+      { timeout: '1 hour', onTimeout: 'exit' }
+    );
+    const { ctx, facts } = makeContext();
+    facts.events.push({ name: 'login', ts: Date.now() - 60_000 });
+
+    const outcome = await runJourney(wf.toIR(), ctx);
+
+    // the pre-existing login does not satisfy the wait; the timeout path exits
+    expect(outcome).toEqual({ status: 'exited', reason: '0:timeout' });
+  });
+});
+
+describe('payload where clauses', () => {
+  test('matchesWhere: nested paths, combinators, existence, comparisons', () => {
+    const where: ConditionIR = {
+      type: 'and',
+      conditions: [
+        { type: 'payload', path: 'platform', op: 'eq', value: 'web' },
+        { type: 'payload', path: 'tags.utm_source', op: 'eq', value: 'meta' },
+      ],
+    };
+    expect(matchesWhere({ platform: 'web', tags: { utm_source: 'meta' } }, where)).toBe(true);
+    expect(matchesWhere({ platform: 'ios', tags: { utm_source: 'meta' } }, where)).toBe(false);
+    expect(matchesWhere({ platform: 'web' }, where)).toBe(false);
+
+    expect(matchesWhere({}, { type: 'payload', path: 'tags', op: 'exists' })).toBe(false);
+    expect(matchesWhere({ tags: {} }, { type: 'payload', path: 'tags', op: 'exists' })).toBe(true);
+    expect(
+      matchesWhere({ value: 50 }, { type: 'payload', path: 'value', op: 'gt', value: 30 })
+    ).toBe(true);
+    expect(
+      matchesWhere(
+        { platform: 'ios' },
+        { type: 'not', condition: { type: 'payload', path: 'platform', op: 'eq', value: 'web' } }
+      )
+    ).toBe(true);
+  });
+
+  test('performed({ where }) counts only matching events', async () => {
+    const facts = new FakeFacts();
+    facts.events.push(
+      { name: 'sign_up', ts: 1, payload: { method: 'email' } },
+      { name: 'sign_up', ts: 2, payload: { method: 'google' } }
+    );
+    const googleSignup: ConditionIR = {
+      type: 'performed',
+      event: 'sign_up',
+      where: { type: 'payload', path: 'method', op: 'eq', value: 'google' },
+    };
+
+    await expect(evaluateCondition(googleSignup, facts, 10)).resolves.toBe(true);
+    await expect(evaluateCondition({ ...googleSignup, count: 2 }, facts, 10)).resolves.toBe(false);
+  });
+});
+
+describe('guards run at entry and suspension points only', () => {
+  test('synchronous nodes get no per-node guard', async () => {
+    const wf = workflow('guarded', {
+      trigger: trigger.event(e.sign_up),
+      goal: performed(e.purchase),
+    })
+      .email(firstTimeRecovery)
+      .delay('1 hour')
+      .email(proTips);
+    const { ctx, step } = makeContext();
+
+    await runJourney(wf.toIR(), ctx);
+
+    const guards = step.stepNames.filter((name) => name.endsWith(':guard'));
+    expect(guards).toEqual(['entry:guard', '1:guard']);
+  });
+});
+
+describe('cohort experiment key', () => {
+  const couponArm = {
+    control: { weight: 50 },
+    coupon: { weight: 50, flow: (x: FlowBuilder) => x.email(proTips) },
+  };
+
+  const armOf = async (builder: ReturnType<typeof workflow>, userId: string) => {
+    const { ctx, sent } = makeContext();
+    ctx.userId = userId;
+    await runJourney(builder.toIR(), ctx);
+    return sent.some((m) => m.template === 'pro_tips');
+  };
+
+  test('with a key, assignment survives node position changes', async () => {
+    const atHead = workflow('ab_head', { trigger: trigger.event(e.sign_up) }).cohort(couponArm, {
+      key: 'exp1',
+    });
+    const shifted = workflow('ab_shifted', { trigger: trigger.event(e.sign_up) })
+      .email(firstTimeRecovery)
+      .cohort(couponArm, { key: 'exp1' });
+
+    for (let i = 0; i < 25; i++) {
+      expect(await armOf(atHead, `user_${i}`)).toBe(await armOf(shifted, `user_${i}`));
+    }
+  });
+
+  test('without a key, position shifts reshuffle assignments (the reason key exists)', async () => {
+    const atHead = workflow('ab_head', { trigger: trigger.event(e.sign_up) }).cohort(couponArm);
+    const shifted = workflow('ab_shifted', { trigger: trigger.event(e.sign_up) })
+      .email(firstTimeRecovery)
+      .cohort(couponArm);
+
+    let diverged = 0;
+    for (let i = 0; i < 25; i++) {
+      if ((await armOf(atHead, `user_${i}`)) !== (await armOf(shifted, `user_${i}`))) diverged++;
+    }
+    expect(diverged).toBeGreaterThan(0);
+  });
+});
+
+describe('replay determinism', () => {
+  class RecordingStep extends FakeStep {
+    readonly results = new Map<string, unknown>();
+    readonly wakeOutcomes: ('event' | 'timeout')[] = [];
+
+    override async do<T>(name: string, fn: () => Promise<T>): Promise<T> {
+      this.stepNames.push(name);
+      const result = await fn();
+      this.results.set(name, result);
+      return result;
+    }
+    override async waitForWake(): Promise<'event' | 'timeout'> {
+      const outcome = this.wakeScript.shift() ?? 'timeout';
+      this.wakeOutcomes.push(outcome);
+      return outcome;
+    }
+  }
+
+  class ReplayStep extends FakeStep {
+    constructor(
+      private readonly results: Map<string, unknown>,
+      wakes: ('event' | 'timeout')[]
+    ) {
+      super();
+      this.wakeScript = [...wakes];
+    }
+    override async do<T>(name: string, _fn: () => Promise<T>): Promise<T> {
+      this.stepNames.push(name);
+      if (!this.results.has(name)) {
+        throw new Error(`replay requested unrecorded step '${name}' — step sequence diverged`);
+      }
+      return this.results.get(name) as T;
+    }
+  }
+
+  test('replaying cached step results a month later yields the identical step sequence', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-08-16T00:00:00Z') });
+    try {
+      const ir = reengagement.toIR();
+
+      const recordingStep = new RecordingStep();
+      recordingStep.wakeScript = ['event'];
+      const first = makeContext();
+      first.ctx.step = recordingStep;
+      const firstOutcome = await runJourney(ir, first.ctx);
+
+      // Replay far in the future: any control flow leaking uncheckpointed
+      // wall-clock time would take a different branch and diverge.
+      vi.setSystemTime(new Date('2026-09-16T00:00:00Z'));
+      const replayStep = new ReplayStep(recordingStep.results, recordingStep.wakeOutcomes);
+      const second = makeContext();
+      second.ctx.step = replayStep;
+      second.ctx.enteredAtMs = first.ctx.enteredAtMs;
+      const secondOutcome = await runJourney(ir, second.ctx);
+
+      expect(replayStep.stepNames).toEqual(recordingStep.stepNames);
+      expect(secondOutcome).toEqual(firstOutcome);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

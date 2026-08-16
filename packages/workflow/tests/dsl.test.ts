@@ -6,6 +6,7 @@ import {
   contains,
   emailSubject,
   eq,
+  event,
   exists,
   type flow,
   gt,
@@ -89,6 +90,40 @@ describe('predicates compile to condition IR', () => {
     expect(conditionOf(notContains(u.email, '+spam'))).toMatchObject({ op: 'not_contains' });
   });
 
+  test('performed where compiles payload predicates with dotted paths', () => {
+    expect(
+      conditionOf(performed(e.sign_up, { where: (p) => eq(p.method, 'google'), within: '7 days' }))
+    ).toEqual({
+      type: 'performed',
+      event: 'sign_up',
+      where: { type: 'payload', path: 'method', op: 'eq', value: 'google' },
+      within: { value: '7 days', ms: 604_800_000 },
+    });
+
+    // nested payload objects become dotted paths, combinators nest as usual
+    interface DeepEvent {
+      login: { platform: 'web' | 'ios'; tags: { utm_source: string } };
+    }
+    const de = event<DeepEvent>();
+    expect(
+      conditionOf(
+        performed(de.login, {
+          where: (p) => and(eq(p.platform, 'web'), eq(p.tags.utm_source, 'meta')),
+        })
+      )
+    ).toEqual({
+      type: 'performed',
+      event: 'login',
+      where: {
+        type: 'and',
+        conditions: [
+          { type: 'payload', path: 'platform', op: 'eq', value: 'web' },
+          { type: 'payload', path: 'tags.utm_source', op: 'eq', value: 'meta' },
+        ],
+      },
+    });
+  });
+
   test('performed carries window and count', () => {
     expect(conditionOf(performed(e.purchase, { within: '30 days', count: 2 }))).toEqual({
       type: 'performed',
@@ -153,6 +188,18 @@ describe('triggers', () => {
     });
   });
 
+  test('event trigger with a payload where gate', () => {
+    expect(
+      workflow('w', {
+        trigger: trigger.event(e.sign_up, { where: (p) => eq(p.method, 'google') }),
+      }).toIR().trigger
+    ).toEqual({
+      type: 'event',
+      event: 'sign_up',
+      where: { type: 'payload', path: 'method', op: 'eq', value: 'google' },
+    });
+  });
+
   test('segment, date and webhook triggers', () => {
     expect(workflow('a', { trigger: trigger.segment(purchaser) }).toIR().trigger).toEqual({
       type: 'segment',
@@ -186,6 +233,12 @@ describe('flow nodes', () => {
       between: ['09:00', '17:00'],
       tz: 'user',
     });
+  });
+
+  test('cohort compiles the explicit experiment key', () => {
+    expect(
+      nodeOf((w) => w.cohort({ a: { weight: 50 }, b: { weight: 50 } }, { key: 'exp_coupon' }))
+    ).toMatchObject({ type: 'cohort', key: 'exp_coupon' });
   });
 
   test('waitUntil defaults onTimeout to continue', () => {

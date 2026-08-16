@@ -108,8 +108,14 @@ export interface FlowBuilder {
    */
   filter(condition: Condition, opts?: { reason?: string }): this;
 
-  /** Random Cohort Branch (A/B): weights must sum to 100 (checked at runtime). */
-  cohort(arms: Record<string, { weight: number; flow?: SubFlow }>): this;
+  /**
+   * Random Cohort Branch (A/B): weights must sum to 100 (checked at runtime).
+   * `key` names the experiment: bucketing hashes `userId:key` instead of the
+   * structural node id, so assignments survive node insertion/moves and the
+   * experiment keeps one identity across workflow versions — set it for any
+   * A/B whose results you intend to read.
+   */
+  cohort(arms: Record<string, { weight: number; flow?: SubFlow }>, opts?: { key?: string }): this;
 
   /**
    * Exit: end the whole workflow immediately (the UI's Exit node); `reason`
@@ -302,7 +308,7 @@ export class FlowBuilderImpl implements FlowBuilder {
     );
   }
 
-  cohort(arms: Record<string, { weight: number; flow?: SubFlow }>): this {
+  cohort(arms: Record<string, { weight: number; flow?: SubFlow }>, opts?: { key?: string }): this {
     const loc = captureLoc(this.cohort);
     const entries = Object.entries(arms);
     const total = entries.reduce((sum, [, a]) => sum + a.weight, 0);
@@ -314,6 +320,7 @@ export class FlowBuilderImpl implements FlowBuilder {
       {
         id: '',
         type: 'cohort',
+        ...(opts?.key !== undefined ? { key: opts.key } : {}),
         arms: entries.map(([name, a]) => ({
           name,
           weight: a.weight,

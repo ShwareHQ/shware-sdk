@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { type Duration, compileBundle, flow, template, trigger, workflow } from '../src/index';
+import {
+  type Duration,
+  compileBundle,
+  eq,
+  flow,
+  performed,
+  template,
+  trigger,
+  workflow,
+} from '../src/index';
 import { WorkflowIR } from '../src/ir';
 import {
   activeSubscriber,
@@ -142,4 +151,38 @@ describe('compileBundle guards', () => {
     const b = template.sms('offer');
     expect(() => compileBundle({ workflows: [], templates: [a, b] })).toThrow(/duplicate template/);
   });
+
+  test('a payload predicate outside a where clause fails to compile', () => {
+    // Both ref kinds produce Condition, so this type-checks — the bundle catches it
+    const leaked = workflow('leaked', { trigger: trigger.event(e.sign_up) }).filter(
+      performed(e.sign_up, { where: (p) => eq(p.method, 'google') }) // fine
+    );
+    expect(() => compileBundle({ workflows: [leaked] })).not.toThrow();
+
+    const escaped = workflow('escaped', {
+      trigger: trigger.event(e.sign_up),
+    }).filter(payloadPredicateOutsideWhere());
+    expect(() => compileBundle({ workflows: [escaped] })).toThrow(/outside a where clause/);
+  });
+
+  test('a where clause may not contain profile facts', () => {
+    const wf = workflow('bad_where', {
+      // the callback's return type is just Condition, so a profile predicate type-checks
+      trigger: trigger.event(e.sign_up, { where: () => performed(e.purchase) }),
+    });
+    expect(() => compileBundle({ workflows: [wf] })).toThrow(/where clause may only contain/);
+  });
 });
+
+/** A payload predicate smuggled into profile context — representable (both ref kinds produce Condition), so the compiler must reject it. */
+function payloadPredicateOutsideWhere() {
+  let captured: ReturnType<typeof eq> | undefined;
+  trigger.event(e.sign_up, {
+    where: (p) => {
+      captured = eq(p.method, 'google');
+      return captured;
+    },
+  });
+  if (captured === undefined) throw new Error('where callback did not run');
+  return captured;
+}

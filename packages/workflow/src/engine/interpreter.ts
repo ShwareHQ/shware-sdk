@@ -14,13 +14,19 @@ import { nextWindowStart } from './time-window';
  * Step naming: an IR node id *is* the step name (derived from the structural
  * path, so it is deterministic and unique). When one node needs several steps,
  * a suffix is appended (`${id}:guard`, `${id}:check:${n}`).
+ *
+ * Guard semantics: goal / exitWhen are checked at journey entry and after
+ * every suspension point (delay / random_delay / time_window / wait_until) —
+ * the moments where wall-clock time passed and the user's state may have
+ * moved. Between two synchronous nodes no meaningful time passes, so checking
+ * there would only burn step budget (each checkpoint costs a state write).
  */
 
 /**
  * Cap on wait_until re-evaluations: beyond it we treat the wait as timed out,
  * so a wake-up storm cannot exhaust the platform's step budget. Each loop
- * iteration costs three steps, so 64 checks stay well inside Cloudflare's
- * 1024-step limit while absorbing far more wake churn than 16 did.
+ * iteration costs a handful of steps, so 64 checks stay well inside the
+ * platform step budgets while absorbing far more wake churn than 16 did.
  */
 const MAX_WAIT_CHECKS = 64;
 
@@ -51,7 +57,8 @@ type FlowSignal =
 const FALL_THROUGH: FlowSignal = { kind: 'fall_through' };
 
 export async function runJourney(ir: WorkflowIR, ctx: JourneyContext): Promise<JourneyOutcome> {
-  const signal = await runFlow(ir.flow, ir, ctx);
+  const entry = await checkGuards('entry', ir, ctx);
+  const signal = entry ?? (await runFlow(ir.flow, ir, ctx));
   switch (signal.kind) {
     case 'fall_through':
       return { status: 'completed' };
@@ -68,18 +75,22 @@ export async function runJourney(ir: WorkflowIR, ctx: JourneyContext): Promise<J
 
 async function runFlow(nodes: NodeIR[], ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSignal> {
   for (const node of nodes) {
-    // Node-boundary guards: goal / exitWhen (MVP semantics — checked after waking, before running)
-    const guard = await checkGuards(node.id, ir, ctx);
-    if (guard) return guard;
-
     const signal = await runNode(node, ir, ctx);
     if (signal.kind !== 'fall_through') return signal;
   }
   return FALL_THROUGH;
 }
 
+/**
+ * Goal / exitWhen guards (see the header for when they run).
+ *
+ * The goal condition is anchored at workflow entry: a `performed` inside it
+ * only counts events after the user entered, so pre-existing history cannot
+ * register as a conversion. exitWhen is deliberately unanchored — "user
+ * unsubscribed" should exit no matter when it happened.
+ */
 async function checkGuards(
-  nodeId: string,
+  stepId: string,
   ir: WorkflowIR,
   ctx: JourneyContext
 ): Promise<FlowSignal | null> {
@@ -87,12 +98,14 @@ async function checkGuards(
   const exitWhen = ir.exitWhen;
   if (goal === undefined && exitWhen === undefined) return null;
 
-  const result = await ctx.step.do(`${nodeId}:guard`, async () => {
+  const result = await ctx.step.do(`${stepId}:guard`, async () => {
     const now = Date.now();
     // Attribution window: past goal.within (measured from entry) a match no longer counts as a conversion
     const goalActive =
       goal !== undefined && (goal.within === undefined || now - ctx.enteredAtMs <= goal.within.ms);
-    const goalMet = goalActive && (await evaluateCondition(goal.condition, ctx.facts, now));
+    const goalMet =
+      goalActive &&
+      (await evaluateCondition(goal.condition, ctx.facts, now, { anchorMs: ctx.enteredAtMs }));
     const exitMet = exitWhen !== undefined && (await evaluateCondition(exitWhen, ctx.facts, now));
     return { goalMet, exitMet };
   });
@@ -124,7 +137,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
 
     case 'delay': {
       await ctx.step.sleep(node.id, node.duration.ms);
-      return FALL_THROUGH;
+      return (await checkGuards(node.id, ir, ctx)) ?? FALL_THROUGH;
     }
 
     case 'random_delay': {
@@ -134,7 +147,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         return node.min.ms + Math.floor(Math.random() * Math.max(span, 0));
       });
       await ctx.step.sleep(`${node.id}:sleep`, ms);
-      return FALL_THROUGH;
+      return (await checkGuards(node.id, ir, ctx)) ?? FALL_THROUGH;
     }
 
     case 'time_window': {
@@ -145,12 +158,16 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             : node.tz;
         return nextWindowStart(Date.now(), node.days, node.between, tz);
       });
-      if (target !== null) await ctx.step.sleepUntil(`${node.id}:sleep`, target);
-      return FALL_THROUGH;
+      if (target === null) return FALL_THROUGH; // already inside the window: no suspension, no guard
+      await ctx.step.sleepUntil(`${node.id}:sleep`, target);
+      return (await checkGuards(node.id, ir, ctx)) ?? FALL_THROUGH;
     }
 
     case 'wait_until': {
       const met = await waitUntil(node, ctx);
+      // Time passed while waiting — guard before acting on the outcome (goal wins over the wait result)
+      const guard = await checkGuards(node.id, ir, ctx);
+      if (guard) return guard;
       if (met) return FALL_THROUGH;
       const onTimeout = node.onTimeout;
       if (onTimeout === 'continue') return FALL_THROUGH;
@@ -183,8 +200,10 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     }
 
     case 'cohort': {
-      // Deterministic bucketing: the same user always lands in the same arm at the same node, so replay needs no checkpoint
-      const bucket = hashToBucket(`${ctx.userId}:${node.id}`);
+      // Deterministic bucketing, so replay needs no checkpoint. The explicit
+      // experiment key (when set) keeps the assignment stable across workflow
+      // versions; the structural id fallback is fine for one-off splits.
+      const bucket = hashToBucket(`${ctx.userId}:${node.key ?? node.id}`);
       let cumulative = 0;
       for (const arm of node.arms) {
         cumulative += arm.weight;
@@ -217,11 +236,7 @@ async function waitUntil(
   const events = await ctx.step.do(`${node.id}:events`, async () =>
     relevantEvents(node.condition, ctx.facts)
   );
-
-  // Subscribe before the first check: an event landing between the check and
-  // the registration would otherwise go unseen until the timeout.
-  await ctx.step.subscribe(`${node.id}:subscribe`, events);
-  const met = await waitLoop(node, ctx, deadline);
+  const met = await waitLoop(node, ctx, deadline, events);
   await ctx.step.unsubscribe(`${node.id}:unsubscribe`);
   return met;
 }
@@ -229,11 +244,24 @@ async function waitUntil(
 async function waitLoop(
   node: Extract<NodeIR, { type: 'wait_until' }>,
   ctx: JourneyContext,
-  deadline: number
+  deadline: number,
+  events: string[]
 ): Promise<boolean> {
+  // Anchor at the moment the wait began (deadline is checkpointed, so this is
+  // replay-stable): `performed` inside the condition only counts events that
+  // happen during the wait — pre-existing history must not satisfy it.
+  const anchorMs = deadline - node.timeout.ms;
+
   for (let attempt = 0; attempt < MAX_WAIT_CHECKS; attempt++) {
+    // Subscribe before the check, every attempt: one subscribe arms at least
+    // one wake-up (AWS callbacks are consumed on delivery, so each attempt
+    // needs a fresh arm; Cloudflare rows make the repeat call idempotent), and
+    // arming first closes the race where the event lands between the check and
+    // the registration.
+    await ctx.step.subscribe(`${node.id}:subscribe:${attempt}`, events);
+
     const met = await ctx.step.do(`${node.id}:check:${attempt}`, async () =>
-      evaluateCondition(node.condition, ctx.facts, Date.now())
+      evaluateCondition(node.condition, ctx.facts, Date.now(), { anchorMs })
     );
     if (met) return true;
 
@@ -250,7 +278,7 @@ async function waitLoop(
     if (wake === 'timeout') {
       // Final check after timeout: in a tight race the event may land exactly as the timer fires
       return ctx.step.do(`${node.id}:final`, async () =>
-        evaluateCondition(node.condition, ctx.facts, Date.now())
+        evaluateCondition(node.condition, ctx.facts, Date.now(), { anchorMs })
       );
     }
     // Woken → back to the top of the loop to re-evaluate (at-least-once wake-up semantics)
