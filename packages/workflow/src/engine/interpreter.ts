@@ -1,4 +1,5 @@
 import type { NodeIR, PropValueIR, ScalarIR, WorkflowIR } from '../ir';
+import { hashToBucket } from './bucket';
 import { evaluateCondition, relevantEvents } from './condition';
 import type { FactSource, JourneyContext, JourneyOutcome } from './ports';
 
@@ -235,16 +236,6 @@ async function resolveValues(
     resolved[key] = typeof value === 'object' ? await facts.getProperty(value.path) : value;
   }
   return resolved;
-}
-
-/** FNV-1a 32 → [0, 100): cohort bucketing. */
-function hashToBucket(input: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash % 100;
 }
 
 /**
