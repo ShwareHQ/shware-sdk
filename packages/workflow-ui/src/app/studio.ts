@@ -8,6 +8,17 @@ import { PENDING_TOAST_KEY, raisePendingToast } from './integrations/toast/pendi
  * survive that (see pending.ts).
  */
 
+/** Read side: query params in, JSON out. Used to resolve source positions before offering an edit. */
+export async function studioGet<T>(path: string, params: Record<string, unknown>): Promise<T> {
+  const query = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)])
+  );
+  const response = await fetch(`${path}?${query.toString()}`);
+  const payload = (await response.json()) as T & { error?: string };
+  if (!response.ok) throw new Error(payload.error ?? `${response.status} ${response.statusText}`);
+  return payload;
+}
+
 export async function studioPost(path: string, body: Record<string, unknown>): Promise<void> {
   const response = await fetch(path, {
     method: 'POST',
