@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { hashToBucket, murmur3 } from '../src/engine/bucket';
 import {
   type EngineStep,
   type FactSource,
@@ -223,6 +224,46 @@ describe('step naming', () => {
     expect(step.stepNames).toContain('0:guard');
     expect(step.stepNames).toContain('1:eval');
     expect(step.stepNames).toContain('1.o.0:send');
+  });
+});
+
+describe('murmur3 bucketing', () => {
+  /*
+   * Known-answer vectors for MurmurHash3 x86 32-bit, seed 0 — shared across
+   * reference implementations. The bucket function is a permanent contract
+   * (changing it reshuffles every in-flight cohort), so these pin the
+   * implementation, not just its behaviour.
+   */
+  test('matches the reference vectors (seed 0)', () => {
+    const utf8 = new TextEncoder();
+    expect(murmur3(utf8.encode(''))).toBe(0);
+    expect(murmur3(utf8.encode('a'))).toBe(0x3c2569b2);
+    expect(murmur3(utf8.encode('abc'))).toBe(0xb3dd93fa);
+    expect(murmur3(utf8.encode('hello'))).toBe(0x248bfa47);
+    expect(murmur3(utf8.encode('The quick brown fox jumps over the lazy dog'))).toBe(0x2e4ff723);
+  });
+
+  test('a custom seed changes the hash', () => {
+    const bytes = new TextEncoder().encode('hello');
+    expect(murmur3(bytes, 1)).not.toBe(murmur3(bytes, 0));
+  });
+
+  test('buckets are stable, in range, and use every remainder length', () => {
+    // Keys of length % 4 = 0..3 exercise all tail branches
+    for (const key of ['u_12:3', 'u_123:3', 'u_1:3', 'u_12345:3.c0.1']) {
+      const bucket = hashToBucket(key);
+      expect(bucket).toBeGreaterThanOrEqual(0);
+      expect(bucket).toBeLessThan(100);
+      expect(hashToBucket(key)).toBe(bucket);
+    }
+  });
+
+  test('sequential user ids spread across buckets', () => {
+    const buckets = new Set(
+      Array.from({ length: 200 }, (_, i) => hashToBucket(`user_${i}:node_3`))
+    );
+    // 200 sequential keys over 100 buckets: a heavily biased hash would collapse this
+    expect(buckets.size).toBeGreaterThan(60);
   });
 });
 
