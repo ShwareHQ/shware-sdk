@@ -51,6 +51,13 @@ export const ScalarIR = z.union([z.string(), z.number(), z.boolean()]);
 export type ScalarIR = z.infer<typeof ScalarIR>;
 
 /** Duration: `value` keeps the DSL literal ('23 hours', for display), `ms` is what the engine uses. */
+/*
+ * TODO: `value` is hashed alongside `ms`, so '7 days' / '1 week' / '168 hours'
+ * — identical to the engine, which only reads ms — produce three different
+ * contentHashes. Rewording a duration therefore reports as a semantic change in
+ * plan and repins in-flight users. Moving `value` out of the hash (it is a
+ * display string) would fix it; deferred because it changes existing hashes.
+ */
 export const DurationIR = z.object({ value: z.string(), ms: z.number() });
 export type DurationIR = z.infer<typeof DurationIR>;
 
@@ -70,6 +77,27 @@ export type ChannelIR = z.infer<typeof ChannelIR>;
 
 export const WeekdayIR = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 export type WeekdayIR = z.infer<typeof WeekdayIR>;
+
+/* --------------------------------- Provenance -------------------------------- */
+
+/**
+ * Source location of the builder call that produced a definition — the IR's
+ * source map. Lives under `meta`, so it is **excluded from contentHash**
+ * (see hash.ts): provenance never affects execution identity or plan.
+ * `file` is cwd-relative when compiled under Node, a URL under Vite dev.
+ */
+export const SourceLocIR = z.object({
+  file: z.string(),
+  line: z.number(),
+  column: z.number(),
+});
+export type SourceLocIR = z.infer<typeof SourceLocIR>;
+
+/** Node-level metadata: provenance only, for now. Excluded from contentHash. */
+export const NodeMetaIR = z.object({
+  loc: z.optional(SourceLocIR),
+});
+export type NodeMetaIR = z.infer<typeof NodeMetaIR>;
 
 /* -------------------------------- Conditions -------------------------------- */
 
@@ -102,43 +130,55 @@ export type PropertyOperatorIR = z.infer<typeof PropertyOperatorIR>;
  * compiler (compileBundle) and the evaluator both enforce the placement.
  * TODO: runtime refinement narrowing by op.
  */
+/**
+ * Provenance rides on conditions too, so the studio can point at the exact
+ * `eq(...)` / `and(...)` that produced a node — same rule as nodes: `meta` is
+ * dropped before hashing, so carrying it never affects execution identity.
+ */
+interface ConditionBaseIR {
+  meta?: NodeMetaIR | undefined;
+}
+
 export type ConditionIR =
-  | { type: 'and'; conditions: ConditionIR[] }
-  | { type: 'or'; conditions: ConditionIR[] }
-  | { type: 'not'; condition: ConditionIR }
+  | (ConditionBaseIR & { type: 'and'; conditions: ConditionIR[] })
+  | (ConditionBaseIR & { type: 'or'; conditions: ConditionIR[] })
+  | (ConditionBaseIR & { type: 'not'; condition: ConditionIR })
   /** Reference a named segment by name (defined in SegmentIR, versioned separately). */
-  | { type: 'segment'; segment: string }
-  | {
+  | (ConditionBaseIR & { type: 'segment'; segment: string })
+  | (ConditionBaseIR & {
       type: 'property';
       path: string;
       op: PropertyOperatorIR;
       value?: ScalarIR | undefined;
       values?: ScalarIR[] | undefined;
-    }
-  | {
+    })
+  | (ConditionBaseIR & {
       /** Event payload predicate; `path` is dotted for nested fields ('tags.utm_source'). */
       type: 'payload';
       path: string;
       op: PropertyOperatorIR;
       value?: ScalarIR | undefined;
       values?: ScalarIR[] | undefined;
-    }
-  | {
+    })
+  | (ConditionBaseIR & {
       type: 'performed';
       event: string;
       /** Payload filter: only events matching it count (a payload-only subtree). */
       where?: ConditionIR | undefined;
       within?: DurationIR | undefined;
       count?: number | undefined;
-    };
+    });
+
+const conditionBase = { meta: z.optional(NodeMetaIR) };
 
 export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
   z.discriminatedUnion('type', [
-    z.object({ type: z.literal('and'), conditions: z.array(ConditionIR) }),
-    z.object({ type: z.literal('or'), conditions: z.array(ConditionIR) }),
-    z.object({ type: z.literal('not'), condition: ConditionIR }),
-    z.object({ type: z.literal('segment'), segment: z.string() }),
+    z.object({ ...conditionBase, type: z.literal('and'), conditions: z.array(ConditionIR) }),
+    z.object({ ...conditionBase, type: z.literal('or'), conditions: z.array(ConditionIR) }),
+    z.object({ ...conditionBase, type: z.literal('not'), condition: ConditionIR }),
+    z.object({ ...conditionBase, type: z.literal('segment'), segment: z.string() }),
     z.object({
+      ...conditionBase,
       type: z.literal('property'),
       path: z.string(),
       op: PropertyOperatorIR,
@@ -146,6 +186,7 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
       values: z.optional(z.array(ScalarIR)),
     }),
     z.object({
+      ...conditionBase,
       type: z.literal('payload'),
       path: z.string(),
       op: PropertyOperatorIR,
@@ -153,6 +194,7 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
       values: z.optional(z.array(ScalarIR)),
     }),
     z.object({
+      ...conditionBase,
       type: z.literal('performed'),
       event: z.string(),
       where: z.optional(ConditionIR),
@@ -181,27 +223,6 @@ export const TriggerIR = z.discriminatedUnion('type', [
   z.object({ type: z.literal('webhook') }),
 ]);
 export type TriggerIR = z.infer<typeof TriggerIR>;
-
-/* --------------------------------- Provenance -------------------------------- */
-
-/**
- * Source location of the builder call that produced a definition — the IR's
- * source map. Lives under `meta`, so it is **excluded from contentHash**
- * (see hash.ts): provenance never affects execution identity or plan.
- * `file` is cwd-relative when compiled under Node, a URL under Vite dev.
- */
-export const SourceLocIR = z.object({
-  file: z.string(),
-  line: z.number(),
-  column: z.number(),
-});
-export type SourceLocIR = z.infer<typeof SourceLocIR>;
-
-/** Node-level metadata: provenance only, for now. Excluded from contentHash. */
-export const NodeMetaIR = z.object({
-  loc: z.optional(SourceLocIR),
-});
-export type NodeMetaIR = z.infer<typeof NodeMetaIR>;
 
 /* ----------------------------------- Nodes ---------------------------------- */
 
@@ -333,6 +354,13 @@ export type GoalIR = z.infer<typeof GoalIR>;
  * invalidates the version in-flight users are pinned to, nor shows up in plan.
  */
 export const MetaIR = z.object({
+  /**
+   * Human label. The asset's `name` above is its identity — a wire key that
+   * routing tables and the entry ledger are built on — so it is not something
+   * to rename for readability. This is: it is metadata, dropped before hashing,
+   * and the studio shows it in place of the key wherever it is set.
+   */
+  name: z.optional(z.string()),
   description: z.optional(z.string()),
   tags: z.optional(z.array(z.string())),
   owner: z.optional(z.string()),
@@ -354,9 +382,11 @@ export type WorkflowIR = z.infer<typeof WorkflowIR>;
 
 export const SegmentIR = z.object({
   irVersion: z.literal(IR_VERSION),
+  /** Wire identity: by-name references and the membership store are keyed on it. */
   name: z.string(),
   contentHash: z.string(),
-  meta: z.optional(NodeMetaIR),
+  /** Provenance plus the human label — MetaIR, same as a workflow's. */
+  meta: z.optional(MetaIR),
   condition: ConditionIR,
 });
 export type SegmentIR = z.infer<typeof SegmentIR>;

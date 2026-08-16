@@ -23,14 +23,20 @@ export function compileBundle(input: {
   templates?: readonly TemplateRef[];
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
-    const { name, definition, loc } = segment as SegmentInternal;
+    const { name, definition, loc, meta } = segment as SegmentInternal;
     const compiled: SegmentIR = {
       irVersion: IR_VERSION,
       name,
+      // Labels and provenance both live in meta, which stripMeta drops before hashing
       contentHash: semanticHash(definition),
       condition: definition,
     };
-    if (loc !== undefined) compiled.meta = { loc };
+    const merged = {
+      ...(meta?.name !== undefined ? { name: meta.name } : {}),
+      ...(meta?.description !== undefined ? { description: meta.description } : {}),
+      ...(loc !== undefined ? { loc } : {}),
+    };
+    if (Object.keys(merged).length > 0) compiled.meta = merged;
     return compiled;
   });
 
