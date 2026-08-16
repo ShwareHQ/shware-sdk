@@ -584,12 +584,13 @@ describe('murmur3 bucketing', () => {
     expect(murmur3(bytes, 1)).not.toBe(murmur3(bytes, 0));
   });
 
-  test('buckets are stable, in range, and use every remainder length', () => {
+  test('buckets are stable, on the basis-point grid, and use every remainder length', () => {
     // Keys of length % 4 = 0..3 exercise all tail branches
     for (const key of ['u_12:3', 'u_123:3', 'u_1:3', 'u_12345:3.c0.1']) {
       const bucket = hashToBucket(key);
       expect(bucket).toBeGreaterThanOrEqual(0);
-      expect(bucket).toBeLessThan(100);
+      expect(bucket).toBeLessThan(10_000);
+      expect(Number.isInteger(bucket)).toBe(true);
       expect(hashToBucket(key)).toBe(bucket);
     }
   });
@@ -598,8 +599,30 @@ describe('murmur3 bucketing', () => {
     const buckets = new Set(
       Array.from({ length: 200 }, (_, i) => hashToBucket(`user_${i}:node_3`))
     );
-    // 200 sequential keys over 100 buckets: a heavily biased hash would collapse this
-    expect(buckets.size).toBeGreaterThan(60);
+    // 200 sequential keys over 10,000 buckets: collisions should be rare
+    expect(buckets.size).toBeGreaterThan(180);
+  });
+
+  test('fractional weights are honoured at basis-point precision', async () => {
+    // A 0.5% arm: exactly buckets 0..49 of 10,000 — impossible on a 100-bucket grid
+    const ab = workflow('bp_split', { trigger: trigger.event(e.login) }).cohort(
+      { tiny: { weight: 0.5, flow: (w: FlowBuilder) => w.email(proTips) }, rest: { weight: 99.5 } },
+      { key: 'bp_probe' }
+    );
+    const ir = ab.toIR();
+
+    let tiny = 0;
+    const total = 4000;
+    for (let i = 0; i < total; i++) {
+      const { ctx, sent } = makeContext();
+      ctx.userId = `user_${i}`;
+      await runJourney(ir, ctx);
+      if (sent.length > 0) tiny += 1;
+    }
+    // Expectation 20 of 4000 (0.5%); allow generous sampling noise, but a
+    // 100-bucket quantization would land on 0 or ~40 — both outside this band
+    expect(tiny).toBeGreaterThan(4);
+    expect(tiny).toBeLessThan(60);
   });
 });
 

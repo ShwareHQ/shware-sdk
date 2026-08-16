@@ -204,9 +204,11 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
       // experiment key (when set) keeps the assignment stable across workflow
       // versions; the structural id fallback is fine for one-off splits.
       const bucket = hashToBucket(`${ctx.userId}:${node.key ?? node.id}`);
+      // Integer basis points on both sides (the DSL guarantees weights sit on
+      // the 0.01% grid), so no float ever meets the comparison.
       let cumulative = 0;
       for (const arm of node.arms) {
-        cumulative += arm.weight;
+        cumulative += Math.round(arm.weight * 100);
         if (bucket < cumulative) return runFlow(arm.flow, ir, ctx);
       }
       return FALL_THROUGH;

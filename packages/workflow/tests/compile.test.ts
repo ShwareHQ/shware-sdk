@@ -100,10 +100,22 @@ describe('compile: workflow -> IR', () => {
     );
   });
 
-  test('accepts fractional cohort weights despite float error', () => {
+  test('accepts fractional cohort weights on the 0.01% grid despite float error', () => {
     expect(() =>
       flow((w) => w.cohort({ a: { weight: 33.3 }, b: { weight: 33.3 }, c: { weight: 33.4 } }))
     ).not.toThrow();
+    expect(() =>
+      flow((w) => w.cohort({ a: { weight: 0.05 }, b: { weight: 99.95 } }))
+    ).not.toThrow();
+  });
+
+  test('rejects cohort weights finer than the 0.01% bucketing grid', () => {
+    expect(() =>
+      flow((w) => w.cohort({ a: { weight: 33.333 }, b: { weight: 33.333 }, c: { weight: 33.334 } }))
+    ).toThrow(/finer than the 0.01% bucketing grid/);
+    expect(() => flow((w) => w.cohort({ a: { weight: 0.005 }, b: { weight: 99.995 } }))).toThrow(
+      /finer than the 0.01% bucketing grid/
+    );
   });
 
   test('rejects malformed or inverted time windows at build time', () => {
@@ -155,7 +167,7 @@ describe('compileBundle guards', () => {
   test('a payload predicate outside a where clause fails to compile', () => {
     // Both ref kinds produce Condition, so this type-checks — the bundle catches it
     const leaked = workflow('leaked', { trigger: trigger.event(e.sign_up) }).filter(
-      performed(e.sign_up, { where: (p) => eq(p.method, 'google') }) // fine
+      performed(e.sign_up, (p) => eq(p.method, 'google')) // fine
     );
     expect(() => compileBundle({ workflows: [leaked] })).not.toThrow();
 
@@ -168,7 +180,7 @@ describe('compileBundle guards', () => {
   test('a where clause may not contain profile facts', () => {
     const wf = workflow('bad_where', {
       // the callback's return type is just Condition, so a profile predicate type-checks
-      trigger: trigger.event(e.sign_up, { where: () => performed(e.purchase) }),
+      trigger: trigger.event(e.sign_up, () => performed(e.purchase)),
     });
     expect(() => compileBundle({ workflows: [wf] })).toThrow(/where clause may only contain/);
   });
@@ -177,11 +189,9 @@ describe('compileBundle guards', () => {
 /** A payload predicate smuggled into profile context — representable (both ref kinds produce Condition), so the compiler must reject it. */
 function payloadPredicateOutsideWhere() {
   let captured: ReturnType<typeof eq> | undefined;
-  trigger.event(e.sign_up, {
-    where: (p) => {
-      captured = eq(p.method, 'google');
-      return captured;
-    },
+  trigger.event(e.sign_up, (p) => {
+    captured = eq(p.method, 'google');
+    return captured;
   });
   if (captured === undefined) throw new Error('where callback did not run');
   return captured;
