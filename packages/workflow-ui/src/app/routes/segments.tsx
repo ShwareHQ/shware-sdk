@@ -81,9 +81,15 @@ function describe(condition: ConditionIR): string {
     case 'segment':
       return condition.segment;
     case 'performed':
-      return `did ${condition.event}${condition.within ? ` within ${condition.within.value}` : ''}`;
+      return `did ${condition.event}${condition.where ? ` where ${describe(condition.where)}` : ''}${
+        condition.within ? ` within ${condition.within.value}` : ''
+      }`;
     case 'property':
       return `${condition.path} ${condition.op}${
+        condition.value !== undefined ? ` ${String(condition.value)}` : ''
+      }`;
+    case 'payload':
+      return `event.${condition.path} ${condition.op}${
         condition.value !== undefined ? ` ${String(condition.value)}` : ''
       }`;
   }

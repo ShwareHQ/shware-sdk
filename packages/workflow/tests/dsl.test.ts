@@ -92,7 +92,7 @@ describe('predicates compile to condition IR', () => {
 
   test('performed where compiles payload predicates with dotted paths', () => {
     expect(
-      conditionOf(performed(e.sign_up, { where: (p) => eq(p.method, 'google'), within: '7 days' }))
+      conditionOf(performed(e.sign_up, (p) => eq(p.method, 'google'), { within: '7 days' }))
     ).toEqual({
       type: 'performed',
       event: 'sign_up',
@@ -107,9 +107,7 @@ describe('predicates compile to condition IR', () => {
     const de = event<DeepEvent>();
     expect(
       conditionOf(
-        performed(de.login, {
-          where: (p) => and(eq(p.platform, 'web'), eq(p.tags.utm_source, 'meta')),
-        })
+        performed(de.login, (p) => and(eq(p.platform, 'web'), eq(p.tags.utm_source, 'meta')))
       )
     ).toEqual({
       type: 'performed',
@@ -191,7 +189,7 @@ describe('triggers', () => {
   test('event trigger with a payload where gate', () => {
     expect(
       workflow('w', {
-        trigger: trigger.event(e.sign_up, { where: (p) => eq(p.method, 'google') }),
+        trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
       }).toIR().trigger
     ).toEqual({
       type: 'event',

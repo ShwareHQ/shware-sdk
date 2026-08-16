@@ -87,7 +87,7 @@ describe('event triggers', () => {
   test('the where gate rejects non-matching payloads before anything else', async () => {
     const { env } = makeEnv();
     const webOnly = workflow('web_only', {
-      trigger: trigger.event(e.sign_up, { where: (p) => eq(p.method, 'google') }),
+      trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [webOnly] }));
 

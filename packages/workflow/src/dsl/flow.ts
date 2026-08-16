@@ -311,10 +311,24 @@ export class FlowBuilderImpl implements FlowBuilder {
   cohort(arms: Record<string, { weight: number; flow?: SubFlow }>, opts?: { key?: string }): this {
     const loc = captureLoc(this.cohort);
     const entries = Object.entries(arms);
-    const total = entries.reduce((sum, [, a]) => sum + a.weight, 0);
-    // Epsilon comparison: fractional splits like 33.3/33.3/33.4 accumulate float error
-    if (Math.abs(total - 100) > 1e-6) {
-      throw new Error(`cohort(): weights must sum to 100, got ${total}`);
+    /*
+     * Weights live on a 0.01% grid: the runtime buckets into 10,000 slots
+     * (basis points), so anything finer would be silently quantized — reject
+     * it here instead. Converting to integer basis points also makes the
+     * sum check exact; no epsilon needed.
+     */
+    const basisPoints = entries.map(([name, a]) => {
+      const bp = a.weight * 100;
+      if (Math.abs(bp - Math.round(bp)) > 1e-6) {
+        throw new Error(
+          `cohort(): arm '${name}' weight ${a.weight} is finer than the 0.01% bucketing grid — use at most two decimal places`
+        );
+      }
+      return Math.round(bp);
+    });
+    const total = basisPoints.reduce((sum, bp) => sum + bp, 0);
+    if (total !== 10_000) {
+      throw new Error(`cohort(): weights must sum to 100, got ${total / 100}`);
     }
     return this.pushNode(
       {

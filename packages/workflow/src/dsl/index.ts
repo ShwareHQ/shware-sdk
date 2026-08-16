@@ -53,6 +53,8 @@ export {
 export { type SubjectPlaceholders, emailSubject } from './subject';
 export {
   type Condition,
+  type PayloadWhere,
+  type PerformedOptions,
   type SegmentRef,
   and,
   between,
@@ -82,6 +84,12 @@ export {
   type SubFlow,
   flow,
 } from './flow';
-export { type DateTime, type TriggerFactory, type TriggerRef, trigger } from './trigger';
+export {
+  type DateTime,
+  type EventTriggerOptions,
+  type TriggerFactory,
+  type TriggerRef,
+  trigger,
+} from './trigger';
 export { type GoalOptions, type WorkflowBuilder, type WorkflowOptions, workflow } from './workflow';
 export { compileBundle } from './bundle';

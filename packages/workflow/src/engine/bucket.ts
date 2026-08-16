@@ -54,10 +54,18 @@ export function murmur3(bytes: Uint8Array, seed = 0): number {
 const utf8 = new TextEncoder();
 
 /**
- * Map a bucketing key (`${userId}:${nodeId}`) to [0, 100). Keys hash their
- * UTF-8 bytes, so results agree with any standard Murmur3 implementation
+ * Bucket resolution: basis points, i.e. hundredths of a percent. Weights are
+ * compared on the same integer grid (weight% × 100), so fractional splits like
+ * 33.3/33.3/33.4 are honoured exactly and the whole path stays float-free —
+ * the Optimizely/Statsig construction.
+ */
+export const BUCKET_RESOLUTION = 10_000;
+
+/**
+ * Map a bucketing key (`${userId}:${cohortKey}`) to [0, 10000). Keys hash
+ * their UTF-8 bytes, so results agree with any standard Murmur3 implementation
  * regardless of the user id's alphabet.
  */
 export function hashToBucket(input: string): number {
-  return murmur3(utf8.encode(input)) % 100;
+  return murmur3(utf8.encode(input)) % BUCKET_RESOLUTION;
 }

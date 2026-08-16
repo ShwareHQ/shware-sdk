@@ -141,15 +141,28 @@ export function notContains<T extends string>(ref: CondRef<T>, value: string): C
   return prop(ref, 'not_contains', value);
 }
 
+export interface PerformedOptions {
+  within?: Duration;
+  count?: number;
+}
+
+/** A payload where clause: an arrow taking the typed payload-ref table. Runs once at construction — the result is a serializable condition tree in IR, never a closure. */
+export type PayloadWhere<P> = (p: PayloadRefs<P>) => Condition;
+
 /**
  * Event predicate: performed an event (optionally within a window / at least N
  * times). "Did not perform" is `not(performed(...))` — expressed by the
  * combinator, so there is no separate notPerformed.
  *
- * `where` narrows which events count by their payload — the callback receives
- * a typed payload reference table, and the ordinary predicates apply:
+ * The optional second argument narrows which events count by their payload —
+ * an arrow receiving a typed payload reference table, with the ordinary
+ * predicates applying. It compiles to a `where` subtree in IR (data the UI
+ * renders), not a runtime closure:
  *
- *   performed(e.login, { where: (p) => and(eq(p.platform, 'web'), eq(p.tags.utm_source, 'meta')) })
+ *   performed(e.login)
+ *   performed(e.login, (p) => and(eq(p.platform, 'web'), eq(p.tags.utm_source, 'meta')))
+ *   performed(e.purchase, (p) => gt(p.value, 100), { within: '30 days', count: 2 })
+ *   performed(e.purchase, { within: '30 days' })                 // options without a where
  *
  * Time anchoring: evaluated inside a `goal` the count starts at workflow
  * entry, inside `waitUntil` at the moment the wait began (the engine anchors
@@ -157,18 +170,23 @@ export function notContains<T extends string>(ref: CondRef<T>, value: string): C
  * history). Everywhere else (branch/filter/exitWhen/segments) it looks over
  * full history, bounded only by `within`.
  */
+export function performed<P>(event: EventRef<P>, opts?: PerformedOptions): Condition;
 export function performed<P>(
   event: EventRef<P>,
-  opts?: {
-    where?: (p: PayloadRefs<P>) => Condition;
-    within?: Duration;
-    count?: number;
-  }
+  where: PayloadWhere<P>,
+  opts?: PerformedOptions
+): Condition;
+export function performed<P>(
+  event: EventRef<P>,
+  whereOrOpts?: PayloadWhere<P> | PerformedOptions,
+  maybeOpts?: PerformedOptions
 ): Condition {
+  const where = typeof whereOrOpts === 'function' ? whereOrOpts : undefined;
+  const opts = typeof whereOrOpts === 'function' ? maybeOpts : whereOrOpts;
   return cond({
     type: 'performed',
     event: event.name,
-    ...(opts?.where !== undefined ? { where: condIR(opts.where(payloadRefs<P>())) } : {}),
+    ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
     ...(opts?.within !== undefined ? { within: durationIR(opts.within) } : {}),
     ...(opts?.count !== undefined ? { count: opts.count } : {}),
   });
