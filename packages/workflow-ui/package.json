@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.0",
+    "@jridgewell/trace-mapping": "^0.3.31",
     "@react-email/render": "^2.1.0",
     "@shware/workflow": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",

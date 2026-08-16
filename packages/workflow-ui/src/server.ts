@@ -1,13 +1,19 @@
 import { existsSync, readdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { type Plugin, type ViteDevServer, createServer, searchForWorkspaceRoot } from 'vite';
 import {
+  type EnvelopeField,
+  type ValuePath,
   addAddress,
+  callLiteralAt,
   envelopeEditability,
+  offsetOf,
+  patchCallLiteral,
   patchEnvelopeField,
   removeAddress,
   resolveEmailModule,
@@ -227,12 +233,13 @@ function studioApiPlugin(cwd: string): Plugin {
           }
           const body = await readJsonBody(req);
           const { key, field, value } = body as { key?: string; field?: string; value?: string };
-          if (
-            typeof key !== 'string' ||
-            typeof value !== 'string' ||
-            (field !== 'from' && field !== 'replyTo' && field !== 'subject')
-          ) {
-            sendJson(res, 400, { error: 'expected { key, field: from|replyTo|subject, value }' });
+          const isEnvelopeField = (candidate: unknown): candidate is EnvelopeField =>
+            typeof candidate === 'string' &&
+            ['from', 'replyTo', 'subject', 'name', 'description'].includes(candidate);
+          if (typeof key !== 'string' || typeof value !== 'string' || !isEnvelopeField(field)) {
+            sendJson(res, 400, {
+              error: 'expected { key, field: from|replyTo|subject|name|description, value }',
+            });
             return;
           }
           const modulePath = resolveEmailModule(emailsIndex, key);
@@ -241,6 +248,97 @@ function studioApiPlugin(cwd: string): Plugin {
             return;
           }
           const result = patchEnvelopeField(modulePath, field, value);
+          sendJson(res, result.ok ? 200 : 422, result);
+        })().catch((error: unknown) => {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        });
+      });
+
+      /*
+       * Node write-back. The client sends the position the DSL captured at
+       * build time (NodeMetaIR.loc), which is a position in the module Vite
+       * *served* — its transform collapses a builder chain onto one line, so
+       * the recorded line is not the line in the file on disk. Vite keeps the
+       * source map for that transform; one lookup through it turns the served
+       * position back into the original one, and only then is it safe to patch.
+       */
+      server.middlewares.use('/__studio/node', (req, res) => {
+        void (async () => {
+          const positionFrom = (params: URLSearchParams) => ({
+            file: params.get('file') ?? '',
+            line: Number(params.get('line')),
+            column: Number(params.get('column')),
+          });
+          /* `0`, `1.timeout`, `0.between.1` — numeric segments index, the rest name. */
+          const parsePath = (raw: string | null | undefined): ValuePath =>
+            (raw ?? '')
+              .split('.')
+              .filter((segment) => segment !== '')
+              .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
+          /*
+           * Read side: resolve a captured position to the file on disk, so the
+           * panel can show the real line — the captured one belongs to the
+           * transformed module — and only offer an input where a literal backs
+           * the value, the same contract envelopeEditability follows.
+           */
+          if (req.method === 'GET') {
+            const query = positionFrom(new URL(req.url ?? '/', 'http://internal').searchParams);
+            const found = await originalSourcePosition(
+              server,
+              cwd,
+              query.file,
+              query.line,
+              query.column
+            );
+            if ('error' in found) {
+              sendJson(res, 422, { error: found.error });
+              return;
+            }
+            const offset = offsetOf(found.file, found.line, found.column);
+            const path = parsePath(
+              new URL(req.url ?? '/', 'http://internal').searchParams.get('path')
+            );
+            const literal =
+              offset === undefined ? undefined : callLiteralAt(found.file, offset, path);
+            sendJson(res, 200, {
+              file: relative(cwd, found.file),
+              line: found.line,
+              editable: literal !== undefined,
+            });
+            return;
+          }
+          if (req.method !== 'POST') {
+            sendJson(res, 405, { error: 'GET or POST only' });
+            return;
+          }
+          const body = (await readJsonBody(req)) as {
+            file?: string;
+            line?: number;
+            column?: number;
+            path?: string;
+            value?: string;
+          };
+          const { file, line, column, value } = body;
+          if (
+            typeof file !== 'string' ||
+            typeof line !== 'number' ||
+            typeof column !== 'number' ||
+            typeof value !== 'string'
+          ) {
+            sendJson(res, 400, { error: 'expected { file, line, column, value }' });
+            return;
+          }
+          const located = await originalSourcePosition(server, cwd, file, line, column);
+          if ('error' in located) {
+            sendJson(res, 422, { error: located.error });
+            return;
+          }
+          const offset = offsetOf(located.file, located.line, located.column);
+          if (offset === undefined) {
+            sendJson(res, 422, { error: 'recorded position is outside the source file' });
+            return;
+          }
+          const result = patchCallLiteral(located.file, offset, parsePath(body.path), value);
           sendJson(res, result.ok ? 200 : 422, result);
         })().catch((error: unknown) => {
           sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
@@ -292,6 +390,51 @@ function studioApiPlugin(cwd: string): Plugin {
       });
     },
   };
+}
+
+type Located = { file: string; line: number; column: number } | { error: string };
+
+/**
+ * Turn a served position into a position on disk.
+ *
+ * The path is validated against cwd before anything is read: it arrives from
+ * the browser, and a write-back endpoint that follows an arbitrary path is a
+ * write-anywhere endpoint.
+ */
+async function originalSourcePosition(
+  server: ViteDevServer,
+  cwd: string,
+  rawFile: string,
+  line: number,
+  column: number
+): Promise<Located> {
+  let path = rawFile;
+  if (/^https?:\/\//.test(path)) path = new URL(path).pathname;
+  const fsPrefix = '/@fs';
+  if (path.startsWith(fsPrefix)) path = path.slice(fsPrefix.length);
+  path = resolve(cwd, decodeURIComponent(path));
+
+  const root = searchForWorkspaceRoot(cwd);
+  if (!path.startsWith(`${root}/`)) return { error: 'source file is outside the project' };
+  if (!existsSync(path)) return { error: `no such source file: ${path}` };
+
+  const transformed = await server.transformRequest(`${fsPrefix}${path}`);
+  const map = transformed?.map;
+  /*
+   * No map means no transform happened, so the served position is already the
+   * position on disk. V8 columns are 1-based; everything below is 0-based.
+   */
+  if (!map) return { file: path, line, column: column - 1 };
+
+  const original = originalPositionFor(
+    new TraceMap(map as ConstructorParameters<typeof TraceMap>[0]),
+    {
+      line,
+      column: column - 1,
+    }
+  );
+  if (original.line === null) return { error: 'could not map the position back to source' };
+  return { file: path, line: original.line, column: original.column };
 }
 
 export interface StartOptions {
