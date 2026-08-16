@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { type Duration, flow, template, trigger, workflow } from '../src/index';
+import { type Duration, compileBundle, flow, template, trigger, workflow } from '../src/index';
 import { WorkflowIR } from '../src/ir';
 import {
   activeSubscriber,
@@ -91,6 +91,24 @@ describe('compile: workflow -> IR', () => {
     );
   });
 
+  test('accepts fractional cohort weights despite float error', () => {
+    expect(() =>
+      flow((w) => w.cohort({ a: { weight: 33.3 }, b: { weight: 33.3 }, c: { weight: 33.4 } }))
+    ).not.toThrow();
+  });
+
+  test('rejects malformed or inverted time windows at build time', () => {
+    expect(() => flow((w) => w.timeWindow({ between: ['9:00', '17:00'] }))).toThrow(
+      /Invalid time of day/
+    );
+    expect(() => flow((w) => w.timeWindow({ between: ['25:00', '26:00'] }))).toThrow(
+      /Invalid time of day/
+    );
+    expect(() => flow((w) => w.timeWindow({ between: ['17:00', '09:00'] }))).toThrow(
+      /overnight windows/
+    );
+  });
+
   test('rejects misplaced default branch arm', () => {
     const noop = flow((w) => w);
     expect(() => flow((w) => w.branch(noop, [activeSubscriber, noop]))).toThrow(/must be the last/);
@@ -102,5 +120,26 @@ describe('compile: workflow -> IR', () => {
       .email(offer, { coupon: 'X' })
       .toIR();
     expect(ir.flow[0]).toMatchObject({ type: 'message', template: 'offer' });
+  });
+});
+
+describe('compileBundle guards', () => {
+  test('a workflow referencing a segment missing from the bundle fails to compile', () => {
+    // checkoutRecovery's goal references the 'purchaser' segment
+    expect(() => compileBundle({ workflows: [checkoutRecovery] })).toThrow(
+      /references segment 'purchaser'/
+    );
+  });
+
+  test('a segment-trigger reference must resolve too', () => {
+    expect(() => compileBundle({ workflows: [reengagement], segments: [purchaser] })).toThrow(
+      /references segment/
+    );
+  });
+
+  test('duplicate template keys fail to compile', () => {
+    const a = template.email('offer');
+    const b = template.sms('offer');
+    expect(() => compileBundle({ workflows: [], templates: [a, b] })).toThrow(/duplicate template/);
   });
 });

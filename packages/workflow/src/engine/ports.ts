@@ -4,11 +4,13 @@ import type { ChannelIR, ConditionIR, ScalarIR } from '../ir';
  * Engine ports: the only shape of the outside world the interpreter depends on.
  *
  * Design constraints (AWS-proof, see the engine design notes):
- * - waitForEvent means "**at least one wake-up, re-evaluate after waking**".
- *   A wake-up is only a hint; no event buffering or de-duplication is promised
- *   (Cloudflare buffers, AWS callback tokens do not — the port takes the
- *   intersection). The truth of a condition is always re-read by the caller
- *   once awake.
+ * - A wake-up is only a hint — "**at least one wake-up, re-evaluate after
+ *   waking**". No event buffering or de-duplication is promised (Cloudflare
+ *   buffers, AWS callback tokens do not — the port takes the intersection).
+ *   The truth of a condition is always re-read by the caller once awake.
+ * - subscribe / waitForWake / unsubscribe are split so the caller can register
+ *   interest *before* its first condition check — an event landing between the
+ *   check and the registration would otherwise be missed until the timeout.
  * - Every source of non-determinism (randomness, current time, external IO)
  *   must happen inside step.do, so its result is persisted and replay lines up.
  */
@@ -24,14 +26,20 @@ export interface EngineStep {
   sleepUntil(name: string, timestampMs: number): Promise<void>;
 
   /**
-   * Wait for an external wake-up or a timeout. `events` lists the event names
-   * of interest, which the adapter uses to register a subscription (Cloudflare:
-   * write the subscription table + waitForEvent; AWS: issue a callback token).
+   * Durable: register interest in the named events (Cloudflare: write the
+   * subscription table; AWS: issue a callback token). Must complete before the
+   * caller's first condition check.
    */
-  waitForEvent(
-    name: string,
-    opts: { events: readonly string[]; timeoutMs: number }
-  ): Promise<'event' | 'timeout'>;
+  subscribe(name: string, events: readonly string[]): Promise<void>;
+
+  /** Durable: drop every registration this instance holds. */
+  unsubscribe(name: string): Promise<void>;
+
+  /**
+   * Wait for a wake-up or a timeout. A registration from `subscribe` must
+   * already exist — this call only parks the instance.
+   */
+  waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'>;
 }
 
 /** Facts from a single user's point of view: the read interface condition evaluation uses (D1 and in-memory share one evaluator). */
@@ -68,6 +76,13 @@ export interface JourneyContext {
   userId: string;
   /** Instance identity: feeds the idempotency key and the logs. */
   instanceId: string;
+  /**
+   * When the user entered the workflow (ms epoch) — the baseline for the
+   * goal's attribution window (`goal.within`). Must be replay-stable: the
+   * adapter derives it from the trigger event's timestamp, never from
+   * Date.now() at run time.
+   */
+  enteredAtMs: number;
   step: EngineStep;
   facts: FactSource;
   messages: MessageSender;

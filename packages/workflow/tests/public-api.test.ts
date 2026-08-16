@@ -78,7 +78,9 @@ describe('running the compiled IR on in-memory ports', () => {
       do: (_name, fn) => fn(),
       sleep: async () => {},
       sleepUntil: async () => {},
-      waitForEvent: async () => 'timeout',
+      subscribe: async () => {},
+      unsubscribe: async () => {},
+      waitForWake: async () => 'timeout',
     };
     const facts: FactSource = {
       countEvents: async () => 0,
@@ -91,6 +93,7 @@ describe('running the compiled IR on in-memory ports', () => {
     const promise = runJourney(onboarding.toIR(), {
       userId: 'u1',
       instanceId: 'i1',
+      enteredAtMs: Date.now(),
       step,
       facts,
       messages: {

@@ -23,7 +23,11 @@ import * as z from 'zod/mini';
  *    metadata (meta / label) is stripped, see hash.ts. It is used to:
  *    - pin a version when a user enters, so an in-flight journey runs the
  *      pinned version to completion (the default policy; compatible hot
- *      updates are a future explicit-migration topic);
+ *      updates are a future explicit-migration topic). Known exception:
+ *      segment conditions are resolved **by name at evaluation time** — a
+ *      segment redeploy changes behaviour of in-flight journeys that
+ *      reference it. Pinning covers the workflow's own structure; per-hash
+ *      segment snapshots are future work;
  *    - diff on deploy: same hash means unchanged, skip publishing;
  *    - audit: answer "which version was this user on" at any point.
  *

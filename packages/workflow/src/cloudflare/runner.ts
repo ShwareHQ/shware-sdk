@@ -14,9 +14,10 @@ import { LogMessageSender, WebhookMessageSender } from './senders';
 
 /**
  * Adapts CF's WorkflowStep to EngineStep.
- * waitForEvent registers the subscription inside a step first (the router wakes
- * instances from that table), waits, then cleans up. CF signals a timeout by
- * throwing, which is translated into the port's 'timeout' return value.
+ * subscribe/unsubscribe write the subscription table inside durable steps (the
+ * router wakes instances from that table); waitForWake parks on CF's
+ * waitForEvent, which signals a timeout by throwing — translated into the
+ * port's 'timeout' return value.
  */
 class CfEngineStep implements EngineStep {
   constructor(
@@ -38,12 +39,9 @@ class CfEngineStep implements EngineStep {
     return this.step.sleepUntil(name, timestampMs);
   }
 
-  async waitForEvent(
-    name: string,
-    opts: { events: readonly string[]; timeoutMs: number }
-  ): Promise<'event' | 'timeout'> {
-    await this.step.do(`${name}:subscribe`, async () => {
-      for (const event of opts.events) {
+  subscribe(name: string, events: readonly string[]): Promise<void> {
+    return this.step.do(name, async () => {
+      for (const event of events) {
         await this.db
           .prepare(
             'INSERT INTO subscriptions (user_id, event, wake_handle, ts) VALUES (?, ?, ?, ?)'
@@ -52,23 +50,24 @@ class CfEngineStep implements EngineStep {
           .run();
       }
     });
+  }
 
-    let outcome: 'event' | 'timeout';
-    try {
-      await this.step.waitForEvent(name, { type: WAKE_EVENT_TYPE, timeout: opts.timeoutMs });
-      outcome = 'event';
-    } catch {
-      outcome = 'timeout';
-    }
-
-    await this.step.do(`${name}:unsubscribe`, async () => {
+  unsubscribe(name: string): Promise<void> {
+    return this.step.do(name, async () => {
       await this.db
         .prepare('DELETE FROM subscriptions WHERE wake_handle = ?')
         .bind(this.instanceId)
         .run();
     });
+  }
 
-    return outcome;
+  async waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'> {
+    try {
+      await this.step.waitForEvent(name, { type: WAKE_EVENT_TYPE, timeout: timeoutMs });
+      return 'event';
+    } catch {
+      return 'timeout';
+    }
   }
 }
 
@@ -111,6 +110,8 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     const outcome = await runJourney(ir, {
       userId,
       instanceId: event.instanceId,
+      // Trigger-event creation time: replay-stable, unlike Date.now() here
+      enteredAtMs: event.timestamp.getTime(),
       step: new CfEngineStep(step, env.DB, userId, event.instanceId),
       facts: new D1FactSource(env.DB, userId),
       messages,

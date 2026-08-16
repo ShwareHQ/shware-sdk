@@ -86,14 +86,24 @@ function flatten(nodes: readonly NodeIR[], into: Map<string, NodeIR>): Map<strin
   return into;
 }
 
-/** A node's semantic fingerprint: metadata stripped, child flows excluded (they diff on their own). */
+/**
+ * A node's semantic fingerprint: metadata stripped, child flows excluded (they
+ * diff on their own ids). Everything else a compound node owns — branch case
+ * conditions, cohort arm names and weights, *having* a default arm or a
+ * timeout flow — is this node's semantics and stays in the fingerprint, so
+ * editing a branch condition or reweighting an A/B shows up on the node itself.
+ */
 function nodeFingerprint(node: NodeIR): string {
   const bare: Record<string, unknown> = { ...node };
-  delete bare.cases;
-  delete bare.otherwise;
-  delete bare.arms;
+  if (node.type === 'branch') {
+    bare.cases = node.cases.map((branchCase) => ({ condition: branchCase.condition }));
+    delete bare.otherwise;
+    if (node.otherwise !== undefined) bare.otherwise = '<flow>';
+  }
+  if (node.type === 'cohort') {
+    bare.arms = node.arms.map((arm) => ({ name: arm.name, weight: arm.weight }));
+  }
   if (node.type === 'wait_until' && Array.isArray(node.onTimeout)) {
-    // child flow diffs separately, but *having* a timeout flow is itself semantic
     bare.onTimeout = '<flow>';
   }
   return fullHash(stripMeta(bare));

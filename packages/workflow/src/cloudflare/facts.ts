@@ -31,6 +31,8 @@ export class D1FactSource implements FactSource {
     if (!row) return undefined;
     const props = JSON.parse(row.props) as Record<string, ScalarIR | null | undefined>;
     const value = props[path];
+    // An explicit null in the profile means "unset": it behaves as not_exists,
+    // which is how an /identify caller clears a property.
     return value ?? undefined;
   }
 
