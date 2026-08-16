@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { stripMeta } from '../src/hash';
 import {
   and,
   between,
@@ -27,7 +28,7 @@ import {
   trigger,
   workflow,
 } from '../src/index';
-import { BundleIR } from '../src/ir';
+import { BundleIR, type ConditionIR } from '../src/ir';
 import { activeSubscriber, e, gettingStarted, limitedTimeOffer, purchaser, u } from './fixtures';
 
 /** Compile a single-node flow and return that node's IR. */
@@ -38,12 +39,17 @@ function nodeOf(build: (w: Parameters<Parameters<typeof flow>[0]>[0]) => unknown
 }
 
 /** Compile a condition by planting it in a filter node. */
+/**
+ * The condition's semantics, with provenance stripped: `meta.loc` records where
+ * the predicate was written, which is exactly what a semantics assertion should
+ * not depend on — and is dropped before hashing for the same reason.
+ */
 function conditionOf(condition: Parameters<typeof not>[0]) {
   const node = workflow('probe', { trigger: trigger.event(e.login) })
     .filter(condition)
     .toIR().flow[0];
   if (node.type !== 'filter') throw new Error('expected filter node');
-  return node.condition;
+  return stripMeta(node.condition) as ConditionIR;
 }
 
 describe('predicates compile to condition IR', () => {
@@ -179,7 +185,7 @@ describe('triggers', () => {
     const ir = workflow('t', {
       trigger: trigger.event(e.sign_up, { filter: exists(u.email) }),
     }).toIR();
-    expect(ir.trigger).toEqual({
+    expect(stripMeta(ir.trigger)).toEqual({
       type: 'event',
       event: 'sign_up',
       filter: { type: 'property', path: 'email', op: 'exists' },
@@ -188,9 +194,11 @@ describe('triggers', () => {
 
   test('event trigger with a payload where gate', () => {
     expect(
-      workflow('w', {
-        trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
-      }).toIR().trigger
+      stripMeta(
+        workflow('w', {
+          trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
+        }).toIR().trigger
+      )
     ).toEqual({
       type: 'event',
       event: 'sign_up',
@@ -307,12 +315,16 @@ describe('workflow options', () => {
       exitWhen: notExists(u.email),
     }).toIR();
 
-    expect(ir.goal).toEqual({
+    expect(stripMeta(ir.goal)).toEqual({
       condition: { type: 'segment', segment: 'purchaser' },
       within: { value: '30 days', ms: 2_592_000_000 },
       exitOnMatch: false,
     });
-    expect(ir.exitWhen).toEqual({ type: 'property', path: 'email', op: 'not_exists' });
+    expect(stripMeta(ir.exitWhen)).toEqual({
+      type: 'property',
+      path: 'email',
+      op: 'not_exists',
+    });
   });
 });
 

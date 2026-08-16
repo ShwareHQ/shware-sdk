@@ -33,8 +33,11 @@ interface ConditionInternal extends Condition {
   readonly ir: ConditionIR;
 }
 
-const cond = (ir: ConditionIR): Condition => {
-  const impl: ConditionInternal = { __condition: true, ir };
+const cond = (ir: ConditionIR, loc?: SourceLocIR): Condition => {
+  const impl: ConditionInternal = {
+    __condition: true,
+    ir: loc === undefined ? ir : { ...ir, meta: { loc } },
+  };
   return impl;
 };
 
@@ -79,66 +82,70 @@ function prop(
     | 'contains'
     | 'not_contains',
   value?: Scalar,
-  values?: readonly Scalar[]
+  values?: readonly Scalar[],
+  loc?: SourceLocIR
 ): Condition {
-  return cond({
-    type: ref.type === 'payload_ref' ? 'payload' : 'property',
-    path: ref.path,
-    op,
-    ...(value !== undefined ? { value } : {}),
-    ...(values !== undefined ? { values: [...values] } : {}),
-  });
+  return cond(
+    {
+      type: ref.type === 'payload_ref' ? 'payload' : 'property',
+      path: ref.path,
+      op,
+      ...(value !== undefined ? { value } : {}),
+      ...(values !== undefined ? { values: [...values] } : {}),
+    },
+    loc
+  );
 }
 
 export function eq<T>(ref: CondRef<T>, value: NoInfer<T>): Condition {
-  return prop(ref, 'eq', value as Scalar);
+  return prop(ref, 'eq', value as Scalar, undefined, captureLoc(eq));
 }
 export function ne<T>(ref: CondRef<T>, value: NoInfer<T>): Condition {
-  return prop(ref, 'ne', value as Scalar);
+  return prop(ref, 'ne', value as Scalar, undefined, captureLoc(ne));
 }
 export function gt<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
-  return prop(ref, 'gt', value);
+  return prop(ref, 'gt', value, undefined, captureLoc(gt));
 }
 export function gte<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
-  return prop(ref, 'gte', value);
+  return prop(ref, 'gte', value, undefined, captureLoc(gte));
 }
 export function lt<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
-  return prop(ref, 'lt', value);
+  return prop(ref, 'lt', value, undefined, captureLoc(lt));
 }
 export function lte<T extends string | number>(ref: CondRef<T>, value: NoInfer<T>): Condition {
-  return prop(ref, 'lte', value);
+  return prop(ref, 'lte', value, undefined, captureLoc(lte));
 }
 export function between<T extends string | number>(
   ref: CondRef<T>,
   min: NoInfer<T>,
   max: NoInfer<T>
 ): Condition {
-  return prop(ref, 'between', undefined, [min, max]);
+  return prop(ref, 'between', undefined, [min, max], captureLoc(between));
 }
 export function notBetween<T extends string | number>(
   ref: CondRef<T>,
   min: NoInfer<T>,
   max: NoInfer<T>
 ): Condition {
-  return prop(ref, 'not_between', undefined, [min, max]);
+  return prop(ref, 'not_between', undefined, [min, max], captureLoc(notBetween));
 }
 export function inArray<T>(ref: CondRef<T>, values: readonly NoInfer<T>[]): Condition {
-  return prop(ref, 'in_array', undefined, values as readonly Scalar[]);
+  return prop(ref, 'in_array', undefined, values as readonly Scalar[], captureLoc(inArray));
 }
 export function notInArray<T>(ref: CondRef<T>, values: readonly NoInfer<T>[]): Condition {
-  return prop(ref, 'not_in_array', undefined, values as readonly Scalar[]);
+  return prop(ref, 'not_in_array', undefined, values as readonly Scalar[], captureLoc(notInArray));
 }
 export function exists(ref: CondRef<unknown>): Condition {
-  return prop(ref, 'exists');
+  return prop(ref, 'exists', undefined, undefined, captureLoc(exists));
 }
 export function notExists(ref: CondRef<unknown>): Condition {
-  return prop(ref, 'not_exists');
+  return prop(ref, 'not_exists', undefined, undefined, captureLoc(notExists));
 }
 export function contains<T extends string>(ref: CondRef<T>, value: string): Condition {
-  return prop(ref, 'contains', value);
+  return prop(ref, 'contains', value, undefined, captureLoc(contains));
 }
 export function notContains<T extends string>(ref: CondRef<T>, value: string): Condition {
-  return prop(ref, 'not_contains', value);
+  return prop(ref, 'not_contains', value, undefined, captureLoc(notContains));
 }
 
 export interface PerformedOptions {
@@ -183,24 +190,27 @@ export function performed<P>(
 ): Condition {
   const where = typeof whereOrOpts === 'function' ? whereOrOpts : undefined;
   const opts = typeof whereOrOpts === 'function' ? maybeOpts : whereOrOpts;
-  return cond({
-    type: 'performed',
-    event: event.name,
-    ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
-    ...(opts?.within !== undefined ? { within: durationIR(opts.within) } : {}),
-    ...(opts?.count !== undefined ? { count: opts.count } : {}),
-  });
+  return cond(
+    {
+      type: 'performed',
+      event: event.name,
+      ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
+      ...(opts?.within !== undefined ? { within: durationIR(opts.within) } : {}),
+      ...(opts?.count !== undefined ? { count: opts.count } : {}),
+    },
+    captureLoc(performed)
+  );
 }
 
 /** Condition combinators: nest freely. */
 export function and(...conditions: readonly Condition[]): Condition {
-  return cond({ type: 'and', conditions: conditions.map(condIR) });
+  return cond({ type: 'and', conditions: conditions.map(condIR) }, captureLoc(and));
 }
 export function or(...conditions: readonly Condition[]): Condition {
-  return cond({ type: 'or', conditions: conditions.map(condIR) });
+  return cond({ type: 'or', conditions: conditions.map(condIR) }, captureLoc(or));
 }
 export function not(condition: Condition): Condition {
-  return cond({ type: 'not', condition: condIR(condition) });
+  return cond({ type: 'not', condition: condIR(condition) }, captureLoc(not));
 }
 
 /**
@@ -220,6 +230,8 @@ export interface SegmentRef extends Condition {
 /** @internal the compiled shape behind a SegmentRef — compileBundle reads definition/loc off it */
 export interface SegmentInternal extends SegmentRef {
   readonly ir: ConditionIR;
+  /** Human label / description; metadata, so never part of the hash. */
+  readonly meta: SegmentMeta | undefined;
   /** The segment's own definition (SegmentIR.condition), as opposed to a by-name reference. */
   readonly definition: ConditionIR;
   /** Callsite of the segment() call (provenance; lands in SegmentIR.meta.loc). */
@@ -231,8 +243,19 @@ export interface SegmentInternal extends SegmentRef {
  * checked at the predicates.
  *
  *   export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }));
+ *
+ * The first argument is wire identity — by-name references and the membership
+ * store are keyed on it, so it is not something to rename for readability. The
+ * optional third argument is: `{ name, description }` are metadata, dropped
+ * before hashing, and the studio both shows and edits them.
  */
-export function segment(name: string, condition: Condition): SegmentRef {
+/** Labels for a segment: what the studio shows instead of the wire key. */
+export interface SegmentMeta {
+  name?: string;
+  description?: string;
+}
+
+export function segment(name: string, condition: Condition, meta?: SegmentMeta): SegmentRef {
   const impl: SegmentInternal = {
     __condition: true,
     __segment: true,
@@ -240,6 +263,7 @@ export function segment(name: string, condition: Condition): SegmentRef {
     ir: { type: 'segment', segment: name },
     definition: condIR(condition),
     loc: captureLoc(segment),
+    meta,
   };
   return impl;
 }

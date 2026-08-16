@@ -51,6 +51,13 @@ export interface WorkflowOptions {
    * version in-flight users are pinned to nor shows up as a change in plan.
    */
 
+  /**
+   * Human label. The first argument to `workflow()` is wire identity — engine
+   * instances, the entry ledger and stats keys are all built on it — so it is
+   * not something to rename for readability. This is.
+   */
+  name?: string;
+
   /** One line on what this flow does (UI lists, plan output). */
   description?: string;
   /** Grouping tags (UI filtering). */
@@ -112,8 +119,9 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   }
 
   private metaIR(): MetaIR | undefined {
-    const { description, tags, owner } = this.options;
+    const { name, description, tags, owner } = this.options;
     if (
+      name === undefined &&
       description === undefined &&
       tags === undefined &&
       owner === undefined &&
@@ -122,6 +130,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
       return undefined;
     }
     return {
+      ...(name !== undefined ? { name } : {}),
       ...(description !== undefined ? { description } : {}),
       ...(tags !== undefined ? { tags: [...tags] } : {}),
       ...(owner !== undefined ? { owner } : {}),
