@@ -4,8 +4,8 @@
     {
       "name": "workflow-studio",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["-F", "workflow-playground", "dev", "--port", "4391"],
-      "port": 4391,
+      "runtimeArgs": ["-F", "workflow-playground", "dev", "--port", "4392"],
+      "port": 4392,
       "autoPort": true
     }
   ]

@@ -11,17 +11,26 @@ import { e, u } from './schema';
 /** Active subscriber: subscription_status = 'active' and auto_renew_enabled = true. */
 export const activeSubscriber = segment(
   'active_subscriber',
-  and(eq(u.subscription_status, 'active'), eq(u.auto_renew_enabled, true))
+  and(eq(u.subscription_status, 'active'), eq(u.auto_renew_enabled, true)),
+  {
+    name: 'Saved · Auto-renew Restored',
+    description:
+      'Subscription is still ACTIVE and auto-renew is back on — the conversion goal of the pre-churn save flow.',
+  }
 );
 
 /** Purchased within 30 days — the goal of the checkout recovery flow. */
-export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }));
+export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }), {
+  name: 'Purchased (last 30d)',
+});
 
 /** Activated: created a first document after signing up. */
-export const activated = segment('activated', performed(e.doc_created));
+export const activated = segment('activated', performed(e.doc_created), { name: 'Activated' });
 
 /** New users (signed up within 7 days) — onboarding's entry gate. */
-export const newUsers7d = segment('new_users_7d', performed(e.sign_up, { within: '7 days' }));
+export const newUsers7d = segment('new_users_7d', performed(e.sign_up, { within: '7 days' }), {
+  name: 'New Users (7d)',
+});
 
 /* ---- Feature-usage segments driving the onboarding series (customer.io's "Used X") ---- */
 

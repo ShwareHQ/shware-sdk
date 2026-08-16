@@ -26,6 +26,7 @@ const incentive = template.email<{ coupon: string }>('reengage_incentive');
 /* -------------------------------- workflow -------------------------------- */
 
 export const reengagement = workflow('reengagement', {
+  name: 'Re-engagement',
   trigger: trigger.segment(inactive30d),
 })
   .email(missYou)

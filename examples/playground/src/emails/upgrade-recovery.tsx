@@ -11,6 +11,8 @@ export const to = '{{ user.email }}';
 export const replyTo = 'Acme Support <support@acme.io>';
 
 /** A string template, not a closure: `{{ user.prop }}` placeholders are compile-checked against u, and the studio can edit it in place. */
+export const name = 'Upgrade Recovery';
+
 export const subject = emailSubject(u, 'Finish upgrading to {{ user.subscription_plan }}');
 
 /** Sample props for previewing (injected when the template page renders it). */

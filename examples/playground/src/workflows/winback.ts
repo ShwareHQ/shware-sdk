@@ -22,6 +22,7 @@ const finalOffer = template.email<{ coupon: string; expiresIn: string }>('winbac
 /* -------------------------------- workflow -------------------------------- */
 
 export const winback = workflow('winback', {
+  name: 'Winback',
   trigger: trigger.event(e.subscription_cancelled),
   goal: purchaser, // paying again is the conversion; exits on match by default
 })
