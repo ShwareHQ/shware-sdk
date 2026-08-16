@@ -5,20 +5,33 @@ import {
   type FactSource,
   type JourneyContext,
   type OutboundMessage,
+  PROFILE_UPDATED_EVENT,
   evaluateCondition,
   fillSubject,
   runJourney,
 } from '../src/engine/index';
-import { compileBundle } from '../src/index';
+import { nextWindowStart } from '../src/engine/time-window';
+import { compileBundle, eq, performed, trigger, workflow } from '../src/index';
 import type { ConditionIR, ScalarIR } from '../src/ir';
-import { allSegments, checkoutRecovery, nudge, reengagement, winback } from './fixtures';
+import {
+  allSegments,
+  checkoutRecovery,
+  e,
+  firstTimeRecovery,
+  nudge,
+  reengagement,
+  u,
+  winback,
+} from './fixtures';
 
 /* ------------------------------ in-memory ports ------------------------------ */
 
 class FakeStep implements EngineStep {
   readonly sleeps: { name: string; ms: number }[] = [];
   readonly stepNames: string[] = [];
-  /** Scripted waitForEvent results, consumed in order; defaults to 'timeout'. */
+  /** Event lists passed to subscribe, in call order. */
+  readonly subscriptions: string[][] = [];
+  /** Scripted waitForWake results, consumed in order; defaults to 'timeout'. */
   wakeScript: ('event' | 'timeout')[] = [];
 
   async do<T>(name: string, fn: () => Promise<T>): Promise<T> {
@@ -31,7 +44,14 @@ class FakeStep implements EngineStep {
   async sleepUntil(name: string, timestampMs: number): Promise<void> {
     this.sleeps.push({ name, ms: timestampMs });
   }
-  async waitForEvent(): Promise<'event' | 'timeout'> {
+  async subscribe(name: string, events: readonly string[]): Promise<void> {
+    this.stepNames.push(name);
+    this.subscriptions.push([...events]);
+  }
+  async unsubscribe(name: string): Promise<void> {
+    this.stepNames.push(name);
+  }
+  async waitForWake(): Promise<'event' | 'timeout'> {
     return this.wakeScript.shift() ?? 'timeout';
   }
 }
@@ -65,6 +85,7 @@ function makeContext() {
   const ctx: JourneyContext = {
     userId: 'u_1',
     instanceId: 'inst_1',
+    enteredAtMs: Date.now(),
     step,
     facts,
     messages: {
@@ -224,6 +245,102 @@ describe('step naming', () => {
     expect(step.stepNames).toContain('0:guard');
     expect(step.stepNames).toContain('1:eval');
     expect(step.stepNames).toContain('1.o.0:send');
+  });
+});
+
+describe('waitUntil subscriptions', () => {
+  test('a property-only condition subscribes to the profile-updated wake event', async () => {
+    const propWait = workflow('prop_wait', { trigger: trigger.event(e.sign_up) }).waitUntil(
+      eq(u.subscription_status, 'active'),
+      { timeout: '1 hour' }
+    );
+    const { ctx, step } = makeContext();
+
+    const outcome = await runJourney(propWait.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed' }); // timeout -> continue
+    expect(step.subscriptions).toEqual([[PROFILE_UPDATED_EVENT]]);
+  });
+
+  test('the subscription is registered before the first condition check', async () => {
+    const waiter = workflow('sub_order', { trigger: trigger.event(e.sign_up) }).waitUntil(
+      performed(e.login),
+      { timeout: '1 hour' }
+    );
+    const { ctx, step } = makeContext();
+
+    await runJourney(waiter.toIR(), ctx);
+
+    const subscribeAt = step.stepNames.indexOf('0:subscribe');
+    const firstCheckAt = step.stepNames.indexOf('0:check:0');
+    expect(subscribeAt).toBeGreaterThanOrEqual(0);
+    expect(subscribeAt).toBeLessThan(firstCheckAt);
+    expect(step.stepNames).toContain('0:unsubscribe');
+  });
+});
+
+describe('goal attribution window (goal.within)', () => {
+  const windowed = workflow('goal_window', {
+    trigger: trigger.event(e.begin_checkout),
+    goal: { condition: performed(e.purchase), within: '1 hour' },
+  }).email(firstTimeRecovery);
+
+  test('a conversion inside the window exits as goal', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.events.push({ name: 'purchase', ts: Date.now() });
+
+    const outcome = await runJourney(windowed.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'goal' });
+    expect(sent).toHaveLength(0);
+  });
+
+  test('a conversion past the window no longer counts', async () => {
+    const { ctx, facts, sent } = makeContext();
+    ctx.enteredAtMs = Date.now() - 7_200_000; // entered two hours ago, window is one hour
+    facts.events.push({ name: 'purchase', ts: Date.now() });
+
+    const outcome = await runJourney(windowed.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed' });
+    expect(sent).toHaveLength(1);
+  });
+});
+
+describe('nextWindowStart: time windows honor end times and timezones', () => {
+  const allDays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const between = ['09:00', '17:00'] as const;
+  // Wednesday 2026-08-12, instants in UTC
+  const wedMorning = Date.UTC(2026, 7, 12, 8, 0);
+  const wedNoon = Date.UTC(2026, 7, 12, 12, 0);
+  const wedNight = Date.UTC(2026, 7, 12, 23, 0);
+
+  test('inside the window: no wait', () => {
+    expect(nextWindowStart(wedNoon, allDays, between, 'UTC')).toBeNull();
+  });
+
+  test("before today's window: today's start", () => {
+    expect(nextWindowStart(wedMorning, allDays, between, 'UTC')).toBe(Date.UTC(2026, 7, 12, 9, 0));
+  });
+
+  test("after the window closes: tomorrow's start, never 'send now'", () => {
+    expect(nextWindowStart(wedNight, allDays, between, 'UTC')).toBe(Date.UTC(2026, 7, 13, 9, 0));
+  });
+
+  test('day filtering skips to the next allowed weekday', () => {
+    expect(nextWindowStart(wedNight, ['mon'], between, 'UTC')).toBe(Date.UTC(2026, 7, 17, 9, 0));
+  });
+
+  test('timezone shifts the window (09:00 in Shanghai is 01:00 UTC)', () => {
+    expect(nextWindowStart(wedNight, allDays, between, 'Asia/Shanghai')).toBe(
+      Date.UTC(2026, 7, 13, 1, 0)
+    );
+  });
+
+  test('an unknown timezone falls back to UTC instead of wedging the journey', () => {
+    expect(nextWindowStart(wedNight, allDays, between, 'Not/AZone')).toBe(
+      Date.UTC(2026, 7, 13, 9, 0)
+    );
   });
 });
 

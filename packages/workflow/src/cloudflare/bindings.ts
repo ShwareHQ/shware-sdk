@@ -12,15 +12,22 @@ export interface KVNamespaceLike {
   put(key: string, value: string): Promise<void>;
 }
 
+/** Structural subset of D1Result: `meta.changes` is how INSERT OR IGNORE reports whether it inserted. */
+export interface D1RunResultLike {
+  meta?: { changes?: number };
+}
+
 export interface D1PreparedStatementLike {
   bind(...values: unknown[]): D1PreparedStatementLike;
   first<T = Record<string, unknown>>(): Promise<T | null>;
   all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
-  run(): Promise<unknown>;
+  run(): Promise<D1RunResultLike>;
 }
 
 export interface D1DatabaseLike {
   prepare(sql: string): D1PreparedStatementLike;
+  /** Statements run in order inside one transaction (real D1 semantics) — deploy relies on the atomicity. */
+  batch(statements: D1PreparedStatementLike[]): Promise<unknown>;
 }
 
 export interface WorkflowInstanceLike {
@@ -43,6 +50,12 @@ export interface JourneyEnv {
   JOURNEY: WorkflowBindingLike;
   /** Optional message-delivery webhook (defaults to the console logging sender). */
   MESSAGE_WEBHOOK_URL?: string;
+  /**
+   * Bearer token required on every mutating HTTP endpoint (`Authorization:
+   * Bearer <token>`). Unset = open — acceptable only for local dev; /deploy in
+   * particular rewrites the whole routing table, so production must set this.
+   */
+  API_TOKEN?: string;
 }
 
 /** The event type the router uses to wake waiting instances (sendEvent's `type`). */

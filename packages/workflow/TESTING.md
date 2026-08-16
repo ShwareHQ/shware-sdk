@@ -10,6 +10,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `dsl.test.ts`        | DSL surface → IR: predicates, combinators, triggers, nodes, bundle rules |
 | `compile.test.ts`    | Whole-workflow compilation: tree shape, node ids, hashes, build guards   |
 | `ir.test.ts`         | The zod schemas as the authoritative IR definition                       |
+| `hash.test.ts`       | SHA-256 known-answer vectors, canonical JSON, metadata stripping         |
 | `plan.test.ts`       | Hash semantics (metadata exclusion) and deploy diffing                   |
 | `engine.test.ts`     | Interpreter semantics over in-memory ports                               |
 | `provenance.test.ts` | Callsite recording (meta.loc): capture, hash exclusion, portability      |

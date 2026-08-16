@@ -90,9 +90,19 @@ function isBetween(actual: ScalarIR | undefined, values: ScalarIR[] | undefined)
 }
 
 /**
- * The set of event names a condition cares about — what wait_until and goal
- * subscribe to for wake-ups. Segment references are expanded, which is why a
- * FactSource is needed to resolve their definitions.
+ * Wake-up channel for profile changes: a property predicate has no event name
+ * of its own, so subscriptions use this reserved name and the ingest router
+ * fires it on every /identify. The '$' prefix marks internal names — real
+ * events may never use it (the router rejects them).
+ */
+export const PROFILE_UPDATED_EVENT = '$profile_updated';
+
+/**
+ * The set of event names a condition cares about — what wait_until subscribes
+ * to for wake-ups. `performed` contributes its event; a property predicate
+ * contributes PROFILE_UPDATED_EVENT (so /identify wakes the wait). Segment
+ * references are expanded, which is why a FactSource is needed to resolve
+ * their definitions.
  */
 export async function relevantEvents(condition: ConditionIR, facts: FactSource): Promise<string[]> {
   const found = new Set<string>();
@@ -114,6 +124,7 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
         break;
       }
       case 'property':
+        found.add(PROFILE_UPDATED_EVENT);
         break;
     }
   }

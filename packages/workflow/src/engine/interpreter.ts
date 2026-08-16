@@ -2,6 +2,7 @@ import type { NodeIR, PropValueIR, ScalarIR, WorkflowIR } from '../ir';
 import { hashToBucket } from './bucket';
 import { evaluateCondition, relevantEvents } from './condition';
 import type { FactSource, JourneyContext, JourneyOutcome } from './ports';
+import { nextWindowStart } from './time-window';
 
 /**
  * IR interpreter: the execution core for one user's journey instance.
@@ -15,8 +16,13 @@ import type { FactSource, JourneyContext, JourneyOutcome } from './ports';
  * a suffix is appended (`${id}:guard`, `${id}:check:${n}`).
  */
 
-/** Cap on wait_until re-evaluations: beyond it we treat the wait as timed out, so a subscription storm cannot exhaust the step budget. */
-const MAX_WAIT_CHECKS = 16;
+/**
+ * Cap on wait_until re-evaluations: beyond it we treat the wait as timed out,
+ * so a wake-up storm cannot exhaust the platform's step budget. Each loop
+ * iteration costs three steps, so 64 checks stay well inside Cloudflare's
+ * 1024-step limit while absorbing far more wake churn than 16 did.
+ */
+const MAX_WAIT_CHECKS = 64;
 
 /**
  * Channel → the user property holding its recipient address. The engine
@@ -32,6 +38,9 @@ const RECIPIENT_PROPERTY: Record<string, string | undefined> = {
   survey: 'email',
   in_app: undefined,
 };
+
+/** The user property holding an IANA timezone id, read when a time_window says tz: 'user'. Same convention-table status as RECIPIENT_PROPERTY. */
+const TIMEZONE_PROPERTY = 'timezone';
 
 type FlowSignal =
   | { kind: 'fall_through' }
@@ -80,7 +89,10 @@ async function checkGuards(
 
   const result = await ctx.step.do(`${nodeId}:guard`, async () => {
     const now = Date.now();
-    const goalMet = goal !== undefined && (await evaluateCondition(goal.condition, ctx.facts, now));
+    // Attribution window: past goal.within (measured from entry) a match no longer counts as a conversion
+    const goalActive =
+      goal !== undefined && (goal.within === undefined || now - ctx.enteredAtMs <= goal.within.ms);
+    const goalMet = goalActive && (await evaluateCondition(goal.condition, ctx.facts, now));
     const exitMet = exitWhen !== undefined && (await evaluateCondition(exitWhen, ctx.facts, now));
     return { goalMet, exitMet };
   });
@@ -126,9 +138,13 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     }
 
     case 'time_window': {
-      const target = await ctx.step.do(`${node.id}:target`, async () =>
-        nextWindowStart(Date.now(), node.days, node.between[0])
-      );
+      const target = await ctx.step.do(`${node.id}:target`, async () => {
+        const tz =
+          node.tz === 'user'
+            ? String((await ctx.facts.getProperty(TIMEZONE_PROPERTY)) ?? 'UTC')
+            : node.tz;
+        return nextWindowStart(Date.now(), node.days, node.between, tz);
+      });
       if (target !== null) await ctx.step.sleepUntil(`${node.id}:sleep`, target);
       return FALL_THROUGH;
     }
@@ -198,24 +214,39 @@ async function waitUntil(
     `${node.id}:deadline`,
     async () => Date.now() + node.timeout.ms
   );
+  const events = await ctx.step.do(`${node.id}:events`, async () =>
+    relevantEvents(node.condition, ctx.facts)
+  );
 
+  // Subscribe before the first check: an event landing between the check and
+  // the registration would otherwise go unseen until the timeout.
+  await ctx.step.subscribe(`${node.id}:subscribe`, events);
+  const met = await waitLoop(node, ctx, deadline);
+  await ctx.step.unsubscribe(`${node.id}:unsubscribe`);
+  return met;
+}
+
+async function waitLoop(
+  node: Extract<NodeIR, { type: 'wait_until' }>,
+  ctx: JourneyContext,
+  deadline: number
+): Promise<boolean> {
   for (let attempt = 0; attempt < MAX_WAIT_CHECKS; attempt++) {
-    // Check once up front: the condition may already hold, which also covers the registration race on platforms without buffering
     const met = await ctx.step.do(`${node.id}:check:${attempt}`, async () =>
       evaluateCondition(node.condition, ctx.facts, Date.now())
     );
     if (met) return true;
 
-    const remaining = deadline - Date.now();
+    // Checkpointed: replay re-runs this control flow with wall-clock time far
+    // ahead of the original run, so the branch must come from a persisted value.
+    const remaining = await ctx.step.do(
+      `${node.id}:remaining:${attempt}`,
+      async () => deadline - Date.now()
+    );
+    // The condition was checked just above — expiring here needs no extra final check
     if (remaining <= 0) return false;
 
-    const events = await ctx.step.do(`${node.id}:events:${attempt}`, async () =>
-      relevantEvents(node.condition, ctx.facts)
-    );
-    const wake = await ctx.step.waitForEvent(`${node.id}:wait:${attempt}`, {
-      events,
-      timeoutMs: remaining,
-    });
+    const wake = await ctx.step.waitForWake(`${node.id}:wait:${attempt}`, remaining);
     if (wake === 'timeout') {
       // Final check after timeout: in a tight race the event may land exactly as the timer fires
       return ctx.step.do(`${node.id}:final`, async () =>
@@ -224,7 +255,7 @@ async function waitUntil(
     }
     // Woken → back to the top of the loop to re-evaluate (at-least-once wake-up semantics)
   }
-  return false;
+  return false; // check budget exhausted → treated as timed out (see MAX_WAIT_CHECKS)
 }
 
 async function resolveValues(
@@ -236,31 +267,4 @@ async function resolveValues(
     resolved[key] = typeof value === 'object' ? await facts.getProperty(value.path) : value;
   }
   return resolved;
-}
-
-/**
- * Start of the next time window (UTC; timezone support is a later topic).
- * Returns null when we are already inside the window and need not wait.
- */
-function nextWindowStart(nowMs: number, days: readonly string[], startHHmm: string): number | null {
-  const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-  const [hh = 9, mm = 0] = startHHmm.split(':').map(Number);
-  const now = new Date(nowMs);
-
-  for (let offset = 0; offset < 8; offset++) {
-    const candidate = new Date(nowMs + offset * 86_400_000);
-    const dayKey = DAY_KEYS[candidate.getUTCDay()];
-    if (!days.includes(dayKey)) continue;
-    const start = Date.UTC(
-      candidate.getUTCFullYear(),
-      candidate.getUTCMonth(),
-      candidate.getUTCDate(),
-      hh,
-      mm
-    );
-    if (start > nowMs) return start;
-    // Today's window has already opened: treat as inside it (the closing edge is left to the timezone topic)
-    if (offset === 0 && dayKey === DAY_KEYS[now.getUTCDay()]) return null;
-  }
-  return null;
 }

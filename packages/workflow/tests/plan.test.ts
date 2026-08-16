@@ -5,6 +5,7 @@ import {
   checkoutRecovery,
   e,
   gettingStarted,
+  inactive30d,
   proTips,
   purchaser,
   reengagement,
@@ -136,7 +137,7 @@ describe('plan', () => {
   });
 
   test('removed workflow is reported with its deployed hash', () => {
-    const result = plan(compileBundle({ workflows: [] }), compileBundle({ workflows: [base()] }));
+    const result = plan(compileBundle({ workflows: [] }), bundleOf(base()));
 
     expect(result.workflows[0]).toMatchObject({ name: 'checkout_recovery', status: 'removed' });
     expect(result.workflows[0]?.before).toBeDefined();
@@ -153,11 +154,48 @@ describe('plan', () => {
     const changed = result.segments.find((s) => s.name === 'purchaser');
     expect(changed?.status).toBe('changed');
   });
+
+  test("editing a branch case's condition is visible on the branch node itself", () => {
+    const deployed = bundleOf(base());
+    const edited = workflow('checkout_recovery', {
+      trigger: trigger.event(e.begin_checkout),
+      goal: purchaser,
+      description: 'Recover abandoned checkouts',
+    })
+      .delay('1 hour')
+      // same arms and flows, different case condition
+      .branch([eq(u.subscription_status, 'active'), (w) => w.email(proTips)], (w) =>
+        w.email(gettingStarted)
+      );
+
+    const result = plan(bundleOf(edited), deployed);
+    const change = result.workflows[0];
+
+    expect(change.status).toBe('changed');
+    expect(change.nodes).toEqual([{ id: '1', status: 'changed', type: 'branch' }]);
+  });
+
+  test('reweighting a cohort is visible on the cohort node itself', () => {
+    const ab = (control: number) =>
+      workflow('ab', { trigger: trigger.event(e.sign_up) }).cohort({
+        control: { weight: control },
+        variant: { weight: 100 - control },
+      });
+
+    const result = plan(
+      compileBundle({ workflows: [ab(90)] }),
+      compileBundle({ workflows: [ab(50)] })
+    );
+    const change = result.workflows[0];
+
+    expect(change.status).toBe('changed');
+    expect(change.nodes).toEqual([{ id: '0', status: 'changed', type: 'cohort' }]);
+  });
 });
 
 describe('plan smoke test across a realistic bundle', () => {
   test('reports added / removed / unchanged', () => {
-    const segments = [purchaser, activeSubscriber];
+    const segments = [purchaser, activeSubscriber, inactive30d];
     const deployed = compileBundle({ workflows: [checkoutRecovery, winback], segments });
     const local = compileBundle({ workflows: [checkoutRecovery, reengagement], segments });
 

@@ -1,6 +1,6 @@
 import type { ChannelIR, ConditionIR, NodeIR, PropValueIR, SourceLocIR } from '../ir';
 import { captureLoc } from '../provenance';
-import { type Duration, type TimeOfDay, type Weekday, durationIR } from './base';
+import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
 import { type Condition, condIR } from './condition';
 import type { EventRef, MessageArgs } from './refs';
 import type { Channel, TemplateRef } from './template';
@@ -95,8 +95,8 @@ export interface FlowBuilder {
    *
    * The optional first argument `label` becomes the node's name in IR (UI title
    * / observability handle). It is not a jump target — there is no goto here;
-   * periodic or looping needs are expressed with a self-triggering sendEvent
-   * (see sendEvent). Arm labels in the UI are derived from the condition.
+   * looping is a future re-entry-policy topic (see sendEvent). Arm labels in
+   * the UI are derived from the condition.
    */
   branch(...arms: readonly BranchArm[]): this;
   branch(label: string, ...arms: readonly BranchArm[]): this;
@@ -124,10 +124,13 @@ export interface FlowBuilder {
    * Emit a typed event (customer.io's Send Event). The event comes from an
    * e.xxx reference, so payload types flow in the same way trigger.event works.
    * This is how workflows compose: an event can trigger another workflow, and
-   * the resulting call graph is statically analyzable. It is also the official
-   * shape of a "loop" — the workflow itself stays a tree, and a trailing
-   * self-triggering sendEvent plus a goal plus a trigger rate limit gives you a
-   * periodic flow. Payload values may reference u.xxx.
+   * the resulting call graph is statically analyzable. Payload values may
+   * reference u.xxx.
+   *
+   * Note on loops: a trailing self-triggering sendEvent will become the
+   * official periodic-flow shape *once a re-entry policy exists* — today the
+   * entry policy is once-per-user, so a self-trigger cannot re-enter and does
+   * not loop.
    * TODO: the rest of the Data category — outbound webhook / profile update /
    * journey attributes.
    */
@@ -209,6 +212,14 @@ export class FlowBuilderImpl implements FlowBuilder {
     between: readonly [TimeOfDay, TimeOfDay];
     tz?: 'user' | (string & {});
   }): this {
+    const loc = captureLoc(this.timeWindow);
+    const start = timeOfDayMinutes(opts.between[0]);
+    const end = timeOfDayMinutes(opts.between[1]);
+    if (end <= start) {
+      throw new Error(
+        `timeWindow(): 'between' must open before it closes within one day, got [${opts.between[0]}, ${opts.between[1]}] (overnight windows are not supported yet)`
+      );
+    }
     return this.pushNode(
       {
         id: '',
@@ -217,7 +228,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         between: [opts.between[0], opts.between[1]],
         tz: opts.tz ?? 'user',
       },
-      captureLoc(this.timeWindow)
+      loc
     );
   }
 
@@ -295,7 +306,8 @@ export class FlowBuilderImpl implements FlowBuilder {
     const loc = captureLoc(this.cohort);
     const entries = Object.entries(arms);
     const total = entries.reduce((sum, [, a]) => sum + a.weight, 0);
-    if (total !== 100) {
+    // Epsilon comparison: fractional splits like 33.3/33.3/33.4 accumulate float error
+    if (Math.abs(total - 100) > 1e-6) {
       throw new Error(`cohort(): weights must sum to 100, got ${total}`);
     }
     return this.pushNode(

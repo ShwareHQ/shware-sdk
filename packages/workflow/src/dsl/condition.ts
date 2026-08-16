@@ -33,7 +33,18 @@ const cond = (ir: ConditionIR): Condition => {
 };
 
 /** @internal unwrap a condition to its IR — used by flow/trigger/workflow builders */
-export const condIR = (c: Condition): ConditionIR => (c as ConditionInternal).ir;
+export const condIR = (c: Condition): ConditionIR => {
+  // Partial: the cast is unsound for hand-rolled objects — exactly what this checks
+  const ir = (c as Partial<ConditionInternal>).ir;
+  if (ir === undefined) {
+    // A hand-rolled `{ __condition: true }` would otherwise surface as a
+    // baffling zod error at toIR() time, far away from the actual mistake.
+    throw new Error(
+      'Condition was not created by this DSL — use the predicates (eq/gt/…), combinators (and/or/not) or segment()'
+    );
+  }
+  return ir;
+};
 
 type Scalar = string | number | boolean;
 
