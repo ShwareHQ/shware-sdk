@@ -1,15 +1,15 @@
 import type { ConditionIR, WorkflowIR } from '@shware/workflow';
 import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
-import { clsx } from 'clsx';
 import { ArrowLeft } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
-import { SegmentList, describeCondition } from '../../components/segment-list';
-import { EditableText } from '../../components/templates-page';
+import { Dropdown } from '../../components/dropdown';
+import { Input } from '../../components/input';
+import { SegmentList } from '../../components/segment-list';
+import { Tabs } from '../../components/tabs';
 import { displayName } from '../../utils/label';
-import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
 /**
@@ -80,6 +80,7 @@ function Segments() {
   const { config } = segmentsRoute.useRouteContext();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [query, setQuery] = useState('');
 
   const refs = useMemo(
     () => collectSegmentRefs(Object.values(config.workflows).map((builder) => builder.toIR())),
@@ -91,7 +92,10 @@ function Segments() {
     const declared = new Map(
       config.segments.map((segment) => [
         segment.name,
-        segment as unknown as { definition: ConditionIR; meta?: { name?: string } },
+        segment as unknown as {
+          definition: ConditionIR;
+          meta?: { name?: string; description?: string };
+        },
       ])
     );
     return refs.map((ref) => {
@@ -100,9 +104,21 @@ function Segments() {
         ...ref,
         ...(found !== undefined ? { definition: found.definition } : {}),
         ...(found?.meta?.name !== undefined ? { label: found.meta.name } : {}),
+        description: found?.meta?.description ?? '',
       };
     });
   }, [refs, config]);
+
+  /* Substring match over everything a segment is known by: key, label, description. */
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (needle === '') return items;
+    return items.filter((item) =>
+      [item.name, item.label ?? '', item.description].some((text) =>
+        text.toLowerCase().includes(needle)
+      )
+    );
+  }, [items, query]);
 
   const { data: reports } = useQuery({
     queryKey: ['segment-reports'],
@@ -120,15 +136,29 @@ function Segments() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="px-6 pt-6 pb-4">
+      <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
         <h1 className="text-lg font-semibold">{t('segments.title')}</h1>
+        <Input
+          size="sm"
+          type="search"
+          className="w-64"
+          placeholder={t('segments.searchPlaceholder')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
       <div className="min-h-0 flex-1">
-        <SegmentList
-          items={items}
-          {...(reports !== undefined ? { reports } : {})}
-          onOpen={(name) => void navigate({ to: '/segments/$name', params: { name } })}
-        />
+        {filtered.length === 0 ? (
+          <div className="text-muted flex h-full items-center justify-center text-sm">
+            {t('segments.noMatches', { query: query.trim() })}
+          </div>
+        ) : (
+          <SegmentList
+            items={filtered}
+            {...(reports !== undefined ? { reports } : {})}
+            onOpen={(name) => void navigate({ to: '/segments/$name', params: { name } })}
+          />
+        )}
       </div>
     </div>
   );
@@ -147,79 +177,53 @@ const TABS = [{ to: '/segments/$name', label: 'segments.tabs.overview', exact: t
 function SegmentDetail() {
   const { name } = segmentDetailRoute.useParams();
   const { config } = segmentDetailRoute.useRouteContext();
+  const navigate = useNavigate();
   const { t } = useTranslation();
 
-  const declared = config.segments.find((segment) => segment.name === name) as
-    | {
-        definition: ConditionIR;
-        meta?: { name?: string; description?: string };
-        loc?: { file: string; line: number; column: number };
-      }
-    | undefined;
-  const definition = declared;
-  const declaredMeta = declared?.meta;
-  /*
-   * A segment's labels are its third argument, which may not be written yet —
-   * the insert path handles that, appending `{ name: '…' }` to the call.
-   */
-  const loc = declared?.loc;
-  const saveMeta = (field: 'name' | 'description') => (value: string) =>
-    reportSave(studioPost('/__studio/node', { ...loc, path: `2.${field}`, value }), {
-      saved: t('inspector.saved'),
-      failed: t('inspector.saveFailed'),
-    });
+  /* Switcher options: every segment the workflows reference, like the list page. */
+  const options = useMemo(() => {
+    const declared = new Map(
+      config.segments.map((segment) => [
+        segment.name,
+        segment as unknown as { meta?: { name?: string; description?: string } },
+      ])
+    );
+    const refs = collectSegmentRefs(Object.values(config.workflows).map((b) => b.toIR()));
+    return refs.map((ref) => ({
+      value: ref.name,
+      label: displayName(declared.get(ref.name)?.meta?.name, ref.name),
+    }));
+  }, [config]);
 
+  /*
+   * Same header as the workflow detail: back and the segment switcher on the
+   * left, the view tabs centred by the grid's equal outer tracks. 60px tall
+   * with a 1px bottom border.
+   */
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border bg-card flex shrink-0 items-center gap-4 border-b px-6 py-3">
-        <Link
-          to="/segments"
-          className="text-muted hover:bg-hover flex size-7 items-center justify-center rounded-lg transition-colors"
-          style={superellipse}
-          aria-label={t('common.back')}
-        >
-          <ArrowLeft className="size-4" strokeWidth={2} />
-        </Link>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">
-            {loc !== undefined ? (
-              <EditableText
-                value={declaredMeta?.name}
-                noneLabel={t('common.untitled')}
-                onSave={saveMeta('name')}
-              />
-            ) : (
-              displayName(declaredMeta?.name, t('common.untitled'))
-            )}
-          </div>
-          <div className="text-muted truncate text-xs">
-            {loc !== undefined ? (
-              <EditableText
-                value={declaredMeta?.description}
-                noneLabel={t('common.addDescription')}
-                onSave={saveMeta('description')}
-              />
-            ) : null}
-          </div>
-          <div className="text-muted truncate font-mono text-xs">
-            {definition ? describeCondition(definition.definition) : t('segments.notDefined')}
-          </div>
+      <div className="border-border bg-card grid h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            to="/segments"
+            className="text-muted hover:bg-hover flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+            style={superellipse}
+            aria-label={t('common.back')}
+          >
+            <ArrowLeft className="size-4" strokeWidth={2} />
+          </Link>
+          <Dropdown
+            className="max-w-full"
+            value={name}
+            options={options}
+            onChange={(next) => void navigate({ to: '/segments/$name', params: { name: next } })}
+          />
         </div>
-        <nav className="ml-auto flex items-center gap-1">
-          {TABS.map((tab) => (
-            <Link
-              key={tab.to}
-              to={tab.to}
-              params={{ name }}
-              activeOptions={{ exact: tab.exact }}
-              className="text-secondary hover:bg-hover rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors"
-              activeProps={{ className: '!bg-primary !text-card' }}
-              style={superellipse}
-            >
-              {t(tab.label)}
-            </Link>
-          ))}
-        </nav>
+        <Tabs
+          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
+          params={{ name }}
+        />
+        <div />
       </div>
 
       <div className="min-h-0 flex-1">

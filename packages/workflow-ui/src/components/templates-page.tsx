@@ -209,14 +209,14 @@ export function TemplatesPage({
                   <div className="flex items-center gap-2">
                     <span
                       className={clsx(
-                        'truncate text-[13px]',
+                        'truncate text-sm',
                         emails[ref.key]?.name === undefined ? 'text-muted italic' : 'text-primary'
                       )}
                     >
                       {displayName(emails[ref.key]?.name, t('common.untitled'))}
                     </span>
                     {!registered && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
+                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
                         {t('emails.noContent')}
                       </span>
                     )}

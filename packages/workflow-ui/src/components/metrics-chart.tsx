@@ -85,7 +85,7 @@ export function MetricsChart({ points, height = 280, ariaLabel = 'Metrics' }: Me
             y={y(tick)}
             textAnchor="end"
             dominantBaseline="middle"
-            fontSize={11}
+            fontSize={12}
             fill="var(--color-muted)"
           >
             {tick.toLocaleString()}
@@ -100,7 +100,7 @@ export function MetricsChart({ points, height = 280, ariaLabel = 'Metrics' }: Me
             x={x(index)}
             y={height - 8}
             textAnchor="middle"
-            fontSize={11}
+            fontSize={12}
             fill="var(--color-muted)"
           >
             {point.date.slice(5)}

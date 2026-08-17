@@ -316,17 +316,17 @@ export function NodeInspector({ node, sources, sharedBy, onClose, onSave }: Node
 
         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm">
           <Field label={t('inspector.id')}>
-            <span className="font-mono text-[13px]">{node.id}</span>
+            <span className="font-mono text-sm">{node.id}</span>
           </Field>
           {node.label !== undefined && <Field label={t('inspector.label')}>{node.label}</Field>}
           {summary(node).map((row) => (
             <Field key={row.label} label={row.label}>
-              <span className="font-mono text-[13px]">{row.value}</span>
+              <span className="font-mono text-sm">{row.value}</span>
             </Field>
           ))}
           {sources !== undefined && Object.values(sources)[0] !== undefined && (
             <Field label={t('inspector.source')}>
-              <span className="font-mono text-[13px]">
+              <span className="font-mono text-sm">
                 {Object.values(sources)[0].file}:{Object.values(sources)[0].line}
               </span>
             </Field>
