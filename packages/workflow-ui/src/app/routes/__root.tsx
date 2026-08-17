@@ -2,7 +2,15 @@ import type { QueryClient } from '@tanstack/react-query';
 import { Link, Outlet, createRootRouteWithContext } from '@tanstack/react-router';
 import { clsx } from 'clsx';
 import type { i18n as I18n } from 'i18next';
-import { Home, Mail, PanelLeftClose, PanelLeftOpen, Settings, Users, Workflow } from 'lucide-react';
+import {
+  Home,
+  LayoutTemplate,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  Users,
+  Workflow,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
@@ -30,7 +38,7 @@ const NAV = [
   { to: '/', label: 'nav.home', icon: Home, exact: true },
   { to: '/workflows', label: 'nav.workflows', icon: Workflow, exact: false },
   { to: '/segments', label: 'nav.segments', icon: Users, exact: false },
-  { to: '/emails', label: 'nav.emails', icon: Mail, exact: false },
+  { to: '/templates', label: 'nav.templates', icon: LayoutTemplate, exact: false },
   { to: '/settings', label: 'nav.settings', icon: Settings, exact: true },
 ] as const;
 

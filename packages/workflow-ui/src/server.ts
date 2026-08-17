@@ -147,6 +147,7 @@ export default {
   emails: ${emailsIndex !== undefined ? 'registry' : '{}'},
   segments,
   addresses: config.emails?.addresses ?? [],
+  ...(config.emails?.sendTest !== undefined ? { sendTest: config.emails.sendTest } : {}),
   ...(config.stats !== undefined ? { stats: config.stats } : {}),
 };
 `;

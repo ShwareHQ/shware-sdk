@@ -43,7 +43,6 @@ function setup({
       refs={refs}
       emails={emails}
       selected={selected}
-      onSelect={vi.fn<(key: string) => void>()}
       preview={{ loading: false }}
       addresses={ADDRESSES}
       onSaveEnvelope={onSaveEnvelope}

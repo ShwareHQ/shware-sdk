@@ -22,7 +22,6 @@ export interface TemplatesPageProps {
   /** Email registry from the user's config; keys match the DSL's template keys. */
   emails: Record<string, EmailModule | undefined>;
   selected: string | undefined;
-  onSelect: (key: string) => void;
   /** Rendered output for the selected template, produced by the caller. */
   preview: TemplatePreview;
   /** Sender address book (config's emails.addresses) — drives the from / reply-to pickers. */
@@ -136,7 +135,8 @@ export function EditableText({
       <button
         type="button"
         onClick={() => setDraft(value ?? '')}
-        className="hover:bg-hover -mx-1.5 -my-0.5 w-full cursor-text truncate rounded px-1.5 py-0.5 text-left"
+        /* Transparent border, same 1px as the input state — swapping must not shift layout. */
+        className="hover:bg-hover -mx-1.5 -my-0.5 w-full cursor-text truncate rounded border border-transparent px-1.5 py-0.5 text-left"
       >
         {value ?? noneLabel}
       </button>
@@ -166,7 +166,6 @@ export function TemplatesPage({
   refs,
   emails,
   selected,
-  onSelect,
   preview,
   addresses = [],
   onSaveEnvelope,
@@ -188,51 +187,7 @@ export function TemplatesPage({
 
   return (
     <div className="flex h-full min-h-0">
-      {/* Template list */}
-      <aside className="border-border bg-card w-72 shrink-0 overflow-y-auto border-r">
-        <div className="text-muted px-4 py-3 text-xs font-semibold tracking-wide uppercase">
-          {t('emails.title')} · {refs.length}
-        </div>
-        <ul>
-          {refs.map((ref) => {
-            const registered = emails[ref.key] !== undefined;
-            const isActive = ref.key === active?.key;
-            return (
-              <li key={ref.key}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(ref.key)}
-                  className={`w-full border-l-2 px-4 py-2.5 text-left ${
-                    isActive ? 'border-primary bg-selected' : 'hover:bg-hover border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={clsx(
-                        'truncate text-sm',
-                        emails[ref.key]?.name === undefined ? 'text-muted italic' : 'text-primary'
-                      )}
-                    >
-                      {displayName(emails[ref.key]?.name, t('common.untitled'))}
-                    </span>
-                    {!registered && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
-                        {t('emails.noContent')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-muted mt-0.5 truncate text-xs">
-                    {CHANNEL_LABEL[ref.channel] ?? ref.channel} ·{' '}
-                    {[...new Set(ref.usages.map((usage) => usage.workflow))].join(', ')}
-                  </div>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </aside>
-
-      {/* Preview */}
+      {/* Preview; the template list lives on the /emails index and the header dropdown. */}
       <section className="bg-page flex min-w-0 flex-1 flex-col">
         {active === undefined ? (
           <div className="text-muted flex flex-1 items-center justify-center text-sm">
@@ -290,34 +245,7 @@ export function TemplatesPage({
                   </>
                 )}
 
-                {/*
-                  Labels, not envelope: nothing reads them but this panel, so
-                  they are the one part of a template that is safe to rename
-                  freely — the key beside the title stays the identity.
-                */}
-                <Field label={t('emails.name')}>
-                  {saveField ? (
-                    <EditableText
-                      value={activeModule?.name}
-                      noneLabel={t('common.none')}
-                      onSave={saveField('name')}
-                    />
-                  ) : (
-                    (activeModule?.name ?? t('common.none'))
-                  )}
-                </Field>
-                <Field label={t('emails.description')}>
-                  {saveField ? (
-                    <EditableText
-                      value={activeModule?.description}
-                      noneLabel={t('common.none')}
-                      onSave={saveField('description')}
-                    />
-                  ) : (
-                    (activeModule?.description ?? t('common.none'))
-                  )}
-                </Field>
-
+                {/* Name / description are labels, not envelope — edited from the list page. */}
                 {activeModule?.to !== undefined && (
                   <Field label={t('emails.to')}>{activeModule.to}</Field>
                 )}

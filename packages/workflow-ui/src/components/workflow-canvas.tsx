@@ -129,7 +129,11 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: 'var(--color-card)',
-  border: '1px solid var(--color-edge)',
+  // Longhand, not the `border` shorthand: selection overrides borderColor alone,
+  // and React warns when a rerender mixes a shorthand with its longhand.
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--color-edge)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
   ...superellipse,

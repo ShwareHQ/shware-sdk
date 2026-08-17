@@ -124,7 +124,7 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                 <td className="border-border border-b px-3 py-4">
                   <span
                     className={clsx(
-                      'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
+                      'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
                       report
                         ? 'bg-green-50 text-green-700 dark:bg-green-400/10 dark:text-green-300'
                         : 'bg-selected text-muted'

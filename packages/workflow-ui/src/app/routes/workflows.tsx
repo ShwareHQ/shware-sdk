@@ -7,6 +7,7 @@ import { Button } from '../../components/button';
 import { superellipse } from '../../components/corner-shape';
 import { Dropdown } from '../../components/dropdown';
 import { Input } from '../../components/input';
+import { SearchInput } from '../../components/input/search-input';
 import { Modal, ModalTitle } from '../../components/modal';
 import {
   type EditableField,
@@ -101,9 +102,7 @@ function WorkflowsIndex() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
         <h1 className="text-lg font-semibold">{t('workflows.title')}</h1>
-        <Input
-          size="sm"
-          type="search"
+        <SearchInput
           className="w-64"
           placeholder={t('workflows.searchPlaceholder')}
           value={query}
@@ -349,7 +348,7 @@ function CanvasTab() {
           {...(stats !== undefined ? { stats } : {})}
           selectedId={selectedId}
           onSelectNode={select}
-          onOpenTemplate={(key) => void navigate({ to: '/emails/$key', params: { key } })}
+          onOpenTemplate={(key) => void navigate({ to: '/templates/$key', params: { key } })}
         />
       </div>
       {selected !== undefined && (
