@@ -151,6 +151,22 @@
 }
 
 /*
+ * react-flow's own chrome (the zoom controls) on the studio's ramp instead of
+ * its stock palette. Its components read `--xy-*` with a `-default` fallback,
+ * so setting the un-suffixed names wins in both of its colour modes. Unlayered
+ * on purpose: react-flow's stylesheet is unlayered too, and a rule inside
+ * @layer base would lose to it. Only custom properties are set here, so no
+ * utility class can be shadowed.
+ */
+.react-flow {
+  --xy-controls-button-background-color: var(--color-card);
+  --xy-controls-button-background-color-hover: var(--color-selected);
+  --xy-controls-button-color: var(--color-secondary);
+  --xy-controls-button-color-hover: var(--color-primary);
+  --xy-controls-button-border-color: var(--color-border);
+}
+
+/*
  * Must stay inside @layer base. Unlayered rules beat every layered one in the
  * cascade, so an unlayered `* { margin: 0 }` here would silently defeat every
  * `mt-*` / `ml-*` utility in the app.

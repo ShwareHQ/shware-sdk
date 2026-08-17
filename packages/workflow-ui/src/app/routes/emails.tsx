@@ -1,7 +1,7 @@
 import { render } from '@react-email/render';
 import { useQuery } from '@tanstack/react-query';
 import { Link, createRoute, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Send } from 'lucide-react';
 import { type ReactElement, createElement, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -273,10 +273,12 @@ function EmailView() {
         <div className="flex justify-end">
           <Button
             size="sm"
+            className="gap-1.5"
             disabled={!canTest}
             title={config.sendTest === undefined ? t('emails.testUnavailable') : undefined}
             onClick={() => setTestOpen(true)}
           >
+            <Send size={16} strokeWidth={2} aria-hidden />
             {t('emails.test')}
           </Button>
         </div>
