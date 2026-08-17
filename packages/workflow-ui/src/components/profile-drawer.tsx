@@ -64,8 +64,9 @@ function Section({
   onToggle: () => void;
   children: ReactNode;
 }) {
+  /* Top border, inset by the drawer's padding — the divider stops short of the edges. */
   return (
-    <section className="border-border border-b py-4 first:pt-0 last:border-b-0">
+    <section className="border-border border-t py-4">
       <button
         type="button"
         aria-expanded={open}
@@ -113,6 +114,29 @@ function Row({
         {action}
       </dd>
     </>
+  );
+}
+
+/**
+ * Round avatar from `picture` (a URL user property), falling back to the
+ * initial of whatever names the person when the URL is absent or dead.
+ */
+function Avatar({ picture, label }: { picture: string | undefined; label: string }) {
+  const [failed, setFailed] = useState(false);
+  if (picture !== undefined && picture !== '' && !failed) {
+    return (
+      <img
+        src={picture}
+        alt=""
+        onError={() => setFailed(true)}
+        className="size-9 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
+  return (
+    <div className="bg-selected text-secondary flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-medium">
+      {label.trim().charAt(0).toUpperCase()}
+    </div>
   );
 }
 
@@ -177,14 +201,16 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
   const properties = profile?.properties ?? {};
   const prop = (key: string) => properties[key];
 
-  /* Identity, assembled with fallbacks: `name`, else first + last. */
+  /* Identity, assembled with fallbacks: `name`, else first + last. Strings only. */
+  const nameProp = prop('name');
   const name =
-    prop('name') ??
-    ([prop('first_name'), prop('last_name')]
-      .filter((part): part is string => typeof part === 'string')
-      .join(' ') ||
-      undefined);
-  const email = profile?.email ?? prop('email');
+    typeof nameProp === 'string' && nameProp !== ''
+      ? nameProp
+      : [prop('first_name'), prop('last_name')]
+          .filter((part): part is string => typeof part === 'string')
+          .join(' ') || undefined;
+  const emailProp = prop('email');
+  const email = profile?.email ?? (typeof emailProp === 'string' ? emailProp : undefined);
 
   const utmKeys = Object.keys(properties).filter((key) => key.startsWith('utm_'));
   const consumed = new Set([...USER_FIELDS, ...SOURCE_FIELDS, ...DEVICE_FIELDS, ...utmKeys]);
@@ -214,10 +240,21 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <div className="border-border flex h-14 shrink-0 items-center gap-3 border-b px-5">
+        {/* No bottom border: the first section's inset top border draws the divider. */}
+        <div className="flex h-14 shrink-0 items-center gap-3 px-5">
+          {/* Keyed by profile so a stale image error never sticks to the next person. */}
+          <Avatar
+            key={profile?.id}
+            picture={typeof prop('picture') === 'string' ? (prop('picture') as string) : undefined}
+            label={name ?? email ?? profile?.id ?? '?'}
+          />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">{profile?.email ?? profile?.id}</div>
-            <div className="text-muted truncate font-mono text-xs">{profile?.id}</div>
+            <div className="truncate text-sm font-semibold">
+              {name ?? email ?? profile?.id ?? ''}
+            </div>
+            <div className="text-muted truncate text-xs">
+              {name !== undefined ? (email ?? profile?.id ?? '') : (profile?.id ?? '')}
+            </div>
           </div>
           <button
             type="button"
@@ -231,7 +268,8 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-5">
-          <div className="py-4">
+          {/* No top padding: the first section's border should sit right under the header. */}
+          <div className="pb-4">
             <Section
               title={t('profiles.sections.user')}
               open={!closed.user}
@@ -256,7 +294,16 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
                 const value = prop(key);
                 const flag =
                   key === 'country' && typeof value === 'string' && value.length === 2 ? (
-                    <Flag code={value} className="h-3 w-4 shrink-0 rounded-[2px]" />
+                    /*
+                     * Inset hairline: all-white flags (JP, …) need an edge on a
+                     * light card. The box is exactly 3:2 like the SVGs, so the
+                     * flag fills it and the ring sits flush on the flag's edge
+                     * — a mismatched ratio letterboxes and detaches the ring.
+                     */
+                    <Flag
+                      code={value}
+                      className="h-3 w-[18px] shrink-0 rounded-[2px] ring-1 ring-gray-950/20 ring-inset dark:ring-white/20"
+                    />
                   ) : undefined;
                 return (
                   <Row key={key} label={t(`profiles.fields.${key}`)} value={value} leading={flag} />
