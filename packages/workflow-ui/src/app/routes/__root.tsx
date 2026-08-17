@@ -73,7 +73,7 @@ function RootLayout() {
    * 4px the instant the state flipped.
    */
   const itemClass = clsx(
-    'flex h-9 items-center gap-2.5 rounded-lg px-3 text-[13px] font-medium',
+    'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium',
     'text-secondary hover:bg-hover overflow-hidden whitespace-nowrap transition-colors'
   );
 
@@ -83,7 +83,7 @@ function RootLayout() {
         className={clsx(
           'border-border bg-card flex shrink-0 flex-col overflow-hidden border-r',
           'transition-[width] duration-200 ease-out',
-          collapsed ? 'w-16' : 'w-52'
+          collapsed ? 'w-16' : 'w-60'
         )}
       >
         <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">

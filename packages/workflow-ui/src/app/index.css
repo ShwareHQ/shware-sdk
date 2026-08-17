@@ -21,6 +21,27 @@
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
 
   /*
+   * Type scale, shared with the template app so every product speaks one ramp.
+   * Components only use these steps — never arbitrary values like text-[13px].
+   */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.375rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.75rem;
+
+  /*
    * The studio's grey scale. Everything addresses it as `gray-*` and nothing
    * addresses a Tailwind palette by name; these eleven values are the single
    * place a ramp is chosen. Swap them for another and the whole app follows,
@@ -54,9 +75,12 @@
   --color-border: var(--color-gray-200);
   --color-hover: var(--color-gray-50);
   --color-selected: var(--color-gray-100);
-  /* Surfaces: `page` is what a view sits on, `card` is what sits on the page. */
-  --color-page: var(--color-gray-50);
+  /* Surfaces: `page` matches the sidebar's card colour — one flat surface. */
+  --color-page: #fff;
   --color-card: #fff;
+  /* Form controls, same roles as the template app so ported fields just work. */
+  --color-textfield: var(--color-gray-100);
+  --color-placeholder: var(--color-gray-400);
   /*
    * The canvas surface, set explicitly because react-flow's dark colorMode
    * otherwise paints its own `--xy-background-color-default` (#141414), which
@@ -97,10 +121,17 @@
   --color-secondary: var(--color-gray-400);
   --color-muted: var(--color-gray-500);
   --color-border: var(--color-gray-800);
+  /*
+   * Same as the sidebar's card colour: row hovers on the black page match the
+   * rail. Popups sit on `card` (also gray-900), so their item highlight uses
+   * `selected`, one step brighter, or it would vanish.
+   */
   --color-hover: var(--color-gray-900);
   --color-selected: var(--color-gray-800);
-  --color-page: var(--color-gray-950);
+  --color-page: #000;
   --color-card: var(--color-gray-900);
+  --color-textfield: #000;
+  --color-placeholder: var(--color-gray-600);
   /* Pure black under the grid, so the cards above it have the most room to lift. */
   --color-canvas: #000;
   --color-edge: var(--color-gray-700);

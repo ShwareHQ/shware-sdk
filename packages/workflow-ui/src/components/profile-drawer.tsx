@@ -83,7 +83,7 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
               {properties.map(([key, value]) => (
                 <div key={key} className="contents">
                   <dt className="text-muted whitespace-nowrap">{key}</dt>
-                  <dd className="text-secondary min-w-0 font-mono text-[13px] break-words">
+                  <dd className="text-secondary min-w-0 font-mono text-sm break-words">
                     {formatValue(value)}
                   </dd>
                 </div>

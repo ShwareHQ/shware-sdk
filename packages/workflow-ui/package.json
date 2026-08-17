@@ -36,6 +36,7 @@
     "lint": "oxlint --type-aware src tests --fix"
   },
   "dependencies": {
+    "@floating-ui/react": "^0.27.20",
     "@hookform/resolvers": "^5.9.1",
     "@jridgewell/trace-mapping": "^0.3.31",
     "@react-email/render": "^2.1.0",

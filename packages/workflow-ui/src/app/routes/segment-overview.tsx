@@ -162,7 +162,7 @@ function SegmentOverview() {
                     <td className="border-border truncate border-b px-5 py-2.5">
                       {profile.email ?? '—'}
                     </td>
-                    <td className="border-border text-muted truncate border-b px-5 py-2.5 font-mono text-[13px]">
+                    <td className="border-border text-muted truncate border-b px-5 py-2.5 font-mono text-sm">
                       {profile.id}
                     </td>
                     <td className="border-border text-muted border-b px-5 py-2.5 whitespace-nowrap tabular-nums">

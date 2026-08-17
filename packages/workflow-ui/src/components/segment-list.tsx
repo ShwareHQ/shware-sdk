@@ -113,7 +113,7 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                 {...(onOpen ? { onClick: () => onOpen(item.name) } : {})}
                 className={clsx(
                   'align-top transition-colors',
-                  onOpen && 'hover:bg-card cursor-pointer'
+                  onOpen && 'hover:bg-hover cursor-pointer'
                 )}
               >
                 <td className="border-border border-b px-6 py-4">
@@ -128,13 +128,13 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                       >
                         {displayName(item.label, t('common.untitled'))}
                         {item.definition === undefined && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
                             {t('segments.notDefined')}
                           </span>
                         )}
                       </div>
                       {item.definition !== undefined && (
-                        <p className="text-secondary mt-1 truncate font-mono text-[13px]">
+                        <p className="text-secondary mt-1 truncate font-mono text-sm">
                           {describeCondition(item.definition)}
                         </p>
                       )}
