@@ -6,6 +6,7 @@ import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { type Plugin, type ViteDevServer, createServer, searchForWorkspaceRoot } from 'vite';
+import svgr from 'vite-plugin-svgr';
 import {
   type EnvelopeField,
   type ValuePath,
@@ -461,7 +462,7 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
     root: appRoot,
     configFile: false,
     envFile: false,
-    plugins: [react(), tailwindcss(), discoveryPlugin(cwd), studioApiPlugin(cwd)],
+    plugins: [react(), svgr(), tailwindcss(), discoveryPlugin(cwd), studioApiPlugin(cwd)],
     server: {
       port: options.port ?? 4321,
       open: options.open ?? false,

@@ -57,6 +57,7 @@
     "tailwindcss": "^4.3.3",
     "typescript-5": "npm:typescript@^5.9.3",
     "vite": "^8.2.1",
+    "vite-plugin-svgr": "^5.2.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -70,6 +71,7 @@
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "country-flag-icons": "^1.6.20",
     "jsdom": "^30.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
