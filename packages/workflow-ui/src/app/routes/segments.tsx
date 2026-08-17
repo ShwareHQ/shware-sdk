@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import { Dropdown } from '../../components/dropdown';
-import { Input } from '../../components/input';
+import { SearchInput } from '../../components/input/search-input';
 import { SegmentList } from '../../components/segment-list';
 import { Tabs } from '../../components/tabs';
 import { displayName } from '../../utils/label';
@@ -138,9 +138,7 @@ function Segments() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
         <h1 className="text-lg font-semibold">{t('segments.title')}</h1>
-        <Input
-          size="sm"
-          type="search"
+        <SearchInput
           className="w-64"
           placeholder={t('segments.searchPlaceholder')}
           value={query}
