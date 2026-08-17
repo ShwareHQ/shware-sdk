@@ -102,7 +102,7 @@ minimumReleaseAgeExclude:
   - '@posthog/types@1.403.0'
   - miniflare@5.20260811.0-alpha
   - wrangler@4.122.0
-  - '@hookform/resolvers@5.9.0'
+  - '@hookform/resolvers@5.9.0 || 5.9.1'
   - '@tanstack/react-router@1.170.29'
   - '@tanstack/router-core@1.171.24'
   - web-vitals@6.1.1
