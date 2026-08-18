@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 5.1.1
+
+### Patch Changes
+
+- `sendMetaEvents`/`sendMetaEvent` no longer reject when Meta rejects the batch. Every other conversion sender in `@shware/analytics/server` logs the failure and resolves, so a host that fans out to all of them with `Promise.all` had its request fail whenever Meta alone returned a 4xx — most often locally, where an event carries no `fbp`/`fbc` and no client IP and Meta answers `error_subcode: 2804050` (customer information parameters missing or too broad). Meta failures are now logged in the same shape as the Reddit and OpenAI senders, and only the response body is logged: the raw SDK error also carries the access token in its `url`.
+
 ## 5.1.0
 
 ### Minor Changes
