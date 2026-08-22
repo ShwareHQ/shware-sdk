@@ -215,6 +215,14 @@ export function TemplatesPage({
       : undefined;
   // From / subject / reply-to are email semantics; other channels skip the envelope rows
   const isEmail = active?.channel === 'email';
+  /* Nothing to show at all (non-email, no envelope data) — hide the whole panel. */
+  const hasEnvelope =
+    isEmail ||
+    activeModule?.to !== undefined ||
+    activeModule?.preheader !== undefined ||
+    activeModule?.cc !== undefined ||
+    activeModule?.bcc !== undefined ||
+    activeModule?.headers !== undefined;
 
   return (
     <div className="flex h-full min-h-0">
@@ -227,102 +235,104 @@ export function TemplatesPage({
         ) : (
           <>
             {/*
-              The full envelope, always visible — one face, one size, roomy
-              rows: an editing surface reads better as a calm table than as a
-              teaser that unfolds.
+              The envelope, hidden entirely when there is nothing to put in it
+              — one face, one size, roomy rows: an editing surface reads better
+              as a calm table than as a teaser that unfolds.
             */}
-            <div className="border-border bg-card relative border-b px-6 py-4">
-              {/* Collapsed by default: From and Subject carry the message; the rest on demand. */}
-              <button
-                type="button"
-                aria-expanded={envelopeOpen}
-                aria-label={
-                  envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')
-                }
-                title={envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')}
-                onClick={() => setEnvelopeOpen((open) => !open)}
-                className="text-muted hover:bg-hover hover:text-primary absolute top-3 right-4 flex size-7 items-center justify-center rounded-lg transition-colors"
-                style={superellipse}
-              >
-                <ChevronDown
-                  size={16}
-                  strokeWidth={2}
-                  aria-hidden
-                  className={cn('transition-transform', envelopeOpen && 'rotate-180')}
-                />
-              </button>
-              <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 pr-10 text-sm">
-                {isEmail && (
-                  <>
-                    <Field label={t('emails.from')}>
-                      {saveField ? (
-                        <AddressSelect
-                          value={activeModule?.from}
-                          addresses={addresses}
-                          noneLabel={t('common.none')}
-                          onSave={saveField('from')}
-                          onManage={onManageAddresses}
-                        />
-                      ) : (
-                        (activeModule?.from ?? t('common.none'))
-                      )}
-                    </Field>
-                    <Field label={t('emails.subject')}>
-                      {saveField ? (
-                        <EditableText
-                          value={activeModule?.subject}
-                          noneLabel={t('common.none')}
-                          onSave={saveField('subject')}
-                        />
-                      ) : (
-                        (subject ?? t('common.none'))
-                      )}
-                    </Field>
-                  </>
-                )}
+            {hasEnvelope && (
+              <div className="border-border bg-card relative border-b px-6 py-4">
+                {/* Collapsed by default: From and Subject carry the message; the rest on demand. */}
+                <button
+                  type="button"
+                  aria-expanded={envelopeOpen}
+                  aria-label={
+                    envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')
+                  }
+                  title={envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')}
+                  onClick={() => setEnvelopeOpen((open) => !open)}
+                  className="text-muted hover:bg-hover hover:text-primary absolute top-3 right-4 flex size-7 items-center justify-center rounded-lg transition-colors"
+                  style={superellipse}
+                >
+                  <ChevronDown
+                    size={16}
+                    strokeWidth={2}
+                    aria-hidden
+                    className={cn('transition-transform', envelopeOpen && 'rotate-180')}
+                  />
+                </button>
+                <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 pr-10 text-sm">
+                  {isEmail && (
+                    <>
+                      <Field label={t('emails.from')}>
+                        {saveField ? (
+                          <AddressSelect
+                            value={activeModule?.from}
+                            addresses={addresses}
+                            noneLabel={t('common.none')}
+                            onSave={saveField('from')}
+                            onManage={onManageAddresses}
+                          />
+                        ) : (
+                          (activeModule?.from ?? t('common.none'))
+                        )}
+                      </Field>
+                      <Field label={t('emails.subject')}>
+                        {saveField ? (
+                          <EditableText
+                            value={activeModule?.subject}
+                            noneLabel={t('common.none')}
+                            onSave={saveField('subject')}
+                          />
+                        ) : (
+                          (subject ?? t('common.none'))
+                        )}
+                      </Field>
+                    </>
+                  )}
 
-                {/* Name / description are labels, not envelope — edited from the list page. */}
-                {envelopeOpen && (
-                  <>
-                    {activeModule?.to !== undefined && (
-                      <Field label={t('emails.to')}>{activeModule.to}</Field>
-                    )}
-                    {isEmail &&
-                      (activeModule?.replyTo !== undefined || saveField !== undefined) && (
-                        <Field label={t('emails.replyTo')}>
-                          {saveField ? (
-                            <AddressSelect
-                              value={activeModule?.replyTo}
-                              addresses={addresses}
-                              noneLabel={t('common.none')}
-                              onSave={saveField('replyTo')}
-                              onManage={onManageAddresses}
-                            />
-                          ) : (
-                            activeModule?.replyTo
-                          )}
-                        </Field>
+                  {/* Name / description are labels, not envelope — edited from the list page. */}
+                  {envelopeOpen && (
+                    <>
+                      {activeModule?.to !== undefined && (
+                        <Field label={t('emails.to')}>{activeModule.to}</Field>
                       )}
-                    {activeModule?.preheader !== undefined && (
-                      <Field label={t('emails.preheader')}>{activeModule.preheader}</Field>
-                    )}
-                    {activeModule?.cc !== undefined && (
-                      <Field label={t('emails.cc')}>{activeModule.cc.join(', ')}</Field>
-                    )}
-                    {activeModule?.bcc !== undefined && (
-                      <Field label={t('emails.bcc')}>{activeModule.bcc.join(', ')}</Field>
-                    )}
-                  </>
-                )}
-                {envelopeOpen &&
-                  activeModule?.headers !== undefined &&
-                  Object.entries(activeModule.headers).map(([name, value]) => (
-                    <Field key={name} label={name}>
-                      {value}
-                    </Field>
-                  ))}
-              </dl>
-            </div>
+                      {isEmail &&
+                        (activeModule?.replyTo !== undefined || saveField !== undefined) && (
+                          <Field label={t('emails.replyTo')}>
+                            {saveField ? (
+                              <AddressSelect
+                                value={activeModule?.replyTo}
+                                addresses={addresses}
+                                noneLabel={t('common.none')}
+                                onSave={saveField('replyTo')}
+                                onManage={onManageAddresses}
+                              />
+                            ) : (
+                              activeModule?.replyTo
+                            )}
+                          </Field>
+                        )}
+                      {activeModule?.preheader !== undefined && (
+                        <Field label={t('emails.preheader')}>{activeModule.preheader}</Field>
+                      )}
+                      {activeModule?.cc !== undefined && (
+                        <Field label={t('emails.cc')}>{activeModule.cc.join(', ')}</Field>
+                      )}
+                      {activeModule?.bcc !== undefined && (
+                        <Field label={t('emails.bcc')}>{activeModule.bcc.join(', ')}</Field>
+                      )}
+                    </>
+                  )}
+                  {envelopeOpen &&
+                    activeModule?.headers !== undefined &&
+                    Object.entries(activeModule.headers).map(([name, value]) => (
+                      <Field key={name} label={name}>
+                        {value}
+                      </Field>
+                    ))}
+                </dl>
+              </div>
+            )}
 
             {/*
               Dot grid with the workflow canvas's look (its two themes' exact
