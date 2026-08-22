@@ -265,6 +265,28 @@ export function getServerEvent(
   return serverEvent;
 }
 
+/**
+ * The shape `FacebookRequestError` exposes: `status` and `response` are the HTTP status and the
+ * parsed error body, and both are null when the request never received a response.
+ */
+type MetaRequestError = { status?: number | null; message?: string; response?: unknown };
+
+/**
+ * Meta's SDK rejects on API errors, where every other conversion sender here logs and resolves.
+ * Keep the failure inside this module, so one rejected batch cannot fail the caller's request.
+ * Never log the error itself: it also carries the access token, in both `url` and `data`.
+ */
+function logError(error: unknown) {
+  const { status, message, response } = (error ?? {}) as MetaRequestError;
+  if (typeof status !== 'number') {
+    console.error(`Failed to send Meta conversion, network error: ${message ?? String(error)}`);
+    return;
+  }
+  console.error(
+    `Failed to send Meta conversion, status: ${status}, body: ${JSON.stringify(response)}`
+  );
+}
+
 export async function sendEvent(
   accessToken: string,
   pixelId: string,
@@ -277,7 +299,12 @@ export async function sendEvent(
   const request = new EventRequest(accessToken, pixelId);
   const fbEvent = getServerEvent(event, data, appPackageName);
   request.setEvents([fbEvent]);
-  return request.execute();
+  try {
+    return await request.execute();
+  } catch (error) {
+    logError(error);
+    return undefined;
+  }
 }
 
 export async function sendEvents(
@@ -294,7 +321,12 @@ export async function sendEvents(
   if (fbEvents.length === 0) return undefined;
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);
-  return request.execute();
+  try {
+    return await request.execute();
+  } catch (error) {
+    logError(error);
+    return undefined;
+  }
 }
 
 export async function sendTestEvent(accessToken: string, pixelId: string, testEventCode: string) {
