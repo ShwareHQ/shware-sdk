@@ -131,7 +131,11 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
 const baseCard: CSSProperties = {
   boxSizing: 'border-box',
   background: 'var(--color-card)',
-  border: '1px solid var(--color-edge)',
+  // Longhand, not the `border` shorthand: selection overrides borderColor alone,
+  // and React warns when a rerender mixes a shorthand with its longhand.
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--color-edge)',
   fontFamily: "'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif",
   overflow: 'hidden',
   ...superellipse,
@@ -190,7 +194,7 @@ const headerStyle: CSSProperties = {
 const titleStyle: CSSProperties = {
   flex: 1,
   minWidth: 0,
-  fontSize: 13,
+  fontSize: 14,
   lineHeight: '20px',
   fontWeight: 600,
   color: 'var(--color-primary)',
@@ -203,7 +207,7 @@ const countStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 4,
-  fontSize: 13,
+  fontSize: 14,
   lineHeight: '20px',
   fontWeight: 600,
   color: 'var(--color-primary)',
@@ -260,18 +264,18 @@ function WorkflowNode({ id, data }: NodeProps<WfNode>) {
           style={{ ...iconStyle, ...selected }}
           title={data.subtitle ? `${data.title} · ${data.subtitle}` : data.title}
         >
-          <Icon size={14} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
+          <Icon size={16} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
           {data.title}
         </div>
       </div>
     ) : (
       <div style={{ ...cardStyle, ...selected }}>
         <div style={headerStyle}>
-          <Icon size={15} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
+          <Icon size={16} color={CATEGORY_COLOR[data.category]} strokeWidth={2} aria-hidden />
           <span style={titleStyle}>{data.title}</span>
           {data.count !== undefined && (
             <span style={countStyle}>
-              <User size={14} color="var(--color-muted)" strokeWidth={2} aria-hidden />
+              <User size={16} color="var(--color-muted)" strokeWidth={2} aria-hidden />
               {data.count}
             </span>
           )}
@@ -284,7 +288,7 @@ function WorkflowNode({ id, data }: NodeProps<WfNode>) {
               aria-label={`Open template ${templateKey}`}
               onClick={() => onOpenTemplate(templateKey)}
             >
-              <SquareArrowOutUpRight size={14} strokeWidth={2} aria-hidden />
+              <SquareArrowOutUpRight size={16} strokeWidth={2} aria-hidden />
             </button>
           )}
         </div>

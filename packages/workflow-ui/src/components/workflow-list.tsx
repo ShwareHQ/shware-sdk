@@ -4,6 +4,7 @@ import { AlarmClock, Mail, Workflow as WorkflowIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowReport } from '../config';
 import { displayName } from '../utils/label';
+import { Menu } from './menu';
 import { Sparkline } from './sparkline';
 
 /**
@@ -15,6 +16,8 @@ export interface WorkflowListProps {
   items: { key: string; ir: WorkflowIR }[];
   reports?: WorkflowReport[];
   onOpen: (key: string) => void;
+  /** Open the edit dialog for a workflow; the row menu only appears when provided. */
+  onEdit?: (key: string) => void;
 }
 
 /** Count message and delay nodes across the whole tree, arms included. */
@@ -53,7 +56,7 @@ const COLUMNS = ['delivered', 'opened', 'clicked', 'converted'] as const;
  * draft is state, so it keeps green and grey.
  */
 
-export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
+export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListProps) {
   const { t } = useTranslation();
   const byName = new Map((reports ?? []).map((report) => [report.name, report]));
 
@@ -69,6 +72,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                 {t(`workflows.columns.${column}`)}
               </th>
             ))}
+            {onEdit !== undefined && <th className="border-border w-14 border-b px-3 py-3" />}
           </tr>
         </thead>
         <tbody>
@@ -86,7 +90,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
               <tr
                 key={key}
                 onClick={() => onOpen(key)}
-                className="hover:bg-card cursor-pointer align-top transition-colors"
+                className="hover:bg-hover cursor-pointer align-top transition-colors"
               >
                 <td className="border-border border-b px-6 py-4">
                   <div className="flex items-start gap-3">
@@ -101,9 +105,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                         {displayName(ir.meta?.name, t('common.untitled'))}
                       </div>
                       {ir.meta?.description !== undefined && (
-                        <p className="text-muted mt-1 truncate text-[13px]">
-                          {ir.meta.description}
-                        </p>
+                        <p className="text-muted mt-1 truncate text-sm">{ir.meta.description}</p>
                       )}
                       <div className="text-muted mt-2 flex items-center gap-3 text-xs">
                         <span className="flex items-center gap-1">
@@ -114,14 +116,6 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                           <AlarmClock className="size-3.5" strokeWidth={2} />
                           {shape.delays}
                         </span>
-                        {ir.meta?.tags?.map((tag) => (
-                          <span
-                            key={tag}
-                            className="bg-selected text-secondary rounded-full px-2 py-0.5 text-[11px]"
-                          >
-                            {tag}
-                          </span>
-                        ))}
                       </div>
                     </div>
                   </div>
@@ -130,7 +124,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                 <td className="border-border border-b px-3 py-4">
                   <span
                     className={clsx(
-                      'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium',
+                      'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
                       report
                         ? 'bg-green-50 text-green-700 dark:bg-green-400/10 dark:text-green-300'
                         : 'bg-selected text-muted'
@@ -152,6 +146,16 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                     <Sparkline values={report?.series?.[column] ?? []} className="mt-1" />
                   </td>
                 ))}
+                {onEdit !== undefined && (
+                  <td className="border-border border-b px-3 py-4">
+                    <Menu
+                      aria-label={t('common.more')}
+                      items={[
+                        { key: 'edit', label: t('common.edit'), onSelect: () => onEdit(key) },
+                      ]}
+                    />
+                  </td>
+                )}
               </tr>
             );
           })}

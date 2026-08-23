@@ -153,6 +153,17 @@ export interface StatsSource {
   metrics?: (workflowName: string) => Promise<MetricPoint[]> | MetricPoint[];
 }
 
+/** What the studio hands to `sendTest`: the rendered template plus the target inbox. */
+export interface SendTestArgs {
+  /** Template key, for logging / subject prefixes. */
+  key: string;
+  /** Recipient typed into the test dialog. */
+  to: string;
+  subject?: string;
+  /** Fully rendered HTML, exactly what the preview iframe shows. */
+  html: string;
+}
+
 /**
  * Email-sending settings for the project. This is data the code cannot derive:
  * which sender identities exist. The studio's from / reply-to pickers list
@@ -161,6 +172,13 @@ export interface StatsSource {
 export interface EmailSettings {
   /** Sender identities, e.g. 'Acme <hello@acme.io>'. */
   addresses?: string[];
+  /**
+   * Deliver a rendered template to a real inbox — the "send test" button on
+   * the preview page, like react-email's. The studio renders and collects the
+   * recipient; transport is the project's business (Resend, SES, an API
+   * route…), so it stays a hook. The button only appears when this is set.
+   */
+  sendTest?: (args: SendTestArgs) => Promise<void>;
 }
 
 export interface WorkflowUIConfig {
@@ -194,5 +212,7 @@ export interface ResolvedStudioConfig {
   segments: SegmentRef[];
   /** Sender address book from the config (empty if none). */
   addresses: string[];
+  /** Test-send hook from the config (absent if none). */
+  sendTest?: (args: SendTestArgs) => Promise<void>;
   stats?: StatsSource;
 }

@@ -79,7 +79,7 @@ export function SeriesChart({ values, labels, height = 260, ariaLabel }: SeriesC
             y={y(tick)}
             textAnchor="end"
             dominantBaseline="middle"
-            fontSize={11}
+            fontSize={12}
             fill="var(--color-muted)"
           >
             {tick.toLocaleString()}
@@ -94,7 +94,7 @@ export function SeriesChart({ values, labels, height = 260, ariaLabel }: SeriesC
             x={x(index)}
             y={height - 8}
             textAnchor="middle"
-            fontSize={11}
+            fontSize={12}
             fill="var(--color-muted)"
           >
             {label.slice(5)}

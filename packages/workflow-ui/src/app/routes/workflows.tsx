@@ -1,18 +1,23 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
-import { clsx } from 'clsx';
 import { ArrowLeft } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../../components/button';
 import { superellipse } from '../../components/corner-shape';
+import { Dropdown } from '../../components/dropdown';
+import { Input } from '../../components/input';
+import { SearchInput } from '../../components/input/search-input';
+import { Modal, ModalTitle } from '../../components/modal';
 import {
   type EditableField,
   NodeInspector,
   type NodeSource,
   fieldsOf,
 } from '../../components/node-inspector';
+import { Tabs } from '../../components/tabs';
 import { findNode, nodesPerSourcePosition } from '../../components/template-refs';
-import { EditableText } from '../../components/templates-page';
+import { Textarea } from '../../components/textarea';
 import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
 import { displayName } from '../../utils/label';
@@ -23,21 +28,67 @@ import { Route as rootRoute } from './__root';
 
 /* ---------------------------------- List ---------------------------------- */
 
+/** Draft for the edit dialog; `original` decides which fields actually changed on save. */
+interface EditDraft {
+  key: string;
+  loc: Record<string, unknown> | undefined;
+  name: string;
+  description: string;
+  original: { name: string; description: string };
+}
+
 function WorkflowsIndex() {
   const { config } = workflowsIndexRoute.useRouteContext();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState<EditDraft | undefined>(undefined);
 
   const items = useMemo(
     () => Object.entries(config.workflows).map(([key, builder]) => ({ key, ir: builder.toIR() })),
     [config]
   );
 
+  /* Substring match over everything a workflow is known by: key, name, description. */
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (needle === '') return items;
+    return items.filter(({ key, ir }) =>
+      [key, ir.meta?.name ?? '', ir.meta?.description ?? ''].some((text) =>
+        text.toLowerCase().includes(needle)
+      )
+    );
+  }, [items, query]);
+
   const { data: reports } = useQuery({
     queryKey: ['reports'],
     queryFn: async () => (await config.stats?.reports?.()) ?? [],
     enabled: config.stats?.reports !== undefined,
   });
+
+  const openEdit = (key: string) => {
+    const found = items.find((item) => item.key === key);
+    if (found === undefined) return;
+    const meta = found.ir.meta;
+    const original = { name: meta?.name ?? '', description: meta?.description ?? '' };
+    setEditing({ key, loc: meta?.loc, ...original, original });
+  };
+
+  /* Only the fields that changed are written back, one write-back call each. */
+  const saveEdit = () => {
+    if (editing?.loc === undefined) return;
+    const { loc, name, description, original } = editing;
+    const run = async () => {
+      if (name !== original.name) {
+        await studioPost('/__studio/node', { ...loc, path: '1.name', value: name });
+      }
+      if (description !== original.description) {
+        await studioPost('/__studio/node', { ...loc, path: '1.description', value: description });
+      }
+    };
+    void reportSave(run(), { saved: t('inspector.saved'), failed: t('inspector.saveFailed') });
+    setEditing(undefined);
+  };
 
   if (items.length === 0) {
     return (
@@ -49,16 +100,71 @@ function WorkflowsIndex() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="px-6 pt-6 pb-4">
+      <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
         <h1 className="text-lg font-semibold">{t('workflows.title')}</h1>
-      </div>
-      <div className="min-h-0 flex-1">
-        <WorkflowList
-          items={items}
-          {...(reports !== undefined ? { reports } : {})}
-          onOpen={(key) => void navigate({ to: '/workflows/$name', params: { name: key } })}
+        <SearchInput
+          className="w-64"
+          placeholder={t('workflows.searchPlaceholder')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
         />
       </div>
+      <div className="min-h-0 flex-1">
+        {filtered.length === 0 ? (
+          <div className="text-muted flex h-full items-center justify-center text-sm">
+            {t('workflows.noMatches', { query: query.trim() })}
+          </div>
+        ) : (
+          <WorkflowList
+            items={filtered}
+            {...(reports !== undefined ? { reports } : {})}
+            onOpen={(key) => void navigate({ to: '/workflows/$name', params: { name: key } })}
+            onEdit={openEdit}
+          />
+        )}
+      </div>
+
+      <Modal
+        visible={editing !== undefined}
+        onCancel={() => setEditing(undefined)}
+        className="w-100 p-6"
+      >
+        <ModalTitle>{t('workflows.editTitle')}</ModalTitle>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveEdit();
+          }}
+        >
+          <label className="mt-5 block">
+            <span className="text-secondary mb-1.5 block text-sm">{t('common.name')}</span>
+            <Input
+              className="w-full"
+              value={editing?.name ?? ''}
+              onChange={(e) => setEditing((draft) => draft && { ...draft, name: e.target.value })}
+            />
+          </label>
+          <label className="mt-4 block">
+            <span className="text-secondary mb-1.5 block text-sm">{t('common.description')}</span>
+            <Textarea
+              rows={3}
+              className="w-full"
+              value={editing?.description ?? ''}
+              onChange={(e) =>
+                setEditing((draft) => draft && { ...draft, description: e.target.value })
+              }
+            />
+          </label>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setEditing(undefined)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" type="submit" disabled={editing?.loc === undefined}>
+              {t('common.save')}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
@@ -79,20 +185,20 @@ const TABS = [
 function WorkflowDetail() {
   const { name } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
+  const navigate = useNavigate();
   const { t } = useTranslation();
 
   const ir = lookup(config.workflows, name)?.toIR();
-  /*
-   * Labels live in the workflow's own options object, which always exists —
-   * `trigger` is required — so both are editable whether or not they are there
-   * yet: absent means insert, present means replace.
-   */
-  const loc = ir?.meta?.loc;
-  const saveMeta = (field: 'name' | 'description') => (value: string) =>
-    reportSave(studioPost('/__studio/node', { ...loc, path: `1.${field}`, value }), {
-      saved: t('inspector.saved'),
-      failed: t('inspector.saveFailed'),
-    });
+
+  /* Switcher options: every workflow in the project, labelled by its meta name. */
+  const options = useMemo(
+    () =>
+      Object.entries(config.workflows).map(([key, builder]) => ({
+        value: key,
+        label: displayName(builder.toIR().meta?.name, t('common.untitled')),
+      })),
+    [config, t]
+  );
 
   if (ir === undefined) {
     return (
@@ -105,58 +211,41 @@ function WorkflowDetail() {
     );
   }
 
+  /*
+   * Header, mirroring the template app's editor bar: back and the workflow
+   * switcher on the left, the view tabs in the middle, publish on the right.
+   * 60px tall with a 1px bottom border. A three-column grid with equal outer
+   * tracks keeps the tabs dead-centre while space allows, and squeezes the
+   * sides (never overlaps) when it does not.
+   */
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border bg-card flex shrink-0 items-center gap-4 border-b px-6 py-3">
-        <Link
-          to="/workflows"
-          className="text-muted hover:bg-hover flex size-7 items-center justify-center rounded-lg transition-colors"
-          style={superellipse}
-          aria-label={t('common.back')}
-        >
-          <ArrowLeft className="size-4" strokeWidth={2} />
-        </Link>
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">
-            {loc !== undefined ? (
-              <EditableText
-                value={ir.meta?.name}
-                noneLabel={t('common.untitled')}
-                onSave={saveMeta('name')}
-              />
-            ) : (
-              displayName(ir.meta?.name, t('common.untitled'))
-            )}
-          </div>
-          <div className="text-muted truncate text-xs">
-            {loc !== undefined ? (
-              <EditableText
-                value={ir.meta?.description}
-                noneLabel={t('common.addDescription')}
-                onSave={saveMeta('description')}
-              />
-            ) : (
-              (ir.meta?.description ?? '')
-            )}
-          </div>
+      <div className="border-border bg-card grid h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            to="/workflows"
+            className="text-muted hover:bg-hover flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+            style={superellipse}
+            aria-label={t('common.back')}
+          >
+            <ArrowLeft className="size-4" strokeWidth={2} />
+          </Link>
+          <Dropdown
+            className="max-w-full"
+            value={name}
+            options={options}
+            onChange={(next) => void navigate({ to: '/workflows/$name', params: { name: next } })}
+          />
         </div>
-        <nav className="ml-auto flex items-center gap-1">
-          {TABS.map((tab) => (
-            <Link
-              key={tab.to}
-              to={tab.to}
-              params={{ name }}
-              activeOptions={{ exact: tab.exact }}
-              className={clsx(
-                'text-secondary hover:bg-hover rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors'
-              )}
-              activeProps={{ className: '!bg-primary !text-card' }}
-              style={superellipse}
-            >
-              {t(tab.label)}
-            </Link>
-          ))}
-        </nav>
+        <Tabs
+          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
+          params={{ name }}
+        />
+        <div className="flex justify-end">
+          <Button size="sm" variant="default">
+            {t('common.publish')}
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">
@@ -259,7 +348,7 @@ function CanvasTab() {
           {...(stats !== undefined ? { stats } : {})}
           selectedId={selectedId}
           onSelectNode={select}
-          onOpenTemplate={(key) => void navigate({ to: '/emails/$key', params: { key } })}
+          onOpenTemplate={(key) => void navigate({ to: '/templates/$key', params: { key } })}
         />
       </div>
       {selected !== undefined && (

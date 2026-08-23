@@ -140,6 +140,8 @@ const profileFor = (segmentName: string, index: number): Profile => {
     properties: {
       first_name: first,
       last_name: last,
+      // Deterministic placeholder portrait; the drawer falls back to initials without one
+      picture: `https://i.pravatar.cc/80?u=${seed}`,
       subscription_plan: PLANS[pseudoRandom(`${seed}:plan`, PLANS.length)] ?? 'free',
       subscription_status: pseudoRandom(`${seed}:status`, 10) > 2 ? 'active' : 'cancelled',
       auto_renew_enabled: pseudoRandom(`${seed}:renew`, 10) > 3,
