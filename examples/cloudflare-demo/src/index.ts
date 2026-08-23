@@ -2,8 +2,9 @@ import type { EmailBindingLike, JourneyEnv } from '../../../packages/workflow/sr
 import { deployBundle, handleRequest } from '../../../packages/workflow/src/cloudflare/router';
 import { JourneyRunner } from '../../../packages/workflow/src/cloudflare/runner';
 import { CfEmailSender } from '../../../packages/workflow/src/cloudflare/senders';
+import type { RegisteredAction } from '../../../packages/workflow/src/engine/actions';
 import type { MessageSender } from '../../../packages/workflow/src/engine/ports';
-import { demoBundle } from './journeys';
+import { demoBundle, grantCoupon } from './journeys';
 import { renderEmail } from './render';
 
 interface DemoEnv extends JourneyEnv {
@@ -32,6 +33,16 @@ export class DemoJourneyRunner extends JourneyRunner {
       env.EMAIL_FROM ?? 'noreply@demo.example',
       renderEmail
     );
+  }
+
+  /**
+   * Custom-action registry: the same action(...) objects the journeys
+   * reference (an ActionRef is a RegisteredAction structurally). The default
+   * invoker warns when the deployed code drifts from the hash pinned in a
+   * journey's IR.
+   */
+  protected override actions(): readonly RegisteredAction[] {
+    return [grantCoupon];
   }
 }
 

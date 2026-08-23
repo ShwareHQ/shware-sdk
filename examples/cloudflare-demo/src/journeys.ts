@@ -1,4 +1,5 @@
 import {
+  action,
   compileBundle,
   event,
   performed,
@@ -42,6 +43,20 @@ const offer = t.email('demo_offer');
 
 const purchased = segment('demo_purchased', performed(e.demo_purchase));
 
+/**
+ * Custom action demo: plain code that ships with this Worker — the IR records
+ * only its name, args and code hash, and DemoJourneyRunner registers the
+ * implementation (see index.ts). Runs inside a durable step, so a throw would
+ * be retried; a real one would call a billing API and de-duplicate on the
+ * idempotency key.
+ */
+export const grantCoupon = action<{ coupon: string }>(
+  'demo_grant_coupon',
+  async ({ coupon }, { userId }) => {
+    console.log(`[action] granted coupon ${coupon} to ${userId}`);
+  }
+);
+
 /** Branch demo: sign up → 5s → clicked goes down A, everyone else down B; an order (the goal) exits at any point. */
 export const demoRecovery = workflow('demo_recovery', {
   trigger: trigger.event(e.demo_signup),
@@ -52,7 +67,10 @@ export const demoRecovery = workflow('demo_recovery', {
   .branch(
     [
       performed(e.demo_click),
-      (w) => w.email(offer, { coupon: 'CLICKED10', expiresIn: '24 hours' }),
+      (w) =>
+        w
+          .run(grantCoupon, { coupon: 'CLICKED10' })
+          .email(offer, { coupon: 'CLICKED10', expiresIn: '24 hours' }),
     ],
     (w) => w.email(offer, { coupon: 'COMEBACK20', expiresIn: '48 hours' })
   );
@@ -69,5 +87,6 @@ export function demoBundle() {
     workflows: [demoRecovery, demoWaiter],
     segments: [purchased],
     templates: [welcome, offer],
+    actions: [grantCoupon],
   });
 }
