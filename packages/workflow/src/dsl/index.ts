@@ -23,6 +23,7 @@
  * not re-exported here.
  */
 
+export { type ActionContext, type ActionHandler, type ActionRef, action } from './action';
 export type { Duration, EventMap, TimeOfDay, UserPropertyBase, Weekday } from './base';
 export {
   type EventRef,

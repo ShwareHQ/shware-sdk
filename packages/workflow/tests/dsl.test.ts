@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { stripMeta } from '../src/hash';
 import {
+  action,
   and,
   between,
   compileBundle,
@@ -247,6 +248,28 @@ describe('flow nodes', () => {
     ).toMatchObject({ type: 'cohort', key: 'exp_coupon' });
   });
 
+  test('run compiles identity only: action name, args and codeHash — never the code', () => {
+    const sync = action<{ plan: string }>('sync_crm', async () => {});
+    const node = nodeOf((w) => w.run(sync, { plan: u.subscription_plan }));
+    expect(node).toMatchObject({
+      type: 'action',
+      action: 'sync_crm',
+      args: { plan: { type: 'user_property', path: 'subscription_plan' } },
+      codeHash: sync.codeHash,
+    });
+    expect(JSON.stringify(node)).not.toContain('=>');
+  });
+
+  test('codeHash follows the handler source: same code same hash, different code different hash', () => {
+    const a = action('a', async () => {});
+    const b = action('b', async () => {});
+    const c = action('c', async () => {
+      await Promise.resolve();
+    });
+    expect(a.codeHash).toBe(b.codeHash);
+    expect(a.codeHash).not.toBe(c.codeHash);
+  });
+
   test('waitUntil defaults onTimeout to continue', () => {
     expect(nodeOf((w) => w.waitUntil(purchaser, { timeout: '3 days' }))).toMatchObject({
       type: 'wait_until',
@@ -353,6 +376,36 @@ describe('bundle compilation', () => {
     const twin = segment('purchaser', performed(e.login));
     expect(() => compileBundle({ workflows: [], segments: [purchaser, twin] })).toThrow(
       /duplicate segment/i
+    );
+  });
+
+  test('actions form a manifest of name and codeHash', () => {
+    const sync = action('sync_crm', async () => {});
+    const wf = workflow('w', { trigger: trigger.event(e.login) }).run(sync);
+    const bundle = compileBundle({ workflows: [wf], actions: [sync] });
+    expect(() => BundleIR.parse(bundle)).not.toThrow();
+    expect(bundle.actions).toEqual([{ irVersion: 1, name: 'sync_crm', codeHash: sync.codeHash }]);
+  });
+
+  test('an action a workflow runs must be in the bundle, even inside a branch arm', () => {
+    const sync = action('sync_crm', async () => {});
+    const wf = workflow('w', { trigger: trigger.event(e.login) }).branch([
+      activeSubscriber,
+      (w) => w.run(sync),
+    ]);
+    expect(() => compileBundle({ workflows: [wf], segments: [activeSubscriber] })).toThrow(
+      /runs action 'sync_crm' that is not in the bundle/
+    );
+  });
+
+  test('two same-named actions with different code cannot share one identity', () => {
+    const used = action('sync_crm', async () => {});
+    const listed = action('sync_crm', async () => {
+      await Promise.resolve();
+    });
+    const wf = workflow('w', { trigger: trigger.event(e.login) }).run(used);
+    expect(() => compileBundle({ workflows: [wf], actions: [listed] })).toThrow(
+      /whose code differs/
     );
   });
 });

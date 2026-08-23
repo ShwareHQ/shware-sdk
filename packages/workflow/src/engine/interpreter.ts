@@ -224,6 +224,27 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
       });
       return FALL_THROUGH;
     }
+
+    case 'action': {
+      // Custom code runs inside step.do: retried on throw, checkpointed on success
+      const invoker = ctx.actions;
+      if (invoker === undefined) {
+        throw new Error(
+          `action '${node.action}': this runtime has no ActionInvoker configured — register the action on the adapter (see engine/actions.ts)`
+        );
+      }
+      await ctx.step.do(`${node.id}:run`, async () => {
+        const args = await resolveValues(node.args, ctx.facts);
+        await invoker.invoke({
+          action: node.action,
+          codeHash: node.codeHash,
+          args,
+          userId: ctx.userId,
+          idempotencyKey: `${ctx.instanceId}:${node.id}`,
+        });
+      });
+      return FALL_THROUGH;
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import type { ChannelIR, ConditionIR, NodeIR, PropValueIR, SourceLocIR } from '../ir';
 import { captureLoc } from '../provenance';
+import type { ActionRef } from './action';
 import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
 import { type Condition, condIR } from './condition';
 import type { EventRef, MessageArgs } from './refs';
@@ -141,6 +142,16 @@ export interface FlowBuilder {
    * journey attributes.
    */
   sendEvent<P extends object>(event: EventRef<P>, ...payload: MessageArgs<P>): this;
+
+  /**
+   * Run a custom action (see dsl/action.ts for the model). The chain records
+   * identity only — name, args, codeHash — never the code: the implementation
+   * ships inside the deployed Worker bundle and is resolved by name from the
+   * runtime registry. Args are typed by the ActionRef and may reference u.xxx,
+   * resolved at run time exactly like message props. Executed inside a durable
+   * step: retried on throw, checkpointed on success.
+   */
+  run<A extends object>(action: ActionRef<A>, ...args: MessageArgs<A>): this;
 }
 
 /* oxlint-disable typescript/unbound-method --
@@ -361,6 +372,19 @@ export class FlowBuilderImpl implements FlowBuilder {
         payload: (payload[0] ?? {}) as Record<string, PropValueIR>,
       },
       captureLoc(this.sendEvent)
+    );
+  }
+
+  run<A extends object>(a: ActionRef<A>, ...args: MessageArgs<A>): this {
+    return this.pushNode(
+      {
+        id: '',
+        type: 'action',
+        action: a.name,
+        args: (args[0] ?? {}) as Record<string, PropValueIR>,
+        codeHash: a.codeHash,
+      },
+      captureLoc(this.run)
     );
   }
 }

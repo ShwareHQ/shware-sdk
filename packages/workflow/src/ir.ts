@@ -276,7 +276,21 @@ export type NodeIR =
       arms: { name: string; weight: number; flow: NodeIR[] }[];
     })
   | (NodeBaseIR & { type: 'exit'; reason?: string | undefined })
-  | (NodeBaseIR & { type: 'send_event'; event: string; payload: Record<string, PropValueIR> });
+  | (NodeBaseIR & { type: 'send_event'; event: string; payload: Record<string, PropValueIR> })
+  | (NodeBaseIR & {
+      type: 'action';
+      /** Registry name of the custom action; the code itself lives in the deployed Worker bundle. */
+      action: string;
+      /** Argument values; user_property references are resolved at run time, like message props. */
+      args: Record<string, PropValueIR>;
+      /**
+       * Hash of the action's source at compile time — the code-identity pin.
+       * IR carries identity only (dual-plane model): the runtime looks the
+       * action up by name and compares this hash against the registered
+       * implementation to detect version skew (warn by default).
+       */
+      codeHash?: string | undefined;
+    });
 
 const nodeBase = { id: z.string(), label: z.optional(z.string()), meta: z.optional(NodeMetaIR) };
 
@@ -335,6 +349,13 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
       type: z.literal('send_event'),
       event: z.string(),
       payload: z.record(z.string(), PropValueIR),
+    }),
+    z.object({
+      ...nodeBase,
+      type: z.literal('action'),
+      action: z.string(),
+      args: z.record(z.string(), PropValueIR),
+      codeHash: z.optional(z.string()),
     }),
   ])
 );
@@ -400,6 +421,18 @@ export const TemplateIR = z.object({
 export type TemplateIR = z.infer<typeof TemplateIR>;
 
 /**
+ * Action manifest entry: IR records the name and the code-identity hash; the
+ * implementation solidifies into the Worker bundle at deploy time, never into
+ * IR (custom code stays out of the data plane by design).
+ */
+export const ActionIR = z.object({
+  irVersion: z.literal(IR_VERSION),
+  name: z.string(),
+  codeHash: z.string(),
+});
+export type ActionIR = z.infer<typeof ActionIR>;
+
+/**
  * Deployment unit: the complete snapshot one `deploy` produces (terraform
  * apply, same mental model). The server diffs each definition's contentHash to
  * decide publish / skip / retire.
@@ -409,5 +442,6 @@ export const BundleIR = z.object({
   workflows: z.array(WorkflowIR),
   segments: z.array(SegmentIR),
   templates: z.array(TemplateIR),
+  actions: z.array(ActionIR),
 });
 export type BundleIR = z.infer<typeof BundleIR>;

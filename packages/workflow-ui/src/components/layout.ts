@@ -28,7 +28,8 @@ export type NodeIcon =
   | 'filter'
   | 'cohort'
   | 'exit'
-  | 'send_event';
+  | 'send_event'
+  | 'action';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   title: string;
@@ -255,6 +256,14 @@ function nodeData(n: NodeIR): CanvasNodeData {
         category: 'data',
         variant: 'card',
         icon: 'send_event',
+      };
+    case 'action':
+      return {
+        title: 'Custom Action',
+        subtitle: n.action,
+        category: 'data',
+        variant: 'card',
+        icon: 'action',
       };
   }
 }

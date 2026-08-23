@@ -29,6 +29,7 @@ import {
   Send,
   Shuffle,
   SquareArrowOutUpRight,
+  SquareFunction,
   User,
   Zap,
 } from 'lucide-react';
@@ -116,6 +117,7 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
   cohort: Shuffle,
   exit: LogOut,
   send_event: Send,
+  action: SquareFunction,
 };
 
 /**

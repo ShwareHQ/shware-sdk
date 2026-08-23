@@ -1,3 +1,4 @@
+export { type ActionVersionPolicy, type RegisteredAction, RegistryActionInvoker } from './actions';
 export { hashToBucket, murmur3 } from './bucket';
 export {
   type EvaluateOptions,
@@ -10,6 +11,8 @@ export { runJourney } from './interpreter';
 export { fillSubject } from './subject';
 export { nextWindowStart, resolveTimeZone } from './time-window';
 export type {
+  ActionInvocation,
+  ActionInvoker,
   EngineStep,
   EventSink,
   FactSource,

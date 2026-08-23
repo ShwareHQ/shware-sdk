@@ -1,18 +1,28 @@
 import { describe, expect, test, vi } from 'vitest';
 import { hashToBucket, murmur3 } from '../src/engine/bucket';
 import {
+  type ActionInvocation,
   type EngineStep,
   type FactSource,
   type JourneyContext,
   type OutboundMessage,
   PROFILE_UPDATED_EVENT,
+  RegistryActionInvoker,
   evaluateCondition,
   fillSubject,
   matchesWhere,
   runJourney,
 } from '../src/engine/index';
 import { nextWindowStart } from '../src/engine/time-window';
-import { type FlowBuilder, compileBundle, eq, performed, trigger, workflow } from '../src/index';
+import {
+  type FlowBuilder,
+  action,
+  compileBundle,
+  eq,
+  performed,
+  trigger,
+  workflow,
+} from '../src/index';
 import type { ConditionIR, ScalarIR } from '../src/ir';
 import {
   allSegments,
@@ -242,6 +252,92 @@ describe('runJourney: send_event', () => {
 
     expect(outcome).toEqual({ status: 'completed' });
     expect(emitted).toEqual([{ event: 'nudge_due', payload: {} }]);
+  });
+});
+
+describe('runJourney: action', () => {
+  const sync = action<{ plan: string }>('sync_crm', async () => {});
+  const wf = workflow('with_action', { trigger: trigger.event(e.sign_up) }).run(sync, {
+    plan: u.subscription_plan,
+  });
+
+  test('invokes through the port with resolved args, code pin and idempotency key', async () => {
+    const { ctx, step, facts } = makeContext();
+    facts.props.subscription_plan = 'pro';
+    const invoked: ActionInvocation[] = [];
+    ctx.actions = {
+      invoke: async (invocation) => {
+        invoked.push(invocation);
+      },
+    };
+
+    const outcome = await runJourney(wf.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed' });
+    expect(invoked).toEqual([
+      {
+        action: 'sync_crm',
+        codeHash: sync.codeHash,
+        args: { plan: 'pro' },
+        userId: 'u_1',
+        idempotencyKey: 'inst_1:0',
+      },
+    ]);
+    expect(step.stepNames).toContain('0:run');
+  });
+
+  test('an action node without a configured invoker is a clear runtime error', async () => {
+    const { ctx } = makeContext();
+    await expect(runJourney(wf.toIR(), ctx)).rejects.toThrow(/no ActionInvoker configured/);
+  });
+});
+
+describe('RegistryActionInvoker', () => {
+  const base = {
+    args: {},
+    userId: 'u_1',
+    idempotencyKey: 'inst_1:0',
+  };
+
+  test('runs the registered handler with args and user context', async () => {
+    const calls: unknown[] = [];
+    const invoker = new RegistryActionInvoker([
+      {
+        name: 'sync_crm',
+        codeHash: 'h1',
+        handler: async (args, ctx) => {
+          calls.push([args, ctx]);
+        },
+      },
+    ]);
+    await invoker.invoke({ ...base, action: 'sync_crm', codeHash: 'h1', args: { plan: 'pro' } });
+    expect(calls).toEqual([[{ plan: 'pro' }, { userId: 'u_1' }]]);
+  });
+
+  test('an unregistered action fails the step', async () => {
+    const invoker = new RegistryActionInvoker([]);
+    await expect(invoker.invoke({ ...base, action: 'ghost' })).rejects.toThrow(/not registered/);
+  });
+
+  test('code skew warns by default and fails under strict', async () => {
+    const entry = { name: 'sync_crm', codeHash: 'deployed', handler: async () => {} };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await new RegistryActionInvoker([entry]).invoke({
+      ...base,
+      action: 'sync_crm',
+      codeHash: 'pinned',
+    });
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+
+    await expect(
+      new RegistryActionInvoker([entry], 'strict').invoke({
+        ...base,
+        action: 'sync_crm',
+        codeHash: 'pinned',
+      })
+    ).rejects.toThrow(/differs from the version pinned/);
   });
 });
 

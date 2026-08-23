@@ -8,6 +8,7 @@ import {
   type SegmentIR,
   type WorkflowIR,
 } from '../ir';
+import type { ActionRef } from './action';
 import type { SegmentInternal, SegmentRef } from './condition';
 import type { TemplateRef } from './template';
 import type { WorkflowBuilder } from './workflow';
@@ -21,6 +22,7 @@ export function compileBundle(input: {
   workflows: readonly WorkflowBuilder[];
   segments?: readonly SegmentRef[];
   templates?: readonly TemplateRef[];
+  actions?: readonly ActionRef<object>[];
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
     const { name, definition, loc, meta } = segment as SegmentInternal;
@@ -46,6 +48,13 @@ export function compileBundle(input: {
     channel: template.channel,
   }));
 
+  // Manifest only — name and code-identity hash; the implementation ships in the Worker bundle, never in IR
+  const actions = (input.actions ?? []).map((a) => ({
+    irVersion: IR_VERSION,
+    name: a.name,
+    codeHash: a.codeHash,
+  }));
+
   const workflows = input.workflows.map((builder) => builder.toIR());
 
   // Names are wire identity (routing tables, entry ledger, by-name refs):
@@ -62,6 +71,10 @@ export function compileBundle(input: {
     templates.map((t) => t.key),
     'template'
   );
+  assertUniqueNames(
+    actions.map((a) => a.name),
+    'action'
+  );
 
   // Deploy replaces the whole segment table, so every by-name reference must
   // resolve inside this bundle — catching it here turns a runtime "Unknown
@@ -73,7 +86,12 @@ export function compileBundle(input: {
   // contain nothing but payload predicates and combinators.
   assertConditionPlacement(workflows, segments);
 
-  return BundleIRSchema.parse({ irVersion: IR_VERSION, workflows, segments, templates });
+  // Same rationale as segments: the runtime registry is looked up by name, so
+  // an action a workflow runs must be in the bundle — and its codeHash must
+  // agree, or two same-named definitions are competing for one identity.
+  assertActionRefsResolve(workflows, actions);
+
+  return BundleIRSchema.parse({ irVersion: IR_VERSION, workflows, segments, templates, actions });
 }
 
 function assertUniqueNames(names: readonly string[], kind: string): void {
@@ -157,6 +175,52 @@ function collectNodeRefs(nodes: readonly NodeIR[], into: Set<string>): void {
         break;
       case 'cohort':
         for (const arm of node.arms) collectNodeRefs(arm.flow, into);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+function assertActionRefsResolve(
+  workflows: readonly WorkflowIR[],
+  actions: readonly { name: string; codeHash: string }[]
+): void {
+  const defined = new Map(actions.map((a) => [a.name, a.codeHash]));
+  for (const workflow of workflows) {
+    const used = new Map<string, string | undefined>();
+    collectActionRefs(workflow.flow, used);
+    for (const [name, codeHash] of used) {
+      const manifestHash = defined.get(name);
+      if (manifestHash === undefined) {
+        throw new Error(
+          `compileBundle: workflow '${workflow.name}' runs action '${name}' that is not in the bundle — pass it in 'actions'`
+        );
+      }
+      if (codeHash !== undefined && codeHash !== manifestHash) {
+        throw new Error(
+          `compileBundle: workflow '${workflow.name}' runs action '${name}' whose code differs from the one in 'actions' — two definitions are sharing that name`
+        );
+      }
+    }
+  }
+}
+
+function collectActionRefs(nodes: readonly NodeIR[], into: Map<string, string | undefined>): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'action':
+        into.set(node.action, node.codeHash);
+        break;
+      case 'wait_until':
+        if (Array.isArray(node.onTimeout)) collectActionRefs(node.onTimeout, into);
+        break;
+      case 'branch':
+        for (const branchCase of node.cases) collectActionRefs(branchCase.flow, into);
+        if (node.otherwise) collectActionRefs(node.otherwise, into);
+        break;
+      case 'cohort':
+        for (const arm of node.arms) collectActionRefs(arm.flow, into);
         break;
       default:
         break;

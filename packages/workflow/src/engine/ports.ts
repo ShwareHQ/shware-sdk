@@ -82,6 +82,28 @@ export interface EventSink {
   emit(event: string, payload: Record<string, ScalarIR | undefined>): Promise<void>;
 }
 
+/** One action node's resolved call, ready for the registry. */
+export interface ActionInvocation {
+  /** Registry name; the code itself lives in the deployed bundle (dual-plane model, see dsl/action.ts). */
+  action: string;
+  /** Code-identity pin from the IR the journey is running; adapters compare it against the registered implementation. */
+  codeHash?: string | undefined;
+  /** Already resolved: user_property references have been replaced by actual values (same contract as message props). */
+  args: Record<string, ScalarIR | undefined>;
+  userId: string;
+  /** `${instanceId}:${nodeId}` — handlers with external side effects de-duplicate on it, like senders do. */
+  idempotencyKey: string;
+}
+
+/**
+ * Custom-action outlet. The interpreter already wraps the call in step.do, so
+ * an implementation may just look up and run the handler — a throw is retried
+ * by the runtime, a success is checkpointed.
+ */
+export interface ActionInvoker {
+  invoke(invocation: ActionInvocation): Promise<void>;
+}
+
 export interface JourneyContext {
   userId: string;
   /** Instance identity: feeds the idempotency key and the logs. */
@@ -97,6 +119,8 @@ export interface JourneyContext {
   facts: FactSource;
   messages: MessageSender;
   events: EventSink;
+  /** Optional: only journeys whose IR contains action nodes need one; running such a node without it is a runtime error. */
+  actions?: ActionInvoker | undefined;
 }
 
 export type JourneyOutcome =

@@ -1,6 +1,13 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { type RegisteredAction, RegistryActionInvoker } from '../engine/actions';
 import { runJourney } from '../engine/interpreter';
-import type { EngineStep, EventSink, JourneyOutcome, MessageSender } from '../engine/ports';
+import type {
+  ActionInvoker,
+  EngineStep,
+  EventSink,
+  JourneyOutcome,
+  MessageSender,
+} from '../engine/ports';
 import { WorkflowIR } from '../ir';
 import {
   type D1DatabaseLike,
@@ -90,6 +97,22 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
       : new LogMessageSender();
   }
 
+  /**
+   * Custom-action registry; an app overrides this returning the same
+   * `action(...)` objects its workflows reference (an ActionRef is a
+   * RegisteredAction structurally) — the code plane of the dual-plane model:
+   *
+   *   protected override actions() { return [syncCrm, issueCoupon]; }
+   */
+  protected actions(): readonly RegisteredAction[] {
+    return [];
+  }
+
+  /** Override for a different version policy ('warn' by default) or a fully custom invoker (e.g. webhook degradation for hosted tenants). */
+  protected createActionInvoker(): ActionInvoker {
+    return new RegistryActionInvoker(this.actions());
+  }
+
   async run(event: WorkflowEvent<JourneyParams>, step: WorkflowStep): Promise<JourneyOutcome> {
     const { workflowName, contentHash, userId } = event.payload;
     const env = this.env;
@@ -118,6 +141,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
       facts: new D1FactSource(env.DB, userId),
       messages,
       events,
+      actions: this.createActionInvoker(),
     });
 
     await step.do('finalize', async () => {

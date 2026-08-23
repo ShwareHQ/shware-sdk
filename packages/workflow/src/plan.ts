@@ -60,6 +60,7 @@ export interface BundlePlan {
   workflows: WorkflowChange[];
   segments: ResourceChange[];
   templates: ResourceChange[];
+  actions: ResourceChange[];
   /** Whether any semantic change exists (metadata-only edits do not count). */
   hasChanges: boolean;
 }
@@ -230,11 +231,35 @@ function diffTemplates(local: BundleIR['templates'], deployed: BundleIR['templat
   return changes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Actions diff on codeHash — the manifest's only semantic content (the code itself lives in the Worker bundle). */
+function diffActions(local: BundleIR['actions'], deployed: BundleIR['actions']) {
+  const deployedByName = new Map(deployed.map((item) => [item.name, item]));
+  const changes: ResourceChange[] = local.map((item) => {
+    const before = deployedByName.get(item.name);
+    if (!before) return { name: item.name, status: 'added' as const, after: item.codeHash };
+    return {
+      name: item.name,
+      status: before.codeHash === item.codeHash ? ('unchanged' as const) : ('changed' as const),
+      before: before.codeHash,
+      after: item.codeHash,
+    };
+  });
+
+  const localNames = new Set(local.map((item) => item.name));
+  for (const item of deployed) {
+    if (!localNames.has(item.name)) {
+      changes.push({ name: item.name, status: 'removed', before: item.codeHash });
+    }
+  }
+  return changes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** Empty bundle: the default `deployed` on a first deploy, so everything reports as added. */
-const EMPTY: Pick<BundleIR, 'workflows' | 'segments' | 'templates'> = {
+const EMPTY: Pick<BundleIR, 'workflows' | 'segments' | 'templates' | 'actions'> = {
   workflows: [],
   segments: [],
   templates: [],
+  actions: [],
 };
 
 /**
@@ -248,10 +273,11 @@ export function plan(local: BundleIR, deployed?: BundleIR): BundlePlan {
   const workflows = diffWorkflows(local.workflows, base.workflows);
   const segments = diffSegments(local.segments, base.segments);
   const templates = diffTemplates(local.templates, base.templates);
+  const actions = diffActions(local.actions, base.actions);
 
-  const hasChanges = [...workflows, ...segments, ...templates].some((change) =>
+  const hasChanges = [...workflows, ...segments, ...templates, ...actions].some((change) =>
     isSemanticChange(change.status)
   );
 
-  return { workflows, segments, templates, hasChanges };
+  return { workflows, segments, templates, actions, hasChanges };
 }

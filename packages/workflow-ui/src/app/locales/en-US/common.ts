@@ -166,6 +166,7 @@ export default {
       cohort: 'Random cohort',
       exit: 'Exit',
       send_event: 'Send event',
+      action: 'Custom action',
     },
   },
 };

@@ -1,4 +1,4 @@
-import { contains, eq, exists, flow, gt, trigger, workflow } from '@shware/workflow';
+import { action, contains, eq, exists, flow, gt, trigger, workflow } from '@shware/workflow';
 import { e, u } from './schema';
 import { activated, activeSubscriber, purchaser } from './segments';
 import {
@@ -20,6 +20,26 @@ const christmasMorning = trigger.date('2026-12-25 09:00:00');
 /** An anonymous reusable condition is just a const: reused in code, but absent from the segment sidebar. */
 const powerUser = gt(u.docs_count, 100);
 
+/* --------------------------------- Actions --------------------------------- */
+
+/**
+ * A custom action: plain code for what the built-in nodes do not cover. The
+ * chain records only its identity (name + args + codeHash); this function
+ * ships with the deployed Worker and runs inside a durable step — retried on
+ * throw, so keep it idempotent. Custom *conditions* stay unsupported by
+ * design: an action writes data, and branching reads it declaratively.
+ */
+const issueCoupon = action<{ code: string; email: string }>(
+  'issue_coupon',
+  async ({ code, email }, { userId }) => {
+    await fetch('https://billing.acme.io/coupons', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code, email, userId }),
+    });
+  }
+);
+
 /* ----------------------------- Reusable flow fragments ---------------------------- */
 
 /**
@@ -38,6 +58,8 @@ const firstTimeFlow = flow((w) =>
   w
     .email(firstTimeRecovery)
     .delay('23 hours')
+    // Provision the coupon in billing right before the offer lands; args may reference u.xxx like message props
+    .run(issueCoupon, { code: '15OFF', email: u.email })
     .email(limitedTimeOffer, { coupon: '15OFF', expiresIn: '48 hours' })
 );
 
@@ -170,5 +192,11 @@ const _typeChecks = () => {
 
   // @ts-expect-error sendEvent payload is type-checked (value must be a number)
   flow((w) => w.sendEvent(e.purchase, { value: 'high', currency: 'USD' }));
+
+  // @ts-expect-error action args are typed by the ActionRef (code must be a string)
+  flow((w) => w.run(issueCoupon, { code: 42, email: u.email }));
+
+  // @ts-expect-error the action declares required args, so omitting them fails
+  flow((w) => w.run(issueCoupon));
 };
 void _typeChecks;

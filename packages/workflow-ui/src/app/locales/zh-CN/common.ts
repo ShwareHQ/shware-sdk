@@ -164,6 +164,7 @@ export default {
       cohort: '随机分组',
       exit: '退出',
       send_event: '发送事件',
+      action: '自定义动作',
     },
   },
 };
