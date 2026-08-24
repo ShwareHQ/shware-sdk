@@ -10,7 +10,9 @@ import type { ReactElement } from 'react';
  *     in the directory shows up in the studio, keyed by its export name;
  *   - `src/emails/index.ts` (or `emails/index.ts`): the email registry
  *     (`export const emails = { ... }`), which stays an explicit object
- *     because it is what types `templates<Emails>()` keys at compile time.
+ *     because it is what types `templates<Emails>()` keys at compile time;
+ *   - `src/pushes/index.ts` (or `pushes/index.ts`): the push-notification
+ *     registry (`export const pushes = { ... }`), same shape and same reason.
  *
  * The config carries what conventions cannot: project settings (title, email
  * addresses) and runtime wiring (the stats source).
@@ -54,6 +56,33 @@ export interface EmailModule extends EmailEnvelope {
    * and the engine fills `{prop}` placeholders from the profile at send time.
    */
   subject?: string;
+  /** Sample props used when previewing this template. */
+  preview?: object;
+}
+
+/**
+ * One push-notification module: content plus labels and preview props.
+ *
+ * Unlike an email, a push has no document to render — its content is two short
+ * strings, so they follow the subject's rule: plain string templates carrying
+ * `{prop}` placeholders the engine fills at send time. Data, never a closure —
+ * which is also what lets the studio edit them in place.
+ */
+export interface PushModule {
+  /** Human label for the studio; same rules as EmailModule.name. */
+  name?: string;
+  /** What this message is for, in a sentence. */
+  description?: string;
+  /** Notification title — a string template, `{prop}` placeholders allowed. */
+  title?: string;
+  /** Notification body — same rules as `title`. */
+  body?: string;
+  /**
+   * Optional rich image URL (iOS attachment / Android BigPicture). Delivered
+   * with the push at send time; the studio's collapsed-banner preview does
+   * not render it.
+   */
+  image?: string;
   /** Sample props used when previewing this template. */
   preview?: object;
 }
@@ -208,6 +237,8 @@ export interface ResolvedStudioConfig {
   workflows: Record<string, WorkflowBuilder>;
   /** The email registry from the conventional emails/index.ts (empty if none). */
   emails: Record<string, EmailModule>;
+  /** The push registry from the conventional pushes/index.ts (empty if none). */
+  pushes: Record<string, PushModule>;
   /** Discovered named segments. */
   segments: SegmentRef[];
   /** Sender address book from the config (empty if none). */

@@ -19,6 +19,8 @@ const cameBack = performed(e.login, { within: '7 days' });
 
 /* --------------------------------- Templates -------------------------------- */
 
+/** Cheapest channel first: a push nudge before any email lands in the inbox. */
+const comeBackPush = template.push('reengage_comeback_push');
 const missYou = template.email('reengage_miss_you');
 const highlights = template.email('reengage_product_highlights');
 const incentive = template.email<{ coupon: string }>('reengage_incentive');
@@ -29,6 +31,8 @@ export const reengagement = workflow('reengagement', {
   name: 'Re-engagement',
   trigger: trigger.segment(inactive30d),
 })
+  .push(comeBackPush)
+  .delay('1 day') // give the push a day to work before falling back to email
   .email(missYou)
   .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' }) // wait a week at most
   .branch([cameBack, (w) => w.exit('reengaged')]) // back already: done. Still gone: carry on down the main line

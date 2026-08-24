@@ -18,6 +18,10 @@ const csAlert = template.slack<{ plan: 'free' | 'pro' | 'business' }>('cs_churn_
 const proWinback = template.email('winback_pro_offer');
 const freeWinback = template.email('winback_free_tips');
 const finalOffer = template.email<{ coupon: string; expiresIn: string }>('winback_final_offer');
+/** Same last call on the lock screen — the push mirrors the email's props. */
+const finalOfferPush = template.push<{ coupon: string; expiresIn: string }>(
+  'winback_final_offer_push'
+);
 
 /* -------------------------------- workflow -------------------------------- */
 
@@ -41,4 +45,5 @@ export const winback = workflow('winback', {
   )
   // Rejoined tail: pro and the default arm arrive here; business already exited
   .delay('7 days')
-  .email(finalOffer, { coupon: 'COMEBACK20', expiresIn: '72 hours' });
+  .email(finalOffer, { coupon: 'COMEBACK20', expiresIn: '72 hours' })
+  .push(finalOfferPush, { coupon: 'COMEBACK20', expiresIn: '72 hours' });

@@ -17,7 +17,7 @@ import {
   patchCallLiteral,
   patchEnvelopeField,
   removeAddress,
-  resolveEmailModule,
+  resolveRegistryModule,
   updateAddress,
 } from './server/patch';
 
@@ -70,7 +70,9 @@ export function findConfig(cwd: string, explicit?: string): string | undefined {
  *     exports that quack like a WorkflowBuilder (`toIR`) become workflows keyed
  *     by export name, exports marked `__segment` become the segment list.
  *   - `src/emails/index.ts` (or `emails/index.ts`): must `export const emails`,
- *     the same registry object that types `templates<Emails>()` keys.
+ *     the same registry object that types `templates<Emails>()` keys;
+ *   - `src/pushes/index.ts` (or `pushes/index.ts`): must `export const pushes`,
+ *     the push-notification registry, same contract.
  */
 const WORKFLOWS_DIRS = ['src/workflows', 'workflows'];
 const EMAILS_INDEXES = [
@@ -79,6 +81,12 @@ const EMAILS_INDEXES = [
   'emails/index.ts',
   'emails/index.tsx',
 ];
+const PUSHES_INDEXES = [
+  'src/pushes/index.ts',
+  'src/pushes/index.tsx',
+  'pushes/index.ts',
+  'pushes/index.tsx',
+];
 
 export function findWorkflowsDir(cwd: string): string | undefined {
   return WORKFLOWS_DIRS.map((dir) => resolve(cwd, dir)).find((path) => existsSync(path));
@@ -86,6 +94,10 @@ export function findWorkflowsDir(cwd: string): string | undefined {
 
 function findEmailsIndex(cwd: string): string | undefined {
   return EMAILS_INDEXES.map((file) => resolve(cwd, file)).find((path) => existsSync(path));
+}
+
+function findPushesIndex(cwd: string): string | undefined {
+  return PUSHES_INDEXES.map((file) => resolve(cwd, file)).find((path) => existsSync(path));
 }
 
 /** Modules to load from the workflows dir: .ts/.tsx, skipping declarations and tests. */
@@ -116,6 +128,7 @@ const RESOLVED_ID = `\0${VIRTUAL_ID}`;
 function discoveryModule(cwd: string): string {
   const workflowsDir = findWorkflowsDir(cwd);
   const emailsIndex = findEmailsIndex(cwd);
+  const pushesIndex = findPushesIndex(cwd);
   const configPath = findConfig(cwd);
   const moduleFiles = workflowsDir === undefined ? [] : listWorkflowModules(workflowsDir);
 
@@ -125,6 +138,9 @@ function discoveryModule(cwd: string): string {
   });
   if (emailsIndex !== undefined) {
     imports.push(`import { emails as registry } from ${JSON.stringify(emailsIndex)};`);
+  }
+  if (pushesIndex !== undefined) {
+    imports.push(`import { pushes as pushRegistry } from ${JSON.stringify(pushesIndex)};`);
   }
   if (configPath !== undefined) {
     imports.push(`import userConfig from ${JSON.stringify(configPath)};`);
@@ -146,6 +162,7 @@ export default {
   ...(config.title !== undefined ? { title: config.title } : {}),
   workflows,
   emails: ${emailsIndex !== undefined ? 'registry' : '{}'},
+  pushes: ${pushesIndex !== undefined ? 'pushRegistry' : '{}'},
   segments,
   addresses: config.emails?.addresses ?? [],
   ...(config.emails?.sendTest !== undefined ? { sendTest: config.emails.sendTest } : {}),
@@ -215,13 +232,25 @@ function studioApiPlugin(cwd: string): Plugin {
       server.middlewares.use('/__studio/envelope', (req, res) => {
         void (async () => {
           const emailsIndex = findEmailsIndex(cwd);
-          if (emailsIndex === undefined) {
-            sendJson(res, 404, { error: 'no emails index (src/emails/index.ts) in this project' });
+          const pushesIndex = findPushesIndex(cwd);
+          if (emailsIndex === undefined && pushesIndex === undefined) {
+            sendJson(res, 404, {
+              error:
+                'no template index (src/emails/index.ts or src/pushes/index.ts) in this project',
+            });
             return;
           }
+          /* A key lives in exactly one registry, so first hit wins. */
+          const resolveModule = (key: string): string | undefined =>
+            (emailsIndex !== undefined
+              ? resolveRegistryModule(emailsIndex, key, 'emails')
+              : undefined) ??
+            (pushesIndex !== undefined
+              ? resolveRegistryModule(pushesIndex, key, 'pushes')
+              : undefined);
           if (req.method === 'GET') {
             const key = new URL(req.url ?? '/', 'http://internal').searchParams.get('key') ?? '';
-            const modulePath = resolveEmailModule(emailsIndex, key);
+            const modulePath = resolveModule(key);
             if (modulePath === undefined) {
               sendJson(res, 404, { error: `no registered module for key '${key}'` });
               return;
@@ -237,14 +266,17 @@ function studioApiPlugin(cwd: string): Plugin {
           const { key, field, value } = body as { key?: string; field?: string; value?: string };
           const isEnvelopeField = (candidate: unknown): candidate is EnvelopeField =>
             typeof candidate === 'string' &&
-            ['from', 'replyTo', 'subject', 'name', 'description'].includes(candidate);
+            ['from', 'replyTo', 'subject', 'name', 'description', 'title', 'body'].includes(
+              candidate
+            );
           if (typeof key !== 'string' || typeof value !== 'string' || !isEnvelopeField(field)) {
             sendJson(res, 400, {
-              error: 'expected { key, field: from|replyTo|subject|name|description, value }',
+              error:
+                'expected { key, field: from|replyTo|subject|name|description|title|body, value }',
             });
             return;
           }
-          const modulePath = resolveEmailModule(emailsIndex, key);
+          const modulePath = resolveModule(key);
           if (modulePath === undefined) {
             sendJson(res, 404, { error: `no registered module for key '${key}'` });
             return;

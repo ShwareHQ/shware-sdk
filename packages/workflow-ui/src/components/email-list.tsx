@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Mail } from 'lucide-react';
+import { Bell, Mail } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { displayName } from '../utils/label';
 import { Menu } from './menu';
@@ -12,6 +12,8 @@ import { Menu } from './menu';
 export interface EmailListItem {
   /** Wire key: how workflows reference the template. Identity, not a label. */
   key: string;
+  /** Channel from the referencing IR node; picks the row icon. */
+  channel?: string;
   /** Human label from the registered module; the list shows this. */
   name?: string;
   description?: string;
@@ -49,7 +51,11 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
             >
               <td className="border-border border-b px-6 py-4">
                 <div className="flex items-start gap-3">
-                  <Mail className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
+                  {item.channel === 'push' ? (
+                    <Bell className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
+                  ) : (
+                    <Mail className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
+                  )}
                   <div className="min-w-0">
                     <div
                       className={clsx(

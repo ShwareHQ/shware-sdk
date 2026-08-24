@@ -173,8 +173,17 @@ function envelopeLiteral(source: ts.SourceFile, field: string): ts.StringLiteral
  * The module-level exports the studio may edit. `name` and `description` are
  * labels — excluded from every hash and read by nothing but the UI — so they
  * are the safest thing here; the rest are envelope values the engine sends.
+ * `title` and `body` are the push channel's pair of `subject`: short string
+ * templates, so the same literal-patching rules hold.
  */
-export type EnvelopeField = 'from' | 'replyTo' | 'subject' | 'name' | 'description';
+export type EnvelopeField =
+  | 'from'
+  | 'replyTo'
+  | 'subject'
+  | 'name'
+  | 'description'
+  | 'title'
+  | 'body';
 
 const ENVELOPE_FIELDS: readonly EnvelopeField[] = [
   'from',
@@ -182,6 +191,8 @@ const ENVELOPE_FIELDS: readonly EnvelopeField[] = [
   'subject',
   'name',
   'description',
+  'title',
+  'body',
 ];
 
 /**
@@ -234,13 +245,17 @@ export function patchEnvelopeField(
 }
 
 /**
- * Resolve a registry key to the module file that defines it, by reading the
- * conventional emails index: `emails = { key: importedNamespace, ... }` and the
- * import declarations above it.
+ * Resolve a registry key to the module file that defines it, by reading a
+ * conventional index: `<exportName> = { key: importedNamespace, ... }` and the
+ * import declarations above it. Covers both registries (emails, pushes).
  */
-export function resolveEmailModule(emailsIndexPath: string, key: string): string | undefined {
-  const source = parse(emailsIndexPath);
-  let registry = exportedInitializer(source, 'emails');
+export function resolveRegistryModule(
+  indexPath: string,
+  key: string,
+  exportName: string
+): string | undefined {
+  const source = parse(indexPath);
+  let registry = exportedInitializer(source, exportName);
   // The registry is conventionally `{...} as const` — unwrap assertions and parens
   while (
     registry !== undefined &&
@@ -276,7 +291,7 @@ export function resolveEmailModule(emailsIndexPath: string, key: string): string
         : undefined;
     if (namespace !== binding) continue;
     if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    const base = resolve(dirname(emailsIndexPath), statement.moduleSpecifier.text);
+    const base = resolve(dirname(indexPath), statement.moduleSpecifier.text);
     for (const candidate of [base, `${base}.tsx`, `${base}.ts`]) {
       if (candidate.endsWith('.ts') || candidate.endsWith('.tsx')) {
         if (existsSync(candidate)) return candidate;

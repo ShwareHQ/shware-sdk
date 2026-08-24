@@ -19,6 +19,7 @@ import { Textarea } from '../../components/textarea';
 import type { EmailModule } from '../../config';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
+import { useTheme } from '../integrations/theme/root-provider';
 import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -46,8 +47,14 @@ function EmailsIndex() {
       Object.values(config.workflows).map((builder) => builder.toIR())
     );
     return refs.map((ref) => {
-      const mod = lookup(config.emails, ref.key);
-      const item: EmailListItem = { key: ref.key, registered: mod !== undefined };
+      // Each channel reads its own registry — a push key is registered in `pushes`
+      const mod =
+        ref.channel === 'push' ? lookup(config.pushes, ref.key) : lookup(config.emails, ref.key);
+      const item: EmailListItem = {
+        key: ref.key,
+        channel: ref.channel,
+        registered: mod !== undefined,
+      };
       if (mod?.name !== undefined) item.name = mod.name;
       if (mod?.description !== undefined) item.description = mod.description;
       return item;
@@ -198,6 +205,7 @@ function EmailView() {
   const { config } = emailRoute.useRouteContext();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { resolved: studioScheme } = useTheme();
   const [testOpen, setTestOpen] = useState(false);
   const [testTo, setTestTo] = useState('');
   const [sending, setSending] = useState(false);
@@ -207,7 +215,10 @@ function EmailView() {
     [config]
   );
   const emails = config.emails;
-  const selected = lookup(emails, key);
+  const pushes = config.pushes;
+  /* Push templates never hit the react-email pipeline; their content is data. */
+  const isPush = refs.find((ref) => ref.key === key)?.channel === 'push';
+  const selected = isPush ? undefined : lookup(emails, key);
   const { data, error, isPending } = useEmailPreview(selected, key);
 
   /* Switcher options: every referenced template, labelled by its module name. */
@@ -215,9 +226,12 @@ function EmailView() {
     () =>
       refs.map((ref) => ({
         value: ref.key,
-        label: displayName(lookup(emails, ref.key)?.name, ref.key),
+        label: displayName(
+          (ref.channel === 'push' ? lookup(pushes, ref.key) : lookup(emails, ref.key))?.name,
+          ref.key
+        ),
       })),
-    [refs, emails]
+    [refs, emails, pushes]
   );
 
   const report = (promise: Promise<void>): Promise<void> =>
@@ -271,16 +285,19 @@ function EmailView() {
           params={{ key }}
         />
         <div className="flex justify-end">
-          <Button
-            size="sm"
-            className="gap-1.5"
-            disabled={!canTest}
-            title={config.sendTest === undefined ? t('emails.testUnavailable') : undefined}
-            onClick={() => setTestOpen(true)}
-          >
-            <Send size={16} strokeWidth={2} aria-hidden />
-            {t('emails.test')}
-          </Button>
+          {/* Test sends deliver rendered HTML to an inbox — an email-only affordance. */}
+          {!isPush && (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={!canTest}
+              title={config.sendTest === undefined ? t('emails.testUnavailable') : undefined}
+              onClick={() => setTestOpen(true)}
+            >
+              <Send size={16} strokeWidth={2} aria-hidden />
+              {t('emails.test')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -288,6 +305,9 @@ function EmailView() {
         <TemplatesPage
           refs={refs}
           emails={emails}
+          pushes={pushes}
+          {...(config.title !== undefined ? { appName: config.title } : {})}
+          defaultScheme={studioScheme}
           selected={key}
           preview={{
             ...(data?.html !== undefined ? { html: data.html } : {}),

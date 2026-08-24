@@ -1,9 +1,10 @@
 import { ChevronDown, Minus, Monitor, Moon, Plus, Smartphone, Sun } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { EmailModule } from '../config';
+import type { EmailModule, PushModule } from '../config';
 import { cn } from '../utils/cn';
 import { superellipse } from './corner-shape';
+import { PushPreview } from './push-preview';
 import type { TemplateRefInfo } from './template-refs';
 
 /** Template preview page: the list on the left comes from IR, the react-email component renders on the right. */
@@ -15,12 +16,23 @@ export interface TemplatePreview {
 }
 
 /** Mirrors the server's EnvelopeField; `name` / `description` are labels, the rest is envelope. */
-export type EnvelopeField = 'from' | 'replyTo' | 'subject' | 'name' | 'description';
+export type EnvelopeField =
+  | 'from'
+  | 'replyTo'
+  | 'subject'
+  | 'name'
+  | 'description'
+  | 'title'
+  | 'body';
 
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
   /** Email registry from the user's config; keys match the DSL's template keys. */
   emails: Record<string, EmailModule | undefined>;
+  /** Push registry, same contract as `emails` for the push channel. */
+  pushes?: Record<string, PushModule | undefined>;
+  /** App identity on the push mockups; defaults to the project title upstream. */
+  appName?: string;
   selected: string | undefined;
   /** Rendered output for the selected template, produced by the caller. */
   preview: TemplatePreview;
@@ -30,6 +42,12 @@ export interface TemplatesPageProps {
   onSaveEnvelope?: (key: string, field: EnvelopeField, value: string) => Promise<void>;
   /** Open the address book manager (the Settings page) — the pickers' tail item. */
   onManageAddresses?: () => void;
+  /**
+   * The preview stage's starting light/dark, normally the studio's own theme.
+   * The toolbar toggle overrides it for this visit only — leaving the page
+   * drops the override, so the stage always reopens matching the studio.
+   */
+  defaultScheme?: 'light' | 'dark';
 }
 
 /**
@@ -190,39 +208,56 @@ export function EditableText({
 export function TemplatesPage({
   refs,
   emails,
+  pushes = {},
+  appName,
   selected,
   preview,
   addresses = [],
   onSaveEnvelope,
   onManageAddresses,
+  defaultScheme,
 }: TemplatesPageProps) {
   const { t } = useTranslation();
   /* Preview chrome: how the rendered email is framed, not what is in it. */
-  const [scheme, setScheme] = useState<'light' | 'dark'>('light');
+  /*
+   * The stage follows the studio theme until the toggle is clicked; the click
+   * is an override held in state only, so a fresh visit follows the theme
+   * again — and an untouched stage keeps following live theme switches.
+   */
+  const [schemeOverride, setSchemeOverride] = useState<'light' | 'dark' | undefined>(undefined);
+  const scheme = schemeOverride ?? defaultScheme ?? 'light';
+  const setScheme = setSchemeOverride;
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [zoom, setZoom] = useState(1);
   /* From and Subject by default; the full envelope behind the chevron. */
   const [envelopeOpen, setEnvelopeOpen] = useState(false);
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
-  const activeModule = active ? emails[active.key] : undefined;
+  // Each channel reads its own registry; a push key never shadows an email one
+  const isPush = active?.channel === 'push';
+  const activeModule = active !== undefined && !isPush ? emails[active.key] : undefined;
+  const activePush = active !== undefined && isPush ? pushes[active.key] : undefined;
   const { html, subject, error, loading } = preview;
 
   // Write-back needs a module file to patch, so editing waits for registration
   const saveField =
-    onSaveEnvelope !== undefined && active !== undefined && activeModule !== undefined
+    onSaveEnvelope !== undefined &&
+    active !== undefined &&
+    (activeModule !== undefined || activePush !== undefined)
       ? (field: EnvelopeField) => (value: string) => onSaveEnvelope(active.key, field, value)
       : undefined;
   // From / subject / reply-to are email semantics; other channels skip the envelope rows
   const isEmail = active?.channel === 'email';
-  /* Nothing to show at all (non-email, no envelope data) — hide the whole panel. */
-  const hasEnvelope =
+  /* Whether anything hides behind the chevron; a push shows its two rows outright. */
+  const hasCollapsible =
     isEmail ||
     activeModule?.to !== undefined ||
     activeModule?.preheader !== undefined ||
     activeModule?.cc !== undefined ||
     activeModule?.bcc !== undefined ||
     activeModule?.headers !== undefined;
+  /* Nothing to show at all (non-email, no envelope data) — hide the whole panel. */
+  const hasEnvelope = hasCollapsible || (isPush && activePush !== undefined);
 
   return (
     <div className="flex h-full min-h-0">
@@ -242,24 +277,26 @@ export function TemplatesPage({
             {hasEnvelope && (
               <div className="border-border bg-card relative border-b px-6 py-4">
                 {/* Collapsed by default: From and Subject carry the message; the rest on demand. */}
-                <button
-                  type="button"
-                  aria-expanded={envelopeOpen}
-                  aria-label={
-                    envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')
-                  }
-                  title={envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')}
-                  onClick={() => setEnvelopeOpen((open) => !open)}
-                  className="text-muted hover:bg-hover hover:text-primary absolute top-3 right-4 flex size-7 items-center justify-center rounded-lg transition-colors"
-                  style={superellipse}
-                >
-                  <ChevronDown
-                    size={16}
-                    strokeWidth={2}
-                    aria-hidden
-                    className={cn('transition-transform', envelopeOpen && 'rotate-180')}
-                  />
-                </button>
+                {hasCollapsible && (
+                  <button
+                    type="button"
+                    aria-expanded={envelopeOpen}
+                    aria-label={
+                      envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')
+                    }
+                    title={envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')}
+                    onClick={() => setEnvelopeOpen((open) => !open)}
+                    className="text-muted hover:bg-hover hover:text-primary absolute top-3 right-4 flex size-7 items-center justify-center rounded-lg transition-colors"
+                    style={superellipse}
+                  >
+                    <ChevronDown
+                      size={16}
+                      strokeWidth={2}
+                      aria-hidden
+                      className={cn('transition-transform', envelopeOpen && 'rotate-180')}
+                    />
+                  </button>
+                )}
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 pr-10 text-sm">
                   {isEmail && (
                     <>
@@ -285,6 +322,34 @@ export function TemplatesPage({
                           />
                         ) : (
                           (subject ?? t('common.none'))
+                        )}
+                      </Field>
+                    </>
+                  )}
+
+                  {/* The push "envelope" is the content itself: title and body, edited here, shown below. */}
+                  {isPush && activePush !== undefined && (
+                    <>
+                      <Field label={t('emails.pushTitle')}>
+                        {saveField ? (
+                          <EditableText
+                            value={activePush.title}
+                            noneLabel={t('common.none')}
+                            onSave={saveField('title')}
+                          />
+                        ) : (
+                          (activePush.title ?? t('common.none'))
+                        )}
+                      </Field>
+                      <Field label={t('emails.pushBody')}>
+                        {saveField ? (
+                          <EditableText
+                            value={activePush.body}
+                            noneLabel={t('common.none')}
+                            onSave={saveField('body')}
+                          />
+                        ) : (
+                          (activePush.body ?? t('common.none'))
                         )}
                       </Field>
                     </>
@@ -354,7 +419,29 @@ export function TemplatesPage({
             >
               {/* pb clears the floating toolbar, so a fully scrolled email is never hidden under it. */}
               <div className="h-full overflow-auto p-6 pb-24">
-                {activeModule === undefined ? (
+                {isPush ? (
+                  activePush === undefined ? (
+                    <div
+                      className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
+                      style={superellipse}
+                    >
+                      <p className="text-primary text-sm font-medium">
+                        {t('emails.notRegistered')}
+                      </p>
+                      <p className="text-muted mt-2 text-sm">
+                        {t('emails.pushNotRegisteredHint', { key: active.key })}
+                      </p>
+                    </div>
+                  ) : (
+                    <PushPreview
+                      appName={appName ?? 'App'}
+                      title={activePush.title ?? activePush.name ?? active.key}
+                      body={activePush.body ?? ''}
+                      scheme={scheme}
+                      zoom={zoom}
+                    />
+                  )
+                ) : activeModule === undefined ? (
                   <div
                     className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
                     style={superellipse}
@@ -407,7 +494,9 @@ export function TemplatesPage({
               </div>
 
               {/* Floating preview toolbar: client scheme, device width, zoom. */}
-              {activeModule !== undefined && !loading && error === undefined && (
+              {(isPush
+                ? activePush !== undefined
+                : activeModule !== undefined && !loading && error === undefined) && (
                 <div className="border-border bg-card absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full border p-1 shadow-lg">
                   <ToolButton
                     active={scheme === 'light'}
@@ -423,21 +512,26 @@ export function TemplatesPage({
                   >
                     <Moon size={16} strokeWidth={2} aria-hidden />
                   </ToolButton>
-                  <div className="bg-border mx-1 h-4 w-px" />
-                  <ToolButton
-                    active={device === 'desktop'}
-                    label={t('emails.previewDesktop')}
-                    onClick={() => setDevice('desktop')}
-                  >
-                    <Monitor size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  <ToolButton
-                    active={device === 'mobile'}
-                    label={t('emails.previewMobile')}
-                    onClick={() => setDevice('mobile')}
-                  >
-                    <Smartphone size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
+                  {/* Device widths are an email concern; a push always shows both platforms. */}
+                  {!isPush && (
+                    <>
+                      <div className="bg-border mx-1 h-4 w-px" />
+                      <ToolButton
+                        active={device === 'desktop'}
+                        label={t('emails.previewDesktop')}
+                        onClick={() => setDevice('desktop')}
+                      >
+                        <Monitor size={16} strokeWidth={2} aria-hidden />
+                      </ToolButton>
+                      <ToolButton
+                        active={device === 'mobile'}
+                        label={t('emails.previewMobile')}
+                        onClick={() => setDevice('mobile')}
+                      >
+                        <Smartphone size={16} strokeWidth={2} aria-hidden />
+                      </ToolButton>
+                    </>
+                  )}
                   <div className="bg-border mx-1 h-4 w-px" />
                   <ToolButton
                     label={t('emails.zoomOut')}

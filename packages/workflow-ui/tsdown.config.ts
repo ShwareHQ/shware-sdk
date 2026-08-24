@@ -10,4 +10,6 @@ export default defineConfig({
   format: ['esm'],
   sourcemap: true,
   dts: true,
+  /* Device-frame artwork (the push preview's bezels) rides along as emitted assets. */
+  loader: { '.png': 'asset', '.webp': 'asset' },
 });

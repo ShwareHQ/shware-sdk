@@ -161,9 +161,13 @@ export default {
     bcc: 'BCC',
     sentBy: 'Sent by',
     rendering: 'Rendering…',
+    pushTitle: 'Title',
+    pushBody: 'Body',
     notRegistered: 'No component registered',
     notRegisteredHint:
       'A workflow references {{key}}, but no react-email component is registered for it in the emails index.',
+    pushNotRegisteredHint:
+      'A workflow references {{key}}, but no push module is registered for it in the pushes index.',
     manageAddresses: 'Manage addresses…',
     saved: 'Saved to source',
     saveFailed: 'Could not save',

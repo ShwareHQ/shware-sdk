@@ -4,3 +4,14 @@ declare module '*.svg?react' {
   const Component: FC<SVGProps<SVGSVGElement>>;
   export default Component;
 }
+
+/** Plain asset imports resolve to their served URL. */
+declare module '*.png' {
+  const url: string;
+  export default url;
+}
+
+declare module '*.webp' {
+  const url: string;
+  export default url;
+}
