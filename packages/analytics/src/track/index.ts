@@ -1,7 +1,7 @@
 import { TokenBucket, fetch } from '@shware/utils';
 import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
-import { session } from '../setup/session';
+import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getVisitor } from '../visitor/index';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
@@ -13,7 +13,18 @@ export interface TrackOptions {
 }
 
 const defaultOptions: TrackOptions = { enableThirdPartyTracking: true };
-const tokenBucket = new TokenBucket({ rate: 1, capacity: 20, requested: 2 });
+
+let tokenBucket: TokenBucket | undefined;
+
+/**
+ * The rate limiter, built on the first send rather than at module scope: its
+ * constructor starts a refill `setInterval`, and Cloudflare Workers refuse to
+ * set a timer outside a request handler for the same reason they refuse to
+ * generate random values there — see `setup/session.ts`.
+ */
+function getTokenBucket() {
+  return (tokenBucket ??= new TokenBucket({ rate: 1, capacity: 20, requested: 2 }));
+}
 
 type Item = {
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +39,7 @@ async function sendEvents(events: Item[]) {
   try {
     if (events.length === 0) return;
 
+    const session = getSession();
     if (session.isExpired()) {
       session.refresh();
       events.unshift({
@@ -40,7 +52,7 @@ async function sendEvents(events: Item[]) {
       session.updateLastActiveTime();
     }
 
-    await tokenBucket.removeTokens();
+    await getTokenBucket().removeTokens();
 
     const tags = await config.getTags();
     const visitor_id = (await getVisitor()).id;
@@ -130,6 +142,8 @@ export function sendBeacon<T extends EventName = EventName>(
   properties?: TrackProperties<T>
 ) {
   if (!cache.tags || !cache.visitor) return;
+
+  const session = getSession();
   session.updateLastActiveTime();
 
   const dto: CreateTrackEventDTO = [

@@ -2,7 +2,7 @@ import { throttle } from '@shware/utils';
 import { useEffect, useRef } from 'react';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
-import { session } from '../setup/session';
+import { getSession } from '../setup/session';
 import { sendBeacon, track } from '../track/index';
 import { usePrevious } from './use-previous';
 
@@ -18,13 +18,13 @@ function sendFirstVisit(pathname: string) {
 }
 
 function sendUserEngagement(trigger: 'pagehide' | 'visibilitychange') {
-  const engagement_time_msec = session.flush();
+  const engagement_time_msec = getSession().flush();
   if (engagement_time_msec <= 0) return;
   sendBeacon('user_engagement', { engagement_time_msec, trigger });
 }
 
 function sendScroll() {
-  const engagement_time_msec = session.flush();
+  const engagement_time_msec = getSession().flush();
   if (engagement_time_msec <= 0) return;
   track('scroll', { engagement_time_msec });
 }
@@ -38,12 +38,12 @@ function getScrollPercent() {
 }
 
 function onPageHide() {
-  session.pagehide();
+  getSession().pagehide();
   sendUserEngagement('pagehide');
 }
 
 function onVisibilityChange() {
-  session.visibilitychange(document.visibilityState);
+  getSession().visibilitychange(document.visibilityState);
   if (document.visibilityState === 'hidden') {
     sendUserEngagement('visibilitychange');
   }
@@ -64,6 +64,10 @@ export function useWebAnalytics(pathname: string) {
   }, [pathname]);
 
   useEffect(() => {
+    // One lookup for the whole effect: `addEventListener` and its matching
+    // `removeEventListener` have to be handed the very same function.
+    const session = getSession();
+
     sendFirstVisit(pathname);
     track('session_start', undefined);
 
@@ -112,7 +116,7 @@ export function useWebAnalytics(pathname: string) {
       page_referrer: document.referrer,
       page_location: window.location.href,
       previous_page_path: prevPathname ?? undefined,
-      engagement_time_msec: prevPathname ? session.flush() : undefined,
+      engagement_time_msec: prevPathname ? getSession().flush() : undefined,
     });
   }, [pathname]);
 }

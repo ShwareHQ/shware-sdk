@@ -1,5 +1,25 @@
 # @shware/analytics
 
+## 5.1.2
+
+### Patch Changes
+
+- Nothing is constructed at module scope anymore, so the package can be evaluated on Cloudflare Workers.
+
+  Two module-scope singletons made importing the SDK fatal in a Worker. `setup/session.ts` ended in `export const session = new Session()`, and that constructor calls `uuidv7()`, which reads `crypto.getRandomValues`. `track/index.ts` had `const tokenBucket = new TokenBucket(...)`, whose constructor starts a refill `setInterval`. Workers forbid both outside a request handler, because module scope is evaluated once when the isolate boots and is then shared by every request it serves:
+
+  ```
+  Disallowed operation called within global scope. Asynchronous I/O
+  (ex: fetch() or connect()), setting a timeout, and generating random values
+  are not allowed within global scope.
+  ```
+
+  Every entry point reaches `track()`, so a host that server-renders on Workers — TanStack Start, Next, or React Router deployed to Cloudflare — took the throw while the isolate was starting, before any component rendered: a 500 on every route, not just the tracked ones. It stayed invisible in `vite dev`/`next dev`, where SSR runs in Node and a module-scope `getRandomValues` or `setInterval` is unremarkable; it only appeared under `wrangler dev` or in production. The workaround was to keep the SDK out of the server bundle by hand, importing it dynamically behind a mounted check — which also pushed `<Analytics gaId>`'s gtag snippet past hydration, exactly the delay a Tag Gateway exists to avoid.
+
+  Both are now created on first use, by `getSession()` and internally by the first send. Importing the module runs nothing, so `<Analytics>` and `track()` can sit in a server-rendered tree again; `dist/index.mjs`, `dist/web/index.mjs` and `dist/tanstack/index.mjs` were verified to boot under `wrangler dev`. `session.startTime` is also more honest: it marks when the session began rather than when the isolate happened to start.
+
+  `session` was never part of the public API — no entry point re-exported it and `./setup/session` is not in the `exports` map — so nothing changes for consumers.
+
 ## 5.1.1
 
 ### Patch Changes

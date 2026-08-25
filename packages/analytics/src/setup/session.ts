@@ -92,4 +92,31 @@ class Session {
   };
 }
 
-export const session = new Session();
+let session: Session | undefined;
+
+/**
+ * The session, built the first time something asks for it.
+ *
+ * Deliberately not a module-scope `new Session()`. The constructor calls
+ * `uuidv7()`, `uuid` draws its bytes from `crypto.getRandomValues`, and
+ * Cloudflare Workers reject that outside a request handler:
+ *
+ *   Disallowed operation called within global scope. Asynchronous I/O
+ *   (ex: fetch() or connect()), setting a timeout, and generating random
+ *   values are not allowed within global scope.
+ *
+ * Module scope in a Worker is evaluated once when the isolate boots and is
+ * then shared by every request that isolate serves, so a random value drawn
+ * there would be the same for all of them — which is why the runtime refuses
+ * to produce one. A host that server-renders on Workers reaches this module
+ * through `track()` on the server as well, and the throw happened as the
+ * isolate booted, taking down every route before a component rendered.
+ *
+ * Everything here is per-visitor browser or app state, so deferring the
+ * construction costs nothing and buys two things: the server bundle can be
+ * evaluated, and `startTime` marks when the session actually began rather
+ * than when the isolate happened to start.
+ */
+export function getSession() {
+  return (session ??= new Session());
+}
