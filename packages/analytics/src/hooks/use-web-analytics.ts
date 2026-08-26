@@ -102,7 +102,7 @@ export function useWebAnalytics(pathname: string) {
       window.removeEventListener('pageshow', session.pageshow);
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      checkpointEvents.forEach((e) => window.removeEventListener(e, checkpoint));
+      checkpointEvents.forEach((e) => window.removeEventListener(e, checkpoint, { capture: true }));
 
       onScroll.cancel();
       checkpoint.cancel();
