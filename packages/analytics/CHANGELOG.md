@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 7.1.1
+
+### Patch Changes
+
+- A third-party tracker can no longer take the rest of a batch down with it.
+
+  `sendEvents` runs the registered `thirdPartyTrackers` inside the loop that hands each event its id, and that loop drains the queue with `shift`. A tracker that threw — a pixel script blocked by an extension, `posthog` reaching for `window` during SSR, a vendor global that never loaded — escaped to the catch below, so events the server had already accepted were reported to `onError`, while the ones ahead of them in the same batch had already been told they succeeded, and every tracker after the throwing one was skipped. Each tracker is now called inside its own try/catch and a failure is logged and stepped over. `setVisitor` does the same for `thirdPartyUserSetters`, where a throw also skipped the visitor cache write and rejected a call whose PATCH had already succeeded.
+
+  The functions that could throw during server rendering now guard against it the way the rest of the trackers already did: `sendGAEvent`/`setGAUser` and `setRedditUser` check for `window` before the vendor global they were already testing, and `sendPosthogEvent` checks for `document`. `document` rather than `window` because React Native defines `window` as an alias of `global` — a window check passes there and then throws on `window.location`, which has no such alias. The others reach a vendor global that React Native never has, so they return before touching `location`.
+
+  Also documents why `sendFBEvent` and `sendRedditEvent` each branch into two identical calls: `fbq` and `rdt` are overloaded per event type, and narrowing the union the mapper returns is what selects a single overload. Collapsing the branches, which is the obvious tidy-up, makes the call match none of them.
+
 ## 7.1.0
 
 ### Minor Changes
