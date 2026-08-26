@@ -41,3 +41,6 @@ yarn-error.log*
 .idea
 .vscode
 .wrangler/
+
+# Local research / competitive intel (private, never commit)
+research/
