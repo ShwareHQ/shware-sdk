@@ -99,7 +99,7 @@ export async function sendEvents(
       .map((event) => ({
         eventId: event.id,
         conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,
-        conversionHappenedAt: Date.now(),
+        conversionHappenedAt: new Date(event.created_at).getTime(),
         conversionValue: {
           currencyCode: event.properties?.currency?.toUpperCase() ?? 'USD',
           amount: event.properties?.value?.toString() ?? '0',

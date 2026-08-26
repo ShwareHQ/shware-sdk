@@ -114,7 +114,7 @@ export function getServerEvent(
     // For custom events the original track name is the OpenAI custom_event_name; this matches
     // the browser pixel so the two deduplicate. Standard events omit it.
     custom_event_name: type === 'custom' ? event.name : undefined,
-    timestamp_ms: Date.now(),
+    timestamp_ms: new Date(event.created_at).getTime(),
     source_url: event.tags.page_location,
     action_source: mapActionSource(event.platform, actionSource),
     user: getUser(data),

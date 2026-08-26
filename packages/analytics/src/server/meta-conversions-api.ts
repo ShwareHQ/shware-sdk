@@ -7,6 +7,7 @@ import {
   ServerEvent,
   UserData,
 } from 'facebook-nodejs-business-sdk';
+import { formatFbc } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
@@ -19,7 +20,7 @@ function normalizeCountry(input: string | undefined): string | undefined {
   return USER_ASSIGNED_COUNTRIES.includes(country) ? undefined : country;
 }
 
-function getUserData(tags: TrackTags, data: UserProvidedData) {
+function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: number) {
   const userData = new UserData();
 
   // set user-provided data
@@ -110,8 +111,10 @@ function getUserData(tags: TrackTags, data: UserProvidedData) {
     // - creationTime is the UNIX time since epoch in milliseconds when the _fbc was stored. If you don't save the _fbc cookie, use the timestamp when you first observed or received this fbclid value
     // - <fbclid> is the value for the fbclid query parameter in the page URL.
 
-    const fbc = `fb.1.${Date.now()}.${tags.fbclid}`;
-    userData.setFbc(fbc);
+    // "the timestamp when you first observed or received this fbclid value" — the event's own
+    // time is the closest thing the server has to that, and it does not move when a queued or
+    // retried batch finally goes out.
+    userData.setFbc(formatFbc(tags.fbclid, eventTimeMs));
   }
 
   if (tags.fbp) {
@@ -237,13 +240,14 @@ export function getServerEvent(
   appPackageName?: string,
   actionSource?: EventActionSource
 ) {
-  const userData = getUserData(event.tags, data);
+  const eventTimeMs = new Date(event.created_at).getTime();
+  const userData = getUserData(event.tags, data, eventTimeMs);
   const customData = getCustomData(event);
   const [_, eventName] = mapFBEvent(event.name, event.properties);
   const serverEvent = new ServerEvent()
     .setEventId(event.tags.idempotency_key ?? event.id)
     .setEventName(eventName)
-    .setEventTime(Math.round(Date.now() / 1000))
+    .setEventTime(Math.round(eventTimeMs / 1000))
     .setUserData(userData)
     .setCustomData(customData);
 

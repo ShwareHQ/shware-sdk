@@ -79,7 +79,7 @@ export function getServerEvent(
   data: UserProvidedData,
   actionSource?: EventActionSource
 ): RedditEvent {
-  const { id, name, properties, tags, platform } = event;
+  const { id, name, properties, tags, platform, created_at } = event;
   const [type, params] = mapRDTEvent(name, properties, id);
   // Reddit documents WEBSITE and APP only, so an offline conversion shares the fallback with an
   // undeterminable platform rather than inventing an enum value the API may reject.
@@ -87,7 +87,7 @@ export function getServerEvent(
 
   return {
     click_id: tags.rdt_cid,
-    event_at: Date.now(),
+    event_at: new Date(created_at).getTime(),
     action_source: source === 'web' ? 'WEBSITE' : source === 'app' ? 'APP' : 'UNKNOWN',
     type: {
       tracking_type: type === 'Custom' ? 'CUSTOM' : mapServerStandardEvent(type),
