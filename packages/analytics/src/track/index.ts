@@ -129,6 +129,21 @@ const delay = 2000;
 const list: Item[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * Both paths into a send go through here, so a batch that fills up cancels the timer the
+ * previous push armed rather than leaving it to wake up on its own with nothing to send.
+ */
+function flush() {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  if (list.length === 0) return;
+  const copy = [...list];
+  list.length = 0;
+  void sendEvents(copy);
+}
+
 export function track<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
@@ -142,18 +157,11 @@ export function track<T extends EventName = EventName>(
     timestamp: new Date().toISOString(),
   });
   if (list.length >= batch) {
-    const copy = [...list];
-    list.length = 0;
-    void sendEvents(copy);
+    flush();
     return;
   }
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    timer = null;
-    const copy = [...list];
-    list.length = 0;
-    void sendEvents(copy);
-  }, delay);
+  timer = setTimeout(flush, delay);
 }
 
 export async function trackAsync<T extends EventName = EventName>(
