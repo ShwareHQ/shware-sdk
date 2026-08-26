@@ -1,5 +1,27 @@
 # @shware/analytics
 
+## 7.1.0
+
+### Minor Changes
+
+- Server-side conversions are timestamped with the event's own time, not the moment the request goes out.
+
+  All four senders stamped `Date.now()` — Meta `event_time`, Reddit `event_at`, OpenAI `timestamp_ms`, LinkedIn `conversionHappenedAt` — while `TrackEvent.created_at`, which carries when the event actually happened, was never read by any of them. That is only harmless when the backend forwards each event the instant it arrives. Behind a queue, a retry, or a nightly batch, every conversion was dated to whenever the backend got round to it: the attribution window was measured from the wrong end, events already past the seven-day limit that Meta, Reddit and OpenAI all enforce looked fresh instead of being rejected, and the timestamp drifted away from the browser pixel's copy of the same conversion, which is timed correctly.
+
+  Each sender reads `created_at` instead. It is a required field on `TrackEvent`, carried straight from the stored event, so there is nothing to fall back to: a caller that omits it now fails the request rather than silently having every conversion dated to the moment it was forwarded.
+
+  Meta's synthesized `_fbc` moves with it. Where the tags carry a raw `fbclid` but no `_fbc` cookie, the sender builds one, and Meta's own instruction for that case is to use "the timestamp when you first observed or received this fbclid value" — the event's time is the closest the server has, and unlike `Date.now()` it does not move when a queued batch finally goes out. It now goes through `formatFbc` from the click-id module rather than repeating the format inline.
+
+  `sendTestEvent` keeps `Date.now()`: it invents an event rather than forwarding one.
+
+### Patch Changes
+
+- `useWebAnalytics` no longer leaks its checkpoint listeners.
+
+  The `mousedown`/`keydown`/`touchstart` listeners that keep the engagement accumulator up to date were registered with `capture: true` and removed without it. `removeEventListener` only matches a listener registered with the same capture flag, so all three stayed attached after the effect was cleaned up, and since the throttled handler is rebuilt on every effect run, each mount left another set behind — permanently, on `window`, referencing a throttle that had already been cancelled.
+
+  Nothing was visibly wrong while the hook stayed mounted for the life of the page, which is the usual arrangement. A host that mounts it inside a subtree that unmounts and remounts accumulated a set per mount.
+
 ## 7.0.1
 
 ### Patch Changes
