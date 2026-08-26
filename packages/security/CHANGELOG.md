@@ -1,5 +1,13 @@
 # @shware/security
 
+## 3.1.1
+
+### Patch Changes
+
+- Dependency upgrades: `jose` 6.2.10 and `uuid` 14.0.2.
+- Updated dependencies
+  - @shware/utils@1.6.1
+
 ## 3.1.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@shware/security",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -46,16 +46,16 @@
     "@shware/utils": "workspace:^",
     "cookie": "^2.0.1",
     "ioredis": "^6.0.0",
-    "jose": "^6.2.9",
+    "jose": "^6.2.10",
     "path-to-regexp": "^8.4.2",
-    "uuid": "^14.0.1",
+    "uuid": "^14.0.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.3.0",
     "ts-node": "^10.9.2",
     "typescript": "7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

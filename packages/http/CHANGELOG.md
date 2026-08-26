@@ -1,5 +1,13 @@
 # @shware/http
 
+## 3.2.1
+
+### Patch Changes
+
+- Dependency upgrades: `vitest` 4.1.11, and the `hono` 4.13.5 and `i18next` 26.4.0 peer floors. Same majors throughout.
+- Updated dependencies
+  - @shware/utils@1.6.1
+
 ## 3.2.0
 
 ### Minor Changes

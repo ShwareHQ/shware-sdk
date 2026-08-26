@@ -1,5 +1,13 @@
 # @shware/purchase
 
+## 4.2.1
+
+### Patch Changes
+
+- The `stripe` peer floor moves to ^22.5.0, catching up a bump that had not been released since 4.2.0. Still the same major, and no API of this package changed.
+- Updated dependencies
+  - @shware/utils@1.6.1
+
 ## 4.2.0
 
 ### Minor Changes

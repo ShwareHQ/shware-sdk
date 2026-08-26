@@ -16,7 +16,7 @@ allowBuilds:
 # verified (yuku-toolchain, adopted by rolldown-plugin-dts for TS7 support)
 minimumReleaseAgeExclude:
   - 'rolldown-plugin-dts@0.27.6'
-  - posthog-js@1.399.2 || 1.406.2 || 1.416.0
+  - posthog-js@1.399.2 || 1.406.2 || 1.416.0 || 1.419.4
   - 'yuku-parser@0.5.48'
   - 'yuku-codegen@0.5.48'
   - '@yuku-parser/binding-*'
@@ -77,17 +77,17 @@ minimumReleaseAgeExclude:
   - '@oxlint/binding-win32-arm64-msvc@1.75.0'
   - '@oxlint/binding-win32-ia32-msvc@1.75.0'
   - '@oxlint/binding-win32-x64-msvc@1.75.0'
-  - '@next/env@16.2.11'
-  - '@next/swc-darwin-arm64@16.2.11'
-  - '@next/swc-darwin-x64@16.2.11'
-  - '@next/swc-linux-arm64-gnu@16.2.11'
-  - '@next/swc-linux-arm64-musl@16.2.11'
-  - '@next/swc-linux-x64-gnu@16.2.11'
-  - '@next/swc-linux-x64-musl@16.2.11'
-  - '@next/swc-win32-arm64-msvc@16.2.11'
-  - '@next/swc-win32-x64-msvc@16.2.11'
-  - '@posthog/browser-common@0.2.0'
-  - next@16.2.11
+  - '@next/env@16.2.11 || 16.3.3'
+  - '@next/swc-darwin-arm64@16.2.11 || 16.3.3'
+  - '@next/swc-darwin-x64@16.2.11 || 16.3.3'
+  - '@next/swc-linux-arm64-gnu@16.2.11 || 16.3.3'
+  - '@next/swc-linux-arm64-musl@16.2.11 || 16.3.3'
+  - '@next/swc-linux-x64-gnu@16.2.11 || 16.3.3'
+  - '@next/swc-linux-x64-musl@16.2.11 || 16.3.3'
+  - '@next/swc-win32-arm64-msvc@16.2.11 || 16.3.3'
+  - '@next/swc-win32-x64-msvc@16.2.11 || 16.3.3'
+  - '@posthog/browser-common@0.2.0 || 0.6.0'
+  - next@16.2.11 || 16.3.3
   - react@19.2.8
   - jose@6.2.7 || 6.2.9
   - '@commitlint/cli@21.2.2'
@@ -99,10 +99,25 @@ minimumReleaseAgeExclude:
   - '@commitlint/parse@21.2.2'
   - '@commitlint/resolve-extends@21.2.2'
   - '@commitlint/rules@21.2.2'
-  - '@posthog/types@1.403.0'
-  - miniflare@5.20260811.0-alpha
-  - wrangler@4.122.0
+  - '@posthog/types@1.403.0 || 1.406.1'
+  - miniflare@5.20260811.0-alpha || 5.20260825.0-alpha
+  - wrangler@4.122.0 || 4.126.0
   - '@hookform/resolvers@5.9.0 || 5.9.1'
   - '@tanstack/react-router@1.170.29'
   - '@tanstack/router-core@1.171.24'
   - web-vitals@6.1.1
+  - '@tanstack/query-core@5.102.4'
+  - '@tanstack/query-devtools@5.102.4'
+  - '@tanstack/react-query-devtools@5.102.4'
+  - '@tanstack/react-query@5.102.4'
+  - '@turbo/darwin-64@2.10.12'
+  - '@turbo/darwin-arm64@2.10.12'
+  - '@turbo/linux-64@2.10.12'
+  - '@turbo/linux-arm64@2.10.12'
+  - '@turbo/windows-64@2.10.12'
+  - '@turbo/windows-arm64@2.10.12'
+  - '@xyflow/react@12.11.5'
+  - '@xyflow/system@0.0.81'
+  - turbo@2.10.12
+  - '@posthog/core@1.48.11'
+  - hono@4.13.5

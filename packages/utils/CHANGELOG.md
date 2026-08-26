@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.6.1
+
+### Patch Changes
+
+- Dependency refresh. Only development dependencies moved — `@types/node` 26.3.0 and `vitest` 4.1.11 — so the published output is identical to 1.6.0.
+
 ## 1.6.0
 
 ### Minor Changes

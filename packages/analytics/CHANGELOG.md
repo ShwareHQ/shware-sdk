@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 7.2.1
+
+### Patch Changes
+
+- Dependency upgrades: `uuid` 14.0.2 and `web-vitals` 6.2.0.
+
+  The peer floors move up too — `@react-native-firebase/analytics` 26.3.2, `@tanstack/react-router` 1.170.32, `@tanstack/react-start` 1.168.49, `expo-crypto` 57.0.2, `next` 16.3.3 and `posthog-js` 1.419.4. All stay within their existing major, so a host already on a recent version of any of them is unaffected.
+
+- Updated dependencies
+  - @shware/utils@1.6.1
+
 ## 7.2.0
 
 ### Minor Changes
