@@ -3,6 +3,7 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { type ServerStandardEvent, mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
+import { type EventActionSource, resolveActionSource } from './action-source';
 
 /**
  * https://ads-api.reddit.com/docs/v3/operations/Post%20Conversion%20Events
@@ -75,15 +76,19 @@ export interface CreateRedditEventDTO {
 export function getServerEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
-  data: UserProvidedData
+  data: UserProvidedData,
+  actionSource?: EventActionSource
 ): RedditEvent {
   const { id, name, properties, tags, platform } = event;
   const [type, params] = mapRDTEvent(name, properties, id);
+  // Reddit documents WEBSITE and APP only, so an offline conversion shares the fallback with an
+  // undeterminable platform rather than inventing an enum value the API may reject.
+  const source = resolveActionSource(platform, actionSource);
 
   return {
     click_id: tags.rdt_cid,
     event_at: Date.now(),
-    action_source: tags.source === 'web' ? 'WEBSITE' : tags.source === 'app' ? 'APP' : 'UNKNOWN',
+    action_source: source === 'web' ? 'WEBSITE' : source === 'app' ? 'APP' : 'UNKNOWN',
     type: {
       tracking_type: type === 'Custom' ? 'CUSTOM' : mapServerStandardEvent(type),
       custom_event_name: type === 'Custom' ? params.customEventName : undefined,
@@ -127,14 +132,15 @@ export async function sendEvents(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {},
-  testId?: string
+  testId?: string,
+  actionSource?: EventActionSource
 ) {
   const dto: CreateRedditEventDTO = {
     data: {
       test_id: testId,
       events: events
         .filter((event) => !IGNORED_EVENTS.includes(event.name))
-        .map((event) => getServerEvent(event, data)),
+        .map((event) => getServerEvent(event, data, actionSource)),
     },
   };
 

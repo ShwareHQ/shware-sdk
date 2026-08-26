@@ -70,7 +70,6 @@ export const tagsSchema = object({
   language: optional(string()),
   time_zone: optional(string()),
   source_url: optional(string()),
-  source: optional(_enum(['web', 'app', 'offline'])),
   page_referrer: optional(string()),
   // app info
   advertising_id: optional(string()),

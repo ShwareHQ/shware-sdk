@@ -7,8 +7,9 @@ import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { type EventData, NON_AD_EVENTS, mapOAIEvent } from '../track/oaiq';
-import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
+import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
+import { type EventActionSource, resolveActionSource } from './action-source';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
 
@@ -66,8 +67,11 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function mapActionSource(source: TrackTags['source']): ActionSource | undefined {
-  switch (source) {
+function mapActionSource(
+  platform: Platform,
+  actionSource?: EventActionSource
+): ActionSource | undefined {
+  switch (resolveActionSource(platform, actionSource)) {
     case 'web':
       return 'web';
     case 'app':
@@ -99,7 +103,8 @@ function getUser(data: UserProvidedData): OpenAIUser | undefined {
 export function getServerEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
-  data: UserProvidedData
+  data: UserProvidedData,
+  actionSource?: EventActionSource
 ): OpenAIEvent {
   const { type, data: eventData } = mapOAIEvent(event.name, event.properties);
 
@@ -111,7 +116,7 @@ export function getServerEvent(
     custom_event_name: type === 'custom' ? event.name : undefined,
     timestamp_ms: Date.now(),
     source_url: event.tags.source_url,
-    action_source: mapActionSource(event.tags.source),
+    action_source: mapActionSource(event.platform, actionSource),
     user: getUser(data),
     data: eventData,
   };
@@ -123,14 +128,15 @@ export async function sendEvents(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {},
-  validateOnly = false
+  validateOnly = false,
+  actionSource?: EventActionSource
 ) {
   const dto: CreateOpenAIEventsDTO = {
     validate_only: validateOnly,
     events: events
       .filter((event) => !IGNORED_EVENTS.includes(event.name))
       .filter((event) => !NON_AD_EVENTS.includes(event.name))
-      .map((event) => getServerEvent(event, data)),
+      .map((event) => getServerEvent(event, data, actionSource)),
   };
 
   if (dto.events.length === 0) return;

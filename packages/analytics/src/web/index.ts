@@ -34,8 +34,6 @@ export async function getTags() {
     browser: `${browser.name} ${browser.version}`,
     browser_name: browser.name,
     browser_version: browser.version,
-    // oxlint-disable-next-line typescript/no-deprecated -- required TrackTags field kept for transition compat
-    platform: 'web',
     device: platform.model,
     device_id: getDeviceId(),
     device_type: platform.type,
@@ -47,9 +45,6 @@ export async function getTags() {
     release: config.release,
     language: navigator.language,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    // oxlint-disable-next-line typescript/no-deprecated -- required TrackTags field kept for transition compat
-    environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
-    source: 'web',
     source_url: window.location.href,
     page_referrer: document.referrer || undefined,
     // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)

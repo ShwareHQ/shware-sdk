@@ -4,6 +4,7 @@ export { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
 export { sendEvents as sendOpenAIEvents } from './openai-conversions-api';
 
 export type { LinkedinConversionConfig } from './linkedin-conversions-api';
+export type { EventActionSource } from './action-source';
 
 export {
   resolveClickIdCookies,

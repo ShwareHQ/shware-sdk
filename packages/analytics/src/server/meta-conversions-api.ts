@@ -10,6 +10,7 @@ import {
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
+import { type EventActionSource, resolveActionSource } from './action-source';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
 function normalizeCountry(input: string | undefined): string | undefined {
@@ -233,7 +234,8 @@ export function getServerEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   data: UserProvidedData,
-  appPackageName?: string
+  appPackageName?: string,
+  actionSource?: EventActionSource
 ) {
   const userData = getUserData(event.tags, data);
   const customData = getCustomData(event);
@@ -245,14 +247,15 @@ export function getServerEvent(
     .setUserData(userData)
     .setCustomData(customData);
 
-  if (event.tags.source === 'app' && appPackageName) {
+  const source = resolveActionSource(event.platform, actionSource);
+  if (source === 'app' && appPackageName) {
     const appData = getAppData(event.tags, appPackageName);
     serverEvent.setAppData(appData);
   }
   if (event.tags.source_url) {
     serverEvent.setEventSourceUrl(event.tags.source_url);
   }
-  switch (event.tags.source) {
+  switch (source) {
     case 'app':
       serverEvent.setActionSource('app');
       break;
@@ -260,6 +263,11 @@ export function getServerEvent(
       serverEvent.setActionSource('website');
       break;
     default:
+      // `action_source` is required on a server event, so both an offline conversion and an
+      // undeterminable platform still have to send something. Meta has no generic offline
+      // value: 'physical_store' and 'system_generated' are narrower claims only the caller can
+      // make, so everything left lands in Meta's own catch-all.
+      serverEvent.setActionSource('other');
       break;
   }
   return serverEvent;
@@ -293,11 +301,12 @@ export async function sendEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   data: UserProvidedData = {},
-  appPackageName?: string
+  appPackageName?: string,
+  actionSource?: EventActionSource
 ) {
   if (IGNORED_EVENTS.includes(event.name)) return undefined;
   const request = new EventRequest(accessToken, pixelId);
-  const fbEvent = getServerEvent(event, data, appPackageName);
+  const fbEvent = getServerEvent(event, data, appPackageName, actionSource);
   request.setEvents([fbEvent]);
   try {
     return await request.execute();
@@ -313,11 +322,12 @@ export async function sendEvents(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
   data: UserProvidedData = {},
-  appPackageName?: string
+  appPackageName?: string,
+  actionSource?: EventActionSource
 ) {
   const fbEvents = events
     .filter((event) => !IGNORED_EVENTS.includes(event.name))
-    .map((event) => getServerEvent(event, data, appPackageName));
+    .map((event) => getServerEvent(event, data, appPackageName, actionSource));
   if (fbEvents.length === 0) return undefined;
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);

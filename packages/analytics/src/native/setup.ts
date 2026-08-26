@@ -94,7 +94,6 @@ export async function getTags(): Promise<TrackTags> {
     release: config.release,
     language: getLocales().at(0)?.languageTag ?? 'en',
     time_zone: getCalendars().at(0)?.timeZone ?? 'UTC',
-    source: 'app',
     // ads
     advertising_id: getAdvertisingId() ?? undefined,
     install_referrer,

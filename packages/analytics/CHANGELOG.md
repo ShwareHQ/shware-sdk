@@ -1,5 +1,42 @@
 # @shware/analytics
 
+## 6.0.0
+
+### Major Changes
+
+- The `source` tag is gone. Every conversions API's action source is now derived from `event.platform`.
+
+  `TrackEvent` has carried `platform` and `environment` as top-level fields since 5.0, so they could be queried as columns instead of being dug out of a JSON blob — but nothing server-side ever read them. All three senders classified the event from `tags.source` instead, a tag with exactly two producers: `@shware/analytics/web` hard-coded `'web'`, `@shware/analytics/native` hard-coded `'app'`. Both are restatements of the platform the host already declares in `setupAnalytics`, sent on every event, and trusted from the client without ever being checked against it.
+
+  `source` is therefore removed from `SourceInfo`, from `TrackTags`, and from the tags schema. `server/action-source.ts` derives the value instead:
+
+  | `event.platform`            | action source |
+  | --------------------------- | ------------- |
+  | `web`                       | `web`         |
+  | `ios`, `android`            | `app`         |
+  | `macos`, `windows`, `linux` | `app`         |
+  | `unknown`                   | — (see below) |
+
+  This fixes the meaning of the desktop platforms rather than preserving it: previously the answer came from which entry point the host imported, so an Electron app on `@shware/analytics/web` was a website and a React Native desktop app was an app, with `platform: 'macos'` having no say either way. Now `platform` decides. **A host that declares `macos`/`windows`/`linux` is declaring a desktop app**; a page running in a webview that wants website semantics should declare `platform: 'web'`.
+
+  Offline conversions are not derivable — `offline` describes how a conversion was collected (in store, imported from a CRM, taken over the phone), not what device it came from, and those events are built by a backend rather than reported by a client SDK. It is now an explicit trailing argument on the senders instead of a value a client could put in a tag:
+
+  ```ts
+  sendMetaEvents(accessToken, pixelId, events, data, appPackageName, 'offline');
+  sendRedditEvents(accessToken, pixelId, events, data, testId, 'offline');
+  sendOpenAIEvents(apiKey, pixelId, events, data, validateOnly, 'offline');
+  ```
+
+  The argument is typed `EventActionSource` (`'web' | 'app' | 'offline'`), exported from `@shware/analytics/server`, and overrides the derived value when present. It reaches OpenAI as `action_source: 'offline'`. Meta has no generic offline value — `physical_store` and `system_generated` are narrower claims only the caller can make — so it lands in Meta's `other`, and Reddit, which documents `WEBSITE` and `APP` only, receives `UNKNOWN`.
+
+  Also fixed: a Meta server event whose action source could not be determined left `action_source` unset, and Meta requires the field. It now falls back to `other`.
+
+  Migration:
+
+  - Hosts that pass their own `getTags` should drop `source` from it. Nothing breaks if they don't — `TrackTags` has an index signature, so it still type-checks, and `tagsSchema` strips unknown keys, so the value is silently discarded server-side. Make sure `platform` in `setupAnalytics` is right instead, since it now decides how conversions are classified.
+  - Backends that read `tags.source` from stored events should read the `platform` column. Rows written by older SDKs keep their `source` tag; it is redundant with `platform` for all of them.
+  - `@shware/analytics/web` also stopped putting `platform` and `environment` into its tags. Neither was ever declared in `tagsSchema`, so both were already being stripped before they reached storage; this only removes the dead weight from the request body.
+
 ## 5.1.2
 
 ### Patch Changes

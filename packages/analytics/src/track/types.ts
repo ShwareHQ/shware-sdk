@@ -79,7 +79,6 @@ export interface EnvironmentInfo {
 
 export interface SourceInfo {
   source_url?: string;
-  source?: 'app' | 'web' | 'offline';
   page_referrer?: string;
 }
 
