@@ -110,8 +110,8 @@ async function sendEvents(events: Item[]) {
         continue;
       }
       const { options, name, properties } = event;
-      const eventId = data[index].id;
-      options.onSucceed?.({ id: eventId });
+      const eventId = data.at(index)?.id;
+      options.onSucceed?.(eventId ? { id: eventId } : undefined);
       index++;
       if (!options.enableThirdPartyTracking || IGNORED_EVENTS.includes(name)) {
         continue;
