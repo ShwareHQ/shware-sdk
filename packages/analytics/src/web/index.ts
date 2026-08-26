@@ -37,8 +37,9 @@ let parser: ReturnType<typeof Bowser.getParser> | undefined;
 export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
   // page app can navigate while the link lookup below is still in flight.
-  const source_url = window.location.href;
+  const page_location = window.location.href;
   const page_referrer = document.referrer || undefined;
+  const page_title = document.title;
 
   parser ??= Bowser.getParser(window.navigator.userAgent);
   const params = new URLSearchParams(window.location.search);
@@ -68,8 +69,9 @@ export async function getTags() {
     release: config.release,
     language: navigator.language,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    source_url,
+    page_location,
     page_referrer,
+    page_title,
     // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)
     fbc: parsed._fbc ?? undefined,
     fbp: parsed._fbp,

@@ -115,7 +115,7 @@ export function getServerEvent(
     // the browser pixel so the two deduplicate. Standard events omit it.
     custom_event_name: type === 'custom' ? event.name : undefined,
     timestamp_ms: Date.now(),
-    source_url: event.tags.source_url,
+    source_url: event.tags.page_location,
     action_source: mapActionSource(event.platform, actionSource),
     user: getUser(data),
     data: eventData,

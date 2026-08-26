@@ -252,8 +252,8 @@ export function getServerEvent(
     const appData = getAppData(event.tags, appPackageName);
     serverEvent.setAppData(appData);
   }
-  if (event.tags.source_url) {
-    serverEvent.setEventSourceUrl(event.tags.source_url);
+  if (event.tags.page_location) {
+    serverEvent.setEventSourceUrl(event.tags.page_location);
   }
   switch (source) {
     case 'app':

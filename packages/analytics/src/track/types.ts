@@ -77,9 +77,18 @@ export interface EnvironmentInfo {
   time_zone?: string;
 }
 
-export interface SourceInfo {
-  source_url?: string;
+/**
+ * Page context, captured when the event happens rather than when its batch is sent, and named
+ * after the GA4 parameters it mirrors — gtag sends `page_location`, `page_referrer` and
+ * `page_title` with every event, not just with `page_view`.
+ *
+ * Web only: a native app has no page. Meta's `event_source_url` and OpenAI's `source_url` are
+ * both fed from `page_location`.
+ */
+export interface PageInfo {
+  page_location?: string;
   page_referrer?: string;
+  page_title?: string;
 }
 
 export interface AdvertisingInfo {
@@ -248,14 +257,7 @@ export interface UTMParams {
 }
 
 export interface TrackTags
-  extends
-    PlatformInfo,
-    DeviceInfo,
-    AppInfo,
-    EnvironmentInfo,
-    SourceInfo,
-    AdvertisingInfo,
-    UTMParams {
+  extends PlatformInfo, DeviceInfo, AppInfo, EnvironmentInfo, PageInfo, AdvertisingInfo, UTMParams {
   idempotency_key?: string;
   [key: string]: string | number | boolean | null | undefined;
 }

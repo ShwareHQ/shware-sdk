@@ -69,8 +69,9 @@ export const tagsSchema = object({
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),
-  source_url: optional(string()),
+  page_location: optional(string()),
   page_referrer: optional(string()),
+  page_title: optional(string()),
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
