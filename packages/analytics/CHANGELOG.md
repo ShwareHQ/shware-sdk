@@ -1,5 +1,38 @@
 # @shware/analytics
 
+## 7.0.0
+
+### Major Changes
+
+- Tags are captured when the event happens, not when its batch is sent.
+
+  `track()` queues events and flushes them up to 2 seconds later, or once 10 have piled up, and `sendEvents` called `config.getTags()` once at that point for the whole batch. A single page app that navigated inside that window therefore stamped every pending event with the URL of the page the user had already left — the events immediately before a route change, which are usually the interesting ones. `getTags` also ran after the rate limiter's wait, widening the gap further.
+
+  `getTags()` is now called by `track()` at the moment the event is queued, and each event carries its own tags to the flush. The contract is "the tags as of now, for this event". Nothing changes on the wire: a batch already serialized a full copy of the tags per event, since JSON has no references.
+
+  Implementations have to be cheap enough to run per event, and two shipped ones were not:
+
+  - `@shware/analytics/web` resolved the `?s=` link with an uncached `getLink()` request. It is now cached per link id for the lifetime of the page, and the page fields are read before that lookup is awaited — otherwise the await would reintroduce the very skew this change removes.
+  - `@shware/analytics/native` called `getIosIdForVendorAsync()` and `getInstallReferrerAsync()` on every call. Neither answer changes while the app runs, so both are resolved once and the promise reused; a failed lookup is not cached, so the next event retries.
+
+  A host that passes its own `getTags` should check the same thing: no network request, no unmemoized native call. If it throws, the event is now sent with the last built tags instead of taking the batch down with it, since the promise sits in the queue with nothing awaiting it and an unhandled rejection would surface as a global error first.
+
+  `sendBeacon` still uses `cache.tags`, the last tags built by any of these calls. It runs during `pagehide`, where building fresh tags is not worth the risk of losing the event.
+
+- The `source_url` tag is now `page_location`, and `page_title` joins it.
+
+  The tag layer's page fields were named from two vocabularies at once: `page_referrer` after GA4, `source_url` after Meta's `event_source_url`. GA4 is the better fit for both, because it describes what this layer actually is — gtag sends `page_location`, `page_referrer` and `page_title` with _every_ event, not only with `page_view`, and exposes `page_location` as a global `gtag('set', ...)` value. That is exactly what a tag is here. The Meta and OpenAI mappings are one line each, written once; a tag name is typed into report queries for years, and `page_location` next to `page_referrer` reads as one pair.
+
+  `SourceInfo` is accordingly renamed to `PageInfo` and now holds `page_location`, `page_referrer` and `page_title` — the same three fields gtag sends. It was never exported from an entry point, so only the shape matters. `page_title` is new, filled from `document.title` by `@shware/analytics/web`.
+
+  No page path is stored: GA4 does not send one either, deriving that dimension from `page_location` in reporting. `split_part` at query time costs less than a second source of truth that can disagree with the URL.
+
+  Migration:
+
+  - Report queries move from `tags->>'source_url'` to `tags->>'page_location'`; `COALESCE` the two for as long as rows written by older SDKs still matter.
+  - Hosts passing their own `getTags` should rename the key. Nothing breaks loudly if they miss it — `TrackTags` has an index signature, and `tagsSchema` strips unknown keys — but `source_url` will be dropped at the boundary, and Meta's `event_source_url` and OpenAI's `source_url` will go out empty, which degrades both match rates.
+  - `page_location`, `page_referrer`, `page_title` and `page_path` stay on the `page_view` and `first_visit` properties as before. They are redundant with the tags now, deliberately: they are convenient to query without reaching into the tag blob.
+
 ## 6.0.0
 
 ### Major Changes
