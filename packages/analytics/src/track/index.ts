@@ -116,7 +116,17 @@ async function sendEvents(events: Item[]) {
       if (!options.enableThirdPartyTracking || IGNORED_EVENTS.includes(name)) {
         continue;
       }
-      config.thirdPartyTrackers.forEach((tracker) => tracker(name, properties, eventId));
+      config.thirdPartyTrackers.forEach((tracker) => {
+        try {
+          tracker(name, properties, eventId);
+        } catch (e: unknown) {
+          // A third-party script does not get to take the rest of the batch with it. This loop is
+          // still draining `events` with `shift`, so a throw would escape to the catch below and
+          // report failure to whatever is left in the queue — for events the server has already
+          // accepted, and after the ones ahead of them were told they succeeded.
+          if (e instanceof Error) console.log(e.message);
+        }
+      });
     }
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);

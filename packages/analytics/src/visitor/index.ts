@@ -93,7 +93,15 @@ export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
   if (!response.ok) throw new Error('Failed to set visitor');
   const data = (await response.json()) as Visitor;
 
-  config.thirdPartyUserSetters.forEach((setter) => setter(body));
+  config.thirdPartyUserSetters.forEach((setter) => {
+    try {
+      setter(body);
+    } catch (e: unknown) {
+      // The visitor was updated before this ran, so a third-party setter throwing must not skip
+      // the cache write below or reject a call that already succeeded.
+      if (e instanceof Error) console.log(e.message);
+    }
+  });
   cache.visitor = data;
   return data;
 }
