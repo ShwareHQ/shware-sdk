@@ -13,7 +13,6 @@ import {
   optional,
   pipe,
   record,
-  refine,
   regex,
   string,
   toLowerCase,
@@ -27,10 +26,48 @@ import {
 } from 'zod/mini';
 import type { Environment, Platform } from '../track/types';
 
+const MAX_KEY_LENGTH = 128;
+const MAX_VALUE_LENGTH = 512;
+const MAX_PROPERTIES = 64;
+
+/**
+ * Truncated rather than rejected. These schemas validate a whole batch at once, so refusing one
+ * oversized value costs every event that traveled with it — and the values that overrun are the
+ * ones derived from the page (a link's text, a URL carrying a long query), which no client can
+ * bound in advance. A shortened value is worth more than a lost batch.
+ */
+const propertyText = pipe(
+  string(),
+  transform((value) => value.slice(0, MAX_VALUE_LENGTH))
+);
+
+/**
+ * Keys are written by hand in instrumentation code, so an unusable one is a mistake in the host
+ * rather than something the visitor typed. It is still dropped rather than rejected, for the same
+ * reason: the mistake should cost that property, not the batch it happens to be in. Truncating a
+ * key is not an option — two long keys would silently become one field.
+ *
+ * The key schema below is deliberately permissive so that this transform is reached at all; the
+ * trimming it used to do happens here instead. `MAX_PROPERTIES` keeps the first N in insertion
+ * order.
+ */
+function takeProperties<T>(data: Record<string, T>): Record<string, T> {
+  const result: Record<string, T> = {};
+  let count = 0;
+  for (const [rawKey, value] of Object.entries(data)) {
+    if (count >= MAX_PROPERTIES) break;
+    const key = rawKey.trim();
+    if (!key || key.length > MAX_KEY_LENGTH) continue;
+    result[key] = value;
+    count++;
+  }
+  return result;
+}
+
 const items = array(
-  record(
-    string().check(trim(), minLength(1), maxLength(128)),
-    union([string().check(maxLength(512)), number(), boolean(), _null()])
+  pipe(
+    record(string(), union([propertyText, number(), boolean(), _null()])),
+    transform(takeProperties)
   )
 );
 
@@ -118,10 +155,18 @@ export const tagsSchema = object({
 });
 
 export const propertiesSchema = optional(
-  record(
-    string().check(trim(), minLength(1), maxLength(128)),
-    union([string().check(maxLength(512)), number(), boolean(), _null(), items])
-  ).check(refine((data) => Object.keys(data).length <= 64))
+  pipe(
+    record(string(), union([propertyText, number(), boolean(), _null(), items])),
+    transform(takeProperties)
+  )
+);
+
+/** Visitor properties differ from event properties only in taking no nested item lists. */
+const visitorPropertiesSchema = optional(
+  pipe(
+    record(string(), union([propertyText, number(), boolean(), _null()])),
+    transform(takeProperties)
+  )
 );
 
 export const createTrackEventSchema = array(
@@ -142,12 +187,7 @@ export const createVisitorSchema = object({
   platform: _enum(ALL_PLATFORMS),
   environment: _enum(ALL_ENVIRONMENTS),
   tags: tagsSchema,
-  properties: optional(
-    record(
-      string().check(trim(), minLength(1), maxLength(128)),
-      union([string().check(maxLength(512)), number(), boolean(), _null()])
-    ).check(refine((data) => Object.keys(data).length <= 64))
-  ),
+  properties: visitorPropertiesSchema,
 });
 
 const emailValue = pipe(string().check(trim(), toLowerCase(), maxLength(320)), email());
@@ -188,12 +228,7 @@ export const updateVisitorSchema = object({
   user_data: optional(userProvidedDataSchema),
   distinct_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   tags: tagsSchema,
-  properties: optional(
-    record(
-      string().check(trim(), minLength(1), maxLength(128)),
-      union([string().check(maxLength(512)), number(), boolean(), _null()])
-    ).check(refine((data) => Object.keys(data).length <= 64))
-  ),
+  properties: visitorPropertiesSchema,
 });
 
 export const createFeedbackSchema = object({
