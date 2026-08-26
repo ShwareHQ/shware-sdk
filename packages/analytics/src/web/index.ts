@@ -26,7 +26,13 @@ const links = new Map<string, Promise<Link | null>>();
 function getCachedLink(id: string) {
   const cached = links.get(id);
   if (cached) return cached;
-  const link = getLink(id);
+  const link = getLink(id).then((result) => {
+    // A lookup that came back empty must not stick for the lifetime of the page. `getLink`
+    // answers null for a network failure as well as for a link that does not exist, and losing
+    // the link's utm params for every later event costs more than repeating a rare request.
+    if (!result) links.delete(id);
+    return result;
+  });
   links.set(id, link);
   return link;
 }
