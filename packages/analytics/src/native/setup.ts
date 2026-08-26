@@ -38,7 +38,32 @@ export const storage: Storage = {
   },
 };
 
-export async function getDeviceId(): Promise<string> {
+/**
+ * `getTags` runs once per event now, and both of these reach for a native module. Neither answer
+ * can change while the app is running, so each is resolved once and the promise is reused. A
+ * failed lookup is not cached, so the next event tries again.
+ */
+let deviceIdPromise: Promise<string> | undefined;
+let installReferrerPromise: Promise<string | undefined> | undefined;
+
+export function getDeviceId(): Promise<string> {
+  deviceIdPromise ??= resolveDeviceId().catch((error: unknown) => {
+    deviceIdPromise = undefined;
+    throw error;
+  });
+  return deviceIdPromise;
+}
+
+function getInstallReferrer(): Promise<string | undefined> {
+  if (Platform.OS !== 'android') return Promise.resolve(undefined);
+  installReferrerPromise ??= getInstallReferrerAsync().catch((error: unknown) => {
+    installReferrerPromise = undefined;
+    throw error;
+  });
+  return installReferrerPromise;
+}
+
+async function resolveDeviceId(): Promise<string> {
   let deviceId: string | null = null;
   if (Platform.OS === 'ios') {
     deviceId = await getIosIdForVendorAsync();
@@ -75,7 +100,7 @@ export async function getTags(): Promise<TrackTags> {
   const screen_width = Math.floor(screen.width);
   const screen_height = Math.floor(screen.height);
 
-  const install_referrer = Platform.OS === 'android' ? await getInstallReferrerAsync() : undefined;
+  const install_referrer = await getInstallReferrer();
   const params = new URLSearchParams(install_referrer);
 
   const tags: TrackTags = {

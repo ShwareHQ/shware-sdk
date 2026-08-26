@@ -2,7 +2,7 @@ import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { keys } from '../constants/storage';
-import { getLink } from '../link/index';
+import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
@@ -16,8 +16,31 @@ export function getDeviceId() {
   return id;
 }
 
+const links = new Map<string, Promise<Link | null>>();
+
+/**
+ * `getTags` runs once per event now, and the link a `?s=` id points at cannot change while the
+ * page is open, so an uncached lookup would put an identical request on the wire for every
+ * event the page sends.
+ */
+function getCachedLink(id: string) {
+  const cached = links.get(id);
+  if (cached) return cached;
+  const link = getLink(id);
+  links.set(id, link);
+  return link;
+}
+
+/** The user agent cannot change while the page is open, so it is parsed once. */
+let parser: ReturnType<typeof Bowser.getParser> | undefined;
+
 export async function getTags() {
-  const parser = Bowser.getParser(window.navigator.userAgent);
+  // Read the page before the first await: `getTags` runs when the event happens, and a single
+  // page app can navigate while the link lookup below is still in flight.
+  const source_url = window.location.href;
+  const page_referrer = document.referrer || undefined;
+
+  parser ??= Bowser.getParser(window.navigator.userAgent);
   const params = new URLSearchParams(window.location.search);
   const os = parser.getOS();
   const browser = parser.getBrowser();
@@ -25,7 +48,7 @@ export async function getTags() {
   const parsed = parseCookie(document.cookie);
 
   const linkId = params.get('s');
-  const link = linkId ? await getLink(linkId) : null;
+  const link = linkId ? await getCachedLink(linkId) : null;
 
   const tags: TrackTags = {
     os: `${os.name} ${os.version}`,
@@ -45,8 +68,8 @@ export async function getTags() {
     release: config.release,
     language: navigator.language,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    source_url: window.location.href,
-    page_referrer: document.referrer || undefined,
+    source_url,
+    page_referrer,
     // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)
     fbc: parsed._fbc ?? undefined,
     fbp: parsed._fbp,

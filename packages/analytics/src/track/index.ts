@@ -4,7 +4,7 @@ import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { getVisitor } from '../visitor/index';
-import type { EventName, TrackEventResponse, TrackName, TrackProperties } from './types';
+import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
@@ -31,9 +31,28 @@ type Item = {
   name: TrackName<any>;
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   properties: TrackProperties<any>;
+  tags: Promise<TrackTags>;
   timestamp: string;
   options: TrackOptions;
 };
+
+/**
+ * Tags belong to the moment the event happened, not to the moment its batch goes out: a queued
+ * event waits up to `delay` ms, and a single page app can navigate in that window, which would
+ * stamp every pending event with the URL of the page the user has already left.
+ *
+ * The promise then sits in the queue with nothing awaiting it, so a failure has to be absorbed
+ * here — an unhandled rejection would surface as a global error long before `sendEvents` could
+ * catch it. Falling back to the last built tags keeps the event, minus whatever changed since.
+ */
+async function captureTags(): Promise<TrackTags> {
+  try {
+    return await config.getTags();
+  } catch (e: unknown) {
+    if (e instanceof Error) console.log(e.message);
+    return cache.tags ?? {};
+  }
+}
 
 async function sendEvents(events: Item[]) {
   try {
@@ -46,6 +65,7 @@ async function sendEvents(events: Item[]) {
         name: 'session_start',
         properties: {},
         options: { enableThirdPartyTracking: false },
+        tags: captureTags(),
         timestamp: new Date().toISOString(),
       });
     } else {
@@ -54,19 +74,20 @@ async function sendEvents(events: Item[]) {
 
     await getTokenBucket().removeTokens();
 
-    const tags = await config.getTags();
     const visitor_id = (await getVisitor()).id;
 
-    const dto: CreateTrackEventDTO = events.map((event) => ({
-      name: event.name,
-      properties: event.properties,
-      tags,
-      visitor_id,
-      session_id: session.getId(),
-      platform: config.platform,
-      environment: config.environment,
-      timestamp: event.timestamp,
-    }));
+    const dto: CreateTrackEventDTO = await Promise.all(
+      events.map(async (event) => ({
+        name: event.name,
+        properties: event.properties,
+        tags: await event.tags,
+        visitor_id,
+        session_id: session.getId(),
+        platform: config.platform,
+        environment: config.environment,
+        timestamp: event.timestamp,
+      }))
+    );
 
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
@@ -113,7 +134,13 @@ export function track<T extends EventName = EventName>(
   properties?: TrackProperties<T>,
   options: TrackOptions = defaultOptions
 ) {
-  list.push({ name, properties, options, timestamp: new Date().toISOString() });
+  list.push({
+    name,
+    properties,
+    options,
+    tags: captureTags(),
+    timestamp: new Date().toISOString(),
+  });
   if (list.length >= batch) {
     const copy = [...list];
     list.length = 0;
@@ -134,7 +161,9 @@ export async function trackAsync<T extends EventName = EventName>(
   properties?: TrackProperties<T>,
   options: TrackOptions = defaultOptions
 ) {
-  await sendEvents([{ name, properties, options, timestamp: new Date().toISOString() }]);
+  await sendEvents([
+    { name, properties, options, tags: captureTags(), timestamp: new Date().toISOString() },
+  ]);
 }
 
 export function sendBeacon<T extends EventName = EventName>(
