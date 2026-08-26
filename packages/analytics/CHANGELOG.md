@@ -1,5 +1,27 @@
 # @shware/analytics
 
+## 7.2.0
+
+### Minor Changes
+
+- One unusable property no longer costs the batch it travelled in.
+
+  `createTrackEventSchema` validates a whole batch at once, and zod fails the entire parse when a single element fails — so one property that broke a limit took up to ten events down with it, plus whatever the client had queued behind them, and the client saw a 400 it could do nothing about. The limits themselves were the trigger: a value over 512 characters, a key over 128, more than 64 properties on one event. Values that overrun are exactly the ones derived from the page — a link's text, a URL carrying a long query — which no client can bound in advance, and no amount of care in a new SDK helps the versions already deployed in cached bundles and shipped apps.
+
+  The property schemas now drop what does not fit instead of refusing it:
+
+  - A string value over 512 characters is truncated. A shortened value is worth more than a lost batch.
+  - A key that is empty or over 128 characters is dropped, and the event keeps its other properties. Keys are written by hand in instrumentation code, so an unusable one is a mistake in the host rather than something a visitor typed — but the mistake should cost that property, not the batch it happens to be in. Truncating a key is not an option, since two long keys would silently become one field.
+  - Beyond 64 properties, the first 64 in insertion order are kept.
+
+  This applies to event properties, to the nested item lists inside them, and to visitor properties, which had the same three limits written out twice. Key trimming, which the key schema used to do, still happens.
+
+  Parsing valid payloads got faster rather than slower, which is the usual worry with a change like this: 22% on a typical eight-property event, 26% on a full ten-event batch, 29% on an event carrying 64 properties — measured against the previous schema on the same inputs, with both producing identical output. The strict version ran three checks through zod's pipeline for every key and another for every string value, plus a refine over the whole object; that is now one plain loop over the entries and a single `slice` per value, so the saving grows with the number of properties.
+
+  A value of an unexpected _type_ still fails the batch. That is a wrong call rather than an overlong string, and there is no shortened form of it to keep.
+
+  Separately, `useOutboundClickAnalytics` now sends at most 100 characters of `link_text`. An anchor can wrap a whole card, so its text runs to kilobytes of markup content that no report reads; 100 is what GA4 keeps of a text event parameter. This is about not shipping the bytes at all, not about the transport limit, which sits well above it.
+
 ## 7.1.1
 
 ### Patch Changes
