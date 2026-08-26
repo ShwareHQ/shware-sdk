@@ -13,7 +13,7 @@ export function sendGAEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  if (!window.gtag) {
+  if (typeof window === 'undefined' || !window.gtag) {
     console.warn('GA has not been initialized');
     return;
   }
@@ -21,7 +21,7 @@ export function sendGAEvent<T extends EventName>(
 }
 
 export function setGAUser({ user_id, user_data, properties }: UpdateVisitorDTO) {
-  if (!window.gtag) {
+  if (typeof window === 'undefined' || !window.gtag) {
     console.warn('GA has not been initialized');
     return;
   }

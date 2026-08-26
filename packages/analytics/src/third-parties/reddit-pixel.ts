@@ -26,6 +26,9 @@ export function sendRedditEvent<T extends EventName>(
   if (window.location.host.includes('localhost')) return;
 
   const [type, params] = mapRDTEvent(name, properties, eventId);
+  // The two branches are identical on purpose: `rdt('track', ...)` is overloaded — a standard
+  // event name carries its own params type, 'Custom' carries `CustomEventParams` — and what
+  // `mapRDTEvent` returns is a union of both. Narrowing `type` is what picks a single overload.
   if (type === 'Custom') {
     window.rdt('track', type, JSON.parse(JSON.stringify(params)));
   } else {
@@ -35,7 +38,7 @@ export function sendRedditEvent<T extends EventName>(
 
 export function setRedditUser(pixelId: PixelId) {
   return ({ user_id, user_data }: UpdateVisitorDTO) => {
-    if (!window.rdt) {
+    if (typeof window === 'undefined' || !window.rdt) {
       console.warn('rdt has not been initialized');
       return;
     }

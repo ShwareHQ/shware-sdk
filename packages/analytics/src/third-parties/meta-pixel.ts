@@ -27,6 +27,10 @@ export function sendFBEvent<T extends EventName>(
 
   const options = { eventID: event_id };
   const [type, fbEventName, fbEventProperties] = mapFBEvent(name, properties);
+  // The two branches are identical on purpose. `fbq` is overloaded per `type` — 'track' takes a
+  // standard event name with its typed properties, 'trackCustom' an arbitrary string — and what
+  // `mapFBEvent` returns is a union of both shapes. Narrowing `type` is what picks a single
+  // overload; collapsing the branches leaves the call matching none of them.
   if (type === 'track') {
     window.fbq(type, fbEventName, fbEventProperties, options);
   } else {

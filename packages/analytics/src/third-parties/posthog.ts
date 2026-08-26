@@ -9,6 +9,10 @@ export function sendPosthogEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
+  // `document`, not `window`: React Native defines `window` as an alias of `global`, so a
+  // window check would pass there and then throw on `window.location`, which it has no such
+  // alias for. `posthog-js` is the browser SDK and cannot run there anyway.
+  if (typeof document === 'undefined') return;
   if (metrics.includes(name)) return;
   if (window.location.host.includes('127.0.0.1')) return;
   if (window.location.host.includes('localhost')) return;
