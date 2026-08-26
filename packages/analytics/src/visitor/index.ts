@@ -21,6 +21,9 @@ async function createVisitor(): Promise<Visitor> {
     body: JSON.stringify(dto),
   });
 
+  if (!response.ok) {
+    throw new Error(`Failed to create visitor: ${response.status} ${await response.text()}`);
+  }
   const data = (await response.json()) as Visitor;
   if (data.id) {
     config.storage.setItem(keys.visitor_id, data.id);
@@ -65,9 +68,15 @@ export async function getVisitor(): Promise<Visitor> {
   if (cache.visitor) return cache.visitor;
   if (visitorFetcher) return visitorFetcher;
   visitorFetcher = getOrCreateVisitor();
-  cache.visitor = await visitorFetcher;
-  visitorFetcher = null;
-  return cache.visitor;
+  try {
+    cache.visitor = await visitorFetcher;
+    return cache.visitor;
+  } finally {
+    // In a `finally`, so a rejected attempt is not left in `visitorFetcher` for every later
+    // caller to await again: `sendEvents` needs a visitor for every batch, and one failed
+    // request would otherwise stop the page from reporting anything until it is reloaded.
+    visitorFetcher = null;
+  }
 }
 
 export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
