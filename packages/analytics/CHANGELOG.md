@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 7.0.1
+
+### Patch Changes
+
+- Fixes in the send path, all of them failure modes that were silent and none of which the caller could see.
+
+  - **A failed visitor request no longer disables tracking for the page.** `getVisitor` cleared its in-flight promise only after a successful await, so a rejection left the rejected promise in `visitorFetcher` and every later call re-threw the same failure. `sendEvents` awaits a visitor for every batch, so one failed request stopped the page from reporting anything until it was reloaded. The reset moved into a `finally`. `createVisitor` also parsed the body without checking the status: a 5xx whose body was JSON produced a `Visitor` with no `id`, which was then cached and sent as `visitor_id: undefined` on every subsequent batch, each rejected by the events schema. It throws on a non-ok response now.
+  - **A link lookup that comes back empty is retried.** The per-page cache added in 7.0.0 kept a null answer forever, and `getLink` answers null for a network failure as well as for a link that does not exist — so one failed lookup dropped the `?s=` link's utm params from every later event on the page. The once-per-batch call it replaced would have retried on the next flush.
+  - **The web device id goes through `config.storage`.** `getDeviceId` touched `localStorage` directly, on two counts wrongly. It bypassed the store the host passed to `setupAnalytics`, so a host that supplied its own kept `device_id` in `localStorage` while `visitor_id` and `first_visit_time` went where it asked. And the default `storage` export wraps those calls in try/catch precisely because reading site data throws in a third-party iframe, in some embedded webviews, and wherever the browser blocks it — the throw propagated out of `getTags`, so those visitors produced no tags at all. The id now lands in the same store as every other key, falling back to an in-memory map when the read throws.
+  - **A short response no longer throws mid-loop.** The loop handing each event its id read `data[index].id` unguarded while draining the queue with `shift`, so a response with fewer ids than events threw partway through: the events already shifted off had been told they succeeded, and the catch reported failure to whatever was left. It reads `data.at(index)?.id` now and reports success without an id, which the callback's optional argument already allowed for.
+  - **A batch that fills up cancels its pending timer.** Reaching `batch` sent the queue and returned without touching the timer the previous push had armed, leaving it to wake up later and flush an empty queue. Both paths go through one `flush` now. No visible change beyond the wasted wakeup: the next push already cleared the stale timer before arming its own.
+
 ## 7.0.0
 
 ### Major Changes
