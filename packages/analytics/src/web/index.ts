@@ -7,12 +7,12 @@ import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
 export function getDeviceId() {
-  const cached = localStorage.getItem(keys.device_id);
+  const cached = config.storage.getItem(keys.device_id);
   if (cached) return cached;
   // lib.dom types `crypto.randomUUID` as always present, but it is missing in
   // insecure contexts and older browsers, so probe it before use.
   const id = (crypto as Partial<Crypto>).randomUUID ? crypto.randomUUID() : uuidv4();
-  localStorage.setItem(keys.device_id, id);
+  config.storage.setItem(keys.device_id, id);
   return id;
 }
 
