@@ -80,27 +80,3 @@ thirdPartyTrackers: [
    (used to build ad audiences)? If not, add them to `NON_AD_EVENTS`.
 2. Should the 3 ad pixels share one `NON_AD_EVENTS` set, or allow per-vendor
    differences? Shared is simplest.
-
-## Session and engagement cleanups
-
-**Status:** done, except the one below, which is now a decision rather than a
-cleanup. Background in [GA4.md](./GA4.md).
-
-`updateAccumulator` discards a delta of `SESSION_TIMEOUT` or more instead of
-counting it. GA4 has no equivalent — its timer runs continuously while the page
-is engaged, so it never computes a delta across a long gap at all, and it has no
-idle detection either: a focused, visible page accrues engagement whether or not
-anyone touches it.
-
-Kept anyway, deliberately. GA4's own protection against a visitor who walks away
-is the session boundary — a new session clears the pending engagement, which
-`touch` now does too — and that covers a visitor who walks away and generates
-nothing. It does **not** cover a page that keeps its own session alive while
-nobody is there, which is what a polling dashboard does, and that is the case
-this branch exists for.
-
-The cost is that genuinely engaged time in stretches longer than the timeout is
-dropped: a long video with no mouse, keyboard or scroll activity to fire a
-checkpoint. GA4 solves that with periodic `video_progress` events, which both
-keep the session alive and drain the timer. If this SDK ever carries long-form
-media, send something periodic and this branch stops mattering.
