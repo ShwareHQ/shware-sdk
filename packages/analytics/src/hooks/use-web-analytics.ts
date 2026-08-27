@@ -69,7 +69,6 @@ export function useWebAnalytics(pathname: string) {
     const session = getSession();
 
     sendFirstVisit(pathname);
-    track('session_start', undefined);
 
     const onScroll = throttle(() => {
       session.updateAccumulator();

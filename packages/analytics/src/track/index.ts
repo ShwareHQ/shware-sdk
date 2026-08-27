@@ -58,18 +58,25 @@ async function sendEvents(events: Item[]) {
   try {
     if (events.length === 0) return;
 
-    const session = getSession();
-    if (session.isExpired()) {
-      session.refresh();
+    // One read-modify-write of the stored session for the whole batch: it answers which session
+    // these events belong to and whether this batch is the one that started it. Timed by the
+    // events themselves rather than by this moment — a tab frozen in the background can hold a
+    // batch for far longer than `delay`, and those events belong to the session they happened in.
+    const firstTimestamp = events[0].timestamp;
+    const { id: session_id, started } = getSession().touch(
+      Date.parse(firstTimestamp),
+      Date.parse(events[events.length - 1].timestamp)
+    );
+    if (started) {
       events.unshift({
         name: 'session_start',
         properties: {},
         options: { enableThirdPartyTracking: false },
         tags: captureTags(),
-        timestamp: new Date().toISOString(),
+        // The session began with the event that opened it, not at this moment: a batch held in a
+        // frozen tab would otherwise announce its session later than the events inside it.
+        timestamp: firstTimestamp,
       });
-    } else {
-      session.updateLastActiveTime();
     }
 
     await getTokenBucket().removeTokens();
@@ -82,7 +89,7 @@ async function sendEvents(events: Item[]) {
         properties: event.properties,
         tags: await event.tags,
         visitor_id,
-        session_id: session.getId(),
+        session_id,
         platform: config.platform,
         environment: config.environment,
         timestamp: event.timestamp,
@@ -190,16 +197,13 @@ export function sendBeacon<T extends EventName = EventName>(
 ) {
   if (!cache.tags || !cache.visitor) return;
 
-  const session = getSession();
-  session.updateLastActiveTime();
-
   const dto: CreateTrackEventDTO = [
     {
       name,
       properties,
       tags: cache.tags,
       visitor_id: cache.visitor.id,
-      session_id: session.getId(),
+      session_id: getSession().extend(),
       platform: config.platform,
       environment: config.environment,
       timestamp: new Date().toISOString(),

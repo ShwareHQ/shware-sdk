@@ -25,7 +25,6 @@ export function useAppAnalytics(pathname: string) {
     const session = getSession();
 
     sendFirstOpen(pathname);
-    track('session_start', undefined);
 
     const subscription = AppState.addEventListener('change', (state) => {
       session.updateAccumulator();

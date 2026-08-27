@@ -3,4 +3,5 @@ export const keys = {
   visitor_id: 'visitor_id',
   first_open_time: 'first_open_time',
   first_visit_time: 'first_visit_time',
+  session: 'session',
 } as const;
