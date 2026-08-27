@@ -1,5 +1,35 @@
 # @shware/analytics
 
+## 7.3.0
+
+### Minor Changes
+
+- A session now survives the page it started on.
+
+  `Session` kept its id and its clock in memory, so a session lasted exactly as long as one document: a full page load started a new one, a second tab was a second session, and closing a tab and returning a minute later counted as two. Sessions were being counted per page view rather than per visit — events per session came out too low and session counts too high, and neither could be repaired after the fact.
+
+  The identity and the timeout clock move into `config.storage`, which is `localStorage` on the web and the SQLite-backed shim on React Native, and is where `visitor_id` already lives. Every batch does one read-modify-write of that record — read the session, start a new one if it has timed out, stamp it, write it back — which is what GA4 does with its `_ga_<container>` cookie for every event it sends. Caching it in memory instead is what put the tabs out of step to begin with. Where storage is unavailable the wrapper's in-memory fallback takes over and sessions behave as they did before.
+
+  Stored as `1.<id>.<lastEventTime>`: compact and cookie-safe rather than JSON, so a host that wants one session across its subdomains can hand `setupAnalytics` a cookie-backed `storage` without the format having to change. The leading version guards a change the parser could not otherwise survive; a field appended to the end does not need one.
+
+  The timeout is measured from the events themselves rather than from the moment their batch goes out. A tab frozen in the background holds a batch far longer than the two seconds `track` aims for, and those events belong to the session they happened in, not to whichever one is current when the tab wakes up. `session_start` carries the timestamp of the event that opened the session for the same reason.
+
+  Three changes follow from it:
+
+  - **The hooks no longer send `session_start` themselves.** It was right when every page load was a new session; now a reload inside the timeout continues one, and the event would be a fiction. `sendEvents` emits it, at the front of the batch that opened the session — the only place that knows.
+  - **A session that times out no longer inherits the engagement its predecessor never reported.** GA4 clears the same counter when it starts a session.
+  - **`focus`, `pageshow` and becoming visible no longer extend the timeout.** GA4 measures it from the last event and nothing else, and the stored field means what its name says.
+
+  `session_number` is deliberately not stored. GA4 counts sessions on the client because it has no visitor-level backend to ask at collection time; ranking `session_id` — a uuidv7, so ordered by time — over `visitor_id` or `user_id` answers the same question from stored events, and answers it across devices, which a per-device counter cannot do at all.
+
+### Patch Changes
+
+- `sendBeacon` no longer throws away the events it exists for.
+
+  It refused to send unless `cache.visitor` and `cache.tags` were both populated, and those are per-document caches filled by the first batch's round trip. The beacon runs on `pagehide` and on the page becoming hidden, carrying the engagement time a visit accrued — so a visit short enough to end before its first batch came back had that engagement dropped in full, which is precisely the visit whose duration a bounce or landing-page report cares about most.
+
+  The visitor id is persisted, and has been since the visitor was created, so a returning visitor already has one in storage before `getVisitor` has finished anything on this page; the beacon falls back to it. Tags fall back to an empty set rather than blocking the send — every field in `tagsSchema` is optional, and an event with no browser details is worth more than no event. A visitor with nothing stored is still skipped, since the server has no such visitor to attach anything to.
+
 ## 7.2.1
 
 ### Patch Changes
