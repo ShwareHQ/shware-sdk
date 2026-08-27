@@ -80,3 +80,21 @@ thirdPartyTrackers: [
    (used to build ad audiences)? If not, add them to `NON_AD_EVENTS`.
 2. Should the 3 ad pixels share one `NON_AD_EVENTS` set, or allow per-vendor
    differences? Shared is simplest.
+
+## Session and engagement cleanups
+
+**Status:** deferred — small, agreed, not urgent. Background and the GA4 comparison
+they came out of are in [GA4.md](./GA4.md).
+
+1. `updateAccumulator` discards a delta of `SESSION_TIMEOUT` or more outright instead
+   of clamping it. GA4 has no equivalent rule, because its timer only runs while the
+   page is engaged and so never sees a delta that large. A page whose only activity is
+   a video playing — no mousedown, keydown or scroll to fire a checkpoint — can lose
+   the entire watch time to this branch.
+2. `startTime` is the anchor the accumulator measures from and is rewritten on every
+   tick, so it does not mark when the session began. Rename (`lastTickTime`), or add a
+   real start time if a report ever needs one.
+3. `Session.isVisible()` and `Session.isFocused()` have no callers.
+4. The SDK is browser and app state in module singletons. It can be imported on a
+   server since 5.1.2, but calling `track()` there shares one session and one visitor
+   across every request the isolate serves. Worth a line in the README.
