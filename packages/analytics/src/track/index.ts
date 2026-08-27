@@ -1,4 +1,5 @@
 import { TokenBucket, fetch } from '@shware/utils';
+import { keys } from '../constants/storage';
 import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
@@ -195,14 +196,22 @@ export function sendBeacon<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  if (!cache.tags || !cache.visitor) return;
+  // The visitor id is persisted, so a returning visitor already has one before `getVisitor` has
+  // finished its round trip for this page. Requiring the in-memory copy threw away exactly the
+  // events this function exists for: everything a visit accrues before its first batch comes
+  // back, which for a short visit is the whole of it.
+  const stored = config.storage.getItem(keys.visitor_id);
+  const visitor_id = cache.visitor?.id ?? (stored && stored !== 'undefined' ? stored : undefined);
+  if (!visitor_id) return;
 
   const dto: CreateTrackEventDTO = [
     {
       name,
       properties,
-      tags: cache.tags,
-      visitor_id: cache.visitor.id,
+      // Tags are worth less than the event carrying them: an empty set still reports the
+      // engagement, and every field in `tagsSchema` is optional.
+      tags: cache.tags ?? {},
+      visitor_id,
       session_id: getSession().extend(),
       platform: config.platform,
       environment: config.environment,
