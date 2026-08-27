@@ -1,5 +1,15 @@
 # @shware/analytics
 
+## 7.3.1
+
+### Patch Changes
+
+- Session housekeeping, no behaviour change.
+
+  `Session.startTime` is now `lastTickTime`. It is where the engagement accumulator last settled up and is rewritten on every tick, so it never marked when the session began — a claim the 5.1.2 notes made and nothing in the code supported. `isVisible()` and `isFocused()` are removed, having never had a caller.
+
+  The `getSession` docblock stops promising more than the lazy construction delivers. Deferring it lets the module be evaluated on a server, which is all it does: this instance, `cache` and `config` are module singletons, so calling `track()` on a server would share one session and one visitor across every request an isolate serves. The README now says so under **Client-side only**.
+
 ## 7.3.0
 
 ### Minor Changes
