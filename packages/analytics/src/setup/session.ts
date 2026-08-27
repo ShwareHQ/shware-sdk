@@ -56,8 +56,11 @@ class Session {
    * Engagement is deliberately not stored: it is the time this page has accrued and not yet
    * reported, so it belongs to the page, not to the session. GA4 draws the same line — its cookie
    * carries the session, while the engagement timer lives and dies with the document.
+   *
+   * `lastTickTime` is where the accumulator last settled up, rewritten on every tick — it is not
+   * when the session began, and nothing here needs to know that.
    */
-  private startTime: number;
+  private lastTickTime: number;
   private accumulatedTime: number;
 
   private active: boolean;
@@ -65,7 +68,7 @@ class Session {
   private focused: boolean;
 
   constructor() {
-    this.startTime = Date.now();
+    this.lastTickTime = Date.now();
     this.accumulatedTime = 0;
 
     this.active = true;
@@ -94,7 +97,7 @@ class Session {
     this.accumulatedTime = 0;
     // Wall clock, not `eventTime`: this anchors the engagement timer for the page in front of the
     // visitor now, which a batch describing something that happened an hour ago says nothing about.
-    this.startTime = Date.now();
+    this.lastTickTime = Date.now();
 
     const session: StoredSession = { id: uuidv7(), lastEventTime };
     writeSession(session);
@@ -119,8 +122,6 @@ class Session {
   };
 
   isActive = () => this.active;
-  isVisible = () => this.visible;
-  isFocused = () => this.focused;
 
   updateActive = (active: boolean) => {
     this.active = active;
@@ -129,12 +130,12 @@ class Session {
   updateAccumulator = () => {
     const now = Date.now();
     if (this.focused && this.visible && this.active) {
-      const delta = now - this.startTime;
+      const delta = now - this.lastTickTime;
       if (delta > 0 && delta < SESSION_TIMEOUT) {
         this.accumulatedTime += delta;
       }
     }
-    this.startTime = now;
+    this.lastTickTime = now;
   };
 
   focus = () => {
@@ -191,9 +192,10 @@ let session: Session | undefined;
  * isolate booted, taking down every route before a component rendered.
  *
  * Everything here is per-visitor browser or app state, so deferring the
- * construction costs nothing and buys two things: the server bundle can be
- * evaluated, and `startTime` marks when the session actually began rather
- * than when the isolate happened to start.
+ * construction costs nothing and lets the server bundle be evaluated. It does
+ * not make any of it safe to use there: this instance, `cache` and `config` are
+ * module singletons, so calling `track()` on a server shares one session and one
+ * visitor across every request the isolate serves. Import it there; do not track.
  */
 export function getSession() {
   return (session ??= new Session());

@@ -1,5 +1,17 @@
 # Shware Analytics SDK
 
+## Client-side only
+
+Everything this SDK holds — the session, the visitor, the tags cache, the config itself — lives in
+module singletons, because there is exactly one visitor per browser or app. The package can be
+imported on a server (nothing is constructed at module scope, so it evaluates fine under Cloudflare
+Workers), but calling `track()` there shares one session and one visitor across every request the
+isolate serves.
+
+Server-side conversions go the other way: store the client's events, then hand them to
+`@shware/analytics/server`, which takes a `TrackEvent` and forwards it to the Meta, Reddit, OpenAI
+and LinkedIn conversions APIs.
+
 ## Config
 
 layout.tsx
