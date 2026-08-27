@@ -83,18 +83,24 @@ thirdPartyTrackers: [
 
 ## Session and engagement cleanups
 
-**Status:** deferred — small, agreed, not urgent. Background and the GA4 comparison
-they came out of are in [GA4.md](./GA4.md).
+**Status:** done, except the one below, which is now a decision rather than a
+cleanup. Background in [GA4.md](./GA4.md).
 
-1. `updateAccumulator` discards a delta of `SESSION_TIMEOUT` or more outright instead
-   of clamping it. GA4 has no equivalent rule, because its timer only runs while the
-   page is engaged and so never sees a delta that large. A page whose only activity is
-   a video playing — no mousedown, keydown or scroll to fire a checkpoint — can lose
-   the entire watch time to this branch.
-2. `startTime` is the anchor the accumulator measures from and is rewritten on every
-   tick, so it does not mark when the session began. Rename (`lastTickTime`), or add a
-   real start time if a report ever needs one.
-3. `Session.isVisible()` and `Session.isFocused()` have no callers.
-4. The SDK is browser and app state in module singletons. It can be imported on a
-   server since 5.1.2, but calling `track()` there shares one session and one visitor
-   across every request the isolate serves. Worth a line in the README.
+`updateAccumulator` discards a delta of `SESSION_TIMEOUT` or more instead of
+counting it. GA4 has no equivalent — its timer runs continuously while the page
+is engaged, so it never computes a delta across a long gap at all, and it has no
+idle detection either: a focused, visible page accrues engagement whether or not
+anyone touches it.
+
+Kept anyway, deliberately. GA4's own protection against a visitor who walks away
+is the session boundary — a new session clears the pending engagement, which
+`touch` now does too — and that covers a visitor who walks away and generates
+nothing. It does **not** cover a page that keeps its own session alive while
+nobody is there, which is what a polling dashboard does, and that is the case
+this branch exists for.
+
+The cost is that genuinely engaged time in stretches longer than the timeout is
+dropped: a long video with no mouse, keyboard or scroll activity to fire a
+checkpoint. GA4 solves that with periodic `video_progress` events, which both
+keep the session alive and drain the timer. If this SDK ever carries long-form
+media, send something periodic and this branch stops mattering.
