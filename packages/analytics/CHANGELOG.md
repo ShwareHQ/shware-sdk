@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 7.3.2
+
+### Patch Changes
+
+- Fix four data-quality bugs found while building out the test suite:
+
+  - `setFBUser` sent the street address in Meta advanced matching's `st` (state/province) field; it now sends `address.region`, matching the server-side Conversions API mapping.
+  - `normalize` in the Meta mapper stripped every letter "s" from city/state/country (the character class was `[s/-]` instead of `[\s/-]`), turning "San Jose" into "an joe".
+  - A 90% scroll crossing with zero engaged time (e.g. a restored scroll position in an unfocused window) permanently consumed the page's one-shot scroll flag, so the page could never report a `scroll` event; the flag is now only consumed once the event is actually sent.
+  - Calling `track` with options that leave out `enableThirdPartyTracking` (e.g. just `{ onSucceed }`) silently switched third-party forwarding off; only an explicit `false` disables it now.
+
 ## 7.3.1
 
 ### Patch Changes
