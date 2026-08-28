@@ -100,6 +100,10 @@ async function sendEvents(events: Item[]) {
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
+      // Survive the page being unloaded mid-flight: a batch waits up to `delay` ms, so closing
+      // the tab inside that window would otherwise abort the request and lose every event in it.
+      // The body stays far under keepalive's 64KB in-flight budget at 100 events per batch.
+      keepalive: true,
       headers: await config.getHeaders(),
       body: JSON.stringify(dto),
     });

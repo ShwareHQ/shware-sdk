@@ -126,7 +126,8 @@ export interface AdvertisingInfo {
   sccid?: string; // Snapchat Ads
   ttclid?: string; // TikTok Ads
   twclid?: string; // Twitter Ads (X Ads)
-  wbraid?: string; // Google Ads (for iOS privacy)
+  wbraid?: string; // Google Ads web-to-app (iOS, post-ATT)
+  gbraid?: string; // Google Ads app-to-web (iOS, post-ATT)
   yclid?: string; // Yandex Ads
 }
 

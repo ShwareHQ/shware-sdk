@@ -25,6 +25,13 @@ describe('propertiesSchema', () => {
     expect(parse({ ['k'.repeat(129)]: 1, '   ': 2, '  padded  ': 3 })).toEqual({ padded: 3 });
   });
 
+  it('caps a nested item list at 200 entries instead of rejecting it', () => {
+    const parsed = parse({
+      items: Array.from({ length: 250 }, (_, i) => ({ item_id: `sku-${i}` })),
+    }) as { items: unknown[] };
+    expect(parsed.items).toHaveLength(200);
+  });
+
   it('keeps the first 64 properties in insertion order', () => {
     const parsed = parse(Object.fromEntries(Array.from({ length: 70 }, (_, i) => [`k${i}`, i])));
     expect(Object.keys(parsed)).toHaveLength(64);

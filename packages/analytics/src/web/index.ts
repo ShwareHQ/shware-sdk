@@ -108,6 +108,7 @@ export async function getTags() {
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
     wbraid: params.get('wbraid') ?? undefined,
+    gbraid: params.get('gbraid') ?? undefined,
     yclid: params.get('yclid') ?? undefined,
     // utm params
     utm_source: link?.utm_source ?? params.get('utm_source') ?? undefined,

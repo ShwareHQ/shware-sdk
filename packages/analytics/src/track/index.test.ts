@@ -60,6 +60,8 @@ describe('batching', () => {
     await vi.advanceTimersByTimeAsync(2000);
     const [batch] = sentBatches();
     expect(batch.url).toBe('https://api.test/events');
+    // keepalive lets the batch survive the tab closing while it is in flight.
+    expect((fetchMock.mock.calls[0][1] as RequestInit).keepalive).toBe(true);
     // session_start opens the batch: a fresh storage means a fresh session.
     expect(batch.body.map((e) => e.name)).toEqual([
       'session_start',

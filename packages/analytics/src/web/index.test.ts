@@ -53,11 +53,21 @@ describe('getTags', () => {
 
   it('reads ad click ids from the query string', async () => {
     const { getTags } = await load();
-    window.history.replaceState(null, '', '/?gclid=G123&fbclid=F456&utm_source=google');
+    window.history.replaceState(
+      null,
+      '',
+      '/?gclid=G123&fbclid=F456&wbraid=W1&gbraid=B1&utm_source=google'
+    );
 
     const tags = await getTags();
 
-    expect(tags).toMatchObject({ gclid: 'G123', fbclid: 'F456', utm_source: 'google' });
+    expect(tags).toMatchObject({
+      gclid: 'G123',
+      fbclid: 'F456',
+      wbraid: 'W1',
+      gbraid: 'B1',
+      utm_source: 'google',
+    });
   });
 
   it('reads the ad identity cookies the server and pixels left behind', async () => {
