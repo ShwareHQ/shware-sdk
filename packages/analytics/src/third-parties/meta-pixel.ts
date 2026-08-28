@@ -54,7 +54,8 @@ export function setFBUser(pixelId: PixelId) {
       ph: getFirst(user_data?.phone_number),
       external_id: user_id,
       ct: address?.city,
-      st: address?.street,
+      // `st` is Meta's state/province field, not the street address.
+      st: address?.region,
       zp: address?.postal_code,
       country: address?.country,
     });

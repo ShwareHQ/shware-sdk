@@ -23,10 +23,12 @@ function sendUserEngagement(trigger: 'pagehide' | 'visibilitychange') {
   sendBeacon('user_engagement', { engagement_time_msec, trigger });
 }
 
-function sendScroll() {
+/** Whether the event was actually sent — a zero-engagement crossing reports nothing. */
+function sendScroll(): boolean {
   const engagement_time_msec = getSession().flush();
-  if (engagement_time_msec <= 0) return;
+  if (engagement_time_msec <= 0) return false;
   track('scroll', { engagement_time_msec });
+  return true;
 }
 
 function getScrollPercent() {
@@ -75,8 +77,9 @@ export function useWebAnalytics(pathname: string) {
       if (hasSendScroll.current) return;
       // only send scroll when the user has scrolled more than 90% of the page
       if (getScrollPercent() < 90) return;
-      hasSendScroll.current = true;
-      sendScroll();
+      // A crossing with no engaged time (a restored scroll position in an unfocused window) must
+      // not consume the page's one shot: the flag is set only once the event is actually sent.
+      hasSendScroll.current = sendScroll();
     }, 500);
 
     const checkpointEvents = ['mousedown', 'keydown', 'touchstart'];

@@ -341,12 +341,9 @@ export function normalize(parameters: MatchingParameters): MatchingParameters {
     zp: parameters.zp?.split('-').at(0)?.trim(),
     fn: parameters.fn?.toLowerCase().trim(),
     ln: parameters.ln?.toLowerCase().trim(),
-    ct: parameters.ct?.toLowerCase().replace(/[s/-]/g, '').trim(),
-    st: parameters.st
-      ?.toLowerCase()
-      .replace(/[s/-/,.]/g, '')
-      .trim(),
-    country: parameters.country?.toLowerCase().replace(/[s/-]/g, '').trim(),
+    ct: parameters.ct?.toLowerCase().replace(/[\s/-]/g, ''),
+    st: parameters.st?.toLowerCase().replace(/[\s/,.-]/g, ''),
+    country: parameters.country?.toLowerCase().replace(/[\s/-]/g, ''),
   };
 }
 

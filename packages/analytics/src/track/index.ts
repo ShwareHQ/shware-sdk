@@ -13,7 +13,7 @@ export interface TrackOptions {
   onError?: (error: unknown) => void;
 }
 
-const defaultOptions: TrackOptions = { enableThirdPartyTracking: true };
+const defaultOptions: TrackOptions = {};
 
 let tokenBucket: TokenBucket | undefined;
 
@@ -121,7 +121,9 @@ async function sendEvents(events: Item[]) {
       const eventId = data.at(index)?.id;
       options.onSucceed?.(eventId ? { id: eventId } : undefined);
       index++;
-      if (!options.enableThirdPartyTracking || IGNORED_EVENTS.includes(name)) {
+      // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
+      // object wholesale, and leaving the flag out must not silently switch forwarding off.
+      if (options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(name)) {
         continue;
       }
       config.thirdPartyTrackers.forEach((tracker) => {
