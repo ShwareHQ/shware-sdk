@@ -1,5 +1,15 @@
 # @shware/analytics
 
+## 7.4.0
+
+### Minor Changes
+
+- Three collection gaps, found by reading what gtag.js does that we did not.
+
+  - **The events request is sent with `keepalive: true`.** A batch waits up to two seconds before it goes out, and gtag runs every hit through a transport that survives unload — beacon or keepalive fetch — while ours died with the page: closing the tab inside the batch window aborted the request and lost every event in it, on top of whatever the `pagehide` beacon separately covers. The body stays far below keepalive's 64KB in-flight budget at the schema's 100-events-per-batch cap.
+  - **`gbraid` is collected alongside `wbraid`.** Google splits post-ATT iOS attribution across the pair — `wbraid` for web-to-app, `gbraid` for app-to-web — and gtag handles both; we captured only `wbraid`, so campaigns landing with `gbraid` lost their click id at the first navigation.
+  - **A nested item list is capped at 200 entries**, GA4's own item limit, truncated rather than rejected like every other property limit here. The value and key limits closed the batch-killing holes in 7.2.0; an unbounded `items` array was the one field left that could still blow a payload up.
+
 ## 7.3.2
 
 ### Patch Changes
