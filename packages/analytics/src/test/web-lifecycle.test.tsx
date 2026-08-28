@@ -289,6 +289,42 @@ describe('across page loads', () => {
     expect(batches[1].body[0].session_id).toBe(first);
   });
 
+  it('a bfcache round trip: each departure reports only the time accrued since the last', async () => {
+    const { Page } = await launch();
+    render(<Page pathname="/" />);
+    present();
+    await vi.advanceTimersByTimeAsync(2000); // first batch: session starts, engagement re-anchors
+
+    // First departure: 3 engaged seconds, reported as the tab hides.
+    vi.advanceTimersByTime(3000);
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('pagehide'));
+
+    // The browser restores the page from the back/forward cache a minute later.
+    vi.advanceTimersByTime(60_000);
+    window.dispatchEvent(new Event('pageshow'));
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+
+    // Second departure: only the 4 seconds since the restore.
+    vi.advanceTimersByTime(4000);
+    window.dispatchEvent(new Event('pagehide'));
+
+    const engagements = (await beaconEvents()).filter((e) => e.name === 'user_engagement');
+    const times = engagements.map(
+      (e) => (e.properties as { engagement_time_msec: number }).engagement_time_msec
+    );
+    expect(times).toContain(3000);
+    expect(times).toContain(4000);
+    expect(times.reduce((a, b) => a + b, 0)).toBe(7000); // the hidden minute never counted twice
+
+    // Both beacons belong to the same session — the visit continued, it did not restart.
+    const sessions = new Set(engagements.map((e) => e.session_id));
+    expect(sessions.size).toBe(1);
+  });
+
   it('the pagehide beacon reports a finished visit without reviving an expired session', async () => {
     const { Page, storage } = await launch();
     render(<Page pathname="/" />);
