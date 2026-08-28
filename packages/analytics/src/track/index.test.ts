@@ -250,6 +250,37 @@ describe('callbacks and third parties', () => {
   });
 });
 
+describe('when the visitor request fails', () => {
+  it('the batch reports onError, and the next batch recovers with it', async () => {
+    const { track, cache, jsonResponse } = await load();
+    cache.visitor = null; // the id has to come from the network
+    const onError = vi.fn();
+    const onSucceed = vi.fn();
+
+    // The visitor POST fails outright; the batch cannot be attributed and must say so.
+    fetchMock.mockResolvedValueOnce(jsonResponse('down', 400));
+    track('custom_action', { a: 1 }, { onError, onSucceed });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onSucceed).not.toHaveBeenCalled();
+    // Only the visitor request went out — the events request never had an id to send with.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // The network recovers: the failed visitor attempt was not cached, so the next batch
+    // creates the visitor and delivers — one bad request must not kill tracking for the page.
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'visitor-2' }));
+    respondWithIds();
+    track('custom_action', { a: 2 }, { onError, onSucceed });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(onSucceed).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1); // still just the first batch
+    const events = sentBatches().at(-1)?.body;
+    expect(events?.every((e) => e.visitor_id === 'visitor-2')).toBe(true);
+  });
+});
+
 describe('trackAsync', () => {
   it('sends without waiting for the batch window', async () => {
     const { trackAsync } = await load();

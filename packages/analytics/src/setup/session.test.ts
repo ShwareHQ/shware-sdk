@@ -160,6 +160,21 @@ describe('the engagement accumulator', () => {
     expect(session.flush()).toBe(0);
   });
 
+  it('a clock that jumps backwards cannot produce negative engagement', async () => {
+    const { getSession } = await load();
+    const session = getSession();
+
+    vi.advanceTimersByTime(3000);
+    session.updateAccumulator(); // 3s banked
+
+    vi.setSystemTime(Date.now() - 60_000); // NTP correction rewinds the clock
+    session.updateAccumulator(); // negative delta: must be ignored, not subtracted
+    vi.advanceTimersByTime(2000);
+    session.updateAccumulator();
+
+    expect(session.flush()).toBe(5000);
+  });
+
   it('a new session does not inherit unreported engagement', async () => {
     const { getSession } = await load();
     const session = getSession();

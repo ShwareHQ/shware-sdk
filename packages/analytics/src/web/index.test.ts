@@ -60,6 +60,35 @@ describe('getTags', () => {
     expect(tags).toMatchObject({ gclid: 'G123', fbclid: 'F456', utm_source: 'google' });
   });
 
+  it('reads the ad identity cookies the server and pixels left behind', async () => {
+    const { getTags } = await load();
+    document.cookie = '_fbp=fb.1.1700000000000.987654';
+    document.cookie = '_fbc=fb.1.1700000000000.CLK1';
+    document.cookie = '_rdt_uuid=1700000000000.7c73f2ae-a433-4d7b-9838-f467da98f48e';
+    document.cookie = '_rdt_cid=RDT_FROM_COOKIE';
+    document.cookie = 'li_fat_id=LI_FROM_COOKIE';
+
+    const tags = await getTags();
+
+    expect(tags).toMatchObject({
+      fbp: 'fb.1.1700000000000.987654',
+      fbc: 'fb.1.1700000000000.CLK1',
+      rdt_uuid: '1700000000000.7c73f2ae-a433-4d7b-9838-f467da98f48e',
+      rdt_cid: 'RDT_FROM_COOKIE',
+      li_fat_id: 'LI_FROM_COOKIE',
+    });
+
+    // A click id in the URL is fresher than the first-party cookie and wins.
+    window.history.replaceState(null, '', '/?rdt_cid=RDT_FROM_URL&li_fat_id=LI_FROM_URL');
+    const fresh = await getTags();
+    expect(fresh.rdt_cid).toBe('RDT_FROM_URL');
+    expect(fresh.li_fat_id).toBe('LI_FROM_URL');
+
+    for (const name of ['_fbp', '_fbc', '_rdt_uuid', '_rdt_cid', 'li_fat_id']) {
+      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+    }
+  });
+
   it('snapshots the page before awaiting the link lookup', async () => {
     const { getTags, jsonResponse } = await load();
     window.history.replaceState(null, '', '/landing?s=abc');
