@@ -10,6 +10,7 @@ import { type EventData, NON_AD_EVENTS, mapOAIEvent } from '../track/oaiq';
 import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
+import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
 
@@ -115,7 +116,7 @@ export function getServerEvent(
     // the browser pixel so the two deduplicate. Standard events omit it.
     custom_event_name: type === 'custom' ? event.name : undefined,
     timestamp_ms: new Date(event.created_at).getTime(),
-    source_url: event.tags.page_location,
+    source_url: pageLocation(event.tags),
     action_source: mapActionSource(event.platform, actionSource),
     user: getUser(data),
     data: eventData,

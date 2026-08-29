@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 7.5.1
+
+### Patch Changes
+
+- Server-side conversions keep a page URL while older clients are still out there.
+
+  `source_url` became `page_location` in 7.0.0. A backend upgrades in one deploy; the browser bundles talking to it do not — a tab opened before the deploy keeps sending the old name until someone reloads it, and `tagsSchema` strips keys it does not declare, so those events reached the senders with no URL at all. Meta lost `event_source_url` and OpenAI lost `source_url` for every one of them, which costs match rate for as long as the old bundles are alive.
+
+  `source_url` is accepted again as a deprecated tag and read as a fallback by the two senders that need it. `page_location` still wins when both are present.
+
+  Transitional: delete `server/page-location.ts` and the `source_url` entries in `tagsSchema` and `PageInfo` once no client is sending the old name. Stored rows can be checked for it.
+
 ## 7.5.0
 
 ### Minor Changes

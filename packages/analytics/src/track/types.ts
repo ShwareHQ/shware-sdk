@@ -133,6 +133,12 @@ export interface PageInfo {
   page_location?: string;
   page_referrer?: string;
   page_title?: string;
+  /**
+   * @deprecated Renamed to `page_location` in 7.0.0, and never set by this SDK any more.
+   * Declared so events from clients still on an older version keep their page URL through
+   * validation; read it through `pageLocation` rather than directly.
+   */
+  source_url?: string;
 }
 
 export interface AdvertisingInfo {

@@ -119,6 +119,13 @@ export const tagsSchema = object({
   page_location: optional(string()),
   page_referrer: optional(string()),
   page_title: optional(string()),
+  /**
+   * @deprecated Renamed to `page_location` in 7.0.0. Accepted so that events from clients
+   * still on an older SDK are not stripped of their page URL at this boundary — a browser
+   * bundle stays cached long after a backend deploys. Remove once those clients are gone;
+   * `pageLocation` in `server/page-location.ts` is the only reader.
+   */
+  source_url: optional(string()),
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
