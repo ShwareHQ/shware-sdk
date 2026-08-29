@@ -1,5 +1,30 @@
 # @shware/analytics
 
+## 7.5.0
+
+### Minor Changes
+
+- Applications can type their own event properties, including on GA4's standard events.
+
+  `TrackProperties` resolved standard events to a closed shape and everything else to an open record, which left no room in between. An application with a custom dimension on `begin_checkout` — say a `type` separating expansion revenue from new revenue — had to cast past the standard shape to attach it, and casting is how the standard properties lose their own checking too.
+
+  `CustomEventProperties` is an empty interface applications fill by declaration merging:
+
+  ```ts
+  declare module '@shware/analytics' {
+    interface CustomEventProperties {
+      // Extra properties on a standard event, merged with its own.
+      begin_checkout: { type?: 'new_purchase' | 'upgrade' };
+      // The whole shape of an event the application defines itself.
+      schedule_plan_change: { direction: 'upgrade' | 'downgrade'; effective_at: string };
+    }
+  }
+  ```
+
+  Keyed by event rather than one flat set of properties, so a dimension cannot leak onto events it means nothing on. Note what "custom" attaches to: the properties, not the event — `begin_checkout` is one of GA4's recommended events and stays one.
+
+  Nothing changes for an event nobody declares. The empty case intersects with `unknown`, the identity of `&`, so those events resolve to exactly the type they did before; six of the nine new tests are negative assertions guarding that, since the risk in a change like this is quietly relaxing checks rather than failing to add them.
+
 ## 7.4.0
 
 ### Minor Changes

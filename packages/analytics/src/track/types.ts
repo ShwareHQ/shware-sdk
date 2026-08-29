@@ -6,9 +6,53 @@ export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTF
 export type TrackName<T extends EventName = EventName> = T extends keyof StandardEvents
   ? T
   : EventName;
+
+/**
+ * Properties an application defines for its own events, keyed by event name.
+ *
+ * Empty here on purpose. Applications fill it by declaration merging, and it does two jobs:
+ * it adds custom properties to GA4's standard events, which are otherwise closed shapes and
+ * would need a cast; and it gives an application's own events a real type instead of the
+ * open record they fall back to.
+ *
+ * ```ts
+ * declare module '@shware/analytics' {
+ *   interface CustomEventProperties {
+ *     // Extra properties on a standard event.
+ *     begin_checkout: { type?: 'new_purchase' | 'upgrade' };
+ *     // The whole shape of an event this app defines itself.
+ *     schedule_plan_change: { direction: 'upgrade' | 'downgrade'; effective_at: string };
+ *   }
+ * }
+ * ```
+ *
+ * Keyed by event rather than a single flat set of properties, so a dimension cannot leak
+ * onto events it means nothing on. An event nobody declares keeps its previous type exactly,
+ * which is what makes adopting this optional and incremental.
+ *
+ * Note what "custom" attaches to: the *properties*, not the event. `begin_checkout` is one
+ * of GA4's recommended events and stays one — only the properties added here are custom.
+ */
+// Empty is the point: this is an extension point, and any member declared here would be
+// forced on every application that merges into it.
+// oxlint-disable-next-line typescript/no-empty-object-type
+export interface CustomEventProperties {}
+
+/**
+ * An application's declared properties for one event, or nothing if it declared none.
+ *
+ * `unknown` rather than `{}` for the empty case: it is the identity of `&`, so an event with
+ * no declaration intersects to exactly the type it had before.
+ */
+type CustomPropertiesFor<T> = T extends keyof CustomEventProperties
+  ? CustomEventProperties[T]
+  : unknown;
+
 export type TrackProperties<T extends EventName = EventName> = T extends keyof StandardEvents
-  ? StandardEvents[T]
-  : Record<Lowercase<string>, AllowedPropertyValues>;
+  ? StandardEvents[T] & CustomPropertiesFor<T>
+  : T extends keyof CustomEventProperties
+    ? CustomEventProperties[T]
+    : Record<Lowercase<string>, AllowedPropertyValues>;
 
 export type Platform = 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
 export type Environment = 'development' | 'production';

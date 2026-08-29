@@ -22,6 +22,7 @@ export type {
   Environment,
   TrackTags,
   TrackProperties,
+  CustomEventProperties,
   AllowedPropertyValues,
   UserProvidedData,
   UTMParams,
