@@ -1,4 +1,11 @@
 export { sendEvents as sendMetaEvents } from './meta-conversions-api';
+export {
+  sendMetaConversions,
+  getCapiEvent,
+  type CapiEvent,
+  type MetaConversionsOptions,
+  type MetaConversionsResponse,
+} from './meta-capi';
 export { sendEvents as sendRedditEvents } from './reddit-conversions-api';
 export { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
 export { sendEvents as sendOpenAIEvents } from './openai-conversions-api';
