@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 7.6.0
+
+### Minor Changes
+
+- A lightweight Meta Conversions API sender: `sendMetaConversions`.
+
+  Built on `capi-param-builder-nodejs` (0.5MB, zero dependencies) and plain `fetch` instead of `facebook-nodejs-business-sdk` (31MB, axios and Node built-ins), which makes it bundleable for Lambda at ~28KB and actually runnable on edge runtimes like Cloudflare Workers. `sendMetaEvents` and the business-SDK path are untouched; this is the drop-in successor hosts opt into.
+
+  The wire payload is byte-identical to what the business SDK's `ServerEvent.normalize()` produces — every hash, the deduplicated multi-value lists, the sparse extinfo object — enforced by a differential test suite plus a 120-case seeded fuzz that runs both builders over the same events, and by known-vector tests pinning each normalization rule to a concrete SHA-256. Where the two vendor libraries normalize differently (names with punctuation, accented cities, non-US postal codes), the sender sides with the business SDK so switching cannot change a single hash Meta receives.
+
+  Differences by design, all on invalid input only: a malformed field (bad email, non-ISO country code, letters in a phone number) is dropped or forwarded hashed instead of throwing away the whole batch, and an unknown currency is uppercased and forwarded instead of rejected. `action_source` is derived from each event's `platform` — a backend-built offline conversion declares `platform: 'unknown'` and lands in Meta's `other`, exactly where the old explicit `'offline'` argument put it. The access token travels in the JSON request body, never in the URL and never in logs, and the retry/backoff behavior of the shared fetch wrapper applies.
+
 ## 7.5.1
 
 ### Patch Changes
