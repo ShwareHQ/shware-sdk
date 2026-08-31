@@ -1,7 +1,8 @@
 /**
  * Meta Conversions API sender built on `capi-param-builder-nodejs` and plain `fetch`, replacing
- * the 31MB `facebook-nodejs-business-sdk` with ~0.5MB of parameter building. `sendMetaEvents`
- * stays exported and untouched; this module is the drop-in successor hosts opt into.
+ * the 31MB `facebook-nodejs-business-sdk` with ~0.5MB of parameter building. The SDK-based
+ * sender survives untouched at `@shware/analytics/server/legacy`; this module is its drop-in
+ * successor.
  *
  * The wire payload is byte-identical to what the business SDK's `ServerEvent.normalize()`
  * produces — enforced by a differential test that runs both builders over the same events.
@@ -368,11 +369,11 @@ export interface MetaConversionsResponse {
 }
 
 /**
- * The lightweight counterpart to `sendMetaEvents`: same filtering, same payload, same
- * never-throws contract, minus the 31MB SDK. The token travels in the JSON body, never in the
- * URL, and is never logged.
+ * The lightweight counterpart to the legacy SDK sender (`@shware/analytics/server/legacy`):
+ * same filtering, same payload, same never-throws contract, minus the 31MB SDK. The token
+ * travels in the JSON body, never in the URL, and is never logged.
  */
-export async function sendMetaConversions(
+export async function sendEvents(
   accessToken: string,
   pixelId: string,
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any

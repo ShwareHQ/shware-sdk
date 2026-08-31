@@ -1,6 +1,5 @@
-export { sendEvents as sendMetaEvents } from './meta-conversions-api';
 export {
-  sendMetaConversions,
+  sendEvents as sendMetaEvents,
   getCapiEvent,
   type CapiEvent,
   type MetaConversionsOptions,

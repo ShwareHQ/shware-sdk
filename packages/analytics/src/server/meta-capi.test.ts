@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackEvent, UserProvidedData } from '../track/types';
-import { getCapiEvent, sendMetaConversions } from './meta-capi';
+import { getCapiEvent, sendEvents } from './meta-capi';
 import { getServerEvent } from './meta-conversions-api';
 
 const CREATED_AT = '2026-01-10T12:00:00.000Z';
@@ -487,7 +487,7 @@ describe('deliberate divergences from the business SDK, on invalid input only', 
   });
 });
 
-describe('sendMetaConversions transport', () => {
+describe('sendEvents transport', () => {
   const fetchMock = vi.fn();
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -507,7 +507,7 @@ describe('sendMetaConversions transport', () => {
       new Response(JSON.stringify({ events_received: 1, fbtrace_id: 'trace-1' }), { status: 200 })
     );
 
-    const result = await sendMetaConversions('secret-token', 'pixel-1', [
+    const result = await sendEvents('secret-token', 'pixel-1', [
       event({ name: 'session_start' }),
       event(),
     ]);
@@ -528,7 +528,7 @@ describe('sendMetaConversions transport', () => {
   it('attaches app_data via options.appPackageName for app-platform events', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
 
-    await sendMetaConversions(
+    await sendEvents(
       't',
       'pixel-1',
       [event({ platform: 'ios', tags: { os_name: 'iOS' } }), event()],
@@ -545,7 +545,7 @@ describe('sendMetaConversions transport', () => {
   it('routes a test batch with test_event_code and honors an apiVersion override', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
 
-    await sendMetaConversions(
+    await sendEvents(
       't',
       'pixel-1',
       [event()],
@@ -562,7 +562,7 @@ describe('sendMetaConversions transport', () => {
   });
 
   it('sends nothing when every event is auto-collected', async () => {
-    await sendMetaConversions('t', 'pixel-1', [event({ name: 'page_view' })]);
+    await sendEvents('t', 'pixel-1', [event({ name: 'page_view' })]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -571,7 +571,7 @@ describe('sendMetaConversions transport', () => {
       new Response(JSON.stringify({ error: { message: 'Invalid parameter' } }), { status: 400 })
     );
 
-    await expect(sendMetaConversions('secret-token', 'p', [event()])).resolves.toBeUndefined();
+    await expect(sendEvents('secret-token', 'p', [event()])).resolves.toBeUndefined();
     const logged = String(errorSpy.mock.calls[0][0]);
     expect(logged).toContain('status: 400');
     expect(logged).not.toContain('secret-token');
@@ -581,7 +581,7 @@ describe('sendMetaConversions transport', () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const pending = sendMetaConversions('t', 'p', [event()]);
+    const pending = sendEvents('t', 'p', [event()]);
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(pending).resolves.toBeUndefined();
     expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
