@@ -170,4 +170,26 @@ describe('resolveClickIdCookies — _rdt_cid', () => {
     expect(cookies.find((c) => c.name === RDT_CID_COOKIE)).toBeUndefined();
     expect(rdt_cid).toBe('RDT1');
   });
+
+  it('replaces the cookie when a different rdt_cid arrives in the URL', () => {
+    const { cookies, rdt_cid } = resolveClickIdCookies({
+      url: 'https://shware.io/?rdt_cid=RDT2',
+      cookieHeader: '_rdt_cid=RDT1',
+      now: NOW,
+    });
+    expect(cookies.find((c) => c.name === RDT_CID_COOKIE)?.value).toBe('RDT2');
+    expect(rdt_cid).toBe('RDT2');
+  });
+});
+
+describe('resolveClickIdCookies — URL parsing', () => {
+  it('still reads the query from a relative URL (framework middlewares pass pathname+search)', () => {
+    const { fbc } = resolveClickIdCookies({ url: '/landing?fbclid=REL1', now: NOW });
+    expect(fbc).toBe(`fb.1.${NOW}.REL1`);
+  });
+
+  it('a relative URL without a query resolves nothing and emits nothing', () => {
+    const { cookies } = resolveClickIdCookies({ url: '/landing', now: NOW });
+    expect(cookies).toEqual([]);
+  });
 });

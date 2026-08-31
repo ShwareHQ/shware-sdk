@@ -1,4 +1,5 @@
 import { TokenBucket, fetch } from '@shware/utils';
+import { keys } from '../constants/storage';
 import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
@@ -12,7 +13,7 @@ export interface TrackOptions {
   onError?: (error: unknown) => void;
 }
 
-const defaultOptions: TrackOptions = { enableThirdPartyTracking: true };
+const defaultOptions: TrackOptions = {};
 
 let tokenBucket: TokenBucket | undefined;
 
@@ -58,18 +59,25 @@ async function sendEvents(events: Item[]) {
   try {
     if (events.length === 0) return;
 
-    const session = getSession();
-    if (session.isExpired()) {
-      session.refresh();
+    // One read-modify-write of the stored session for the whole batch: it answers which session
+    // these events belong to and whether this batch is the one that started it. Timed by the
+    // events themselves rather than by this moment — a tab frozen in the background can hold a
+    // batch for far longer than `delay`, and those events belong to the session they happened in.
+    const firstTimestamp = events[0].timestamp;
+    const { id: session_id, started } = getSession().touch(
+      Date.parse(firstTimestamp),
+      Date.parse(events[events.length - 1].timestamp)
+    );
+    if (started) {
       events.unshift({
         name: 'session_start',
         properties: {},
         options: { enableThirdPartyTracking: false },
         tags: captureTags(),
-        timestamp: new Date().toISOString(),
+        // The session began with the event that opened it, not at this moment: a batch held in a
+        // frozen tab would otherwise announce its session later than the events inside it.
+        timestamp: firstTimestamp,
       });
-    } else {
-      session.updateLastActiveTime();
     }
 
     await getTokenBucket().removeTokens();
@@ -82,7 +90,7 @@ async function sendEvents(events: Item[]) {
         properties: event.properties,
         tags: await event.tags,
         visitor_id,
-        session_id: session.getId(),
+        session_id,
         platform: config.platform,
         environment: config.environment,
         timestamp: event.timestamp,
@@ -92,6 +100,10 @@ async function sendEvents(events: Item[]) {
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
+      // Survive the page being unloaded mid-flight: a batch waits up to `delay` ms, so closing
+      // the tab inside that window would otherwise abort the request and lose every event in it.
+      // The body stays far under keepalive's 64KB in-flight budget at 100 events per batch.
+      keepalive: true,
       headers: await config.getHeaders(),
       body: JSON.stringify(dto),
     });
@@ -113,7 +125,9 @@ async function sendEvents(events: Item[]) {
       const eventId = data.at(index)?.id;
       options.onSucceed?.(eventId ? { id: eventId } : undefined);
       index++;
-      if (!options.enableThirdPartyTracking || IGNORED_EVENTS.includes(name)) {
+      // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
+      // object wholesale, and leaving the flag out must not silently switch forwarding off.
+      if (options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(name)) {
         continue;
       }
       config.thirdPartyTrackers.forEach((tracker) => {
@@ -188,18 +202,23 @@ export function sendBeacon<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  if (!cache.tags || !cache.visitor) return;
-
-  const session = getSession();
-  session.updateLastActiveTime();
+  // The visitor id is persisted, so a returning visitor already has one before `getVisitor` has
+  // finished its round trip for this page. Requiring the in-memory copy threw away exactly the
+  // events this function exists for: everything a visit accrues before its first batch comes
+  // back, which for a short visit is the whole of it.
+  const stored = config.storage.getItem(keys.visitor_id);
+  const visitor_id = cache.visitor?.id ?? (stored && stored !== 'undefined' ? stored : undefined);
+  if (!visitor_id) return;
 
   const dto: CreateTrackEventDTO = [
     {
       name,
       properties,
-      tags: cache.tags,
-      visitor_id: cache.visitor.id,
-      session_id: session.getId(),
+      // Tags are worth less than the event carrying them: an empty set still reports the
+      // engagement, and every field in `tagsSchema` is optional.
+      tags: cache.tags ?? {},
+      visitor_id,
+      session_id: getSession().extend(),
       platform: config.platform,
       environment: config.environment,
       timestamp: new Date().toISOString(),

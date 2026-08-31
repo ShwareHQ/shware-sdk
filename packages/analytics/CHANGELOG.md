@@ -1,5 +1,123 @@
 # @shware/analytics
 
+## 8.0.0
+
+### Major Changes
+
+- Move the `facebook-nodejs-business-sdk`-based Meta sender out of `./server` into a new `./server/legacy` entry, so importing `@shware/analytics/server` never pulls the 31MB SDK into a serverless bundle. The SDK-free sender previously exported as `sendMetaConversions` is renamed to `sendMetaEvents` and is now the `./server` export of that name.
+
+  Migration: keep the old behavior with `import { sendMetaEvents } from '@shware/analytics/server/legacy'`, or drop the SDK by staying on `@shware/analytics/server` (note the new options-object signature). Callers of `sendMetaConversions` rename it to `sendMetaEvents`.
+
+## 7.6.0
+
+### Minor Changes
+
+- A lightweight Meta Conversions API sender: `sendMetaConversions`.
+
+  Built on `capi-param-builder-nodejs` (0.5MB, zero dependencies) and plain `fetch` instead of `facebook-nodejs-business-sdk` (31MB, axios and Node built-ins), which makes it bundleable for Lambda at ~28KB and actually runnable on edge runtimes like Cloudflare Workers. `sendMetaEvents` and the business-SDK path are untouched; this is the drop-in successor hosts opt into.
+
+  The wire payload is byte-identical to what the business SDK's `ServerEvent.normalize()` produces — every hash, the deduplicated multi-value lists, the sparse extinfo object — enforced by a differential test suite plus a 120-case seeded fuzz that runs both builders over the same events, and by known-vector tests pinning each normalization rule to a concrete SHA-256. Where the two vendor libraries normalize differently (names with punctuation, accented cities, non-US postal codes), the sender sides with the business SDK so switching cannot change a single hash Meta receives.
+
+  Differences by design, all on invalid input only: a malformed field (bad email, non-ISO country code, letters in a phone number) is dropped or forwarded hashed instead of throwing away the whole batch, and an unknown currency is uppercased and forwarded instead of rejected. `action_source` is derived from each event's `platform` — a backend-built offline conversion declares `platform: 'unknown'` and lands in Meta's `other`, exactly where the old explicit `'offline'` argument put it. The access token travels in the JSON request body, never in the URL and never in logs, and the retry/backoff behavior of the shared fetch wrapper applies.
+
+## 7.5.1
+
+### Patch Changes
+
+- Server-side conversions keep a page URL while older clients are still out there.
+
+  `source_url` became `page_location` in 7.0.0. A backend upgrades in one deploy; the browser bundles talking to it do not — a tab opened before the deploy keeps sending the old name until someone reloads it, and `tagsSchema` strips keys it does not declare, so those events reached the senders with no URL at all. Meta lost `event_source_url` and OpenAI lost `source_url` for every one of them, which costs match rate for as long as the old bundles are alive.
+
+  `source_url` is accepted again as a deprecated tag and read as a fallback by the two senders that need it. `page_location` still wins when both are present.
+
+  Transitional: delete `server/page-location.ts` and the `source_url` entries in `tagsSchema` and `PageInfo` once no client is sending the old name. Stored rows can be checked for it.
+
+## 7.5.0
+
+### Minor Changes
+
+- Applications can type their own event properties, including on GA4's standard events.
+
+  `TrackProperties` resolved standard events to a closed shape and everything else to an open record, which left no room in between. An application with a custom dimension on `begin_checkout` — say a `type` separating expansion revenue from new revenue — had to cast past the standard shape to attach it, and casting is how the standard properties lose their own checking too.
+
+  `CustomEventProperties` is an empty interface applications fill by declaration merging:
+
+  ```ts
+  declare module '@shware/analytics' {
+    interface CustomEventProperties {
+      // Extra properties on a standard event, merged with its own.
+      begin_checkout: { type?: 'new_purchase' | 'upgrade' };
+      // The whole shape of an event the application defines itself.
+      schedule_plan_change: { direction: 'upgrade' | 'downgrade'; effective_at: string };
+    }
+  }
+  ```
+
+  Keyed by event rather than one flat set of properties, so a dimension cannot leak onto events it means nothing on. Note what "custom" attaches to: the properties, not the event — `begin_checkout` is one of GA4's recommended events and stays one.
+
+  Nothing changes for an event nobody declares. The empty case intersects with `unknown`, the identity of `&`, so those events resolve to exactly the type they did before; six of the nine new tests are negative assertions guarding that, since the risk in a change like this is quietly relaxing checks rather than failing to add them.
+
+## 7.4.0
+
+### Minor Changes
+
+- Three collection gaps, found by reading what gtag.js does that we did not.
+
+  - **The events request is sent with `keepalive: true`.** A batch waits up to two seconds before it goes out, and gtag runs every hit through a transport that survives unload — beacon or keepalive fetch — while ours died with the page: closing the tab inside the batch window aborted the request and lost every event in it, on top of whatever the `pagehide` beacon separately covers. The body stays far below keepalive's 64KB in-flight budget at the schema's 100-events-per-batch cap.
+  - **`gbraid` is collected alongside `wbraid`.** Google splits post-ATT iOS attribution across the pair — `wbraid` for web-to-app, `gbraid` for app-to-web — and gtag handles both; we captured only `wbraid`, so campaigns landing with `gbraid` lost their click id at the first navigation.
+  - **A nested item list is capped at 200 entries**, GA4's own item limit, truncated rather than rejected like every other property limit here. The value and key limits closed the batch-killing holes in 7.2.0; an unbounded `items` array was the one field left that could still blow a payload up.
+
+## 7.3.2
+
+### Patch Changes
+
+- Fix four data-quality bugs found while building out the test suite:
+
+  - `setFBUser` sent the street address in Meta advanced matching's `st` (state/province) field; it now sends `address.region`, matching the server-side Conversions API mapping.
+  - `normalize` in the Meta mapper stripped every letter "s" from city/state/country (the character class was `[s/-]` instead of `[\s/-]`), turning "San Jose" into "an joe".
+  - A 90% scroll crossing with zero engaged time (e.g. a restored scroll position in an unfocused window) permanently consumed the page's one-shot scroll flag, so the page could never report a `scroll` event; the flag is now only consumed once the event is actually sent.
+  - Calling `track` with options that leave out `enableThirdPartyTracking` (e.g. just `{ onSucceed }`) silently switched third-party forwarding off; only an explicit `false` disables it now.
+
+## 7.3.1
+
+### Patch Changes
+
+- Session housekeeping, no behaviour change.
+
+  `Session.startTime` is now `lastTickTime`. It is where the engagement accumulator last settled up and is rewritten on every tick, so it never marked when the session began — a claim the 5.1.2 notes made and nothing in the code supported. `isVisible()` and `isFocused()` are removed, having never had a caller.
+
+  The `getSession` docblock stops promising more than the lazy construction delivers. Deferring it lets the module be evaluated on a server, which is all it does: this instance, `cache` and `config` are module singletons, so calling `track()` on a server would share one session and one visitor across every request an isolate serves. The README now says so under **Client-side only**.
+
+## 7.3.0
+
+### Minor Changes
+
+- A session now survives the page it started on.
+
+  `Session` kept its id and its clock in memory, so a session lasted exactly as long as one document: a full page load started a new one, a second tab was a second session, and closing a tab and returning a minute later counted as two. Sessions were being counted per page view rather than per visit — events per session came out too low and session counts too high, and neither could be repaired after the fact.
+
+  The identity and the timeout clock move into `config.storage`, which is `localStorage` on the web and the SQLite-backed shim on React Native, and is where `visitor_id` already lives. Every batch does one read-modify-write of that record — read the session, start a new one if it has timed out, stamp it, write it back — which is what GA4 does with its `_ga_<container>` cookie for every event it sends. Caching it in memory instead is what put the tabs out of step to begin with. Where storage is unavailable the wrapper's in-memory fallback takes over and sessions behave as they did before.
+
+  Stored as `1.<id>.<lastEventTime>`: compact and cookie-safe rather than JSON, so a host that wants one session across its subdomains can hand `setupAnalytics` a cookie-backed `storage` without the format having to change. The leading version guards a change the parser could not otherwise survive; a field appended to the end does not need one.
+
+  The timeout is measured from the events themselves rather than from the moment their batch goes out. A tab frozen in the background holds a batch far longer than the two seconds `track` aims for, and those events belong to the session they happened in, not to whichever one is current when the tab wakes up. `session_start` carries the timestamp of the event that opened the session for the same reason.
+
+  Three changes follow from it:
+
+  - **The hooks no longer send `session_start` themselves.** It was right when every page load was a new session; now a reload inside the timeout continues one, and the event would be a fiction. `sendEvents` emits it, at the front of the batch that opened the session — the only place that knows.
+  - **A session that times out no longer inherits the engagement its predecessor never reported.** GA4 clears the same counter when it starts a session.
+  - **`focus`, `pageshow` and becoming visible no longer extend the timeout.** GA4 measures it from the last event and nothing else, and the stored field means what its name says.
+
+  `session_number` is deliberately not stored. GA4 counts sessions on the client because it has no visitor-level backend to ask at collection time; ranking `session_id` — a uuidv7, so ordered by time — over `visitor_id` or `user_id` answers the same question from stored events, and answers it across devices, which a per-device counter cannot do at all.
+
+### Patch Changes
+
+- `sendBeacon` no longer throws away the events it exists for.
+
+  It refused to send unless `cache.visitor` and `cache.tags` were both populated, and those are per-document caches filled by the first batch's round trip. The beacon runs on `pagehide` and on the page becoming hidden, carrying the engagement time a visit accrued — so a visit short enough to end before its first batch came back had that engagement dropped in full, which is precisely the visit whose duration a bounce or landing-page report cares about most.
+
+  The visitor id is persisted, and has been since the visitor was created, so a returning visitor already has one in storage before `getVisitor` has finished anything on this page; the beacon falls back to it. Tags fall back to an empty set rather than blocking the send — every field in `tagsSchema` is optional, and an event with no browser details is worth more than no event. A visitor with nothing stored is still skipped, since the server has no such visitor to attach anything to.
+
 ## 7.2.1
 
 ### Patch Changes

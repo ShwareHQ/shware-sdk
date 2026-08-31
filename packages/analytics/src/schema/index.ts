@@ -64,11 +64,21 @@ function takeProperties<T>(data: Record<string, T>): Record<string, T> {
   return result;
 }
 
-const items = array(
-  pipe(
-    record(string(), union([propertyText, number(), boolean(), _null()])),
-    transform(takeProperties)
-  )
+/**
+ * Capped at GA4's own item-list limit, and truncated rather than rejected like every other
+ * property limit here: an unbounded array is the one field a caller could still blow a batch
+ * up with after the value and key limits.
+ */
+const MAX_ITEMS = 200;
+
+const items = pipe(
+  array(
+    pipe(
+      record(string(), union([propertyText, number(), boolean(), _null()])),
+      transform(takeProperties)
+    )
+  ),
+  transform((list) => list.slice(0, MAX_ITEMS))
 );
 
 export const ALL_PLATFORMS = [
@@ -109,6 +119,13 @@ export const tagsSchema = object({
   page_location: optional(string()),
   page_referrer: optional(string()),
   page_title: optional(string()),
+  /**
+   * @deprecated Renamed to `page_location` in 7.0.0. Accepted so that events from clients
+   * still on an older SDK are not stripped of their page URL at this boundary — a browser
+   * bundle stays cached long after a backend deploys. Remove once those clients are gone;
+   * `pageLocation` in `server/page-location.ts` is the only reader.
+   */
+  source_url: optional(string()),
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
@@ -141,6 +158,7 @@ export const tagsSchema = object({
   ttclid: optional(string()),
   twclid: optional(string()),
   wbraid: optional(string()),
+  gbraid: optional(string()),
   yclid: optional(string()),
   // utm params
   utm_source: optional(string()),

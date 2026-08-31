@@ -12,6 +12,7 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
+import { pageLocation } from './page-location';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
 function normalizeCountry(input: string | undefined): string | undefined {
@@ -256,8 +257,9 @@ export function getServerEvent(
     const appData = getAppData(event.tags, appPackageName);
     serverEvent.setAppData(appData);
   }
-  if (event.tags.page_location) {
-    serverEvent.setEventSourceUrl(event.tags.page_location);
+  const eventSourceUrl = pageLocation(event.tags);
+  if (eventSourceUrl) {
+    serverEvent.setEventSourceUrl(eventSourceUrl);
   }
   switch (source) {
     case 'app':
