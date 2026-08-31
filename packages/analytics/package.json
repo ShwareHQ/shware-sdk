@@ -1,6 +1,6 @@
 {
   "name": "@shware/analytics",
-  "version": "7.6.0",
+  "version": "8.0.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -119,6 +119,16 @@
       "require": {
         "types": "./dist/server/index.d.cts",
         "default": "./dist/server/index.cjs"
+      }
+    },
+    "./server/legacy": {
+      "import": {
+        "types": "./dist/server/legacy.d.mts",
+        "default": "./dist/server/legacy.mjs"
+      },
+      "require": {
+        "types": "./dist/server/legacy.d.cts",
+        "default": "./dist/server/legacy.cjs"
       }
     }
   },

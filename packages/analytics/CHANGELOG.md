@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 8.0.0
+
+### Major Changes
+
+- Move the `facebook-nodejs-business-sdk`-based Meta sender out of `./server` into a new `./server/legacy` entry, so importing `@shware/analytics/server` never pulls the 31MB SDK into a serverless bundle. The SDK-free sender previously exported as `sendMetaConversions` is renamed to `sendMetaEvents` and is now the `./server` export of that name.
+
+  Migration: keep the old behavior with `import { sendMetaEvents } from '@shware/analytics/server/legacy'`, or drop the SDK by staying on `@shware/analytics/server` (note the new options-object signature). Callers of `sendMetaConversions` rename it to `sendMetaEvents`.
+
 ## 7.6.0
 
 ### Minor Changes
