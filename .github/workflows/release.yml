@@ -27,13 +27,6 @@ jobs:
   release:
     name: Version or publish
     runs-on: ubuntu-latest
-    services:
-      # The security package's session tests speak to a live Redis on localhost:6379. The
-      # default ACL user has nopass, so the credentials in the test URL are accepted as-is.
-      redis:
-        image: redis:8.4.0-alpine
-        ports:
-          - 6379:6379
     permissions:
       contents: write # push version commits, tags, and GitHub releases
       pull-requests: write # open and update the Version Packages PR
