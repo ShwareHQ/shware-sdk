@@ -24,6 +24,9 @@ afterEach(() => {
   // this, every mounted Page leaves its document-level listeners behind for the next test.
   cleanup();
   vi.restoreAllMocks();
+  // A test that fails between useFakeTimers() and useRealTimers() would otherwise leak the fake
+  // clock into every test after it.
+  vi.useRealTimers();
 });
 
 describe('useOutboundClickAnalytics', () => {
@@ -287,6 +290,11 @@ describe('useWebAnalytics', () => {
   it('a 90% crossing with no engaged time sends nothing, without consuming the one-shot', async () => {
     const { Page } = await mount();
     render(<Page pathname="/a" />);
+    // Fake timers must already be on when the session is primed: primeSession's flush() and the
+    // blur below each settle the accumulator at Date.now(), still focused, so any real
+    // milliseconds the runner lets slip between the two would count as engagement — and this
+    // test's whole premise is that none was accrued.
+    vi.useFakeTimers();
     await primeSession();
 
     // The page reaches 90% while the window is unfocused (e.g. a restored scroll position), so
@@ -299,7 +307,6 @@ describe('useWebAnalytics', () => {
     Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
     Object.defineProperty(window, 'scrollY', { value: 300, configurable: true });
 
-    vi.useFakeTimers();
     vi.advanceTimersByTime(3000); // unfocused time is not engagement
     window.dispatchEvent(new Event('scroll'));
     expect(track.mock.calls.filter(([name]) => name === 'scroll')).toHaveLength(0);
