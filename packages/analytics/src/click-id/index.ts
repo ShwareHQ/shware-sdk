@@ -1,7 +1,8 @@
 import { type SetCookie, parseCookie, stringifySetCookie } from 'cookie';
 
 /**
- * Server-side resolution of ad-click-id cookies (`_fbc`, `_rdt_cid`) from the incoming request.
+ * Server-side resolution of ad-click-id cookies (`_fbc`, `_gcl_aw`/`_gcl_gb`, `_rdt_cid`) from
+ * the incoming request.
  *
  * This is the framework-agnostic core meant to run on the *document* response (e.g. TanStack Start
  * server middleware, Next middleware). Setting `_fbc` via an HTTP `Set-Cookie` header on the top
@@ -18,11 +19,15 @@ import { type SetCookie, parseCookie, stringifySetCookie } from 'cookie';
 // no hard drop is documented.
 const FBC_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const RDT_CID_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// gtag's own expiry for _gcl_* — 90 days, the length of a Google Ads click's upload window.
+const GCL_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 // Tolerate a little clock skew when validating a creationTime against "now".
 const CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 
 export const FBC_COOKIE = '_fbc';
 export const RDT_CID_COOKIE = '_rdt_cid';
+export const GCL_AW_COOKIE = '_gcl_aw';
+export const GCL_GB_COOKIE = '_gcl_gb';
 
 export type ParsedFbc = { raw: string; creationTime: number; fbclid: string };
 
@@ -55,6 +60,40 @@ export function parseFbc(
  */
 export function formatFbc(fbclid: string, now: number, subdomainIndex = 1): string {
   return `fb.${subdomainIndex}.${now}.${fbclid}`;
+}
+
+export type ParsedGcl = { raw: string; creationTime: number; clickId: string };
+
+// gtag's own value validator, extracted from gtag.js: the click id segment must match this.
+const GCL_CLICK_ID = /^[\w-]+$/;
+
+/**
+ * Parse a `_gcl_aw`/`_gcl_gb` value: `GCL.<seconds>.<clickId>[.<labels…>]` — note the timestamp
+ * is in SECONDS, unlike `_fbc`'s milliseconds. gtag's parser accepts version `GCL` or `1` and
+ * validates the segments exactly this way (`/^\d+$/` timestamp, `/^[\w-]+$/` click id); any
+ * labels tail is preserved through `raw` so a re-issue stays byte-identical.
+ */
+export function parseGcl(
+  raw: string | undefined | null,
+  now: number = Date.now()
+): ParsedGcl | undefined {
+  if (!raw) return undefined;
+  const parts = raw.split('.');
+  if (parts.length < 3) return undefined;
+  if (parts[0] !== 'GCL' && parts[0] !== '1') return undefined;
+  const seconds = parts[1];
+  const clickId = parts[2];
+  if (seconds === undefined || !/^\d+$/.test(seconds)) return undefined;
+  if (clickId === undefined || !GCL_CLICK_ID.test(clickId)) return undefined;
+  const creationTime = Number(seconds) * 1000;
+  // Reject millisecond-precision or future-dated values as malformed.
+  if (creationTime >= 1e15 || creationTime > now + CLOCK_SKEW_MS) return undefined;
+  return { raw, creationTime, clickId };
+}
+
+/** Build a fresh `_gcl_aw`/`_gcl_gb` value in gtag's own format. */
+export function formatGcl(clickId: string, now: number): string {
+  return `GCL.${Math.floor(now / 1000)}.${clickId}`;
 }
 
 export type ResolveClickIdCookiesInput = {
@@ -97,6 +136,10 @@ export type ResolveClickIdCookiesResult = {
   fbc?: string;
   /** The resolved `_rdt_cid` value. */
   rdt_cid?: string;
+  /** The resolved Google Ads click id (from the URL or a still-valid `_gcl_aw`). */
+  gclid?: string;
+  /** The resolved iOS web-to-app click id (from the URL or a still-valid `_gcl_gb`). */
+  wbraid?: string;
 };
 
 function searchParams(url: string): URLSearchParams {
@@ -157,6 +200,44 @@ export function resolveClickIdCookies(
   } else if (jar[FBC_COOKIE]) {
     // Malformed leftover — clear it rather than forwarding it to Meta.
     del(FBC_COOKIE);
+  }
+
+  // --- Google Ads _gcl_aw / _gcl_gb ---
+  // The same first-party HTTP persistence Google's own server-side Conversion Linker performs
+  // (it sets FPGCLAW via Set-Cookie for 90 days), applied to gtag's cookies the way the sGTM
+  // ecosystem does (stape Cookie Keeper re-issues _gcl_* over HTTP). Ownership is shared with
+  // gtag, so the rules are stricter than for _fbc: a value this module cannot parse is left
+  // untouched — never rewritten, never deleted — and a re-issue is byte-identical (labels tail
+  // included) at the window's REMAINING lifetime, so the 90-day click window never slides.
+  const gclsrc = params.get('gclsrc') || undefined;
+  const google = [
+    {
+      cookie: GCL_AW_COOKIE,
+      // gtag's own gating, verbatim: a gclid enters _gcl_aw only when gclsrc is absent or
+      // 'aw.ds' — 'ds'/'3p.ds' clicks are Search Ads 360's and belong to _gcl_dc.
+      urlClickId: !gclsrc || gclsrc === 'aw.ds' ? params.get('gclid') || undefined : undefined,
+      assign: (value: string) => (result.gclid = value),
+    },
+    {
+      cookie: GCL_GB_COOKIE,
+      urlClickId: params.get('wbraid') || undefined,
+      assign: (value: string) => (result.wbraid = value),
+    },
+  ];
+  for (const { cookie, urlClickId, assign } of google) {
+    const existing = parseGcl(jar[cookie], now);
+    if (urlClickId && GCL_CLICK_ID.test(urlClickId) && urlClickId !== existing?.clickId) {
+      // A new click always wins and opens a fresh 90-day window, in gtag's exact format.
+      set(cookie, formatGcl(urlClickId, now), GCL_TTL_MS);
+      assign(urlClickId);
+    } else if (existing) {
+      const remainingMs = existing.creationTime + GCL_TTL_MS - now;
+      if (remainingMs > 0) {
+        assign(existing.clickId);
+        if (refresh) set(cookie, existing.raw, remainingMs);
+      }
+      // Expired: not returned and not re-issued, but gtag owns the deletion.
+    }
   }
 
   // --- Reddit _rdt_cid ---

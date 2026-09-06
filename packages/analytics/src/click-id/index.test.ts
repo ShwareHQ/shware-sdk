@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   FBC_COOKIE,
+  GCL_AW_COOKIE,
+  GCL_GB_COOKIE,
   RDT_CID_COOKIE,
   parseFbc,
+  parseGcl,
   resolveClickIdCookies,
   toSetCookieHeaders,
 } from './index';
@@ -191,5 +194,115 @@ describe('resolveClickIdCookies — URL parsing', () => {
   it('a relative URL without a query resolves nothing and emits nothing', () => {
     const { cookies } = resolveClickIdCookies({ url: '/landing', now: NOW });
     expect(cookies).toEqual([]);
+  });
+});
+
+const SEC = Math.floor(NOW / 1000);
+
+describe('parseGcl', () => {
+  it('parses a well-formed value (seconds precision)', () => {
+    expect(parseGcl(`GCL.${SEC}.Cj0KCQiA-abc_123`, NOW)).toEqual({
+      raw: `GCL.${SEC}.Cj0KCQiA-abc_123`,
+      creationTime: SEC * 1000,
+      clickId: 'Cj0KCQiA-abc_123',
+    });
+  });
+
+  it("accepts gtag's alternate version segment '1' and keeps a labels tail in raw", () => {
+    const raw = `1.${SEC}.ABC.label1.label2`;
+    expect(parseGcl(raw, NOW)).toMatchObject({ raw, clickId: 'ABC' });
+  });
+
+  it.each([
+    ['empty', ''],
+    ['garbage', 'not-a-gcl'],
+    ['wrong version', `fb.${SEC}.ABC`],
+    ['millisecond-precision timestamp', `GCL.${NOW}.ABC`],
+    ['non-numeric timestamp', 'GCL.nope.ABC'],
+    ['future timestamp', `GCL.${SEC + 2 * (DAY_MS / 1000)}.ABC`],
+    ['click id with invalid chars', `GCL.${SEC}.ABC$DEF`],
+    ['missing click id', `GCL.${SEC}.`],
+  ])('rejects %s', (_label, value) => {
+    expect(parseGcl(value, NOW)).toBeUndefined();
+  });
+});
+
+describe('resolveClickIdCookies — _gcl_aw / _gcl_gb', () => {
+  function gclCookies(url: string, cookieHeader = '', now = NOW, extra = {}) {
+    const result = resolveClickIdCookies({ url, cookieHeader, now, ...extra });
+    return {
+      aw: result.cookies.find((c) => c.name === GCL_AW_COOKIE),
+      gb: result.cookies.find((c) => c.name === GCL_GB_COOKIE),
+      result,
+    };
+  }
+
+  it("builds a fresh _gcl_aw from a gclid in gtag's exact format with a 90-day window", () => {
+    const { aw, result } = gclCookies('https://shware.io/?gclid=Cj0KCQiA-abc');
+    expect(aw).toMatchObject({
+      name: '_gcl_aw',
+      value: `GCL.${SEC}.Cj0KCQiA-abc`,
+      maxAge: (90 * DAY_MS) / 1000,
+    });
+    expect(result.gclid).toBe('Cj0KCQiA-abc');
+  });
+
+  it('routes wbraid into _gcl_gb', () => {
+    const { gb, result } = gclCookies('https://shware.io/?wbraid=1kA9Xyz');
+    expect(gb).toMatchObject({ name: '_gcl_gb', value: `GCL.${SEC}.1kA9Xyz` });
+    expect(result.wbraid).toBe('1kA9Xyz');
+  });
+
+  it("applies gtag's gclsrc gate: aw.ds passes, ds and 3p.ds do not", () => {
+    expect(gclCookies('https://shware.io/?gclid=A&gclsrc=aw.ds').aw).toBeDefined();
+    expect(gclCookies('https://shware.io/?gclid=A&gclsrc=ds').aw).toBeUndefined();
+    expect(gclCookies('https://shware.io/?gclid=A&gclsrc=3p.ds').aw).toBeUndefined();
+  });
+
+  it('re-issues a still-valid cookie byte-identically at its remaining lifetime', () => {
+    const raw = `GCL.${SEC}.ABC.label1`;
+    const later = NOW + 30 * DAY_MS;
+    const { aw, result } = gclCookies('https://shware.io/', `_gcl_aw=${raw}`, later);
+    expect(aw).toMatchObject({ value: raw, maxAge: (60 * DAY_MS) / 1000 });
+    expect(result.gclid).toBe('ABC');
+  });
+
+  it('a new gclid in the URL replaces the cookie; the same gclid preserves the original window', () => {
+    const raw = `GCL.${SEC}.OLD`;
+    const later = NOW + 10 * DAY_MS;
+    const replaced = gclCookies('https://shware.io/?gclid=NEW', `_gcl_aw=${raw}`, later);
+    expect(replaced.aw?.value).toBe(`GCL.${Math.floor(later / 1000)}.NEW`);
+
+    const same = gclCookies('https://shware.io/?gclid=OLD', `_gcl_aw=${raw}`, later);
+    expect(same.aw?.value).toBe(raw); // creationTime preserved, window anchored
+    expect(same.aw?.maxAge).toBe((80 * DAY_MS) / 1000);
+  });
+
+  it('never rewrites or deletes a value it cannot parse — gtag owns the cookie', () => {
+    const { aw, result } = gclCookies('https://shware.io/', '_gcl_aw=SOMETHING.new.format');
+    expect(aw).toBeUndefined();
+    expect(result.gclid).toBeUndefined();
+  });
+
+  it('does not return or delete an expired value', () => {
+    const raw = `GCL.${SEC}.ABC`;
+    const later = NOW + 91 * DAY_MS;
+    const { aw, result } = gclCookies('https://shware.io/', `_gcl_aw=${raw}`, later);
+    expect(aw).toBeUndefined();
+    expect(result.gclid).toBeUndefined();
+  });
+
+  it('ignores a URL click id that fails the charset validator', () => {
+    const { aw } = gclCookies('https://shware.io/?gclid=bad$id');
+    expect(aw).toBeUndefined();
+  });
+
+  it('refresh: false skips the re-issue but still resolves the click id', () => {
+    const raw = `GCL.${SEC}.ABC`;
+    const { aw, result } = gclCookies('https://shware.io/', `_gcl_aw=${raw}`, NOW + DAY_MS, {
+      refresh: false,
+    });
+    expect(aw).toBeUndefined();
+    expect(result.gclid).toBe('ABC');
   });
 });

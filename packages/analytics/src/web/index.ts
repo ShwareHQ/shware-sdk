@@ -1,6 +1,7 @@
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
+import { parseGcl } from '../click-id/index';
 import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
@@ -90,8 +91,10 @@ export async function getTags() {
     campaign_name: params.get('campaign_name') ?? undefined,
     placement: params.get('placement') ?? undefined,
     site_source_name: params.get('site_source_name') ?? undefined,
-    // Google Ads
-    gclid: params.get('gclid') ?? undefined,
+    // Google Ads — _gcl_aw/_gcl_gb are written by gtag and kept alive server-side (see
+    // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
+    // click id to every later page of the visit and to returning visits.
+    gclid: params.get('gclid') ?? parseGcl(parsed._gcl_aw)?.clickId,
     gclsrc: params.get('gclsrc') ?? undefined,
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
@@ -107,7 +110,7 @@ export async function getTags() {
     sccid: params.get('sccid') ?? undefined,
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
-    wbraid: params.get('wbraid') ?? undefined,
+    wbraid: params.get('wbraid') ?? parseGcl(parsed._gcl_gb)?.clickId,
     gbraid: params.get('gbraid') ?? undefined,
     yclid: params.get('yclid') ?? undefined,
     // utm params
