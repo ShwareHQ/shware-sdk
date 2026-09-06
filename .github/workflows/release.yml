@@ -1,0 +1,73 @@
+# Release via changesets + npm trusted publishing (OIDC).
+#
+# Push a changeset to main and this workflow opens (or updates) a "Version Packages" PR;
+# merging that PR versions the packages and publishes them to npm. There is no NPM_TOKEN
+# anywhere: npm authenticates the workflow itself through OIDC (trusted publishing), which
+# also attaches provenance attestations to every published package. Publishing with a token
+# is disabled on npmjs.com for all @shware packages, so this workflow is the only publish
+# path.
+#
+# Security posture:
+# - every action is pinned to a full commit SHA (tags are mutable, SHAs are not)
+# - permissions are declared per job, empty by default
+# - installs run with a frozen lockfile, and pnpm refuses dependency lifecycle scripts
+#   unless allow-listed, so a compromised transitive dependency cannot execute on install
+# - there are no secrets in this workflow for a compromised dependency to steal
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: release-${{ github.ref }}
+
+permissions: {}
+
+jobs:
+  release:
+    name: Version or publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push version commits, tags, and GitHub releases
+      pull-requests: write # open and update the Version Packages PR
+      id-token: write # mint the OIDC token npm exchanges for publish access
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # changesets compares against the base branch history
+
+      - name: Install pnpm
+        run: npm install --global pnpm@11.24.0 # exact version, matches packageManager
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Trusted publishing needs npm >= 11.5.1 at publish time (changesets shells out to
+      # `npm publish`); the floor is enforced here rather than trusted to the Node bundle.
+      - name: Ensure npm supports trusted publishing
+        run: npm install --global npm@^11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types
+        run: pnpm run check-types
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Version or publish
+        uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
+        with:
+          publish: pnpm changeset publish
+          title: 'chore: release packages'
+          commit: 'chore: release packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
