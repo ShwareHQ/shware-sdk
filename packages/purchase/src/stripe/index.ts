@@ -27,7 +27,7 @@ export {
   type CreateCheckoutSessionDTO,
 } from './schema';
 export { METADATA_KEYS } from './metadata';
-export { StripeConfig, type PriceId } from './config';
+export { StripeConfig, type PriceId, type StripeMode } from './config';
 export { addPendingCheckout, removePendingCheckout, getPendingCheckouts } from './pending-checkout';
 
 export type { Stripe } from 'stripe';
