@@ -1,0 +1,49 @@
+# PR validation: the same check-types / test / build gate release.yml runs after merge,
+# moved up to the pull request so failures surface before they land on main.
+#
+# Security posture (same as release.yml):
+# - every action is pinned to a full commit SHA (tags are mutable, SHAs are not)
+# - permissions are the minimum needed to check out the code
+# - installs run with a frozen lockfile, and pnpm refuses dependency lifecycle scripts
+#   unless allow-listed, so a compromised transitive dependency cannot execute on install
+name: CI
+
+on:
+  pull_request:
+
+# A new push to the PR supersedes the previous run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Check types, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        run: npm install --global pnpm@11.24.0 # exact version, matches packageManager
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types
+        run: pnpm run check-types
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
