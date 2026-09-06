@@ -4,6 +4,14 @@ import type { Metadata } from '../types';
 
 export type PriceId = `price_${string}`;
 
+/**
+ * Which Stripe object space the config addresses. Test and live prices are
+ * disjoint, so a config is built for exactly one of them. Derive it from the
+ * secret key (`sk_test_` vs `sk_live_`) rather than from the deployment
+ * environment: the key is what actually decides which space API calls hit.
+ */
+export type StripeMode = 'live' | 'test';
+
 const addMethod = Symbol('addMethod');
 
 class Product<
@@ -20,7 +28,7 @@ class Product<
   readonly billingPeriod: BP | null;
   readonly prices: Map<PriceId, Metadata>;
 
-  defaultPriceId: I | null;
+  defaultPriceId: PriceId | null;
 
   constructor(
     config: StripeConfig<NS, PE, BP, PL, PI>,
@@ -50,15 +58,32 @@ class Product<
     return this as Product<NS, PE, BP, PL, PI, I | K>;
   };
 
-  default = (defaultPriceId: I) => {
-    invariant(this.prices.has(defaultPriceId), `Default price ${defaultPriceId} is not declared`);
-    this.defaultPriceId = defaultPriceId;
-    this.config[addMethod](this as never);
+  /**
+   * `test` is the sandbox twin of the default price. In test mode it is what
+   * checkouts are created with, and it resolves to the default price's
+   * entitlement, so credits are declared once and cannot drift between the
+   * two modes. Legacy prices need no twin: a sandbox holds no grandfathered
+   * subscribers. Live mode ignores it, so a test price reaching a live config
+   * still fails as an unknown price instead of being granted an entitlement.
+   */
+  default = (defaultPriceId: I, twin?: { test: PriceId }) => {
+    const metadata = this.prices.get(defaultPriceId);
+    invariant(metadata, `Default price ${defaultPriceId} is not declared`);
+    if (this.config.mode === 'test') {
+      invariant(twin, `Test price not declared for default ${defaultPriceId} of ${this.id}`);
+      invariant(!this.prices.has(twin.test), `Duplicate price ${twin.test}`);
+      this.prices.set(twin.test, metadata);
+      this.defaultPriceId = twin.test;
+    } else {
+      this.defaultPriceId = defaultPriceId;
+    }
+    this.config[addMethod](this);
     return this.config;
   };
 }
 
 type Options = {
+  mode: StripeMode;
   returnUrl: string;
   cancelUrl: string;
   successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
@@ -75,6 +100,7 @@ export class StripeConfig<
 > {
   private readonly products: Map<string, Product<NS, PE, BP, PL, PI>> = new Map();
 
+  public readonly mode: StripeMode;
   public returnUrl: string;
   public cancelUrl: string;
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
@@ -102,6 +128,7 @@ export class StripeConfig<
   };
 
   private constructor(options: Options) {
+    this.mode = options.mode;
     this.returnUrl = options.returnUrl;
     this.cancelUrl = options.cancelUrl;
     this.successUrl = options.successUrl;
@@ -152,6 +179,7 @@ export class StripeConfig<
     return product.plan === null ? 'payment' : 'subscription';
   };
 
+  /** The price new checkouts are created with: the default, or its test twin in test mode. */
   getPriceId = (productId: string): PriceId => {
     const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
