@@ -19,6 +19,8 @@
  *
  * https://developers.google.com/data-manager/api/reference/rest/v1/events/ingest
  * https://developers.google.com/data-manager/api/devguides/events/google-ads/offline/upgrade/field-mappings
+ * https://support.google.com/google-ads/answer/16542291 (hybrid: "boost your tag with
+ * additional data sources" — the transaction-id matching contract this sender relies on)
  */
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';

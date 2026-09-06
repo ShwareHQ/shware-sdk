@@ -11,7 +11,22 @@ import { type SetCookie, parseCookie, stringifySetCookie } from 'cookie';
  * cookies on a fbclid-decorated landing page to 24 hours, and the document response is never
  * classified as CNAME/IP cloaking (it is the reference the browser measures cloaking against).
  *
- * reference: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc
+ * The Google pair follows the same architecture Google itself ships for server containers —
+ * sGTM's Conversion Linker sets FPGCLAW via Set-Cookie for 90 days — and the sGTM ecosystem
+ * productized for gtag's own cookies (stape Cookie Keeper re-issues `_gcl_*` over HTTP; vendor
+ * case studies report 5–20% of Google Ads conversions recovered, up to +44% on the Safari
+ * slice). One deployment caveat from WebKit's rules: the HTTP-cookie exemption holds only for
+ * responses from the site's own infrastructure — a CNAME or third-party-IP host (a tagging
+ * subdomain on someone else's cloud) gets its Set-Cookie silently capped to 7 days. This module
+ * runs on the host's own document response, which is exactly the exempt case.
+ *
+ * references:
+ * - https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc
+ * - https://webkit.org/tracking-prevention/ (7d JS cookies, 24h on ad-decorated landings,
+ *   CNAME/third-party-IP HTTP cookies capped to 7d, same-origin HTTP cookies exempt)
+ * - https://www.simoahava.com/analytics/google-ads-server-side-tagging-google-tag-manager/
+ *   (Conversion Linker → FPGCLAW via Set-Cookie, Google's own server-side equivalent)
+ * - https://stape.io/helpdesk/documentation/cookie-keeper-power-up (the productized re-issue)
  */
 
 // Meta's recommended _fbc cookie expiry. Events Manager warns ("Server sending expired fbclid")
@@ -64,7 +79,9 @@ export function formatFbc(fbclid: string, now: number, subdomainIndex = 1): stri
 
 export type ParsedGcl = { raw: string; creationTime: number; clickId: string };
 
-// gtag's own value validator, extracted from gtag.js: the click id segment must match this.
+// gtag's own value validator, extracted from the live gtag.js bundle (2026-09): its parser
+// accepts version "GCL" or "1", a /^\d+$/ seconds timestamp, and a click id matching this.
+// Re-verify against gtag.js before changing anything here — the format is gtag's, not ours.
 const GCL_CLICK_ID = /^[\w-]+$/;
 
 /**
