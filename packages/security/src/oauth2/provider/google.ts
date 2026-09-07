@@ -8,6 +8,11 @@ import type {
 } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
+/** The Google Cloud project number every client id of a project starts with: `<number>-<hash>.apps.googleusercontent.com`. */
+function projectNumber(clientId: string) {
+  return clientId.split('-', 1)[0];
+}
+
 export function createGoogleProvider(): OneTapProvider {
   return {
     authorizationUri: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -58,7 +63,23 @@ export function createGoogleProvider(): OneTapProvider {
       invariant(credentials.code, 'code is required');
       const { code } = credentials;
       const { tokenUri } = this;
-      const response = await exchangeAuthorizationCode({ code, tokenUri, ...params });
+      // An app signs in as its own installed-app client (the iOS / Android client id, custom-scheme
+      // redirect), and Google only exchanges a code for the client it was issued to, so the exchange
+      // uses the client the app names rather than the registration's web client. Installed-app
+      // clients have no secret; the registration's is sent only when the exchange is for that very
+      // client. Every client id carries its project number as prefix, which pins the app's client to
+      // the registration's Google Cloud project — codes from a foreign project's client are refused.
+      const { client_id = params.clientId, redirect_uri = params.redirectUri } = credentials;
+      if (projectNumber(client_id) !== projectNumber(params.clientId)) {
+        throw new OAuth2Error(400, 'invalid_client', 'client_id belongs to another project');
+      }
+      const response = await exchangeAuthorizationCode({
+        code,
+        tokenUri,
+        clientId: client_id,
+        clientSecret: client_id === params.clientId ? params.clientSecret : '',
+        redirectUri: redirect_uri,
+      });
       if (!response.ok) {
         const { error, error_description } = (await response.json()) as GoogleErrorResponse;
         throw new OAuth2Error(response.status, error, error_description);
