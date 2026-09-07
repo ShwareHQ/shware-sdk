@@ -1,5 +1,11 @@
 # @shware/security
 
+## 3.3.1
+
+### Patch Changes
+
+- 4bd2b49: Export `OAuth2Error` (and `OAuth2ErrorType`) from the package root, so an api can recognise a provider's refusal in its error handler and answer 4xx instead of 500.
+
 ## 3.3.0
 
 ### Minor Changes
