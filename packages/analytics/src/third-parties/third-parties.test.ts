@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url": "https://shop.example/checkout"}
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sendGAEvent, setGAUser } from './google-analytics';
 import { sendLinkedinEvent, setLinkedinUser } from './linkedin-insight-tag';
 import { sendFBEvent, setFBUser } from './meta-pixel';
+import { sendUETEvent, sendUETIdSync, setUETConsent, setUETUser } from './microsoft-uet';
 import { sendRedditEvent, setRedditUser } from './reddit-pixel';
 
 // The senders already declare typed vendor globals on Window; the mocks are cast into them.
-const vendor = window as unknown as Record<'fbq' | 'rdt' | 'gtag' | 'lintrk', unknown>;
+const vendor = window as unknown as Record<'fbq' | 'rdt' | 'gtag' | 'lintrk' | 'uetq', unknown>;
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -18,6 +21,7 @@ afterEach(() => {
   delete vendor.rdt;
   delete vendor.gtag;
   delete vendor.lintrk;
+  delete vendor.uetq;
   vi.restoreAllMocks();
 });
 
@@ -268,5 +272,94 @@ describe('server rendering', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('sendUETEvent', () => {
+  it('pushes the event under its own name with the id for deduplication, undefined stripped', () => {
+    const push = vi.fn();
+    vendor.uetq = { push };
+
+    sendUETEvent(
+      'purchase',
+      { value: 9, currency: 'usd', transaction_id: 't1', items: [] },
+      'event-1'
+    );
+
+    expect(push).toHaveBeenCalledWith('event', 'purchase', {
+      event_id: 'event-1',
+      revenue_value: 9,
+      currency: 'USD',
+      transaction_id: 't1',
+    });
+    expect(Object.values(push.mock.calls[0][2])).not.toContain(undefined);
+  });
+
+  it('queues into the snippet array before bat.js has loaded', () => {
+    // The snippet's queue is a plain array bat.js walks flat, so the arguments land as siblings.
+    vendor.uetq = [];
+    sendUETEvent('sign_up', { method: 'google' }, 'event-2');
+    expect(vendor.uetq).toEqual(['event', 'sign_up', { event_id: 'event-2', method: 'google' }]);
+  });
+
+  it('drops web vitals and page views (the tag owns page loads), and does not throw where the tag never loaded', () => {
+    const push = vi.fn();
+    vendor.uetq = { push };
+    sendUETEvent('CLS', { value: 0.02 });
+    sendUETEvent('page_view', { page_path: '/', page_title: 'Home' });
+    expect(push).not.toHaveBeenCalled();
+
+    delete vendor.uetq;
+    expect(() => sendUETEvent('login', {})).not.toThrow();
+  });
+
+  it('setUETUser hands the raw email and phone to the tag, which hashes them itself', () => {
+    const push = vi.fn();
+    vendor.uetq = { push };
+
+    setUETUser()({
+      user_id: 'u1',
+      user_data: { email: ['ada@example.com', 'second@example.com'], phone_number: '+14155551234' },
+      tags: {},
+    });
+    expect(push).toHaveBeenCalledWith('set', {
+      pid: { em: 'ada@example.com', ph: '+14155551234' },
+    });
+
+    push.mockClear();
+    setUETUser()({ user_id: 'u1', tags: {} });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('setUETConsent creates the queue when it runs before the snippet', () => {
+    setUETConsent('default', { ad_storage: 'denied' });
+    expect(vendor.uetq).toEqual(['consent', 'default', { ad_storage: 'denied' }]);
+  });
+
+  it('sendUETIdSync fires the c.gif pixel with the customer id, visitor id and a hashed user id', async () => {
+    const sources: string[] = [];
+    vi.stubGlobal(
+      'Image',
+      class {
+        set src(value: string) {
+          sources.push(value);
+        }
+      }
+    );
+    sendUETIdSync({ customerId: 255004870, visitorId: 'vid-1' });
+    expect(sources).toEqual(['https://c.bing.com/c.gif?Red3=BACID_255004870&VID=vid-1']);
+
+    // The user id is hashed with the same SHA-256 the server sender applies to `externalId`.
+    sendUETIdSync({ customerId: 1, visitorId: 'vid-1', userId: 'u1' });
+    await vi.waitFor(() => expect(sources).toHaveLength(2));
+    expect(sources[1]).toBe(`https://c.bing.com/c.gif?Red3=BACID_1&VID=vid-1&UID=${sha256('u1')}`);
+    expect(sources[1]).not.toContain('UID=u1');
+
+    // No SubtleCrypto: the pixel still syncs the visitor, without a raw user id.
+    vi.spyOn(crypto.subtle, 'digest').mockRejectedValue(new Error('no webcrypto'));
+    sendUETIdSync({ customerId: 1, visitorId: 'vid-1', userId: 'u1' });
+    await vi.waitFor(() => expect(sources).toHaveLength(3));
+    expect(sources[2]).toBe('https://c.bing.com/c.gif?Red3=BACID_1&VID=vid-1');
+    vi.unstubAllGlobals();
   });
 });

@@ -1,8 +1,8 @@
 import { type SetCookie, parseCookie, stringifySetCookie } from 'cookie';
 
 /**
- * Server-side resolution of ad-click-id cookies (`_fbc`, `_gcl_aw`/`_gcl_gb`, `_rdt_cid`) from
- * the incoming request.
+ * Server-side resolution of ad-click-id cookies (`_fbc`, `_gcl_aw`/`_gcl_gb`, `_rdt_cid`,
+ * `_uetmsclkid`) from the incoming request.
  *
  * This is the framework-agnostic core meant to run on the *document* response (e.g. TanStack Start
  * server middleware, Next middleware). Setting `_fbc` via an HTTP `Set-Cookie` header on the top
@@ -34,6 +34,8 @@ import { type SetCookie, parseCookie, stringifySetCookie } from 'cookie';
 // no hard drop is documented.
 const FBC_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const RDT_CID_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// bat.js's own expiry for _uetmsclkid (`msClkIdExpirationTime`), the Microsoft Ads click window.
+const MSCLKID_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 // gtag's own expiry for _gcl_* — 90 days, the length of a Google Ads click's upload window.
 const GCL_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 // Tolerate a little clock skew when validating a creationTime against "now".
@@ -43,6 +45,7 @@ export const FBC_COOKIE = '_fbc';
 export const RDT_CID_COOKIE = '_rdt_cid';
 export const GCL_AW_COOKIE = '_gcl_aw';
 export const GCL_GB_COOKIE = '_gcl_gb';
+export const UET_MSCLKID_COOKIE = '_uetmsclkid';
 
 export type ParsedFbc = { raw: string; creationTime: number; fbclid: string };
 
@@ -113,6 +116,38 @@ export function formatGcl(clickId: string, now: number): string {
   return `GCL.${Math.floor(now / 1000)}.${clickId}`;
 }
 
+// bat.js writes the click id as `_uet<msclkid>` and reads it back only when what follows the
+// prefix is at most 32 characters (`msClkIdCookieValuePrefix`, `lengthMsClkId`); a msclkid is a
+// 32-hex-digit UUID without dashes. Re-verify against bat.js before changing anything here —
+// the format is UET's, not ours.
+const UET_MSCLKID_PREFIX = '_uet';
+const MSCLKID = /^[0-9a-f]{32}$/i;
+
+/**
+ * Parse a `_uetmsclkid` value: `_uet<32 hex>`. Returns the click id, lowercased, or undefined
+ * for anything bat.js itself would not read back.
+ */
+export function parseUetMsclkid(raw: string | undefined | null): string | undefined {
+  if (!raw || !raw.startsWith(UET_MSCLKID_PREFIX)) return undefined;
+  const clickId = raw.slice(UET_MSCLKID_PREFIX.length);
+  return MSCLKID.test(clickId) ? clickId.toLowerCase() : undefined;
+}
+
+/** Build a `_uetmsclkid` value in bat.js's own format. */
+export function formatUetMsclkid(clickId: string): string {
+  return `${UET_MSCLKID_PREFIX}${clickId.toLowerCase()}`;
+}
+
+/**
+ * The click id as the Conversions API wants it: a dashed, lowercase UUID. The URL and the cookie
+ * carry the 32-hex form; a value in any other shape is returned untouched for the API to judge.
+ */
+export function formatMsclkid(clickId: string): string {
+  const id = clickId.trim().toLowerCase();
+  if (!MSCLKID.test(id)) return id;
+  return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+}
+
 export type ResolveClickIdCookiesInput = {
   /** The absolute request URL (must include the query string). */
   url: string;
@@ -157,6 +192,8 @@ export type ResolveClickIdCookiesResult = {
   gclid?: string;
   /** The resolved iOS web-to-app click id (from the URL or a still-valid `_gcl_gb`). */
   wbraid?: string;
+  /** The resolved Microsoft Ads click id (from the URL or `_uetmsclkid`), 32-hex form. */
+  msclkid?: string;
 };
 
 function searchParams(url: string): URLSearchParams {
@@ -267,6 +304,30 @@ export function resolveClickIdCookies(
     result.rdt_cid = urlRdtCid;
   } else if (existingRdtCid) {
     result.rdt_cid = existingRdtCid;
+  }
+
+  // --- Microsoft Ads _uetmsclkid ---
+  // The UET tag's own cookie, in its own format, so the tag and this module read each other's
+  // writes. Microsoft's ITP answer is this first-party cookie (plus a localStorage backup), but
+  // bat.js writes it through `document.cookie`, which Safari caps at 7 days — 24 hours on a
+  // landing page decorated by a classified domain, and a bing.com ad click is exactly that.
+  // Persisting it here over HTTP on the document response restores the 90-day window.
+  //
+  // The re-issue (default on, see `refresh`) is the same self-heal as for `_fbc`, and it matters
+  // more here: bat.js rewrites this cookie on EVERY page load, so without the re-issue the HTTP
+  // copy is downgraded to a JS cookie on the very next page. There is no embedded timestamp to
+  // compute a remaining lifetime from, so it is re-issued at a fresh 90 days — which is exactly
+  // what bat.js itself does on each page (`msClkIdExpirationTime` from now), so the window
+  // slides no more than the tag already slides it. A value this module cannot parse belongs to
+  // the tag: never rewritten, never deleted.
+  const urlMsclkid = params.get('msclkid')?.trim();
+  const existingMsclkid = parseUetMsclkid(jar[UET_MSCLKID_COOKIE]);
+  if (urlMsclkid && MSCLKID.test(urlMsclkid) && urlMsclkid.toLowerCase() !== existingMsclkid) {
+    set(UET_MSCLKID_COOKIE, formatUetMsclkid(urlMsclkid), MSCLKID_TTL_MS);
+    result.msclkid = urlMsclkid.toLowerCase();
+  } else if (existingMsclkid) {
+    result.msclkid = existingMsclkid;
+    if (refresh) set(UET_MSCLKID_COOKIE, formatUetMsclkid(existingMsclkid), MSCLKID_TTL_MS);
   }
 
   return result;

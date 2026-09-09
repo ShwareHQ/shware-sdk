@@ -1,7 +1,7 @@
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
-import { parseGcl } from '../click-id/index';
+import { parseGcl, parseUetMsclkid } from '../click-id/index';
 import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
@@ -106,7 +106,10 @@ export async function getTags() {
     // click ids
     dclid: params.get('dclid') ?? undefined,
     ko_click_id: params.get('ko_click_id') ?? undefined,
-    msclkid: params.get('msclkid') ?? undefined,
+    // Microsoft Ads — _uetmsclkid is written by the UET tag and kept alive server-side (see
+    // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
+    // click id to every later page of the visit and to returning visits.
+    msclkid: params.get('msclkid') ?? parseUetMsclkid(parsed._uetmsclkid),
     sccid: params.get('sccid') ?? undefined,
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
