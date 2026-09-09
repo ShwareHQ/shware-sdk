@@ -113,6 +113,8 @@ export interface MicrosoftEvent {
   /** UNIX seconds, UTC; the API rejects anything older than 7 days. */
   eventTime: number;
   eventSourceUrl?: string;
+  /** Links a `custom` event to its `pageLoad` event; a v4 UUID (the SDK's `page_load_id` tag). */
+  pageLoadId?: string;
   referrerUrl?: string;
   pageTitle?: string;
   /** `G` granted, `D` denied. Absent means granted. */
@@ -128,13 +130,15 @@ export interface MicrosoftConversionsOptions {
    */
   consent?: 'granted' | 'denied';
   /**
-   * Also send `page_view` events, as CAPI `pageLoad` events. Off by default because the UET
-   * JavaScript already reports every page load and the two would double-count destination-URL
-   * goals; turn it on for a CAPI-only site with no tag on the page.
+   * Also send `page_view` events, as CAPI `pageLoad` events, and link every custom event to the
+   * page load it happened on (`pageLoadId`, from the `page_load_id` tag). Off by default because
+   * the UET JavaScript already reports every page load and the two would double-count
+   * destination-URL goals; turn it on for a CAPI-only site with no tag on the page. Off, no
+   * `pageLoadId` is sent either: it would point at a page load Microsoft only saw from the tag,
+   * under the tag's own id.
    *
-   * Not yet modelled: `pageLoadId`, which links custom events to the page load they happened on,
-   * and the revenue-only custom event a `pageLoad` needs for a destination goal with variable
-   * revenue. Both matter only in this CAPI-only mode.
+   * Not yet modelled: the revenue-only custom event a `pageLoad` needs for a destination goal
+   * with variable revenue.
    */
   pageLoads?: boolean;
   /** Identifies a third-party sender in Microsoft's monitoring; leave unset for a first-party build. */
@@ -217,12 +221,17 @@ function getCustomData(event: TrackEvent<any>): MicrosoftCustomData | undefined 
  * send those, see `MicrosoftConversionsOptions.pageLoads`); everything else is a `custom` event
  * named after the track event, which is also the UET action the browser sent.
  */
+export type MicrosoftEventOptions = Pick<MicrosoftConversionsOptions, 'consent' | 'pageLoads'>;
+
 export function getServerEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   data: UserProvidedData = {},
-  consent?: 'granted' | 'denied'
+  /** Options, or — the 8.3.0 signature, still accepted — the bare consent value. */
+  options: MicrosoftEventOptions | MicrosoftEventOptions['consent'] = {}
 ): MicrosoftEvent {
+  const { consent, pageLoads = false } =
+    typeof options === 'string' ? { consent: options } : options;
   const { id, name, tags, created_at } = event;
   const isPageLoad = name === 'page_view';
 
@@ -232,6 +241,7 @@ export function getServerEvent(
     eventName: isPageLoad ? undefined : name,
     eventTime: Math.round(new Date(created_at).getTime() / 1000),
     eventSourceUrl: pageLocation(tags),
+    pageLoadId: pageLoads ? tags.page_load_id : undefined,
     referrerUrl: tags.page_referrer,
     pageTitle: tags.page_title,
     adStorageConsent: consent === 'granted' ? 'G' : consent === 'denied' ? 'D' : undefined,
@@ -264,7 +274,7 @@ export async function sendEvents(
     .filter(
       (event) => (pageLoads && event.name === 'page_view') || !IGNORED_EVENTS.includes(event.name)
     )
-    .map((event) => getServerEvent(event, data, consent))
+    .map((event) => getServerEvent(event, data, { consent, pageLoads }))
     // A pageLoad without a URL is rejected by the API, and a page-less event has nothing to say.
     .filter((event) => event.eventType !== 'pageLoad' || event.eventSourceUrl);
   if (capiEvents.length === 0) return [];

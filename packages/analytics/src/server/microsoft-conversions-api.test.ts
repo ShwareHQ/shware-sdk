@@ -195,9 +195,20 @@ describe('getServerEvent', () => {
   });
 
   it('encodes consent as G/D and omits it when unstated', () => {
-    expect(getServerEvent(event(), {}, 'granted').adStorageConsent).toBe('G');
-    expect(getServerEvent(event(), {}, 'denied').adStorageConsent).toBe('D');
+    expect(getServerEvent(event(), {}, { consent: 'granted' }).adStorageConsent).toBe('G');
+    expect(getServerEvent(event(), {}, { consent: 'denied' }).adStorageConsent).toBe('D');
     expect(getServerEvent(event()).adStorageConsent).toBeUndefined();
+    // The bare consent value of the 8.3.0 signature still works.
+    expect(getServerEvent(event(), {}, 'denied').adStorageConsent).toBe('D');
+  });
+
+  it('links pageLoad and custom events by pageLoadId only when page loads are sent', () => {
+    const tags = { page_location: 'https://x.test/', page_load_id: 'pl-1' };
+    const pageView = event({ name: 'page_view', properties: {}, tags });
+    expect(getServerEvent(pageView, {}, { pageLoads: true }).pageLoadId).toBe('pl-1');
+    expect(getServerEvent(event({ tags }), {}, { pageLoads: true }).pageLoadId).toBe('pl-1');
+    // Hybrid mode: the tag reported the page load under its own id, so nothing to point at.
+    expect(getServerEvent(event({ tags })).pageLoadId).toBeUndefined();
   });
 });
 
