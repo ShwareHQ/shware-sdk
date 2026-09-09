@@ -28,6 +28,7 @@ export {
   type MicrosoftUserData,
   type MicrosoftCustomData,
   type MicrosoftConversionsOptions,
+  type MicrosoftEventOptions,
   type MicrosoftConversionsResponse,
   type MicrosoftValidationDetail,
 } from './microsoft-conversions-api';

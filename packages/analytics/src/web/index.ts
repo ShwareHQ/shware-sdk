@@ -7,14 +7,36 @@ import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
+// lib.dom types `crypto.randomUUID` as always present, but it is missing in insecure contexts
+// and older browsers, so probe it before use.
+function randomUUID(): string {
+  return (crypto as Partial<Crypto>).randomUUID ? crypto.randomUUID() : uuidv4();
+}
+
 export function getDeviceId() {
   const cached = config.storage.getItem(keys.device_id);
   if (cached) return cached;
-  // lib.dom types `crypto.randomUUID` as always present, but it is missing in
-  // insecure contexts and older browsers, so probe it before use.
-  const id = (crypto as Partial<Crypto>).randomUUID ? crypto.randomUUID() : uuidv4();
+  const id = randomUUID();
   config.storage.setItem(keys.device_id, id);
   return id;
+}
+
+/**
+ * The current page load, keyed by the path it was loaded at. A module variable and nothing more
+ * persistent: the id must die with the page (a reload is a new page load, and storage would
+ * carry it over — or, shared across tabs, let two pages overwrite each other's).
+ *
+ * Keyed by `pathname` because that is what the SDK's own `page_view` fires on (see
+ * `useWebAnalytics`): the id exists to link an event to the `page_view` of the page it happened
+ * on, so it must rotate exactly when a `page_view` is sent — not on a query or hash change,
+ * which sends none and would leave the events after it pointing at a page load no event
+ * reported.
+ */
+let pageLoad: { path: string; id: string } | undefined;
+
+function getPageLoadId(path: string): string {
+  if (pageLoad?.path !== path) pageLoad = { path, id: randomUUID() };
+  return pageLoad.id;
 }
 
 const links = new Map<string, Promise<Link | null>>();
@@ -45,6 +67,7 @@ export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
   // page app can navigate while the link lookup below is still in flight.
   const page_location = window.location.href;
+  const page_load_id = getPageLoadId(window.location.pathname);
   const page_referrer = document.referrer || undefined;
   const page_title = document.title;
 
@@ -79,6 +102,7 @@ export async function getTags() {
     page_location,
     page_referrer,
     page_title,
+    page_load_id,
     // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)
     fbc: parsed._fbc ?? undefined,
     fbp: parsed._fbp,

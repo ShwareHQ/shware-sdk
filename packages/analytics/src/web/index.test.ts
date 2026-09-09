@@ -51,6 +51,27 @@ describe('getTags', () => {
     expect(tags.screen_resolution).toMatch(/^\d+x\d+$/);
   });
 
+  it('gives every event of a page load the same page_load_id and a navigation a new one', async () => {
+    const { getTags } = await load();
+    window.history.replaceState(null, '', '/pricing');
+
+    const first = await getTags();
+    const second = await getTags();
+    expect(first.page_load_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second.page_load_id).toBe(first.page_load_id);
+
+    // A query or hash change sends no page_view, so it is the same page load.
+    window.history.replaceState(null, '', '/pricing?plan=pro#faq');
+    expect((await getTags()).page_load_id).toBe(first.page_load_id);
+
+    // A route change is a new page load; returning to the path is another one, not the first.
+    window.history.replaceState(null, '', '/checkout');
+    const third = await getTags();
+    expect(third.page_load_id).not.toBe(first.page_load_id);
+    window.history.replaceState(null, '', '/pricing');
+    expect((await getTags()).page_load_id).not.toBe(first.page_load_id);
+  });
+
   it('reads ad click ids from the query string', async () => {
     const { getTags } = await load();
     window.history.replaceState(

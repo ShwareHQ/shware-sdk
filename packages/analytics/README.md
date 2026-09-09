@@ -180,9 +180,10 @@ await sendMicrosoftEvents(process.env.MS_ADS_CAPI_TOKEN, 97267979, events, userD
 - em / ph: SHA-256 of the normalized email (dots and `+alias` stripped from the user part for every
   domain, lowercase) and of the E.164 phone.
 - `page_view` events are dropped by default (the tag already reports every page load); pass
-  `pageLoads: true` for a CAPI-only site to send them as `pageLoad` events. Not yet modelled in
-  that mode: `pageLoadId` (the id that links a `custom` event to the page load it happened on) and
-  the revenue-only `custom` event a destination-URL goal with variable revenue needs alongside its
-  `pageLoad`. With the tag on the page neither applies — the tag reports page loads itself.
+  `pageLoads: true` for a CAPI-only site to send them as `pageLoad` events, each `custom` event
+  then carrying the `pageLoadId` of the page load it happened on (the `page_load_id` tag, one
+  v4 UUID per page load). Not yet modelled in that mode: the revenue-only `custom` event a
+  destination-URL goal with variable revenue needs alongside its `pageLoad`. With the tag on the
+  page neither applies — the tag reports page loads itself.
 
 - [Click IDs](https://learn.microsoft.com/en-us/linkedin/marketing/conversions/enabling-first-party-cookies?view=li-lms-2025-10&source=recommendations): get li_fat_id from url params and cookie
