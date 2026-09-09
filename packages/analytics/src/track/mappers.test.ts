@@ -3,6 +3,7 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent, mapItems as mapFBItems, normalize } from './fbq';
 import { NON_AD_EVENTS, mapContents, mapOAIEvent, toMinorUnits } from './oaiq';
 import { mapRDTEvent, mapServerStandardEvent } from './rdt';
+import { mapUETEvent } from './uetq';
 
 const purchase = {
   value: 99.5,
@@ -337,5 +338,63 @@ describe('IGNORED_EVENTS', () => {
 
   it('NON_AD_EVENTS keeps web vitals away from the OpenAI sender', () => {
     for (const name of ['CLS', 'LCP', 'TTFB']) expect(NON_AD_EVENTS).toContain(name);
+  });
+});
+
+describe('mapUETEvent', () => {
+  it('keeps the internal name as the action and spells the commerce fields the UET way', () => {
+    const [action, params] = mapUETEvent('purchase', purchase, 'event-1');
+    expect(action).toBe('purchase');
+    expect(params).toMatchObject({
+      event_id: 'event-1',
+      revenue_value: 99.5,
+      currency: 'USD',
+      transaction_id: 'txn-1',
+      items: [
+        { id: 'sku-1', name: 'One', price: 49.5, quantity: 1 },
+        { id: 'sku-2', name: 'Two', price: 25, quantity: 2 },
+      ],
+    });
+  });
+
+  it('sends an unknown name unchanged, with the custom-goal fields it carries', () => {
+    const [action, params] = mapUETEvent(
+      'started_trial',
+      { event_category: 'trial', event_label: 'pro', event_value: 3, plan: 'pro' },
+      'event-2'
+    );
+    expect(action).toBe('started_trial');
+    expect(params).toMatchObject({
+      event_id: 'event-2',
+      event_category: 'trial',
+      event_label: 'pro',
+      event_value: 3,
+    });
+    // A property UET has no name for is not smuggled through under its own key.
+    expect(params).not.toHaveProperty('plan');
+  });
+
+  it('validates the retail page type and drops one UET would reject', () => {
+    const [, ok] = mapUETEvent('product_viewed', { ecomm_pagetype: 'Product', ecomm_prodid: 'p1' });
+    expect(ok.ecomm_pagetype).toBe('product');
+    expect(ok.ecomm_prodid).toBe('p1');
+    const [, bad] = mapUETEvent('product_viewed', { ecomm_pagetype: 'landing' });
+    expect(bad.ecomm_pagetype).toBeUndefined();
+  });
+
+  it('drops a product id without a page type, which bat.js would throw on', () => {
+    const [, params] = mapUETEvent('product_viewed', { ecomm_prodid: 'p1' });
+    expect(params.ecomm_prodid).toBeUndefined();
+  });
+
+  it('ignores a value that is not a finite number and an empty string', () => {
+    const [, params] = mapUETEvent('lead_form_opened', {
+      value: Number.NaN,
+      currency: '',
+      search_term: 'x',
+    });
+    expect(params.revenue_value).toBeUndefined();
+    expect(params.currency).toBeUndefined();
+    expect(params.search_term).toBe('x');
   });
 });

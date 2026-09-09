@@ -20,6 +20,18 @@ export {
   type GoogleAdsConversionsOptions,
 } from './google-data-manager';
 
+export {
+  sendEvents as sendMicrosoftEvents,
+  getServerEvent as getMicrosoftEvent,
+  normalizeEmail as normalizeMicrosoftEmail,
+  type MicrosoftEvent,
+  type MicrosoftUserData,
+  type MicrosoftCustomData,
+  type MicrosoftConversionsOptions,
+  type MicrosoftConversionsResponse,
+  type MicrosoftValidationDetail,
+} from './microsoft-conversions-api';
+
 export type { LinkedinConversionConfig } from './linkedin-conversions-api';
 export type { EventActionSource } from './action-source';
 
@@ -30,10 +42,14 @@ export {
   formatFbc,
   parseGcl,
   formatGcl,
+  parseUetMsclkid,
+  formatUetMsclkid,
+  formatMsclkid,
   FBC_COOKIE,
   RDT_CID_COOKIE,
   GCL_AW_COOKIE,
   GCL_GB_COOKIE,
+  UET_MSCLKID_COOKIE,
   type ResolveClickIdCookiesInput,
   type ResolveClickIdCookiesResult,
   type ParsedFbc,
