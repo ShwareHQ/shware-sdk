@@ -60,14 +60,21 @@ describe('getTags', () => {
     expect(first.page_load_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(second.page_load_id).toBe(first.page_load_id);
 
-    // A query or hash change sends no page_view, so it is the same page load.
-    window.history.replaceState(null, '', '/pricing?plan=pro#faq');
+    // A hash change or a tracking-parameter cleanup sends no page_view: the same page load.
+    window.history.replaceState(null, '', '/pricing?utm_source=bing&msclkid=abc');
     expect((await getTags()).page_load_id).toBe(first.page_load_id);
+    window.history.replaceState(null, '', '/pricing#faq');
+    expect((await getTags()).page_load_id).toBe(first.page_load_id);
+
+    // A query change is a page view, and so a new page load.
+    window.history.replaceState(null, '', '/pricing?plan=pro');
+    const withQuery = await getTags();
+    expect(withQuery.page_load_id).not.toBe(first.page_load_id);
 
     // A route change is a new page load; returning to the path is another one, not the first.
     window.history.replaceState(null, '', '/checkout');
     const third = await getTags();
-    expect(third.page_load_id).not.toBe(first.page_load_id);
+    expect(third.page_load_id).not.toBe(withQuery.page_load_id);
     window.history.replaceState(null, '', '/pricing');
     expect((await getTags()).page_load_id).not.toBe(first.page_load_id);
   });

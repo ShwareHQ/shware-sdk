@@ -52,7 +52,7 @@ async function launch(storage?: MemoryStorage) {
   const { getSession } = await import('../setup/session');
 
   function Page({ pathname }: { pathname: string }) {
-    useWebAnalytics(pathname);
+    useWebAnalytics(pathname, '');
     return null;
   }
 

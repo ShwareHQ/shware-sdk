@@ -6,6 +6,7 @@ import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
+import { getPageKey } from './page-key';
 
 // lib.dom types `crypto.randomUUID` as always present, but it is missing in insecure contexts
 // and older browsers, so probe it before use.
@@ -22,20 +23,19 @@ export function getDeviceId() {
 }
 
 /**
- * The current page load, keyed by the path it was loaded at. A module variable and nothing more
+ * The current page load, keyed by the page it was loaded at. A module variable and nothing more
  * persistent: the id must die with the page (a reload is a new page load, and storage would
  * carry it over — or, shared across tabs, let two pages overwrite each other's).
  *
- * Keyed by `pathname` because that is what the SDK's own `page_view` fires on (see
+ * Keyed by `getPageKey` because that is what the SDK's own `page_view` fires on (see
  * `useWebAnalytics`): the id exists to link an event to the `page_view` of the page it happened
- * on, so it must rotate exactly when a `page_view` is sent — not on a query or hash change,
- * which sends none and would leave the events after it pointing at a page load no event
- * reported.
+ * on, so it must rotate exactly when a `page_view` is sent — path or query change, yes; hash
+ * change or tracking-parameter cleanup, no.
  */
-let pageLoad: { path: string; id: string } | undefined;
+let pageLoad: { page: string; id: string } | undefined;
 
-function getPageLoadId(path: string): string {
-  if (pageLoad?.path !== path) pageLoad = { path, id: randomUUID() };
+function getPageLoadId(page: string): string {
+  if (pageLoad?.page !== page) pageLoad = { page, id: randomUUID() };
   return pageLoad.id;
 }
 
@@ -67,7 +67,7 @@ export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
   // page app can navigate while the link lookup below is still in flight.
   const page_location = window.location.href;
-  const page_load_id = getPageLoadId(window.location.pathname);
+  const page_load_id = getPageLoadId(getPageKey(window.location.pathname, window.location.search));
   const page_referrer = document.referrer || undefined;
   const page_title = document.title;
 
