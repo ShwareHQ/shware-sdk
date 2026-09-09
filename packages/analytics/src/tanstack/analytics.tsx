@@ -35,8 +35,8 @@ export function Analytics({
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
-  const { pathname } = useLocation();
-  useWebAnalytics(pathname);
+  const { pathname, searchStr } = useLocation();
+  useWebAnalytics(pathname, searchStr);
   useOutboundClickAnalytics();
 
   useReportWebVitals((metric) => {

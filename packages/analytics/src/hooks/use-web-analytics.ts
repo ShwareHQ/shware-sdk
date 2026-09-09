@@ -4,6 +4,7 @@ import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { sendBeacon, track } from '../track/index';
+import { getPageKey } from '../web/page-key';
 import { usePrevious } from './use-previous';
 
 function sendFirstVisit(pathname: string) {
@@ -55,15 +56,20 @@ function onVisibilityChange() {
  * 1. send session_start event when the page is loaded
  * 2. send scroll event when the user scrolls more than 90% of the page
  * 3. send user_engagement event when the page is hidden or the user is not focused
+ * 4. send page_view when the page changes — path or query, see `getPageKey`; `search` is the
+ *    router's query string (`?a=1`, or `''`), required so no caller forgets that the query is
+ *    part of what makes a page
  */
-export function useWebAnalytics(pathname: string) {
+export function useWebAnalytics(pathname: string, search: string) {
+  const page = getPageKey(pathname, search);
+  const prevPage = usePrevious(page);
   const prevPathname = usePrevious(pathname);
 
-  // reset state when the pathname changes and send scroll when the user navigates to a new page
+  // reset state when the page changes and send scroll when the user navigates to a new page
   const hasSendScroll = useRef(false);
   useEffect(() => {
     hasSendScroll.current = false;
-  }, [pathname]);
+  }, [page]);
 
   useEffect(() => {
     // One lookup for the whole effect: `addEventListener` and its matching
@@ -112,13 +118,15 @@ export function useWebAnalytics(pathname: string) {
   }, []);
 
   useEffect(() => {
+    // `page_path` stays the path — the query is in `page_location` — and the previous page is
+    // named by its path too, so a query-only change reports the same path as its predecessor.
     track('page_view', {
       page_path: pathname,
       page_title: document.title,
       page_referrer: document.referrer,
       page_location: window.location.href,
-      previous_page_path: prevPathname ?? undefined,
-      engagement_time_msec: prevPathname ? getSession().flush() : undefined,
+      previous_page_path: prevPage === undefined ? undefined : prevPathname,
+      engagement_time_msec: prevPage === undefined ? undefined : getSession().flush(),
     });
-  }, [pathname]);
+  }, [page]);
 }

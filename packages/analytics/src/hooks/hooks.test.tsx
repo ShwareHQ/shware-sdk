@@ -163,12 +163,31 @@ describe('useWebAnalytics', () => {
   async function mount() {
     const { storage } = await load();
     const { useWebAnalytics } = await import('./use-web-analytics');
-    function Page({ pathname }: { pathname: string }) {
-      useWebAnalytics(pathname);
+    function Page({ pathname, search = '' }: { pathname: string; search?: string }) {
+      useWebAnalytics(pathname, search);
       return null;
     }
     return { Page, storage };
   }
+
+  it('sends page_view on a query change, but not on a tracking-parameter cleanup', async () => {
+    const { Page } = await mount();
+    const pageViews = () => track.mock.calls.filter(([name]) => name === 'page_view');
+    const { rerender } = render(<Page pathname="/pricing" search="?utm_source=bing&msclkid=x" />);
+    expect(pageViews()).toHaveLength(1);
+
+    // The landing page cleaning its URL is the same page.
+    rerender(<Page pathname="/pricing" search="" />);
+    expect(pageViews()).toHaveLength(1);
+
+    // A real query change is a new page, named by the same path as its predecessor.
+    rerender(<Page pathname="/pricing" search="?plan=pro" />);
+    expect(pageViews()).toHaveLength(2);
+    expect(pageViews()[1][1]).toMatchObject({
+      page_path: '/pricing',
+      previous_page_path: '/pricing',
+    });
+  });
 
   it('sends first_visit once ever, and page_view per pathname', async () => {
     const { Page, storage } = await mount();

@@ -46,6 +46,15 @@ function Button() {
 }
 ```
 
+## Page views
+
+`page_view` fires on a path or query change, never on a hash change — GA4's enhanced measurement,
+Next.js's `usePathname` + `useSearchParams` pattern and PostHog's `history_change` all draw the
+line there (`?page=2` is another page to a funnel, `#faq` is not). Tracking parameters (`utm_*`
+and the ad click ids) are ignored when comparing, so a landing page that cleans them out of its
+URL with `replaceState` does not count itself twice. `page_load_id` rotates on exactly the same
+changes. The framework `Analytics` components wire this up.
+
 ## Backend API
 
 - /analytics/tracks: track events

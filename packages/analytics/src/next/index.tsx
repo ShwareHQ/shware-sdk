@@ -1,8 +1,9 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
+import { Suspense } from 'react';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import type { PixelId as MetaPixelId } from '../track/fbq';
@@ -24,6 +25,18 @@ interface Props {
   reportWebVitals?: boolean;
 }
 
+/**
+ * Its own component under a Suspense boundary: `useSearchParams` in a statically rendered route
+ * bails the whole tree out to client rendering unless something above it suspends, and Next
+ * fails the build for a page that lets it. The boundary is here so a host does not have to know.
+ */
+function PageViews() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useWebAnalytics(pathname, searchParams.toString());
+  return null;
+}
+
 export function Analytics({
   gaId,
   gaSrc,
@@ -36,8 +49,6 @@ export function Analytics({
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
-  const pathname = usePathname();
-  useWebAnalytics(pathname);
   useOutboundClickAnalytics();
 
   useReportWebVitals((metric) => {
@@ -56,6 +67,9 @@ export function Analytics({
 
   return (
     <>
+      <Suspense fallback={null}>
+        <PageViews />
+      </Suspense>
       {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
       {gaId && (
         <>
