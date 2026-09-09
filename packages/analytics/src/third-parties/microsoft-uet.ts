@@ -3,6 +3,7 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { type UETConsent, type UETQ, mapUETEvent } from '../track/uetq';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
+import { getVisitor } from '../visitor/index';
 
 declare global {
   interface Window {
@@ -61,22 +62,24 @@ export function sendUETEvent<T extends EventName>(
  * when the page load already went out. Values are sent raw — the tag normalizes and SHA-256
  * hashes them in the browser (bat.js `validatePid`) before anything leaves the page.
  *
- * No tag id parameter: unlike the Meta/Reddit pixels, UET is bound to its tag by the snippet
- * and `set` addresses whichever tag drains `uetq`.
+ * A setter itself, like `setGAUser`, rather than a factory like `setFBUser(pixelId)`: UET is
+ * bound to its tag by the snippet and `set` addresses whichever tag drains `uetq`, so there is
+ * nothing to bind first.
  */
-export function setUETUser() {
-  return ({ user_data }: UpdateVisitorDTO) => {
-    if (typeof window === 'undefined' || !window.uetq) {
-      console.warn('uetq has not been initialized');
-      return;
-    }
+export function setUETUser({ user_id, user_data }: UpdateVisitorDTO) {
+  if (typeof window === 'undefined' || !window.uetq) {
+    console.warn('uetq has not been initialized');
+    return;
+  }
 
-    const em = getFirst(user_data?.email);
-    const ph = getFirst(user_data?.phone_number);
-    if (!em && !ph) return;
+  // A signed-in user is also the moment the ID Sync pixel can carry a `UID` — see `syncUETVisitor`.
+  if (user_id) void syncUETVisitor(user_id);
 
-    window.uetq.push('set', { pid: clean({ em, ph }) });
-  };
+  const em = getFirst(user_data?.email);
+  const ph = getFirst(user_data?.phone_number);
+  if (!em && !ph) return;
+
+  window.uetq.push('set', { pid: clean({ em, ph }) });
 }
 
 /**
@@ -108,6 +111,32 @@ export function setUETConsent(mode: 'default' | 'update', consent: UETConsent) {
  * the pixel goes out without `UID` rather than with a raw id.
  * https://learn.microsoft.com/en-us/advertising/guides/uet-conversion-api-integration#id-sync-and-why-it-matters
  */
+/**
+ * The Microsoft Advertising customer id the ID Sync pixel reports to, set once by the framework
+ * `Analytics` component's `uetCustomerId` prop (or `configureUET`). Unset, nothing syncs.
+ */
+let uetCustomerId: string | undefined;
+
+export function configureUET(options: { customerId?: string | number }) {
+  uetCustomerId = options.customerId === undefined ? undefined : String(options.customerId);
+}
+
+/**
+ * Sync the SDK visitor — the `anonymousId` of the events the server sends to the Conversions
+ * API — with Microsoft, plus the user's `UID` when one is known. The `Analytics` components run
+ * it on mount so every visit syncs at least once, anonymous visitors included (they are who
+ * remarketing audiences are built from), and `setUETUser` runs it again on sign-in.
+ */
+export async function syncUETVisitor(userId?: string): Promise<void> {
+  if (!uetCustomerId) return;
+  try {
+    const { id } = await getVisitor();
+    sendUETIdSync({ customerId: uetCustomerId, visitorId: id, userId });
+  } catch {
+    // The visitor request failed; the next page load tries again.
+  }
+}
+
 export function sendUETIdSync(options: {
   customerId: string | number;
   visitorId: string;
