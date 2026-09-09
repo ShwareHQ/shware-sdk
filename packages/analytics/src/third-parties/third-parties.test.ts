@@ -317,7 +317,7 @@ describe('sendUETEvent', () => {
     const push = vi.fn();
     vendor.uetq = { push };
 
-    setUETUser()({
+    setUETUser({
       user_id: 'u1',
       user_data: { email: ['ada@example.com', 'second@example.com'], phone_number: '+14155551234' },
       tags: {},
@@ -327,7 +327,7 @@ describe('sendUETEvent', () => {
     });
 
     push.mockClear();
-    setUETUser()({ user_id: 'u1', tags: {} });
+    setUETUser({ user_id: 'u1', tags: {} });
     expect(push).not.toHaveBeenCalled();
   });
 

@@ -155,7 +155,7 @@ import {
 setupAnalytics({
   thirdPartyTrackers: [sendUETEvent],
   // Enhanced conversions: the tag hashes the email/phone itself before they leave the page.
-  thirdPartyUserSetters: [setUETUser()],
+  thirdPartyUserSetters: [setUETUser],
 });
 // Consent mode (EEA/UK/CH): push `default` before the tag loads, `update` on the visitor's choice.
 setUETConsent('default', { ad_storage: 'denied', wait_for_update: 2000 });

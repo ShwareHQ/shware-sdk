@@ -61,22 +61,21 @@ export function sendUETEvent<T extends EventName>(
  * when the page load already went out. Values are sent raw — the tag normalizes and SHA-256
  * hashes them in the browser (bat.js `validatePid`) before anything leaves the page.
  *
- * No tag id parameter: unlike the Meta/Reddit pixels, UET is bound to its tag by the snippet
- * and `set` addresses whichever tag drains `uetq`.
+ * A setter itself, like `setGAUser`, rather than a factory like `setFBUser(pixelId)`: UET is
+ * bound to its tag by the snippet and `set` addresses whichever tag drains `uetq`, so there is
+ * nothing to bind first.
  */
-export function setUETUser() {
-  return ({ user_data }: UpdateVisitorDTO) => {
-    if (typeof window === 'undefined' || !window.uetq) {
-      console.warn('uetq has not been initialized');
-      return;
-    }
+export function setUETUser({ user_data }: UpdateVisitorDTO) {
+  if (typeof window === 'undefined' || !window.uetq) {
+    console.warn('uetq has not been initialized');
+    return;
+  }
 
-    const em = getFirst(user_data?.email);
-    const ph = getFirst(user_data?.phone_number);
-    if (!em && !ph) return;
+  const em = getFirst(user_data?.email);
+  const ph = getFirst(user_data?.phone_number);
+  if (!em && !ph) return;
 
-    window.uetq.push('set', { pid: clean({ em, ph }) });
-  };
+  window.uetq.push('set', { pid: clean({ em, ph }) });
 }
 
 /**
