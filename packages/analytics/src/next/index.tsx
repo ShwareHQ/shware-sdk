@@ -19,6 +19,8 @@ interface Props {
   metaPixelId?: MetaPixelId;
   redditPixelId?: RedditPixelId;
   linkedInPartnerId?: `${number}`;
+  /** Microsoft Advertising UET tag id. The tag reports page loads itself (`enableAutoSpaTracking`). */
+  uetTagId?: `${number}`;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
@@ -46,6 +48,7 @@ export function Analytics({
   hotjarId,
   redditPixelId,
   linkedInPartnerId,
+  uetTagId,
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
@@ -167,6 +170,32 @@ export function Analytics({
                 s.parentNode.insertBefore(b, s);
               })(window.lintrk);
               `,
+          }}
+        />
+      )}
+      {uetTagId && (
+        <Script
+          strategy="afterInteractive"
+          id="uet-tag"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function (w, d, t, u, o) {
+                w[u] = w[u] || [], o.ts = (new Date).getTime();
+                var n = d.createElement(t);
+                n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
+                n.async = 1, n.onload = n.onreadystatechange = function() {
+                  var s = this.readyState;
+                  s && "loaded" !== s && "complete" !== s ||
+                  (o.q = w[u], w[u] = new UET(o), w[u].push("pageLoad"),
+                  n.onload = n.onreadystatechange = null)
+                };
+                var i = d.getElementsByTagName(t)[0];
+                i.parentNode.insertBefore(n, i);
+              })(window, document, "script", "uetq", {
+                ti: "${uetTagId}",
+                enableAutoSpaTracking: true
+              });
+            `,
           }}
         />
       )}
