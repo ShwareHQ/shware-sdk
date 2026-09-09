@@ -5,7 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sendGAEvent, setGAUser } from './google-analytics';
 import { sendLinkedinEvent, setLinkedinUser } from './linkedin-insight-tag';
 import { sendFBEvent, setFBUser } from './meta-pixel';
-import { sendUETEvent, sendUETIdSync, setUETConsent, setUETUser } from './microsoft-uet';
+import {
+  configureUET,
+  sendUETEvent,
+  sendUETIdSync,
+  setUETConsent,
+  setUETUser,
+  syncUETVisitor,
+} from './microsoft-uet';
 import { sendRedditEvent, setRedditUser } from './reddit-pixel';
 
 // The senders already declare typed vendor globals on Window; the mocks are cast into them.
@@ -329,6 +336,39 @@ describe('sendUETEvent', () => {
     push.mockClear();
     setUETUser({ user_id: 'u1', tags: {} });
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('syncUETVisitor fires the ID Sync pixel with the SDK visitor once a customer id is configured', async () => {
+    const sources: string[] = [];
+    vi.stubGlobal(
+      'Image',
+      class {
+        set src(value: string) {
+          sources.push(value);
+        }
+      }
+    );
+    const visitor = await import('../visitor/index');
+    vi.spyOn(visitor, 'getVisitor').mockResolvedValue({ id: 'vid-9' } as never);
+
+    // Unconfigured: nothing goes out, and the visitor is not even fetched.
+    await syncUETVisitor();
+    expect(sources).toEqual([]);
+
+    configureUET({ customerId: 255004870 });
+    await syncUETVisitor();
+    expect(sources).toEqual(['https://c.bing.com/c.gif?Red3=BACID_255004870&VID=vid-9']);
+
+    // A signed-in user through the setter re-syncs with the hashed UID.
+    vendor.uetq = { push: vi.fn() };
+    setUETUser({ user_id: 'u1', tags: {} });
+    await vi.waitFor(() => expect(sources).toHaveLength(2));
+    expect(sources[1]).toBe(
+      `https://c.bing.com/c.gif?Red3=BACID_255004870&VID=vid-9&UID=${sha256('u1')}`
+    );
+
+    configureUET({});
+    vi.unstubAllGlobals();
   });
 
   it('setUETConsent creates the queue when it runs before the snippet', () => {

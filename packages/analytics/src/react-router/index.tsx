@@ -1,6 +1,7 @@
 import { useLocation } from 'react-router';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { useReportWebVitals } from '../hooks/use-report-web-vitals';
+import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import type { PixelId as MetaPixelId } from '../track/fbq';
 import type { GaId, GtmId } from '../track/gtag';
@@ -16,6 +17,8 @@ interface Props {
   linkedInPartnerId?: `${number}`;
   /** Microsoft Advertising UET tag id. The tag reports page loads itself (`enableAutoSpaTracking`). */
   uetTagId?: `${number}`;
+  /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the Conversions API's ID Sync pixel. */
+  uetCustomerId?: `${number}`;
   hotjarId?: `${number}`;
   facebookAppId?: string;
   nonce?: string;
@@ -32,6 +35,7 @@ export function Analytics({
   redditPixelId,
   linkedInPartnerId,
   uetTagId,
+  uetCustomerId,
   hotjarId,
   facebookAppId,
   reportWebVitals = true,
@@ -39,6 +43,7 @@ export function Analytics({
   const { pathname, search } = useLocation();
   useWebAnalytics(pathname, search);
   useOutboundClickAnalytics();
+  useUETIdSync(uetCustomerId);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;

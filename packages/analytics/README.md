@@ -139,18 +139,15 @@ Microsoft recommends the UET tag and the Conversions API (CAPI) together. The tw
 (`tagId`, `eventName`, `eventId`): the browser sends the internal event name as the UET action with
 the event id as `event_id`, the server sends the same name as `eventName` with the same id.
 
-Browser — pass the tag id to the framework `Analytics` component (`<Analytics uetTagId="97267979" />`
-from `@shware/analytics/tanstack`, `/next` or `/react-router`), which inlines Microsoft's snippet
-with `enableAutoSpaTracking: true`: the tag owns page loads, `sendUETEvent` drops `page_view` and
-forwards everything else. Then:
+Browser — pass the tag id and the customer id to the framework `Analytics` component
+(`<Analytics uetTagId="97267979" uetCustomerId="255004870" />` from `@shware/analytics/tanstack`,
+`/next` or `/react-router`). It inlines Microsoft's snippet with `enableAutoSpaTracking: true` (the
+tag owns page loads, `sendUETEvent` drops `page_view` and forwards everything else) and fires the
+Conversions API's ID Sync pixel once per visit for the SDK visitor — anonymous visitors included,
+they are who remarketing audiences are built from. Then:
 
 ```ts
-import {
-  sendUETEvent,
-  setUETUser,
-  setUETConsent,
-  sendUETIdSync,
-} from '@shware/analytics/third-parties';
+import { sendUETEvent, setUETUser, setUETConsent } from '@shware/analytics/third-parties';
 
 setupAnalytics({
   thirdPartyTrackers: [sendUETEvent],
@@ -159,12 +156,12 @@ setupAnalytics({
 });
 // Consent mode (EEA/UK/CH): push `default` before the tag loads, `update` on the visitor's choice.
 setUETConsent('default', { ad_storage: 'denied', wait_for_update: 2000 });
-// ID Sync, once per session: ties the visitor id CAPI sends as `anonymousId` to Microsoft's ids.
-// Required for remarketing built from CAPI events, recommended for measurement. `VID` must equal
-// `anonymousId` and `UID` must equal `externalId`: pass the SDK visitor id and the raw user id —
-// the pixel hashes the user id with the same SHA-256 the server sender uses.
-sendUETIdSync({ customerId: 255004870, visitorId: (await getVisitor()).id, userId: user.id });
 ```
+
+ID Sync ties the visitor id CAPI receives as `anonymousId` to Microsoft's ids — required for
+remarketing built from CAPI events, recommended for measurement. `setUETUser` re-syncs on sign-in
+with the user id hashed into `UID` (the same SHA-256 the server sends as `externalId`). Outside the
+`Analytics` components, `configureUET({ customerId })` + `syncUETVisitor()` do the same.
 
 Server — the token comes from the UET tag's "Use Conversions API" step (or the Campaign Management
 API's `UetTagAuthKey/Query`; an account whose tag setup lacks that option has to ask Microsoft
