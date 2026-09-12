@@ -162,3 +162,56 @@ export const AVAILABLE_STATUSES = [
   'TRIALING',
   'IN_GRACE_PERIOD',
 ] as const satisfies readonly SubscriptionStatus[];
+
+/** Who stopped the subscription from renewing. */
+export const CANCELLATION_INITIATORS = [
+  /** The customer: the store's cancel flow, our own cancel dialog, or a declined price increase. */
+  'user',
+  /** The platform: a failed payment, a refund or revocation, a product no longer for sale. */
+  'system',
+  /** Us: a cancellation through the platform's API or console. */
+  'developer',
+] as const;
+
+export type CancellationInitiator = (typeof CANCELLATION_INITIATORS)[number];
+
+/** What a cancel survey may report, whichever platform asked the question. */
+export const CANCELLATION_FEEDBACKS = [
+  'customer_service',
+  'low_quality',
+  'missing_features',
+  'switched_service',
+  'too_complex',
+  'too_expensive',
+  'unused',
+  'other',
+] as const;
+
+export type CancellationFeedback = (typeof CANCELLATION_FEEDBACKS)[number];
+
+export const RESUBSCRIBE_INTENTS = ['maybe', 'no', 'yes'] as const;
+
+export type ResubscribeIntent = (typeof RESUBSCRIBE_INTENTS)[number];
+
+/**
+ * Why a subscription stopped renewing, in one record shared by every platform. Every key is
+ * optional and every value a string, so a platform may add what only it reports without a
+ * schema change; the keys below are the ones they have in common. When the subscription was
+ * cancelled is not in here: it is a column of its own, `canceledAt`.
+ *
+ * - `initiator`: see {@link CANCELLATION_INITIATORS}.
+ * - `reason`: the platform's own code, kept verbatim for analytics — Stripe's
+ *   `cancellation_details.reason`, Google's `cancelSurveyResult.reason`, Apple's notification
+ *   subtype or `expirationIntent`.
+ * - `feedback`: the customer's survey answer in the shared vocabulary {@link CANCELLATION_FEEDBACKS}.
+ * - `comment`: free text the customer typed.
+ * - `resubscribeIntent`: whether they said they would come back, when the cancel flow asked.
+ */
+export interface CancellationDetails {
+  [key: string]: string | null | undefined;
+  initiator?: CancellationInitiator | null;
+  reason?: string | null;
+  feedback?: CancellationFeedback | null;
+  comment?: string | null;
+  resubscribeIntent?: ResubscribeIntent | null;
+}
