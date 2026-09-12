@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type CheckoutSession, getPurchaseProperties } from '../mapper';
+import { type CheckoutSession, getPurchaseProperties, mapCancellationDetails } from '../mapper';
 
 function session(id: string): CheckoutSession {
   return {
@@ -48,5 +48,50 @@ describe('getPurchaseProperties transaction_id', () => {
     const properties = getPurchaseProperties(session('cs_live_HbxLGWaiuKtHDidmQGnPOh3q'));
     expect(properties.value).toBe(19.99);
     expect(properties.currency).toBe('USD');
+  });
+});
+
+describe('mapCancellationDetails', () => {
+  it('is null for the all-null details every live subscription carries', () => {
+    expect(
+      mapCancellationDetails({
+        cancellation_details: { comment: null, feedback: null, reason: null },
+      })
+    ).toBeNull();
+    expect(mapCancellationDetails({ cancellation_details: null })).toBeNull();
+  });
+
+  it('keeps the customer answers and says who acted', () => {
+    expect(
+      mapCancellationDetails({
+        cancellation_details: {
+          comment: 'Too pricey for me',
+          feedback: 'too_expensive',
+          reason: 'cancellation_requested',
+        },
+      })
+    ).toEqual({
+      initiator: 'user',
+      reason: 'cancellation_requested',
+      feedback: 'too_expensive',
+      comment: 'Too pricey for me',
+    });
+    expect(
+      mapCancellationDetails({
+        cancellation_details: { comment: null, feedback: null, reason: 'payment_failed' },
+      })
+    ).toMatchObject({ initiator: 'system', reason: 'payment_failed', feedback: null });
+  });
+
+  it('reports a feedback value it does not know as "other"', () => {
+    expect(
+      mapCancellationDetails({
+        cancellation_details: {
+          comment: null,
+          feedback: 'brand_new_value' as never,
+          reason: 'cancellation_requested',
+        },
+      })
+    ).toMatchObject({ feedback: 'other' });
   });
 });

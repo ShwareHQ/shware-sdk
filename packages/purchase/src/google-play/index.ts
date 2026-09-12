@@ -13,4 +13,9 @@ export {
   VoidedPurchaseRefundType,
 } from './real-time-developer-notification';
 export { GooglePlayConfig } from './config';
-export { mapSubscriptionStatus } from './mapper';
+export {
+  mapSubscriptionStatus,
+  mapCancellationDetails,
+  mapCanceledAt,
+  type CanceledStateContext,
+} from './mapper';
