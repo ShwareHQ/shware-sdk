@@ -51,6 +51,34 @@ describe('getTags', () => {
     expect(tags.screen_resolution).toMatch(/^\d+x\d+$/);
   });
 
+  it('gives every event of a page load the same page_load_id and a navigation a new one', async () => {
+    const { getTags } = await load();
+    window.history.replaceState(null, '', '/pricing');
+
+    const first = await getTags();
+    const second = await getTags();
+    expect(first.page_load_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second.page_load_id).toBe(first.page_load_id);
+
+    // A hash change or a tracking-parameter cleanup sends no page_view: the same page load.
+    window.history.replaceState(null, '', '/pricing?utm_source=bing&msclkid=abc');
+    expect((await getTags()).page_load_id).toBe(first.page_load_id);
+    window.history.replaceState(null, '', '/pricing#faq');
+    expect((await getTags()).page_load_id).toBe(first.page_load_id);
+
+    // A query change is a page view, and so a new page load.
+    window.history.replaceState(null, '', '/pricing?plan=pro');
+    const withQuery = await getTags();
+    expect(withQuery.page_load_id).not.toBe(first.page_load_id);
+
+    // A route change is a new page load; returning to the path is another one, not the first.
+    window.history.replaceState(null, '', '/checkout');
+    const third = await getTags();
+    expect(third.page_load_id).not.toBe(withQuery.page_load_id);
+    window.history.replaceState(null, '', '/pricing');
+    expect((await getTags()).page_load_id).not.toBe(first.page_load_id);
+  });
+
   it('reads ad click ids from the query string', async () => {
     const { getTags } = await load();
     window.history.replaceState(
@@ -77,6 +105,7 @@ describe('getTags', () => {
     document.cookie = '_rdt_uuid=1700000000000.7c73f2ae-a433-4d7b-9838-f467da98f48e';
     document.cookie = '_rdt_cid=RDT_FROM_COOKIE';
     document.cookie = 'li_fat_id=LI_FROM_COOKIE';
+    document.cookie = '_uetmsclkid=_uetdd4afcccb1c94a4cad9544dd7e5006ab';
 
     const tags = await getTags();
 
@@ -86,15 +115,21 @@ describe('getTags', () => {
       rdt_uuid: '1700000000000.7c73f2ae-a433-4d7b-9838-f467da98f48e',
       rdt_cid: 'RDT_FROM_COOKIE',
       li_fat_id: 'LI_FROM_COOKIE',
+      msclkid: 'dd4afcccb1c94a4cad9544dd7e5006ab',
     });
 
     // A click id in the URL is fresher than the first-party cookie and wins.
-    window.history.replaceState(null, '', '/?rdt_cid=RDT_FROM_URL&li_fat_id=LI_FROM_URL');
+    window.history.replaceState(
+      null,
+      '',
+      '/?rdt_cid=RDT_FROM_URL&li_fat_id=LI_FROM_URL&msclkid=MS_FROM_URL'
+    );
     const fresh = await getTags();
     expect(fresh.rdt_cid).toBe('RDT_FROM_URL');
     expect(fresh.li_fat_id).toBe('LI_FROM_URL');
+    expect(fresh.msclkid).toBe('MS_FROM_URL');
 
-    for (const name of ['_fbp', '_fbc', '_rdt_uuid', '_rdt_cid', 'li_fat_id']) {
+    for (const name of ['_fbp', '_fbc', '_rdt_uuid', '_rdt_cid', 'li_fat_id', '_uetmsclkid']) {
       document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
     }
   });

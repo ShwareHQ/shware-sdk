@@ -44,7 +44,8 @@ export async function exchangeAuthorizationCode(
     headers.Authorization = `Basic ${token}`;
   } else {
     body.append('client_id', params.clientId);
-    body.append('client_secret', params.clientSecret);
+    // Public clients (Google's installed-app clients, PKCE-only clients) have no secret.
+    if (params.clientSecret) body.append('client_secret', params.clientSecret);
   }
 
   return fetch(params.tokenUri, { method: 'POST', headers, body });

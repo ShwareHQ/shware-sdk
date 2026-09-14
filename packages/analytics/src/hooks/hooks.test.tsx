@@ -24,6 +24,9 @@ afterEach(() => {
   // this, every mounted Page leaves its document-level listeners behind for the next test.
   cleanup();
   vi.restoreAllMocks();
+  // A test that fails between useFakeTimers() and useRealTimers() would otherwise leak the fake
+  // clock into every test after it.
+  vi.useRealTimers();
 });
 
 describe('useOutboundClickAnalytics', () => {
@@ -160,12 +163,31 @@ describe('useWebAnalytics', () => {
   async function mount() {
     const { storage } = await load();
     const { useWebAnalytics } = await import('./use-web-analytics');
-    function Page({ pathname }: { pathname: string }) {
-      useWebAnalytics(pathname);
+    function Page({ pathname, search = '' }: { pathname: string; search?: string }) {
+      useWebAnalytics(pathname, search);
       return null;
     }
     return { Page, storage };
   }
+
+  it('sends page_view on a query change, but not on a tracking-parameter cleanup', async () => {
+    const { Page } = await mount();
+    const pageViews = () => track.mock.calls.filter(([name]) => name === 'page_view');
+    const { rerender } = render(<Page pathname="/pricing" search="?utm_source=bing&msclkid=x" />);
+    expect(pageViews()).toHaveLength(1);
+
+    // The landing page cleaning its URL is the same page.
+    rerender(<Page pathname="/pricing" search="" />);
+    expect(pageViews()).toHaveLength(1);
+
+    // A real query change is a new page, named by the same path as its predecessor.
+    rerender(<Page pathname="/pricing" search="?plan=pro" />);
+    expect(pageViews()).toHaveLength(2);
+    expect(pageViews()[1][1]).toMatchObject({
+      page_path: '/pricing',
+      previous_page_path: '/pricing',
+    });
+  });
 
   it('sends first_visit once ever, and page_view per pathname', async () => {
     const { Page, storage } = await mount();
@@ -287,6 +309,11 @@ describe('useWebAnalytics', () => {
   it('a 90% crossing with no engaged time sends nothing, without consuming the one-shot', async () => {
     const { Page } = await mount();
     render(<Page pathname="/a" />);
+    // Fake timers must already be on when the session is primed: primeSession's flush() and the
+    // blur below each settle the accumulator at Date.now(), still focused, so any real
+    // milliseconds the runner lets slip between the two would count as engagement — and this
+    // test's whole premise is that none was accrued.
+    vi.useFakeTimers();
     await primeSession();
 
     // The page reaches 90% while the window is unfocused (e.g. a restored scroll position), so
@@ -299,7 +326,6 @@ describe('useWebAnalytics', () => {
     Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
     Object.defineProperty(window, 'scrollY', { value: 300, configurable: true });
 
-    vi.useFakeTimers();
     vi.advanceTimersByTime(3000); // unfocused time is not engagement
     window.dispatchEvent(new Event('scroll'));
     expect(track.mock.calls.filter(([name]) => name === 'scroll')).toHaveLength(0);

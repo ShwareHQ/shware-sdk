@@ -30,7 +30,8 @@ export interface ClickIdMiddlewareOptions {
 }
 
 /**
- * TanStack Start request middleware that persists ad click-id cookies (`_fbc`, `_rdt_cid`) on the
+ * TanStack Start request middleware that persists ad click-id cookies (`_fbc`, `_gcl_aw`/`_gcl_gb`,
+ * `_rdt_cid`, `_uetmsclkid`) on the
  * document response.
  *
  * Setting `_fbc` here — on the top document via an HTTP `Set-Cookie` header, before any client JS

@@ -1,9 +1,11 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import { useReportWebVitals } from 'next/web-vitals';
+import { Suspense } from 'react';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
+import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import type { PixelId as MetaPixelId } from '../track/fbq';
 import type { GaId, GtmId } from '../track/gtag';
@@ -18,10 +20,26 @@ interface Props {
   metaPixelId?: MetaPixelId;
   redditPixelId?: RedditPixelId;
   linkedInPartnerId?: `${number}`;
+  /** Microsoft Advertising UET tag id. The tag reports page loads itself (`enableAutoSpaTracking`). */
+  uetTagId?: `${number}`;
+  /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the Conversions API's ID Sync pixel. */
+  uetCustomerId?: `${number}`;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
   reportWebVitals?: boolean;
+}
+
+/**
+ * Its own component under a Suspense boundary: `useSearchParams` in a statically rendered route
+ * bails the whole tree out to client rendering unless something above it suspends, and Next
+ * fails the build for a page that lets it. The boundary is here so a host does not have to know.
+ */
+function PageViews() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useWebAnalytics(pathname, searchParams.toString());
+  return null;
 }
 
 export function Analytics({
@@ -33,12 +51,13 @@ export function Analytics({
   hotjarId,
   redditPixelId,
   linkedInPartnerId,
+  uetTagId,
+  uetCustomerId,
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
-  const pathname = usePathname();
-  useWebAnalytics(pathname);
   useOutboundClickAnalytics();
+  useUETIdSync(uetCustomerId);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
@@ -56,6 +75,9 @@ export function Analytics({
 
   return (
     <>
+      <Suspense fallback={null}>
+        <PageViews />
+      </Suspense>
       {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
       {gaId && (
         <>
@@ -153,6 +175,32 @@ export function Analytics({
                 s.parentNode.insertBefore(b, s);
               })(window.lintrk);
               `,
+          }}
+        />
+      )}
+      {uetTagId && (
+        <Script
+          strategy="afterInteractive"
+          id="uet-tag"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function (w, d, t, u, o) {
+                w[u] = w[u] || [], o.ts = (new Date).getTime();
+                var n = d.createElement(t);
+                n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
+                n.async = 1, n.onload = n.onreadystatechange = function() {
+                  var s = this.readyState;
+                  s && "loaded" !== s && "complete" !== s ||
+                  (o.q = w[u], w[u] = new UET(o), w[u].push("pageLoad"),
+                  n.onload = n.onreadystatechange = null)
+                };
+                var i = d.getElementsByTagName(t)[0];
+                i.parentNode.insertBefore(n, i);
+              })(window, document, "script", "uetq", {
+                ti: "${uetTagId}",
+                enableAutoSpaTracking: true
+              });
+            `,
           }}
         />
       )}

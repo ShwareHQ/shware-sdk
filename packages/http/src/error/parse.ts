@@ -65,6 +65,33 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
 }
 
 /**
+ * Whether an error body carries `ErrorInfo` with one of the given reasons. Meant for the cases a
+ * component wants to handle itself (inline field error, retry, redirect) so a global error handler
+ * can skip them.
+ *
+ * @example With a react-query MutationCache:
+ *
+ * const login = useMutation({
+ *   mutationFn: api.auth.loginEmail,
+ *   meta: { handledReasons: ['INVALID_VERIFICATION_CODE'] },
+ *   onError: (e) => {
+ *     if (isErrorReason(e.data, 'INVALID_VERIFICATION_CODE')) setError('code', { message });
+ *   },
+ * });
+ *
+ * new MutationCache({
+ *   onError: (e, _v, _c, mutation) => {
+ *     if (isErrorReason(e.data, ...(mutation.meta?.handledReasons ?? []))) return;
+ *     toast.error(getErrorMessage(e.data, t).message);
+ *   },
+ * });
+ */
+export function isErrorReason(data: unknown, ...reasons: ResolvedErrorReason[]): boolean {
+  const reason = getErrorInfo(data)?.reason;
+  return reason !== undefined && reasons.includes(reason);
+}
+
+/**
  * @example For react-hook-form:
  *
  * const { setError } = useForm();

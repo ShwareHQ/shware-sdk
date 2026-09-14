@@ -134,6 +134,13 @@ export interface PageInfo {
   page_referrer?: string;
   page_title?: string;
   /**
+   * Identifies one page load: every event of a page carries the same id, and a navigation — a
+   * reload, or a single-page-app route change, the same moments a `page_view` is sent — starts
+   * a new one. Lets a server-side sender tie a conversion to the page load it happened on
+   * (Microsoft's `pageLoadId`). Web only.
+   */
+  page_load_id?: string;
+  /**
    * @deprecated Renamed to `page_location` in 7.0.0, and never set by this SDK any more.
    * Declared so events from clients still on an older version keep their page URL through
    * validation; read it through `pageLocation` rather than directly.

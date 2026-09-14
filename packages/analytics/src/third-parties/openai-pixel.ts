@@ -2,6 +2,7 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import { NON_AD_EVENTS, type OAIQ, type OAIQUser, mapOAIEvent } from '../track/oaiq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
+import { sha256 } from '../utils/sha256';
 
 declare global {
   interface Window {
@@ -40,15 +41,6 @@ export function sendOpenAIEvent<T extends EventName>(
   } else {
     window.oaiq('measure', type, clean(data), { event_id: eventId });
   }
-}
-
-/** SHA-256 hex digest, lowercase — the format OpenAI expects for hashed identity fields. */
-async function sha256(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 /**

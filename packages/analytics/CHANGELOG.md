@@ -1,5 +1,77 @@
 # @shware/analytics
 
+## 8.6.0
+
+### Minor Changes
+
+- 8fc970c: The `Analytics` components fire Microsoft's ID Sync pixel themselves: pass `uetCustomerId` and the SDK visitor — the `anonymousId` of the events the server sends to the Conversions API — is synced once per visit, anonymous visitors included, since they are who remarketing audiences are built from. `setUETUser` re-syncs on sign-in with the user id hashed into `UID`, matching the server's `externalId`. `configureUET` and `syncUETVisitor` expose the same outside the components; a host no longer writes its own hook around `sendUETIdSync`.
+- 8fc970c: `setUETUser` is the setter itself, not a factory: register it as `thirdPartyUserSetters: [setUETUser]`, not `[setUETUser()]`.
+
+  It had copied the `setFBUser(pixelId)` shape, but UET has nothing to bind first — the snippet ties the queue to its tag — so the extra call was noise, and unlike `setGAUser`, which it now matches. The old form was published in 8.5.0 earlier the same day; any `setUETUser()` call must drop the parentheses.
+
+## 8.5.0
+
+### Minor Changes
+
+- 1132186: Page views follow the industry line: a path _or query_ change is a new page, a hash change is not.
+
+  `useWebAnalytics` had fired `page_view` on the pathname alone, so `?page=2` or `?q=shoes` never counted as a page — where GA4's enhanced measurement, Next.js's `usePathname` + `useSearchParams` pattern and PostHog's `history_change` all count it. The hook now takes the router's query string as a required second argument, and the `tanstack`, `next` and `react-router` `Analytics` components pass it (the Next one under its own Suspense boundary, as `useSearchParams` requires). The hash stays out: an in-page anchor is not a navigation.
+
+  Tracking parameters — `utm_*` and the ad click ids `getTags` captures — are stripped before comparing, so a landing page that cleans them out of its URL with `replaceState` is not counted twice (`getPageKey`). `page_load_id` rotates on exactly the same changes, keeping every id pointed at a page view. `page_path` and `previous_page_path` remain paths; the query is in `page_location`.
+
+- 218b5c4: The `Analytics` component of every framework entry (`tanstack`, `next`, `react-router`) takes a `uetTagId` and inlines Microsoft's UET snippet (bat.js, `enableAutoSpaTracking: true`), the way it already inlines the other vendors' tags. The tag owns page loads; `sendUETEvent` forwards everything else.
+
+## 8.4.0
+
+### Minor Changes
+
+- a45741f: Every web event carries a `page_load_id` tag: one v4 UUID per page load, shared by all events of that page and replaced on a reload or a single-page-app route change — the same moments the SDK sends a `page_view`, so every id has a page view to point at. A module variable, deliberately not storage — the id must die with the page.
+
+  The Microsoft Conversions API sender uses it as `pageLoadId` in CAPI-only mode (`pageLoads: true`), linking each `custom` event to the `pageLoad` event it happened on; with the UET tag on the page nothing is sent, since the tag reported the page load under its own id. `getMicrosoftEvent` takes `{ consent, pageLoads }` as its third argument; the bare consent value is still accepted.
+
+## 8.3.0
+
+### Minor Changes
+
+- 105680a: Microsoft Advertising (Bing Ads) joins the browser trackers and the server-side senders: the UET tag via `sendUETEvent`/`setUETUser`, the Conversions API via `sendMicrosoftEvents`.
+
+  Bing was the one paid channel this SDK had no tracker for, and Microsoft's Conversions API (CAPI) — its counterpart to Meta's — now has a published spec. Both channels are fed from the same `track()` call and deduplicate by construction: the browser pushes the internal event name as the UET action with the event id as `event_id`, the server sends the same name as `eventName` with the same id, which is exactly the (`tagId`, `eventName`, `eventId`) triple Microsoft deduplicates on.
+
+  - **Browser** (`@shware/analytics/third-parties`): `sendUETEvent` maps events onto UET's gtag-shaped API — the GA4 event names this SDK already uses are the actions UET knows, so only parameter spellings change (`value` → `revenue_value`, `Item[]` → `items[]`); an unknown name goes out unchanged as a custom action for an event goal. `page_view` is left to the tag, which routes that action to its own page-load beacon and already fires it on load and on SPA navigations. `setUETUser()` hands the raw email/phone to the tag for enhanced conversions (the tag hashes them itself), `setUETConsent` drives consent mode, and `sendUETIdSync` fires the client-side ID Sync pixel CAPI needs for remarketing — `VID` is the SDK visitor id and `UID` the SHA-256 of the user id, the exact pair the server sends as `anonymousId`/`externalId`, which Microsoft requires to match.
+  - **Server** (`@shware/analytics/server`): `sendMicrosoftEvents(token, tagId, events, data, options)` POSTs to `capi.uet.microsoft.com`, splitting batches at the API's 1,000-event limit, with `continueOnValidationError` on by default so one malformed event costs itself rather than its batch. Identifiers are hashed per Microsoft's rules — email dots and `+alias` stripped for every domain (`normalizeMicrosoftEmail`, byte-for-byte what bat.js does in the browser), E.164 phones, an anonymized `externalId` — `msclkid` is sent as the dashed UUID the API documents. Validation warnings that arrive with a 200 — a removed field, a skipped event — are logged, since the status code hides them. `page_view` events are skipped unless `pageLoads: true`, since the tag already reports page loads; that CAPI-only mode does not yet model `pageLoadId` or the revenue-only companion event a `pageLoad` needs for variable revenue.
+  - **Click id persistence**: `resolveClickIdCookies` now manages `_uetmsclkid` — the UET tag's own cookie, in its own `_uet<id>` format (extracted from bat.js), so the tag and the middleware read each other's writes. The cookie is Microsoft's own ITP answer, but the tag writes it through `document.cookie`, which Safari caps at 7 days (24 hours on an ad-decorated landing page) and rewrites on every page; the middleware re-issues it over HTTP at the tag's own 90 days on each document response, so the HTTP copy is not downgraded on the next page. `getTags` falls back to it, so every event of the visit carries the click id, not just the landing page's. New exports: `parseUetMsclkid`, `formatUetMsclkid`, `formatMsclkid`, `UET_MSCLKID_COOKIE`; `ResolveClickIdCookiesResult` gains `msclkid`.
+
+## 8.2.0
+
+### Minor Changes
+
+- b560c90: Google Ads click ids survive past the landing page: `resolveClickIdCookies` now manages `_gcl_aw`/`_gcl_gb`.
+
+  Until now `gclid`/`wbraid` were read from the current page URL only, so every event after the landing page — and every returning visit — lost the click id, and the Data Manager API sender had nothing to upload for exactly the conversions it exists to recover. The click-id middleware now gives Google the same first-party HTTP persistence Meta and Reddit already had, in the pattern Google itself uses (the server-side Conversion Linker sets FPGCLAW via Set-Cookie for 90 days) and the sGTM ecosystem productized (stape Cookie Keeper re-issues `_gcl_*` over HTTP).
+
+  - **gtag's exact cookie contract, extracted from gtag.js**: values are written as `GCL.<seconds>.<clickId>` (seconds, not `_fbc`'s milliseconds), click ids validated with gtag's own `/^[\w-]+$/`, and a `gclid` enters `_gcl_aw` only when `gclsrc` is absent or `aw.ds` — `ds`/`3p.ds` clicks belong to Search Ads 360, exactly as gtag gates them. `wbraid` routes to `_gcl_gb`.
+  - **Ownership is shared with gtag, so the rules are stricter than for `_fbc`**: a value the module cannot parse is left untouched (never rewritten, never deleted), and a re-issue is byte-identical — labels tail included — at the window's _remaining_ lifetime, so the 90-day click window never slides and a long-expired click is never revived.
+  - **The re-issue doubles as an ITP self-heal for gtag itself**: Safari caps JS-written cookies at 7 days (24h on ad-decorated landings); the HTTP re-issue on the next document response restores the full window for gtag's own conversion tracking too, whether or not the Data Manager sender is in use.
+  - **Web tags fall back to the cookies**: `getTags` now reads `gclid` from the URL first, then a still-valid `_gcl_aw` (`wbraid` likewise from `_gcl_gb`), so every event of the visit — not just the landing page's — carries the click id into the event store the server-side senders read from.
+  - New exports: `parseGcl`, `formatGcl`, `GCL_AW_COOKIE`, `GCL_GB_COOKIE`, `ParsedGcl`; `ResolveClickIdCookiesResult` gains `gclid` and `wbraid`.
+
+  Consent note: hosts gating `resolveClickIdCookies` on consent signals keep doing so — with `ad_storage` denied, gtag deliberately writes none of these cookies, and neither should the middleware.
+
+## 8.1.0
+
+### Minor Changes
+
+- 8ccef09: Google Ads joins the server-side senders: `sendGoogleAdsEvents` uploads conversions via the Data Manager API.
+
+  Google conversions were the one channel still reported only by the browser — gtag reading its own cookie — while Meta, Reddit, OpenAI and LinkedIn already went out server-side from stored events. The new sender speaks `events:ingest` on the Data Manager API, Google's counterpart to Meta's Conversions API and the mandated successor to the Google Ads API's `UploadClickConversions` (closed to new adopters since 2026-06-15). Same shape as the rest of `@shware/analytics/server`: a pure per-event builder (`getDataManagerEvent`), a never-throws `sendEvents`, credentials in headers and never in a URL or a log line.
+
+  - **Built for Google's hybrid setup** ("boost your tag with additional data sources"): point the config at the SAME conversion action the gtag tag reports to, and Google matches the two channels by `transactionId` — fed from `properties.transaction_id` with the event id as fallback, the same value gtag sends, so the ids agree by construction. A matched pair collapses into one conversion with the server data winning; an unmatched upload is a recovered conversion. Standalone conversion actions work too.
+  - **Configured like the LinkedIn sender**: `{ purchase: 111 }` maps event names to conversion action ids; unconfigured events are skipped. Mixed-action batches go out as one request with one destination per action.
+  - **Timed by the event**: `eventTimestamp` is `created_at` (RFC 3339 as stored — no format conversion). A queued or retried upload does not move the conversion.
+  - **At most one click id per event**, `gclid` preferred over `gbraid` over `wbraid`. An event with no click id still uploads when it carries hashed identifiers — the enhanced-conversions match path; one with nothing to match on is skipped rather than costing the batch (the API has no partial-failure mode).
+  - **Enhanced conversions**: emails and phone numbers from `UserProvidedData` are SHA-256 hashed per Google's rules — the gmail-only dot-and-plus stripping included (`normalizeEmail` is exported) — capped at the API's ten identifiers per event, declared with `encoding: 'HEX'`. EEA/UK/CH consent is forwarded via `options.consent`.
+  - **Auth is just an OAuth2 access token** with the `datamanager` scope plus the Google Ads account id (dashes tolerated; delegated access via `loginAccountId`). No developer token, no API Center approval — the caller exchanges its stored refresh token for the access token and stays in charge of refresh, the way it holds the tokens for every other sender.
+
 ## 8.0.0
 
 ### Major Changes

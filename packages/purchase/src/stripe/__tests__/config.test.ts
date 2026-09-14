@@ -2,14 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { StripeConfig } from '../config';
 
 describe('StripeConfig', () => {
-  const Plan = {
-    STARTER: 'STARTER',
-  } as const;
-  type Plan = (typeof Plan)[keyof typeof Plan];
+  const PLANS = ['STARTER'] as const;
+  type Plan = (typeof PLANS)[number];
 
   type BillingPeriod = 'monthly' | 'yearly';
 
   const config = StripeConfig.create<'com.example', Plan, BillingPeriod>({
+    mode: 'live',
     allowPromotionCodes: true,
     cancellationCouponId: 'coupon_123456',
     returnUrl: 'https://example.com/return',
@@ -22,14 +21,14 @@ describe('StripeConfig', () => {
     .price('price_credits_500', { credits: 500, expiresIn: '60d' })
     .default('price_credits_100')
     // Subscription product
-    .product('com.example.sub.starter', Plan.STARTER, 'monthly')
+    .product('com.example.sub.starter', 'STARTER', 'monthly')
     .price('price_starter_monthly1', { credits: 1000, expiresIn: '30d' })
     .price('price_starter_monthly2', { credits: 12000, expiresIn: '365d' })
     .default('price_starter_monthly1')
     // Same plan, different billing period
-    .product('com.example.sub.starter.yearly', Plan.STARTER, 'yearly')
+    .product('com.example.sub.starter.yearly', 'STARTER', 'yearly')
     .price('price_starter_yearly1', { credits: 12000, expiresIn: '365d' })
-    .default('price_starter_yearly1')
+    .default('price_starter_yearly1', { test: 'price_starter_yearly1_test' })
     // Free tier (no credits)
     .product('com.example.free')
     .price('price_free')
@@ -53,7 +52,7 @@ describe('StripeConfig', () => {
 
     // subscription mode (has plan)
     expect(config.getMode('com.example.sub.starter')).toBe('subscription');
-    expect(config.getPlan('com.example.sub.starter')).toBe(Plan.STARTER);
+    expect(config.getPlan('com.example.sub.starter')).toBe('STARTER');
 
     // non-existent product
     expect(() => config.getMode('nonexistent')).toThrow('Product not found for nonexistent');
@@ -64,7 +63,7 @@ describe('StripeConfig', () => {
     expect(config.getBillingPeriod('com.example.sub.starter')).toBe('monthly');
 
     // the same plan resolves to different periods by product
-    expect(config.getPlan('com.example.sub.starter.yearly')).toBe(Plan.STARTER);
+    expect(config.getPlan('com.example.sub.starter.yearly')).toBe('STARTER');
     expect(config.getBillingPeriod('com.example.sub.starter.yearly')).toBe('yearly');
     expect(config.getMode('com.example.sub.starter.yearly')).toBe('subscription');
     expect(config.getPriceId('com.example.sub.starter.yearly')).toBe('price_starter_yearly1');
@@ -82,21 +81,19 @@ describe('StripeConfig', () => {
 
   it('should reject duplicate declarations at runtime', () => {
     const fresh = StripeConfig.create<'com.example', Plan, BillingPeriod>({
+      mode: 'live',
       allowPromotionCodes: true,
       cancellationCouponId: 'coupon_123456',
       returnUrl: 'https://example.com/return',
       cancelUrl: 'https://example.com/cancel',
       successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
     });
-    fresh
-      .product('com.example.sub.pro', Plan.STARTER, 'monthly')
-      .price('price_1')
-      .default('price_1');
+    fresh.product('com.example.sub.pro', 'STARTER', 'monthly').price('price_1').default('price_1');
 
     // statement-style re-entry compiles (the variable's type never accumulates) but must throw
     expect(() =>
       fresh
-        .product('com.example.sub.pro2', Plan.STARTER, 'monthly')
+        .product('com.example.sub.pro2', 'STARTER', 'monthly')
         .price('price_2')
         .default('price_2')
     ).toThrow('Duplicate plan STARTER:monthly');
@@ -112,16 +109,24 @@ describe('StripeConfig', () => {
   it('should reject invalid configurations at the type level', () => {
     // checked by tsc, never executed
     const typeChecks = () => {
+      // @ts-expect-error mode is required
+      StripeConfig.create<'com.example', Plan, BillingPeriod>({
+        allowPromotionCodes: true,
+        cancellationCouponId: 'coupon_123456',
+        returnUrl: 'https://example.com/return',
+        cancelUrl: 'https://example.com/cancel',
+        successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+      });
       // @ts-expect-error duplicate productId
       config.product('com.example.free');
       // @ts-expect-error plan without billingPeriod
-      config.product('com.example.sub.pro', Plan.STARTER);
+      config.product('com.example.sub.pro', 'STARTER');
       // @ts-expect-error billingPeriod outside the caller-defined union
-      config.product('com.example.sub.pro', Plan.STARTER, 'weekly');
+      config.product('com.example.sub.pro', 'STARTER', 'weekly');
       // @ts-expect-error duplicate plan+period pair must live in the existing product chain
-      config.product('com.example.sub.starter2', Plan.STARTER, 'monthly');
+      config.product('com.example.sub.starter2', 'STARTER', 'monthly');
       // @ts-expect-error the yearly pair is taken by com.example.sub.starter.yearly as well
-      config.product('com.example.sub.starter2', Plan.STARTER, 'yearly');
+      config.product('com.example.sub.starter2', 'STARTER', 'yearly');
       // (the main config chain itself proves same plan + different period compiles)
     };
     expect(typeChecks).toBeInstanceOf(Function);
@@ -131,6 +136,13 @@ describe('StripeConfig', () => {
     expect(config.getPriceId('com.example.credits.starter')).toBe('price_credits_100');
     expect(config.getPriceId('com.example.sub.starter')).toBe('price_starter_monthly1');
     expect(config.getPriceId('com.example.free')).toBe('price_free');
+
+    // live mode ignores the test twin entirely: not the default, not a known price
+    expect(config.mode).toBe('live');
+    expect(config.getPriceId('com.example.sub.starter.yearly')).toBe('price_starter_yearly1');
+    expect(() =>
+      config.getCreditAmount('com.example.sub.starter.yearly', 'price_starter_yearly1_test')
+    ).toThrow('Price not found for price_starter_yearly1_test');
 
     expect(() => config.getPriceId('nonexistent')).toThrow('Product not found for nonexistent');
   });
@@ -181,5 +193,71 @@ describe('StripeConfig', () => {
     );
 
     vi.useRealTimers();
+  });
+
+  describe('test mode', () => {
+    const create = () =>
+      StripeConfig.create<'com.example', Plan, BillingPeriod>({
+        mode: 'test',
+        allowPromotionCodes: true,
+        cancellationCouponId: 'coupon_123456',
+        returnUrl: 'https://example.com/return',
+        cancelUrl: 'https://example.com/cancel',
+        successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+      });
+
+    const sandbox = create()
+      .product('com.example.credits.starter')
+      .price('price_credits_100', { credits: 100, expiresIn: '30d' })
+      .price('price_credits_500', { credits: 500, expiresIn: '60d' })
+      .default('price_credits_100', { test: 'price_credits_100_test' })
+      .product('com.example.sub.starter', 'STARTER', 'monthly')
+      .price('price_starter_monthly1', { credits: 1000, expiresIn: '30d' })
+      .default('price_starter_monthly1', { test: 'price_starter_monthly1_test' });
+
+    it('should create checkouts with the test twin', () => {
+      expect(sandbox.mode).toBe('test');
+      expect(sandbox.getPriceId('com.example.credits.starter')).toBe('price_credits_100_test');
+      expect(sandbox.getPriceId('com.example.sub.starter')).toBe('price_starter_monthly1_test');
+    });
+
+    it('should resolve the twin to the default price entitlement', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+
+      // by explicit price id, as webhook handlers do
+      expect(sandbox.getCreditAmount('com.example.credits.starter', 'price_credits_100_test')).toBe(
+        100
+      );
+      expect(
+        sandbox.getCreditExpiresAt('com.example.credits.starter', 'price_credits_100_test')
+      ).toBe('2025-01-31T00:00:00.000Z');
+      // by default
+      expect(sandbox.getCreditAmount('com.example.sub.starter')).toBe(1000);
+      expect(sandbox.getCreditExpiresAt('com.example.sub.starter')).toBe(
+        '2025-01-31T00:00:00.000Z'
+      );
+      // the live ids stay declared and resolvable
+      expect(sandbox.getCreditAmount('com.example.credits.starter', 'price_credits_100')).toBe(100);
+      expect(sandbox.getCreditAmount('com.example.credits.starter', 'price_credits_500')).toBe(500);
+
+      vi.useRealTimers();
+    });
+
+    it('should require a test twin on every default', () => {
+      expect(() =>
+        create().product('com.example.credits.x').price('price_x1').default('price_x1')
+      ).toThrow('Test price not declared for default price_x1 of com.example.credits.x');
+    });
+
+    it('should reject a twin that collides with a declared price', () => {
+      expect(() =>
+        create()
+          .product('com.example.credits.x')
+          .price('price_x1')
+          .price('price_x2')
+          .default('price_x1', { test: 'price_x2' })
+      ).toThrow('Duplicate price price_x2');
+    });
   });
 });

@@ -1,19 +1,42 @@
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
+import { parseGcl, parseUetMsclkid } from '../click-id/index';
 import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
+import { getPageKey } from './page-key';
+
+// lib.dom types `crypto.randomUUID` as always present, but it is missing in insecure contexts
+// and older browsers, so probe it before use.
+function randomUUID(): string {
+  return (crypto as Partial<Crypto>).randomUUID ? crypto.randomUUID() : uuidv4();
+}
 
 export function getDeviceId() {
   const cached = config.storage.getItem(keys.device_id);
   if (cached) return cached;
-  // lib.dom types `crypto.randomUUID` as always present, but it is missing in
-  // insecure contexts and older browsers, so probe it before use.
-  const id = (crypto as Partial<Crypto>).randomUUID ? crypto.randomUUID() : uuidv4();
+  const id = randomUUID();
   config.storage.setItem(keys.device_id, id);
   return id;
+}
+
+/**
+ * The current page load, keyed by the page it was loaded at. A module variable and nothing more
+ * persistent: the id must die with the page (a reload is a new page load, and storage would
+ * carry it over — or, shared across tabs, let two pages overwrite each other's).
+ *
+ * Keyed by `getPageKey` because that is what the SDK's own `page_view` fires on (see
+ * `useWebAnalytics`): the id exists to link an event to the `page_view` of the page it happened
+ * on, so it must rotate exactly when a `page_view` is sent — path or query change, yes; hash
+ * change or tracking-parameter cleanup, no.
+ */
+let pageLoad: { page: string; id: string } | undefined;
+
+function getPageLoadId(page: string): string {
+  if (pageLoad?.page !== page) pageLoad = { page, id: randomUUID() };
+  return pageLoad.id;
 }
 
 const links = new Map<string, Promise<Link | null>>();
@@ -44,6 +67,7 @@ export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
   // page app can navigate while the link lookup below is still in flight.
   const page_location = window.location.href;
+  const page_load_id = getPageLoadId(getPageKey(window.location.pathname, window.location.search));
   const page_referrer = document.referrer || undefined;
   const page_title = document.title;
 
@@ -78,6 +102,7 @@ export async function getTags() {
     page_location,
     page_referrer,
     page_title,
+    page_load_id,
     // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)
     fbc: parsed._fbc ?? undefined,
     fbp: parsed._fbp,
@@ -90,8 +115,10 @@ export async function getTags() {
     campaign_name: params.get('campaign_name') ?? undefined,
     placement: params.get('placement') ?? undefined,
     site_source_name: params.get('site_source_name') ?? undefined,
-    // Google Ads
-    gclid: params.get('gclid') ?? undefined,
+    // Google Ads — _gcl_aw/_gcl_gb are written by gtag and kept alive server-side (see
+    // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
+    // click id to every later page of the visit and to returning visits.
+    gclid: params.get('gclid') ?? parseGcl(parsed._gcl_aw)?.clickId,
     gclsrc: params.get('gclsrc') ?? undefined,
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
@@ -103,11 +130,14 @@ export async function getTags() {
     // click ids
     dclid: params.get('dclid') ?? undefined,
     ko_click_id: params.get('ko_click_id') ?? undefined,
-    msclkid: params.get('msclkid') ?? undefined,
+    // Microsoft Ads — _uetmsclkid is written by the UET tag and kept alive server-side (see
+    // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
+    // click id to every later page of the visit and to returning visits.
+    msclkid: params.get('msclkid') ?? parseUetMsclkid(parsed._uetmsclkid),
     sccid: params.get('sccid') ?? undefined,
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
-    wbraid: params.get('wbraid') ?? undefined,
+    wbraid: params.get('wbraid') ?? parseGcl(parsed._gcl_gb)?.clickId,
     gbraid: params.get('gbraid') ?? undefined,
     yclid: params.get('yclid') ?? undefined,
     // utm params

@@ -1,5 +1,10 @@
 import type { Stripe } from 'stripe';
-import type { SubscriptionStatus } from '../subscription/index';
+import {
+  CANCELLATION_FEEDBACKS,
+  type CancellationDetails,
+  type CancellationFeedback,
+  type SubscriptionStatus,
+} from '../subscription/index';
 
 export function mapTime<T extends number | null>(
   stripeTimestampSeconds: T
@@ -338,5 +343,32 @@ export function getBeginCheckoutProperties(p: ProductPrice): BeginCheckoutProper
         price: price(p.unit_amount, p.currency),
       },
     ],
+  };
+}
+
+/**
+ * Stripe's `cancellation_details` in the shared shape. The object is present on every
+ * subscription with all three fields null, so an active one maps to null rather than an empty
+ * record. `reason` says who acted: `cancellation_requested` is the customer (or us on their
+ * behalf), the payment reasons are Stripe ending it.
+ */
+export function mapCancellationDetails(
+  subscription: Pick<Stripe.Subscription, 'cancellation_details'>
+): CancellationDetails | null {
+  const details = subscription.cancellation_details;
+  if (!details || (!details.reason && !details.feedback && !details.comment)) return null;
+  return {
+    initiator:
+      details.reason === 'payment_failed' || details.reason === 'payment_disputed'
+        ? 'system'
+        : 'user',
+    reason: details.reason ?? null,
+    // Stripe's feedback vocabulary is ours; anything it adds later is reported as "other".
+    feedback: details.feedback
+      ? (CANCELLATION_FEEDBACKS as readonly string[]).includes(details.feedback)
+        ? (details.feedback as CancellationFeedback)
+        : 'other'
+      : null,
+    comment: details.comment ?? null,
   };
 }

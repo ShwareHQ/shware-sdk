@@ -1,5 +1,23 @@
 # @shware/security
 
+## 3.3.1
+
+### Patch Changes
+
+- 4bd2b49: Export `OAuth2Error` (and `OAuth2ErrorType`) from the package root, so an api can recognise a provider's refusal in its error handler and answer 4xx instead of 500.
+
+## 3.3.0
+
+### Minor Changes
+
+- 359dac9: Google `loginOAuth2Native` exchanges the code for the client the app names (`client_id` / `redirect_uri` in the credentials, i.e. the iOS or Android client and its custom-scheme redirect) instead of the registration's web client, which Google refused because the code was issued to another client. No secret is sent for those installed-app clients, and a client from another Google Cloud project (different project-number prefix) is rejected with `invalid_client`. Without a `client_id` in the credentials the registration's client and secret are used as before. `exchangeAuthorizationCode` omits `client_secret` when it is empty.
+
+## 3.2.0
+
+### Minor Changes
+
+- 5a928cc: Add `createAppleClientSecret({ teamId, keyId, privateKey })` to `@shware/security/oauth2/provider`: returns `clientId => secret`, which signs the ES256 client-secret JWT Sign in with Apple requires from the team's `.p8` key at runtime and caches it per client id until shortly before expiry, so an app's bundle id and its web Services ID can share one key and the secret no longer has to be minted by hand and stored as a static value.
+
 ## 3.1.1
 
 ### Patch Changes

@@ -119,6 +119,7 @@ export const tagsSchema = object({
   page_location: optional(string()),
   page_referrer: optional(string()),
   page_title: optional(string()),
+  page_load_id: optional(string()),
   /**
    * @deprecated Renamed to `page_location` in 7.0.0. Accepted so that events from clients
    * still on an older SDK are not stripped of their page URL at this boundary — a browser
