@@ -1,11 +1,10 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { Rocket } from 'lucide-react';
+import { type CSSProperties, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
-import { superellipse } from '../../components/corner-shape';
-import { Dropdown } from '../../components/dropdown';
 import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
 import { Modal, ModalTitle } from '../../components/modal';
@@ -23,6 +22,7 @@ import { WorkflowList } from '../../components/workflow-list';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
 import { useTheme } from '../integrations/theme/root-provider';
+import { PageChrome } from '../page-chrome';
 import { reportSave, studioGet, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -100,15 +100,17 @@ function WorkflowsIndex() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
-        <h1 className="text-lg font-semibold">{t('workflows.title')}</h1>
-        <SearchInput
-          className="w-64"
-          placeholder={t('workflows.searchPlaceholder')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
+      <PageChrome
+        breadcrumb={<Breadcrumb items={[{ label: t('nav.workflows') }]} />}
+        actions={
+          <SearchInput
+            className="w-64"
+            placeholder={t('workflows.searchPlaceholder')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        }
+      />
       <div className="min-h-0 flex-1">
         {filtered.length === 0 ? (
           <div className="text-muted flex h-full items-center justify-center text-sm">
@@ -178,14 +180,13 @@ export const workflowsIndexRoute = createRoute({
 /* --------------------------- Detail (tabbed shell) -------------------------- */
 
 const TABS = [
+  { to: '/workflows/$name/metrics', label: 'workflows.tabs.overview', exact: false },
   { to: '/workflows/$name', label: 'workflows.tabs.canvas', exact: true },
-  { to: '/workflows/$name/metrics', label: 'workflows.tabs.metrics', exact: false },
 ] as const;
 
 function WorkflowDetail() {
   const { name } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
-  const navigate = useNavigate();
   const { t } = useTranslation();
 
   const ir = lookup(config.workflows, name)?.toIR();
@@ -212,40 +213,41 @@ function WorkflowDetail() {
   }
 
   /*
-   * Header, mirroring the template app's editor bar: back and the workflow
-   * switcher on the left, the view tabs in the middle, publish on the right.
-   * 60px tall with a 1px bottom border. A three-column grid with equal outer
-   * tracks keeps the tabs dead-centre while space allows, and squeezes the
-   * sides (never overlaps) when it does not.
+   * The header is the root's. This view contributes a breadcrumb whose leaf is
+   * the workflow switcher, and Publish on the right; the view tabs sit at the
+   * top-left of the content, where switching a view belongs.
    */
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border bg-card grid h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/workflows"
-            className="text-muted hover:bg-hover flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
-            style={superellipse}
-            aria-label={t('common.back')}
-          >
-            <ArrowLeft className="size-4" strokeWidth={2} />
-          </Link>
-          <Dropdown
-            className="max-w-full"
-            value={name}
-            options={options}
-            onChange={(next) => void navigate({ to: '/workflows/$name', params: { name: next } })}
+      <PageChrome
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: t('nav.workflows'), to: '/workflows' },
+              { label: options.find((option) => option.value === name)?.label ?? name },
+            ]}
           />
-        </div>
+        }
+        actions={
+          /* A pill: full radius, and corner-shape reset to round — the studio's
+             superellipse would flatten a pill's ends. */
+          <Button
+            size="sm"
+            variant="default"
+            className="gap-1.5 rounded-full pr-4 pl-3"
+            style={{ cornerShape: 'round' } as CSSProperties}
+          >
+            <Rocket className="size-4" strokeWidth={2} aria-hidden />
+            {t('common.publish')}
+          </Button>
+        }
+      />
+      <div className="px-6 py-3">
         <Tabs
+          className="w-fit"
           items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
           params={{ name }}
         />
-        <div className="flex justify-end">
-          <Button size="sm" variant="default">
-            {t('common.publish')}
-          </Button>
-        </div>
       </div>
 
       <div className="min-h-0 flex-1">
@@ -339,8 +341,8 @@ function CanvasTab() {
   if (ir === undefined) return null;
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="min-w-0 flex-1">
+    <div className="border-border relative h-full min-h-0 border-t">
+      <div className="h-full">
         <WorkflowCanvas
           key={name}
           ir={ir}
@@ -351,26 +353,35 @@ function CanvasTab() {
           onOpenTemplate={(key) => void navigate({ to: '/templates/$key', params: { key } })}
         />
       </div>
+      {/*
+        Floating, not docked: a docked column resizes the canvas every time a
+        node is picked, which shifts the drawing under the cursor. Over the
+        canvas, the drawing stays put and the card is dismissable in place.
+        Capped to the pane's height so a long inspector scrolls inside itself.
+        z-10 clears react-flow's own panels (controls sit at z-5).
+      */}
       {selected !== undefined && (
-        <NodeInspector
-          node={selected}
-          sources={sources}
-          {...(sharedBy !== undefined ? { sharedBy } : {})}
-          onClose={() => select(undefined)}
-          onSave={(field: EditableField, value: string) =>
-            reportSave(
-              studioPost('/__studio/node', {
-                ...locOf(field),
-                path: field.path.join('.'),
-                value,
-              }),
-              {
-                saved: t('inspector.saved'),
-                failed: t('inspector.saveFailed'),
-              }
-            )
-          }
-        />
+        <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100%-2rem)]">
+          <NodeInspector
+            node={selected}
+            sources={sources}
+            {...(sharedBy !== undefined ? { sharedBy } : {})}
+            onClose={() => select(undefined)}
+            onSave={(field: EditableField, value: string) =>
+              reportSave(
+                studioPost('/__studio/node', {
+                  ...locOf(field),
+                  path: field.path.join('.'),
+                  value,
+                }),
+                {
+                  saved: t('inspector.saved'),
+                  failed: t('inspector.saveFailed'),
+                }
+              )
+            }
+          />
+        </div>
       )}
     </div>
   );

@@ -1,10 +1,11 @@
 import type { ConditionIR, NodeIR } from '@shware/workflow';
-import { clsx } from 'clsx';
 import { X } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './button';
 import { superellipse } from './corner-shape';
+import { Input } from './input';
+import { Select } from './select';
 
 /**
  * Details for one canvas node, and — where the value is one literal in source —
@@ -223,6 +224,65 @@ function summary(node: NodeIR): { label: string; value: string }[] {
 }
 
 /** One editable scalar: an input plus its own save, since each has its own literal. */
+/* ------------------------------- Durations ------------------------------- */
+
+/**
+ * Fields whose value is a duration string in the DSL's `ms` format ('1 hour',
+ * '30 days'). Edited as number + unit rather than free text: the runtime parses
+ * the string, so a typo like '1 huor' would only surface at deploy time, and a
+ * negative wait is never meaningful.
+ */
+const DURATION_KEYS: ReadonlySet<EditableFieldKey> = new Set([
+  'duration',
+  'min',
+  'max',
+  'timeout',
+  'within',
+]);
+
+const DURATION_UNITS = ['minutes', 'hours', 'days', 'weeks'] as const;
+type DurationUnit = (typeof DURATION_UNITS)[number];
+
+/** Every spelling `ms` accepts for the units we offer, so existing source parses. */
+const UNIT_ALIASES: Record<string, DurationUnit> = {
+  m: 'minutes',
+  min: 'minutes',
+  mins: 'minutes',
+  minute: 'minutes',
+  minutes: 'minutes',
+  h: 'hours',
+  hr: 'hours',
+  hrs: 'hours',
+  hour: 'hours',
+  hours: 'hours',
+  d: 'days',
+  day: 'days',
+  days: 'days',
+  w: 'weeks',
+  week: 'weeks',
+  weeks: 'weeks',
+};
+
+function parseDuration(value: string): { amount: string; unit: DurationUnit } | undefined {
+  const match = /^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)\s*$/.exec(value);
+  if (match === null) return undefined;
+  const unit = UNIT_ALIASES[(match[2] ?? '').toLowerCase()];
+  return unit === undefined ? undefined : { amount: match[1] ?? '', unit };
+}
+
+/**
+ * Back to the source's own style — '1 hour', '2 hours' — so a round trip with
+ * no change is byte-identical. Empty when the amount is not a number >= 0,
+ * which is what keeps Save disabled.
+ */
+function composeDuration(amount: string, unit: DurationUnit): string {
+  if (amount.trim() === '') return '';
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) return '';
+  const word = n === 1 ? unit.slice(0, -1) : unit;
+  return `${n} ${word}`;
+}
+
 function FieldEditor({
   field,
   source,
@@ -235,12 +295,20 @@ function FieldEditor({
   onSave?: ((field: EditableField, value: string) => Promise<void>) | undefined;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(field.value);
+  /*
+   * Mode is decided from the source value, not the draft: a duration that stops
+   * parsing mid-edit (the amount cleared) must stay a number+unit row, not
+   * flip into a text box under the cursor. Values we cannot parse — say
+   * '90 seconds', a unit we do not offer — keep the free-text editor, so the
+   * constrained one never clobbers what it does not understand.
+   */
+  const parsed = DURATION_KEYS.has(field.key) ? parseDuration(field.value) : undefined;
+  const [textDraft, setTextDraft] = useState(field.value);
+  const [amount, setAmount] = useState(parsed?.amount ?? '');
+  const [unit, setUnit] = useState<DurationUnit>(parsed?.unit ?? 'hours');
   const [saving, setSaving] = useState(false);
 
-  // The IR is rebuilt on every write-back reload; follow it rather than keeping a stale draft
-  useEffect(() => setDraft(field.value), [field.value]);
-
+  const draft = parsed === undefined ? textDraft : composeDuration(amount, unit);
   const canEdit = onSave !== undefined && source?.editable === true;
   const dirty = draft.trim() !== field.value && draft.trim() !== '';
 
@@ -259,18 +327,47 @@ function FieldEditor({
         {field.scope !== undefined && <span className="font-mono">{field.scope} · </span>}
         {t(`inspector.field.${field.key}`)}
       </label>
-      <input
-        id={`node-${field.scope ?? ''}-${field.key}`}
-        value={draft}
-        disabled={!canEdit || saving}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => event.key === 'Enter' && save()}
-        className={clsx(
-          'border-border bg-page text-primary h-9 w-full rounded-lg border px-3 text-sm',
-          'focus:border-accent outline-none disabled:opacity-60'
-        )}
-        style={superellipse}
-      />
+      {parsed === undefined ? (
+        <Input
+          id={`node-${field.scope ?? ''}-${field.key}`}
+          size="sm"
+          value={textDraft}
+          disabled={!canEdit || saving}
+          onChange={(event) => setTextDraft(event.target.value)}
+          onKeyDown={(event) => event.key === 'Enter' && save()}
+          className="text-primary w-full px-3 disabled:opacity-60"
+          style={superellipse}
+        />
+      ) : (
+        <div className="flex gap-2">
+          <Input
+            id={`node-${field.scope ?? ''}-${field.key}`}
+            size="sm"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step="any"
+            value={amount}
+            disabled={!canEdit || saving}
+            /* The browser enforces min on submit, not on typing; drop the sign as it is typed. */
+            onChange={(event) => setAmount(event.target.value.replace('-', ''))}
+            onKeyDown={(event) => event.key === 'Enter' && save()}
+            className="text-primary min-w-0 flex-1 px-3 tabular-nums disabled:opacity-60"
+            style={superellipse}
+          />
+          <Select
+            size="sm"
+            className="w-28 shrink-0"
+            value={unit}
+            disabled={!canEdit || saving}
+            onChange={(next) => setUnit(next as DurationUnit)}
+            options={DURATION_UNITS.map((option) => ({
+              value: option,
+              label: t(`inspector.unit.${option}`),
+            }))}
+          />
+        </div>
+      )}
       {sharedBy !== undefined && sharedBy > 1 && (
         <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
           {t('inspector.shared', { count: sharedBy })}
@@ -294,8 +391,11 @@ export function NodeInspector({ node, sources, sharedBy, onClose, onSave }: Node
   const fields = fieldsOf(node);
 
   return (
-    <aside className="border-border bg-card flex w-80 shrink-0 flex-col border-l">
-      <div className="border-border flex h-14 shrink-0 items-center gap-3 border-b px-4">
+    <aside
+      className="border-border bg-card flex max-h-full w-80 flex-col overflow-hidden rounded-2xl border shadow-[0_4px_12px_var(--color-card-shadow)]"
+      style={superellipse}
+    >
+      <div className="flex h-12 shrink-0 items-center gap-3 pr-2.5 pl-4">
         <span className="text-primary flex-1 text-sm font-semibold">
           {t(`inspector.type.${node.type}`)}
         </span>
@@ -310,10 +410,10 @@ export function NodeInspector({ node, sources, sharedBy, onClose, onSave }: Node
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
         {fields.map((field) => (
           <FieldEditor
-            key={`${field.scope ?? ''}:${field.key}:${field.path.join('.')}`}
+            key={`${field.scope ?? ''}:${field.key}:${field.path.join('.')}:${field.value}`}
             field={field}
             source={sources?.[`${field.scope ?? ''}:${field.path.join('.')}`]}
             {...(sharedBy !== undefined ? { sharedBy } : {})}
@@ -321,19 +421,19 @@ export function NodeInspector({ node, sources, sharedBy, onClose, onSave }: Node
           />
         ))}
 
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm">
+        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-xs">
           <Field label={t('inspector.id')}>
-            <span className="font-mono text-sm">{node.id}</span>
+            <span className="font-mono text-xs">{node.id}</span>
           </Field>
           {node.label !== undefined && <Field label={t('inspector.label')}>{node.label}</Field>}
           {summary(node).map((row) => (
             <Field key={row.label} label={row.label}>
-              <span className="font-mono text-sm">{row.value}</span>
+              <span className="font-mono text-xs">{row.value}</span>
             </Field>
           ))}
           {sources !== undefined && Object.values(sources)[0] !== undefined && (
             <Field label={t('inspector.source')}>
-              <span className="font-mono text-sm">
+              <span className="font-mono text-xs">
                 {Object.values(sources)[0].file}:{Object.values(sources)[0].line}
               </span>
             </Field>

@@ -50,7 +50,7 @@ export default {
     notFound: '没有名为 {{name}} 的流程',
     messages: '条消息',
     delays: '个等待',
-    tabs: { canvas: '流程图', metrics: '数据' },
+    tabs: { overview: '概览', canvas: '流程图' },
     columns: {
       delivered: '已送达',
       opened: '已打开',
@@ -208,6 +208,7 @@ export default {
       within: '时间范围',
       count: '至少次数',
     },
+    unit: { minutes: '分钟', hours: '小时', days: '天', weeks: '周' },
     save: '写回源码',
     shared: '这个调用构建了 {{count}} 个步骤，改动会同时影响全部。',
     readOnly: '这个值在代码里是表达式，此处只读。',

@@ -1,13 +1,12 @@
 import { render } from '@react-email/render';
 import { useQuery } from '@tanstack/react-query';
-import { Link, createRoute, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft, Send } from 'lucide-react';
+import { createRoute, useNavigate } from '@tanstack/react-router';
+import { Send } from 'lucide-react';
 import { type ReactElement, createElement, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
-import { superellipse } from '../../components/corner-shape';
-import { Dropdown } from '../../components/dropdown';
 import { EmailList, type EmailListItem } from '../../components/email-list';
 import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
@@ -20,6 +19,7 @@ import type { EmailModule } from '../../config';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
 import { useTheme } from '../integrations/theme/root-provider';
+import { PageChrome } from '../page-chrome';
 import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -105,15 +105,17 @@ function EmailsIndex() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
-        <h1 className="text-lg font-semibold">{t('emails.title')}</h1>
-        <SearchInput
-          className="w-64"
-          placeholder={t('emails.searchPlaceholder')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
+      <PageChrome
+        breadcrumb={<Breadcrumb items={[{ label: t('nav.templates') }]} />}
+        actions={
+          <SearchInput
+            className="w-64"
+            placeholder={t('emails.searchPlaceholder')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        }
+      />
       <div className="min-h-0 flex-1">
         {filtered.length === 0 ? (
           <div className="text-muted flex h-full items-center justify-center text-sm">
@@ -263,30 +265,22 @@ function EmailView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border bg-card grid h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/templates"
-            className="text-muted hover:bg-hover flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
-            style={superellipse}
-            aria-label={t('common.back')}
-          >
-            <ArrowLeft className="size-4" strokeWidth={2} />
-          </Link>
-          <Dropdown
-            className="max-w-full"
-            value={key}
-            options={options}
-            onChange={(next) => void navigate({ to: '/templates/$key', params: { key: next } })}
+      {/*
+        The header is the root's: breadcrumb with the template switcher as its
+        leaf, the test-send button on the right. Test sends deliver rendered HTML
+        to an inbox — an email-only affordance, so pushes get no button.
+      */}
+      <PageChrome
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: t('nav.templates'), to: '/templates' },
+              { label: options.find((option) => option.value === key)?.label ?? key },
+            ]}
           />
-        </div>
-        <Tabs
-          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
-          params={{ key }}
-        />
-        <div className="flex justify-end">
-          {/* Test sends deliver rendered HTML to an inbox — an email-only affordance. */}
-          {!isPush && (
+        }
+        actions={
+          isPush ? undefined : (
             <Button
               size="sm"
               className="gap-1.5"
@@ -297,8 +291,15 @@ function EmailView() {
               <Send size={16} strokeWidth={2} aria-hidden />
               {t('emails.test')}
             </Button>
-          )}
-        </div>
+          )
+        }
+      />
+      <div className="px-6 py-3">
+        <Tabs
+          className="w-fit"
+          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
+          params={{ key }}
+        />
       </div>
 
       <div className="min-h-0 flex-1">

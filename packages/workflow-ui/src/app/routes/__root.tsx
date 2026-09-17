@@ -17,11 +17,15 @@ import { superellipse } from '../../components/corner-shape';
 import type { ResolvedStudioConfig } from '../../config';
 import { raisePendingToast } from '../integrations/toast/pending';
 import { ToastProvider } from '../integrations/toast/toast-provider';
+import { PageChromeProvider, useChromeSlotRef } from '../page-chrome';
 
 /**
  * Shell: one full-height sidebar down the left, carrying the brand at its top,
- * with the active view filling everything to its right. Each view brings its
- * own header, so there is no second bar across the top competing with it.
+ * and one header across the top of everything to its right. The header is the
+ * only bar: sidebar toggle, then a breadcrumb saying where you are, an optional
+ * centred title, and the view's actions on the right. Views fill it through
+ * PageChrome rather than drawing bars of their own, so every page reads the
+ * same way and the toggle is reachable whether the rail is open or shut.
  *
  * Routes are defined in code rather than by file convention. The studio ships
  * inside a package, so a file-based `routeTree.gen.ts` would have to be written
@@ -53,6 +57,56 @@ const readCollapsed = () =>
   typeof localStorage !== 'undefined' && localStorage.getItem(COLLAPSED_KEY) === 'true';
 
 function RootLayout() {
+  return (
+    <PageChromeProvider>
+      <Shell />
+    </PageChromeProvider>
+  );
+}
+
+/**
+ * The header's three tracks: [toggle + breadcrumb] [title] [actions]. Equal
+ * outer tracks keep the title dead-centre while space allows and squeeze the
+ * sides — never overlap them — when it does not.
+ */
+function Header({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
+  const breadcrumbRef = useChromeSlotRef('breadcrumb');
+  const titleRef = useChromeSlotRef('title');
+  const actionsRef = useChromeSlotRef('actions');
+
+  return (
+    <header className="border-border bg-card grid h-14 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={t(collapsed ? 'nav.expand' : 'nav.collapse')}
+          title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
+          className="text-muted hover:bg-hover hover:text-primary flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+          style={superellipse}
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="size-4" strokeWidth={2} />
+          ) : (
+            <PanelLeftClose className="size-4" strokeWidth={2} />
+          )}
+        </button>
+        <div ref={breadcrumbRef} className="flex min-w-0 items-center" />
+      </div>
+      {/*
+        Never hidden when empty. display:none takes the title out of the grid,
+        and the actions div then auto-places into this auto-sized track instead
+        of the right-hand one — Publish ends up hugging the breadcrumb. Empty,
+        the auto track is 0px, which is all "hidden" would have bought.
+      */}
+      <div ref={titleRef} className="text-sm font-semibold" />
+      <div ref={actionsRef} className="flex items-center justify-end gap-2" />
+    </header>
+  );
+}
+
+function Shell() {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(readCollapsed);
 
@@ -106,7 +160,7 @@ function RootLayout() {
           )}
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1.5 p-3 pt-1">
+        <nav className="flex flex-col gap-1.5 p-3 pt-1">
           {NAV.map((item) => (
             <Link
               key={item.to}
@@ -122,34 +176,14 @@ function RootLayout() {
             </Link>
           ))}
         </nav>
-
-        {/*
-          Bottom rail: the toggle is the same shape as a nav item, so collapsing
-          does not move it. flex-col, like the nav above, so the button stretches
-          to the rail's width — as a row-direction flex item it would size to its
-          own text and its hover fill would stop short of the edges.
-        */}
-        <div className="flex flex-col p-3">
-          <button
-            type="button"
-            onClick={toggle}
-            className={itemClass}
-            style={superellipse}
-            title={collapsed ? t('nav.expand') : undefined}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="size-4 shrink-0" strokeWidth={2} />
-            ) : (
-              <PanelLeftClose className="size-4 shrink-0" strokeWidth={2} />
-            )}
-            {!collapsed && t('nav.collapse')}
-          </button>
-        </div>
       </aside>
 
-      <main className="bg-page min-h-0 min-w-0 flex-1">
-        <Outlet />
-      </main>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Header collapsed={collapsed} onToggle={toggle} />
+        <main className="bg-page min-h-0 min-w-0 flex-1">
+          <Outlet />
+        </main>
+      </div>
 
       <ToastProvider />
     </div>

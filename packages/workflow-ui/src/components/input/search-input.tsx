@@ -18,7 +18,7 @@ export function SearchInput({ size = 'sm', className, ...props }: Props) {
         aria-hidden
         className="text-muted pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2"
       />
-      <Input {...props} size={size} type="search" className="w-full pl-8" />
+      <Input {...props} size={size} type="search" className="w-full rounded-full pl-8" />
     </div>
   );
 }
