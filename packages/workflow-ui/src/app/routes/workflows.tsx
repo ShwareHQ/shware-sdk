@@ -1,5 +1,5 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
+import { Link, Outlet, createRoute, useLocation, useNavigate } from '@tanstack/react-router';
 import { Rocket } from 'lucide-react';
 import { type CSSProperties, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -180,13 +180,17 @@ export const workflowsIndexRoute = createRoute({
 /* --------------------------- Detail (tabbed shell) -------------------------- */
 
 const TABS = [
-  { to: '/workflows/$name/metrics', label: 'workflows.tabs.overview', exact: false },
-  { to: '/workflows/$name', label: 'workflows.tabs.canvas', exact: true },
+  { to: '/workflows/$name', label: 'workflows.tabs.overview', exact: true },
+  { to: '/workflows/$name/workflow', label: 'workflows.tabs.canvas', exact: true },
 ] as const;
 
 function WorkflowDetail() {
   const { name } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  /* Both tab paths are exact, so the active one is whichever equals the URL. */
+  const activeTab =
+    TABS.find((tab) => tab.to.replace('$name', name) === decodeURIComponent(pathname)) ?? TABS[0];
   const { t } = useTranslation();
 
   const ir = lookup(config.workflows, name)?.toIR();
@@ -224,7 +228,12 @@ function WorkflowDetail() {
           <Breadcrumb
             items={[
               { label: t('nav.workflows'), to: '/workflows' },
-              { label: options.find((option) => option.value === name)?.label ?? name },
+              {
+                label: options.find((option) => option.value === name)?.label ?? name,
+                to: '/workflows/$name',
+                params: { name },
+              },
+              { label: t(activeTab.label) },
             ]}
           />
         }
@@ -389,6 +398,6 @@ function CanvasTab() {
 
 export const workflowCanvasRoute = createRoute({
   getParentRoute: () => workflowDetailRoute,
-  path: '/',
+  path: '/workflow',
   component: CanvasTab,
 });

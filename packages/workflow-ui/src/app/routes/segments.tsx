@@ -204,7 +204,12 @@ function SegmentDetail() {
           <Breadcrumb
             items={[
               { label: t('nav.segments'), to: '/segments' },
-              { label: options.find((option) => option.value === name)?.label ?? name },
+              {
+                label: options.find((option) => option.value === name)?.label ?? name,
+                to: '/segments/$name',
+                params: { name },
+              },
+              { label: t(TABS[0].label) },
             ]}
           />
         }
