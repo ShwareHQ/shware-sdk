@@ -34,11 +34,7 @@ export function Breadcrumb({ items }: { items: readonly Crumb[] }) {
               </Link>
             ) : (
               <span
-                className={
-                  last
-                    ? 'text-primary min-w-0 truncate font-medium'
-                    : 'text-muted shrink-0 truncate'
-                }
+                className={last ? 'text-primary min-w-0 truncate' : 'text-muted shrink-0 truncate'}
               >
                 {item.label}
               </span>

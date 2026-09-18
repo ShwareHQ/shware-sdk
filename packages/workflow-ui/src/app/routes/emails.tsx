@@ -275,7 +275,12 @@ function EmailView() {
           <Breadcrumb
             items={[
               { label: t('nav.templates'), to: '/templates' },
-              { label: options.find((option) => option.value === key)?.label ?? key },
+              {
+                label: options.find((option) => option.value === key)?.label ?? key,
+                to: '/templates/$key',
+                params: { key },
+              },
+              { label: t(TABS[0].label) },
             ]}
           />
         }

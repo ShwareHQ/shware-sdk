@@ -101,6 +101,6 @@ function MetricsTab() {
 
 export const workflowMetricsRoute = createRoute({
   getParentRoute: () => workflowDetailRoute,
-  path: '/metrics',
+  path: '/',
   component: MetricsTab,
 });
