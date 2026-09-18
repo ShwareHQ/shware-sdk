@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useLocation, useNavigate } from '@tanstack/react-router';
 import { Rocket } from 'lucide-react';
-import { type CSSProperties, useCallback, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
@@ -15,6 +15,7 @@ import {
   type NodeSource,
   fieldsOf,
 } from '../../components/node-inspector';
+import { PushThumbnail } from '../../components/push-thumbnail';
 import { Tabs } from '../../components/tabs';
 import { findNode, nodesPerSourcePosition } from '../../components/template-refs';
 import { Textarea } from '../../components/textarea';
@@ -358,20 +359,40 @@ function CanvasTab() {
   const emailModule =
     message?.channel === 'email' ? lookup(config.emails, message.template) : undefined;
   const emailPreview = useEmailPreview(emailModule, message?.template ?? '');
+  /* A push has no document: its two strings are drawn into the OS banner. */
+  const pushModule =
+    message?.channel === 'push' ? lookup(config.pushes, message.template) : undefined;
 
   if (ir === undefined) return null;
 
-  const preview =
-    message?.channel === 'email' ? (
+  const openTemplate = () => {
+    if (message !== undefined)
+      void navigate({ to: '/templates/$key', params: { key: message.template } });
+  };
+  let preview: ReactNode;
+  if (message?.channel === 'email') {
+    preview = (
       <EmailThumbnail
         html={emailPreview.data?.html}
         loading={emailModule !== undefined && emailPreview.isPending}
         error={emailPreview.error?.message}
         registered={emailModule !== undefined}
         scheme={resolved}
-        onOpen={() => void navigate({ to: '/templates/$key', params: { key: message.template } })}
+        onOpen={openTemplate}
       />
-    ) : undefined;
+    );
+  } else if (message?.channel === 'push') {
+    preview = (
+      <PushThumbnail
+        appName={config.title ?? 'App'}
+        title={pushModule?.title ?? pushModule?.name ?? message.template}
+        body={pushModule?.body ?? ''}
+        registered={pushModule !== undefined}
+        scheme={resolved}
+        onOpen={openTemplate}
+      />
+    );
+  }
 
   return (
     <div className="border-border relative h-full min-h-0 border-t">

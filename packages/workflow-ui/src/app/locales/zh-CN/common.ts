@@ -164,6 +164,7 @@ export default {
     pushTitle: '标题',
     pushBody: '内容',
     notRegistered: '未注册组件',
+    pushNotRegistered: '未注册推送内容',
     notRegisteredHint: '有流程引用了 {{key}}，但 emails 注册表里没有为它注册 react-email 组件。',
     pushNotRegisteredHint: '有流程引用了 {{key}}，但 pushes 注册表里没有为它注册推送内容。',
     manageAddresses: '管理地址…',

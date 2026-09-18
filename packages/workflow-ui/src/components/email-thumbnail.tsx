@@ -1,8 +1,6 @@
-import { ArrowUpRight } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from './button';
-import { superellipse } from './corner-shape';
+import { ThumbnailStatus, ThumbnailWindow } from './thumbnail-window';
 
 /**
  * Dark-mode simulation for a rendered email: emails are authored light, so a
@@ -74,57 +72,42 @@ export function EmailThumbnail({
       : Math.max(docHeight ?? 0, Math.ceil(box.height / scale));
 
   return (
-    <div className="mb-4">
-      <div
-        ref={boxRef}
-        className="border-border h-48 overflow-x-hidden overflow-y-auto rounded-xl border"
-        style={{ ...superellipse, backgroundColor: scheme === 'dark' ? '#161616' : '#fff' }}
-      >
-        {status !== undefined ? (
-          <div
-            className={
-              error !== undefined
-                ? 'flex h-full items-center justify-center px-4 text-center text-xs text-red-600 dark:text-red-300'
-                : 'text-muted flex h-full items-center justify-center px-4 text-center text-xs'
-            }
-          >
-            {status}
+    <ThumbnailWindow
+      ref={boxRef}
+      className="overflow-x-hidden overflow-y-auto"
+      style={{ backgroundColor: scheme === 'dark' ? '#161616' : '#fff' }}
+      onOpen={registered ? onOpen : undefined}
+    >
+      {status !== undefined ? (
+        <ThumbnailStatus tone={error !== undefined ? 'error' : 'muted'}>{status}</ThumbnailStatus>
+      ) : (
+        scale !== undefined && (
+          /* Sized to the scaled document, so the window scrolls the whole email. */
+          <div style={{ height: frameHeight * scale }}>
+            <iframe
+              title={t('inspector.openTemplate')}
+              srcDoc={`${html}${scheme === 'dark' ? DARK_SIMULATION : ''}${NO_SCROLL}`}
+              /*
+               * Same-origin so the document's height is readable; no
+               * allow-scripts, so nothing in it runs. A picture of a document.
+               */
+              sandbox="allow-same-origin"
+              tabIndex={-1}
+              aria-hidden
+              onLoad={(event) => {
+                const height = event.currentTarget.contentDocument?.documentElement.scrollHeight;
+                if (height !== undefined && height > 0) setDocHeight(height);
+              }}
+              className="pointer-events-none block origin-top-left border-0"
+              style={{
+                width: EMAIL_WIDTH,
+                height: frameHeight,
+                transform: `scale(${scale})`,
+              }}
+            />
           </div>
-        ) : (
-          scale !== undefined && (
-            /* Sized to the scaled document, so the window scrolls the whole email. */
-            <div style={{ height: frameHeight * scale }}>
-              <iframe
-                title={t('inspector.openTemplate')}
-                srcDoc={`${html}${scheme === 'dark' ? DARK_SIMULATION : ''}${NO_SCROLL}`}
-                /*
-                 * Same-origin so the document's height is readable; no
-                 * allow-scripts, so nothing in it runs. A picture of a document.
-                 */
-                sandbox="allow-same-origin"
-                tabIndex={-1}
-                aria-hidden
-                onLoad={(event) => {
-                  const height = event.currentTarget.contentDocument?.documentElement.scrollHeight;
-                  if (height !== undefined && height > 0) setDocHeight(height);
-                }}
-                className="pointer-events-none block origin-top-left border-0"
-                style={{
-                  width: EMAIL_WIDTH,
-                  height: frameHeight,
-                  transform: `scale(${scale})`,
-                }}
-              />
-            </div>
-          )
-        )}
-      </div>
-      {registered && (
-        <Button size="xs" variant="secondary" className="mt-2 w-full gap-1" onClick={onOpen}>
-          {t('inspector.openTemplate')}
-          <ArrowUpRight className="size-3.5" strokeWidth={2} aria-hidden />
-        </Button>
+        )
       )}
-    </div>
+    </ThumbnailWindow>
   );
 }

@@ -164,6 +164,7 @@ export default {
     pushTitle: 'Title',
     pushBody: 'Body',
     notRegistered: 'No component registered',
+    pushNotRegistered: 'No push content registered',
     notRegisteredHint:
       'A workflow references {{key}}, but no react-email component is registered for it in the emails index.',
     pushNotRegisteredHint:
