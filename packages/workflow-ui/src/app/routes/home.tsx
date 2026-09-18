@@ -2,9 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { createRoute } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Breadcrumb } from '../../components/breadcrumb';
 import { superellipse } from '../../components/corner-shape';
 import { collectTemplateRefs } from '../../components/template-refs';
 import { lookup } from '../../utils/lookup';
+import { PageChrome } from '../page-chrome';
 import { Route as rootRoute } from './__root';
 import { collectSegmentRefs } from './segments';
 
@@ -54,6 +56,7 @@ function Home() {
 
   return (
     <div className="h-full overflow-auto p-6">
+      <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.home') }]} />} />
       <h1 className="text-lg font-semibold">{t('home.title')}</h1>
       <p className="text-muted mt-1 text-sm">{t('home.subtitle')}</p>
 

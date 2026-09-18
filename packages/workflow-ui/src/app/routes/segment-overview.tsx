@@ -80,8 +80,8 @@ function SegmentOverview() {
   }
 
   return (
-    /* relative: the drawer is absolutely positioned against this pane, not the window */
-    <div className="relative h-full overflow-hidden">
+    /* The drawer is fixed to the viewport, so this pane only has to scroll its own content. */
+    <div className="h-full overflow-hidden">
       <div className="h-full overflow-auto p-6">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <Stat label={t('segments.size')} value={report ? number(report.size) : '—'} />

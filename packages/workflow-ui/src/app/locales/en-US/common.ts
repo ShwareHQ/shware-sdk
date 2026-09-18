@@ -50,7 +50,7 @@ export default {
     notFound: 'No workflow named {{name}}',
     messages: 'messages',
     delays: 'delays',
-    tabs: { canvas: 'Workflow', metrics: 'Metrics' },
+    tabs: { overview: 'Overview', canvas: 'Workflow' },
     columns: {
       delivered: 'Delivered',
       opened: 'Opened',
@@ -211,6 +211,7 @@ export default {
       within: 'Within',
       count: 'At least',
     },
+    unit: { minutes: 'Minutes', hours: 'Hours', days: 'Days', weeks: 'Weeks' },
     save: 'Save to source',
     shared: 'This call builds {{count}} steps — editing it changes all of them.',
     readOnly: 'Defined by an expression in code — read-only here.',

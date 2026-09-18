@@ -167,7 +167,7 @@ function Device({
   return (
     <div className="shrink-0" style={{ width: DEVICE_W }}>
       <div
-        className="mb-4 text-center text-[14px] font-semibold"
+        className="mb-3 text-center text-[14px] font-semibold"
         style={{ color: dark ? 'var(--color-gray-400)' : 'var(--color-gray-500)' }}
       >
         {label}

@@ -1,6 +1,7 @@
 import { createRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { AddressBook } from '../../components/address-book';
+import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
 import { superellipse } from '../../components/corner-shape';
 import {
@@ -9,6 +10,7 @@ import {
   supportedLngs,
 } from '../integrations/i18n/root-provider';
 import { type Theme, themes, useTheme } from '../integrations/theme/root-provider';
+import { PageChrome } from '../page-chrome';
 import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -31,7 +33,7 @@ function Settings() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <h1 className="text-lg font-semibold">{t('settings.title')}</h1>
+      <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.settings') }]} />} />
 
       <section
         className="border-border bg-card mt-5 max-w-xl rounded-2xl border p-5"

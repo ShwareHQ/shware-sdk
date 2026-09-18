@@ -230,13 +230,13 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
           type="button"
           aria-label={t('common.close')}
           onClick={onClose}
-          className="absolute inset-0 z-20 cursor-default bg-gray-950/20 dark:bg-gray-950/50"
+          className="fixed inset-0 z-20 cursor-default bg-gray-950/20 dark:bg-gray-950/50"
         />
       )}
 
       <aside
         aria-hidden={!open}
-        className={`border-border bg-card absolute inset-y-0 right-0 z-30 flex w-96 max-w-full flex-col border-l shadow-xl transition-transform duration-200 ease-out ${
+        className={`border-border bg-card fixed inset-y-0 right-0 z-30 flex w-96 max-w-full flex-col border-l shadow-xl transition-transform duration-200 ease-out ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
