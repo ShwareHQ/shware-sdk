@@ -26,3 +26,14 @@ export const gettingStarted = template.email('onboarding_getting_started');
 
 /** Onboarding: pro tips, for already-active users. */
 export const proTips = template.email('onboarding_pro_tips');
+
+/* ------- Push companions: same key contract as emails; content lives in src/pushes/ ------- */
+
+/** U1's lock-screen twin: lands with the email, so the nudge is seen even when the inbox is not. */
+export const checkoutReminderPush = template.push('checkout_reminder_push');
+
+/** Onboarding: for sign-ups still without a document once the activation wait runs out. */
+export const firstDocPush = template.push('onboarding_first_doc_push');
+
+/** Christmas: the promo on the lock screen. The coupon is a prop, so the code is not baked into content. */
+export const christmasPush = template.push<{ coupon: string }>('christmas_promo_push');

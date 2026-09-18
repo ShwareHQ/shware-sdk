@@ -1,10 +1,11 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useLocation, useNavigate } from '@tanstack/react-router';
 import { Rocket } from 'lucide-react';
-import { type CSSProperties, useCallback, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
+import { EmailThumbnail } from '../../components/email-thumbnail';
 import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
 import { Modal, ModalTitle } from '../../components/modal';
@@ -14,6 +15,7 @@ import {
   type NodeSource,
   fieldsOf,
 } from '../../components/node-inspector';
+import { PushThumbnail } from '../../components/push-thumbnail';
 import { Tabs } from '../../components/tabs';
 import { findNode, nodesPerSourcePosition } from '../../components/template-refs';
 import { Textarea } from '../../components/textarea';
@@ -21,6 +23,7 @@ import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
+import { useEmailPreview } from '../email-preview';
 import { useTheme } from '../integrations/theme/root-provider';
 import { PageChrome } from '../page-chrome';
 import { reportSave, studioGet, studioPost } from '../studio';
@@ -347,7 +350,49 @@ function CanvasTab() {
     if (data !== undefined) sources[slotOf(field)] = data;
   });
 
+  /*
+   * A message node shows what it sends. Email is the one channel with a
+   * document to render; the query is keyed like the templates page's, so a
+   * template seen there (or here) is already rendered for the other.
+   */
+  const message = selected?.type === 'message' ? selected : undefined;
+  const emailModule =
+    message?.channel === 'email' ? lookup(config.emails, message.template) : undefined;
+  const emailPreview = useEmailPreview(emailModule, message?.template ?? '');
+  /* A push has no document: its two strings are drawn into the OS banner. */
+  const pushModule =
+    message?.channel === 'push' ? lookup(config.pushes, message.template) : undefined;
+
   if (ir === undefined) return null;
+
+  const openTemplate = () => {
+    if (message !== undefined)
+      void navigate({ to: '/templates/$key', params: { key: message.template } });
+  };
+  let preview: ReactNode;
+  if (message?.channel === 'email') {
+    preview = (
+      <EmailThumbnail
+        html={emailPreview.data?.html}
+        loading={emailModule !== undefined && emailPreview.isPending}
+        error={emailPreview.error?.message}
+        registered={emailModule !== undefined}
+        scheme={resolved}
+        onOpen={openTemplate}
+      />
+    );
+  } else if (message?.channel === 'push') {
+    preview = (
+      <PushThumbnail
+        appName={config.title ?? 'App'}
+        title={pushModule?.title ?? pushModule?.name ?? message.template}
+        body={pushModule?.body ?? ''}
+        registered={pushModule !== undefined}
+        scheme={resolved}
+        onOpen={openTemplate}
+      />
+    );
+  }
 
   return (
     <div className="border-border relative h-full min-h-0 border-t">
@@ -359,7 +404,6 @@ function CanvasTab() {
           {...(stats !== undefined ? { stats } : {})}
           selectedId={selectedId}
           onSelectNode={select}
-          onOpenTemplate={(key) => void navigate({ to: '/templates/$key', params: { key } })}
         />
       </div>
       {/*
@@ -375,6 +419,7 @@ function CanvasTab() {
             node={selected}
             sources={sources}
             {...(sharedBy !== undefined ? { sharedBy } : {})}
+            {...(preview !== undefined ? { preview } : {})}
             onClose={() => select(undefined)}
             onSave={(field: EditableField, value: string) =>
               reportSave(

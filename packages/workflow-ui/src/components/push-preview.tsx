@@ -215,17 +215,77 @@ function Device({
   );
 }
 
+/** iOS lock-screen wallpaper; the inspector's push thumbnail uses the same one. */
+export const IOS_WALLPAPER = {
+  light: 'linear-gradient(170deg,#a9c4ff 0%,#d5b3f7 52%,#ffc0d3 100%)',
+  dark: 'linear-gradient(170deg,#26355f 0%,#45296b 52%,#131625 100%)',
+};
+
+const IOS_FACE: CSSProperties = {
+  fontFamily: "-apple-system, 'SF Pro Text', system-ui, sans-serif",
+};
+
+/**
+ * The banner alone, to the iOS 26 kit: 8pt side margins (386 wide on a 402pt
+ * screen), padding 14/12, a 10pt gap after the 38pt icon, and the time
+ * top-right. The lock screen composes it; the inspector thumbnail shows it bare.
+ */
+export function IosBanner({
+  appName,
+  title,
+  body,
+  dark,
+}: Omit<PushPreviewProps, 'zoom' | 'scheme'> & { dark: boolean }) {
+  const primary = dark ? 'rgba(255,255,255,0.96)' : 'rgba(0,0,0,0.9)';
+  const secondary = dark ? 'rgba(235,235,245,0.6)' : '#4D4D4D';
+  return (
+    <div
+      className="relative mx-[8px] shrink-0 rounded-[40px] px-[14px] py-[12px]"
+      style={{
+        ...IOS_FACE,
+        /* Liquid glass: brighter than the wallpaper, heavy blur, a specular rim. */
+        background: dark ? 'rgba(110,115,135,0.34)' : 'rgba(250,250,252,0.5)',
+        backdropFilter: 'blur(28px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+        boxShadow: dark
+          ? '0 8px 32px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.16)'
+          : '0 8px 32px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.55)',
+        ...squircle,
+      }}
+    >
+      <div className="flex gap-[10px]">
+        <AppIcon name={appName} size={38} radius={12} shape={squircle} className="self-center" />
+        <div className="min-w-0 flex-1 self-center">
+          <div
+            className="truncate text-[15px] leading-[17px] font-semibold tracking-[-0.23px]"
+            style={{ color: primary }}
+          >
+            {title}
+          </div>
+          <div
+            className="line-clamp-4 text-[15px] leading-[18px] tracking-[-0.23px]"
+            style={{ color: primary }}
+          >
+            {body}
+          </div>
+        </div>
+        <span
+          className="shrink-0 self-start text-[15px] leading-[17px]"
+          style={{ color: secondary }}
+        >
+          now
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function IosDevice({
   appName,
   title,
   body,
   dark,
 }: Omit<PushPreviewProps, 'zoom' | 'scheme'> & { dark: boolean }) {
-  const face: CSSProperties = {
-    fontFamily: "-apple-system, 'SF Pro Text', system-ui, sans-serif",
-  };
-  const primary = dark ? 'rgba(255,255,255,0.96)' : 'rgba(0,0,0,0.9)';
-  const secondary = dark ? 'rgba(235,235,245,0.6)' : '#4D4D4D';
   return (
     <Device
       label="iOS"
@@ -233,13 +293,9 @@ function IosDevice({
       geometry={IPHONE}
       overlay={iphoneFrameUrl}
       screenShape={squircle}
-      wallpaper={
-        dark
-          ? 'linear-gradient(170deg,#26355f 0%,#45296b 52%,#131625 100%)'
-          : 'linear-gradient(170deg,#a9c4ff 0%,#d5b3f7 52%,#ffc0d3 100%)'
-      }
+      wallpaper={dark ? IOS_WALLPAPER.dark : IOS_WALLPAPER.light}
     >
-      <div className="relative flex min-h-0 flex-1 flex-col" style={face}>
+      <div className="relative flex min-h-0 flex-1 flex-col" style={IOS_FACE}>
         {/*
           Wallpaper glow, sitting behind the banner: frosted glass is invisible
           over a flat gradient — the blur needs detail to smear. Two soft light
@@ -288,54 +344,7 @@ function IosDevice({
         </div>
         {/* Wallpaper breathes; notifications rise from the bottom on iOS. */}
         <div className="min-h-0 flex-1" />
-        {/*
-          The banner, to the iOS 26 kit: 8pt side margins (386 wide on a 402pt
-          screen), padding 14/12, a 10pt gap after the 38pt icon, and the time
-          top-right.
-        */}
-        <div
-          className="relative mx-[8px] shrink-0 rounded-[40px] px-[14px] py-[12px]"
-          style={{
-            /* Liquid glass: brighter than the wallpaper, heavy blur, a specular rim. */
-            background: dark ? 'rgba(110,115,135,0.34)' : 'rgba(250,250,252,0.5)',
-            backdropFilter: 'blur(28px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-            boxShadow: dark
-              ? '0 8px 32px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.16)'
-              : '0 8px 32px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.55)',
-            ...squircle,
-          }}
-        >
-          <div className="flex gap-[10px]">
-            <AppIcon
-              name={appName}
-              size={38}
-              radius={12}
-              shape={squircle}
-              className="self-center"
-            />
-            <div className="min-w-0 flex-1 self-center">
-              <div
-                className="truncate text-[15px] leading-[17px] font-semibold tracking-[-0.23px]"
-                style={{ color: primary }}
-              >
-                {title}
-              </div>
-              <div
-                className="line-clamp-4 text-[15px] leading-[18px] tracking-[-0.23px]"
-                style={{ color: primary }}
-              >
-                {body}
-              </div>
-            </div>
-            <span
-              className="shrink-0 self-start text-[15px] leading-[17px]"
-              style={{ color: secondary }}
-            >
-              now
-            </span>
-          </div>
-        </div>
+        <IosBanner appName={appName} title={title} body={body} dark={dark} />
         {/* Flashlight / camera (50pt), and the home indicator. */}
         <div className="mt-[24px] mb-[12px] flex shrink-0 items-center justify-between px-[52px]">
           {[Flashlight, Camera].map((Icon, index) => (

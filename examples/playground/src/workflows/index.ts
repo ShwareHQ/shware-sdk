@@ -1,7 +1,10 @@
-import { action, contains, eq, exists, flow, gt, trigger, workflow } from '@shware/workflow';
+import { action, contains, eq, exists, flow, gt, not, trigger, workflow } from '@shware/workflow';
 import { e, u } from './schema';
 import { activated, activeSubscriber, purchaser } from './segments';
 import {
+  checkoutReminderPush,
+  christmasPush,
+  firstDocPush,
   firstTimeRecovery,
   gettingStarted,
   limitedTimeOffer,
@@ -44,9 +47,12 @@ const issueCoupon = action<{ code: string; email: string }>(
 
 /**
  * U1 (abandoned-upgrade recovery): a single email, no discount, personalized
- * with the user's current plan. Original canvas: U1: Upgrade recovery → Exit.
+ * with the user's current plan, with a push landing alongside it — two
+ * channels, one moment. Original canvas: U1: Upgrade recovery → Exit.
  */
-const upgradeFlow = flow((w) => w.email(upgradeRecovery, { plan: u.subscription_plan }));
+const upgradeFlow = flow((w) =>
+  w.push(checkoutReminderPush).email(upgradeRecovery, { plan: u.subscription_plan })
+);
 
 /**
  * N1/N2 (abandoned first purchase): a discount-free reminder → 23h → a
@@ -114,6 +120,8 @@ export const checkoutRecovery = workflow('checkout_recovery', {
  */
 export const onboarding = workflow('onboarding', { name: 'Onboarding · Core', trigger: signedUp })
   .waitUntil(activated, { timeout: '3 days', onTimeout: 'continue' })
+  // Timed out without a first document: a lock-screen nudge; the activated skip straight past
+  .branch([not(activated), (w) => w.push(firstDocPush)])
   .timeWindow({
     days: ['mon', 'tue', 'wed', 'thu', 'fri'],
     between: ['09:00', '17:00'],
@@ -134,6 +142,7 @@ export const christmasPromo = workflow('christmas_promo', {
   trigger: christmasMorning,
 })
   .filter(activeSubscriber)
+  .push(christmasPush, { coupon: 'XMAS25' })
   .email(limitedTimeOffer, { coupon: 'XMAS25', expiresIn: '72 hours' });
 
 /**

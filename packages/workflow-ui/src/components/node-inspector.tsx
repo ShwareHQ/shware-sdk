@@ -34,6 +34,11 @@ export interface NodeInspectorProps {
   onClose: () => void;
   /** Save a new value for one field. Omit to keep the panel read-only. */
   onSave?: (field: EditableField, value: string) => Promise<void>;
+  /**
+   * What the node sends, rendered: an email thumbnail for a message node. The
+   * host owns the template registry and the render, so it passes the result.
+   */
+  preview?: ReactNode;
 }
 
 /** Label / value row, matching the email envelope table. */
@@ -386,7 +391,14 @@ function FieldEditor({
   );
 }
 
-export function NodeInspector({ node, sources, sharedBy, onClose, onSave }: NodeInspectorProps) {
+export function NodeInspector({
+  node,
+  sources,
+  sharedBy,
+  onClose,
+  onSave,
+  preview,
+}: NodeInspectorProps) {
   const { t } = useTranslation();
   const fields = fieldsOf(node);
 
@@ -411,6 +423,7 @@ export function NodeInspector({ node, sources, sharedBy, onClose, onSave }: Node
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-4 pt-0">
+        {preview}
         {fields.map((field) => (
           <FieldEditor
             key={`${field.scope ?? ''}:${field.key}:${field.path.join('.')}:${field.value}`}

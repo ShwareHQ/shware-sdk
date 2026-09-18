@@ -1,8 +1,6 @@
-import { render } from '@react-email/render';
-import { useQuery } from '@tanstack/react-query';
 import { createRoute, useNavigate } from '@tanstack/react-router';
 import { Send } from 'lucide-react';
-import { type ReactElement, createElement, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Breadcrumb } from '../../components/breadcrumb';
@@ -15,9 +13,9 @@ import { Tabs } from '../../components/tabs';
 import { collectTemplateRefs } from '../../components/template-refs';
 import { TemplatesPage } from '../../components/templates-page';
 import { Textarea } from '../../components/textarea';
-import type { EmailModule } from '../../config';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
+import { useEmailPreview } from '../email-preview';
 import { useTheme } from '../integrations/theme/root-provider';
 import { PageChrome } from '../page-chrome';
 import { reportSave, studioPost } from '../studio';
@@ -180,25 +178,6 @@ export const emailsIndexRoute = createRoute({
   path: '/templates',
   component: EmailsIndex,
 });
-
-/** Render one registered template to HTML; the query keeps it off the render path. */
-function useEmailPreview(mod: EmailModule | undefined, key: string) {
-  return useQuery({
-    queryKey: ['email-preview', key],
-    queryFn: async () => {
-      if (mod === undefined) return { html: undefined, subject: undefined };
-      // The module contract narrows props with never (contravariance); restore a concrete shape here
-      const props = (mod.preview ?? {}) as Record<string, unknown>;
-      const Component = mod.default as (p: Record<string, unknown>) => ReactElement;
-      return {
-        html: await render(createElement(Component, props)),
-        // Subjects are string templates, shown verbatim ({prop} placeholders included)
-        subject: mod.subject,
-      };
-    },
-    enabled: mod !== undefined,
-  });
-}
 
 const TABS = [{ to: '/templates/$key', label: 'emails.tabs.preview', exact: true }] as const;
 
