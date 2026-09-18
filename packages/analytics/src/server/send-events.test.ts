@@ -192,7 +192,11 @@ describe('OpenAI sendEvents', () => {
 describe('LinkedIn sendEvents failure paths', () => {
   it('logs a rejected batch without throwing', async () => {
     fetchMock.mockResolvedValueOnce(new Response('bad', { status: 422 }));
-    await expect(sendLinkedinEvents('token', { purchase: 1 }, [event()])).resolves.toBeUndefined();
+    // `user_id` so the event carries an identifier and survives to the request; an element
+    // LinkedIn could not match on is dropped before the fetch and there would be nothing to log.
+    await expect(
+      sendLinkedinEvents('token', { purchase: 1 }, [event()], { user_id: 'u1' })
+    ).resolves.toBeUndefined();
     expect(String(errorSpy.mock.calls[0][0])).toContain('status: 422');
   });
 
@@ -200,7 +204,7 @@ describe('LinkedIn sendEvents failure paths', () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const pending = sendLinkedinEvents('token', { purchase: 1 }, [event()]);
+    const pending = sendLinkedinEvents('token', { purchase: 1 }, [event()], { user_id: 'u1' });
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(pending).resolves.toBeUndefined();
     expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
