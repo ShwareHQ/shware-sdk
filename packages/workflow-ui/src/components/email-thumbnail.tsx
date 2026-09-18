@@ -70,6 +70,14 @@ export function EmailThumbnail({
     box === undefined || scale === undefined
       ? 0
       : Math.max(docHeight ?? 0, Math.ceil(box.height / scale));
+  /*
+   * The wrapper only grows for a document taller than the window. Otherwise it
+   * fills exactly and clips the frame's rounding: the ceil above leaves a
+   * fraction of a pixel that would otherwise read as overflow and show a bar.
+   */
+  const contentHeight = docHeight !== undefined && scale !== undefined ? docHeight * scale : 0;
+  const wrapperHeight =
+    box !== undefined && contentHeight > box.height + 1 ? contentHeight : '100%';
 
   return (
     <ThumbnailWindow
@@ -83,7 +91,7 @@ export function EmailThumbnail({
       ) : (
         scale !== undefined && (
           /* Sized to the scaled document, so the window scrolls the whole email. */
-          <div style={{ height: frameHeight * scale }}>
+          <div className="overflow-hidden" style={{ height: wrapperHeight }}>
             <iframe
               title={t('inspector.openTemplate')}
               srcDoc={`${html}${scheme === 'dark' ? DARK_SIMULATION : ''}${NO_SCROLL}`}
