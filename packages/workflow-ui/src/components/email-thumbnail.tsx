@@ -1,6 +1,7 @@
 import { ArrowUpRight } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from './button';
 import { superellipse } from './corner-shape';
 
 /**
@@ -11,7 +12,7 @@ import { superellipse } from './corner-shape';
 export const DARK_SIMULATION =
   '<style>html{background:#fff;filter:invert(0.92) hue-rotate(180deg)}img,video{filter:invert(1) hue-rotate(180deg)}</style>';
 
-/** The thumbnail is a fixed window; the document behind it must not scroll. */
+/** The window scrolls the document; the frame itself must never scroll inside it. */
 const NO_SCROLL = '<style>html,body{overflow:hidden}</style>';
 
 /** Emails are laid out for this width; the thumbnail scales that down, never reflows it. */
@@ -25,14 +26,15 @@ export interface EmailThumbnailProps {
   /** False when the IR references a template the emails index does not register. */
   registered: boolean;
   scheme: 'light' | 'dark';
-  /** Open the full preview; the whole thumbnail is the affordance. */
+  /** Open the full preview — the button under the window. */
   onOpen: () => void;
 }
 
 /**
- * The top of an email at postage-stamp size: the document renders at its
- * native width in a sandboxed frame and is scaled to the card, so what shows
- * is exactly what the templates page shows, only smaller. Clicking goes there.
+ * The email at postage-stamp size: the document renders at its native width
+ * in a sandboxed frame and is scaled to the card, so what shows is exactly
+ * what the templates page shows, only smaller. The window scrolls through the
+ * whole email; a button beneath it opens the full preview.
  */
 export function EmailThumbnail({
   html,
@@ -45,8 +47,10 @@ export function EmailThumbnail({
   const { t } = useTranslation();
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ width: number; height: number }>();
+  /* Native document height, read once the frame has laid out. */
+  const [docHeight, setDocHeight] = useState<number>();
 
-  /* The scale follows the card's inner width; measure rather than assume it. */
+  /* The scale follows the window's inner width; measure rather than assume it. */
   useLayoutEffect(() => {
     const element = boxRef.current;
     if (element === null) return;
@@ -63,15 +67,19 @@ export function EmailThumbnail({
   else if (error !== undefined) status = error;
   else if (loading || html === undefined) status = t('emails.rendering');
 
+  /* Until the document reports its height, fill the window so the first paint is not blank. */
+  const frameHeight =
+    box === undefined || scale === undefined
+      ? 0
+      : Math.max(docHeight ?? 0, Math.ceil(box.height / scale));
+
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title={t('inspector.openTemplate')}
-      className="group border-border focus-visible:ring-accent/40 dark:focus-visible:ring-accent/50 relative mb-4 block h-48 w-full overflow-hidden rounded-xl border text-left transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-3"
-      style={{ ...superellipse, backgroundColor: scheme === 'dark' ? '#161616' : '#fff' }}
-    >
-      <div ref={boxRef} className="absolute inset-0">
+    <div className="mb-4">
+      <div
+        ref={boxRef}
+        className="border-border h-48 overflow-x-hidden overflow-y-auto rounded-xl border"
+        style={{ ...superellipse, backgroundColor: scheme === 'dark' ? '#161616' : '#fff' }}
+      >
         {status !== undefined ? (
           <div
             className={
@@ -83,29 +91,40 @@ export function EmailThumbnail({
             {status}
           </div>
         ) : (
-          scale !== undefined &&
-          box !== undefined && (
-            <iframe
-              title={t('inspector.openTemplate')}
-              srcDoc={`${html}${scheme === 'dark' ? DARK_SIMULATION : ''}${NO_SCROLL}`}
-              /* No scripts, no navigation: this is a picture of a document, not a document. */
-              sandbox=""
-              tabIndex={-1}
-              aria-hidden
-              className="pointer-events-none block origin-top-left border-0"
-              style={{
-                width: EMAIL_WIDTH,
-                height: box.height / scale,
-                transform: `scale(${scale})`,
-              }}
-            />
+          scale !== undefined && (
+            /* Sized to the scaled document, so the window scrolls the whole email. */
+            <div style={{ height: frameHeight * scale }}>
+              <iframe
+                title={t('inspector.openTemplate')}
+                srcDoc={`${html}${scheme === 'dark' ? DARK_SIMULATION : ''}${NO_SCROLL}`}
+                /*
+                 * Same-origin so the document's height is readable; no
+                 * allow-scripts, so nothing in it runs. A picture of a document.
+                 */
+                sandbox="allow-same-origin"
+                tabIndex={-1}
+                aria-hidden
+                onLoad={(event) => {
+                  const height = event.currentTarget.contentDocument?.documentElement.scrollHeight;
+                  if (height !== undefined && height > 0) setDocHeight(height);
+                }}
+                className="pointer-events-none block origin-top-left border-0"
+                style={{
+                  width: EMAIL_WIDTH,
+                  height: frameHeight,
+                  transform: `scale(${scale})`,
+                }}
+              />
+            </div>
           )
         )}
       </div>
-      <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-end gap-1 bg-linear-to-t from-black/60 to-transparent px-3 pt-8 pb-2 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-        {t('inspector.openTemplate')}
-        <ArrowUpRight className="size-3.5" strokeWidth={2} aria-hidden />
-      </span>
-    </button>
+      {registered && (
+        <Button size="xs" variant="secondary" className="mt-2 w-full gap-1" onClick={onOpen}>
+          {t('inspector.openTemplate')}
+          <ArrowUpRight className="size-3.5" strokeWidth={2} aria-hidden />
+        </Button>
+      )}
+    </div>
   );
 }

@@ -383,7 +383,6 @@ function CanvasTab() {
           {...(stats !== undefined ? { stats } : {})}
           selectedId={selectedId}
           onSelectNode={select}
-          onOpenTemplate={(key) => void navigate({ to: '/templates/$key', params: { key } })}
         />
       </div>
       {/*
