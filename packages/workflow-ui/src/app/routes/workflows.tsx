@@ -5,6 +5,7 @@ import { type CSSProperties, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
+import { EmailThumbnail } from '../../components/email-thumbnail';
 import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
 import { Modal, ModalTitle } from '../../components/modal';
@@ -21,6 +22,7 @@ import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
+import { useEmailPreview } from '../email-preview';
 import { useTheme } from '../integrations/theme/root-provider';
 import { PageChrome } from '../page-chrome';
 import { reportSave, studioGet, studioPost } from '../studio';
@@ -347,7 +349,29 @@ function CanvasTab() {
     if (data !== undefined) sources[slotOf(field)] = data;
   });
 
+  /*
+   * A message node shows what it sends. Email is the one channel with a
+   * document to render; the query is keyed like the templates page's, so a
+   * template seen there (or here) is already rendered for the other.
+   */
+  const message = selected?.type === 'message' ? selected : undefined;
+  const emailModule =
+    message?.channel === 'email' ? lookup(config.emails, message.template) : undefined;
+  const emailPreview = useEmailPreview(emailModule, message?.template ?? '');
+
   if (ir === undefined) return null;
+
+  const preview =
+    message?.channel === 'email' ? (
+      <EmailThumbnail
+        html={emailPreview.data?.html}
+        loading={emailModule !== undefined && emailPreview.isPending}
+        error={emailPreview.error?.message}
+        registered={emailModule !== undefined}
+        scheme={resolved}
+        onOpen={() => void navigate({ to: '/templates/$key', params: { key: message.template } })}
+      />
+    ) : undefined;
 
   return (
     <div className="border-border relative h-full min-h-0 border-t">
@@ -375,6 +399,7 @@ function CanvasTab() {
             node={selected}
             sources={sources}
             {...(sharedBy !== undefined ? { sharedBy } : {})}
+            {...(preview !== undefined ? { preview } : {})}
             onClose={() => select(undefined)}
             onSave={(field: EditableField, value: string) =>
               reportSave(

@@ -213,6 +213,7 @@ export default {
     },
     unit: { minutes: 'Minutes', hours: 'Hours', days: 'Days', weeks: 'Weeks' },
     save: 'Save to source',
+    openTemplate: 'Open template',
     shared: 'This call builds {{count}} steps — editing it changes all of them.',
     readOnly: 'Defined by an expression in code — read-only here.',
     saved: 'Saved to source',

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { EmailModule, PushModule } from '../config';
 import { cn } from '../utils/cn';
 import { superellipse } from './corner-shape';
+import { DARK_SIMULATION } from './email-thumbnail';
 import { PushPreview } from './push-preview';
 import type { TemplateRefInfo } from './template-refs';
 
@@ -77,9 +78,6 @@ const MANAGE_SENTINEL = '__manage_addresses__';
  * and the white behind them is the iframe element's own — outside the
  * document, where the filter cannot reach. Painting it inside makes it flip.
  */
-const DARK_SIMULATION =
-  '<style>html{background:#fff;filter:invert(0.92) hue-rotate(180deg)}img,video{filter:invert(1) hue-rotate(180deg)}</style>';
-
 /** One control on the floating preview toolbar: a round 32px icon button. */
 function ToolButton({
   active = false,

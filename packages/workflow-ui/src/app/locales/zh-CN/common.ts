@@ -210,6 +210,7 @@ export default {
     },
     unit: { minutes: '分钟', hours: '小时', days: '天', weeks: '周' },
     save: '写回源码',
+    openTemplate: '打开模板',
     shared: '这个调用构建了 {{count}} 个步骤，改动会同时影响全部。',
     readOnly: '这个值在代码里是表达式，此处只读。',
     saved: '已写回源码',
