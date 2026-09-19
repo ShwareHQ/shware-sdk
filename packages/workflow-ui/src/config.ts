@@ -113,14 +113,111 @@ export interface WorkflowReport {
   };
 }
 
-/** One day (or bucket) of a workflow's delivery funnel. */
+/* ------------------------------ Overview query ------------------------------ */
+
+/**
+ * The channel dimension analytics reports on.
+ *
+ * Deliberately *not* the DSL's `ChannelIR`. That enum says what the author
+ * asked for ("send a push"); this says where the message actually landed, and
+ * the two do not line up: one `push` node fans out to iOS and Android, whose
+ * delivery and open behaviour differ enough that reading them summed hides the
+ * problem you opened this page to find. Going the other way, a project can
+ * report on a transport the DSL has no builder for yet — discord, a webhook —
+ * without the IR having to grow a node type first.
+ *
+ * So the mapping is many-to-many and belongs to whoever measures delivery, not
+ * to the compiler. In-product surfaces (`in_app`, `survey`) are absent on
+ * purpose: they have no transport receipt, no open pixel and no unsubscribe,
+ * so none of the funnel below is defined for them.
+ */
+export type MetricChannel =
+  | 'email'
+  | 'push_ios'
+  | 'push_android'
+  | 'slack'
+  | 'discord'
+  | 'sms'
+  | 'webhook';
+
+/** Every channel, in the order the studio's pickers list them. */
+export const METRIC_CHANNELS = [
+  'email',
+  'push_ios',
+  'push_android',
+  'slack',
+  'discord',
+  'sms',
+  'webhook',
+] as const satisfies readonly MetricChannel[];
+
+/** Bucket width for a time series. */
+export type Granularity = 'day' | 'week' | 'month';
+
+/**
+ * What every Overview panel is scoped by. Dates are ISO `YYYY-MM-DD` and both
+ * ends are inclusive — a report reads "Aug 21 to Sep 19", not "up to but
+ * excluding Sep 20".
+ */
+export interface StatsRange {
+  from: string;
+  to: string;
+  /** Absent means every channel summed. */
+  channel?: MetricChannel;
+}
+
+/** A range plus the bucket width, for the time series behind the chart cards. */
+export interface MetricsQuery extends StatsRange {
+  granularity: Granularity;
+}
+
+/**
+ * One bucket of a workflow's delivery funnel.
+ *
+ * `sent` and `delivered` are two different facts and the UI shows both: sent is
+ * what we handed the transport, delivered is what it accepted. The gap between
+ * them is the bounce rate, which is invisible if you only keep one of them —
+ * which is why `delivered` was not simply renamed when the Sent card arrived.
+ */
 export interface MetricPoint {
-  /** ISO date or any label; used verbatim on the x axis. */
+  /** Bucket start, ISO `YYYY-MM-DD`; used verbatim on the x axis. */
   date: string;
+  sent: number;
   delivered: number;
   opened: number;
   clicked: number;
   converted: number;
+}
+
+/** One destination URL and how often it was clicked over the queried range. */
+export interface LinkStat {
+  /** The URL as it appears in the message, before any click-tracking rewrite. */
+  url: string;
+  clicks: number;
+}
+
+/**
+ * One message node's funnel over the queried range.
+ *
+ * Identity is the node id, not the template: the same template sent twice in a
+ * flow is two rows, because "which send underperforms" is the question this
+ * table answers. No display name here — the studio already holds the IR and the
+ * template registries, so it resolves the label itself and this stays about
+ * numbers.
+ */
+export interface MessageStat {
+  /** IR node id (the structural path), pinpointing the send site. */
+  nodeId: string;
+  /** Template registry key; the row links to it. */
+  template: string;
+  channel: MetricChannel;
+  sent: number;
+  /** Accepted by the transport — `sent` minus bounces. */
+  delivered: number;
+  opened: number;
+  clicked: number;
+  /** Opt-outs attributed to this send. */
+  unsubscribed: number;
 }
 
 /**
@@ -178,8 +275,12 @@ export interface StatsSource {
   profiles?: (segmentName: string, query: ProfileQuery) => Promise<ProfilePage> | ProfilePage;
   /** Users waiting on each node of one workflow (drives the canvas badges). */
   nodeStats?: (workflowName: string) => Promise<NodeStats> | NodeStats;
-  /** Time series for one workflow's Metrics tab. */
-  metrics?: (workflowName: string) => Promise<MetricPoint[]> | MetricPoint[];
+  /** Time series behind the Overview's chart cards, bucketed as asked. */
+  metrics?: (workflowName: string, query: MetricsQuery) => Promise<MetricPoint[]> | MetricPoint[];
+  /** Most-clicked destinations across the whole workflow, any order. */
+  links?: (workflowName: string, query: StatsRange) => Promise<LinkStat[]> | LinkStat[];
+  /** Per-send funnel, one row per message node. */
+  messages?: (workflowName: string, query: StatsRange) => Promise<MessageStat[]> | MessageStat[];
 }
 
 /** What the studio hands to `sendTest`: the rendered template plus the target inbox. */
