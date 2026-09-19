@@ -419,6 +419,10 @@ const profileFor = (segmentName: string, index: number): Profile => {
         .toISOString()
         .slice(0, 10),
       country: ['US', 'DE', 'JP', 'BR', 'NG'][pseudoRandom(`${seed}:cc`, 5)] ?? 'US',
+      utm_source:
+        ['google', 'newsletter', 'product_hunt', 'twitter', 'referral', 'direct'][
+          pseudoRandom(`${seed}:utm`, 6)
+        ] ?? 'direct',
       marketing_opt_in: pseudoRandom(`${seed}:opt`, 10) > 4,
     },
   };

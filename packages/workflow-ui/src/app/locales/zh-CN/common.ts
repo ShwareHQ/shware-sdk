@@ -142,6 +142,7 @@ export default {
   profiles: {
     email: '邮箱',
     id: 'ID',
+    utmSource: 'UTM 来源',
     createdAt: '创建时间',
     noProperties: '该用户没有任何属性。',
     copy: '复制',

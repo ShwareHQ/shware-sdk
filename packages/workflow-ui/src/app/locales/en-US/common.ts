@@ -143,6 +143,7 @@ export default {
   profiles: {
     email: 'Email',
     id: 'ID',
+    utmSource: 'UTM Source',
     createdAt: 'Created',
     noProperties: 'No properties on this profile.',
     copy: 'Copy',

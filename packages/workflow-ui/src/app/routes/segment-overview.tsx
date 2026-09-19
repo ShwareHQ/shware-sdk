@@ -146,7 +146,9 @@ function SegmentOverview() {
               <thead>
                 <tr className="text-muted text-left text-xs font-medium">
                   <th className="border-border border-b px-5 py-2">{t('profiles.email')}</th>
-                  <th className="border-border w-56 border-b px-5 py-2">{t('profiles.id')}</th>
+                  <th className="border-border w-56 border-b px-5 py-2">
+                    {t('profiles.utmSource')}
+                  </th>
                   <th className="border-border w-36 border-b px-5 py-2 whitespace-nowrap">
                     {t('profiles.createdAt')}
                   </th>
@@ -178,7 +180,10 @@ function SegmentOverview() {
                       </div>
                     </td>
                     <td className="border-border text-muted truncate border-b px-5 py-2.5 font-mono text-sm">
-                      {profile.id}
+                      {/* Out of a dictionary of unknowns, so anything but a string reads as absent. */}
+                      {typeof profile.properties?.utm_source === 'string'
+                        ? profile.properties.utm_source
+                        : '—'}
                     </td>
                     <td
                       className="border-border text-muted border-b px-5 py-2.5 whitespace-nowrap tabular-nums"

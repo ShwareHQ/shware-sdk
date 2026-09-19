@@ -35,6 +35,8 @@ export interface EmailListProps {
  * the card has no `overflow` to clip with, so its top corners are cut here.
  */
 const HEAD_CELL = 'border-border border-b py-3 first:rounded-tl-2xl last:rounded-tr-2xl';
+/* The row carries the border below md, so the cells drop theirs there. */
+const CELL = 'border-border border-b py-4 max-md:border-b-0 max-md:px-3';
 
 /*
  * One glyph per channel, matching what `channel-icon.ts` hands the analytics
@@ -64,8 +66,8 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
      * are re-cut on the first and last cells below.
      */
     <div className="border-border bg-card rounded-2xl border" style={superellipse}>
-      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead>
+      <table className="w-full table-fixed border-separate border-spacing-0 text-sm max-md:block">
+        <thead className="max-md:hidden">
           <tr className="text-muted text-left text-xs font-medium">
             <th className={clsx(HEAD_CELL, 'min-w-0 px-6')} style={superellipse}>
               {t('common.name')}
@@ -79,25 +81,39 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
             )}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-md:block">
           {items.map((item) => (
             <tr
               key={item.key}
               onClick={() => onOpen(item.key)}
               /*
-               * The hover fill lives on the cells, not the row: a row box
-               * paints its background underneath them, where no cell radius
-               * reaches it, so the last row would poke square grey corners out
-               * of the unclipped card.
+               * On desktop the hover fill lives on the cells, not the row: a
+               * row box paints its background underneath them, where no cell
+               * radius reaches it, so the last row would poke square grey
+               * corners out of the unclipped card. Below md the row is an
+               * ordinary grid box and takes both itself.
                */
               className={clsx(
-                'hover:[&>td]:bg-hover cursor-pointer align-top [&>td]:transition-colors',
-                'last:[&>td]:border-b-0 last:[&>td:first-child]:rounded-bl-2xl',
-                'last:[&>td:last-child]:rounded-br-2xl'
+                'cursor-pointer align-top [&>td]:transition-colors',
+                /* Below md the row leaves table layout and becomes the card's
+                   own grid, so the fill and the radius live on it there. */
+                'max-md:grid max-md:grid-cols-6 max-md:border-b max-md:px-3',
+                'border-border max-md:first:rounded-t-2xl max-md:last:rounded-b-2xl',
+                'max-md:hover:bg-hover max-md:last:border-b-0',
+                'md:hover:[&>td]:bg-hover last:[&>td]:border-b-0',
+                'md:last:[&>td:first-child]:rounded-bl-2xl',
+                'md:last:[&>td:last-child]:rounded-br-2xl'
               )}
               style={superellipse}
             >
-              <td className="border-border border-b px-6 py-4" style={superellipse}>
+              <td
+                className={clsx(
+                  CELL,
+                  'px-6 max-md:order-1 max-md:pb-2',
+                  onEdit === undefined ? 'max-md:col-span-6' : 'max-md:col-span-5'
+                )}
+                style={superellipse}
+              >
                 <div className="flex items-start gap-3">
                   <RowIcon channel={item.channel} />
                   <div className="min-w-0">
@@ -116,7 +132,13 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
                 </div>
               </td>
 
-              <td className="border-border border-b px-3 py-4" style={superellipse}>
+              <td
+                className={clsx(
+                  CELL,
+                  'px-3 max-md:order-3 max-md:col-span-6 max-md:pt-0 max-md:pb-3'
+                )}
+                style={superellipse}
+              >
                 <span
                   className={clsx(
                     'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
@@ -135,12 +157,22 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
                 </span>
               </td>
 
-              <td className="border-border text-secondary border-b px-3 py-4" style={superellipse}>
+              <td
+                className={clsx(
+                  CELL,
+                  'text-secondary px-3 max-md:order-4 max-md:col-span-6 max-md:pt-0 max-md:pb-4'
+                )}
+                style={superellipse}
+              >
+                <div className="text-muted mb-1 truncate text-xs md:hidden">{t('emails.id')}</div>
                 <span className="block truncate font-mono">{item.key}</span>
               </td>
 
               {onEdit !== undefined && (
-                <td className="border-border border-b px-3 py-4" style={superellipse}>
+                <td
+                  className={clsx(CELL, 'px-3 max-md:order-2 max-md:col-span-1 max-md:pb-2')}
+                  style={superellipse}
+                >
                   <Menu
                     aria-label={t('common.more')}
                     items={[
