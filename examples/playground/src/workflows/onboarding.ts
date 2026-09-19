@@ -31,6 +31,8 @@ const login = trigger.event(e.login, { filter: newUsers7d });
 /* ------- Templates (a real project keeps these in templates/; inlined here) ------- */
 
 const welcome = template.email('onboarding_welcome');
+/** The series ends in the community server rather than with a ninth email. */
+const graduation = template.discord('community_series_graduation');
 
 const edu = {
   templates: template.email('edu_templates'),
@@ -64,4 +66,5 @@ export const onboardingEdu = workflow('onboarding_edu', {
   .branch([not(usedAutomations), eduModule(edu.automations)])
   .branch([not(usedApi), eduModule(edu.api)])
   .branch([not(usedMobile), eduModule(edu.mobile)])
-  .branch([not(usedPublishing), eduModule(edu.publishing)]);
+  .branch([not(usedPublishing), eduModule(edu.publishing)])
+  .discord(graduation);

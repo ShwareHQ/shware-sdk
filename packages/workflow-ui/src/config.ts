@@ -12,7 +12,11 @@ import type { ReactElement } from 'react';
  *     (`export const emails = { ... }`), which stays an explicit object
  *     because it is what types `templates<Emails>()` keys at compile time;
  *   - `src/pushes/index.ts` (or `pushes/index.ts`): the push-notification
- *     registry (`export const pushes = { ... }`), same shape and same reason.
+ *     registry (`export const pushes = { ... }`), same shape and same reason;
+ *   - `src/slack/index.ts` and `src/discord/index.ts`: the chat-message
+ *     registries (`export const slack` / `export const discord`), again the
+ *     same contract — one registry per channel, because a key's content shape
+ *     is the channel's, and a single merged map would have to guess.
  *
  * The config carries what conventions cannot: project settings (title, email
  * addresses) and runtime wiring (the stats source).
@@ -87,6 +91,39 @@ export interface PushModule {
   preview?: object;
 }
 
+/**
+ * One chat-message module (Slack, Discord) — content plus labels.
+ *
+ * Same reasoning as PushModule: a chat message has no document to render, so
+ * its content is a couple of short string templates carrying `{prop}`
+ * placeholders the engine fills at send time. Data, never a closure — which is
+ * what lets the studio edit it in place.
+ *
+ * One interface for both platforms because the payload genuinely is the same
+ * shape: who it appears to come from, where it lands, a bold first line and a
+ * body. Their chrome differs, and that difference belongs in the preview, not
+ * in two identical types.
+ */
+export interface ChatModule {
+  /** Human label for the studio; same rules as EmailModule.name. */
+  name?: string;
+  /** What this message is for, in a sentence. */
+  description?: string;
+  /**
+   * Display name of the bot posting it. Absent falls back to the project
+   * title, the same way a push banner falls back for its app name.
+   */
+  sender?: string;
+  /** Destination, e.g. `#customer-success` — shown in the preview's header. */
+  to?: string;
+  /** First line, rendered bold — a string template, `{prop}` allowed. */
+  title?: string;
+  /** Message body — same rules as `title`. */
+  body?: string;
+  /** Sample props used when previewing this template. */
+  preview?: object;
+}
+
 /** Node id → how many users currently sit on that node. */
 export type NodeStats = Record<string, number>;
 
@@ -113,14 +150,133 @@ export interface WorkflowReport {
   };
 }
 
-/** One day (or bucket) of a workflow's delivery funnel. */
+/* ------------------------------ Overview query ------------------------------ */
+
+/**
+ * The channel dimension analytics reports on.
+ *
+ * Deliberately *not* the DSL's `ChannelIR`. That enum says what the author
+ * asked for ("send a push"); this says where the message actually landed, and
+ * the two do not line up: one `push` node fans out to iOS and Android, whose
+ * delivery and open behaviour differ enough that reading them summed hides the
+ * problem you opened this page to find. Going the other way, a project can
+ * report on a transport the DSL has no builder for yet — a webhook — without
+ * the IR having to grow a node type first.
+ *
+ * So the mapping is many-to-many and belongs to whoever measures delivery, not
+ * to the compiler. In-product surfaces (`in_app`, `survey`) are absent on
+ * purpose: they have no transport receipt, no open pixel and no unsubscribe,
+ * so none of the funnel below is defined for them.
+ */
+export type MetricChannel =
+  | 'email'
+  | 'push_ios'
+  | 'push_android'
+  | 'slack'
+  | 'discord'
+  | 'sms'
+  | 'webhook';
+
+/** Every channel, in the order the studio's pickers list them. */
+export const METRIC_CHANNELS = [
+  'email',
+  'push_ios',
+  'push_android',
+  'slack',
+  'discord',
+  'sms',
+  'webhook',
+] as const satisfies readonly MetricChannel[];
+
+/** Bucket width for a time series. */
+export type Granularity = 'day' | 'week' | 'month';
+
+/**
+ * What every Overview panel is scoped by. Dates are ISO `YYYY-MM-DD` and both
+ * ends are inclusive — a report reads "Aug 21 to Sep 19", not "up to but
+ * excluding Sep 20".
+ */
+export interface StatsRange {
+  from: string;
+  to: string;
+  /** Absent means every channel summed. */
+  channel?: MetricChannel;
+}
+
+/** A range plus the bucket width, for the time series behind the chart cards. */
+export interface MetricsQuery extends StatsRange {
+  granularity: Granularity;
+}
+
+/**
+ * One bucket of a workflow's delivery funnel.
+ *
+ * `sent` and `delivered` are two different facts and the UI shows both: sent is
+ * what we handed the transport, delivered is what it accepted. The gap between
+ * them is the bounce rate, which is invisible if you only keep one of them —
+ * which is why `delivered` was not simply renamed when the Sent card arrived.
+ *
+ * Opens and clicks carry an optional human/machine split. Not every transport
+ * can tell the two apart — most have nothing to tell apart — so the halves are
+ * optional, and the studio plots three lines only for a query whose every
+ * bucket reports them. Where they are reported, `opened` must equal
+ * `openedHuman + openedMachine` and `clicked` its own pair: the studio rates
+ * all three against one denominator so the lines add up on screen, and a
+ * source that recounts the halves independently would draw a chart that
+ * visibly does not.
+ */
 export interface MetricPoint {
-  /** ISO date or any label; used verbatim on the x axis. */
+  /** Bucket start, ISO `YYYY-MM-DD`; used verbatim on the x axis. */
   date: string;
+  sent: number;
+  delivered: number;
+  opened: number;
+  /**
+   * Opens a person caused. The rest is infrastructure: Apple's Mail Privacy
+   * Protection prefetches the tracking pixel for everything it relays, whether
+   * or not the mail is ever read, and Gmail's image proxy caches it — which is
+   * why a raw open rate has been unusable as a measure of attention since 2021.
+   */
+  openedHuman?: number;
+  /** Opens attributed to a proxy, relay or scanner rather than a reader. */
+  openedMachine?: number;
+  clicked: number;
+  /** Clicks a person caused. */
+  clickedHuman?: number;
+  /** Clicks attributed to a link prefetcher or a security scanner following links. */
+  clickedMachine?: number;
+  converted: number;
+}
+
+/** One destination URL and how often it was clicked over the queried range. */
+export interface LinkStat {
+  /** The URL as it appears in the message, before any click-tracking rewrite. */
+  url: string;
+  clicks: number;
+}
+
+/**
+ * One message node's funnel over the queried range.
+ *
+ * Identity is the node id, not the template: the same template sent twice in a
+ * flow is two rows, because "which send underperforms" is the question this
+ * table answers. No display name here — the studio already holds the IR and the
+ * template registries, so it resolves the label itself and this stays about
+ * numbers.
+ */
+export interface MessageStat {
+  /** IR node id (the structural path), pinpointing the send site. */
+  nodeId: string;
+  /** Template registry key; the row links to it. */
+  template: string;
+  channel: MetricChannel;
+  sent: number;
+  /** Accepted by the transport — `sent` minus bounces. */
   delivered: number;
   opened: number;
   clicked: number;
-  converted: number;
+  /** Opt-outs attributed to this send. */
+  unsubscribed: number;
 }
 
 /**
@@ -178,8 +334,12 @@ export interface StatsSource {
   profiles?: (segmentName: string, query: ProfileQuery) => Promise<ProfilePage> | ProfilePage;
   /** Users waiting on each node of one workflow (drives the canvas badges). */
   nodeStats?: (workflowName: string) => Promise<NodeStats> | NodeStats;
-  /** Time series for one workflow's Metrics tab. */
-  metrics?: (workflowName: string) => Promise<MetricPoint[]> | MetricPoint[];
+  /** Time series behind the Overview's chart cards, bucketed as asked. */
+  metrics?: (workflowName: string, query: MetricsQuery) => Promise<MetricPoint[]> | MetricPoint[];
+  /** Most-clicked destinations across the whole workflow, any order. */
+  links?: (workflowName: string, query: StatsRange) => Promise<LinkStat[]> | LinkStat[];
+  /** Per-send funnel, one row per message node. */
+  messages?: (workflowName: string, query: StatsRange) => Promise<MessageStat[]> | MessageStat[];
 }
 
 /** What the studio hands to `sendTest`: the rendered template plus the target inbox. */
@@ -239,6 +399,10 @@ export interface ResolvedStudioConfig {
   emails: Record<string, EmailModule>;
   /** The push registry from the conventional pushes/index.ts (empty if none). */
   pushes: Record<string, PushModule>;
+  /** The Slack registry from the conventional slack/index.ts (empty if none). */
+  slack: Record<string, ChatModule>;
+  /** The Discord registry from the conventional discord/index.ts (empty if none). */
+  discord: Record<string, ChatModule>;
   /** Discovered named segments. */
   segments: SegmentRef[];
   /** Sender address book from the config (empty if none). */

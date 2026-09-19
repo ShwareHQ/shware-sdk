@@ -31,13 +31,21 @@ function Home() {
   const templateRefs = useMemo(() => collectTemplateRefs(irs), [irs]);
   /* Counted from the IR, not from config.segments, so this agrees with the Segments page. */
   const segmentRefs = useMemo(() => collectSegmentRefs(irs), [irs]);
-  const emails = config.emails;
-  const pushes = config.pushes;
   /* Each channel reads its own registry, matching the Templates list's badge. */
-  const missing = templateRefs.filter((ref) =>
-    ref.channel === 'push'
-      ? lookup(pushes, ref.key) === undefined
-      : lookup(emails, ref.key) === undefined
+  const registryFor = (channel: string): Record<string, unknown> => {
+    switch (channel) {
+      case 'push':
+        return config.pushes;
+      case 'slack':
+        return config.slack;
+      case 'discord':
+        return config.discord;
+      default:
+        return config.emails;
+    }
+  };
+  const missing = templateRefs.filter(
+    (ref) => lookup(registryFor(ref.channel), ref.key) === undefined
   ).length;
 
   const { data: reports } = useQuery({
@@ -55,7 +63,8 @@ function Home() {
   );
 
   return (
-    <div className="h-full overflow-auto p-6">
+    /* No scroll container of its own: the shell's content column is the only one. */
+    <div className="flex-1 p-6">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.home') }]} />} />
       <h1 className="text-lg font-semibold">{t('home.title')}</h1>
       <p className="text-muted mt-1 text-sm">{t('home.subtitle')}</p>

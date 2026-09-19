@@ -1,8 +1,9 @@
 import { ChevronDown, Minus, Monitor, Moon, Plus, Smartphone, Sun } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { EmailModule, PushModule } from '../config';
+import type { ChatModule, EmailModule, PushModule } from '../config';
 import { cn } from '../utils/cn';
+import { DiscordPreview, SlackPreview } from './chat-preview';
 import { superellipse } from './corner-shape';
 import { DARK_SIMULATION } from './email-thumbnail';
 import { PushPreview } from './push-preview';
@@ -32,6 +33,10 @@ export interface TemplatesPageProps {
   emails: Record<string, EmailModule | undefined>;
   /** Push registry, same contract as `emails` for the push channel. */
   pushes?: Record<string, PushModule | undefined>;
+  /** Slack registry; chat channels keep one registry each (see config.ts). */
+  slack?: Record<string, ChatModule | undefined>;
+  /** Discord registry, same contract as `slack`. */
+  discord?: Record<string, ChatModule | undefined>;
   /** App identity on the push mockups; defaults to the project title upstream. */
   appName?: string;
   selected: string | undefined;
@@ -67,6 +72,16 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const MANAGE_SENTINEL = '__manage_addresses__';
+
+/*
+ * The frame is sized to its document and never scrolls itself — the page is
+ * the one scroller. Without this a document whose real height has a
+ * fractional part overflows the integer height we set by a fraction of a
+ * pixel, which is nothing at all with overlay scrollbars and a permanent bar
+ * for anyone whose OS always shows them. The thumbnail carries the same line
+ * for the same reason.
+ */
+const NO_SCROLL = '<style>html,body{overflow:hidden}</style>';
 
 /*
  * Rough dark-mode simulation, the invert-and-rotate trick: emails carry their
@@ -207,6 +222,8 @@ export function TemplatesPage({
   refs,
   emails,
   pushes = {},
+  slack = {},
+  discord = {},
   appName,
   selected,
   preview,
@@ -231,17 +248,32 @@ export function TemplatesPage({
   const [envelopeOpen, setEnvelopeOpen] = useState(false);
   // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
   const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
-  // Each channel reads its own registry; a push key never shadows an email one
+  /*
+   * Each channel reads its own registry, so a push key never shadows an email
+   * one. Slack and Discord differ only in which map they read and which
+   * surface draws them, so they travel together as one `chat` kind.
+   */
   const isPush = active?.channel === 'push';
-  const activeModule = active !== undefined && !isPush ? emails[active.key] : undefined;
+  const isSlack = active?.channel === 'slack';
+  const isDiscord = active?.channel === 'discord';
+  const isChat = isSlack || isDiscord;
+  const activeModule = active !== undefined && !isPush && !isChat ? emails[active.key] : undefined;
   const activePush = active !== undefined && isPush ? pushes[active.key] : undefined;
+  const activeChat =
+    active === undefined
+      ? undefined
+      : isSlack
+        ? slack[active.key]
+        : isDiscord
+          ? discord[active.key]
+          : undefined;
   const { html, subject, error, loading } = preview;
 
   // Write-back needs a module file to patch, so editing waits for registration
   const saveField =
     onSaveEnvelope !== undefined &&
     active !== undefined &&
-    (activeModule !== undefined || activePush !== undefined)
+    (activeModule !== undefined || activePush !== undefined || activeChat !== undefined)
       ? (field: EnvelopeField) => (value: string) => onSaveEnvelope(active.key, field, value)
       : undefined;
   // From / subject / reply-to are email semantics; other channels skip the envelope rows
@@ -255,10 +287,11 @@ export function TemplatesPage({
     activeModule?.bcc !== undefined ||
     activeModule?.headers !== undefined;
   /* Nothing to show at all (non-email, no envelope data) — hide the whole panel. */
-  const hasEnvelope = hasCollapsible || (isPush && activePush !== undefined);
+  const hasEnvelope =
+    hasCollapsible || (isPush && activePush !== undefined) || (isChat && activeChat !== undefined);
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex flex-1">
       {/* Preview; the template list lives on the /emails index and the header dropdown. */}
       <section className="bg-page flex min-w-0 flex-1 flex-col">
         {active === undefined ? (
@@ -328,7 +361,7 @@ export function TemplatesPage({
                   {/* The push "envelope" is the content itself: title and body, edited here, shown below. */}
                   {isPush && activePush !== undefined && (
                     <>
-                      <Field label={t('emails.pushTitle')}>
+                      <Field label={t('emails.contentTitle')}>
                         {saveField ? (
                           <EditableText
                             value={activePush.title}
@@ -339,7 +372,7 @@ export function TemplatesPage({
                           (activePush.title ?? t('common.none'))
                         )}
                       </Field>
-                      <Field label={t('emails.pushBody')}>
+                      <Field label={t('emails.contentBody')}>
                         {saveField ? (
                           <EditableText
                             value={activePush.body}
@@ -348,6 +381,37 @@ export function TemplatesPage({
                           />
                         ) : (
                           (activePush.body ?? t('common.none'))
+                        )}
+                      </Field>
+                    </>
+                  )}
+
+                  {/* A chat message's "envelope" is its destination and the two strings that carry it. */}
+                  {isChat && activeChat !== undefined && (
+                    <>
+                      {activeChat.to !== undefined && (
+                        <Field label={t('emails.channel')}>{activeChat.to}</Field>
+                      )}
+                      <Field label={t('emails.contentTitle')}>
+                        {saveField ? (
+                          <EditableText
+                            value={activeChat.title}
+                            noneLabel={t('common.none')}
+                            onSave={saveField('title')}
+                          />
+                        ) : (
+                          (activeChat.title ?? t('common.none'))
+                        )}
+                      </Field>
+                      <Field label={t('emails.contentBody')}>
+                        {saveField ? (
+                          <EditableText
+                            value={activeChat.body}
+                            noneLabel={t('common.none')}
+                            onSave={saveField('body')}
+                          />
+                        ) : (
+                          (activeChat.body ?? t('common.none'))
                         )}
                       </Field>
                     </>
@@ -405,7 +469,7 @@ export function TemplatesPage({
               simulated client mode visibly flips the whole stage.
             */}
             <div
-              className="relative min-h-0 flex-1"
+              className="relative flex flex-1 flex-col"
               style={{
                 backgroundColor: scheme === 'dark' ? '#000' : 'var(--color-gray-50)',
                 /* 0.5px radius: react-flow draws its dots at r=0.5 for zoom 1. */
@@ -415,9 +479,45 @@ export function TemplatesPage({
                 backgroundSize: '16px 16px',
               }}
             >
-              {/* pb clears the floating toolbar, so a fully scrolled email is never hidden under it. */}
-              <div className="h-full overflow-auto p-6 pb-24">
-                {isPush ? (
+              {/* The stage grows with the email and the page scrolls it (see
+                  __root); the toolbar below rides along as `sticky`. */}
+              <div className="flex-1 p-6 pb-4">
+                {isChat ? (
+                  activeChat === undefined ? (
+                    <div
+                      className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
+                      style={superellipse}
+                    >
+                      <p className="text-primary text-sm font-medium">
+                        {t('emails.notRegistered')}
+                      </p>
+                      <p className="text-muted mt-2 text-sm">
+                        {t('emails.chatNotRegisteredHint', {
+                          key: active.key,
+                          registry: active.channel,
+                        })}
+                      </p>
+                    </div>
+                  ) : isSlack ? (
+                    <SlackPreview
+                      sender={activeChat.sender ?? appName ?? 'App'}
+                      to={activeChat.to}
+                      title={activeChat.title}
+                      body={activeChat.body ?? ''}
+                      scheme={scheme}
+                      zoom={zoom}
+                    />
+                  ) : (
+                    <DiscordPreview
+                      sender={activeChat.sender ?? appName ?? 'App'}
+                      to={activeChat.to}
+                      title={activeChat.title}
+                      body={activeChat.body ?? ''}
+                      scheme={scheme}
+                      zoom={zoom}
+                    />
+                  )
+                ) : isPush ? (
                   activePush === undefined ? (
                     <div
                       className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
@@ -461,7 +561,7 @@ export function TemplatesPage({
                 ) : (
                   <iframe
                     title={`${active.key} preview`}
-                    srcDoc={scheme === 'dark' ? `${html ?? ''}${DARK_SIMULATION}` : (html ?? '')}
+                    srcDoc={`${html ?? ''}${NO_SCROLL}${scheme === 'dark' ? DARK_SIMULATION : ''}`}
                     /*
                      * Sized to its document rather than the pane, so long emails
                      * scroll in the outer container — which can pad past the
@@ -469,8 +569,11 @@ export function TemplatesPage({
                      */
                     onLoad={(event) => {
                       const frame = event.currentTarget;
-                      const height = frame.contentDocument?.documentElement?.scrollHeight;
-                      if (height !== undefined && height > 0) frame.style.height = `${height}px`;
+                      const root = frame.contentDocument?.documentElement ?? undefined;
+                      if (root === undefined) return;
+                      /* getBoundingClientRect keeps the fraction scrollHeight rounds off; ceil it. */
+                      const height = Math.ceil(root.getBoundingClientRect().height);
+                      if (height > 0) frame.style.height = `${height}px`;
                     }}
                     /*
                      * Square corners — this box IS the email's viewport, not a
@@ -491,66 +594,76 @@ export function TemplatesPage({
                 )}
               </div>
 
-              {/* Floating preview toolbar: client scheme, device width, zoom. */}
-              {(isPush
-                ? activePush !== undefined
-                : activeModule !== undefined && !loading && error === undefined) && (
-                <div className="border-border bg-card absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full border p-1 shadow-lg">
-                  <ToolButton
-                    active={scheme === 'light'}
-                    label={t('emails.previewLight')}
-                    onClick={() => setScheme('light')}
-                  >
-                    <Sun size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  <ToolButton
-                    active={scheme === 'dark'}
-                    label={t('emails.previewDark')}
-                    onClick={() => setScheme('dark')}
-                  >
-                    <Moon size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  {/* Device widths are an email concern; a push always shows both platforms. */}
-                  {!isPush && (
-                    <>
-                      <div className="bg-border mx-1 h-4 w-px" />
-                      <ToolButton
-                        active={device === 'desktop'}
-                        label={t('emails.previewDesktop')}
-                        onClick={() => setDevice('desktop')}
-                      >
-                        <Monitor size={16} strokeWidth={2} aria-hidden />
-                      </ToolButton>
-                      <ToolButton
-                        active={device === 'mobile'}
-                        label={t('emails.previewMobile')}
-                        onClick={() => setDevice('mobile')}
-                      >
-                        <Smartphone size={16} strokeWidth={2} aria-hidden />
-                      </ToolButton>
-                    </>
-                  )}
-                  <div className="bg-border mx-1 h-4 w-px" />
-                  <ToolButton
-                    label={t('emails.zoomOut')}
-                    onClick={() => setZoom((level) => Math.max(0.5, level - 0.25))}
-                  >
-                    <Minus size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  <button
-                    type="button"
-                    title={t('emails.zoomReset')}
-                    onClick={() => setZoom(1)}
-                    className="text-secondary hover:text-primary w-11 text-center text-xs font-medium tabular-nums transition-colors"
-                  >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                  <ToolButton
-                    label={t('emails.zoomIn')}
-                    onClick={() => setZoom((level) => Math.min(1.5, level + 0.25))}
-                  >
-                    <Plus size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
+              {/*
+                Floating preview toolbar: client scheme, device width, zoom.
+                Sticky rather than absolute — the stage is no longer a fixed
+                frame, so anchoring to its bottom would park the toolbar at the
+                end of a long email instead of keeping it to hand. The wrapper
+                spans the stage and must not swallow clicks meant for it.
+              */}
+              {(isChat
+                ? activeChat !== undefined
+                : isPush
+                  ? activePush !== undefined
+                  : activeModule !== undefined && !loading && error === undefined) && (
+                <div className="pointer-events-none sticky bottom-0 z-10 flex justify-center pt-2 pb-4">
+                  <div className="border-border bg-card pointer-events-auto flex items-center gap-0.5 rounded-full border p-1 shadow-lg">
+                    <ToolButton
+                      active={scheme === 'light'}
+                      label={t('emails.previewLight')}
+                      onClick={() => setScheme('light')}
+                    >
+                      <Sun size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                    <ToolButton
+                      active={scheme === 'dark'}
+                      label={t('emails.previewDark')}
+                      onClick={() => setScheme('dark')}
+                    >
+                      <Moon size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                    {/* Device widths are an email concern; a push shows both platforms, a chat message its client. */}
+                    {!isPush && !isChat && (
+                      <>
+                        <div className="bg-border mx-1 h-4 w-px" />
+                        <ToolButton
+                          active={device === 'desktop'}
+                          label={t('emails.previewDesktop')}
+                          onClick={() => setDevice('desktop')}
+                        >
+                          <Monitor size={16} strokeWidth={2} aria-hidden />
+                        </ToolButton>
+                        <ToolButton
+                          active={device === 'mobile'}
+                          label={t('emails.previewMobile')}
+                          onClick={() => setDevice('mobile')}
+                        >
+                          <Smartphone size={16} strokeWidth={2} aria-hidden />
+                        </ToolButton>
+                      </>
+                    )}
+                    <div className="bg-border mx-1 h-4 w-px" />
+                    <ToolButton
+                      label={t('emails.zoomOut')}
+                      onClick={() => setZoom((level) => Math.max(0.5, level - 0.25))}
+                    >
+                      <Minus size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                    <button
+                      type="button"
+                      title={t('emails.zoomReset')}
+                      onClick={() => setZoom(1)}
+                      className="text-secondary hover:text-primary w-11 text-center text-xs font-medium tabular-nums transition-colors"
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <ToolButton
+                      label={t('emails.zoomIn')}
+                      onClick={() => setZoom((level) => Math.min(1.5, level + 0.25))}
+                    >
+                      <Plus size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                  </div>
                 </div>
               )}
             </div>

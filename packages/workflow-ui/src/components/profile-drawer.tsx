@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Profile } from '../config';
 import { cn } from '../utils/cn';
+import { Avatar } from './avatar';
 import { superellipse } from './corner-shape';
 import { Flag } from './flag';
 
@@ -117,29 +118,6 @@ function Row({
   );
 }
 
-/**
- * Round avatar from `picture` (a URL user property), falling back to the
- * initial of whatever names the person when the URL is absent or dead.
- */
-function Avatar({ picture, label }: { picture: string | undefined; label: string }) {
-  const [failed, setFailed] = useState(false);
-  if (picture !== undefined && picture !== '' && !failed) {
-    return (
-      <img
-        src={picture}
-        alt=""
-        onError={() => setFailed(true)}
-        className="size-9 shrink-0 rounded-full object-cover"
-      />
-    );
-  }
-  return (
-    <div className="bg-selected text-secondary flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-medium">
-      {label.trim().charAt(0).toUpperCase()}
-    </div>
-  );
-}
-
 /** Copy-to-clipboard tail for identity rows, flipping to a check as feedback. */
 function CopyButton({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -245,7 +223,7 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
           {/* Keyed by profile so a stale image error never sticks to the next person. */}
           <Avatar
             key={profile?.id}
-            picture={typeof prop('picture') === 'string' ? (prop('picture') as string) : undefined}
+            picture={prop('picture')}
             label={name ?? email ?? profile?.id ?? '?'}
           />
           <div className="min-w-0 flex-1">
