@@ -246,14 +246,24 @@ function MetricsTab() {
      all — the readout is the one place there is room for it, and a weekday is
      what tells you whether a dip is the weekend. A month bucket has no weekday
      worth printing, so it names the month instead. */
-  const dates = buckets.map((point) =>
-    parseIsoDay(point.date).toLocaleDateString(
-      i18n.language,
-      granularity === 'month'
-        ? { year: 'numeric', month: 'long' }
-        : { weekday: 'long', month: 'long', day: 'numeric' }
-    )
-  );
+  const dates = buckets.map((point) => {
+    const day = parseIsoDay(point.date);
+    if (granularity === 'month') {
+      return day.toLocaleDateString(i18n.language, { year: 'numeric', month: 'long' });
+    }
+    /* A week is keyed by its Monday, so naming that Monday would read as one
+       day's number when the value is seven days summed. Say which week it is. */
+    if (granularity === 'week') {
+      return t('metrics.range.weekOf', {
+        date: day.toLocaleDateString(i18n.language, { month: 'long', day: 'numeric' }),
+      });
+    }
+    return day.toLocaleDateString(i18n.language, {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+  });
 
   /** '-419 from last day' — the unit of comparison is the bucket, so it follows granularity. */
   const fromLast = (text: string) => {

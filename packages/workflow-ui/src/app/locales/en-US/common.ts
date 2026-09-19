@@ -87,6 +87,7 @@ export default {
       month: 'Monthly',
     },
     range: {
+      weekOf: 'Week of {{date}}',
       lastDays: 'Last {{count}} days',
       from: 'From',
       to: 'To',

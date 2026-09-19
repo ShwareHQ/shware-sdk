@@ -97,9 +97,21 @@ export function DateRangePicker({ value, onChange, className }: Props) {
     useRole(context, { role: 'dialog' }),
   ]);
 
+  /*
+   * A native date field reports '' when it is cleared, and an out-of-calendar
+   * year is just as reachable by typing. Neither is a range: '' parses to 1900
+   * and would ask the stats source for a century of daily buckets. Ignore
+   * anything that is not a plain ISO day and the field snaps back to the value
+   * it had, which is the only other honest answer — the range is required.
+   */
+  const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
   /* An inverted range is never what was meant; pin the other end to the edit. */
-  const setFrom = (from: string) => onChange({ from, to: from > value.to ? from : value.to });
-  const setTo = (to: string) => onChange({ from: to < value.from ? to : value.from, to });
+  const setFrom = (from: string) => {
+    if (isDay(from)) onChange({ from, to: from > value.to ? from : value.to });
+  };
+  const setTo = (to: string) => {
+    if (isDay(to)) onChange({ from: to < value.from ? to : value.from, to });
+  };
 
   return (
     <>

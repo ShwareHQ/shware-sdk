@@ -52,8 +52,15 @@ export function NavDrawer({ open, onClose, children }: NavDrawerProps) {
         />
       )}
 
+      {/*
+        `inert` rather than `aria-hidden`: translated off-screen the panel is
+        still displayed, so its links kept taking focus — tabbing from the menu
+        button walked through five invisible destinations. `inert` takes them
+        out of the tab order and the accessibility tree together, which is what
+        `aria-hidden` alone only claimed to do.
+      */}
       <aside
-        aria-hidden={!open}
+        inert={!open}
         className={`border-border bg-card fixed inset-y-0 left-0 z-30 flex w-60 max-w-[80%] flex-col border-r shadow-xl transition-transform duration-200 ease-out md:hidden ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}

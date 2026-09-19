@@ -86,6 +86,7 @@ export default {
       month: '按月',
     },
     range: {
+      weekOf: '{{date}}当周',
       lastDays: '最近 {{count}} 天',
       from: '开始',
       to: '结束',
