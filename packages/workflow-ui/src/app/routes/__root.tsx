@@ -5,6 +5,7 @@ import type { i18n as I18n } from 'i18next';
 import {
   Home,
   LayoutTemplate,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -14,6 +15,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
+import { NavDrawer } from '../../components/nav-drawer';
 import type { ResolvedStudioConfig } from '../../config';
 import { raisePendingToast } from '../integrations/toast/pending';
 import { ToastProvider } from '../integrations/toast/toast-provider';
@@ -69,7 +71,16 @@ function RootLayout() {
  * outer tracks keep the title dead-centre while space allows and squeeze the
  * sides — never overlap them — when it does not.
  */
-function Header({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function Header({
+  collapsed,
+  onToggle,
+  onOpenNav,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  /** Below `md` there is no rail to collapse; the same slot opens the drawer. */
+  onOpenNav: () => void;
+}) {
   const { t } = useTranslation();
   const breadcrumbRef = useChromeSlotRef('breadcrumb');
   const titleRef = useChromeSlotRef('title');
@@ -77,20 +88,38 @@ function Header({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
 
   /*
    * Sticky rather than a fixed row above the scroller — see Shell for why the
-   * whole column scrolls. Its 3.5rem is the offset everything that pins under
-   * it measures from: the list pages' search rows sit at `top-14`, their table
-   * heads at `top-30` (header + search row). z-20 rather than higher so the
-   * profile drawer's scrim (also z-20, and later in the tree) still dims it.
+   * whole column scrolls. It is the *only* thing that pins: search rows and
+   * table heads used to stack under it and the result read as three bars of
+   * chrome, so they scroll away now and the header alone stays. z-20 rather
+   * than higher so a drawer's scrim (also z-20, and later in the tree) dims it.
    */
   return (
     <header className="border-border bg-card sticky top-0 z-20 grid h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
       <div className="flex min-w-0 items-center gap-3">
+        {/*
+          Two buttons in one slot rather than one button with two behaviours:
+          the icon, the label and the action all differ, and exactly one is
+          rendered at any width, so the breadcrumb never shifts. Deciding in JS
+          would mean measuring the viewport to draw a button.
+        */}
+        {/* Its own label rather than the rail's: this opens a drawer over the
+            page, it does not widen anything. */}
+        <button
+          type="button"
+          onClick={onOpenNav}
+          aria-label={t('nav.menu')}
+          title={t('nav.menu')}
+          className="text-muted hover:bg-hover hover:text-primary flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors md:hidden"
+          style={superellipse}
+        >
+          <Menu className="size-4" strokeWidth={2} />
+        </button>
         <button
           type="button"
           onClick={onToggle}
           aria-label={t(collapsed ? 'nav.expand' : 'nav.collapse')}
           title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
-          className="text-muted hover:bg-hover hover:text-primary flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+          className="text-muted hover:bg-hover hover:text-primary hidden size-8 shrink-0 items-center justify-center rounded-lg transition-colors md:flex"
           style={superellipse}
         >
           {collapsed ? (
@@ -116,6 +145,8 @@ function Header({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
 function Shell() {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  /* Narrow viewports only; never persisted — a drawer is a gesture, not a layout. */
+  const [navOpen, setNavOpen] = useState(false);
 
   // A save's confirmation survives the write-back reload (see pending.ts)
   useEffect(raisePendingToast, []);
@@ -126,6 +157,8 @@ function Shell() {
       return !open;
     });
   }, []);
+
+  const closeNav = useCallback(() => setNavOpen(false), []);
 
   /*
    * Identical padding in both states, so the icon sits at the same x whether the
@@ -148,9 +181,11 @@ function Shell() {
 
   return (
     <div className="text-primary flex h-full font-sans">
+      {/* Gone below `md`, not merely narrowed: 64px of icons is a fifth of a
+          phone's width, and the drawer below carries the same items. */}
       <aside
         className={clsx(
-          'border-border bg-card flex shrink-0 flex-col overflow-hidden border-r',
+          'border-border bg-card hidden shrink-0 flex-col overflow-hidden border-r md:flex',
           'transition-[width] duration-200 ease-out',
           collapsed ? 'w-16' : 'w-60'
         )}
@@ -194,7 +229,7 @@ function Shell() {
         exception, and it says so at its own root.
       */}
       <div className="bg-page min-w-0 flex-1 overflow-y-auto">
-        <Header collapsed={collapsed} onToggle={toggle} />
+        <Header collapsed={collapsed} onToggle={toggle} onOpenNav={() => setNavOpen(true)} />
         {/*
           A short page still has to fill the viewport: empty states centre in
           it and the preview stages paint their dot grid across it. The
@@ -205,6 +240,27 @@ function Shell() {
           <Outlet />
         </main>
       </div>
+
+      {/* After the content column, not before it: the scrim and the header
+          are both z-20, so only tree order puts the scrim over the header. */}
+      <NavDrawer open={navOpen} onClose={closeNav}>
+        {NAV.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            activeOptions={{ exact: item.exact }}
+            className={itemClass}
+            activeProps={{ className: '!bg-selected !text-primary' }}
+            style={superellipse}
+            /* Picking a destination is the drawer's whole job; staying open
+               after the page behind it changed would only hide the answer. */
+            onClick={closeNav}
+          >
+            <item.icon className="size-4 shrink-0" strokeWidth={2} />
+            {t(item.label)}
+          </Link>
+        ))}
+      </NavDrawer>
 
       <ToastProvider />
     </div>

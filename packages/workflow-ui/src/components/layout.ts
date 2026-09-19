@@ -20,6 +20,7 @@ export type NodeIcon =
   | 'push'
   | 'in_app'
   | 'slack'
+  | 'discord'
   | 'survey'
   | 'delay'
   | 'time_window'
@@ -166,6 +167,7 @@ const CHANNEL_TITLE: Record<string, string> = {
   push: 'Push Notification',
   in_app: 'In-App Message',
   slack: 'Slack Message',
+  discord: 'Discord Message',
   survey: 'Survey',
 };
 

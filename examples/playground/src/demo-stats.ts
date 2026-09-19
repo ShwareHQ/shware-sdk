@@ -120,6 +120,8 @@ function analyticsChannel(node: Extract<NodeIR, { type: 'message' }>): MetricCha
       return 'sms';
     case 'slack':
       return 'slack';
+    case 'discord':
+      return 'discord';
     case 'push':
       return pseudoRandom(`${node.id}:platform`, 2) === 0 ? 'push_ios' : 'push_android';
     default:

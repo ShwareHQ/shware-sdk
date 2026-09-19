@@ -12,7 +12,11 @@ import type { ReactElement } from 'react';
  *     (`export const emails = { ... }`), which stays an explicit object
  *     because it is what types `templates<Emails>()` keys at compile time;
  *   - `src/pushes/index.ts` (or `pushes/index.ts`): the push-notification
- *     registry (`export const pushes = { ... }`), same shape and same reason.
+ *     registry (`export const pushes = { ... }`), same shape and same reason;
+ *   - `src/slack/index.ts` and `src/discord/index.ts`: the chat-message
+ *     registries (`export const slack` / `export const discord`), again the
+ *     same contract — one registry per channel, because a key's content shape
+ *     is the channel's, and a single merged map would have to guess.
  *
  * The config carries what conventions cannot: project settings (title, email
  * addresses) and runtime wiring (the stats source).
@@ -87,6 +91,39 @@ export interface PushModule {
   preview?: object;
 }
 
+/**
+ * One chat-message module (Slack, Discord) — content plus labels.
+ *
+ * Same reasoning as PushModule: a chat message has no document to render, so
+ * its content is a couple of short string templates carrying `{prop}`
+ * placeholders the engine fills at send time. Data, never a closure — which is
+ * what lets the studio edit it in place.
+ *
+ * One interface for both platforms because the payload genuinely is the same
+ * shape: who it appears to come from, where it lands, a bold first line and a
+ * body. Their chrome differs, and that difference belongs in the preview, not
+ * in two identical types.
+ */
+export interface ChatModule {
+  /** Human label for the studio; same rules as EmailModule.name. */
+  name?: string;
+  /** What this message is for, in a sentence. */
+  description?: string;
+  /**
+   * Display name of the bot posting it. Absent falls back to the project
+   * title, the same way a push banner falls back for its app name.
+   */
+  sender?: string;
+  /** Destination, e.g. `#customer-success` — shown in the preview's header. */
+  to?: string;
+  /** First line, rendered bold — a string template, `{prop}` allowed. */
+  title?: string;
+  /** Message body — same rules as `title`. */
+  body?: string;
+  /** Sample props used when previewing this template. */
+  preview?: object;
+}
+
 /** Node id → how many users currently sit on that node. */
 export type NodeStats = Record<string, number>;
 
@@ -123,8 +160,8 @@ export interface WorkflowReport {
  * the two do not line up: one `push` node fans out to iOS and Android, whose
  * delivery and open behaviour differ enough that reading them summed hides the
  * problem you opened this page to find. Going the other way, a project can
- * report on a transport the DSL has no builder for yet — discord, a webhook —
- * without the IR having to grow a node type first.
+ * report on a transport the DSL has no builder for yet — a webhook — without
+ * the IR having to grow a node type first.
  *
  * So the mapping is many-to-many and belongs to whoever measures delivery, not
  * to the compiler. In-product surfaces (`in_app`, `survey`) are absent on
@@ -340,6 +377,10 @@ export interface ResolvedStudioConfig {
   emails: Record<string, EmailModule>;
   /** The push registry from the conventional pushes/index.ts (empty if none). */
   pushes: Record<string, PushModule>;
+  /** The Slack registry from the conventional slack/index.ts (empty if none). */
+  slack: Record<string, ChatModule>;
+  /** The Discord registry from the conventional discord/index.ts (empty if none). */
+  discord: Record<string, ChatModule>;
   /** Discovered named segments. */
   segments: SegmentRef[];
   /** Sender address book from the config (empty if none). */

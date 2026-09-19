@@ -107,12 +107,11 @@ function WorkflowsIndex() {
     <div className="flex-1">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.workflows') }]} />} />
       {/*
-        The search field belongs with what it filters, not up in the chrome —
-        and it pins directly under the header so the list scrolls beneath a
-        stable chrome. Its 4rem (16 + h-9 + 12) is what the table head's
-        `top-30` is measured against.
+        The search field belongs with what it filters, not up in the chrome.
+        It scrolls away with the list: only the app header pins, and a stack
+        of three fixed bars over a short list was more chrome than content.
       */}
-      <div className="bg-page sticky top-14 z-20 px-6 pt-4 pb-3">
+      <div className="px-6 pt-4 pb-3">
         <SearchInput
           className="w-72"
           placeholder={t('workflows.searchPlaceholder')}

@@ -15,15 +15,8 @@ export type { PushPreviewProps } from './components/push-preview';
 export { WorkflowList } from './components/workflow-list';
 export type { WorkflowListProps } from './components/workflow-list';
 export { MetricCard } from './components/metric-card';
-export type { MetricCardProps, Trend } from './components/metric-card';
-export {
-  DateRangePicker,
-  formatDay,
-  formatDayLong,
-  isoDay,
-  lastDays,
-  parseIsoDay,
-} from './components/date-range';
+export type { MetricCardProps, MetricSample, Trend } from './components/metric-card';
+export { DateRangePicker, formatDay, isoDay, lastDays, parseIsoDay } from './components/date-range';
 export type { DateRange } from './components/date-range';
 export { ALL_CHANNELS_ICON, CHANNEL_ICON, channelIcon } from './components/channel-icon';
 export { Sparkline } from './components/sparkline';

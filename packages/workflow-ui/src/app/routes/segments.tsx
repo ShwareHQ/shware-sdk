@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { SearchInput } from '../../components/input/search-input';
 import { SegmentList } from '../../components/segment-list';
-import { Tabs } from '../../components/tabs';
 import { displayName } from '../../utils/label';
 import { PageChrome } from '../page-chrome';
 import { Route as rootRoute } from './__root';
@@ -138,12 +137,11 @@ function Segments() {
     <div className="flex-1">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.segments') }]} />} />
       {/*
-        The search field belongs with what it filters, not up in the chrome —
-        and it pins directly under the header so the list scrolls beneath a
-        stable chrome. Its 4rem (16 + h-9 + 12) is what the table head's
-        `top-30` is measured against.
+        The search field belongs with what it filters, not up in the chrome.
+        It scrolls away with the list: only the app header pins, and a stack
+        of three fixed bars over a short list was more chrome than content.
       */}
-      <div className="bg-page sticky top-14 z-20 px-6 pt-4 pb-3">
+      <div className="px-6 pt-4 pb-3">
         <SearchInput
           className="w-72"
           placeholder={t('segments.searchPlaceholder')}
@@ -174,9 +172,7 @@ export const segmentsRoute = createRoute({
   component: Segments,
 });
 
-/* --------------------------- Detail (tabbed shell) -------------------------- */
-
-const TABS = [{ to: '/segments/$name', label: 'segments.tabs.overview', exact: true }] as const;
+/* ------------------------------- Detail shell ------------------------------ */
 
 function SegmentDetail() {
   const { name } = segmentDetailRoute.useParams();
@@ -200,7 +196,10 @@ function SegmentDetail() {
 
   /*
    * The header is the root's: breadcrumb with the segment switcher as its
-   * leaf. The view tabs sit at the top-left of the content.
+   * leaf. No tab strip — there is exactly one view here, and a strip of one
+   * tab is a control that can never do anything. The breadcrumb still ends in
+   * the view's name, which is what keeps this page the same shape as the
+   * workflow detail page, where the tabs are real.
    */
   return (
     <div className="flex flex-1 flex-col">
@@ -214,18 +213,11 @@ function SegmentDetail() {
                 to: '/segments/$name',
                 params: { name },
               },
-              { label: t(TABS[0].label) },
+              { label: t('segments.tabs.overview') },
             ]}
           />
         }
       />
-      <div className="px-6 py-3">
-        <Tabs
-          className="w-fit"
-          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
-          params={{ name }}
-        />
-      </div>
 
       <div className="flex flex-1 flex-col">
         <Outlet />

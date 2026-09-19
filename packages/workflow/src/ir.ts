@@ -72,7 +72,7 @@ export type UserPropertyRefIR = z.infer<typeof UserPropertyRefIR>;
 export const PropValueIR = z.union([ScalarIR, UserPropertyRefIR]);
 export type PropValueIR = z.infer<typeof PropValueIR>;
 
-export const ChannelIR = z.enum(['email', 'sms', 'push', 'in_app', 'slack', 'survey']);
+export const ChannelIR = z.enum(['email', 'sms', 'push', 'in_app', 'slack', 'discord', 'survey']);
 export type ChannelIR = z.infer<typeof ChannelIR>;
 
 export const WeekdayIR = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);

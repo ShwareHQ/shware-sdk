@@ -7,6 +7,7 @@ export default {
     settings: 'Settings',
     collapse: 'Collapse',
     expand: 'Expand sidebar',
+    menu: 'Menu',
   },
   common: {
     name: 'Name',
@@ -105,7 +106,6 @@ export default {
       title: 'Links',
       topClicked: 'Top clicked links (entire workflow)',
       totalClicks: 'Total clicks',
-      totalClicksHelp: 'Every click counted, repeats by the same person included.',
       empty: 'No link clicks in this range.',
     },
     messages: {
@@ -208,14 +208,17 @@ export default {
     bcc: 'BCC',
     sentBy: 'Sent by',
     rendering: 'Rendering…',
-    pushTitle: 'Title',
-    pushBody: 'Body',
+    contentTitle: 'Title',
+    contentBody: 'Body',
+    channel: 'Channel',
     notRegistered: 'No component registered',
     pushNotRegistered: 'No push content registered',
     notRegisteredHint:
       'A workflow references {{key}}, but no react-email component is registered for it in the emails index.',
     pushNotRegisteredHint:
       'A workflow references {{key}}, but no push module is registered for it in the pushes index.',
+    chatNotRegisteredHint:
+      'A workflow references {{key}}, but no message is registered for it in the {{registry}} index.',
     manageAddresses: 'Manage addresses…',
     saved: 'Saved to source',
     saveFailed: 'Could not save',

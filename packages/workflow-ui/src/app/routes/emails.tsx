@@ -9,10 +9,10 @@ import { EmailList, type EmailListItem } from '../../components/email-list';
 import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
 import { Modal, ModalTitle } from '../../components/modal';
-import { Tabs } from '../../components/tabs';
 import { collectTemplateRefs } from '../../components/template-refs';
 import { TemplatesPage } from '../../components/templates-page';
 import { Textarea } from '../../components/textarea';
+import type { ResolvedStudioConfig } from '../../config';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
 import { useEmailPreview } from '../email-preview';
@@ -22,6 +22,28 @@ import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
 /* ---------------------------------- List ---------------------------------- */
+
+/**
+ * One template's content module, whichever registry holds it. Only the labels
+ * (`name` / `description`) are read through here, and every module type
+ * carries those — which is why one lookup can serve all four channels.
+ */
+function lookupContent(
+  config: ResolvedStudioConfig,
+  channel: string,
+  key: string
+): { name?: string; description?: string } | undefined {
+  switch (channel) {
+    case 'push':
+      return lookup(config.pushes, key);
+    case 'slack':
+      return lookup(config.slack, key);
+    case 'discord':
+      return lookup(config.discord, key);
+    default:
+      return lookup(config.emails, key);
+  }
+}
 
 /** Draft for the edit dialog; `original` decides which fields actually changed on save. */
 interface EditDraft {
@@ -45,9 +67,9 @@ function EmailsIndex() {
       Object.values(config.workflows).map((builder) => builder.toIR())
     );
     return refs.map((ref) => {
-      // Each channel reads its own registry — a push key is registered in `pushes`
-      const mod =
-        ref.channel === 'push' ? lookup(config.pushes, ref.key) : lookup(config.emails, ref.key);
+      // Each channel reads its own registry — a push key is registered in `pushes`,
+      // a chat key in the registry named after its client
+      const mod = lookupContent(config, ref.channel, ref.key);
       const item: EmailListItem = {
         key: ref.key,
         channel: ref.channel,
@@ -106,12 +128,11 @@ function EmailsIndex() {
     <div className="flex-1">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.templates') }]} />} />
       {/*
-        The search field belongs with what it filters, not up in the chrome —
-        and it pins directly under the header so the list scrolls beneath a
-        stable chrome. Its 4rem (16 + h-9 + 12) is what the table head's
-        `top-30` is measured against.
+        The search field belongs with what it filters, not up in the chrome.
+        It scrolls away with the list: the app header is the only sticky
+        chrome, so nothing here needs an opaque fill or a stacking context.
       */}
-      <div className="bg-page sticky top-14 z-20 px-6 pt-4 pb-3">
+      <div className="px-6 pt-4 pb-3">
         <SearchInput
           className="w-72"
           placeholder={t('emails.searchPlaceholder')}
@@ -184,8 +205,6 @@ export const emailsIndexRoute = createRoute({
   component: EmailsIndex,
 });
 
-const TABS = [{ to: '/templates/$key', label: 'emails.tabs.preview', exact: true }] as const;
-
 function EmailView() {
   const { key } = emailRoute.useParams();
   const { config } = emailRoute.useRouteContext();
@@ -202,9 +221,9 @@ function EmailView() {
   );
   const emails = config.emails;
   const pushes = config.pushes;
-  /* Push templates never hit the react-email pipeline; their content is data. */
-  const isPush = refs.find((ref) => ref.key === key)?.channel === 'push';
-  const selected = isPush ? undefined : lookup(emails, key);
+  /* Only email renders a document; every other channel's content is data. */
+  const isEmail = (refs.find((ref) => ref.key === key)?.channel ?? 'email') === 'email';
+  const selected = isEmail ? lookup(emails, key) : undefined;
   const { data, error, isPending } = useEmailPreview(selected, key);
 
   /* Switcher options: every referenced template, labelled by its module name. */
@@ -212,12 +231,9 @@ function EmailView() {
     () =>
       refs.map((ref) => ({
         value: ref.key,
-        label: displayName(
-          (ref.channel === 'push' ? lookup(pushes, ref.key) : lookup(emails, ref.key))?.name,
-          ref.key
-        ),
+        label: displayName(lookupContent(config, ref.channel, ref.key)?.name, ref.key),
       })),
-    [refs, emails, pushes]
+    [refs, config]
   );
 
   const report = (promise: Promise<void>): Promise<void> =>
@@ -252,7 +268,8 @@ function EmailView() {
       {/*
         The header is the root's: breadcrumb with the template switcher as its
         leaf, the test-send button on the right. Test sends deliver rendered HTML
-        to an inbox — an email-only affordance, so pushes get no button.
+        to an inbox — an email-only affordance, so no other channel gets the
+        button.
       */}
       <PageChrome
         breadcrumb={
@@ -264,12 +281,18 @@ function EmailView() {
                 to: '/templates/$key',
                 params: { key },
               },
-              { label: t(TABS[0].label) },
+              /*
+                The leaf is the page name, still "Preview" now that the
+                single-item tab strip is gone: the workflow detail page keeps
+                real tabs and ends its breadcrumb on one, so dropping it here
+                would leave the three detail pages shaped differently.
+              */
+              { label: t('emails.tabs.preview') },
             ]}
           />
         }
         actions={
-          isPush ? undefined : (
+          !isEmail ? undefined : (
             <Button
               size="sm"
               className="gap-1.5"
@@ -283,19 +306,13 @@ function EmailView() {
           )
         }
       />
-      <div className="px-6 py-3">
-        <Tabs
-          className="w-fit"
-          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
-          params={{ key }}
-        />
-      </div>
-
       <div className="flex flex-1 flex-col">
         <TemplatesPage
           refs={refs}
           emails={emails}
           pushes={pushes}
+          slack={config.slack}
+          discord={config.discord}
           {...(config.title !== undefined ? { appName: config.title } : {})}
           defaultScheme={studioScheme}
           selected={key}

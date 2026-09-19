@@ -41,6 +41,7 @@ const RECIPIENT_PROPERTY: Record<string, string | undefined> = {
   sms: 'phone',
   push: 'push_token',
   slack: 'slack_user_id',
+  discord: 'discord_user_id',
   survey: 'email',
   in_app: undefined,
 };

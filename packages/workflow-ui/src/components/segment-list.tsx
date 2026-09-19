@@ -90,13 +90,11 @@ function trend(series: readonly number[] | undefined): { text: string; up: boole
 }
 
 /*
- * Pinned under the app header (3.5rem) plus the page's search row (4rem), so
- * the head comes to rest exactly where the search field ends. The cells stick
- * and the cells carry the fill: a `thead`'s own background paints in a box no
- * cell radius can clip, which would square off the card's top corners.
+ * Not pinned: the app header is the only sticky chrome, so the head scrolls
+ * away with the rows and needs no opaque fill of its own. The radii stay —
+ * the card has no `overflow` to clip with, so its top corners are cut here.
  */
-const HEAD_CELL =
-  'bg-card/95 border-border sticky top-30 z-10 border-b py-3 backdrop-blur first:rounded-tl-2xl last:rounded-tr-2xl';
+const HEAD_CELL = 'border-border border-b py-3 first:rounded-tl-2xl last:rounded-tr-2xl';
 
 export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
   const { t } = useTranslation();
@@ -104,10 +102,10 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
 
   return (
     /*
-     * No `overflow` on the card, deliberately: any value at all makes it the
-     * sticky scrollport and the head would then pin to the card rather than to
-     * the page. The page scrolls (see __root), so the corners are re-cut on the
-     * first and last cells below instead of being clipped here.
+     * No `overflow` on the card, deliberately: any value at all turns it into
+     * a scrollport of its own and draws a second bar inset inside the border —
+     * the page is the one scroller (see __root). Nothing clips, so the corners
+     * are re-cut on the first and last cells below.
      */
     <div className="border-border bg-card rounded-2xl border" style={superellipse}>
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">

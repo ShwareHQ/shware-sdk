@@ -63,15 +63,6 @@ export function formatDay(iso: string, locale: string): string {
   });
 }
 
-/** 'August 21, 2026' — the long form, for a card's subtitle. */
-export function formatDayLong(iso: string, locale: string): string {
-  return parseIsoDay(iso).toLocaleDateString(locale, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
 const PRESETS = [7, 14, 30, 90] as const;
 
 interface Props {

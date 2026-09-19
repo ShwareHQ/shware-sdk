@@ -1,5 +1,5 @@
 import { clsx } from 'clsx';
-import { Bell, Mail } from 'lucide-react';
+import { Bell, type LucideIcon, Mail, MessageCircle, MessagesSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { displayName } from '../utils/label';
 import { superellipse } from './corner-shape';
@@ -30,23 +30,38 @@ export interface EmailListProps {
 }
 
 /*
- * Pinned under the app header (3.5rem) plus the page's search row (4rem), so
- * the head comes to rest exactly where the search field ends. The cells stick
- * and the cells carry the fill: a `thead`'s own background paints in a box no
- * cell radius can clip, which would square off the card's top corners.
+ * Not pinned: the app header is the only sticky chrome, so the head scrolls
+ * away with the rows and needs no opaque fill of its own. The radii stay —
+ * the card has no `overflow` to clip with, so its top corners are cut here.
  */
-const HEAD_CELL =
-  'bg-card/95 border-border sticky top-30 z-10 border-b py-3 backdrop-blur first:rounded-tl-2xl last:rounded-tr-2xl';
+const HEAD_CELL = 'border-border border-b py-3 first:rounded-tl-2xl last:rounded-tr-2xl';
+
+/*
+ * One glyph per channel, matching what `channel-icon.ts` hands the analytics
+ * views — the same template has to look like itself in both places. Keyed by
+ * the IR's channel rather than the analytics one, which splits push by
+ * platform and so has no plain `push`.
+ */
+const ROW_ICON: Record<string, LucideIcon> = {
+  push: Bell,
+  slack: MessagesSquare,
+  discord: MessageCircle,
+};
+
+function RowIcon({ channel }: { channel: string | undefined }) {
+  const Icon = channel === undefined ? Mail : (ROW_ICON[channel] ?? Mail);
+  return <Icon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />;
+}
 
 export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
   const { t } = useTranslation();
 
   return (
     /*
-     * No `overflow` on the card, deliberately: any value at all makes it the
-     * sticky scrollport and the head would then pin to the card rather than to
-     * the page. The page scrolls (see __root), so the corners are re-cut on the
-     * first and last cells below instead of being clipped here.
+     * No `overflow` on the card, deliberately: any value at all turns it into
+     * a scrollport of its own and draws a second bar inset inside the border —
+     * the page is the one scroller (see __root). Nothing clips, so the corners
+     * are re-cut on the first and last cells below.
      */
     <div className="border-border bg-card rounded-2xl border" style={superellipse}>
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
@@ -84,11 +99,7 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
             >
               <td className="border-border border-b px-6 py-4" style={superellipse}>
                 <div className="flex items-start gap-3">
-                  {item.channel === 'push' ? (
-                    <Bell className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
-                  ) : (
-                    <Mail className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
-                  )}
+                  <RowIcon channel={item.channel} />
                   <div className="min-w-0">
                     <div
                       className={clsx(
