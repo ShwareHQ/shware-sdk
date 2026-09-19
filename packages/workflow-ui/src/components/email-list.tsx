@@ -135,7 +135,7 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
               <td
                 className={clsx(
                   CELL,
-                  'px-3 max-md:order-3 max-md:col-span-6 max-md:pt-0 max-md:pb-3'
+                  'px-3 max-md:order-3 max-md:col-span-6 max-md:pt-0 max-md:pb-4'
                 )}
                 style={superellipse}
               >
@@ -157,14 +157,8 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
                 </span>
               </td>
 
-              <td
-                className={clsx(
-                  CELL,
-                  'text-secondary px-3 max-md:order-4 max-md:col-span-6 max-md:pt-0 max-md:pb-4'
-                )}
-                style={superellipse}
-              >
-                <div className="text-muted mb-1 truncate text-xs md:hidden">{t('emails.id')}</div>
+              {/* The template key is for wiring code, not for reading on a phone. */}
+              <td className={clsx(CELL, 'text-secondary px-3 max-md:hidden')} style={superellipse}>
                 <span className="block truncate font-mono">{item.key}</span>
               </td>
 
