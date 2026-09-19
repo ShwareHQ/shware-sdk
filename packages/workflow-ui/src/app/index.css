@@ -75,8 +75,12 @@
   --color-border: var(--color-gray-200);
   --color-hover: var(--color-gray-50);
   --color-selected: var(--color-gray-100);
-  /* Surfaces: `page` matches the sidebar's card colour — one flat surface. */
-  --color-page: #fff;
+  /*
+   * Surfaces: the page is the backdrop, cards are what sits on it. The chrome
+   * (rail, header) is `card`, so the content area reads as inset. Dark mode
+   * makes the same split the other way round — a black page under grey cards.
+   */
+  --color-page: var(--color-gray-50);
   --color-card: #fff;
   /* Form controls, same roles as the template app so ported fields just work. */
   --color-textfield: var(--color-gray-100);
