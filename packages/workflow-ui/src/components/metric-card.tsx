@@ -283,11 +283,20 @@ function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readon
           style={{ left, top: row.y, background: row.color, transform: 'translate(-50%, -50%)' }}
         />
       ))}
-      {/* Anchored by the same fraction it sits at: the panel hugs the left edge
-          at the start of the series and the right edge at the end, so the card
-          never clips it. */}
+      {/*
+        Anchored by the same fraction it sits at: the panel hugs the left edge
+        at the start of the series and the right edge at the end, so the card
+        never clips it.
+
+        `w-max` is load-bearing. The date spans all three columns, but the
+        middle one is `1fr`, and a flexible track takes no min-content
+        contribution from a spanning item — so a shrink-to-fit panel sizes
+        itself to the data row alone and the date spills out the side. Sizing
+        to max-content measures the date too; the `1fr` then hands the slack to
+        the label, which keeps the value flush right.
+      */}
       <div
-        className="border-border bg-card shadow-card-shadow absolute top-0 grid items-center gap-x-3 gap-y-1 rounded-lg border px-2.5 py-2 text-xs shadow-md"
+        className="border-border bg-card shadow-card-shadow absolute top-0 grid w-max items-center gap-x-3 gap-y-1 rounded-lg border px-2.5 py-2 text-xs shadow-md"
         style={{
           ...superellipse,
           left,
