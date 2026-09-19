@@ -162,10 +162,18 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                       >
                         {displayName(ir.meta?.name, t('common.untitled'))}
                       </div>
+                      {/*
+                        Below md these two step back out of the title's indent
+                        (the 16px icon plus its 12px gap). The stacked rows under
+                        them — status, then the funnel — start at the card's edge,
+                        so keeping the indent here left a notch down the side.
+                      */}
                       {ir.meta?.description !== undefined && (
-                        <p className="text-muted mt-1 truncate text-sm">{ir.meta.description}</p>
+                        <p className="text-muted mt-1 truncate text-sm max-md:-ml-7">
+                          {ir.meta.description}
+                        </p>
                       )}
-                      <div className="text-muted mt-2 flex items-center gap-3 text-xs">
+                      <div className="text-muted mt-2 flex items-center gap-3 text-xs max-md:-ml-7">
                         <span className="flex items-center gap-1">
                           <Mail className="size-3.5" strokeWidth={2} />
                           {shape.messages}
