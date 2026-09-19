@@ -5,9 +5,14 @@ import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ALL_CHANNELS_ICON, CHANNEL_ICON, channelIcon } from '../../components/channel-icon';
 import { superellipse } from '../../components/corner-shape';
-import { type DateRange, DateRangePicker, formatDay, lastDays } from '../../components/date-range';
+import {
+  type DateRange,
+  DateRangePicker,
+  lastDays,
+  parseIsoDay,
+} from '../../components/date-range';
 import { Dropdown, type DropdownOption } from '../../components/dropdown';
-import { MetricCard, type Trend } from '../../components/metric-card';
+import { MetricCard, type MetricSeries, type Trend } from '../../components/metric-card';
 import { findNode } from '../../components/template-refs';
 import {
   type Granularity,
@@ -106,6 +111,30 @@ const SERIES: Record<CardKey, (point: MetricPoint) => number> = {
   opened: (point) => rate(point.opened, point.delivered),
   clicked: (point) => rate(point.clicked, point.delivered),
   converted: (point) => rate(point.converted, point.delivered),
+};
+
+/** The two halves of a split metric, in the order they are plotted. */
+type SplitKey = 'openedHuman' | 'openedMachine' | 'clickedHuman' | 'clickedMachine';
+
+/**
+ * Which cards decompose, and into what.
+ *
+ * Opens and clicks are the two the machines touch. Apple's Mail Privacy
+ * Protection fetches the tracking pixel of everything it relays, Gmail's image
+ * proxy caches it, and corporate scanners follow the links behind it — so both
+ * numbers arrive inflated by traffic nobody caused, and an open rate that
+ * doubled overnight usually means a client changed, not an audience. Sent is
+ * ours to count and a conversion is a person doing something in the product,
+ * so neither of those splits.
+ *
+ * Both halves are rated against the same denominator as their total, so the
+ * three lines add up on screen exactly the way the counts do.
+ */
+const SPLIT: Record<CardKey, readonly [SplitKey, SplitKey] | undefined> = {
+  sent: undefined,
+  opened: ['openedHuman', 'openedMachine'],
+  clicked: ['clickedHuman', 'clickedMachine'],
+  converted: undefined,
 };
 
 /* ------------------------------- Message table ----------------------------- */
@@ -213,14 +242,50 @@ function MetricsTab() {
   const last = buckets.at(-1);
   const previous = buckets.at(-2);
   /* Formatted once for all four cards: the hover readout wants a date a person
-     can read, and the card has no locale of its own. */
-  const dates = buckets.map((point) => formatDay(point.date, i18n.language));
+     can read, and the card has no locale of its own. Long form, weekday and
+     all — the readout is the one place there is room for it, and a weekday is
+     what tells you whether a dip is the weekend. A month bucket has no weekday
+     worth printing, so it names the month instead. */
+  const dates = buckets.map((point) =>
+    parseIsoDay(point.date).toLocaleDateString(
+      i18n.language,
+      granularity === 'month'
+        ? { year: 'numeric', month: 'long' }
+        : { weekday: 'long', month: 'long', day: 'numeric' }
+    )
+  );
 
   /** '-419 from last day' — the unit of comparison is the bucket, so it follows granularity. */
   const fromLast = (text: string) => {
     if (granularity === 'week') return t('metrics.fromLast.week', { value: text });
     if (granularity === 'month') return t('metrics.fromLast.month', { value: text });
     return t('metrics.fromLast.day', { value: text });
+  };
+
+  /**
+   * The lines one card plots: its total, and — where the source measured them
+   * — the human and machine halves of it.
+   *
+   * Presence in the data is the switch, not a channel the UI hardcodes. The
+   * demo source reports the split for email alone, which is where the pixel
+   * prefetch problem lives, so All channels and every other filter come back
+   * single-line on their own; a project that learns to tell a scanner from a
+   * person on another transport gets three lines there without a UI change.
+   */
+  const seriesOf = (key: CardKey): MetricSeries[] => {
+    const head = { label: t(`metrics.${key}`), values: buckets.map(SERIES[key]) };
+    const split = SPLIT[key];
+    if (split === undefined) return [head];
+    /* Partial coverage is worse than none: halves that only sometimes sum to
+       the whole read as a broken measurement rather than a narrower filter. */
+    if (!buckets.every((point) => split.every((half) => point[half] !== undefined))) return [head];
+    return [
+      head,
+      ...split.map((half) => ({
+        label: t(`metrics.series.${half}`),
+        values: buckets.map((point) => rate(point[half] ?? 0, point.delivered)),
+      })),
+    ];
   };
 
   const cardOf = (key: CardKey) => {
@@ -233,14 +298,14 @@ function MetricsTab() {
       <MetricCard
         key={key}
         label={t(`metrics.${key}`)}
-        help={t(`metrics.help.${key}`)}
         value={last === undefined ? '—' : format(current)}
         delta={
           delta === undefined
             ? undefined
             : { text: fromLast(signed(delta, format)), trend: trendOf(delta) }
         }
-        samples={buckets.map((point, index) => ({ date: dates[index], value: pick(point) }))}
+        dates={dates}
+        series={seriesOf(key)}
         format={format}
       />
     );

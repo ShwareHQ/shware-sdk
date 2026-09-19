@@ -215,6 +215,15 @@ export interface MetricsQuery extends StatsRange {
  * what we handed the transport, delivered is what it accepted. The gap between
  * them is the bounce rate, which is invisible if you only keep one of them —
  * which is why `delivered` was not simply renamed when the Sent card arrived.
+ *
+ * Opens and clicks carry an optional human/machine split. Not every transport
+ * can tell the two apart — most have nothing to tell apart — so the halves are
+ * optional, and the studio plots three lines only for a query whose every
+ * bucket reports them. Where they are reported, `opened` must equal
+ * `openedHuman + openedMachine` and `clicked` its own pair: the studio rates
+ * all three against one denominator so the lines add up on screen, and a
+ * source that recounts the halves independently would draw a chart that
+ * visibly does not.
  */
 export interface MetricPoint {
   /** Bucket start, ISO `YYYY-MM-DD`; used verbatim on the x axis. */
@@ -222,7 +231,20 @@ export interface MetricPoint {
   sent: number;
   delivered: number;
   opened: number;
+  /**
+   * Opens a person caused. The rest is infrastructure: Apple's Mail Privacy
+   * Protection prefetches the tracking pixel for everything it relays, whether
+   * or not the mail is ever read, and Gmail's image proxy caches it — which is
+   * why a raw open rate has been unusable as a measure of attention since 2021.
+   */
+  openedHuman?: number;
+  /** Opens attributed to a proxy, relay or scanner rather than a reader. */
+  openedMachine?: number;
   clicked: number;
+  /** Clicks a person caused. */
+  clickedHuman?: number;
+  /** Clicks attributed to a link prefetcher or a security scanner following links. */
+  clickedMachine?: number;
   converted: number;
 }
 

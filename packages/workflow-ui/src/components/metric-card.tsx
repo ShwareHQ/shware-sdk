@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowUp, CircleQuestionMark, type LucideIcon, Minus } from 'lucide-react';
-import { type PointerEvent, useId, useState } from 'react';
+import { ArrowDown, ArrowUp, type LucideIcon, Minus } from 'lucide-react';
+import { Fragment, type PointerEvent, useId, useState } from 'react';
 import { cn } from '../utils/cn';
 import { superellipse } from './corner-shape';
 
@@ -21,26 +21,38 @@ import { superellipse } from './corner-shape';
 export type Trend = 'up' | 'down' | 'flat';
 
 /**
- * One plotted bucket. The date arrives already formatted: the card has no
- * business knowing the locale, and the hover readout is the only place it is
- * read, so a display string is the whole of what it needs.
+ * One plotted line.
+ *
+ * A card plots either one series or a total and the parts it decomposes into
+ * (email opens split into human and machine). The parts are not independent
+ * measurements, which is why they arrive as a list on one card rather than as
+ * cards of their own: they only mean anything read against the total.
  */
-export interface MetricSample {
-  date: string;
-  value: number;
+export interface MetricSeries {
+  /** Named in the hover readout, beside its colour swatch. */
+  label: string;
+  /** One value per bucket, oldest first; as long as `dates`. */
+  values: readonly number[];
 }
 
 export interface MetricCardProps {
   label: string;
-  /** The metric's definition, shown on the `?`. Every rate needs its denominator stated. */
-  help: string;
   /** The current bucket, already formatted ('9,280', '26.2%'). */
   value: string;
   /** Period-over-period change, already formatted and signed. */
   delta?: { text: string; trend: Trend };
-  /** One sample per bucket, oldest first. */
-  samples: readonly MetricSample[];
-  /** Formats the extremes in the plot's corners, and the value under the cursor. */
+  /**
+   * Bucket dates, oldest first, already formatted: the card has no business
+   * knowing the locale, and the hover readout is the only place they are read.
+   */
+  dates: readonly string[];
+  /**
+   * Head series first. It gets the strongest shade and the gradient fill; any
+   * that follow are its components and share its y scale — plotted against
+   * scales of their own, two halves would not visibly add up to the whole.
+   */
+  series: readonly MetricSeries[];
+  /** Formats the extremes in the plot's corners, and the values under the cursor. */
   format: (value: number) => string;
 }
 
@@ -48,14 +60,27 @@ export interface MetricCardProps {
  * viewBox units; `preserveAspectRatio="none"` stretches them to the card.
  *
  * The height doubles as the plot's pixel height, which is what lets the hover
- * indicator place its dot with a y taken straight from the viewBox. The two
+ * indicator place its dots with a y taken straight from the viewBox. The two
  * are the same number on purpose — move one and the other has to follow, or
- * the curve stretches vertically and the dot leaves it.
+ * the curve stretches vertically and the dots leave it.
  */
 const VIEW_WIDTH = 320;
 const VIEW_HEIGHT = 120;
 /** Headroom above the peak so the max label never sits on the curve. */
 const TOP_PAD = 22;
+
+/**
+ * Successive series, each mixed further toward the card it sits on.
+ *
+ * Mixing with the surface — rather than stepping down a fixed ramp — is what
+ * makes one set of shades work in both themes: it pales toward the white card
+ * in light mode and darkens toward the near-black one in dark mode, so the
+ * head series is the highest-contrast line either way and the components read
+ * as subordinate to it. A second hue was the other option and is not on the
+ * table: accent is the only colour in the studio.
+ */
+const seriesColor = (index: number): string =>
+  `color-mix(in oklab, var(--color-accent) ${Math.round(100 * 0.7 ** index)}%, var(--color-card))`;
 
 interface Point {
   x: number;
@@ -94,31 +119,36 @@ const TREND_STYLE: Record<Trend, string> = {
 
 const TREND_ICON: Record<Trend, LucideIcon> = { up: ArrowUp, down: ArrowDown, flat: Minus };
 
-export function MetricCard({ label, help, value, delta, samples, format }: MetricCardProps) {
+export function MetricCard({ label, value, delta, dates, series, format }: MetricCardProps) {
   const gradientId = useId();
   /** Which bucket the cursor is over; null once it leaves the plot. */
   const [active, setActive] = useState<number | null>(null);
 
-  const values = samples.map((sample) => sample.value);
-  const max = Math.max(...values, 0);
-  const min = Math.min(...values, max);
+  /* One scale for every line on the card: the components sum to the head
+     series, and a shared axis is the only way that addition is visible. */
+  const all = series.flatMap((one) => [...one.values]);
+  const max = Math.max(...all, 0);
+  const min = Math.min(...all, max);
   /* A flat series has no range to scale against; park it on the baseline. */
   const span = max - min || 1;
-  const stepX = values.length > 1 ? VIEW_WIDTH / (values.length - 1) : 0;
-  const points = values.map((point, index) => ({
-    x: index * stepX,
-    y: TOP_PAD + (1 - (point - min) / span) * (VIEW_HEIGHT - TOP_PAD),
-  }));
+  const stepX = dates.length > 1 ? VIEW_WIDTH / (dates.length - 1) : 0;
+  const yOf = (point: number) => TOP_PAD + (1 - (point - min) / span) * (VIEW_HEIGHT - TOP_PAD);
+  const plotted = series.map((one) =>
+    one.values.map((point, index) => ({ x: index * stepX, y: yOf(point) }))
+  );
 
-  const line = splinePath(points);
-  /* The fill closes the curve to the bottom edge and back to where it started. */
+  const head = plotted.length > 0 ? plotted[0] : [];
+  const line = splinePath(head);
+  /* The fill closes the curve to the bottom edge and back to where it started.
+     Only the head series gets one: three stacked washes would muddy the plot
+     and the components are read as lines against the total, not as volumes. */
   const area = line === '' ? '' : `${line} L ${VIEW_WIDTH} ${VIEW_HEIGHT} L 0 ${VIEW_HEIGHT} Z`;
 
   const DeltaIcon = delta ? TREND_ICON[delta.trend] : undefined;
 
   /* The series can be replaced under a held cursor — a new granularity, a new
      channel — so a stale index is a live possibility, not a defensive fiction. */
-  const hovered = active !== null && active < points.length ? active : undefined;
+  const hovered = active !== null && active < dates.length ? active : undefined;
 
   /**
    * Cursor → bucket. The plot is `preserveAspectRatio="none"`, so its viewBox
@@ -128,9 +158,9 @@ export function MetricCard({ label, help, value, delta, samples, format }: Metri
    */
   const trackPointer = (event: PointerEvent<HTMLDivElement>) => {
     const { left, width } = event.currentTarget.getBoundingClientRect();
-    if (width === 0 || points.length === 0) return;
-    const index = Math.round(((event.clientX - left) / width) * (points.length - 1));
-    setActive(Math.min(Math.max(index, 0), points.length - 1));
+    if (width === 0 || dates.length === 0) return;
+    const index = Math.round(((event.clientX - left) / width) * (dates.length - 1));
+    setActive(Math.min(Math.max(index, 0), dates.length - 1));
   };
 
   return (
@@ -138,15 +168,12 @@ export function MetricCard({ label, help, value, delta, samples, format }: Metri
       className="border-border bg-card flex flex-col overflow-hidden rounded-2xl border"
       style={superellipse}
     >
-      <div className="flex items-center gap-1.5 px-4 pt-4">
+      <div className="px-4 pt-4">
         <h3 className="text-sm font-medium">{label}</h3>
-        <span title={help} aria-label={help} className="text-muted cursor-help">
-          <CircleQuestionMark size={14} strokeWidth={2} aria-hidden />
-        </span>
       </div>
 
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 px-4 pt-3">
-        <span className="text-3xl font-semibold tracking-tight tabular-nums">{value}</span>
+        <span className="text-2xl font-semibold tracking-tight tabular-nums">{value}</span>
         {delta !== undefined && DeltaIcon !== undefined && (
           <span className={cn('inline-flex items-center gap-1 text-xs', TREND_STYLE[delta.trend])}>
             <DeltaIcon size={12} strokeWidth={2.5} aria-hidden />
@@ -175,20 +202,27 @@ export function MetricCard({ label, help, value, delta, samples, format }: Metri
             </linearGradient>
           </defs>
           {area !== '' && <path d={area} fill={`url(#${gradientId})`} />}
-          {line !== '' && (
-            <path
-              d={line}
-              fill="none"
-              stroke="var(--color-accent)"
-              strokeWidth={1.75}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              /* The viewBox is stretched, so the stroke must opt out of scaling. */
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
+          {/* Components first, head last: where they cross, the total is the
+              line you want on top. */}
+          {plotted
+            .map((points, index) => ({ d: splinePath(points), index }))
+            .filter((entry) => entry.d !== '')
+            .reverse()
+            .map((entry) => (
+              <path
+                key={entry.index}
+                d={entry.d}
+                fill="none"
+                style={{ stroke: seriesColor(entry.index) }}
+                strokeWidth={1.75}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                /* The viewBox is stretched, so the stroke must opt out of scaling. */
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
         </svg>
-        {values.length > 0 && (
+        {all.length > 0 && (
           <>
             <span className="text-muted pointer-events-none absolute top-0 left-4 text-xs tabular-nums">
               {format(max)}
@@ -200,10 +234,14 @@ export function MetricCard({ label, help, value, delta, samples, format }: Metri
         )}
         {hovered !== undefined && (
           <HoverReadout
-            x={points[hovered].x / VIEW_WIDTH}
-            y={points[hovered].y}
-            date={samples[hovered].date}
-            value={format(samples[hovered].value)}
+            x={dates.length > 1 ? hovered / (dates.length - 1) : 0}
+            date={dates[hovered]}
+            rows={series.map((one, index) => ({
+              color: seriesColor(index),
+              label: one.label,
+              value: format(one.values[hovered]),
+              y: plotted[index][hovered].y,
+            }))}
           />
         )}
       </div>
@@ -211,42 +249,69 @@ export function MetricCard({ label, help, value, delta, samples, format }: Metri
   );
 }
 
+/** One line of the readout: which series, what it read, and where its dot goes. */
+interface ReadoutRow {
+  color: string;
+  label: string;
+  value: string;
+  /** Plot pixels from the top — the viewBox height is the rendered height. */
+  y: number;
+}
+
 /**
- * Rule, dot and pill for the bucket under the cursor.
+ * Rule, dots and panel for the bucket under the cursor.
  *
  * HTML rather than SVG: a circle drawn in the stretched viewBox renders as an
- * ellipse and the pill would shear with it. A percentage rides the same
+ * ellipse and the panel would shear with it. A percentage rides the same
  * stretch the curve does, so `x` is a 0–1 fraction of the plot's width, while
- * `y` is plain pixels — the plot's height is its viewBox height.
+ * each `y` is plain pixels.
+ *
+ * A single-series card drops the swatch and the series name: with one line
+ * there is nothing to tell apart, and the card's own heading already says
+ * which metric this is.
  */
-function HoverReadout({
-  x,
-  y,
-  date,
-  value,
-}: {
-  x: number;
-  y: number;
-  date: string;
-  value: string;
-}) {
+function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readonly ReadoutRow[] }) {
   const left = `${x * 100}%`;
+  const named = rows.length > 1;
   return (
     <div aria-hidden className="pointer-events-none">
       <div className="bg-border absolute inset-y-0 w-px" style={{ left }} />
-      <div
-        className="bg-accent border-card absolute size-2.5 rounded-full border-2"
-        style={{ left, top: y, transform: 'translate(-50%, -50%)' }}
-      />
-      {/* Anchored by the same fraction it sits at: the pill hugs the left edge
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          className="border-card absolute size-2.5 rounded-full border-2"
+          style={{ left, top: row.y, background: row.color, transform: 'translate(-50%, -50%)' }}
+        />
+      ))}
+      {/* Anchored by the same fraction it sits at: the panel hugs the left edge
           at the start of the series and the right edge at the end, so the card
           never clips it. */}
       <div
-        className="border-border bg-card shadow-card-shadow absolute top-0 flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs whitespace-nowrap shadow-md"
-        style={{ ...superellipse, left, transform: `translateX(-${x * 100}%)` }}
+        className="border-border bg-card shadow-card-shadow absolute top-0 grid items-center gap-x-3 gap-y-1 rounded-lg border px-2.5 py-2 text-xs shadow-md"
+        style={{
+          ...superellipse,
+          left,
+          transform: `translateX(-${x * 100}%)`,
+          gridTemplateColumns: named ? 'auto 1fr auto' : 'auto',
+        }}
       >
-        <span className="text-muted">{date}</span>
-        <span className="tabular-nums">{value}</span>
+        <div className="col-span-full font-medium whitespace-nowrap">{date}</div>
+        {rows.map((row) =>
+          named ? (
+            <Fragment key={row.label}>
+              <span
+                className="size-3 rounded-sm"
+                style={{ ...superellipse, background: row.color }}
+              />
+              <span className="text-secondary whitespace-nowrap">{row.label}</span>
+              <span className="text-right font-medium tabular-nums">{row.value}</span>
+            </Fragment>
+          ) : (
+            <span key={row.label} className="font-medium tabular-nums">
+              {row.value}
+            </span>
+          )
+        )}
       </div>
     </div>
   );

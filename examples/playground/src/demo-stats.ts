@@ -150,24 +150,82 @@ function dailyPoint(name: string, channel: MetricChannel, date: string): MetricP
   const opened = Math.round(delivered * (0.22 + pseudoRandom(`${seed}:o`, 18) / 100));
   const clicked = Math.round(opened * (0.18 + pseudoRandom(`${seed}:c`, 14) / 100));
   const converted = Math.round(clicked * (0.12 + pseudoRandom(`${seed}:v`, 16) / 100));
-  return { date, sent, delivered, opened, clicked, converted };
+
+  /*
+   * Only email has a tracking pixel to prefetch and links to rewrite, so only
+   * email comes back split. Apple's Mail Privacy Protection fetches the pixel
+   * for everything it relays and Gmail's proxy caches it — roughly half of
+   * reported opens are nobody, and the share moves with the audience's client
+   * mix. Scanners following links are a far smaller slice of clicks. Every
+   * other transport reports nothing to split, and the studio then draws one
+   * line, which is the whole mechanism behind "Email splits, All channels does
+   * not".
+   */
+  const openedMachine =
+    channel === 'email'
+      ? Math.round(opened * (0.42 + pseudoRandom(`${seed}:mo`, 24) / 100))
+      : undefined;
+  const clickedMachine =
+    channel === 'email'
+      ? Math.round(clicked * (0.08 + pseudoRandom(`${seed}:mc`, 15) / 100))
+      : undefined;
+
+  return {
+    date,
+    sent,
+    delivered,
+    opened,
+    /* Subtracted, never generated: the halves have to add back up to the
+       total, because the card plots all three against one denominator. */
+    openedHuman: openedMachine === undefined ? undefined : opened - openedMachine,
+    openedMachine,
+    clicked,
+    clickedHuman: clickedMachine === undefined ? undefined : clicked - clickedMachine,
+    clickedMachine,
+    converted,
+  };
 }
+
+/**
+ * Sum one optional half. Absent means "this transport cannot tell the two
+ * apart", which adds nothing — so a range of email days accumulates into a
+ * split bucket, and a range of SMS days stays unsplit.
+ */
+const addPart = (total: number | undefined, part: number | undefined): number | undefined =>
+  total === undefined && part === undefined ? undefined : (total ?? 0) + (part ?? 0);
 
 const addPoint = (total: MetricPoint, point: MetricPoint): MetricPoint => ({
   date: total.date,
   sent: total.sent + point.sent,
   delivered: total.delivered + point.delivered,
   opened: total.opened + point.opened,
+  openedHuman: addPart(total.openedHuman, point.openedHuman),
+  openedMachine: addPart(total.openedMachine, point.openedMachine),
   clicked: total.clicked + point.clicked,
+  clickedHuman: addPart(total.clickedHuman, point.clickedHuman),
+  clickedMachine: addPart(total.clickedMachine, point.clickedMachine),
   converted: total.converted + point.converted,
 });
 
 /** A day across the selected channels — one of them, or all of them summed. */
-const dayTotal = (name: string, date: string, channel: MetricChannel | undefined): MetricPoint =>
-  (channel === undefined ? CHANNELS : [channel]).reduce(
-    (total, one) => addPoint(total, dailyPoint(name, one, date)),
+const dayTotal = (name: string, date: string, channel: MetricChannel | undefined): MetricPoint => {
+  if (channel !== undefined) return dailyPoint(name, channel, date);
+  const total = CHANNELS.reduce(
+    (running, one) => addPoint(running, dailyPoint(name, one, date)),
     EMPTY_POINT(date)
   );
+  /* Summed across channels the split is a lie by omission: email's two halves
+     would sit under an `opened` that also counts six transports nobody can
+     attribute, so they would not add up. Drop it and the card falls back to
+     the single line All channels is supposed to show. */
+  return {
+    ...total,
+    openedHuman: undefined,
+    openedMachine: undefined,
+    clickedHuman: undefined,
+    clickedMachine: undefined,
+  };
+};
 
 function metricsFor(name: string, query: MetricsQuery): MetricPoint[] {
   const buckets = new Map<string, MetricPoint>();

@@ -69,11 +69,11 @@ export default {
     opened: '已打开',
     clicked: '已点击',
     converted: '已转化',
-    help: {
-      sent: '本区间内交给通道发送的消息数，含退信。',
-      opened: '打开数 ÷ 送达数。',
-      clicked: '点击数 ÷ 送达数。',
-      converted: '转化数 ÷ 送达数。',
+    series: {
+      openedHuman: '人工打开',
+      openedMachine: '机器打开',
+      clickedHuman: '人工点击',
+      clickedMachine: '机器点击',
     },
     fromLast: {
       day: '{{value}}（较上一天）',

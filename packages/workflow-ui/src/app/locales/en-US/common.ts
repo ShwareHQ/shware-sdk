@@ -70,11 +70,11 @@ export default {
     opened: 'Opened',
     clicked: 'Clicked',
     converted: 'Converted',
-    help: {
-      sent: 'Messages handed to the transport in this bucket, bounces included.',
-      opened: 'Opens divided by delivered messages.',
-      clicked: 'Clicks divided by delivered messages.',
-      converted: 'Conversions divided by delivered messages.',
+    series: {
+      openedHuman: 'Human Opened',
+      openedMachine: 'Machine Opened',
+      clickedHuman: 'Human Clicked',
+      clickedMachine: 'Machine Clicked',
     },
     fromLast: {
       day: '{{value}} from last day',
