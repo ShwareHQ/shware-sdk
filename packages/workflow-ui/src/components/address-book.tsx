@@ -39,7 +39,7 @@ export interface AddressBookProps {
 }
 
 const inputClass =
-  'border-border bg-card w-full rounded-lg border px-2.5 py-1.5 text-sm outline-none';
+  'border-border bg-textfield w-full rounded-lg border px-2.5 py-1.5 text-sm outline-none';
 
 /** One-field address form: react-hook-form + the shared zod schema; errors render under the input. */
 function useAddressForm(defaultValue: string) {

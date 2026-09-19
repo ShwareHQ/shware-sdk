@@ -72,7 +72,9 @@ export function findConfig(cwd: string, explicit?: string): string | undefined {
  *   - `src/emails/index.ts` (or `emails/index.ts`): must `export const emails`,
  *     the same registry object that types `templates<Emails>()` keys;
  *   - `src/pushes/index.ts` (or `pushes/index.ts`): must `export const pushes`,
- *     the push-notification registry, same contract.
+ *     the push-notification registry, same contract;
+ *   - `src/slack/index.ts` and `src/discord/index.ts`: must `export const
+ *     slack` / `export const discord`, the chat-message registries.
  */
 const WORKFLOWS_DIRS = ['src/workflows', 'workflows'];
 const EMAILS_INDEXES = [
@@ -87,6 +89,13 @@ const PUSHES_INDEXES = [
   'pushes/index.ts',
   'pushes/index.tsx',
 ];
+/* Chat registries: the directory is the channel's own name, no plural to guess at. */
+const CHAT_INDEXES = (channel: string): string[] => [
+  `src/${channel}/index.ts`,
+  `src/${channel}/index.tsx`,
+  `${channel}/index.ts`,
+  `${channel}/index.tsx`,
+];
 
 export function findWorkflowsDir(cwd: string): string | undefined {
   return WORKFLOWS_DIRS.map((dir) => resolve(cwd, dir)).find((path) => existsSync(path));
@@ -98,6 +107,12 @@ function findEmailsIndex(cwd: string): string | undefined {
 
 function findPushesIndex(cwd: string): string | undefined {
   return PUSHES_INDEXES.map((file) => resolve(cwd, file)).find((path) => existsSync(path));
+}
+
+function findChatIndex(cwd: string, channel: 'slack' | 'discord'): string | undefined {
+  return CHAT_INDEXES(channel)
+    .map((file) => resolve(cwd, file))
+    .find((path) => existsSync(path));
 }
 
 /** Modules to load from the workflows dir: .ts/.tsx, skipping declarations and tests. */
@@ -129,6 +144,8 @@ function discoveryModule(cwd: string): string {
   const workflowsDir = findWorkflowsDir(cwd);
   const emailsIndex = findEmailsIndex(cwd);
   const pushesIndex = findPushesIndex(cwd);
+  const slackIndex = findChatIndex(cwd, 'slack');
+  const discordIndex = findChatIndex(cwd, 'discord');
   const configPath = findConfig(cwd);
   const moduleFiles = workflowsDir === undefined ? [] : listWorkflowModules(workflowsDir);
 
@@ -141,6 +158,12 @@ function discoveryModule(cwd: string): string {
   }
   if (pushesIndex !== undefined) {
     imports.push(`import { pushes as pushRegistry } from ${JSON.stringify(pushesIndex)};`);
+  }
+  if (slackIndex !== undefined) {
+    imports.push(`import { slack as slackRegistry } from ${JSON.stringify(slackIndex)};`);
+  }
+  if (discordIndex !== undefined) {
+    imports.push(`import { discord as discordRegistry } from ${JSON.stringify(discordIndex)};`);
   }
   if (configPath !== undefined) {
     imports.push(`import userConfig from ${JSON.stringify(configPath)};`);
@@ -163,6 +186,8 @@ export default {
   workflows,
   emails: ${emailsIndex !== undefined ? 'registry' : '{}'},
   pushes: ${pushesIndex !== undefined ? 'pushRegistry' : '{}'},
+  slack: ${slackIndex !== undefined ? 'slackRegistry' : '{}'},
+  discord: ${discordIndex !== undefined ? 'discordRegistry' : '{}'},
   segments,
   addresses: config.emails?.addresses ?? [],
   ...(config.emails?.sendTest !== undefined ? { sendTest: config.emails.sendTest } : {}),
@@ -231,23 +256,29 @@ function studioApiPlugin(cwd: string): Plugin {
     configureServer(server) {
       server.middlewares.use('/__studio/envelope', (req, res) => {
         void (async () => {
-          const emailsIndex = findEmailsIndex(cwd);
-          const pushesIndex = findPushesIndex(cwd);
-          if (emailsIndex === undefined && pushesIndex === undefined) {
+          /* Every content registry, paired with the export name it must carry. */
+          const registries: [path: string | undefined, exportName: string][] = [
+            [findEmailsIndex(cwd), 'emails'],
+            [findPushesIndex(cwd), 'pushes'],
+            [findChatIndex(cwd, 'slack'), 'slack'],
+            [findChatIndex(cwd, 'discord'), 'discord'],
+          ];
+          if (registries.every(([path]) => path === undefined)) {
             sendJson(res, 404, {
               error:
-                'no template index (src/emails/index.ts or src/pushes/index.ts) in this project',
+                'no template index (src/emails/index.ts, src/pushes/index.ts, src/slack/index.ts or src/discord/index.ts) in this project',
             });
             return;
           }
           /* A key lives in exactly one registry, so first hit wins. */
-          const resolveModule = (key: string): string | undefined =>
-            (emailsIndex !== undefined
-              ? resolveRegistryModule(emailsIndex, key, 'emails')
-              : undefined) ??
-            (pushesIndex !== undefined
-              ? resolveRegistryModule(pushesIndex, key, 'pushes')
-              : undefined);
+          const resolveModule = (key: string): string | undefined => {
+            for (const [path, exportName] of registries) {
+              if (path === undefined) continue;
+              const found = resolveRegistryModule(path, key, exportName);
+              if (found !== undefined) return found;
+            }
+            return undefined;
+          };
           if (req.method === 'GET') {
             const key = new URL(req.url ?? '/', 'http://internal').searchParams.get('key') ?? '';
             const modulePath = resolveModule(key);

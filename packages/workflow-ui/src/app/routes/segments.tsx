@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { SearchInput } from '../../components/input/search-input';
 import { SegmentList } from '../../components/segment-list';
-import { Tabs } from '../../components/tabs';
 import { displayName } from '../../utils/label';
 import { PageChrome } from '../page-chrome';
 import { Route as rootRoute } from './__root';
@@ -127,28 +126,32 @@ function Segments() {
 
   if (refs.length === 0) {
     return (
-      <div className="text-muted flex h-full items-center justify-center text-sm">
+      <div className="text-muted flex flex-1 items-center justify-center text-sm">
         {t('segments.empty')}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <PageChrome
-        breadcrumb={<Breadcrumb items={[{ label: t('nav.segments') }]} />}
-        actions={
-          <SearchInput
-            className="w-64"
-            placeholder={t('segments.searchPlaceholder')}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        }
-      />
-      <div className="min-h-0 flex-1">
+    /* Nothing here scrolls: the shell's content column is the one scrollport. */
+    <div className="flex-1">
+      <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.segments') }]} />} />
+      {/*
+        The search field belongs with what it filters, not up in the chrome.
+        It scrolls away with the list: only the app header pins, and a stack
+        of three fixed bars over a short list was more chrome than content.
+      */}
+      <div className="px-6 pt-4 pb-3">
+        <SearchInput
+          className="w-72"
+          placeholder={t('segments.searchPlaceholder')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex h-full items-center justify-center text-sm">
+          <div className="text-muted flex items-center justify-center py-24 text-sm">
             {t('segments.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -169,9 +172,7 @@ export const segmentsRoute = createRoute({
   component: Segments,
 });
 
-/* --------------------------- Detail (tabbed shell) -------------------------- */
-
-const TABS = [{ to: '/segments/$name', label: 'segments.tabs.overview', exact: true }] as const;
+/* ------------------------------- Detail shell ------------------------------ */
 
 function SegmentDetail() {
   const { name } = segmentDetailRoute.useParams();
@@ -195,10 +196,13 @@ function SegmentDetail() {
 
   /*
    * The header is the root's: breadcrumb with the segment switcher as its
-   * leaf. The view tabs sit at the top-left of the content.
+   * leaf. No tab strip — there is exactly one view here, and a strip of one
+   * tab is a control that can never do anything. The breadcrumb still ends in
+   * the view's name, which is what keeps this page the same shape as the
+   * workflow detail page, where the tabs are real.
    */
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex flex-1 flex-col">
       <PageChrome
         breadcrumb={
           <Breadcrumb
@@ -209,20 +213,13 @@ function SegmentDetail() {
                 to: '/segments/$name',
                 params: { name },
               },
-              { label: t(TABS[0].label) },
+              { label: t('segments.tabs.overview') },
             ]}
           />
         }
       />
-      <div className="px-6 py-3">
-        <Tabs
-          className="w-fit"
-          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
-          params={{ name }}
-        />
-      </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex flex-1 flex-col">
         <Outlet />
       </div>
     </div>

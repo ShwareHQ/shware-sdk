@@ -4,6 +4,7 @@ import { activated, activeSubscriber, purchaser } from './segments';
 import {
   checkoutReminderPush,
   christmasPush,
+  communityWelcome,
   firstDocPush,
   firstTimeRecovery,
   gettingStarted,
@@ -119,6 +120,8 @@ export const checkoutRecovery = workflow('checkout_recovery', {
  * segment first; write the expression at the use site).
  */
 export const onboarding = workflow('onboarding', { name: 'Onboarding · Core', trigger: signedUp })
+  // The community hears about a sign-up too: a channel post reaches people the inbox does not
+  .discord(communityWelcome)
   .waitUntil(activated, { timeout: '3 days', onTimeout: 'continue' })
   // Timed out without a first document: a lock-screen nudge; the activated skip straight past
   .branch([not(activated), (w) => w.push(firstDocPush)])

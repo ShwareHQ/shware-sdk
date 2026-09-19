@@ -37,3 +37,8 @@ export const firstDocPush = template.push('onboarding_first_doc_push');
 
 /** Christmas: the promo on the lock screen. The coupon is a prop, so the code is not baked into content. */
 export const christmasPush = template.push<{ coupon: string }>('christmas_promo_push');
+
+/* ------- Community channels: an internal audience the inbox cannot reach ------- */
+
+/** Announced in the community server the day someone signs up; content lives in src/discord/. */
+export const communityWelcome = template.discord('community_welcome');

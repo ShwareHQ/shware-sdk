@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react';
 import {
   AlarmClock,
+  AppWindow,
   BellRing,
   CalendarClock,
   ClipboardList,
@@ -97,8 +98,15 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
   email: Mail,
   sms: MessageSquareText,
   push: BellRing,
-  in_app: MessageCircle,
+  /*
+   * in_app moved off the speech bubble when discord arrived: the channel
+   * pickers already spend it on discord (see channel-icon.ts), and two
+   * identical glyphs on one canvas stop working as an index. A window is the
+   * truer mark for an in-product surface anyway.
+   */
+  in_app: AppWindow,
   slack: MessagesSquare,
+  discord: MessageCircle,
   survey: ClipboardList,
   delay: AlarmClock,
   time_window: CalendarClock,
