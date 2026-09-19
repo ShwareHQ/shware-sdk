@@ -4,6 +4,7 @@ import { Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { SegmentReport } from '../config';
 import { displayName } from '../utils/label';
+import { superellipse } from './corner-shape';
 import { Sparkline } from './sparkline';
 
 /**
@@ -93,9 +94,13 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
   const byName = new Map((reports ?? []).map((report) => [report.name, report]));
 
   return (
-    <div className="h-full overflow-auto">
+    /* The card is the scroll container, so the head stays sticky inside it. */
+    <div
+      className="border-border bg-card h-full overflow-auto rounded-2xl border"
+      style={superellipse}
+    >
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead className="bg-page/95 sticky top-0 z-10 backdrop-blur">
+        <thead className="bg-card/95 sticky top-0 z-10 backdrop-blur">
           <tr className="text-muted text-left text-xs font-medium">
             <th className="border-border min-w-0 border-b px-6 py-3">{t('common.name')}</th>
             <th className="border-border w-28 border-b px-3 py-3">{t('segments.size')}</th>
@@ -112,7 +117,7 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                 key={item.name}
                 {...(onOpen ? { onClick: () => onOpen(item.name) } : {})}
                 className={clsx(
-                  'align-top transition-colors',
+                  'align-top transition-colors last:[&>td]:border-b-0',
                   onOpen && 'hover:bg-hover cursor-pointer'
                 )}
               >

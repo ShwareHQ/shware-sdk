@@ -2,6 +2,7 @@ import { clsx } from 'clsx';
 import { Bell, Mail } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { displayName } from '../utils/label';
+import { superellipse } from './corner-shape';
 import { Menu } from './menu';
 
 /**
@@ -32,9 +33,13 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
   const { t } = useTranslation();
 
   return (
-    <div className="h-full overflow-auto">
+    /* The card is the scroll container, so the head stays sticky inside it. */
+    <div
+      className="border-border bg-card h-full overflow-auto rounded-2xl border"
+      style={superellipse}
+    >
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead className="bg-page/95 sticky top-0 z-10 backdrop-blur">
+        <thead className="bg-card/95 sticky top-0 z-10 backdrop-blur">
           <tr className="text-muted text-left text-xs font-medium">
             <th className="border-border min-w-0 border-b px-6 py-3">{t('common.name')}</th>
             <th className="border-border w-28 border-b px-3 py-3" />
@@ -47,7 +52,7 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
             <tr
               key={item.key}
               onClick={() => onOpen(item.key)}
-              className="hover:bg-hover cursor-pointer align-top transition-colors"
+              className="hover:bg-hover cursor-pointer align-top transition-colors last:[&>td]:border-b-0"
             >
               <td className="border-border border-b px-6 py-4">
                 <div className="flex items-start gap-3">

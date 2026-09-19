@@ -103,18 +103,17 @@ function WorkflowsIndex() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageChrome
-        breadcrumb={<Breadcrumb items={[{ label: t('nav.workflows') }]} />}
-        actions={
-          <SearchInput
-            className="w-64"
-            placeholder={t('workflows.searchPlaceholder')}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        }
-      />
-      <div className="min-h-0 flex-1">
+      <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.workflows') }]} />} />
+      {/* The search field belongs with what it filters, not up in the chrome. */}
+      <div className="shrink-0 px-6 pt-4 pb-3">
+        <SearchInput
+          className="w-72"
+          placeholder={t('workflows.searchPlaceholder')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
         {filtered.length === 0 ? (
           <div className="text-muted flex h-full items-center justify-center text-sm">
             {t('workflows.noMatches', { query: query.trim() })}
