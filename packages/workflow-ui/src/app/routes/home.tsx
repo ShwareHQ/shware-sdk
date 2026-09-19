@@ -55,7 +55,8 @@ function Home() {
   );
 
   return (
-    <div className="h-full overflow-auto p-6">
+    /* No scroll container of its own: the shell's content column is the only one. */
+    <div className="flex-1 p-6">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.home') }]} />} />
       <h1 className="text-lg font-semibold">{t('home.title')}</h1>
       <p className="text-muted mt-1 text-sm">{t('home.subtitle')}</p>

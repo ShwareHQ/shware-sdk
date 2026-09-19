@@ -1,5 +1,6 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useLocation, useNavigate } from '@tanstack/react-router';
+import { clsx } from 'clsx';
 import { Rocket } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -95,17 +96,23 @@ function WorkflowsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="text-muted flex h-full items-center justify-center text-sm">
+      <div className="text-muted flex flex-1 items-center justify-center text-sm">
         {t('workflows.empty')}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
+    /* Nothing here scrolls: the shell's content column is the one scrollport. */
+    <div className="flex-1">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.workflows') }]} />} />
-      {/* The search field belongs with what it filters, not up in the chrome. */}
-      <div className="shrink-0 px-6 pt-4 pb-3">
+      {/*
+        The search field belongs with what it filters, not up in the chrome —
+        and it pins directly under the header so the list scrolls beneath a
+        stable chrome. Its 4rem (16 + h-9 + 12) is what the table head's
+        `top-30` is measured against.
+      */}
+      <div className="bg-page sticky top-14 z-20 px-6 pt-4 pb-3">
         <SearchInput
           className="w-72"
           placeholder={t('workflows.searchPlaceholder')}
@@ -113,9 +120,9 @@ function WorkflowsIndex() {
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-auto px-6 pb-6">
+      <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex h-full items-center justify-center text-sm">
+          <div className="text-muted flex items-center justify-center py-24 text-sm">
             {t('workflows.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -209,7 +216,7 @@ function WorkflowDetail() {
 
   if (ir === undefined) {
     return (
-      <div className="text-muted flex h-full flex-col items-center justify-center gap-3 text-sm">
+      <div className="text-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
         <p>{t('workflows.notFound', { name })}</p>
         <Link to="/workflows" className="text-primary underline">
           {t('common.back')}
@@ -224,7 +231,7 @@ function WorkflowDetail() {
    * top-left of the content, where switching a view belongs.
    */
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex flex-1 flex-col">
       <PageChrome
         breadcrumb={
           <Breadcrumb
@@ -261,7 +268,13 @@ function WorkflowDetail() {
         />
       </div>
 
-      <div className="min-h-0 flex-1">
+      {/*
+        `min-h-0` only for the canvas. Every other tab is a document that
+        grows and scrolls with the shell; the canvas must stay inside the
+        viewport because react-flow owns pan and zoom within a fixed frame and
+        the floating inspector's max-h hangs off that frame's height.
+      */}
+      <div className={clsx('flex flex-1 flex-col', activeTab === TABS[1] && 'min-h-0')}>
         <Outlet />
       </div>
     </div>
@@ -394,8 +407,16 @@ function CanvasTab() {
   }
 
   return (
-    <div className="border-border relative h-full min-h-0 border-t">
-      <div className="h-full">
+    /* The exception to the shell's one-scrollport rule: this pane is pinned to
+       the viewport rather than growing the page. */
+    <div className="border-border relative flex min-h-0 flex-1 flex-col border-t">
+      {/*
+        Absolute rather than a flex child: the shell's main column is sized by
+        min-height, so its height is `auto` and the canvas's own `height: 100%`
+        has nothing definite to resolve against — it collapses to zero. Filling
+        an already-positioned parent sidesteps percentage resolution entirely.
+      */}
+      <div className="absolute inset-0">
         <WorkflowCanvas
           key={name}
           ir={ir}

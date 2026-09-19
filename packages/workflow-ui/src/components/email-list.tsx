@@ -29,22 +29,39 @@ export interface EmailListProps {
   onEdit?: (key: string) => void;
 }
 
+/*
+ * Pinned under the app header (3.5rem) plus the page's search row (4rem), so
+ * the head comes to rest exactly where the search field ends. The cells stick
+ * and the cells carry the fill: a `thead`'s own background paints in a box no
+ * cell radius can clip, which would square off the card's top corners.
+ */
+const HEAD_CELL =
+  'bg-card/95 border-border sticky top-30 z-10 border-b py-3 backdrop-blur first:rounded-tl-2xl last:rounded-tr-2xl';
+
 export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
   const { t } = useTranslation();
 
   return (
-    /* The card is the scroll container, so the head stays sticky inside it. */
-    <div
-      className="border-border bg-card h-full overflow-auto rounded-2xl border"
-      style={superellipse}
-    >
+    /*
+     * No `overflow` on the card, deliberately: any value at all makes it the
+     * sticky scrollport and the head would then pin to the card rather than to
+     * the page. The page scrolls (see __root), so the corners are re-cut on the
+     * first and last cells below instead of being clipped here.
+     */
+    <div className="border-border bg-card rounded-2xl border" style={superellipse}>
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead className="bg-card/95 sticky top-0 z-10 backdrop-blur">
+        <thead>
           <tr className="text-muted text-left text-xs font-medium">
-            <th className="border-border min-w-0 border-b px-6 py-3">{t('common.name')}</th>
-            <th className="border-border w-28 border-b px-3 py-3" />
-            <th className="border-border w-56 border-b px-3 py-3">{t('emails.id')}</th>
-            {onEdit !== undefined && <th className="border-border w-14 border-b px-3 py-3" />}
+            <th className={clsx(HEAD_CELL, 'min-w-0 px-6')} style={superellipse}>
+              {t('common.name')}
+            </th>
+            <th className={clsx(HEAD_CELL, 'w-28 px-3')} style={superellipse} />
+            <th className={clsx(HEAD_CELL, 'w-56 px-3')} style={superellipse}>
+              {t('emails.id')}
+            </th>
+            {onEdit !== undefined && (
+              <th className={clsx(HEAD_CELL, 'w-14 px-3')} style={superellipse} />
+            )}
           </tr>
         </thead>
         <tbody>
@@ -52,9 +69,20 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
             <tr
               key={item.key}
               onClick={() => onOpen(item.key)}
-              className="hover:bg-hover cursor-pointer align-top transition-colors last:[&>td]:border-b-0"
+              /*
+               * The hover fill lives on the cells, not the row: a row box
+               * paints its background underneath them, where no cell radius
+               * reaches it, so the last row would poke square grey corners out
+               * of the unclipped card.
+               */
+              className={clsx(
+                'hover:[&>td]:bg-hover cursor-pointer align-top [&>td]:transition-colors',
+                'last:[&>td]:border-b-0 last:[&>td:first-child]:rounded-bl-2xl',
+                'last:[&>td:last-child]:rounded-br-2xl'
+              )}
+              style={superellipse}
             >
-              <td className="border-border border-b px-6 py-4">
+              <td className="border-border border-b px-6 py-4" style={superellipse}>
                 <div className="flex items-start gap-3">
                   {item.channel === 'push' ? (
                     <Bell className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
@@ -77,7 +105,7 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
                 </div>
               </td>
 
-              <td className="border-border border-b px-3 py-4">
+              <td className="border-border border-b px-3 py-4" style={superellipse}>
                 <span
                   className={clsx(
                     'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
@@ -96,12 +124,12 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
                 </span>
               </td>
 
-              <td className="border-border text-secondary border-b px-3 py-4">
+              <td className="border-border text-secondary border-b px-3 py-4" style={superellipse}>
                 <span className="block truncate font-mono">{item.key}</span>
               </td>
 
               {onEdit !== undefined && (
-                <td className="border-border border-b px-3 py-4">
+                <td className="border-border border-b px-3 py-4" style={superellipse}>
                   <Menu
                     aria-label={t('common.more')}
                     items={[

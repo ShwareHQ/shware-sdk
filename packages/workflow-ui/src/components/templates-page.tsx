@@ -258,7 +258,7 @@ export function TemplatesPage({
   const hasEnvelope = hasCollapsible || (isPush && activePush !== undefined);
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex flex-1">
       {/* Preview; the template list lives on the /emails index and the header dropdown. */}
       <section className="bg-page flex min-w-0 flex-1 flex-col">
         {active === undefined ? (
@@ -405,7 +405,7 @@ export function TemplatesPage({
               simulated client mode visibly flips the whole stage.
             */}
             <div
-              className="relative min-h-0 flex-1"
+              className="relative flex flex-1 flex-col"
               style={{
                 backgroundColor: scheme === 'dark' ? '#000' : 'var(--color-gray-50)',
                 /* 0.5px radius: react-flow draws its dots at r=0.5 for zoom 1. */
@@ -415,8 +415,9 @@ export function TemplatesPage({
                 backgroundSize: '16px 16px',
               }}
             >
-              {/* pb clears the floating toolbar, so a fully scrolled email is never hidden under it. */}
-              <div className="h-full overflow-auto p-6 pb-24">
+              {/* The stage grows with the email and the page scrolls it (see
+                  __root); the toolbar below rides along as `sticky`. */}
+              <div className="flex-1 p-6 pb-4">
                 {isPush ? (
                   activePush === undefined ? (
                     <div
@@ -491,66 +492,74 @@ export function TemplatesPage({
                 )}
               </div>
 
-              {/* Floating preview toolbar: client scheme, device width, zoom. */}
+              {/*
+                Floating preview toolbar: client scheme, device width, zoom.
+                Sticky rather than absolute — the stage is no longer a fixed
+                frame, so anchoring to its bottom would park the toolbar at the
+                end of a long email instead of keeping it to hand. The wrapper
+                spans the stage and must not swallow clicks meant for it.
+              */}
               {(isPush
                 ? activePush !== undefined
                 : activeModule !== undefined && !loading && error === undefined) && (
-                <div className="border-border bg-card absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-0.5 rounded-full border p-1 shadow-lg">
-                  <ToolButton
-                    active={scheme === 'light'}
-                    label={t('emails.previewLight')}
-                    onClick={() => setScheme('light')}
-                  >
-                    <Sun size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  <ToolButton
-                    active={scheme === 'dark'}
-                    label={t('emails.previewDark')}
-                    onClick={() => setScheme('dark')}
-                  >
-                    <Moon size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  {/* Device widths are an email concern; a push always shows both platforms. */}
-                  {!isPush && (
-                    <>
-                      <div className="bg-border mx-1 h-4 w-px" />
-                      <ToolButton
-                        active={device === 'desktop'}
-                        label={t('emails.previewDesktop')}
-                        onClick={() => setDevice('desktop')}
-                      >
-                        <Monitor size={16} strokeWidth={2} aria-hidden />
-                      </ToolButton>
-                      <ToolButton
-                        active={device === 'mobile'}
-                        label={t('emails.previewMobile')}
-                        onClick={() => setDevice('mobile')}
-                      >
-                        <Smartphone size={16} strokeWidth={2} aria-hidden />
-                      </ToolButton>
-                    </>
-                  )}
-                  <div className="bg-border mx-1 h-4 w-px" />
-                  <ToolButton
-                    label={t('emails.zoomOut')}
-                    onClick={() => setZoom((level) => Math.max(0.5, level - 0.25))}
-                  >
-                    <Minus size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
-                  <button
-                    type="button"
-                    title={t('emails.zoomReset')}
-                    onClick={() => setZoom(1)}
-                    className="text-secondary hover:text-primary w-11 text-center text-xs font-medium tabular-nums transition-colors"
-                  >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                  <ToolButton
-                    label={t('emails.zoomIn')}
-                    onClick={() => setZoom((level) => Math.min(1.5, level + 0.25))}
-                  >
-                    <Plus size={16} strokeWidth={2} aria-hidden />
-                  </ToolButton>
+                <div className="pointer-events-none sticky bottom-0 z-10 flex justify-center pt-2 pb-4">
+                  <div className="border-border bg-card pointer-events-auto flex items-center gap-0.5 rounded-full border p-1 shadow-lg">
+                    <ToolButton
+                      active={scheme === 'light'}
+                      label={t('emails.previewLight')}
+                      onClick={() => setScheme('light')}
+                    >
+                      <Sun size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                    <ToolButton
+                      active={scheme === 'dark'}
+                      label={t('emails.previewDark')}
+                      onClick={() => setScheme('dark')}
+                    >
+                      <Moon size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                    {/* Device widths are an email concern; a push always shows both platforms. */}
+                    {!isPush && (
+                      <>
+                        <div className="bg-border mx-1 h-4 w-px" />
+                        <ToolButton
+                          active={device === 'desktop'}
+                          label={t('emails.previewDesktop')}
+                          onClick={() => setDevice('desktop')}
+                        >
+                          <Monitor size={16} strokeWidth={2} aria-hidden />
+                        </ToolButton>
+                        <ToolButton
+                          active={device === 'mobile'}
+                          label={t('emails.previewMobile')}
+                          onClick={() => setDevice('mobile')}
+                        >
+                          <Smartphone size={16} strokeWidth={2} aria-hidden />
+                        </ToolButton>
+                      </>
+                    )}
+                    <div className="bg-border mx-1 h-4 w-px" />
+                    <ToolButton
+                      label={t('emails.zoomOut')}
+                      onClick={() => setZoom((level) => Math.max(0.5, level - 0.25))}
+                    >
+                      <Minus size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                    <button
+                      type="button"
+                      title={t('emails.zoomReset')}
+                      onClick={() => setZoom(1)}
+                      className="text-secondary hover:text-primary w-11 text-center text-xs font-medium tabular-nums transition-colors"
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <ToolButton
+                      label={t('emails.zoomIn')}
+                      onClick={() => setZoom((level) => Math.min(1.5, level + 0.25))}
+                    >
+                      <Plus size={16} strokeWidth={2} aria-hidden />
+                    </ToolButton>
+                  </div>
                 </div>
               )}
             </div>

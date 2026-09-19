@@ -127,17 +127,23 @@ function Segments() {
 
   if (refs.length === 0) {
     return (
-      <div className="text-muted flex h-full items-center justify-center text-sm">
+      <div className="text-muted flex flex-1 items-center justify-center text-sm">
         {t('segments.empty')}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
+    /* Nothing here scrolls: the shell's content column is the one scrollport. */
+    <div className="flex-1">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.segments') }]} />} />
-      {/* The search field belongs with what it filters, not up in the chrome. */}
-      <div className="shrink-0 px-6 pt-4 pb-3">
+      {/*
+        The search field belongs with what it filters, not up in the chrome —
+        and it pins directly under the header so the list scrolls beneath a
+        stable chrome. Its 4rem (16 + h-9 + 12) is what the table head's
+        `top-30` is measured against.
+      */}
+      <div className="bg-page sticky top-14 z-20 px-6 pt-4 pb-3">
         <SearchInput
           className="w-72"
           placeholder={t('segments.searchPlaceholder')}
@@ -145,9 +151,9 @@ function Segments() {
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="min-h-0 flex-1 px-6 pb-6">
+      <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex h-full items-center justify-center text-sm">
+          <div className="text-muted flex items-center justify-center py-24 text-sm">
             {t('segments.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -197,7 +203,7 @@ function SegmentDetail() {
    * leaf. The view tabs sit at the top-left of the content.
    */
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex flex-1 flex-col">
       <PageChrome
         breadcrumb={
           <Breadcrumb
@@ -221,7 +227,7 @@ function SegmentDetail() {
         />
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex flex-1 flex-col">
         <Outlet />
       </div>
     </div>

@@ -95,17 +95,23 @@ function EmailsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="text-muted flex h-full items-center justify-center text-sm">
+      <div className="text-muted flex flex-1 items-center justify-center text-sm">
         {t('emails.empty')}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
+    /* Nothing here scrolls: the shell's content column is the one scrollport. */
+    <div className="flex-1">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.templates') }]} />} />
-      {/* The search field belongs with what it filters, not up in the chrome. */}
-      <div className="shrink-0 px-6 pt-4 pb-3">
+      {/*
+        The search field belongs with what it filters, not up in the chrome —
+        and it pins directly under the header so the list scrolls beneath a
+        stable chrome. Its 4rem (16 + h-9 + 12) is what the table head's
+        `top-30` is measured against.
+      */}
+      <div className="bg-page sticky top-14 z-20 px-6 pt-4 pb-3">
         <SearchInput
           className="w-72"
           placeholder={t('emails.searchPlaceholder')}
@@ -113,9 +119,9 @@ function EmailsIndex() {
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="min-h-0 flex-1 px-6 pb-6">
+      <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex h-full items-center justify-center text-sm">
+          <div className="text-muted flex items-center justify-center py-24 text-sm">
             {t('emails.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -242,7 +248,7 @@ function EmailView() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex flex-1 flex-col">
       {/*
         The header is the root's: breadcrumb with the template switcher as its
         leaf, the test-send button on the right. Test sends deliver rendered HTML
@@ -285,7 +291,7 @@ function EmailView() {
         />
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="flex flex-1 flex-col">
         <TemplatesPage
           refs={refs}
           emails={emails}

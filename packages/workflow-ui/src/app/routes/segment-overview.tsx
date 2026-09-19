@@ -67,7 +67,7 @@ function SegmentOverview() {
 
   if (config.stats?.segments === undefined && config.stats?.profiles === undefined) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
+      <div className="flex flex-1 items-center justify-center p-8">
         <div
           className="border-border bg-card max-w-md rounded-2xl border border-dashed p-8 text-center"
           style={superellipse}
@@ -80,9 +80,10 @@ function SegmentOverview() {
   }
 
   return (
-    /* The drawer is fixed to the viewport, so this pane only has to scroll its own content. */
-    <div className="h-full overflow-hidden">
-      <div className="h-full overflow-auto p-6">
+    /* The drawer is fixed to the viewport, so it can sit outside the flow here
+       while the page itself scrolls in the shell's one scrollport. */
+    <>
+      <div className="flex-1 p-6">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <Stat label={t('segments.size')} value={report ? number(report.size) : '—'} />
           <Stat
@@ -103,10 +104,10 @@ function SegmentOverview() {
           )}
         </section>
 
-        <section
-          className="border-border bg-card mt-6 overflow-hidden rounded-2xl border"
-          style={superellipse}
-        >
+        {/* No `overflow-hidden`: it would clip the corners for free, but any
+            overflow value turns a card into a scrollport, which is the habit
+            this layout is getting rid of. The last row re-cuts its own. */}
+        <section className="border-border bg-card mt-6 rounded-2xl border" style={superellipse}>
           <div className="border-border flex items-center justify-between border-b px-5 py-3">
             <h2 className="text-sm font-semibold">{t('segments.members')}</h2>
             {total > PAGE_SIZE && (
@@ -156,16 +157,25 @@ function SegmentOverview() {
                     key={profile.id}
                     onClick={() => setSelected(profile)}
                     /* The section already draws a rounded edge; a row border on
-                       top of it reads as a doubled line. */
-                    className="hover:bg-hover cursor-pointer transition-colors last:[&>td]:border-b-0"
+                       top of it reads as a doubled line. The hover fill sits on
+                       the cells so the last row's corners can follow the card's
+                       — a row box paints below any cell radius. */
+                    className="hover:[&>td]:bg-hover cursor-pointer [&>td]:transition-colors last:[&>td]:border-b-0 last:[&>td:first-child]:rounded-bl-2xl last:[&>td:last-child]:rounded-br-2xl"
+                    style={superellipse}
                   >
-                    <td className="border-border truncate border-b px-5 py-2.5">
+                    <td
+                      className="border-border truncate border-b px-5 py-2.5"
+                      style={superellipse}
+                    >
                       {profile.email ?? '—'}
                     </td>
                     <td className="border-border text-muted truncate border-b px-5 py-2.5 font-mono text-sm">
                       {profile.id}
                     </td>
-                    <td className="border-border text-muted border-b px-5 py-2.5 whitespace-nowrap tabular-nums">
+                    <td
+                      className="border-border text-muted border-b px-5 py-2.5 whitespace-nowrap tabular-nums"
+                      style={superellipse}
+                    >
                       {day(profile.createdAt)}
                     </td>
                   </tr>
@@ -177,7 +187,7 @@ function SegmentOverview() {
       </div>
 
       <ProfileDrawer profile={selected} onClose={() => setSelected(undefined)} />
-    </div>
+    </>
   );
 }
 

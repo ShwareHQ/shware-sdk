@@ -75,8 +75,15 @@ function Header({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => v
   const titleRef = useChromeSlotRef('title');
   const actionsRef = useChromeSlotRef('actions');
 
+  /*
+   * Sticky rather than a fixed row above the scroller — see Shell for why the
+   * whole column scrolls. Its 3.5rem is the offset everything that pins under
+   * it measures from: the list pages' search rows sit at `top-14`, their table
+   * heads at `top-30` (header + search row). z-20 rather than higher so the
+   * profile drawer's scrim (also z-20, and later in the tree) still dims it.
+   */
   return (
-    <header className="border-border bg-card grid h-14 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
+    <header className="border-border bg-card sticky top-0 z-20 grid h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
@@ -178,9 +185,23 @@ function Shell() {
         </nav>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/*
+        One scrollport for everything right of the rail. The column used to be
+        a flex stack whose content area scrolled, which drew a short bar inset
+        below the header; scrolling the column itself runs the bar the full
+        height of the viewport and lets the header ride along as `sticky`.
+        Views must therefore not scroll internally — the canvas is the one
+        exception, and it says so at its own root.
+      */}
+      <div className="bg-page min-w-0 flex-1 overflow-y-auto">
         <Header collapsed={collapsed} onToggle={toggle} />
-        <main className="bg-page min-h-0 min-w-0 flex-1">
+        {/*
+          A short page still has to fill the viewport: empty states centre in
+          it and the preview stages paint their dot grid across it. The
+          percentage resolves because the scrollport's own height is definite,
+          and a long page simply outgrows the minimum.
+        */}
+        <main className="flex min-h-[calc(100%-3.5rem)] min-w-0 flex-col">
           <Outlet />
         </main>
       </div>
