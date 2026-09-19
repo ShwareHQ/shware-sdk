@@ -266,13 +266,13 @@ interface ReadoutRow {
  * stretch the curve does, so `x` is a 0–1 fraction of the plot's width, while
  * each `y` is plain pixels.
  *
- * A single-series card drops the swatch and the series name: with one line
- * there is nothing to tell apart, and the card's own heading already says
- * which metric this is.
+ * Every card uses the same layout, one line per series, whether it plots one
+ * or three. A single line's swatch and name are redundant on their own card,
+ * but four cards sit side by side: reading across them, a row that suddenly
+ * loses its columns costs more than the redundancy does.
  */
 function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readonly ReadoutRow[] }) {
   const left = `${x * 100}%`;
-  const named = rows.length > 1;
   return (
     <div aria-hidden className="pointer-events-none">
       <div className="bg-border absolute inset-y-0 w-px" style={{ left }} />
@@ -292,26 +292,20 @@ function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readon
           ...superellipse,
           left,
           transform: `translateX(-${x * 100}%)`,
-          gridTemplateColumns: named ? 'auto 1fr auto' : 'auto',
+          gridTemplateColumns: 'auto 1fr auto',
         }}
       >
         <div className="col-span-full font-medium whitespace-nowrap">{date}</div>
-        {rows.map((row) =>
-          named ? (
-            <Fragment key={row.label}>
-              <span
-                className="size-3 rounded-sm"
-                style={{ ...superellipse, background: row.color }}
-              />
-              <span className="text-secondary whitespace-nowrap">{row.label}</span>
-              <span className="text-right font-medium tabular-nums">{row.value}</span>
-            </Fragment>
-          ) : (
-            <span key={row.label} className="font-medium tabular-nums">
-              {row.value}
-            </span>
-          )
-        )}
+        {rows.map((row) => (
+          <Fragment key={row.label}>
+            <span
+              className="size-3 rounded-sm"
+              style={{ ...superellipse, background: row.color }}
+            />
+            <span className="text-secondary whitespace-nowrap">{row.label}</span>
+            <span className="text-right font-medium tabular-nums">{row.value}</span>
+          </Fragment>
+        ))}
       </div>
     </div>
   );

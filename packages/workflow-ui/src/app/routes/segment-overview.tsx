@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Avatar } from '../../components/avatar';
 import { superellipse } from '../../components/corner-shape';
 import { ProfileDrawer } from '../../components/profile-drawer';
 import { SeriesChart } from '../../components/series-chart';
@@ -163,11 +164,18 @@ function SegmentOverview() {
                     className="hover:[&>td]:bg-hover cursor-pointer [&>td]:transition-colors last:[&>td]:border-b-0 last:[&>td:first-child]:rounded-bl-2xl last:[&>td:last-child]:rounded-br-2xl"
                     style={superellipse}
                   >
-                    <td
-                      className="border-border truncate border-b px-5 py-2.5"
-                      style={superellipse}
-                    >
-                      {profile.email ?? '—'}
+                    <td className="border-border border-b px-5 py-2.5" style={superellipse}>
+                      {/* The avatar is fixed-width, so the address does the
+                          truncating — `truncate` on the cell itself would be
+                          undone by the flex row inside it. */}
+                      <div className="flex items-center gap-2.5">
+                        <Avatar
+                          picture={profile.properties?.picture}
+                          label={profile.email ?? profile.id}
+                          size="sm"
+                        />
+                        <span className="truncate">{profile.email ?? '—'}</span>
+                      </div>
                     </td>
                     <td className="border-border text-muted truncate border-b px-5 py-2.5 font-mono text-sm">
                       {profile.id}

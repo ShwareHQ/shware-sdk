@@ -148,15 +148,10 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
                     />
                   )}
                   <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        'text-primary block truncate text-sm',
-                        /* Weight, not just the check, marks the current value. */
-                        isSelected && 'font-medium'
-                      )}
-                    >
-                      {option.label}
-                    </span>
+                    {/* One weight for every option: the accent check is what
+                        marks the current value, and a bolder label on top of
+                        it says the same thing twice. */}
+                    <span className="text-primary block truncate text-sm">{option.label}</span>
                     {option.description !== undefined && option.description !== '' && (
                       <span className="text-muted block truncate text-xs">
                         {option.description}
@@ -164,12 +159,7 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
                     )}
                   </span>
                   {isSelected && (
-                    <Check
-                      size={16}
-                      strokeWidth={2}
-                      aria-hidden
-                      className="text-primary shrink-0"
-                    />
+                    <Check size={16} strokeWidth={2} aria-hidden className="text-accent shrink-0" />
                   )}
                 </button>
               );

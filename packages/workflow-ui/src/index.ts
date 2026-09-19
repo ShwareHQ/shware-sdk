@@ -19,6 +19,8 @@ export type { MetricCardProps, MetricSeries, Trend } from './components/metric-c
 export { DateRangePicker, formatDay, isoDay, lastDays, parseIsoDay } from './components/date-range';
 export type { DateRange } from './components/date-range';
 export { ALL_CHANNELS_ICON, CHANNEL_ICON, channelIcon } from './components/channel-icon';
+export { Avatar } from './components/avatar';
+export type { AvatarProps } from './components/avatar';
 export { Sparkline } from './components/sparkline';
 export type { SparklineProps } from './components/sparkline';
 export { collectTemplateRefs } from './components/template-refs';
