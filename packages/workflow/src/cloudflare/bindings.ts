@@ -44,7 +44,7 @@ export interface WorkflowBindingLike {
 export interface JourneyEnv {
   /** BundleIR storage: `wf:${contentHash}` → WorkflowIR JSON. */
   WORKFLOW_KV: KVNamespaceLike;
-  /** events / profiles / segments / triggers / entries / subscriptions。 */
+  /** events / profiles / segments / triggers / entries / subscriptions (see schema.sql). */
   DB: D1DatabaseLike;
   /** JourneyRunner's workflow binding (creating instances and waking them). */
   JOURNEY: WorkflowBindingLike;

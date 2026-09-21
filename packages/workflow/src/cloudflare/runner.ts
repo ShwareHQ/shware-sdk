@@ -140,8 +140,8 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
 
     // send_event feeds straight back into the router logic — an in-Worker call forming the event edge between workflows
     const events: EventSink = {
-      emit: async (name, payload) => {
-        await ingestEvent(env, { userId, event: name, payload });
+      emit: async (name, payload, dedupeKey) => {
+        await ingestEvent(env, { userId, event: name, payload, dedupeKey });
       },
     };
 

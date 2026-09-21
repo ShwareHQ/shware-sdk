@@ -79,7 +79,18 @@ export interface MessageSender {
 
 /** send_event's outlet: feeds back into ingest (the event edge between workflows). */
 export interface EventSink {
-  emit(event: string, payload: Record<string, ScalarIR | undefined>): Promise<void>;
+  /**
+   * `dedupeKey` is `${instanceId}:${nodeId}`, the same identity senders and
+   * actions de-duplicate on. The emit is wrapped in a step, and a step body is
+   * retried after a failure that may have happened *after* the event was
+   * already written — so without the key a retry appends a second copy of an
+   * event that count-based conditions are reading.
+   */
+  emit(
+    event: string,
+    payload: Record<string, ScalarIR | undefined>,
+    dedupeKey: string
+  ): Promise<void>;
 }
 
 /** One action node's resolved call, ready for the registry. */

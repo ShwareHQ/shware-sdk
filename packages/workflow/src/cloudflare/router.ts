@@ -24,10 +24,21 @@ export interface IngestInput {
   event: string;
   payload?: Record<string, unknown>;
   ts?: number;
+  /**
+   * Caller-supplied identity for this occurrence. Ingest is reachable from two
+   * retrying callers — an HTTP client retrying a 500, and the interpreter's
+   * send_event step being retried after it already committed its row — and a
+   * second copy of an event silently changes every count- and window-based
+   * condition that reads the log. Omit it only when there is no stable key;
+   * that opts the event out of de-duplication rather than collapsing
+   * unrelated occurrences together.
+   */
+  dedupeKey?: string;
 }
 
 export interface IngestResult {
-  stored: true;
+  /** False when `dedupeKey` matched an event already in the log: nothing was written this time. */
+  stored: boolean;
   woke: number;
   started: string[];
 }
@@ -39,14 +50,24 @@ export async function ingestEvent(env: JourneyEnv, input: IngestInput): Promise<
   const ts = input.ts ?? Date.now();
   const payload = input.payload ?? {};
 
-  await env.DB.prepare('INSERT INTO events (user_id, name, ts, payload) VALUES (?, ?, ?, ?)')
-    .bind(input.userId, input.event, ts, JSON.stringify(payload))
+  const written = await env.DB.prepare(
+    'INSERT OR IGNORE INTO events (user_id, name, ts, payload, dedupe_key) VALUES (?, ?, ?, ?, ?)'
+  )
+    .bind(input.userId, input.event, ts, JSON.stringify(payload), input.dedupeKey ?? null)
     .run();
+  const stored = (written.meta?.changes ?? 1) > 0;
 
+  /*
+   * The rest runs even for a duplicate. A retry arrives precisely because the
+   * first attempt did not finish — it committed the row and then failed — so
+   * returning early would strand the journeys the retry exists to start. Both
+   * halves are independently idempotent: waking an instance that already moved
+   * on is a no-op, and the entries key refuses a second entry.
+   */
   const woke = await wakeSubscribers(env, input.userId, input.event);
   const started = await startTriggeredJourneys(env, input, ts);
   started.push(...(await refreshSegmentTriggers(env, input.userId, ts)));
-  return { stored: true, woke, started };
+  return { stored, woke, started };
 }
 
 async function wakeSubscribers(env: JourneyEnv, userId: string, event: string): Promise<number> {
@@ -197,14 +218,39 @@ async function startJourney(
   )
     .bind(workflow, userId, instanceId, hash, 'running', ts)
     .run();
-  if ((inserted.meta?.changes ?? 1) === 0) return null; // already entered
+
+  /*
+   * A row already there blocks the entry — that is the once-policy — with one
+   * exception: 'failed' records an instance that died, not a journey the user
+   * received. Leaving it would bar that user from this workflow forever over
+   * one transient outage, so the entry is reclaimed instead. The status test
+   * lives inside the UPDATE, so of two concurrent retries exactly one sees a
+   * change and the loser is turned away as an ordinary duplicate.
+   */
+  const reclaimed = (inserted.meta?.changes ?? 1) === 0;
+  if (reclaimed) {
+    const claimed = await env.DB.prepare(
+      "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed'"
+    )
+      .bind(instanceId, hash, ts, workflow, userId)
+      .run();
+    if ((claimed.meta?.changes ?? 0) === 0) return null; // already entered, and still alive
+  }
 
   try {
     await env.JOURNEY.create({ id: instanceId, params });
   } catch (error) {
-    // Roll the ledger back so a retried ingest can enter — otherwise the
-    // once-policy would permanently record an entry that never ran.
-    await env.DB.prepare('DELETE FROM entries WHERE instance_id = ?').bind(instanceId).run();
+    if (reclaimed) {
+      // Put the corpse back rather than deleting it: the entry is still a
+      // failure, and dropping the row would erase that from the ledger.
+      await env.DB.prepare('UPDATE entries SET status = ? WHERE instance_id = ?')
+        .bind('failed', instanceId)
+        .run();
+    } else {
+      // Roll the ledger back so a retried ingest can enter — otherwise the
+      // once-policy would permanently record an entry that never ran.
+      await env.DB.prepare('DELETE FROM entries WHERE instance_id = ?').bind(instanceId).run();
+    }
     throw error;
   }
   return instanceId;
@@ -338,7 +384,55 @@ export async function deployBundle(env: JourneyEnv, bundle: unknown): Promise<De
   };
 }
 
+/* --------------------------------- profiles --------------------------------- */
+
+/**
+ * Merge properties into a profile, in one statement.
+ *
+ * Read-modify-write is what this used to be, and it lost data: two identifies
+ * landing together each read the same row, and whichever wrote second replaced
+ * the other's fields wholesale. The merge belongs in the database, where the
+ * row is only read once, under the write.
+ *
+ * `json_patch` is RFC 7386 merge-patch, so a property set to null is *removed*
+ * rather than stored as null — the only way this API has to unset one, and a
+ * deliberate change from the old spread, which kept it as a null value.
+ */
+async function mergeProfile(
+  env: JourneyEnv,
+  userId: string,
+  props: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const patch = JSON.stringify(props);
+  const row = await env.DB.prepare(
+    "INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(profiles.props, ?) RETURNING props"
+  )
+    .bind(userId, patch, patch)
+    .first<{ props: string }>();
+  // RETURNING always yields the row it just wrote; the fallback is only for a
+  // driver that declines to return one, and reports what was asked for.
+  return row === null ? { ...props } : (JSON.parse(row.props) as Record<string, unknown>);
+}
+
 /* ----------------------------------- http ----------------------------------- */
+
+/**
+ * Request bodies are untrusted JSON. They are read as unknown fields and
+ * checked, never cast into the shape they are supposed to have: a cast only
+ * silences the compiler, and what arrives here reaches SQL parameters.
+ */
+async function readBody(request: Request): Promise<Record<string, unknown>> {
+  const body: unknown = await request.json();
+  return isPlainObject(body) ? body : {};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
 
 export async function handleRequest(request: Request, env: JourneyEnv): Promise<Response> {
   const url = new URL(request.url);
@@ -362,33 +456,31 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
 
   try {
     if (request.method === 'POST' && url.pathname === '/events') {
-      const input = (await request.json()) as IngestInput;
-      if (!input.userId || !input.event) return json({ error: 'userId and event required' }, 400);
-      if (input.event.startsWith('$')) {
+      const { userId, event, payload, ts, dedupeKey } = await readBody(request);
+      if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
+        return json({ error: 'userId and event required' }, 400);
+      }
+      if (event.startsWith('$')) {
         return json({ error: 'event names starting with $ are reserved' }, 400);
       }
-      return json(await ingestEvent(env, input));
+      if (dedupeKey !== undefined && typeof dedupeKey !== 'string') {
+        return json({ error: 'dedupeKey must be a string' }, 400);
+      }
+      if (ts !== undefined && typeof ts !== 'number') {
+        return json({ error: 'ts must be a number' }, 400);
+      }
+      if (payload !== undefined && !isPlainObject(payload)) {
+        return json({ error: 'payload must be an object' }, 400);
+      }
+      return json(await ingestEvent(env, { userId, event, payload, ts, dedupeKey }));
     }
 
     if (request.method === 'POST' && url.pathname === '/identify') {
-      const { userId, props } = (await request.json()) as {
-        userId: string;
-        props: Record<string, unknown>;
-      };
-      if (!userId) return json({ error: 'userId required' }, 400);
+      const { userId, props } = await readBody(request);
+      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
       const ts = Date.now();
-      const existing = await env.DB.prepare('SELECT props FROM profiles WHERE user_id = ?')
-        .bind(userId)
-        .first<{ props: string }>();
-      const merged = {
-        ...(existing ? (JSON.parse(existing.props) as Record<string, unknown>) : {}),
-        ...props,
-      };
-      await env.DB.prepare(
-        'INSERT INTO profiles (user_id, props) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET props = excluded.props'
-      )
-        .bind(userId, JSON.stringify(merged))
-        .run();
+      const merged = await mergeProfile(env, userId, props);
       // Property-condition waits subscribe to this reserved event (see relevantEvents)
       const woke = await wakeSubscribers(env, userId, PROFILE_UPDATED_EVENT);
       // A profile change can move the user into (or out of) a trigger-routed segment

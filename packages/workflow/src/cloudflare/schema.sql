@@ -1,26 +1,41 @@
--- Journey 引擎数据面（D1）。条件求值 = 评估时现查（惰性，不做实时 segment 物化）。
+-- Journey engine data plane (D1). Conditions are evaluated by querying at
+-- decision time: lazy, with no real-time segment materialisation.
 
+-- Raw event log. Every count- and window-based condition reads this table, so a
+-- duplicated row silently changes a journey's behaviour. `dedupe_key` is the
+-- defence: ingest is reachable from two retrying callers (a client retrying a
+-- 500, and the interpreter's send_event step being retried after it already
+-- committed its row), and both pass a stable key so the second write is
+-- ignored. It stays NULL for callers that have no natural key, which opts that
+-- event out of de-duplication rather than collapsing unrelated events.
 CREATE TABLE IF NOT EXISTS events (
-  user_id TEXT NOT NULL,
-  name    TEXT NOT NULL,
-  ts      INTEGER NOT NULL,
-  payload TEXT NOT NULL DEFAULT '{}'
+  user_id    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  ts         INTEGER NOT NULL,
+  payload    TEXT NOT NULL DEFAULT '{}',
+  dedupe_key TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_user_name_ts ON events (user_id, name, ts);
+-- Partial, so the NULLs never enter the index: SQLite would admit them all anyway,
+-- but the predicate states the intent and keeps the index to the keyed rows.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_dedupe
+  ON events (dedupe_key) WHERE dedupe_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS profiles (
   user_id TEXT PRIMARY KEY,
   props   TEXT NOT NULL DEFAULT '{}'
 );
 
--- 部署产物：segment 定义（条件求值按名解析）与触发路由
+-- Deploy artefacts: segment definitions (resolved by name during evaluation)
+-- and the trigger routing table.
 CREATE TABLE IF NOT EXISTS segments (
   name      TEXT PRIMARY KEY,
   condition TEXT NOT NULL,
   hash      TEXT NOT NULL
 );
 
--- 事件触发路由；where = 触发事件 payload 的门槛（payload-only 条件树），filter = profile 门槛
+-- Event trigger routes. `where` gates on the triggering event's payload
+-- (a payload-only condition tree); `filter` gates on the profile.
 CREATE TABLE IF NOT EXISTS triggers (
   workflow  TEXT PRIMARY KEY,
   hash      TEXT NOT NULL,
@@ -30,7 +45,7 @@ CREATE TABLE IF NOT EXISTS triggers (
 );
 CREATE INDEX IF NOT EXISTS idx_triggers_event ON triggers (event);
 
--- segment-entry 触发路由
+-- Segment-entry trigger routes.
 CREATE TABLE IF NOT EXISTS segment_triggers (
   workflow TEXT PRIMARY KEY,
   hash     TEXT NOT NULL,
@@ -38,9 +53,11 @@ CREATE TABLE IF NOT EXISTS segment_triggers (
 );
 CREATE INDEX IF NOT EXISTS idx_segment_triggers_segment ON segment_triggers (segment);
 
--- 惰性维护的 segment 成员表：仅覆盖有 trigger 的 segment，在用户 ingest/identify 时
--- 重估进出转换。纯时间漂移（如"30 天未登录"到期）要等该用户下一次活动才被观察到；
--- TODO: cron 扫描时间驱动型 segment。
+-- Lazily maintained segment membership, covering only segments that something
+-- triggers on. Transitions are re-evaluated when the user is ingested or
+-- identified. Drift driven purely by the clock (an inactivity segment coming
+-- true on its own) is therefore only observed on that user's next activity.
+-- TODO: a cron sweep for time-driven segments.
 CREATE TABLE IF NOT EXISTS segment_members (
   segment TEXT NOT NULL,
   user_id TEXT NOT NULL,
@@ -48,7 +65,15 @@ CREATE TABLE IF NOT EXISTS segment_members (
   PRIMARY KEY (segment, user_id)
 );
 
--- 入流台账：once 策略 + 实例寻址 + 版本 pin 审计
+-- Entry ledger: the once-per-user policy, instance addressing, and the audit
+-- trail of which IR version each user was pinned to.
+--
+-- The primary key is what makes the policy atomic, and it is also the whole
+-- policy: a user who has entered cannot enter again. The one exception is a
+-- row left at 'failed', which records an instance that died rather than a
+-- journey the user received; the router takes such a row over so the entry can
+-- be retried (see startJourney). A general re-entry policy is a separate
+-- design question and deliberately not encoded here.
 CREATE TABLE IF NOT EXISTS entries (
   workflow    TEXT NOT NULL,
   user_id     TEXT NOT NULL,
@@ -59,8 +84,10 @@ CREATE TABLE IF NOT EXISTS entries (
   PRIMARY KEY (workflow, user_id)
 );
 
--- wait_until 唤醒路由：wake_handle 是不透明句柄（CF=instance id；AWS=callback id）。
--- 主键让解释器每轮 wait 的重复订阅（一次 subscribe 武装一次唤醒的契约）幂等。
+-- wait_until wake routing. `wake_handle` is an opaque handle (the instance id
+-- on Cloudflare, a callback id on AWS). The primary key makes the interpreter's
+-- re-subscription on every wait attempt idempotent, which its one-shot-callback
+-- contract requires.
 CREATE TABLE IF NOT EXISTS subscriptions (
   user_id     TEXT NOT NULL,
   event       TEXT NOT NULL,

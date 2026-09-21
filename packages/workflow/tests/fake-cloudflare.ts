@@ -21,6 +21,7 @@ interface EventRow {
   name: string;
   ts: number;
   payload: string;
+  dedupe_key: string | null;
 }
 interface TriggerRow {
   workflow: string;
@@ -47,6 +48,26 @@ interface SubscriptionRow {
   event: string;
   wake_handle: string;
   ts: number;
+}
+
+/**
+ * SQLite's json_patch, which is RFC 7386 merge-patch: objects merge key by key,
+ * a null removes its key, and anything else replaces wholesale. Reimplemented
+ * here because the fake has to agree with the real merge — a fake that merely
+ * spread the objects would hide exactly the null-removal behaviour the router
+ * now depends on.
+ */
+function jsonPatch(target: unknown, patch: unknown): unknown {
+  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) return patch;
+  const base: Record<string, unknown> =
+    typeof target === 'object' && target !== null && !Array.isArray(target)
+      ? { ...(target as Record<string, unknown>) }
+      : {};
+  for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+    if (value === null) delete base[key];
+    else base[key] = jsonPatch(base[key], value);
+  }
+  return base;
 }
 
 export class FakeD1 implements D1DatabaseLike {
@@ -82,12 +103,18 @@ export class FakeD1 implements D1DatabaseLike {
   // oxlint-disable-next-line eslint/max-lines-per-function -- one arm per SQL statement is the point
   private exec(sql: string, p: unknown[]): { rows: Record<string, unknown>[]; changes: number } {
     switch (sql) {
-      case 'INSERT INTO events (user_id, name, ts, payload) VALUES (?, ?, ?, ?)': {
+      case 'INSERT OR IGNORE INTO events (user_id, name, ts, payload, dedupe_key) VALUES (?, ?, ?, ?, ?)': {
+        const dedupeKey = (p[4] ?? null) as string | null;
+        // The unique index is partial, so NULL keys never collide with each other
+        if (dedupeKey !== null && this.events.some((e) => e.dedupe_key === dedupeKey)) {
+          return { rows: [], changes: 0 };
+        }
         this.events.push({
           user_id: p[0] as string,
           name: p[1] as string,
           ts: p[2] as number,
           payload: p[3] as string,
+          dedupe_key: dedupeKey,
         });
         return { rows: [], changes: 1 };
       }
@@ -118,9 +145,16 @@ export class FakeD1 implements D1DatabaseLike {
         const props = this.profiles.get(p[0] as string);
         return { rows: props === undefined ? [] : [{ props }], changes: 0 };
       }
-      case 'INSERT INTO profiles (user_id, props) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET props = excluded.props': {
-        this.profiles.set(p[0] as string, p[1] as string);
-        return { rows: [], changes: 1 };
+      case "INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(profiles.props, ?) RETURNING props": {
+        const userId = p[0] as string;
+        const existing = this.profiles.get(userId);
+        const merged = jsonPatch(
+          existing === undefined ? {} : JSON.parse(existing),
+          JSON.parse(p[1] as string)
+        );
+        const props = JSON.stringify(merged);
+        this.profiles.set(userId, props);
+        return { rows: [{ props }], changes: 1 };
       }
 
       case 'SELECT condition FROM segments WHERE name = ?': {
@@ -211,6 +245,17 @@ export class FakeD1 implements D1DatabaseLike {
           status: p[4] as string,
           ts: p[5] as number,
         });
+        return { rows: [], changes: 1 };
+      }
+      case "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed'": {
+        const target = this.entries.find(
+          (e) => e.workflow === p[3] && e.user_id === p[4] && e.status === 'failed'
+        );
+        if (target === undefined) return { rows: [], changes: 0 };
+        target.instance_id = p[0] as string;
+        target.hash = p[1] as string;
+        target.status = 'running';
+        target.ts = p[2] as number;
         return { rows: [], changes: 1 };
       }
       case 'DELETE FROM entries WHERE instance_id = ?': {
