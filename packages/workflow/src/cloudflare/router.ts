@@ -1,14 +1,16 @@
 import * as z from 'zod/mini';
 import { murmur3 } from '../engine/bucket';
 import { PROFILE_UPDATED_EVENT, evaluateCondition, matchesWhere } from '../engine/condition';
-import { BundleIR, ConditionIR, type TriggerIR } from '../ir';
+import { BundleIR, type TriggerIR } from '../ir';
+import { JourneyFactSource } from '../store/facts';
+import type { JourneyStore, ProfileProps } from '../store/index';
 import {
   type JourneyEnv,
   type JourneyParams,
   WAKE_EVENT_TYPE,
   type WorkflowInstanceLike,
 } from './bindings';
-import { D1FactSource } from './facts';
+import { d1Store } from './d1-env';
 
 /**
  * Ingest router. An incoming event does four things: it is stored, it wakes
@@ -16,6 +18,10 @@ import { D1FactSource } from './facts';
  * segment-trigger membership. Plus /deploy (persist a bundle) and /identify
  * (merge a profile — which wakes property-condition waits via
  * PROFILE_UPDATED_EVENT and re-evaluates segment triggers too).
+ *
+ * Storage goes through a JourneyStore; the `store` argument defaults to the
+ * D1 + KV store built from the env's bindings, so a Worker that only has those
+ * calls these functions exactly as before.
  */
 
 export interface IngestInput {
@@ -31,40 +37,39 @@ export interface IngestResult {
   started: string[];
 }
 
-export async function ingestEvent(env: JourneyEnv, input: IngestInput): Promise<IngestResult> {
+export async function ingestEvent(
+  env: JourneyEnv,
+  input: IngestInput,
+  store: JourneyStore = d1Store(env)
+): Promise<IngestResult> {
   if (input.event.startsWith('$')) {
     throw new Error(`event name '${input.event}' is reserved ('$' prefix is internal)`);
   }
   const ts = input.ts ?? Date.now();
   const payload = input.payload ?? {};
 
-  await env.DB.prepare('INSERT INTO events (user_id, name, ts, payload) VALUES (?, ?, ?, ?)')
-    .bind(input.userId, input.event, ts, JSON.stringify(payload))
-    .run();
+  await store.insertEvent({ userId: input.userId, event: input.event, ts, payload });
 
-  const woke = await wakeSubscribers(env, input.userId, input.event);
-  const started = await startTriggeredJourneys(env, input, ts);
-  started.push(...(await refreshSegmentTriggers(env, input.userId, ts)));
+  const woke = await wakeSubscribers(env, store, input.userId, input.event);
+  const started = await startTriggeredJourneys(env, store, { ...input, payload }, ts);
+  started.push(...(await refreshSegmentTriggers(env, store, input.userId, ts)));
   return { stored: true, woke, started };
 }
 
-async function wakeSubscribers(env: JourneyEnv, userId: string, event: string): Promise<number> {
-  const { results } = await env.DB.prepare(
-    'SELECT DISTINCT wake_handle AS handle FROM subscriptions WHERE user_id = ? AND event = ?'
-  )
-    .bind(userId, event)
-    .all<{ handle: string }>();
-
+async function wakeSubscribers(
+  env: JourneyEnv,
+  store: JourneyStore,
+  userId: string,
+  event: string
+): Promise<number> {
   let woke = 0;
-  for (const row of results) {
+  for (const handle of await store.findWakeHandles(userId, event)) {
     let instance: WorkflowInstanceLike;
     try {
-      instance = await env.JOURNEY.get(row.handle);
+      instance = await env.JOURNEY.get(handle);
     } catch {
       // Unknown instance (errored out without cleanup): drop the dangling subscription
-      await env.DB.prepare('DELETE FROM subscriptions WHERE wake_handle = ?')
-        .bind(row.handle)
-        .run();
+      await store.unsubscribe(handle);
       continue;
     }
     try {
@@ -81,34 +86,33 @@ async function wakeSubscribers(env: JourneyEnv, userId: string, event: string): 
 
 async function startTriggeredJourneys(
   env: JourneyEnv,
-  input: IngestInput,
+  store: JourneyStore,
+  input: IngestInput & { payload: Record<string, unknown> },
   ts: number
 ): Promise<string[]> {
-  const { results } = await env.DB.prepare(
-    'SELECT workflow, hash, "where" AS whereClause, filter FROM triggers WHERE event = ?'
-  )
-    .bind(input.event)
-    .all<{ workflow: string; hash: string; whereClause: string | null; filter: string | null }>();
-
   const started: string[] = [];
-  for (const row of results) {
+  for (const route of await store.findTriggers(input.event)) {
     // where: the payload gate — evaluated against the incoming event first
-    if (row.whereClause !== null) {
-      const where = ConditionIR.parse(JSON.parse(row.whereClause));
-      if (!matchesWhere(input.payload ?? {}, where)) continue;
-    }
+    if (route.where !== null && !matchesWhere(input.payload, route.where)) continue;
 
     // filter: the profile gate
-    if (row.filter !== null) {
-      const condition = ConditionIR.parse(JSON.parse(row.filter));
-      const facts = new D1FactSource(env.DB, input.userId);
-      if (!(await evaluateCondition(condition, facts, ts))) continue;
+    if (route.filter !== null) {
+      const facts = new JourneyFactSource(store, input.userId);
+      if (!(await evaluateCondition(route.filter, facts, ts))) continue;
     }
 
-    const instanceId = await startJourney(env, row.workflow, row.hash, input.userId, ts, {
-      event: input.event,
-      payload: input.payload ?? {},
-    });
+    const instanceId = await startJourney(
+      env,
+      store,
+      route.workflow,
+      route.hash,
+      input.userId,
+      ts,
+      {
+        event: input.event,
+        payload: input.payload,
+      }
+    );
     if (instanceId !== null) started.push(instanceId);
   }
   return started;
@@ -124,15 +128,14 @@ async function startTriggeredJourneys(
  */
 async function refreshSegmentTriggers(
   env: JourneyEnv,
+  store: JourneyStore,
   userId: string,
   ts: number
 ): Promise<string[]> {
-  const { results: routes } = await env.DB.prepare(
-    'SELECT workflow, hash, segment FROM segment_triggers'
-  ).all<{ workflow: string; hash: string; segment: string }>();
+  const routes = await store.listSegmentTriggers();
   if (routes.length === 0) return [];
 
-  const facts = new D1FactSource(env.DB, userId);
+  const facts = new JourneyFactSource(store, userId);
   const bySegment = new Map<string, { workflow: string; hash: string }[]>();
   for (const route of routes) {
     const list = bySegment.get(route.segment) ?? [];
@@ -142,34 +145,24 @@ async function refreshSegmentTriggers(
 
   const started: string[] = [];
   for (const [segmentName, segmentRoutes] of bySegment) {
-    const definition = await facts.getSegmentCondition(segmentName);
+    const definition = await store.getSegmentCondition(segmentName);
     if (definition === undefined) continue; // route without a definition: broken deploy, skip
 
     const matches = await evaluateCondition(definition, facts, ts);
-    const member = await env.DB.prepare(
-      'SELECT 1 AS x FROM segment_members WHERE segment = ? AND user_id = ?'
-    )
-      .bind(segmentName, userId)
-      .first<{ x: number }>();
+    const member = await store.isSegmentMember(segmentName, userId);
 
-    if (matches && member === null) {
+    if (matches && !member) {
       // Entry transition: record membership, then start the routed workflows
-      await env.DB.prepare(
-        'INSERT OR IGNORE INTO segment_members (segment, user_id, ts) VALUES (?, ?, ?)'
-      )
-        .bind(segmentName, userId, ts)
-        .run();
+      await store.addSegmentMember(segmentName, userId, ts);
       for (const route of segmentRoutes) {
-        const instanceId = await startJourney(env, route.workflow, route.hash, userId, ts, {
+        const instanceId = await startJourney(env, store, route.workflow, route.hash, userId, ts, {
           event: '$segment_entry',
           payload: { segment: segmentName },
         });
         if (instanceId !== null) started.push(instanceId);
       }
-    } else if (!matches && member !== null) {
-      await env.DB.prepare('DELETE FROM segment_members WHERE segment = ? AND user_id = ?')
-        .bind(segmentName, userId)
-        .run();
+    } else if (!matches && member) {
+      await store.removeSegmentMember(segmentName, userId);
     }
   }
   return started;
@@ -177,11 +170,12 @@ async function refreshSegmentTriggers(
 
 /**
  * Create one journey instance behind the entry ledger. Returns null when the
- * once-policy blocks the entry (the entries PK makes the check atomic, so
- * concurrent ingests cannot double-enter).
+ * once-policy blocks the entry (the store's insert is atomic, so concurrent
+ * ingests cannot double-enter).
  */
 async function startJourney(
   env: JourneyEnv,
+  store: JourneyStore,
   workflow: string,
   hash: string,
   userId: string,
@@ -191,19 +185,15 @@ async function startJourney(
   const instanceId = buildInstanceId(workflow, hash, userId, ts);
   const params: JourneyParams = { workflowName: workflow, contentHash: hash, userId, trigger };
 
-  const inserted = await env.DB.prepare(
-    'INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) VALUES (?, ?, ?, ?, ?, ?)'
-  )
-    .bind(workflow, userId, instanceId, hash, 'running', ts)
-    .run();
-  if ((inserted.meta?.changes ?? 1) === 0) return null; // already entered
+  const entered = await store.enterJourney({ workflow, userId, instanceId, hash, ts });
+  if (!entered) return null; // already entered
 
   try {
     await env.JOURNEY.create({ id: instanceId, params });
   } catch (error) {
     // Roll the ledger back so a retried ingest can enter — otherwise the
     // once-policy would permanently record an entry that never ran.
-    await env.DB.prepare('DELETE FROM entries WHERE instance_id = ?').bind(instanceId).run();
+    await store.removeEntry(instanceId);
     throw error;
   }
   return instanceId;
@@ -222,6 +212,31 @@ function buildInstanceId(workflow: string, hash: string, userId: string, ts: num
   return `${workflow.slice(0, 32)}-${hash.slice(0, 8)}-${uid}-${fingerprint}-${ts.toString(36)}`;
 }
 
+/* --------------------------------- identify --------------------------------- */
+
+export interface IdentifyResult {
+  ok: true;
+  props: ProfileProps;
+  woke: number;
+  started: string[];
+}
+
+/** Merge profile properties, then wake property waits and re-evaluate segment triggers. */
+export async function identifyUser(
+  env: JourneyEnv,
+  userId: string,
+  props: ProfileProps,
+  store: JourneyStore = d1Store(env)
+): Promise<IdentifyResult> {
+  const ts = Date.now();
+  const merged = await store.mergeProfile(userId, props);
+  // Property-condition waits subscribe to this reserved event (see relevantEvents)
+  const woke = await wakeSubscribers(env, store, userId, PROFILE_UPDATED_EVENT);
+  // A profile change can move the user into (or out of) a trigger-routed segment
+  const started = await refreshSegmentTriggers(env, store, userId, ts);
+  return { ok: true, props: merged, woke, started };
+}
+
 /* ---------------------------------- deploy ---------------------------------- */
 
 export interface DeployResult {
@@ -236,52 +251,16 @@ export interface DeployResult {
   unrouted: { workflow: string; trigger: TriggerIR['type'] }[];
 }
 
-/** Bundle deploy, terraform-apply style: workflows go to KV (content-addressed) while trigger routes and segment definitions are swapped into D1. */
-export async function deployBundle(env: JourneyEnv, bundle: unknown): Promise<DeployResult> {
+/** Bundle deploy, terraform-apply style: workflow bodies first (content-addressed, so a failed deploy leaves only harmless orphans), then the routing swap. */
+export async function deployBundle(
+  env: JourneyEnv,
+  bundle: unknown,
+  store: JourneyStore = d1Store(env)
+): Promise<DeployResult> {
   const parsed = BundleIR.parse(bundle);
 
-  // KV first: content-addressed, so a failed deploy leaves only harmless orphans
-  for (const workflow of parsed.workflows) {
-    await env.WORKFLOW_KV.put(`wf:${workflow.contentHash}`, JSON.stringify(workflow));
-  }
-
-  // One atomic batch for the D1 swap: all-or-nothing, and a concurrent ingest
-  // never observes the half-empty routing table a delete-then-insert loop had.
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM triggers'),
-    env.DB.prepare('DELETE FROM segment_triggers'),
-    env.DB.prepare('DELETE FROM segments'),
-    ...parsed.segments.map((segment) =>
-      env.DB.prepare('INSERT INTO segments (name, condition, hash) VALUES (?, ?, ?)').bind(
-        segment.name,
-        JSON.stringify(segment.condition),
-        segment.contentHash
-      )
-    ),
-    ...parsed.workflows.flatMap((workflow) => {
-      if (workflow.trigger.type === 'event') {
-        return [
-          env.DB.prepare(
-            'INSERT INTO triggers (workflow, hash, event, "where", filter) VALUES (?, ?, ?, ?, ?)'
-          ).bind(
-            workflow.name,
-            workflow.contentHash,
-            workflow.trigger.event,
-            workflow.trigger.where !== undefined ? JSON.stringify(workflow.trigger.where) : null,
-            workflow.trigger.filter !== undefined ? JSON.stringify(workflow.trigger.filter) : null
-          ),
-        ];
-      }
-      if (workflow.trigger.type === 'segment') {
-        return [
-          env.DB.prepare(
-            'INSERT INTO segment_triggers (workflow, hash, segment) VALUES (?, ?, ?)'
-          ).bind(workflow.name, workflow.contentHash, workflow.trigger.segment),
-        ];
-      }
-      return [];
-    }),
-  ]);
+  for (const workflow of parsed.workflows) await store.putWorkflowIR(workflow);
+  await store.replaceRoutes(parsed);
 
   const unrouted = parsed.workflows
     .filter((workflow) => workflow.trigger.type === 'date' || workflow.trigger.type === 'webhook')
@@ -295,7 +274,11 @@ export async function deployBundle(env: JourneyEnv, bundle: unknown): Promise<De
 
 /* ----------------------------------- http ----------------------------------- */
 
-export async function handleRequest(request: Request, env: JourneyEnv): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  env: JourneyEnv,
+  store: JourneyStore = d1Store(env)
+): Promise<Response> {
   const url = new URL(request.url);
   const json = (body: unknown, status = 200): Response =>
     new Response(JSON.stringify(body), {
@@ -322,37 +305,17 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
       if (input.event.startsWith('$')) {
         return json({ error: 'event names starting with $ are reserved' }, 400);
       }
-      return json(await ingestEvent(env, input));
+      return json(await ingestEvent(env, input, store));
     }
 
     if (request.method === 'POST' && url.pathname === '/identify') {
-      const { userId, props } = (await request.json()) as {
-        userId: string;
-        props: Record<string, unknown>;
-      };
+      const { userId, props } = (await request.json()) as { userId: string; props?: ProfileProps };
       if (!userId) return json({ error: 'userId required' }, 400);
-      const ts = Date.now();
-      const existing = await env.DB.prepare('SELECT props FROM profiles WHERE user_id = ?')
-        .bind(userId)
-        .first<{ props: string }>();
-      const merged = {
-        ...(existing ? (JSON.parse(existing.props) as Record<string, unknown>) : {}),
-        ...props,
-      };
-      await env.DB.prepare(
-        'INSERT INTO profiles (user_id, props) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET props = excluded.props'
-      )
-        .bind(userId, JSON.stringify(merged))
-        .run();
-      // Property-condition waits subscribe to this reserved event (see relevantEvents)
-      const woke = await wakeSubscribers(env, userId, PROFILE_UPDATED_EVENT);
-      // A profile change can move the user into (or out of) a trigger-routed segment
-      const started = await refreshSegmentTriggers(env, userId, ts);
-      return json({ ok: true, props: merged, woke, started });
+      return json(await identifyUser(env, userId, props ?? {}, store));
     }
 
     if (request.method === 'POST' && url.pathname === '/deploy') {
-      return json(await deployBundle(env, await request.json()));
+      return json(await deployBundle(env, await request.json(), store));
     }
 
     return json({ error: 'not found' }, 404);

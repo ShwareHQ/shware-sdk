@@ -42,10 +42,13 @@ export interface WorkflowBindingLike {
 
 /** Every binding the journey engine needs (names match the wrangler config). */
 export interface JourneyEnv {
-  /** BundleIR storage: `wf:${contentHash}` → WorkflowIR JSON. */
-  WORKFLOW_KV: KVNamespaceLike;
-  /** events / profiles / segments / triggers / entries / subscriptions。 */
-  DB: D1DatabaseLike;
+  /**
+   * BundleIR storage for the default D1 store (`wf:${contentHash}` → WorkflowIR JSON). Optional:
+   * a Worker on another JourneyStore (Postgres, say) does not declare it.
+   */
+  WORKFLOW_KV?: KVNamespaceLike;
+  /** Tables of the default D1 store (events / profiles / segments / triggers / entries / subscriptions). Optional, as above. */
+  DB?: D1DatabaseLike;
   /** JourneyRunner's workflow binding (creating instances and waking them). */
   JOURNEY: WorkflowBindingLike;
   /** Optional message-delivery webhook (defaults to the console logging sender). */

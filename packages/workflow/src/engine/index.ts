@@ -9,6 +9,7 @@ export {
 } from './condition';
 export { runJourney } from './interpreter';
 export { fillSubject } from './subject';
+export { scaleDurations } from './time-scale';
 export { nextWindowStart, resolveTimeZone } from './time-window';
 export type {
   ActionInvocation,

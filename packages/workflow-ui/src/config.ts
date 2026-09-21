@@ -1,4 +1,4 @@
-import type { SegmentRef, WorkflowBuilder } from '@shware/workflow';
+import type { JourneyRuntimeConfig, SegmentRef, WorkflowBuilder } from '@shware/workflow';
 import type { ReactElement } from 'react';
 
 /**
@@ -220,6 +220,13 @@ export interface WorkflowUIConfig {
   emails?: EmailSettings;
   /** Optional runtime data source for the reports view and canvas badges. */
   stats?: StatsSource;
+  /**
+   * How the engine behaves per environment (`development`, `production`, …): the debug time
+   * scale, message logging. Typed here instead of environment variables so the values live in
+   * code; the host Worker picks the entry for its mode with `resolveRuntime` from
+   * `@shware/workflow`. The studio does not read it.
+   */
+  runtime?: JourneyRuntimeConfig;
 }
 
 /** Identity helper that gives the config file full type checking. */
@@ -247,3 +254,5 @@ export interface ResolvedStudioConfig {
   sendTest?: (args: SendTestArgs) => Promise<void>;
   stats?: StatsSource;
 }
+
+export type { JourneyMode, JourneyRuntimeConfig, JourneyRuntimeOptions } from '@shware/workflow';

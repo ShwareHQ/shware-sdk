@@ -1,25 +1,49 @@
 import type { MessageSender, OutboundMessage } from '../engine/ports';
 import { fillSubject } from '../engine/subject';
 import type { ScalarIR } from '../ir';
+import { JourneyFactSource } from '../store/facts';
+import type { JourneyStore } from '../store/index';
 
-/** Cloudflare Email Service's send_email binding (structural subset). */
+/** An address as Cloudflare Email Sending takes it: bare, or with a display name. */
+export type EmailAddress = string | { email: string; name?: string };
+
+/** Cloudflare Email Service's send_email binding (the structural subset used). */
 export interface EmailBindingLike {
-  send(message: { to: string; from: string; subject: string; html: string }): Promise<unknown>;
+  send(message: {
+    from: EmailAddress;
+    to: EmailAddress;
+    replyTo?: EmailAddress;
+    subject: string;
+    html: string;
+  }): Promise<unknown>;
 }
 
 /**
- * Template renderer, injected by the app — this package stays free of any
- * react-email dependency. An app-side implementation is typically a registry
- * lookup plus @react-email/render. The subject comes back as the module's raw
- * string template; the sender fills its `{prop}` placeholders from the profile.
+ * Template renderer, injected by the app — this package's core stays free of
+ * any react-email dependency (`@shware/workflow/react-email` ships one over a
+ * registry). The subject comes back as the module's raw string template; the
+ * sender fills its `{{ user.x }}` placeholders from the profile.
  */
 export type EmailRenderer = (
   template: string,
   props: Record<string, ScalarIR | undefined>
 ) => Promise<{ subject: string; html: string }>;
 
-/** Profile access for personalization, keyed by user — the D1 fact source curried per userId. */
+/** Profile access for personalization, keyed by user. */
 export type ProfileLookup = (userId: string, path: string) => Promise<ScalarIR | undefined>;
+
+export interface CfEmailOptions {
+  /** The Worker's `send_email` binding. */
+  binding: EmailBindingLike;
+  from: EmailAddress;
+  replyTo?: EmailAddress;
+  render: EmailRenderer;
+  /**
+   * Where `{{ user.x }}` subject placeholders are filled from: the journey
+   * store, or a custom lookup. Without it, placeholders render empty.
+   */
+  profile?: JourneyStore | ProfileLookup;
+}
 
 /**
  * Send straight through Cloudflare Email Service — a binding call, no outbound
@@ -27,13 +51,17 @@ export type ProfileLookup = (userId: string, path: string) => Promise<ScalarIR |
  * on idempotencyKey.
  */
 export class CfEmailSender implements MessageSender {
-  constructor(
-    private readonly email: EmailBindingLike,
-    private readonly from: string,
-    private readonly render: EmailRenderer,
-    /** Optional: without it, subject templates go out with placeholders emptied. */
-    private readonly profile?: ProfileLookup
-  ) {}
+  private readonly profile: ProfileLookup | undefined;
+
+  constructor(private readonly options: CfEmailOptions) {
+    const { profile } = options;
+    this.profile =
+      profile === undefined
+        ? undefined
+        : typeof profile === 'function'
+          ? profile
+          : (userId, path) => new JourneyFactSource(profile, userId).getProperty(path);
+  }
 
   async send(message: OutboundMessage): Promise<void> {
     if (message.channel !== 'email') {
@@ -42,11 +70,17 @@ export class CfEmailSender implements MessageSender {
     if (message.recipient === undefined) {
       throw new Error(`CfEmailSender: no recipient for user '${message.userId}'`);
     }
-    const { subject, html } = await this.render(message.template, message.props);
+    const { subject, html } = await this.options.render(message.template, message.props);
     const filled = await fillSubject(subject, (path) =>
       this.profile === undefined ? Promise.resolve(undefined) : this.profile(message.userId, path)
     );
-    await this.email.send({ to: message.recipient, from: this.from, subject: filled, html });
+    await this.options.binding.send({
+      from: this.options.from,
+      to: message.recipient,
+      ...(this.options.replyTo === undefined ? {} : { replyTo: this.options.replyTo }),
+      subject: filled,
+      html,
+    });
   }
 }
 
@@ -78,4 +112,22 @@ export class WebhookMessageSender implements MessageSender {
       throw new Error(`message webhook failed: ${response.status}`);
     }
   }
+}
+
+/**
+ * One sender per channel: the runner has a single outlet, this fans it out.
+ * A channel without a sender fails the send (a misconfiguration, not a retry).
+ */
+export function routeByChannel(
+  senders: Partial<Record<OutboundMessage['channel'], MessageSender>>
+): MessageSender {
+  return {
+    async send(message) {
+      const sender = senders[message.channel];
+      if (sender === undefined) {
+        throw new Error(`no sender configured for channel '${message.channel}'`);
+      }
+      await sender.send(message);
+    },
+  };
 }
