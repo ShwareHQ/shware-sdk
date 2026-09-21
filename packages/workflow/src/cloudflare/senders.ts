@@ -2,9 +2,25 @@ import type { MessageSender, OutboundMessage } from '../engine/ports';
 import { fillSubject } from '../engine/subject';
 import type { ScalarIR } from '../ir';
 
-/** Cloudflare Email Service's send_email binding (structural subset). */
+/**
+ * Cloudflare Email Service's send_email binding (structural subset).
+ *
+ * `idempotencyKey` is part of the call because the send happens inside a
+ * `step.do`: a step body re-runs after its fn resolved but before the
+ * checkpoint committed, so a binding that drops the key mails the user twice.
+ * The binding is app-supplied glue (nothing here can de-duplicate — there is
+ * no state between two runs of the same step), which is why the port makes the
+ * key impossible to miss rather than merely available.
+ */
 export interface EmailBindingLike {
-  send(message: { to: string; from: string; subject: string; html: string }): Promise<unknown>;
+  send(message: {
+    to: string;
+    from: string;
+    subject: string;
+    html: string;
+    /** `${instanceId}:${nodeId}`: stable across replays and retries — drop a send whose key was already delivered. */
+    idempotencyKey: string;
+  }): Promise<unknown>;
 }
 
 /**
@@ -23,8 +39,9 @@ export type ProfileLookup = (userId: string, path: string) => Promise<ScalarIR |
 
 /**
  * Send straight through Cloudflare Email Service — a binding call, no outbound
- * HTTP. Throwing hands retries to the CF step; the delivery side de-duplicates
- * on idempotencyKey.
+ * HTTP. Throwing hands retries to the CF step, and the message's
+ * idempotencyKey travels with the call so the binding can drop the duplicate a
+ * retry or replay produces.
  */
 export class CfEmailSender implements MessageSender {
   constructor(
@@ -46,7 +63,13 @@ export class CfEmailSender implements MessageSender {
     const filled = await fillSubject(subject, (path) =>
       this.profile === undefined ? Promise.resolve(undefined) : this.profile(message.userId, path)
     );
-    await this.email.send({ to: message.recipient, from: this.from, subject: filled, html });
+    await this.email.send({
+      to: message.recipient,
+      from: this.from,
+      subject: filled,
+      html,
+      idempotencyKey: message.idempotencyKey,
+    });
   }
 }
 

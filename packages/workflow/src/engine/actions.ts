@@ -19,7 +19,7 @@ export interface RegisteredAction {
   /** Method syntax on purpose: accepts ActionRef handlers with narrower arg types. */
   handler(
     args: Record<string, ScalarIR | undefined>,
-    ctx: { userId: string }
+    ctx: { userId: string; idempotencyKey: string }
   ): Promise<void> | void;
 }
 
@@ -59,6 +59,12 @@ export class RegistryActionInvoker implements ActionInvoker {
       if (this.policy === 'strict') throw new Error(skew);
       console.warn(`${skew} — running the deployed version`);
     }
-    await registered.handler(invocation.args, { userId: invocation.userId });
+    // The key is forwarded, not consumed here: this invoker has no state to
+    // de-duplicate against, and the step body it runs inside is replayed — the
+    // handler is the only place that can collapse the duplicate side effect.
+    await registered.handler(invocation.args, {
+      userId: invocation.userId,
+      idempotencyKey: invocation.idempotencyKey,
+    });
   }
 }
