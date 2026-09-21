@@ -23,6 +23,69 @@ import {
 const bundle = () =>
   compileBundle({ workflows: [checkoutRecovery, reengagement], segments: allSegments });
 
+describe('deployBundle rejects a bundle that misdescribes itself', () => {
+  /*
+   * `wf:${contentHash}` is the address an in-flight journey reads its IR from,
+   * so a hash that does not describe its content is a way to change what a
+   * pinned instance runs: submit an edited flow under the old hash and the next
+   * replay picks it up. Deploy used to take the caller's word for it.
+   */
+  test('an edited flow carrying its old hash is refused, and nothing is written', async () => {
+    const { env, db, kv } = makeEnv();
+    const tampered = bundle();
+    const target = tampered.workflows[0];
+    const staleHash = target.contentHash;
+    // Change what it executes; keep the hash it arrived with
+    target.flow.push({ id: '99', type: 'exit', reason: 'injected' });
+
+    await expect(deployBundle(env, tampered)).rejects.toThrow(/contentHash does not match/);
+
+    expect(kv.store.size).toBe(0);
+    expect(db.triggers).toHaveLength(0);
+    expect(kv.store.get(`wf:${staleHash}`)).toBeUndefined();
+  });
+
+  test('a tampered segment condition is refused too', async () => {
+    const { env } = makeEnv();
+    const tampered = bundle();
+    tampered.segments[0].condition = { type: 'property', path: 'plan', op: 'eq', value: 'free' };
+
+    await expect(deployBundle(env, tampered)).rejects.toThrow(/segment/);
+  });
+
+  test('an honest bundle still deploys', async () => {
+    const { env, kv } = makeEnv();
+    await expect(deployBundle(env, bundle())).resolves.toBeDefined();
+    expect(kv.store.size).toBeGreaterThan(0);
+  });
+
+  test('a metadata-only edit keeps its hash and redeploys in place', async () => {
+    const { env, kv } = makeEnv();
+    await deployBundle(env, bundle());
+    const storedKeys = [...kv.store.keys()];
+
+    // Rewording a description must not move the hash
+    const reworded = bundle();
+    reworded.workflows[0].meta = { ...reworded.workflows[0].meta, description: 'new wording' };
+    await expect(deployBundle(env, reworded)).resolves.toBeDefined();
+    expect([...kv.store.keys()]).toEqual(storedKeys);
+  });
+
+  test('the HTTP surface reports it as the caller error, not a server fault', async () => {
+    const { env } = makeEnv();
+    const tampered = bundle();
+    tampered.workflows[0].flow.push({ id: '99', type: 'exit' });
+
+    const response = await handleRequest(
+      new Request('https://x/deploy', { method: 'POST', body: JSON.stringify(tampered) }),
+      env
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('contentHash') });
+  });
+});
+
 describe('deployBundle', () => {
   test('routes event and segment triggers, stores segments and KV bodies', async () => {
     const { env, db, kv } = makeEnv();

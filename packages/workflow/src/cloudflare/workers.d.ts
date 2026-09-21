@@ -28,6 +28,9 @@ declare module 'cloudflare:workers' {
   }
 
   export abstract class WorkflowEntrypoint<Env = unknown, Params = unknown> {
+    /** The runtime constructs it with the execution context and the bindings. */
+    constructor(ctx: unknown, env: Env);
+    protected readonly ctx: unknown;
     protected readonly env: Env;
     abstract run(event: WorkflowEvent<Params>, step: WorkflowStep): Promise<unknown>;
   }

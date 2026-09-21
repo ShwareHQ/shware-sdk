@@ -14,6 +14,7 @@ import {
   type JourneyEnv,
   type JourneyParams,
   WAKE_EVENT_TYPE,
+  wakeExpired,
 } from './bindings';
 import { D1FactSource } from './facts';
 import { ingestEvent } from './router';
@@ -71,11 +72,23 @@ class CfEngineStep implements EngineStep {
   }
 
   async waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'> {
+    const startedAt = Date.now();
     try {
       await this.step.waitForEvent(name, { type: WAKE_EVENT_TYPE, timeout: timeoutMs });
       return 'event';
-    } catch {
-      return 'timeout';
+    } catch (error) {
+      /*
+       * Only the deadline can tell a real timeout from a failure (see
+       * wakeExpired). `startedAt` is not replay-stable, but it is read only
+       * inside the step body below, and a step body runs on the live attempt
+       * alone — a replay returns the persisted verdict without touching the
+       * clock.
+       */
+      const timedOut = await this.step.do(`${name}:timed-out`, async () =>
+        wakeExpired(startedAt, timeoutMs, Date.now())
+      );
+      if (timedOut) return 'timeout';
+      throw error;
     }
   }
 }
@@ -132,17 +145,38 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
       },
     };
 
-    const outcome = await runJourney(ir, {
-      userId,
-      instanceId: event.instanceId,
-      // Trigger-event creation time: replay-stable, unlike Date.now() here
-      enteredAtMs: event.timestamp.getTime(),
-      step: new CfEngineStep(step, env.DB, userId, event.instanceId),
-      facts: new D1FactSource(env.DB, userId),
-      messages,
-      events,
-      actions: this.createActionInvoker(),
-    });
+    let outcome: JourneyOutcome;
+    try {
+      outcome = await runJourney(ir, {
+        userId,
+        instanceId: event.instanceId,
+        // Trigger-event creation time: replay-stable, unlike Date.now() here
+        enteredAtMs: event.timestamp.getTime(),
+        step: new CfEngineStep(step, env.DB, userId, event.instanceId),
+        facts: new D1FactSource(env.DB, userId),
+        messages,
+        events,
+        actions: this.createActionInvoker(),
+      });
+    } catch (error) {
+      /*
+       * An error escaping run() ends the instance, and the ledger is the only
+       * place anyone looks afterwards: leaving it at 'running' meant a dead
+       * journey stayed indistinguishable from a waiting one, in the dashboard
+       * and in the once-policy, forever.
+       *
+       * Subscriptions are deliberately left in place. They are cleaned up on
+       * every ordinary ending, but here the wake rows are the only evidence of
+       * what the instance was waiting for, and dropping them would also break
+       * the instance if the platform does re-run it.
+       */
+      await step.do('finalize:failed', async () => {
+        await env.DB.prepare('UPDATE entries SET status = ? WHERE instance_id = ?')
+          .bind('failed', event.instanceId)
+          .run();
+      });
+      throw error;
+    }
 
     await step.do('finalize', async () => {
       await env.DB.prepare('UPDATE entries SET status = ? WHERE instance_id = ?')

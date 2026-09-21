@@ -1,6 +1,7 @@
 import * as z from 'zod/mini';
 import { murmur3 } from '../engine/bucket';
 import { PROFILE_UPDATED_EVENT, evaluateCondition, matchesWhere } from '../engine/condition';
+import { semanticHash } from '../hash';
 import { BundleIR, ConditionIR, type TriggerIR } from '../ir';
 import {
   type JourneyEnv,
@@ -236,9 +237,53 @@ export interface DeployResult {
   unrouted: { workflow: string; trigger: TriggerIR['type'] }[];
 }
 
+/** A bundle whose declared hashes do not describe its contents — rejected before anything is written. */
+export class BundleIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BundleIntegrityError';
+  }
+}
+
+/**
+ * Recompute every declared contentHash and refuse the bundle if one disagrees.
+ *
+ * `wf:${contentHash}` is the address an in-flight journey reads its IR from, so
+ * a hash that does not describe its own content is a way to change what a
+ * pinned instance executes: submit an edited flow under the old hash and the
+ * next replay picks it up. The compiler always computes the hash it ships, so
+ * a mismatch means a hand-rolled payload or a stale client — neither should be
+ * able to overwrite a version that journeys are running.
+ *
+ * Each hash is recomputed exactly the way its compiler produced it: a workflow
+ * hashes its whole IR (contentHash strips itself), a segment hashes only its
+ * condition. Mirroring them is load-bearing — recomputing a segment over the
+ * whole record would reject every honest deploy.
+ */
+function verifyBundleHashes(parsed: BundleIR): void {
+  const mismatched: string[] = [];
+  for (const workflow of parsed.workflows) {
+    if (semanticHash(workflow) !== workflow.contentHash) {
+      mismatched.push(`workflow '${workflow.name}'`);
+    }
+  }
+  for (const segment of parsed.segments) {
+    if (semanticHash(segment.condition) !== segment.contentHash) {
+      mismatched.push(`segment '${segment.name}'`);
+    }
+  }
+  if (mismatched.length > 0) {
+    throw new BundleIntegrityError(
+      `contentHash does not match content for ${mismatched.join(', ')} — recompile the bundle instead of editing it by hand`
+    );
+  }
+}
+
 /** Bundle deploy, terraform-apply style: workflows go to KV (content-addressed) while trigger routes and segment definitions are swapped into D1. */
 export async function deployBundle(env: JourneyEnv, bundle: unknown): Promise<DeployResult> {
   const parsed = BundleIR.parse(bundle);
+  // Before any write: a bad hash must not reach KV, where it would address content it does not describe
+  verifyBundleHashes(parsed);
 
   // KV first: content-addressed, so a failed deploy leaves only harmless orphans
   for (const workflow of parsed.workflows) {
@@ -361,6 +406,10 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
     // the response body (internals are logged, not leaked).
     if (error instanceof z.core.$ZodError) {
       return json({ error: `invalid payload: ${error.message}` }, 400);
+    }
+    // The caller sent a self-inconsistent bundle: their problem to fix, so say what is wrong
+    if (error instanceof BundleIntegrityError) {
+      return json({ error: error.message }, 400);
     }
     console.error('[workflow router]', error);
     return json({ error: 'internal error' }, 500);

@@ -70,3 +70,23 @@ export interface JourneyParams {
   trigger: { event: string; payload: Record<string, unknown> };
   [key: string]: unknown;
 }
+
+/**
+ * Slack on the deadline when deciding whether a thrown wait was a timeout: the
+ * platform may surface the expiry a moment early, and a wait shorter than this
+ * has no room to tell the two apart anyway.
+ */
+export const WAKE_TIMEOUT_TOLERANCE_MS = 5_000;
+
+/**
+ * Did a wait that threw actually reach its deadline?
+ *
+ * CF signals a wait timeout by throwing, and so does every other failure in
+ * there — a broken binding, an evicted instance, a malformed timeout. The
+ * adapter used to read them all as timeouts, which made an infrastructure
+ * fault indistinguishable from "the user never did it": the journey took its
+ * onTimeout branch, early and silently. Only the clock can tell them apart.
+ */
+export function wakeExpired(startedAt: number, timeoutMs: number, now: number): boolean {
+  return now - startedAt >= Math.max(0, timeoutMs - WAKE_TIMEOUT_TOLERANCE_MS);
+}

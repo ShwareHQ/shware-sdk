@@ -7,7 +7,7 @@ export type {
   WorkflowInstanceLike,
 } from './bindings';
 export { D1FactSource } from './facts';
-export { deployBundle, handleRequest, ingestEvent } from './router';
+export { BundleIntegrityError, deployBundle, handleRequest, ingestEvent } from './router';
 export type { IngestInput, IngestResult } from './router';
 export { WAKE_EVENT_TYPE } from './bindings';
 export { JourneyRunner } from './runner';
