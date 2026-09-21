@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "db:init": "wrangler d1 execute journey-db --local --file=../../packages/workflow/src/cloudflare/schema.sql",
+    "db:reset": "rm -rf .wrangler/state/v3/d1 && pnpm db:init",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {

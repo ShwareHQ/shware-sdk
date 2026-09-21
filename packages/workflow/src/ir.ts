@@ -20,7 +20,7 @@ import * as z from 'zod/mini';
  *    always write the current version.
  * 2. Content version (contentHash): a content-addressed id for a single
  *    definition's **execution semantics** — the canonical-JSON hash after
- *    metadata (meta / label) is stripped, see hash.ts. It is used to:
+ *    metadata (meta / label / reason) is stripped, see hash.ts. It is used to:
  *    - pin a version when a user enters, so an in-flight journey runs the
  *      pinned version to completion (the default policy; compatible hot
  *      updates are a future explicit-migration topic). Known exception:
@@ -262,7 +262,12 @@ export type NodeIR =
       /** Default arm (the DSL's bare tail argument). Absent = fall through to the main line. */
       otherwise?: NodeIR[] | undefined;
     })
-  | (NodeBaseIR & { type: 'filter'; condition: ConditionIR; reason?: string | undefined })
+  | (NodeBaseIR & {
+      type: 'filter';
+      /** Audit-log line for the users this gate drops. Metadata: excluded from contentHash. */
+      reason?: string | undefined;
+      condition: ConditionIR;
+    })
   | (NodeBaseIR & {
       type: 'cohort';
       /**
@@ -272,10 +277,19 @@ export type NodeIR =
        * the node id is used (fine for one-off splits).
        */
       key?: string | undefined;
-      /** Ordered array (the DSL object's insertion order); weights sum to 100. */
+      /**
+       * Arms in authoring order — the order the interpreter accumulates weights
+       * in, so it decides which bucket range each arm owns. The DSL keeps that
+       * promise by rejecting integer-like arm names, which JavaScript would
+       * hoist to the front of the object in numeric order. Weights sum to 100.
+       */
       arms: { name: string; weight: number; flow: NodeIR[] }[];
     })
-  | (NodeBaseIR & { type: 'exit'; reason?: string | undefined })
+  | (NodeBaseIR & {
+      /** `reason` is the audit-log line. Metadata: excluded from contentHash. */
+      type: 'exit';
+      reason?: string | undefined;
+    })
   | (NodeBaseIR & { type: 'send_event'; event: string; payload: Record<string, PropValueIR> })
   | (NodeBaseIR & {
       type: 'action';

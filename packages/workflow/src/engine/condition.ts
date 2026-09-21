@@ -23,27 +23,51 @@ export async function evaluateCondition(
   nowMs: number,
   opts?: EvaluateOptions
 ): Promise<boolean> {
+  return evaluate(condition, facts, nowMs, opts, []);
+}
+
+/**
+ * `enclosing` is the chain of segment names currently being expanded. A
+ * segment that reaches itself has no truth value to converge on, and left
+ * unchecked the recursion runs until memory gives out, one D1 round trip per
+ * level — inside a step, so Workflows retries it and the instance never gets
+ * out. Failing immediately keeps it bounded, and the message names the cycle
+ * because only a deployed bundle can fix it. Only the *path* is tracked, so a
+ * diamond (two branches referencing one segment) still evaluates twice.
+ */
+async function evaluate(
+  condition: ConditionIR,
+  facts: FactSource,
+  nowMs: number,
+  opts: EvaluateOptions | undefined,
+  enclosing: readonly string[]
+): Promise<boolean> {
   switch (condition.type) {
     case 'and': {
       for (const child of condition.conditions) {
-        if (!(await evaluateCondition(child, facts, nowMs, opts))) return false;
+        if (!(await evaluate(child, facts, nowMs, opts, enclosing))) return false;
       }
       return true;
     }
     case 'or': {
       for (const child of condition.conditions) {
-        if (await evaluateCondition(child, facts, nowMs, opts)) return true;
+        if (await evaluate(child, facts, nowMs, opts, enclosing)) return true;
       }
       return false;
     }
     case 'not':
-      return !(await evaluateCondition(condition.condition, facts, nowMs, opts));
+      return !(await evaluate(condition.condition, facts, nowMs, opts, enclosing));
     case 'segment': {
+      if (enclosing.includes(condition.segment)) {
+        throw new Error(
+          `segment '${condition.segment}' references itself: ${[...enclosing, condition.segment].join(' -> ')}`
+        );
+      }
       const def = await facts.getSegmentCondition(condition.segment);
       if (def === undefined) {
         throw new Error(`Unknown segment: '${condition.segment}' (bundle not deployed?)`);
       }
-      return evaluateCondition(def, facts, nowMs, opts);
+      return evaluate(def, facts, nowMs, opts, [...enclosing, condition.segment]);
     }
     case 'performed': {
       const bounds: number[] = [];
@@ -172,6 +196,10 @@ export const PROFILE_UPDATED_EVENT = '$profile_updated';
  */
 export async function relevantEvents(condition: ConditionIR, facts: FactSource): Promise<string[]> {
   const found = new Set<string>();
+  // Names already expanded. The result is a union, so re-walking a segment can
+  // only add what is already there — and a segment that reaches itself would
+  // otherwise recurse until the stack blows, taking a D1 read per level.
+  const expanded = new Set<string>();
   async function walk(c: ConditionIR): Promise<void> {
     switch (c.type) {
       case 'and':
@@ -185,6 +213,8 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
         found.add(c.event);
         break;
       case 'segment': {
+        if (expanded.has(c.segment)) break;
+        expanded.add(c.segment);
         const def = await facts.getSegmentCondition(c.segment);
         if (def) await walk(def);
         break;

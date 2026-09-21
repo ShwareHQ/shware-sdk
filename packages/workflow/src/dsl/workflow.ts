@@ -95,6 +95,40 @@ function assignIds(nodes: NodeIR[], prefix: string): void {
   });
 }
 
+/**
+ * Ids are derived, never authored, so a duplicate is always a compiler bug —
+ * and a silent one: assignIds writes in place, so the second write simply wins
+ * and two nodes ship as one. What that costs is concrete, because an id is the
+ * durable step name (`step.do('{id}:send')`), the message idempotency key
+ * (`{instanceId}:{id}`) and the cohort bucket seed: the twins share a
+ * checkpoint, and the second send is suppressed as a duplicate of the first.
+ * Cheap to check once at the end of the compile, so it is checked.
+ */
+function assertUniqueIds(nodes: readonly NodeIR[], seen = new Set<string>()): void {
+  for (const node of nodes) {
+    if (seen.has(node.id)) {
+      throw new Error(
+        `toIR(): node id '${node.id}' is used twice — ids are durable step names and message idempotency keys, so they must be unique`
+      );
+    }
+    seen.add(node.id);
+    switch (node.type) {
+      case 'branch':
+        for (const branchCase of node.cases) assertUniqueIds(branchCase.flow, seen);
+        if (node.otherwise) assertUniqueIds(node.otherwise, seen);
+        break;
+      case 'cohort':
+        for (const arm of node.arms) assertUniqueIds(arm.flow, seen);
+        break;
+      case 'wait_until':
+        if (Array.isArray(node.onTimeout)) assertUniqueIds(node.onTimeout, seen);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
 class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   constructor(
     private readonly name: string,
@@ -141,6 +175,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   toIR(): WorkflowIR {
     const flowNodes = structuredClone(this.nodes);
     assignIds(flowNodes, '');
+    assertUniqueIds(flowNodes);
     const goal = this.goalIR();
     const meta = this.metaIR();
     const body = {
@@ -152,7 +187,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
       ...(this.options.exitWhen !== undefined ? { exitWhen: condIR(this.options.exitWhen) } : {}),
       flow: flowNodes,
     };
-    // semanticHash strips meta / label, so metadata edits leave contentHash alone
+    // semanticHash strips meta / label / reason, so metadata edits leave contentHash alone
     // Self-check: the compiler's output must pass IR's authoritative schema
     return WorkflowIRSchema.parse({ ...body, contentHash: semanticHash(body) });
   }

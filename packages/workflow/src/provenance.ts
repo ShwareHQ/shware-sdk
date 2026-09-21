@@ -45,27 +45,52 @@ export function captureLoc(boundary: AnyFunction): SourceLocIR | undefined {
 
   const [, rawFile, line, column] = match;
   return {
-    file: normalizeFile(rawFile),
+    // globalThis lookup instead of a bare `process` reference: same portability
+    // requirement as above — no Node types in workerd / browser consumers.
+    file: normalizeFile(
+      rawFile,
+      (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.()
+    ),
     line: Number(line),
     column: Number(column),
   };
 }
 
 /**
- * file:// URLs become plain paths; paths under cwd become cwd-relative so the
+ * file:// URLs become plain paths; paths under `cwd` become cwd-relative so the
  * IR stays portable across machines and never leaks a home directory. Browser
  * (Vite dev) URLs pass through untouched.
+ *
+ * Windows is where this used to give up. An ESM frame there reads
+ * 'file:///C:/Users/alice/proj/src/wf.ts' — a URL, with a slash in front of the
+ * drive letter — while process.cwd() reads 'C:\\Users\\alice\\proj'. Neither
+ * the separators nor that slash lined up, the prefix test failed, and the
+ * author's home directory shipped inside every deploy's IR.
+ *
+ * @internal exported for the tests: this is the compiler's only platform-aware
+ * line, and the platform it gets wrong is not the one the suite runs on.
  */
-function normalizeFile(rawFile: string): string {
+export function normalizeFile(rawFile: string, cwd: string | undefined): string {
   let file = rawFile;
   if (file.startsWith('file://')) {
     file = decodeURIComponent(file.slice('file://'.length));
+    // '/C:/…' is URL shape, not path shape
+    if (/^\/[A-Za-z]:/.test(file)) file = file.slice(1);
   }
-  // globalThis lookup instead of a bare `process` reference: same portability
-  // requirement as above — no Node types in workerd / browser consumers.
-  const cwd = (globalThis as { process?: { cwd?: () => string } }).process?.cwd?.();
-  if (cwd !== undefined && file.startsWith(`${cwd}/`)) {
-    file = file.slice(cwd.length + 1);
+  file = toPosix(file);
+  if (cwd !== undefined) {
+    const root = toPosix(cwd);
+    if (file.startsWith(`${root}/`)) file = file.slice(root.length + 1);
   }
   return file;
+}
+
+/**
+ * One spelling per path so the two can be compared: '/' separators, and an
+ * upper-case drive letter — Windows reports the same drive in either case
+ * depending on who was asked (the loader's URL, an env var, the shell).
+ */
+function toPosix(path: string): string {
+  const slashed = path.replaceAll('\\', '/');
+  return /^[a-z]:/.test(slashed) ? slashed[0].toUpperCase() + slashed.slice(1) : slashed;
 }
