@@ -118,6 +118,53 @@ describe('compile: workflow -> IR', () => {
     );
   });
 
+  test('rejects a randomized delay whose range runs backwards', () => {
+    // The interpreter draws min + random(max - min) with the span clamped at 0,
+    // so a backwards range degrades into a fixed `min` sleep without a word.
+    expect(() => flow((w) => w.delay({ min: '5 days', max: '1 hour' }))).toThrow(
+      /must not be shorter than/
+    );
+    // a zero-width range is a fixed delay, which is a legitimate thing to write
+    expect(() => flow((w) => w.delay({ min: '1 hour', max: '1 hour' }))).not.toThrow();
+  });
+
+  test('rejects a negative cohort weight', () => {
+    // -50 / 150 sums to 100, and at run time the cumulative walk hands 100% of
+    // users to the second arm — the split the author wrote never happens.
+    expect(() =>
+      flow((w) => w.cohort({ control: { weight: -50 }, variant: { weight: 150 } }))
+    ).toThrow(/must not be negative/);
+  });
+
+  test('rejects cohort arm names that are not a single id segment', () => {
+    // Arm names are interpolated into node ids ('{id}.{name}.{j}'), and a node
+    // id is a durable step name: a dot fakes a nesting level (and can collide
+    // with a real one), an empty name produces '0..0'.
+    expect(() => flow((w) => w.cohort({ '': { weight: 100 } }))).toThrow(/arm name/);
+    expect(() =>
+      flow((w) => w.cohort({ 'x.0.y': { weight: 50 }, control: { weight: 50 } }))
+    ).toThrow(/arm name/);
+    expect(() => flow((w) => w.cohort({ 'with space': { weight: 100 } }))).toThrow(/arm name/);
+  });
+
+  test('rejects integer-like cohort arm names, which JavaScript would reorder', () => {
+    // Object key order puts integer-like keys first, ascending, whatever the
+    // author wrote — and the bucketing walk accumulates weights in array order,
+    // so adding an arm named '0' would silently re-bucket everyone already in
+    // the experiment.
+    expect(() => flow((w) => w.cohort({ '10': { weight: 90 }, '2': { weight: 10 } }))).toThrow(
+      /arm name/
+    );
+  });
+
+  test('cohort arms keep the order they were written in', () => {
+    const node = workflow('ab', { trigger: trigger.event(e.login) })
+      .cohort({ zulu: { weight: 10 }, alpha: { weight: 90 } })
+      .toIR().flow[0];
+    if (node.type !== 'cohort') throw new Error('expected cohort');
+    expect(node.arms.map((arm) => arm.name)).toEqual(['zulu', 'alpha']);
+  });
+
   test('rejects malformed or inverted time windows at build time', () => {
     expect(() => flow((w) => w.timeWindow({ between: ['9:00', '17:00'] }))).toThrow(
       /Invalid time of day/

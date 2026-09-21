@@ -10,7 +10,7 @@ import {
   eq,
   event,
   exists,
-  type flow,
+  flow,
   gt,
   gte,
   inArray,
@@ -29,7 +29,7 @@ import {
   trigger,
   workflow,
 } from '../src/index';
-import { BundleIR, type ConditionIR } from '../src/ir';
+import { BundleIR, type ConditionIR, type NodeIR } from '../src/ir';
 import { activeSubscriber, e, gettingStarted, limitedTimeOffer, purchaser, u } from './fixtures';
 
 /** Compile a single-node flow and return that node's IR. */
@@ -407,5 +407,115 @@ describe('bundle compilation', () => {
     expect(() => compileBundle({ workflows: [wf], actions: [listed] })).toThrow(
       /whose code differs/
     );
+  });
+
+  test('two same-named actions inside one workflow are caught whichever runs last', () => {
+    // Only one of the two can be the bundled implementation; the other node
+    // would run against code that never matched it (the runtime's codeHash-skew
+    // path), so the order they appear in must not decide whether it compiles.
+    const listed = action('sync_crm', async () => {});
+    const other = action('sync_crm', async () => {
+      await Promise.resolve();
+    });
+    const listedLast = workflow('w', { trigger: trigger.event(e.login) })
+      .run(other)
+      .run(listed);
+    const listedFirst = workflow('w', { trigger: trigger.event(e.login) })
+      .run(listed)
+      .run(other);
+
+    expect(() => compileBundle({ workflows: [listedLast], actions: [listed] })).toThrow(
+      /whose code differs/
+    );
+    expect(() => compileBundle({ workflows: [listedFirst], actions: [listed] })).toThrow(
+      /whose code differs/
+    );
+  });
+});
+
+describe('node ids are unique', () => {
+  /*
+   * A node id is the durable step name (`step.do('{id}:send')`), the message
+   * idempotency key and the cohort bucket seed. Two nodes under one id share a
+   * checkpoint and a send-suppression key, so the compiler must never emit one.
+   */
+  test('a fragment reused in two arms gets one id per placement', () => {
+    const fragment = flow((w) => w.email(gettingStarted));
+    const ir = workflow('reused', { trigger: trigger.event(e.login) })
+      .branch(
+        [eq(u.subscription_plan, 'pro'), fragment],
+        [eq(u.subscription_plan, 'free'), fragment]
+      )
+      .toIR();
+
+    const branch = ir.flow[0];
+    if (branch.type !== 'branch') throw new Error('expected branch');
+    expect(branch.cases[0].flow[0].id).toBe('0.c0.0');
+    expect(branch.cases[1].flow[0].id).toBe('0.c1.0');
+  });
+
+  test('a fragment reused in sequence is compiled once per placement', () => {
+    const fragment = flow((w) => w.email(gettingStarted).delay('1 day'));
+    const ir = workflow('twice', { trigger: trigger.event(e.login) })
+      .branch([eq(u.subscription_plan, 'pro'), fragment], fragment)
+      .toIR();
+
+    const branch = ir.flow[0];
+    if (branch.type !== 'branch') throw new Error('expected branch');
+    expect(branch.cases[0].flow.map((n) => n.id)).toEqual(['0.c0.0', '0.c0.1']);
+    expect(branch.otherwise?.map((n) => n.id)).toEqual(['0.o.0', '0.o.1']);
+  });
+
+  test('toIR rejects a tree that places one node object twice', () => {
+    // The DSL's own aliasing path is closed (fragments are copied per
+    // placement); this reaches past it to prove the assertion is a real net,
+    // because what it guards is silent — the second id write simply wins.
+    const wf = workflow('aliased', { trigger: trigger.event(e.login) }).email(gettingStarted);
+    const nodes = (wf as unknown as { nodes: NodeIR[] }).nodes;
+    nodes.push(nodes[0]);
+
+    expect(() => wf.toIR()).toThrow(/node id '0' is used twice|used twice/);
+  });
+});
+
+describe('payload refs do not shadow author field names', () => {
+  /*
+   * A payload ref doubles as the table of its sub-fields, so every string key
+   * it answered itself shadowed a field of that name: `p.path` handed back the
+   * ref's own dotted path, and the predicate compiled to a *profile* condition
+   * on a property called 'path' — a mistake that only surfaced later, as a zod
+   * error far from the line that caused it.
+   */
+  test('payload fields named `path` and `type` compile to payload predicates', () => {
+    interface ShadowEvent {
+      page_view: { path: string; type: 'page' | 'modal' };
+    }
+    const se = event<ShadowEvent>();
+
+    expect(
+      conditionOf(performed(se.page_view, (p) => and(eq(p.path, '/pricing'), eq(p.type, 'page'))))
+    ).toEqual({
+      type: 'performed',
+      event: 'page_view',
+      where: {
+        type: 'and',
+        conditions: [
+          { type: 'payload', path: 'path', op: 'eq', value: '/pricing' },
+          { type: 'payload', path: 'type', op: 'eq', value: 'page' },
+        ],
+      },
+    });
+  });
+
+  test('nested payload fields named `path` keep their dotted path', () => {
+    interface ShadowEvent {
+      page_view: { route: { path: string } };
+    }
+    const se = event<ShadowEvent>();
+    expect(conditionOf(performed(se.page_view, (p) => eq(p.route.path, '/pricing')))).toEqual({
+      type: 'performed',
+      event: 'page_view',
+      where: { type: 'payload', path: 'route.path', op: 'eq', value: '/pricing' },
+    });
   });
 });
