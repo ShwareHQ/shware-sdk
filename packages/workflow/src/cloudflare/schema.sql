@@ -2,24 +2,25 @@
 -- decision time: lazy, with no real-time segment materialisation.
 
 -- Raw event log. Every count- and window-based condition reads this table, so a
--- duplicated row silently changes a journey's behaviour. `dedupe_key` is the
--- defence: ingest is reachable from two retrying callers (a client retrying a
--- 500, and the interpreter's send_event step being retried after it already
--- committed its row), and both pass a stable key so the second write is
--- ignored. It stays NULL for callers that have no natural key, which opts that
--- event out of de-duplication rather than collapsing unrelated events.
+-- duplicated row silently changes a journey's behaviour, and `id` is what stops
+-- that: it is the occurrence's identity, chosen by whoever sent it, and the key
+-- constraint makes a second delivery of the same occurrence a no-op. Ingest is
+-- reachable from two retrying callers (a client retrying a 500, and the
+-- interpreter's send_event step being retried after it already committed its
+-- row), so both pass an id they can reproduce.
+--
+-- Only the sender knows whether two deliveries describe one occurrence or two,
+-- so the engine never invents that answer: an ingest that arrives without an id
+-- is given a fresh one, which is a truthful "this is its own occurrence" rather
+-- than a guess.
 CREATE TABLE IF NOT EXISTS events (
-  user_id    TEXT NOT NULL,
-  name       TEXT NOT NULL,
-  ts         INTEGER NOT NULL,
-  payload    TEXT NOT NULL DEFAULT '{}',
-  dedupe_key TEXT
+  id      TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  name    TEXT NOT NULL,
+  ts      INTEGER NOT NULL,
+  payload TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_user_name_ts ON events (user_id, name, ts);
--- Partial, so the NULLs never enter the index: SQLite would admit them all anyway,
--- but the predicate states the intent and keeps the index to the keyed rows.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_events_dedupe
-  ON events (dedupe_key) WHERE dedupe_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS profiles (
   user_id TEXT PRIMARY KEY,

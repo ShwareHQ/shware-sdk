@@ -17,11 +17,11 @@ import type {
  */
 
 interface EventRow {
+  id: string;
   user_id: string;
   name: string;
   ts: number;
   payload: string;
-  dedupe_key: string | null;
 }
 interface TriggerRow {
   workflow: string;
@@ -103,18 +103,15 @@ export class FakeD1 implements D1DatabaseLike {
   // oxlint-disable-next-line eslint/max-lines-per-function -- one arm per SQL statement is the point
   private exec(sql: string, p: unknown[]): { rows: Record<string, unknown>[]; changes: number } {
     switch (sql) {
-      case 'INSERT OR IGNORE INTO events (user_id, name, ts, payload, dedupe_key) VALUES (?, ?, ?, ?, ?)': {
-        const dedupeKey = (p[4] ?? null) as string | null;
-        // The unique index is partial, so NULL keys never collide with each other
-        if (dedupeKey !== null && this.events.some((e) => e.dedupe_key === dedupeKey)) {
-          return { rows: [], changes: 0 };
-        }
+      case 'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)': {
+        const id = p[0] as string;
+        if (this.events.some((e) => e.id === id)) return { rows: [], changes: 0 }; // the key
         this.events.push({
-          user_id: p[0] as string,
-          name: p[1] as string,
-          ts: p[2] as number,
-          payload: p[3] as string,
-          dedupe_key: dedupeKey,
+          id,
+          user_id: p[1] as string,
+          name: p[2] as string,
+          ts: p[3] as number,
+          payload: p[4] as string,
         });
         return { rows: [], changes: 1 };
       }

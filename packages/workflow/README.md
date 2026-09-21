@@ -66,19 +66,34 @@ the single source for both.
 `handleRequest` serves four endpoints.
 
 - `GET /health` is the only unauthenticated one.
-- `POST /events` takes `{ userId, event, payload?, ts?, dedupeKey? }`. Event
-  names beginning with `$` are reserved for internal use.
+- `POST /events` takes `{ userId, event, payload?, ts?, id? }` and answers with
+  the id the occurrence was recorded under. Event names beginning with `$` are
+  reserved for internal use.
 - `POST /identify` takes `{ userId, props }` and merges the properties into the
   profile. A property set to `null` is removed, which is the only way to unset
   one.
 - `POST /deploy` takes a compiled bundle and swaps the routing table atomically.
 
-### Send events with a `dedupeKey`
+### Give each event an `id`
 
-Every count- and window-based condition reads the event log, so a second copy of
-one event silently changes what a journey decides. A retried request without a
-key is a second occurrence as far as the engine can tell. Pass a key that
-identifies the occurrence, not the event name, and retries become free.
+`id` is the occurrence's identity, and sending the same one twice records it
+once. This matters because every count- and window-based condition reads the
+event log, so a second copy of one event silently changes what a journey
+decides.
+
+Only the sender knows whether two deliveries describe one occurrence or two, so
+the engine never guesses. An event that arrives without an id is given a fresh
+one, which records it as its own occurrence. If you retry a request, send an id
+you can reproduce and the retry costs nothing.
+
+```json
+{ "id": "order-8841-confirmed", "userId": "u_123", "event": "purchase" }
+```
+
+Use something that identifies the occurrence, not the event name: a row id from
+your own system, an upstream webhook's delivery id, or a message id from your
+queue. Workflows emitting events through `send_event` already do this, passing
+the node's identity within the running instance.
 
 ## Entry policy
 

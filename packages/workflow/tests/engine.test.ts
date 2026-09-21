@@ -103,7 +103,7 @@ function makeContext() {
   const emitted: {
     event: string;
     payload: Record<string, ScalarIR | undefined>;
-    dedupeKey: string;
+    id: string;
   }[] = [];
   const ctx: JourneyContext = {
     userId: 'u_1',
@@ -117,8 +117,8 @@ function makeContext() {
       },
     },
     events: {
-      emit: async (event, payload, dedupeKey) => {
-        emitted.push({ event, payload, dedupeKey });
+      emit: async (event, payload, id) => {
+        emitted.push({ event, payload, id });
       },
     },
   };
@@ -256,12 +256,12 @@ describe('runJourney: send_event', () => {
 
     expect(outcome).toEqual({ status: 'completed' });
     /*
-     * The key is the node's identity within this instance: the emit is wrapped
+     * The id is the node's identity within this instance: the emit is wrapped
      * in a step, and a retried step body would otherwise write the event twice
      * into a log that count-based conditions read.
      */
     expect(emitted).toEqual([
-      { event: 'nudge_due', payload: {}, dedupeKey: expect.stringMatching(/^inst_1:/) },
+      { event: 'nudge_due', payload: {}, id: expect.stringMatching(/^inst_1:/) },
     ]);
   });
 });

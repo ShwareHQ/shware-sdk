@@ -25,19 +25,26 @@ export interface IngestInput {
   payload?: Record<string, unknown>;
   ts?: number;
   /**
-   * Caller-supplied identity for this occurrence. Ingest is reachable from two
+   * This occurrence's identity, and with it the idempotency of sending it.
+   *
+   * Only the sender can know whether two deliveries describe one occurrence or
+   * two, so the engine does not decide: an id it has already stored makes the
+   * second delivery a no-op. That matters because ingest is reachable from two
    * retrying callers — an HTTP client retrying a 500, and the interpreter's
    * send_event step being retried after it already committed its row — and a
    * second copy of an event silently changes every count- and window-based
-   * condition that reads the log. Omit it only when there is no stable key;
-   * that opts the event out of de-duplication rather than collapsing
-   * unrelated occurrences together.
+   * condition that reads the log.
+   *
+   * Callers that retry should send an id they can reproduce. Omitting it gets
+   * a fresh one, which records the event as its own occurrence.
    */
-  dedupeKey?: string;
+  id?: string;
 }
 
 export interface IngestResult {
-  /** False when `dedupeKey` matched an event already in the log: nothing was written this time. */
+  /** The occurrence's identity: the caller's `id`, or the one minted for it. */
+  id: string;
+  /** False when that id was already in the log: nothing was written this time. */
   stored: boolean;
   woke: number;
   started: string[];
@@ -49,11 +56,15 @@ export async function ingestEvent(env: JourneyEnv, input: IngestInput): Promise<
   }
   const ts = input.ts ?? Date.now();
   const payload = input.payload ?? {};
+  // No id means the sender is not claiming this is a repeat of anything, which
+  // a fresh one states truthfully — unlike a key derived from the contents,
+  // which would silently collapse two identical events a second apart.
+  const id = input.id ?? crypto.randomUUID();
 
   const written = await env.DB.prepare(
-    'INSERT OR IGNORE INTO events (user_id, name, ts, payload, dedupe_key) VALUES (?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)'
   )
-    .bind(input.userId, input.event, ts, JSON.stringify(payload), input.dedupeKey ?? null)
+    .bind(id, input.userId, input.event, ts, JSON.stringify(payload))
     .run();
   const stored = (written.meta?.changes ?? 1) > 0;
 
@@ -67,7 +78,7 @@ export async function ingestEvent(env: JourneyEnv, input: IngestInput): Promise<
   const woke = await wakeSubscribers(env, input.userId, input.event);
   const started = await startTriggeredJourneys(env, input, ts);
   started.push(...(await refreshSegmentTriggers(env, input.userId, ts)));
-  return { stored, woke, started };
+  return { id, stored, woke, started };
 }
 
 async function wakeSubscribers(env: JourneyEnv, userId: string, event: string): Promise<number> {
@@ -456,15 +467,18 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
 
   try {
     if (request.method === 'POST' && url.pathname === '/events') {
-      const { userId, event, payload, ts, dedupeKey } = await readBody(request);
+      const { id, userId, event, payload, ts } = await readBody(request);
       if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
         return json({ error: 'userId and event required' }, 400);
       }
       if (event.startsWith('$')) {
         return json({ error: 'event names starting with $ are reserved' }, 400);
       }
-      if (dedupeKey !== undefined && typeof dedupeKey !== 'string') {
-        return json({ error: 'dedupeKey must be a string' }, 400);
+      // An empty id is rejected rather than treated as absent: a caller that
+      // sent one meant to identify the occurrence, and silently minting a
+      // different one would turn their retry into a duplicate.
+      if (id !== undefined && !isNonEmptyString(id)) {
+        return json({ error: 'id must be a non-empty string' }, 400);
       }
       if (ts !== undefined && typeof ts !== 'number') {
         return json({ error: 'ts must be a number' }, 400);
@@ -472,7 +486,7 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
       if (payload !== undefined && !isPlainObject(payload)) {
         return json({ error: 'payload must be an object' }, 400);
       }
-      return json(await ingestEvent(env, { userId, event, payload, ts, dedupeKey }));
+      return json(await ingestEvent(env, { id, userId, event, payload, ts }));
     }
 
     if (request.method === 'POST' && url.pathname === '/identify') {

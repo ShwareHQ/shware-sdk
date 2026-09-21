@@ -192,45 +192,49 @@ describe('event triggers', () => {
   });
 });
 
-describe('a replayed ingest does not duplicate the event', () => {
+describe('the sender decides what counts as the same event', () => {
   /*
    * Every count- and window-based condition reads the events log, so a second
-   * copy of one event silently changes what a journey decides. Ingest is
-   * reachable from two retrying callers: an HTTP client retrying a 500, and the
-   * interpreter's send_event step being retried after it already committed its
-   * row.
+   * copy of one event silently changes what a journey decides. Only the sender
+   * knows whether two deliveries are one occurrence, so the id comes from them:
+   * an HTTP client retrying a 500 and the interpreter's send_event step both
+   * resend an id they can reproduce.
    */
-  test('the same key is stored once, however often it arrives', async () => {
+  test('the same id is stored once, however often it arrives', async () => {
     const { env, db } = makeEnv();
 
-    const first = await ingestEvent(env, {
-      userId: 'u1',
-      event: 'purchase',
-      dedupeKey: 'inst-1:7',
-    });
-    const retry = await ingestEvent(env, {
-      userId: 'u1',
-      event: 'purchase',
-      dedupeKey: 'inst-1:7',
-    });
+    const first = await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:7' });
+    const retry = await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:7' });
 
     expect(first.stored).toBe(true);
     expect(retry.stored).toBe(false);
+    expect(retry.id).toBe('inst-1:7');
     expect(db.events).toHaveLength(1);
   });
 
-  test('a key is per-occurrence, not per-event-name', async () => {
+  test('an id is per-occurrence, not per-event-name', async () => {
     const { env, db } = makeEnv();
-    await ingestEvent(env, { userId: 'u1', event: 'purchase', dedupeKey: 'inst-1:7' });
-    await ingestEvent(env, { userId: 'u1', event: 'purchase', dedupeKey: 'inst-1:9' });
+    await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:7' });
+    await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:9' });
     expect(db.events).toHaveLength(2);
   });
 
-  test('without a key nothing is collapsed, because nothing identifies the occurrence', async () => {
+  test('two identical events a moment apart stay two events', async () => {
+    // Nothing tells them apart but the sender's silence, which says they are distinct
     const { env, db } = makeEnv();
-    await ingestEvent(env, { userId: 'u1', event: 'purchase' });
-    await ingestEvent(env, { userId: 'u1', event: 'purchase' });
+    const first = await ingestEvent(env, { userId: 'u1', event: 'purchase' });
+    const second = await ingestEvent(env, { userId: 'u1', event: 'purchase' });
+
+    expect(first.id).not.toBe(second.id);
     expect(db.events).toHaveLength(2);
+  });
+
+  test('an event sent without an id still gets one, and the caller is told which', async () => {
+    const { env, db } = makeEnv();
+    const result = await ingestEvent(env, { userId: 'u1', event: 'purchase' });
+
+    expect(result.id).toEqual(expect.any(String));
+    expect(db.events[0].id).toBe(result.id);
   });
 
   test('the retry still starts the journeys the first attempt never got to', async () => {
@@ -238,15 +242,11 @@ describe('a replayed ingest does not duplicate the event', () => {
     await deployBundle(env, bundle());
 
     // The first attempt writes the row and then, as far as the caller knows, fails
-    await ingestEvent(env, { userId: 'u1', event: 'begin_checkout', dedupeKey: 'evt-1' });
+    await ingestEvent(env, { userId: 'u1', event: 'begin_checkout', id: 'evt-1' });
     db.entries = [];
     journey.created.length = 0;
 
-    const retry = await ingestEvent(env, {
-      userId: 'u1',
-      event: 'begin_checkout',
-      dedupeKey: 'evt-1',
-    });
+    const retry = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout', id: 'evt-1' });
 
     expect(retry.stored).toBe(false); // the event was already logged
     expect(retry.started.length).toBeGreaterThan(0); // but the journeys still start
