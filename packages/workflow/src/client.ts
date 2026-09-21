@@ -36,18 +36,24 @@ export class JourneyClient {
     return this.post<IdentifyResult>('/identify', { userId, props });
   }
 
-  /** Record an event; the Worker starts every journey whose trigger matches it and wakes waits on it. */
+  /**
+   * Record an event; the Worker starts every journey whose trigger matches it
+   * and wakes waits on it. A caller that retries should pass the same `id`
+   * each time: the Worker stores one occurrence per id, so a retry after a
+   * timeout cannot double-count the event. `ts` defaults to the Worker's clock.
+   */
   track(
     userId: string,
     event: string,
     payload: Record<string, unknown> = {},
-    ts?: number
+    options: { id?: string; ts?: number } = {}
   ): Promise<IngestResult> {
     return this.post<IngestResult>('/events', {
       userId,
       event,
       payload,
-      ...(ts === undefined ? {} : { ts }),
+      ...(options.id === undefined ? {} : { id: options.id }),
+      ...(options.ts === undefined ? {} : { ts: options.ts }),
     });
   }
 

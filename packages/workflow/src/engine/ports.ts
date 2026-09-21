@@ -79,7 +79,14 @@ export interface MessageSender {
 
 /** send_event's outlet: feeds back into ingest (the event edge between workflows). */
 export interface EventSink {
-  emit(event: string, payload: Record<string, ScalarIR | undefined>): Promise<void>;
+  /**
+   * `id` identifies the occurrence, and sending the same one twice must record
+   * it once. The interpreter passes `${instanceId}:${nodeId}` — the same
+   * identity senders and actions de-duplicate on — because the emit is wrapped
+   * in a step, and a step body is retried after a failure that may have
+   * happened *after* the event was already written.
+   */
+  emit(event: string, payload: Record<string, ScalarIR | undefined>, id: string): Promise<void>;
 }
 
 /** One action node's resolved call, ready for the registry. */

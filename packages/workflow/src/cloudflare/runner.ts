@@ -12,7 +12,7 @@ import { scaleDurations } from '../engine/time-scale';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import { JourneyFactSource } from '../store/facts';
 import type { JourneyStore } from '../store/index';
-import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE } from './bindings';
+import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE, wakeExpired } from './bindings';
 import { d1Store } from './d1-env';
 import { ingestEvent } from './router';
 import { LogMessageSender, WebhookMessageSender } from './senders';
@@ -21,8 +21,8 @@ import { LogMessageSender, WebhookMessageSender } from './senders';
  * Adapts CF's WorkflowStep to EngineStep.
  * subscribe/unsubscribe write the subscription table inside durable steps (the
  * router wakes instances from that table); waitForWake parks on CF's
- * waitForEvent, which signals a timeout by throwing — translated into the
- * port's 'timeout' return value.
+ * waitForEvent, which signals a timeout by throwing — and so does every other
+ * failure in there, so only the clock can tell them apart (see wakeExpired).
  */
 class CfEngineStep implements EngineStep {
   constructor(
@@ -57,11 +57,23 @@ class CfEngineStep implements EngineStep {
   }
 
   async waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'> {
+    const startedAt = Date.now();
     try {
       await this.step.waitForEvent(name, { type: WAKE_EVENT_TYPE, timeout: timeoutMs });
       return 'event';
-    } catch {
-      return 'timeout';
+    } catch (error) {
+      /*
+       * Only the deadline can tell a real timeout from a failure (see
+       * wakeExpired). `startedAt` is not replay-stable, but it is read only
+       * inside the step body below, and a step body runs on the live attempt
+       * alone — a replay returns the persisted verdict without touching the
+       * clock.
+       */
+      const timedOut = await this.step.do(`${name}:timed-out`, async () =>
+        wakeExpired(startedAt, timeoutMs, Date.now())
+      );
+      if (timedOut) return 'timeout';
+      throw error;
     }
   }
 }
@@ -169,24 +181,45 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
       ? logging(this.createMessageSender())
       : this.createMessageSender();
 
-    // send_event feeds straight back into the router logic — an in-Worker call forming the event edge between workflows
+    // send_event feeds straight back into the router logic — an in-Worker call
+    // forming the event edge between workflows. The step's identity travels as
+    // the event id, so a retried emit records the occurrence once.
     const events: EventSink = {
-      emit: async (name, payload) => {
-        await ingestEvent(env, { userId, event: name, payload }, store);
+      emit: async (name, payload, id) => {
+        await ingestEvent(env, { id, userId, event: name, payload }, store);
       },
     };
 
-    const outcome = await runJourney(ir, {
-      userId,
-      instanceId: event.instanceId,
-      // Trigger-event creation time: replay-stable, unlike Date.now() here
-      enteredAtMs: event.timestamp.getTime(),
-      step: new CfEngineStep(step, store, userId, event.instanceId),
-      facts: new JourneyFactSource(store, userId),
-      messages,
-      events,
-      actions: this.createActionInvoker(),
-    });
+    let outcome: JourneyOutcome;
+    try {
+      outcome = await runJourney(ir, {
+        userId,
+        instanceId: event.instanceId,
+        // Trigger-event creation time: replay-stable, unlike Date.now() here
+        enteredAtMs: event.timestamp.getTime(),
+        step: new CfEngineStep(step, store, userId, event.instanceId),
+        facts: new JourneyFactSource(store, userId),
+        messages,
+        events,
+        actions: this.createActionInvoker(),
+      });
+    } catch (error) {
+      /*
+       * An error escaping run() ends the instance, and the ledger is the only
+       * place anyone looks afterwards: leaving it at 'running' meant a dead
+       * journey stayed indistinguishable from a waiting one, in the dashboard
+       * and in the once-policy, forever.
+       *
+       * Subscriptions are deliberately left in place. They are cleaned up on
+       * every ordinary ending, but here the wake rows are the only evidence of
+       * what the instance was waiting for, and dropping them would also break
+       * the instance if the platform does re-run it.
+       */
+      await step.do('finalize:failed', async () => {
+        await store.setEntryStatus(event.instanceId, 'failed');
+      });
+      throw error;
+    }
 
     await step.do('finalize', async () => {
       await store.setEntryStatus(event.instanceId, outcome.status);

@@ -1,11 +1,12 @@
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { Link, Outlet, createRoute, useLocation, useNavigate } from '@tanstack/react-router';
+import { clsx } from 'clsx';
+import { Rocket } from 'lucide-react';
+import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
-import { superellipse } from '../../components/corner-shape';
-import { Dropdown } from '../../components/dropdown';
+import { EmailThumbnail } from '../../components/email-thumbnail';
 import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
 import { Modal, ModalTitle } from '../../components/modal';
@@ -15,6 +16,7 @@ import {
   type NodeSource,
   fieldsOf,
 } from '../../components/node-inspector';
+import { PushThumbnail } from '../../components/push-thumbnail';
 import { Tabs } from '../../components/tabs';
 import { findNode, nodesPerSourcePosition } from '../../components/template-refs';
 import { Textarea } from '../../components/textarea';
@@ -22,7 +24,9 @@ import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
+import { useEmailPreview } from '../email-preview';
 import { useTheme } from '../integrations/theme/root-provider';
+import { PageChrome } from '../page-chrome';
 import { reportSave, studioGet, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
@@ -92,26 +96,32 @@ function WorkflowsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="text-muted flex h-full items-center justify-center text-sm">
+      <div className="text-muted flex flex-1 items-center justify-center text-sm">
         {t('workflows.empty')}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
-        <h1 className="text-lg font-semibold">{t('workflows.title')}</h1>
+    /* Nothing here scrolls: the shell's content column is the one scrollport. */
+    <div className="flex-1">
+      <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.workflows') }]} />} />
+      {/*
+        The search field belongs with what it filters, not up in the chrome.
+        It scrolls away with the list: only the app header pins, and a stack
+        of three fixed bars over a short list was more chrome than content.
+      */}
+      <div className="px-6 pt-4 pb-3">
         <SearchInput
-          className="w-64"
+          className="w-72"
           placeholder={t('workflows.searchPlaceholder')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex h-full items-center justify-center text-sm">
+          <div className="text-muted flex items-center justify-center py-24 text-sm">
             {t('workflows.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -178,14 +188,17 @@ export const workflowsIndexRoute = createRoute({
 /* --------------------------- Detail (tabbed shell) -------------------------- */
 
 const TABS = [
-  { to: '/workflows/$name', label: 'workflows.tabs.canvas', exact: true },
-  { to: '/workflows/$name/metrics', label: 'workflows.tabs.metrics', exact: false },
+  { to: '/workflows/$name', label: 'workflows.tabs.overview', exact: true },
+  { to: '/workflows/$name/workflow', label: 'workflows.tabs.canvas', exact: true },
 ] as const;
 
 function WorkflowDetail() {
   const { name } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
-  const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  /* Both tab paths are exact, so the active one is whichever equals the URL. */
+  const activeTab =
+    TABS.find((tab) => tab.to.replace('$name', name) === decodeURIComponent(pathname)) ?? TABS[0];
   const { t } = useTranslation();
 
   const ir = lookup(config.workflows, name)?.toIR();
@@ -202,7 +215,7 @@ function WorkflowDetail() {
 
   if (ir === undefined) {
     return (
-      <div className="text-muted flex h-full flex-col items-center justify-center gap-3 text-sm">
+      <div className="text-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
         <p>{t('workflows.notFound', { name })}</p>
         <Link to="/workflows" className="text-primary underline">
           {t('common.back')}
@@ -212,43 +225,55 @@ function WorkflowDetail() {
   }
 
   /*
-   * Header, mirroring the template app's editor bar: back and the workflow
-   * switcher on the left, the view tabs in the middle, publish on the right.
-   * 60px tall with a 1px bottom border. A three-column grid with equal outer
-   * tracks keeps the tabs dead-centre while space allows, and squeezes the
-   * sides (never overlaps) when it does not.
+   * The header is the root's. This view contributes a breadcrumb whose leaf is
+   * the workflow switcher, and Publish on the right; the view tabs sit at the
+   * top-left of the content, where switching a view belongs.
    */
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border bg-card grid h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/workflows"
-            className="text-muted hover:bg-hover flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
-            style={superellipse}
-            aria-label={t('common.back')}
-          >
-            <ArrowLeft className="size-4" strokeWidth={2} />
-          </Link>
-          <Dropdown
-            className="max-w-full"
-            value={name}
-            options={options}
-            onChange={(next) => void navigate({ to: '/workflows/$name', params: { name: next } })}
+    <div className="flex flex-1 flex-col">
+      <PageChrome
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: t('nav.workflows'), to: '/workflows' },
+              {
+                label: options.find((option) => option.value === name)?.label ?? name,
+                to: '/workflows/$name',
+                params: { name },
+              },
+              { label: t(activeTab.label) },
+            ]}
           />
-        </div>
+        }
+        actions={
+          /* A pill: full radius, and corner-shape reset to round — the studio's
+             superellipse would flatten a pill's ends. */
+          <Button
+            size="sm"
+            variant="default"
+            className="gap-1.5 rounded-full pr-4 pl-3"
+            style={{ cornerShape: 'round' } as CSSProperties}
+          >
+            <Rocket className="size-4" strokeWidth={2} aria-hidden />
+            {t('common.publish')}
+          </Button>
+        }
+      />
+      <div className="px-6 py-3">
         <Tabs
+          className="w-fit"
           items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
           params={{ name }}
         />
-        <div className="flex justify-end">
-          <Button size="sm" variant="default">
-            {t('common.publish')}
-          </Button>
-        </div>
       </div>
 
-      <div className="min-h-0 flex-1">
+      {/*
+        `min-h-0` only for the canvas. Every other tab is a document that
+        grows and scrolls with the shell; the canvas must stay inside the
+        viewport because react-flow owns pan and zoom within a fixed frame and
+        the floating inspector's max-h hangs off that frame's height.
+      */}
+      <div className={clsx('flex flex-1 flex-col', activeTab === TABS[1] && 'min-h-0')}>
         <Outlet />
       </div>
     </div>
@@ -336,11 +361,61 @@ function CanvasTab() {
     if (data !== undefined) sources[slotOf(field)] = data;
   });
 
+  /*
+   * A message node shows what it sends. Email is the one channel with a
+   * document to render; the query is keyed like the templates page's, so a
+   * template seen there (or here) is already rendered for the other.
+   */
+  const message = selected?.type === 'message' ? selected : undefined;
+  const emailModule =
+    message?.channel === 'email' ? lookup(config.emails, message.template) : undefined;
+  const emailPreview = useEmailPreview(emailModule, message?.template ?? '');
+  /* A push has no document: its two strings are drawn into the OS banner. */
+  const pushModule =
+    message?.channel === 'push' ? lookup(config.pushes, message.template) : undefined;
+
   if (ir === undefined) return null;
 
+  const openTemplate = () => {
+    if (message !== undefined)
+      void navigate({ to: '/templates/$key', params: { key: message.template } });
+  };
+  let preview: ReactNode;
+  if (message?.channel === 'email') {
+    preview = (
+      <EmailThumbnail
+        html={emailPreview.data?.html}
+        loading={emailModule !== undefined && emailPreview.isPending}
+        error={emailPreview.error?.message}
+        registered={emailModule !== undefined}
+        scheme={resolved}
+        onOpen={openTemplate}
+      />
+    );
+  } else if (message?.channel === 'push') {
+    preview = (
+      <PushThumbnail
+        appName={config.title ?? 'App'}
+        title={pushModule?.title ?? pushModule?.name ?? message.template}
+        body={pushModule?.body ?? ''}
+        registered={pushModule !== undefined}
+        scheme={resolved}
+        onOpen={openTemplate}
+      />
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0">
-      <div className="min-w-0 flex-1">
+    /* The exception to the shell's one-scrollport rule: this pane is pinned to
+       the viewport rather than growing the page. */
+    <div className="border-border relative flex min-h-0 flex-1 flex-col border-t">
+      {/*
+        Absolute rather than a flex child: the shell's main column is sized by
+        min-height, so its height is `auto` and the canvas's own `height: 100%`
+        has nothing definite to resolve against — it collapses to zero. Filling
+        an already-positioned parent sidesteps percentage resolution entirely.
+      */}
+      <div className="absolute inset-0">
         <WorkflowCanvas
           key={name}
           ir={ir}
@@ -348,29 +423,38 @@ function CanvasTab() {
           {...(stats !== undefined ? { stats } : {})}
           selectedId={selectedId}
           onSelectNode={select}
-          onOpenTemplate={(key) => void navigate({ to: '/templates/$key', params: { key } })}
         />
       </div>
+      {/*
+        Floating, not docked: a docked column resizes the canvas every time a
+        node is picked, which shifts the drawing under the cursor. Over the
+        canvas, the drawing stays put and the card is dismissable in place.
+        Capped to the pane's height so a long inspector scrolls inside itself.
+        z-10 clears react-flow's own panels (controls sit at z-5).
+      */}
       {selected !== undefined && (
-        <NodeInspector
-          node={selected}
-          sources={sources}
-          {...(sharedBy !== undefined ? { sharedBy } : {})}
-          onClose={() => select(undefined)}
-          onSave={(field: EditableField, value: string) =>
-            reportSave(
-              studioPost('/__studio/node', {
-                ...locOf(field),
-                path: field.path.join('.'),
-                value,
-              }),
-              {
-                saved: t('inspector.saved'),
-                failed: t('inspector.saveFailed'),
-              }
-            )
-          }
-        />
+        <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100%-2rem)]">
+          <NodeInspector
+            node={selected}
+            sources={sources}
+            {...(sharedBy !== undefined ? { sharedBy } : {})}
+            {...(preview !== undefined ? { preview } : {})}
+            onClose={() => select(undefined)}
+            onSave={(field: EditableField, value: string) =>
+              reportSave(
+                studioPost('/__studio/node', {
+                  ...locOf(field),
+                  path: field.path.join('.'),
+                  value,
+                }),
+                {
+                  saved: t('inspector.saved'),
+                  failed: t('inspector.saveFailed'),
+                }
+              )
+            }
+          />
+        </div>
       )}
     </div>
   );
@@ -378,6 +462,6 @@ function CanvasTab() {
 
 export const workflowCanvasRoute = createRoute({
   getParentRoute: () => workflowDetailRoute,
-  path: '/',
+  path: '/workflow',
   component: CanvasTab,
 });

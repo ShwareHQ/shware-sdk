@@ -142,13 +142,60 @@ describe('ingest', () => {
         hash: 'h',
         ts: 1,
       })
-    ).toBe(true);
+    ).toBe('entered');
+  });
+
+  test('a repeated event id is a no-op that still routes', async () => {
+    const { env, store } = setup();
+    await deployBundle(env, bundle(), store);
+    const first = await ingestEvent(env, { id: 'evt-1', userId: 'u1', event: 'signed_up' }, store);
+    const again = await ingestEvent(env, { id: 'evt-1', userId: 'u1', event: 'signed_up' }, store);
+    expect(first).toMatchObject({ id: 'evt-1', stored: true });
+    expect(again).toMatchObject({ id: 'evt-1', stored: false, started: [] });
+    expect(await store.countEvents('u1', 'signed_up')).toBe(1);
+    const rows = await pg.query<{ event_id: string }>('SELECT event_id FROM workflow_event');
+    expect(rows.rows).toEqual([{ event_id: 'evt-1' }]);
+  });
+
+  test('a null in the profile patch removes the property', async () => {
+    const { store } = setup();
+    await store.mergeProfile('u1', { plan: 'pro', email: 'a@b.c' });
+    expect(await store.mergeProfile('u1', { plan: null, name: 'Ann' })).toEqual({
+      email: 'a@b.c',
+      name: 'Ann',
+    });
+    expect(await store.mergeProfile('u2', { gone: null, kept: 1 })).toEqual({ kept: 1 });
+  });
+
+  test('a failed entry is reclaimed, a live one is not', async () => {
+    const { store } = setup();
+    const entry = { workflow: 'welcome', userId: 'u1', hash: 'h' };
+    expect(await store.enterJourney({ ...entry, instanceId: 'i1', ts: 1 })).toBe('entered');
+    expect(await store.enterJourney({ ...entry, instanceId: 'i2', ts: 2 })).toBeNull();
+    await store.setEntryStatus('i1', 'failed');
+    expect(await store.enterJourney({ ...entry, instanceId: 'i2', ts: 2 })).toBe('reclaimed');
+    const rows = await pg.query<{ instance_id: string; status: string }>(
+      'SELECT instance_id, status FROM workflow_entry'
+    );
+    expect(rows.rows).toEqual([{ instance_id: 'i2', status: 'running' }]);
   });
 
   test('counts and payloads honour the since window (timestamptz)', async () => {
     const { store } = setup();
-    await store.insertEvent({ userId: 'u1', event: 'purchase', ts: 1_000, payload: { value: 5 } });
-    await store.insertEvent({ userId: 'u1', event: 'purchase', ts: 5_000, payload: { value: 50 } });
+    await store.insertEvent({
+      id: 'e1',
+      userId: 'u1',
+      event: 'purchase',
+      ts: 1_000,
+      payload: { value: 5 },
+    });
+    await store.insertEvent({
+      id: 'e2',
+      userId: 'u1',
+      event: 'purchase',
+      ts: 5_000,
+      payload: { value: 50 },
+    });
 
     expect(await store.countEvents('u1', 'purchase')).toBe(2);
     // Stored as a jsonb object, not a JSON string — drivers that serialize jsonb parameters
@@ -180,7 +227,7 @@ describe('identify', () => {
     expect(await store.isSegmentMember('pro', 'u1')).toBe(true);
 
     const third = await identifyUser(env, 'u1', { plan: null }, store);
-    expect(third.props).toEqual({ email: 'a@example.com', plan: null });
+    expect(third.props).toEqual({ email: 'a@example.com' });
     expect(await facts.getProperty('plan')).toBeUndefined();
     expect(await store.isSegmentMember('pro', 'u1')).toBe(false);
   });
@@ -228,7 +275,7 @@ describe('subscriptions and entries', () => {
         hash: 'h',
         ts: 2,
       })
-    ).toBe(true);
+    ).toBe('entered');
   });
 });
 

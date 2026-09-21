@@ -4,12 +4,19 @@ import { AlarmClock, Mail, Workflow as WorkflowIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { WorkflowReport } from '../config';
 import { displayName } from '../utils/label';
+import { superellipse } from './corner-shape';
 import { Menu } from './menu';
 import { Sparkline } from './sparkline';
 
 /**
- * The workflows list: one row per definition with its shape (how many messages,
- * how many waits) and the funnel from the stats source.
+ * The workflows list: one row per definition with its shape (how many
+ * messages, how many waits) and the funnel from the stats source, all inside
+ * a single card.
+ *
+ * One card of rows rather than a card per workflow: the four funnel numbers
+ * are only worth showing because they can be read down a column, and a grid
+ * of tiles breaks exactly that. Below `md` there are no columns left to align,
+ * so a row folds into title-then-stats instead.
  */
 export interface WorkflowListProps {
   /** Local definitions, keyed by the name used in the URL. */
@@ -52,6 +59,20 @@ const rate = (part: number | undefined, whole: number | undefined) =>
 const COLUMNS = ['delivered', 'opened', 'clicked', 'converted'] as const;
 
 /*
+ * Not pinned: the app header is the only sticky chrome, so the head scrolls
+ * away with the rows and needs no opaque fill of its own. The radii stay —
+ * the card has no `overflow` to clip with, so its top corners are cut here.
+ */
+const HEAD_CELL = 'border-border border-b py-3 first:rounded-tl-2xl last:rounded-tr-2xl';
+
+/*
+ * Stacked, every cell is inset by the row's own padding instead of its own,
+ * so the four metrics line up with the title above them and the row's hover
+ * fill still reaches the card's edges.
+ */
+const CELL = 'border-border border-b py-4 max-md:border-b-0 max-md:px-3';
+
+/*
  * The studio's palette is monochrome; colour is reserved for state. Running /
  * draft is state, so it keeps green and grey.
  */
@@ -61,21 +82,33 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
   const byName = new Map((reports ?? []).map((report) => [report.name, report]));
 
   return (
-    <div className="h-full overflow-auto">
-      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead className="bg-page/95 sticky top-0 z-10 backdrop-blur">
+    /*
+     * No `overflow` on the card, deliberately: any value at all turns it into
+     * a scrollport of its own and draws a second bar inset inside the border —
+     * the page is the one scroller (see __root). Nothing clips, so the corners
+     * are re-cut on the first and last cells below.
+     */
+    <div className="border-border bg-card rounded-2xl border" style={superellipse}>
+      {/* Below `md` the table leaves table layout entirely and each row lays
+          itself out as a four-column grid — see the row classes. */}
+      <table className="w-full table-fixed border-separate border-spacing-0 text-sm max-md:block">
+        <thead className="max-md:hidden">
           <tr className="text-muted text-left text-xs font-medium">
-            <th className="border-border min-w-0 border-b px-6 py-3">{t('common.name')}</th>
-            <th className="border-border w-24 border-b px-3 py-3" />
+            <th className={clsx(HEAD_CELL, 'min-w-0 px-6')} style={superellipse}>
+              {t('common.name')}
+            </th>
+            <th className={clsx(HEAD_CELL, 'w-28 px-3')} style={superellipse} />
             {COLUMNS.map((column) => (
-              <th key={column} className="border-border w-28 border-b px-3 py-3">
+              <th key={column} className={clsx(HEAD_CELL, 'w-28 px-3')} style={superellipse}>
                 {t(`workflows.columns.${column}`)}
               </th>
             ))}
-            {onEdit !== undefined && <th className="border-border w-14 border-b px-3 py-3" />}
+            {onEdit !== undefined && (
+              <th className={clsx(HEAD_CELL, 'w-14 px-3')} style={superellipse} />
+            )}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="max-md:block">
           {items.map(({ key, ir }) => {
             const shape = countNodes(ir.flow);
             const report = byName.get(ir.name);
@@ -90,24 +123,57 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
               <tr
                 key={key}
                 onClick={() => onOpen(key)}
-                className="hover:bg-hover cursor-pointer align-top transition-colors"
+                className={clsx(
+                  'cursor-pointer align-top [&>td]:transition-colors',
+                  /*
+                   * Laid out as a table the hover fill has to live on the
+                   * cells: a row box paints its background underneath them,
+                   * where no cell radius reaches it, so the last row would
+                   * poke square grey corners out of the card. Stacked, the row
+                   * is an ordinary grid box and takes fill and radius itself.
+                   */
+                  'md:hover:[&>td]:bg-hover md:last:[&>td]:border-b-0',
+                  'md:last:[&>td:first-child]:rounded-bl-2xl md:last:[&>td:last-child]:rounded-br-2xl',
+                  /* Stacked: title (+ menu) / status / the metrics two by two
+                     — four across a phone leaves no room for a label, let
+                     alone the sparkline under it. */
+                  'border-border max-md:hover:bg-hover max-md:grid max-md:grid-cols-6',
+                  'max-md:border-b max-md:px-3 max-md:first:rounded-t-2xl',
+                  'max-md:last:rounded-b-2xl max-md:last:border-b-0'
+                )}
+                style={superellipse}
               >
-                <td className="border-border border-b px-6 py-4">
+                <td
+                  className={clsx(
+                    CELL,
+                    'px-6 max-md:order-1 max-md:pb-2',
+                    onEdit === undefined ? 'max-md:col-span-6' : 'max-md:col-span-5'
+                  )}
+                  style={superellipse}
+                >
                   <div className="flex items-start gap-3">
                     <WorkflowIcon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
                     <div className="min-w-0">
                       <div
                         className={clsx(
-                          'font-medium',
+                          'truncate font-medium',
                           ir.meta?.name === undefined ? 'text-muted italic' : 'text-primary'
                         )}
                       >
                         {displayName(ir.meta?.name, t('common.untitled'))}
                       </div>
+                      {/*
+                        Below md these two step back out of the title's indent
+                        (the 16px icon plus its 12px gap). The stacked rows under
+                        them — status, then the funnel — start at the card's edge,
+                        so keeping the indent here left a notch down the side.
+                      */}
                       {ir.meta?.description !== undefined && (
-                        <p className="text-muted mt-1 truncate text-sm">{ir.meta.description}</p>
+                        <p className="text-muted mt-1 truncate text-sm max-md:-ml-7">
+                          {ir.meta.description}
+                        </p>
                       )}
-                      <div className="text-muted mt-2 flex items-center gap-3 text-xs">
+                      <div className="text-muted mt-2 flex items-center gap-3 text-xs max-md:-ml-7">
                         <span className="flex items-center gap-1">
                           <Mail className="size-3.5" strokeWidth={2} />
                           {shape.messages}
@@ -121,7 +187,15 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                   </div>
                 </td>
 
-                <td className="border-border border-b px-3 py-4">
+                {/* Second in the DOM so the desktop column order holds; `order`
+                    moves it under the title once the row is a grid. */}
+                <td
+                  className={clsx(
+                    CELL,
+                    'px-3 max-md:order-3 max-md:col-span-6 max-md:pt-0 max-md:pb-3'
+                  )}
+                  style={superellipse}
+                >
                   <span
                     className={clsx(
                       'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
@@ -141,19 +215,36 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                 </td>
 
                 {COLUMNS.map((column) => (
-                  <td key={column} className="border-border border-b px-3 py-4">
+                  <td
+                    key={column}
+                    className={clsx(
+                      CELL,
+                      'px-3 max-md:order-4 max-md:col-span-3 max-md:pt-0 max-md:pb-4'
+                    )}
+                    style={superellipse}
+                  >
+                    {/* The head is gone when stacked, so each figure names itself. */}
+                    <div className="text-muted mb-1 truncate text-xs md:hidden">
+                      {t(`workflows.columns.${column}`)}
+                    </div>
                     <div className="tabular-nums">{values[column]}</div>
                     <Sparkline values={report?.series?.[column] ?? []} className="mt-1" />
                   </td>
                 ))}
+
                 {onEdit !== undefined && (
-                  <td className="border-border border-b px-3 py-4">
-                    <Menu
-                      aria-label={t('common.more')}
-                      items={[
-                        { key: 'edit', label: t('common.edit'), onSelect: () => onEdit(key) },
-                      ]}
-                    />
+                  <td
+                    className={clsx(CELL, 'px-3 max-md:order-2 max-md:col-span-1 max-md:pb-2')}
+                    style={superellipse}
+                  >
+                    <div className="flex justify-end">
+                      <Menu
+                        aria-label={t('common.more')}
+                        items={[
+                          { key: 'edit', label: t('common.edit'), onSelect: () => onEdit(key) },
+                        ]}
+                      />
+                    </div>
                   </td>
                 )}
               </tr>

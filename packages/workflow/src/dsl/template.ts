@@ -10,7 +10,7 @@
  * written exactly once.
  */
 
-export type Channel = 'email' | 'sms' | 'push' | 'in_app' | 'slack' | 'survey';
+export type Channel = 'email' | 'sms' | 'push' | 'in_app' | 'slack' | 'discord' | 'survey';
 
 export type EmptyProps = Record<never, never>;
 
@@ -54,6 +54,10 @@ export interface TemplateFactory {
     key: string,
     content?: TemplateContent<P>
   ): TemplateRef<'slack', P>;
+  discord<P extends object = EmptyProps>(
+    key: string,
+    content?: TemplateContent<P>
+  ): TemplateRef<'discord', P>;
   survey<P extends object = EmptyProps>(
     key: string,
     content?: TemplateContent<P>
@@ -78,6 +82,7 @@ export const template: TemplateFactory = {
   push: makeTemplate('push'),
   inApp: makeTemplate('in_app'),
   slack: makeTemplate('slack'),
+  discord: makeTemplate('discord'),
   survey: makeTemplate('survey'),
 };
 

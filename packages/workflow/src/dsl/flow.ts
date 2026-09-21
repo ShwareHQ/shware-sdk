@@ -50,12 +50,13 @@ function resolveSubFlow(sub: SubFlow): NodeIR[] {
 }
 
 export interface FlowBuilder {
-  /* ---- Messages: all six channels are one message node; separate methods buy channel-level typing ---- */
+  /* ---- Messages: every channel is one message node; separate methods buy channel-level typing ---- */
   email<P extends object>(template: TemplateRef<'email', P>, ...props: MessageArgs<P>): this;
   sms<P extends object>(template: TemplateRef<'sms', P>, ...props: MessageArgs<P>): this;
   push<P extends object>(template: TemplateRef<'push', P>, ...props: MessageArgs<P>): this;
   inApp<P extends object>(template: TemplateRef<'in_app', P>, ...props: MessageArgs<P>): this;
   slack<P extends object>(template: TemplateRef<'slack', P>, ...props: MessageArgs<P>): this;
+  discord<P extends object>(template: TemplateRef<'discord', P>, ...props: MessageArgs<P>): this;
   survey<P extends object>(template: TemplateRef<'survey', P>, ...props: MessageArgs<P>): this;
 
   /* --------------------------------- Delays --------------------------------- */
@@ -201,6 +202,9 @@ export class FlowBuilderImpl implements FlowBuilder {
   }
   slack<P extends object>(t: TemplateRef<'slack', P>, ...args: MessageArgs<P>): this {
     return this.message('slack', t, args[0], captureLoc(this.slack));
+  }
+  discord<P extends object>(t: TemplateRef<'discord', P>, ...args: MessageArgs<P>): this {
+    return this.message('discord', t, args[0], captureLoc(this.discord));
   }
   survey<P extends object>(t: TemplateRef<'survey', P>, ...args: MessageArgs<P>): this {
     return this.message('survey', t, args[0], captureLoc(this.survey));

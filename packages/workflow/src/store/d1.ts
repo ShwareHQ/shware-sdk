@@ -2,6 +2,7 @@ import type { D1DatabaseLike, KVNamespaceLike } from '../cloudflare/bindings';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import type {
   EntryInput,
+  EntryOutcome,
   EventInput,
   JourneyStore,
   ProfileProps,
@@ -21,11 +22,14 @@ export class D1JourneyStore implements JourneyStore {
     private readonly kv: KVNamespaceLike
   ) {}
 
-  async insertEvent(input: EventInput): Promise<void> {
-    await this.db
-      .prepare('INSERT INTO events (user_id, name, ts, payload) VALUES (?, ?, ?, ?)')
-      .bind(input.userId, input.event, input.ts, JSON.stringify(input.payload))
+  async insertEvent(input: EventInput): Promise<boolean> {
+    const written = await this.db
+      .prepare(
+        'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)'
+      )
+      .bind(input.id, input.userId, input.event, input.ts, JSON.stringify(input.payload))
       .run();
+    return (written.meta?.changes ?? 1) > 0;
   }
 
   async countEvents(userId: string, event: string, opts?: { sinceMs?: number }): Promise<number> {
@@ -71,14 +75,19 @@ export class D1JourneyStore implements JourneyStore {
   }
 
   async mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps> {
-    const merged = { ...(await this.getProfile(userId)), ...props };
-    await this.db
+    // SQLite's json_patch is RFC 7386 merge-patch: a null removes its key. The
+    // merge happens in the statement, so two concurrent identifies cannot lose
+    // each other's fields the way a read-modify-write did.
+    const patch = JSON.stringify(props);
+    const row = await this.db
       .prepare(
-        'INSERT INTO profiles (user_id, props) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET props = excluded.props'
+        "INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(profiles.props, ?) RETURNING props"
       )
-      .bind(userId, JSON.stringify(merged))
-      .run();
-    return merged;
+      .bind(userId, patch, patch)
+      .first<{ props: string }>();
+    // RETURNING always yields the row it just wrote; the fallback only covers a
+    // driver that declines to return one, and reports what was asked for.
+    return row === null ? stripNulls(props) : (JSON.parse(row.props) as ProfileProps);
   }
 
   async getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
@@ -186,14 +195,26 @@ export class D1JourneyStore implements JourneyStore {
       .run();
   }
 
-  async enterJourney(entry: EntryInput): Promise<boolean> {
+  async enterJourney(entry: EntryInput): Promise<EntryOutcome> {
     const inserted = await this.db
       .prepare(
         'INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) VALUES (?, ?, ?, ?, ?, ?)'
       )
       .bind(entry.workflow, entry.userId, entry.instanceId, entry.hash, 'running', entry.ts)
       .run();
-    return (inserted.meta?.changes ?? 1) !== 0;
+    if ((inserted.meta?.changes ?? 1) !== 0) return 'entered';
+
+    // A row already there blocks the entry, unless it records an instance that
+    // died: 'failed' is reclaimed rather than barring the user forever over one
+    // outage. The status test lives inside the UPDATE, so of two concurrent
+    // retries exactly one sees a change.
+    const claimed = await this.db
+      .prepare(
+        "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed'"
+      )
+      .bind(entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId)
+      .run();
+    return (claimed.meta?.changes ?? 0) > 0 ? 'reclaimed' : null;
   }
 
   async removeEntry(instanceId: string): Promise<void> {
@@ -238,4 +259,9 @@ export class D1JourneyStore implements JourneyStore {
   async unsubscribe(handle: string): Promise<void> {
     await this.db.prepare('DELETE FROM subscriptions WHERE wake_handle = ?').bind(handle).run();
   }
+}
+
+/** What a merge-patch of `props` into an empty profile yields: the patch minus its nulls. */
+function stripNulls(props: ProfileProps): ProfileProps {
+  return Object.fromEntries(Object.entries(props).filter(([, value]) => value !== null));
 }

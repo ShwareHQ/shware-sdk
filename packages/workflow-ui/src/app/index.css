@@ -75,11 +75,19 @@
   --color-border: var(--color-gray-200);
   --color-hover: var(--color-gray-50);
   --color-selected: var(--color-gray-100);
-  /* Surfaces: `page` matches the sidebar's card colour — one flat surface. */
-  --color-page: #fff;
+  /*
+   * Surfaces: the page is the backdrop, cards are what sits on it. The chrome
+   * (rail, header) is `card`, so the content area reads as inset. Dark mode
+   * makes the same split the other way round — a black page under grey cards.
+   */
+  --color-page: var(--color-gray-50);
   --color-card: #fff;
-  /* Form controls, same roles as the template app so ported fields just work. */
-  --color-textfield: var(--color-gray-100);
+  /*
+   * Form controls, same roles as the template app so ported fields just work.
+   * A field is the top of the surface stack, so it is white: it lifts off the
+   * grey page, and on a white card its border is what draws the box.
+   */
+  --color-textfield: #fff;
   --color-placeholder: var(--color-gray-400);
   /*
    * The canvas surface, set explicitly because react-flow's dark colorMode
@@ -130,8 +138,14 @@
   --color-selected: var(--color-gray-800);
   --color-page: #000;
   --color-card: var(--color-gray-900);
-  --color-textfield: #000;
-  --color-placeholder: var(--color-gray-600);
+  /*
+   * Same rule as light — the field sits above every surface it can land on.
+   * Here that means clearing both the black page and a `card`, which rules out
+   * `gray-900`; `gray-800` is the one step that reads against both.
+   */
+  --color-textfield: var(--color-gray-800);
+  /* Lifted with the field it sits in: gray-600 on gray-800 reads as disabled. */
+  --color-placeholder: var(--color-gray-500);
   /* Pure black under the grid, so the cards above it have the most room to lift. */
   --color-canvas: #000;
   --color-edge: var(--color-gray-700);

@@ -6,9 +6,15 @@ export type {
   WorkflowBindingLike,
   WorkflowInstanceLike,
 } from './bindings';
-export { WAKE_EVENT_TYPE } from './bindings';
+export { WAKE_EVENT_TYPE, WAKE_TIMEOUT_TOLERANCE_MS, wakeExpired } from './bindings';
 export { d1Store } from './d1-env';
-export { deployBundle, handleRequest, identifyUser, ingestEvent } from './router';
+export {
+  BundleIntegrityError,
+  deployBundle,
+  handleRequest,
+  identifyUser,
+  ingestEvent,
+} from './router';
 export type { DeployResult, IdentifyResult, IngestInput, IngestResult } from './router';
 export { JourneyRunner } from './runner';
 export { CfEmailSender, LogMessageSender, WebhookMessageSender, routeByChannel } from './senders';
@@ -25,6 +31,7 @@ export type { ExecutionContextLike, JourneyWorker, JourneyWorkerOptions } from '
 export { D1JourneyStore, JourneyFactSource, PostgresJourneyStore } from '../store/index';
 export type {
   EntryInput,
+  EntryOutcome,
   EventInput,
   JourneyStore,
   PostgresJourneyStoreOptions,

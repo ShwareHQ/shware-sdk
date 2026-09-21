@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 8.7.0
+
+### Minor Changes
+
+- 9585143: Send `hashedFirstName` / `hashedLastName` in a LinkedIn conversion's `userInfo` instead of the plaintext `firstName` / `lastName` they replace, which version `202609` makes possible. The name no longer leaves the server in the clear, and the two plaintext fields are gone from `CreateLinkedinEventDTO`.
+
+### Patch Changes
+
+- 9585143: Move the LinkedIn Conversions API to version `202609`. Version `202509` was sunset and every call was failing with `426 NONEXISTENT_VERSION`, so no server-side LinkedIn conversion was being recorded. The `202609` schema also drops `ORACLE_MOAT_ID` as a user identifier type and adds `PLAINTEXT_IP_ADDRESS`, `SHA256_IP_ADDRESS` and `GOOGLE_AID`; `UserIdType` now matches it. The endpoint, headers and batch-create envelope are unchanged.
+- 9585143: Drop a LinkedIn conversion event that carries no identifier LinkedIn can match on, instead of sending it. Validation fails such an element, and a failed element fails the entire batch — so one anonymous event used to discard every identifiable conversion travelling with it.
+- 9585143: Normalize LinkedIn conversion identifiers before hashing them, as the Conversions API schema requires: an email is lower-cased with whitespace stripped, and a name additionally has its punctuation removed. An unnormalized hash is accepted by the API and then matches no member, so any value carrying capitals, padding or an apostrophe was being sent as an identifier that could never attribute.
+
 ## 8.6.0
 
 ### Minor Changes

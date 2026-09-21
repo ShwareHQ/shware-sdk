@@ -20,6 +20,7 @@ export type NodeIcon =
   | 'push'
   | 'in_app'
   | 'slack'
+  | 'discord'
   | 'survey'
   | 'delay'
   | 'time_window'
@@ -40,8 +41,6 @@ export interface CanvasNodeData extends Record<string, unknown> {
   icon: NodeIcon;
   /** How many users currently sit on this node (runtime stats, injected via `stats`). */
   count?: number;
-  /** Template key referenced by a message node; the host uses it to open a preview. */
-  templateKey?: string;
 }
 
 /** Card sizes: the single source shared by layout and renderer, all on the 16/8 grid. */
@@ -168,6 +167,7 @@ const CHANNEL_TITLE: Record<string, string> = {
   push: 'Push Notification',
   in_app: 'In-App Message',
   slack: 'Slack Message',
+  discord: 'Discord Message',
   survey: 'Survey',
 };
 
@@ -180,7 +180,6 @@ function nodeData(n: NodeIR): CanvasNodeData {
         category: 'message',
         variant: 'card',
         icon: n.channel,
-        templateKey: n.template,
       };
     case 'delay':
       return {

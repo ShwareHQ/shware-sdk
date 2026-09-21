@@ -12,10 +12,16 @@ import type { BundleIR, ConditionIR, ScalarIR, WorkflowIR } from '../ir';
  * its native type as long as `sinceMs` comparisons behave.
  */
 
-/** A raw profile: property path → scalar, or `null` for "explicitly unset". */
+/**
+ * A profile patch or a stored profile. On the way in, `null` means "remove
+ * this property" (RFC 7386 merge-patch, the only way the API has to unset
+ * one); a stored profile never contains null.
+ */
 export type ProfileProps = Record<string, ScalarIR | null | undefined>;
 
 export interface EventInput {
+  /** The occurrence's identity, chosen by the sender; a second insert with the same id is a no-op. */
+  id: string;
   userId: string;
   event: string;
   ts: number;
@@ -45,6 +51,13 @@ export interface EntryInput {
   ts: number;
 }
 
+/**
+ * How an entry attempt ended: a fresh row, a 'failed' row of a dead instance
+ * taken over (the once policy does not bar a user over one outage), or
+ * refused because the pair already entered and is still alive.
+ */
+export type EntryOutcome = 'entered' | 'reclaimed' | null;
+
 /** A store plus how to release what opening it acquired (a connection, say). */
 export interface StoreLease {
   store: JourneyStore;
@@ -53,7 +66,8 @@ export interface StoreLease {
 
 export interface JourneyStore {
   /* ---------------------------------- events --------------------------------- */
-  insertEvent(input: EventInput): Promise<void>;
+  /** Append the occurrence; false when its id was already in the log (nothing written). */
+  insertEvent(input: EventInput): Promise<boolean>;
   /** Occurrences of `event` for the user, optionally only those at or after `sinceMs`. */
   countEvents(userId: string, event: string, opts?: { sinceMs?: number }): Promise<number>;
   /** The payloads of those occurrences — the caller filters them with the shared evaluator. */
@@ -65,7 +79,11 @@ export interface JourneyStore {
 
   /* --------------------------------- profiles -------------------------------- */
   getProfile(userId: string): Promise<ProfileProps | undefined>;
-  /** Merge `props` over the stored profile (last write wins per key) and return the result. */
+  /**
+   * Merge-patch `props` into the stored profile in one statement (a null
+   * removes the property) and return the result. One statement, because a
+   * read-modify-write loses one of two concurrent identifies.
+   */
   mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps>;
 
   /* ---------------------------- deployed definitions -------------------------- */
@@ -88,8 +106,12 @@ export interface JourneyStore {
   removeSegmentMember(segment: string, userId: string): Promise<void>;
 
   /* ------------------------------- entry ledger ------------------------------- */
-  /** Record the entry; false when the (workflow, user) pair has already entered — the once policy. Must be atomic under concurrent ingests. */
-  enterJourney(entry: EntryInput): Promise<boolean>;
+  /**
+   * Record the entry (the once policy). Atomic under concurrent ingests: of
+   * two racing attempts exactly one is 'entered' (or 'reclaimed', when the
+   * pair's previous instance is recorded as 'failed') and the other null.
+   */
+  enterJourney(entry: EntryInput): Promise<EntryOutcome>;
   removeEntry(instanceId: string): Promise<void>;
   setEntryStatus(instanceId: string, status: string): Promise<void>;
 

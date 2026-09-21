@@ -269,5 +269,12 @@
     "WebTransportSendStream": "readonly",
     "__DEV__": "readonly"
   },
-  "overrides": []
+  "overrides": [
+    {
+      "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+      "rules": {
+        "no-redeclare": "off"
+      }
+    }
+  ]
 }

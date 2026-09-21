@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackEvent } from '../track/types';
 import { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
@@ -248,6 +249,7 @@ describe('Meta', () => {
 
 describe('LinkedIn', () => {
   const fetchMock = vi.fn();
+  const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
   beforeEach(() => {
     fetchMock.mockReset();
@@ -264,7 +266,7 @@ describe('LinkedIn', () => {
       'token',
       { purchase: 123 },
       [event(), event({ id: 'event-2', name: 'click' })],
-      {}
+      { user_id: 'u1' }
     );
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
@@ -292,6 +294,44 @@ describe('LinkedIn', () => {
       idValue: 'li-click-1',
     });
     expect(ids.some((i: { idType: string }) => i.idType === 'SHA256_EMAIL')).toBe(true);
+  });
+
+  it('hashes the name into userInfo rather than sending it in the clear', async () => {
+    await sendLinkedinEvents('token', { purchase: 123 }, [event()], {
+      address: { first_name: "O'Brien", last_name: 'Lovelace', country: 'GB' },
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const { userInfo } = body.elements[0].user;
+    expect(userInfo.firstName).toBeUndefined();
+    expect(userInfo.lastName).toBeUndefined();
+    expect(userInfo.countryCode).toBe('GB');
+    // Punctuation and case are normalized away, so "O'Brien" and "obrien" are one member.
+    expect(userInfo.hashedFirstName).toBe(sha256('obrien'));
+    expect(userInfo.hashedLastName).toBe(sha256('lovelace'));
+  });
+
+  it('normalizes case and padding out of an email before hashing it', async () => {
+    await sendLinkedinEvents('token', { purchase: 123 }, [event()], {
+      email: ' Ada@Example.COM ',
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const [{ idType, idValue }] = body.elements[0].user.userIds;
+    expect(idType).toBe('SHA256_EMAIL');
+    expect(idValue).toBe(sha256('ada@example.com'));
+  });
+
+  it('drops an event with no identifier rather than failing the whole batch on it', async () => {
+    // LinkedIn fails every element of a batch when one of them fails validation, so an
+    // unmatchable event must not be allowed to travel with matchable ones.
+    await sendLinkedinEvents('token', { purchase: 123 }, [event()], {});
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await sendLinkedinEvents('token', { purchase: 123 }, [event()], { user_id: 'u1' });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.elements).toHaveLength(1);
+    expect(body.elements[0].user).toMatchObject({ userIds: [], externalIds: ['u1'] });
   });
 
   it('sends nothing when no event matches the config', async () => {

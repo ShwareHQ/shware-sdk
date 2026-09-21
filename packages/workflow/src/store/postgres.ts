@@ -1,6 +1,7 @@
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import type {
   EntryInput,
+  EntryOutcome,
   EventInput,
   JourneyStore,
   ProfileProps,
@@ -97,11 +98,25 @@ export class PostgresJourneyStore implements JourneyStore {
     ) as Record<TableKey, string>;
   }
 
-  async insertEvent(input: EventInput): Promise<void> {
-    await this.sql.query(
-      `INSERT INTO ${this.t.event} (id, user_id, name, ts, payload) VALUES ($1, $2, $3, ${TS('$4')}, $5::text::jsonb)`,
-      [uuidv7(input.ts), input.userId, input.event, input.ts, JSON.stringify(input.payload)]
+  async insertEvent(input: EventInput): Promise<boolean> {
+    // The row key stays a UUID v7 (the house rule for every table); the
+    // sender's occurrence id lives in event_id, whose unique index is what
+    // makes a second delivery a no-op. ON CONFLICT DO NOTHING + RETURNING
+    // reports which of the two happened without a second round trip.
+    const rows = await this.sql.query(
+      `INSERT INTO ${this.t.event} (id, event_id, user_id, name, ts, payload)
+       VALUES ($1, $2, $3, $4, ${TS('$5')}, $6::text::jsonb)
+       ON CONFLICT (event_id) DO NOTHING RETURNING id`,
+      [
+        uuidv7(input.ts),
+        input.id,
+        input.userId,
+        input.event,
+        input.ts,
+        JSON.stringify(input.payload),
+      ]
     );
+    return rows.length > 0;
   }
 
   async countEvents(userId: string, event: string, opts?: { sinceMs?: number }): Promise<number> {
@@ -146,13 +161,16 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   async mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps> {
-    // jsonb `||` is the same last-write-wins merge as the object spread, done
-    // atomically in the database — two concurrent identifies cannot lose keys.
+    // RFC 7386 merge-patch in one statement: jsonb `||` overwrites key by key
+    // and jsonb_strip_nulls then drops the keys the patch set to null (the
+    // API's only way to unset a property). Atomic in the database, so two
+    // concurrent identifies cannot lose each other's keys.
     const rows = await this.sql.query<{ props: unknown }>(
-      `INSERT INTO ${this.t.profile} (user_id, props) VALUES ($1, $2::text::jsonb)
-       ON CONFLICT (user_id) DO UPDATE SET props = ${this.t.profile}.props || EXCLUDED.props
+      `INSERT INTO ${this.t.profile} (user_id, props) VALUES ($1, jsonb_strip_nulls($2::text::jsonb))
+       ON CONFLICT (user_id) DO UPDATE SET props = jsonb_strip_nulls(${this.t.profile}.props || $3::text::jsonb)
        RETURNING props`,
-      [userId, JSON.stringify(props)]
+      // EXCLUDED.props would be the stripped insert value, so the update merges the raw patch again
+      [userId, JSON.stringify(props), JSON.stringify(props)]
     );
     return asJson<ProfileProps>(rows.at(0)?.props ?? {});
   }
@@ -264,16 +282,27 @@ export class PostgresJourneyStore implements JourneyStore {
     );
   }
 
-  async enterJourney(entry: EntryInput): Promise<boolean> {
+  async enterJourney(entry: EntryInput): Promise<EntryOutcome> {
     // The (workflow, user_id) primary key makes the once policy atomic:
     // concurrent ingests race on the insert and exactly one wins.
-    const rows = await this.sql.query(
+    const inserted = await this.sql.query(
       `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, hash, status, ts)
        VALUES ($1, $2, $3, $4, 'running', ${TS('$5')})
        ON CONFLICT (workflow, user_id) DO NOTHING RETURNING instance_id`,
       [entry.workflow, entry.userId, entry.instanceId, entry.hash, entry.ts]
     );
-    return rows.length > 0;
+    if (inserted.length > 0) return 'entered';
+
+    // An existing row blocks the entry unless it records an instance that died:
+    // 'failed' is reclaimed rather than barring the user forever over one
+    // outage. The status test is inside the UPDATE, so of two concurrent
+    // retries exactly one gets a row back.
+    const claimed = await this.sql.query(
+      `UPDATE ${this.t.entry} SET instance_id = $1, hash = $2, status = 'running', ts = ${TS('$3')}
+       WHERE workflow = $4 AND user_id = $5 AND status = 'failed' RETURNING instance_id`,
+      [entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId]
+    );
+    return claimed.length > 0 ? 'reclaimed' : null;
   }
 
   async removeEntry(instanceId: string): Promise<void> {

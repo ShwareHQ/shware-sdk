@@ -1,15 +1,13 @@
 import type { ConditionIR, WorkflowIR } from '@shware/workflow';
 import { useQuery } from '@tanstack/react-query';
-import { Link, Outlet, createRoute, useNavigate } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
+import { Outlet, createRoute, useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { superellipse } from '../../components/corner-shape';
-import { Dropdown } from '../../components/dropdown';
+import { Breadcrumb } from '../../components/breadcrumb';
 import { SearchInput } from '../../components/input/search-input';
 import { SegmentList } from '../../components/segment-list';
-import { Tabs } from '../../components/tabs';
 import { displayName } from '../../utils/label';
+import { PageChrome } from '../page-chrome';
 import { Route as rootRoute } from './__root';
 
 /**
@@ -128,26 +126,32 @@ function Segments() {
 
   if (refs.length === 0) {
     return (
-      <div className="text-muted flex h-full items-center justify-center text-sm">
+      <div className="text-muted flex flex-1 items-center justify-center text-sm">
         {t('segments.empty')}
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-4 px-6 pt-6 pb-4">
-        <h1 className="text-lg font-semibold">{t('segments.title')}</h1>
+    /* Nothing here scrolls: the shell's content column is the one scrollport. */
+    <div className="flex-1">
+      <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.segments') }]} />} />
+      {/*
+        The search field belongs with what it filters, not up in the chrome.
+        It scrolls away with the list: only the app header pins, and a stack
+        of three fixed bars over a short list was more chrome than content.
+      */}
+      <div className="px-6 pt-4 pb-3">
         <SearchInput
-          className="w-64"
+          className="w-72"
           placeholder={t('segments.searchPlaceholder')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex h-full items-center justify-center text-sm">
+          <div className="text-muted flex items-center justify-center py-24 text-sm">
             {t('segments.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -168,14 +172,11 @@ export const segmentsRoute = createRoute({
   component: Segments,
 });
 
-/* --------------------------- Detail (tabbed shell) -------------------------- */
-
-const TABS = [{ to: '/segments/$name', label: 'segments.tabs.overview', exact: true }] as const;
+/* ------------------------------- Detail shell ------------------------------ */
 
 function SegmentDetail() {
   const { name } = segmentDetailRoute.useParams();
   const { config } = segmentDetailRoute.useRouteContext();
-  const navigate = useNavigate();
   const { t } = useTranslation();
 
   /* Switcher options: every segment the workflows reference, like the list page. */
@@ -194,37 +195,31 @@ function SegmentDetail() {
   }, [config]);
 
   /*
-   * Same header as the workflow detail: back and the segment switcher on the
-   * left, the view tabs centred by the grid's equal outer tracks. 60px tall
-   * with a 1px bottom border.
+   * The header is the root's: breadcrumb with the segment switcher as its
+   * leaf. No tab strip — there is exactly one view here, and a strip of one
+   * tab is a control that can never do anything. The breadcrumb still ends in
+   * the view's name, which is what keeps this page the same shape as the
+   * workflow detail page, where the tabs are real.
    */
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="border-border bg-card grid h-15 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/segments"
-            className="text-muted hover:bg-hover flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
-            style={superellipse}
-            aria-label={t('common.back')}
-          >
-            <ArrowLeft className="size-4" strokeWidth={2} />
-          </Link>
-          <Dropdown
-            className="max-w-full"
-            value={name}
-            options={options}
-            onChange={(next) => void navigate({ to: '/segments/$name', params: { name: next } })}
+    <div className="flex flex-1 flex-col">
+      <PageChrome
+        breadcrumb={
+          <Breadcrumb
+            items={[
+              { label: t('nav.segments'), to: '/segments' },
+              {
+                label: options.find((option) => option.value === name)?.label ?? name,
+                to: '/segments/$name',
+                params: { name },
+              },
+              { label: t('segments.tabs.overview') },
+            ]}
           />
-        </div>
-        <Tabs
-          items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
-          params={{ name }}
-        />
-        <div />
-      </div>
+        }
+      />
 
-      <div className="min-h-0 flex-1">
+      <div className="flex flex-1 flex-col">
         <Outlet />
       </div>
     </div>

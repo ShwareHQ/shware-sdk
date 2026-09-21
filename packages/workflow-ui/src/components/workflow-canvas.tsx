@@ -14,6 +14,7 @@ import {
 } from '@xyflow/react';
 import {
   AlarmClock,
+  AppWindow,
   BellRing,
   CalendarClock,
   ClipboardList,
@@ -28,7 +29,6 @@ import {
   MessagesSquare,
   Send,
   Shuffle,
-  SquareArrowOutUpRight,
   SquareFunction,
   User,
   Zap,
@@ -63,13 +63,6 @@ export interface WorkflowCanvasProps {
   /** Node id → users currently waiting there (from the engine's stats API); no badge without it. */
   stats?: NodeStats;
   /**
-   * Open the template a message node references; the host decides how to
-   * navigate (route, new window, side panel). The icon only appears on message
-   * cards when this is provided — the library never assumes the host has a
-   * template preview.
-   */
-  onOpenTemplate?: (templateKey: string) => void;
-  /**
    * Drives react-flow's own chrome (background dots, zoom controls). The card
    * and connector colours come from CSS variables and follow the host's theme
    * on their own; this is only for the parts react-flow paints itself. Passed
@@ -83,7 +76,6 @@ export interface WorkflowCanvasProps {
 }
 
 /** The callback travels by context: react-flow node data should carry serializable data only. */
-const OpenTemplateContext = createContext<((templateKey: string) => void) | undefined>(undefined);
 /** Same reason: selection is view state, not node data, so it must not enter the layout. */
 const SelectedContext = createContext<string | undefined>(undefined);
 
@@ -106,8 +98,15 @@ const ICONS: Record<NodeIcon, LucideIcon> = {
   email: Mail,
   sms: MessageSquareText,
   push: BellRing,
-  in_app: MessageCircle,
+  /*
+   * in_app moved off the speech bubble when discord arrived: the channel
+   * pickers already spend it on discord (see channel-icon.ts), and two
+   * identical glyphs on one canvas stop working as an index. A window is the
+   * truer mark for an in-product surface anyway.
+   */
+  in_app: AppWindow,
   slack: MessagesSquare,
+  discord: MessageCircle,
   survey: ClipboardList,
   delay: AlarmClock,
   time_window: CalendarClock,
@@ -226,23 +225,10 @@ const subtitleStyle: CSSProperties = {
 const handleStyle: CSSProperties = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0 };
 
 /** Open-template button: a borderless icon button in the card's top-right corner. */
-const linkButtonStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  padding: 0,
-  border: 'none',
-  background: 'transparent',
-  color: 'var(--color-muted)',
-  cursor: 'pointer',
-  pointerEvents: 'auto',
-};
-
 type WfNode = Node<CanvasNodeData, 'wf'>;
 
 function WorkflowNode({ id, data }: NodeProps<WfNode>) {
   const Icon = ICONS[data.icon];
-  const onOpenTemplate = useContext(OpenTemplateContext);
-  const templateKey = data.templateKey;
   /*
    * Selection reads as a focused form control: the card's own border takes the
    * accent and a translucent halo sits outside it. A solid ring on top of the
@@ -278,18 +264,6 @@ function WorkflowNode({ id, data }: NodeProps<WfNode>) {
               <User size={16} color="var(--color-muted)" strokeWidth={2} aria-hidden />
               {data.count}
             </span>
-          )}
-          {onOpenTemplate !== undefined && templateKey !== undefined && (
-            <button
-              type="button"
-              className="nodrag nopan"
-              style={linkButtonStyle}
-              title={`Open template: ${templateKey}`}
-              aria-label={`Open template ${templateKey}`}
-              onClick={() => onOpenTemplate(templateKey)}
-            >
-              <SquareArrowOutUpRight size={16} strokeWidth={2} aria-hidden />
-            </button>
           )}
         </div>
         {data.subtitle !== undefined && <div style={subtitleStyle}>{data.subtitle}</div>}
@@ -471,23 +445,20 @@ const edgeTypes = { wf: WorkflowEdge };
 export function WorkflowCanvas({
   ir,
   stats,
-  onOpenTemplate,
   colorMode = 'light',
   selectedId,
   onSelectNode,
 }: WorkflowCanvasProps) {
   const { nodes, edges } = useMemo(() => layout(ir, stats), [ir, stats]);
   return (
-    <OpenTemplateContext value={onOpenTemplate}>
-      <SelectedContext value={selectedId}>
-        <CanvasSurface
-          nodes={nodes}
-          edges={edges}
-          colorMode={colorMode}
-          {...(onSelectNode !== undefined ? { onSelectNode } : {})}
-        />
-      </SelectedContext>
-    </OpenTemplateContext>
+    <SelectedContext value={selectedId}>
+      <CanvasSurface
+        nodes={nodes}
+        edges={edges}
+        colorMode={colorMode}
+        {...(onSelectNode !== undefined ? { onSelectNode } : {})}
+      />
+    </SelectedContext>
   );
 }
 

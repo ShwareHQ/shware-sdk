@@ -5,6 +5,7 @@ import type { i18n as I18n } from 'i18next';
 import {
   Home,
   LayoutTemplate,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -14,14 +15,19 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
+import { NavDrawer } from '../../components/nav-drawer';
 import type { ResolvedStudioConfig } from '../../config';
 import { raisePendingToast } from '../integrations/toast/pending';
 import { ToastProvider } from '../integrations/toast/toast-provider';
+import { PageChromeProvider, useChromeSlotRef } from '../page-chrome';
 
 /**
  * Shell: one full-height sidebar down the left, carrying the brand at its top,
- * with the active view filling everything to its right. Each view brings its
- * own header, so there is no second bar across the top competing with it.
+ * and one header across the top of everything to its right. The header is the
+ * only bar: sidebar toggle, then a breadcrumb saying where you are, an optional
+ * centred title, and the view's actions on the right. Views fill it through
+ * PageChrome rather than drawing bars of their own, so every page reads the
+ * same way and the toggle is reachable whether the rail is open or shut.
  *
  * Routes are defined in code rather than by file convention. The studio ships
  * inside a package, so a file-based `routeTree.gen.ts` would have to be written
@@ -53,8 +59,94 @@ const readCollapsed = () =>
   typeof localStorage !== 'undefined' && localStorage.getItem(COLLAPSED_KEY) === 'true';
 
 function RootLayout() {
+  return (
+    <PageChromeProvider>
+      <Shell />
+    </PageChromeProvider>
+  );
+}
+
+/**
+ * The header's three tracks: [toggle + breadcrumb] [title] [actions]. Equal
+ * outer tracks keep the title dead-centre while space allows and squeeze the
+ * sides — never overlap them — when it does not.
+ */
+function Header({
+  collapsed,
+  onToggle,
+  onOpenNav,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  /** Below `md` there is no rail to collapse; the same slot opens the drawer. */
+  onOpenNav: () => void;
+}) {
+  const { t } = useTranslation();
+  const breadcrumbRef = useChromeSlotRef('breadcrumb');
+  const titleRef = useChromeSlotRef('title');
+  const actionsRef = useChromeSlotRef('actions');
+
+  /*
+   * Sticky rather than a fixed row above the scroller — see Shell for why the
+   * whole column scrolls. It is the *only* thing that pins: search rows and
+   * table heads used to stack under it and the result read as three bars of
+   * chrome, so they scroll away now and the header alone stays. z-20 rather
+   * than higher so a drawer's scrim (also z-20, and later in the tree) dims it.
+   */
+  return (
+    <header className="border-border bg-card sticky top-0 z-20 grid h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        {/*
+          Two buttons in one slot rather than one button with two behaviours:
+          the icon, the label and the action all differ, and exactly one is
+          rendered at any width, so the breadcrumb never shifts. Deciding in JS
+          would mean measuring the viewport to draw a button.
+        */}
+        {/* Its own label rather than the rail's: this opens a drawer over the
+            page, it does not widen anything. */}
+        <button
+          type="button"
+          onClick={onOpenNav}
+          aria-label={t('nav.menu')}
+          title={t('nav.menu')}
+          className="text-muted hover:bg-hover hover:text-primary flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors md:hidden"
+          style={superellipse}
+        >
+          <Menu className="size-4" strokeWidth={2} />
+        </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={t(collapsed ? 'nav.expand' : 'nav.collapse')}
+          title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
+          className="text-muted hover:bg-hover hover:text-primary hidden size-8 shrink-0 items-center justify-center rounded-lg transition-colors md:flex"
+          style={superellipse}
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="size-4" strokeWidth={2} />
+          ) : (
+            <PanelLeftClose className="size-4" strokeWidth={2} />
+          )}
+        </button>
+        <div ref={breadcrumbRef} className="flex min-w-0 items-center" />
+      </div>
+      {/*
+        Never hidden when empty. display:none takes the title out of the grid,
+        and the actions div then auto-places into this auto-sized track instead
+        of the right-hand one — Publish ends up hugging the breadcrumb. Empty,
+        the auto track is 0px, which is all "hidden" would have bought.
+      */}
+      <div ref={titleRef} className="text-sm font-semibold" />
+      <div ref={actionsRef} className="flex items-center justify-end gap-2" />
+    </header>
+  );
+}
+
+function Shell() {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  /* Narrow viewports only; never persisted — a drawer is a gesture, not a layout. */
+  const [navOpen, setNavOpen] = useState(false);
 
   // A save's confirmation survives the write-back reload (see pending.ts)
   useEffect(raisePendingToast, []);
@@ -65,6 +157,8 @@ function RootLayout() {
       return !open;
     });
   }, []);
+
+  const closeNav = useCallback(() => setNavOpen(false), []);
 
   /*
    * Identical padding in both states, so the icon sits at the same x whether the
@@ -87,9 +181,11 @@ function RootLayout() {
 
   return (
     <div className="text-primary flex h-full font-sans">
+      {/* Gone below `md`, not merely narrowed: 64px of icons is a fifth of a
+          phone's width, and the drawer below carries the same items. */}
       <aside
         className={clsx(
-          'border-border bg-card flex shrink-0 flex-col overflow-hidden border-r',
+          'border-border bg-card hidden shrink-0 flex-col overflow-hidden border-r md:flex',
           'transition-[width] duration-200 ease-out',
           collapsed ? 'w-16' : 'w-60'
         )}
@@ -106,7 +202,7 @@ function RootLayout() {
           )}
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1.5 p-3 pt-1">
+        <nav className="flex flex-col gap-1.5 p-3 pt-1">
           {NAV.map((item) => (
             <Link
               key={item.to}
@@ -122,34 +218,49 @@ function RootLayout() {
             </Link>
           ))}
         </nav>
-
-        {/*
-          Bottom rail: the toggle is the same shape as a nav item, so collapsing
-          does not move it. flex-col, like the nav above, so the button stretches
-          to the rail's width — as a row-direction flex item it would size to its
-          own text and its hover fill would stop short of the edges.
-        */}
-        <div className="flex flex-col p-3">
-          <button
-            type="button"
-            onClick={toggle}
-            className={itemClass}
-            style={superellipse}
-            title={collapsed ? t('nav.expand') : undefined}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="size-4 shrink-0" strokeWidth={2} />
-            ) : (
-              <PanelLeftClose className="size-4 shrink-0" strokeWidth={2} />
-            )}
-            {!collapsed && t('nav.collapse')}
-          </button>
-        </div>
       </aside>
 
-      <main className="bg-page min-h-0 min-w-0 flex-1">
-        <Outlet />
-      </main>
+      {/*
+        One scrollport for everything right of the rail. The column used to be
+        a flex stack whose content area scrolled, which drew a short bar inset
+        below the header; scrolling the column itself runs the bar the full
+        height of the viewport and lets the header ride along as `sticky`.
+        Views must therefore not scroll internally — the canvas is the one
+        exception, and it says so at its own root.
+      */}
+      <div className="bg-page min-w-0 flex-1 overflow-y-auto">
+        <Header collapsed={collapsed} onToggle={toggle} onOpenNav={() => setNavOpen(true)} />
+        {/*
+          A short page still has to fill the viewport: empty states centre in
+          it and the preview stages paint their dot grid across it. The
+          percentage resolves because the scrollport's own height is definite,
+          and a long page simply outgrows the minimum.
+        */}
+        <main className="flex min-h-[calc(100%-3.5rem)] min-w-0 flex-col">
+          <Outlet />
+        </main>
+      </div>
+
+      {/* After the content column, not before it: the scrim and the header
+          are both z-20, so only tree order puts the scrim over the header. */}
+      <NavDrawer open={navOpen} onClose={closeNav}>
+        {NAV.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            activeOptions={{ exact: item.exact }}
+            className={itemClass}
+            activeProps={{ className: '!bg-selected !text-primary' }}
+            style={superellipse}
+            /* Picking a destination is the drawer's whole job; staying open
+               after the page behind it changed would only hide the answer. */
+            onClick={closeNav}
+          >
+            <item.icon className="size-4 shrink-0" strokeWidth={2} />
+            {t(item.label)}
+          </Link>
+        ))}
+      </NavDrawer>
 
       <ToastProvider />
     </div>
