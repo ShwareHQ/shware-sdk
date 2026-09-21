@@ -221,7 +221,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     case 'send_event': {
       await ctx.step.do(`${node.id}:emit`, async () => {
         const payload = await resolveValues(node.payload, ctx.facts);
-        await ctx.events.emit(node.event, payload);
+        await ctx.events.emit(node.event, payload, `${ctx.instanceId}:${node.id}`);
       });
       return FALL_THROUGH;
     }

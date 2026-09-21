@@ -27,14 +27,32 @@
  */
 const UNHASHED_KEYS = new Set(['meta', 'label', 'contentHash']);
 
-/** Recursively drop metadata fields, leaving pure execution semantics. */
+/**
+ * Fields whose values are maps the *author* keys, not the IR: message props,
+ * send_event payloads and action args. Everything inside them is execution
+ * data and is hashed whole.
+ *
+ * This is what keeps the exclusion above positional. Stripping by name at every
+ * depth used to reach inside these maps, so a prop or payload field that
+ * happened to be called `label` (or `meta`) vanished from the hash: two sends
+ * carrying different values hashed identically, `plan` reported a real change
+ * as metadata-only, and the deploy wrote different content under the same KV
+ * key that in-flight journeys are pinned to.
+ *
+ * These three are the only `z.record` fields in the IR (see ir.ts). A new one
+ * has to be added here, or its contents become strippable by name again.
+ */
+const AUTHOR_KEYED_FIELDS = new Set(['props', 'payload', 'args']);
+
+/** Drop metadata at the positions the IR defines it, leaving execution semantics. */
 export function stripMeta(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripMeta);
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
       if (UNHASHED_KEYS.has(key)) continue;
-      out[key] = stripMeta(item);
+      // Author-keyed: hashed verbatim, never walked into
+      out[key] = AUTHOR_KEYED_FIELDS.has(key) ? item : stripMeta(item);
     }
     return out;
   }

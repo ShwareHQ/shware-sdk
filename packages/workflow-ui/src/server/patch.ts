@@ -50,10 +50,15 @@ import ts from 'typescript-5';
  *    valid. Fails (1); would need an editor that writes every arm at once.
  *  - **Structure** — adding, removing, reordering or retyping nodes. Fails (4).
  *
- * Fields that are absent from source are read-only too: this module replaces
- * existing literals and never inserts, so a patch can never produce a syntax
- * error. Insertion is possible — guarded by re-parsing and rolling back — but
- * that is a separate decision from this one.
+ * Fields that are absent from source are read-only too, with one exception:
+ * where the shape is unambiguous, the value is inserted rather than replaced.
+ *
+ * Nothing here is safe by construction, so nothing here relies on being so.
+ * Every write goes through `spliceChecked`, which re-parses and rolls back a
+ * file that no longer compiles. Replacing a literal is no safer than inserting
+ * one — the text going in is whatever someone typed into a studio field, so an
+ * escaping gap is a broken file on their disk — and the check turns that whole
+ * class of bug into a save that failed.
  */
 
 export type PatchResult = { ok: true } | { ok: false; error: string };
@@ -69,9 +74,23 @@ function parse(filePath: string): ts.SourceFile {
   );
 }
 
-/** Single-quoted string literal in the project's style. */
+/**
+ * Single-quoted string literal in the project's style.
+ *
+ * Line terminators matter as much as the quote character does: a studio text
+ * field accepts a pasted newline without comment — an email preheader, a push
+ * body — and an unescaped one ends the literal at the end of that line. U+2028
+ * and U+2029 terminate a line to the JS grammar too, invisibly.
+ */
 function quote(value: string): string {
-  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `'${escaped}'`;
 }
 
 /** Replace the [start, end) span of the file with `text`, in place on disk. */
@@ -83,10 +102,12 @@ function splice(filePath: string, start: number, end: number, text: string): voi
 /**
  * Splice, then check the file still parses; restore it if not.
  *
- * Replacing a literal cannot break syntax, but inserting can — a stray comma, a
- * lost paren — so insertion is only safe with this. It turns "the studio can
- * break the project" into "the save can fail", which is the same failure a
- * non-literal target already produces.
+ * Every write runs through here, replacements included. A stray comma or a lost
+ * paren is the obvious way an insertion breaks syntax, but a replacement whose
+ * text came from a user is no different: one character `quote` forgot to escape
+ * and the literal ends early. Routing everything through the check turns "the
+ * studio can break the project" into "the save can fail", which is the same
+ * failure a non-literal target already produces.
  */
 function spliceChecked(filePath: string, start: number, end: number, text: string): PatchResult {
   const before = readFileSync(filePath, 'utf8');
@@ -220,14 +241,14 @@ export function patchEnvelopeField(
   const source = parse(modulePath);
   const literal = envelopeLiteral(source, field);
   if (literal !== undefined) {
-    // +1 / -1: keep the existing quote characters out of the replaced span
-    splice(
-      modulePath,
-      literal.getStart(source) + 1,
-      literal.getEnd() - 1,
-      quote(value).slice(1, -1)
-    );
-    return { ok: true };
+    /*
+     * Replace the literal whole, quote characters included. Writing between the
+     * existing quotes would preserve a double-quoted literal's quotes while
+     * `quote` escapes only single ones, so a value containing `"` would close
+     * the string early. oxfmt normalises the file to single quotes anyway, so
+     * preserving the original quote character buys nothing.
+     */
+    return spliceChecked(modulePath, literal.getStart(source), literal.getEnd(), quote(value));
   }
   if (exportedInitializer(source, field) !== undefined) {
     return fail(`'${field}' is not backed by a string literal — edit it in code`);
@@ -240,8 +261,7 @@ export function patchEnvelopeField(
   const insertAt = lastImport === undefined ? 0 : lastImport.getEnd();
   const lead = lastImport === undefined ? '' : '\n\n';
   const statement = `${lead}export const ${field} = ${quote(value)};`;
-  splice(modulePath, insertAt, insertAt, statement);
-  return { ok: true };
+  return spliceChecked(modulePath, insertAt, insertAt, statement);
 }
 
 /**
@@ -341,12 +361,10 @@ export function addAddress(configPath: string, address: string): PatchResult {
   }
   if (elements.length === 0) {
     const start = addressesArray.getStart(source);
-    splice(configPath, start + 1, start + 1, quote(address));
-    return { ok: true };
+    return spliceChecked(configPath, start + 1, start + 1, quote(address));
   }
   const last = elements[elements.length - 1];
-  splice(configPath, last.getEnd(), last.getEnd(), `, ${quote(address)}`);
-  return { ok: true };
+  return spliceChecked(configPath, last.getEnd(), last.getEnd(), `, ${quote(address)}`);
 }
 
 /** Replace one address in the literal list with a new value. */
@@ -368,8 +386,7 @@ export function updateAddress(
   ) {
     return fail(`address already in the list: ${newAddress}`);
   }
-  splice(configPath, target.getStart(source), target.getEnd(), quote(newAddress));
-  return { ok: true };
+  return spliceChecked(configPath, target.getStart(source), target.getEnd(), quote(newAddress));
 }
 
 /** Remove one address from the literal list, taking its separating comma along. */
@@ -382,17 +399,23 @@ export function removeAddress(configPath: string, address: string): PatchResult 
   const index = elements.findIndex((e) => ts.isStringLiteral(e) && e.text === address);
   if (index === -1) return fail(`address not in the list: ${address}`);
 
+  // Purely structural, but the check costs one re-parse and removes the need to
+  // reason about whether the comma arithmetic below is right in every case.
   const target = elements[index];
   if (elements.length === 1) {
-    splice(configPath, addressesArray.getStart(source) + 1, addressesArray.getEnd() - 1, '');
-  } else if (index === 0) {
-    // First of several: remove through to the next element's start (eats the comma)
-    splice(configPath, target.getStart(source), elements[1].getStart(source), '');
-  } else {
-    // Otherwise remove from the previous element's end (eats the preceding comma)
-    splice(configPath, elements[index - 1].getEnd(), target.getEnd(), '');
+    return spliceChecked(
+      configPath,
+      addressesArray.getStart(source) + 1,
+      addressesArray.getEnd() - 1,
+      ''
+    );
   }
-  return { ok: true };
+  if (index === 0) {
+    // First of several: remove through to the next element's start (eats the comma)
+    return spliceChecked(configPath, target.getStart(source), elements[1].getStart(source), '');
+  }
+  // Otherwise remove from the previous element's end (eats the preceding comma)
+  return spliceChecked(configPath, elements[index - 1].getEnd(), target.getEnd(), '');
 }
 
 /* ------------------------------- Flow nodes -------------------------------- */
@@ -511,9 +534,10 @@ export function callLiteralAt(
 }
 
 /**
- * Replace the literal the path addresses. Strings keep their quote characters
- * (only the text between them is spliced) so the file's quote style survives;
- * numbers and booleans replace whole.
+ * Replace the literal the path addresses. Every kind replaces whole: a string
+ * is rewritten as a freshly escaped single-quoted literal rather than threaded
+ * between the quotes that were already there, because those may be double and
+ * `quote` escapes only single ones.
  */
 export function patchCallLiteral(
   filePath: string,
@@ -554,12 +578,7 @@ export function patchCallLiteral(
   if (!isLiteral(target)) return fail('that value is an expression in source — edit it in code');
 
   if (ts.isStringLiteral(target)) {
-    return spliceChecked(
-      filePath,
-      target.getStart(source) + 1,
-      target.getEnd() - 1,
-      quote(value).slice(1, -1)
-    );
+    return spliceChecked(filePath, target.getStart(source), target.getEnd(), quote(value));
   }
   const trimmed = value.trim();
   const numeric = ts.isNumericLiteral(target);

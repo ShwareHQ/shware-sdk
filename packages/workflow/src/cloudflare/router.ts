@@ -1,6 +1,7 @@
 import * as z from 'zod/mini';
 import { murmur3 } from '../engine/bucket';
 import { PROFILE_UPDATED_EVENT, evaluateCondition, matchesWhere } from '../engine/condition';
+import { semanticHash } from '../hash';
 import { BundleIR, ConditionIR, type TriggerIR } from '../ir';
 import {
   type JourneyEnv,
@@ -23,10 +24,28 @@ export interface IngestInput {
   event: string;
   payload?: Record<string, unknown>;
   ts?: number;
+  /**
+   * This occurrence's identity, and with it the idempotency of sending it.
+   *
+   * Only the sender can know whether two deliveries describe one occurrence or
+   * two, so the engine does not decide: an id it has already stored makes the
+   * second delivery a no-op. That matters because ingest is reachable from two
+   * retrying callers — an HTTP client retrying a 500, and the interpreter's
+   * send_event step being retried after it already committed its row — and a
+   * second copy of an event silently changes every count- and window-based
+   * condition that reads the log.
+   *
+   * Callers that retry should send an id they can reproduce. Omitting it gets
+   * a fresh one, which records the event as its own occurrence.
+   */
+  id?: string;
 }
 
 export interface IngestResult {
-  stored: true;
+  /** The occurrence's identity: the caller's `id`, or the one minted for it. */
+  id: string;
+  /** False when that id was already in the log: nothing was written this time. */
+  stored: boolean;
   woke: number;
   started: string[];
 }
@@ -37,15 +56,29 @@ export async function ingestEvent(env: JourneyEnv, input: IngestInput): Promise<
   }
   const ts = input.ts ?? Date.now();
   const payload = input.payload ?? {};
+  // No id means the sender is not claiming this is a repeat of anything, which
+  // a fresh one states truthfully — unlike a key derived from the contents,
+  // which would silently collapse two identical events a second apart.
+  const id = input.id ?? crypto.randomUUID();
 
-  await env.DB.prepare('INSERT INTO events (user_id, name, ts, payload) VALUES (?, ?, ?, ?)')
-    .bind(input.userId, input.event, ts, JSON.stringify(payload))
+  const written = await env.DB.prepare(
+    'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)'
+  )
+    .bind(id, input.userId, input.event, ts, JSON.stringify(payload))
     .run();
+  const stored = (written.meta?.changes ?? 1) > 0;
 
+  /*
+   * The rest runs even for a duplicate. A retry arrives precisely because the
+   * first attempt did not finish — it committed the row and then failed — so
+   * returning early would strand the journeys the retry exists to start. Both
+   * halves are independently idempotent: waking an instance that already moved
+   * on is a no-op, and the entries key refuses a second entry.
+   */
   const woke = await wakeSubscribers(env, input.userId, input.event);
   const started = await startTriggeredJourneys(env, input, ts);
   started.push(...(await refreshSegmentTriggers(env, input.userId, ts)));
-  return { stored: true, woke, started };
+  return { id, stored, woke, started };
 }
 
 async function wakeSubscribers(env: JourneyEnv, userId: string, event: string): Promise<number> {
@@ -196,14 +229,39 @@ async function startJourney(
   )
     .bind(workflow, userId, instanceId, hash, 'running', ts)
     .run();
-  if ((inserted.meta?.changes ?? 1) === 0) return null; // already entered
+
+  /*
+   * A row already there blocks the entry — that is the once-policy — with one
+   * exception: 'failed' records an instance that died, not a journey the user
+   * received. Leaving it would bar that user from this workflow forever over
+   * one transient outage, so the entry is reclaimed instead. The status test
+   * lives inside the UPDATE, so of two concurrent retries exactly one sees a
+   * change and the loser is turned away as an ordinary duplicate.
+   */
+  const reclaimed = (inserted.meta?.changes ?? 1) === 0;
+  if (reclaimed) {
+    const claimed = await env.DB.prepare(
+      "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed'"
+    )
+      .bind(instanceId, hash, ts, workflow, userId)
+      .run();
+    if ((claimed.meta?.changes ?? 0) === 0) return null; // already entered, and still alive
+  }
 
   try {
     await env.JOURNEY.create({ id: instanceId, params });
   } catch (error) {
-    // Roll the ledger back so a retried ingest can enter — otherwise the
-    // once-policy would permanently record an entry that never ran.
-    await env.DB.prepare('DELETE FROM entries WHERE instance_id = ?').bind(instanceId).run();
+    if (reclaimed) {
+      // Put the corpse back rather than deleting it: the entry is still a
+      // failure, and dropping the row would erase that from the ledger.
+      await env.DB.prepare('UPDATE entries SET status = ? WHERE instance_id = ?')
+        .bind('failed', instanceId)
+        .run();
+    } else {
+      // Roll the ledger back so a retried ingest can enter — otherwise the
+      // once-policy would permanently record an entry that never ran.
+      await env.DB.prepare('DELETE FROM entries WHERE instance_id = ?').bind(instanceId).run();
+    }
     throw error;
   }
   return instanceId;
@@ -236,9 +294,53 @@ export interface DeployResult {
   unrouted: { workflow: string; trigger: TriggerIR['type'] }[];
 }
 
+/** A bundle whose declared hashes do not describe its contents — rejected before anything is written. */
+export class BundleIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BundleIntegrityError';
+  }
+}
+
+/**
+ * Recompute every declared contentHash and refuse the bundle if one disagrees.
+ *
+ * `wf:${contentHash}` is the address an in-flight journey reads its IR from, so
+ * a hash that does not describe its own content is a way to change what a
+ * pinned instance executes: submit an edited flow under the old hash and the
+ * next replay picks it up. The compiler always computes the hash it ships, so
+ * a mismatch means a hand-rolled payload or a stale client — neither should be
+ * able to overwrite a version that journeys are running.
+ *
+ * Each hash is recomputed exactly the way its compiler produced it: a workflow
+ * hashes its whole IR (contentHash strips itself), a segment hashes only its
+ * condition. Mirroring them is load-bearing — recomputing a segment over the
+ * whole record would reject every honest deploy.
+ */
+function verifyBundleHashes(parsed: BundleIR): void {
+  const mismatched: string[] = [];
+  for (const workflow of parsed.workflows) {
+    if (semanticHash(workflow) !== workflow.contentHash) {
+      mismatched.push(`workflow '${workflow.name}'`);
+    }
+  }
+  for (const segment of parsed.segments) {
+    if (semanticHash(segment.condition) !== segment.contentHash) {
+      mismatched.push(`segment '${segment.name}'`);
+    }
+  }
+  if (mismatched.length > 0) {
+    throw new BundleIntegrityError(
+      `contentHash does not match content for ${mismatched.join(', ')} — recompile the bundle instead of editing it by hand`
+    );
+  }
+}
+
 /** Bundle deploy, terraform-apply style: workflows go to KV (content-addressed) while trigger routes and segment definitions are swapped into D1. */
 export async function deployBundle(env: JourneyEnv, bundle: unknown): Promise<DeployResult> {
   const parsed = BundleIR.parse(bundle);
+  // Before any write: a bad hash must not reach KV, where it would address content it does not describe
+  verifyBundleHashes(parsed);
 
   // KV first: content-addressed, so a failed deploy leaves only harmless orphans
   for (const workflow of parsed.workflows) {
@@ -293,7 +395,55 @@ export async function deployBundle(env: JourneyEnv, bundle: unknown): Promise<De
   };
 }
 
+/* --------------------------------- profiles --------------------------------- */
+
+/**
+ * Merge properties into a profile, in one statement.
+ *
+ * Read-modify-write is what this used to be, and it lost data: two identifies
+ * landing together each read the same row, and whichever wrote second replaced
+ * the other's fields wholesale. The merge belongs in the database, where the
+ * row is only read once, under the write.
+ *
+ * `json_patch` is RFC 7386 merge-patch, so a property set to null is *removed*
+ * rather than stored as null — the only way this API has to unset one, and a
+ * deliberate change from the old spread, which kept it as a null value.
+ */
+async function mergeProfile(
+  env: JourneyEnv,
+  userId: string,
+  props: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const patch = JSON.stringify(props);
+  const row = await env.DB.prepare(
+    "INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(profiles.props, ?) RETURNING props"
+  )
+    .bind(userId, patch, patch)
+    .first<{ props: string }>();
+  // RETURNING always yields the row it just wrote; the fallback is only for a
+  // driver that declines to return one, and reports what was asked for.
+  return row === null ? { ...props } : (JSON.parse(row.props) as Record<string, unknown>);
+}
+
 /* ----------------------------------- http ----------------------------------- */
+
+/**
+ * Request bodies are untrusted JSON. They are read as unknown fields and
+ * checked, never cast into the shape they are supposed to have: a cast only
+ * silences the compiler, and what arrives here reaches SQL parameters.
+ */
+async function readBody(request: Request): Promise<Record<string, unknown>> {
+  const body: unknown = await request.json();
+  return isPlainObject(body) ? body : {};
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
 
 export async function handleRequest(request: Request, env: JourneyEnv): Promise<Response> {
   const url = new URL(request.url);
@@ -317,33 +467,34 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
 
   try {
     if (request.method === 'POST' && url.pathname === '/events') {
-      const input = (await request.json()) as IngestInput;
-      if (!input.userId || !input.event) return json({ error: 'userId and event required' }, 400);
-      if (input.event.startsWith('$')) {
+      const { id, userId, event, payload, ts } = await readBody(request);
+      if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
+        return json({ error: 'userId and event required' }, 400);
+      }
+      if (event.startsWith('$')) {
         return json({ error: 'event names starting with $ are reserved' }, 400);
       }
-      return json(await ingestEvent(env, input));
+      // An empty id is rejected rather than treated as absent: a caller that
+      // sent one meant to identify the occurrence, and silently minting a
+      // different one would turn their retry into a duplicate.
+      if (id !== undefined && !isNonEmptyString(id)) {
+        return json({ error: 'id must be a non-empty string' }, 400);
+      }
+      if (ts !== undefined && typeof ts !== 'number') {
+        return json({ error: 'ts must be a number' }, 400);
+      }
+      if (payload !== undefined && !isPlainObject(payload)) {
+        return json({ error: 'payload must be an object' }, 400);
+      }
+      return json(await ingestEvent(env, { id, userId, event, payload, ts }));
     }
 
     if (request.method === 'POST' && url.pathname === '/identify') {
-      const { userId, props } = (await request.json()) as {
-        userId: string;
-        props: Record<string, unknown>;
-      };
-      if (!userId) return json({ error: 'userId required' }, 400);
+      const { userId, props } = await readBody(request);
+      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
       const ts = Date.now();
-      const existing = await env.DB.prepare('SELECT props FROM profiles WHERE user_id = ?')
-        .bind(userId)
-        .first<{ props: string }>();
-      const merged = {
-        ...(existing ? (JSON.parse(existing.props) as Record<string, unknown>) : {}),
-        ...props,
-      };
-      await env.DB.prepare(
-        'INSERT INTO profiles (user_id, props) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET props = excluded.props'
-      )
-        .bind(userId, JSON.stringify(merged))
-        .run();
+      const merged = await mergeProfile(env, userId, props);
       // Property-condition waits subscribe to this reserved event (see relevantEvents)
       const woke = await wakeSubscribers(env, userId, PROFILE_UPDATED_EVENT);
       // A profile change can move the user into (or out of) a trigger-routed segment
@@ -361,6 +512,10 @@ export async function handleRequest(request: Request, env: JourneyEnv): Promise<
     // the response body (internals are logged, not leaked).
     if (error instanceof z.core.$ZodError) {
       return json({ error: `invalid payload: ${error.message}` }, 400);
+    }
+    // The caller sent a self-inconsistent bundle: their problem to fix, so say what is wrong
+    if (error instanceof BundleIntegrityError) {
+      return json({ error: error.message }, 400);
     }
     console.error('[workflow router]', error);
     return json({ error: 'internal error' }, 500);

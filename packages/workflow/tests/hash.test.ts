@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { canonicalJSON, fullHash, semanticHash, sha256Hex, stripMeta } from '../src/hash';
+import { checkoutRecovery, nudge, reengagement, winback } from './fixtures';
 
 describe('sha256Hex', () => {
   /*
@@ -53,5 +54,86 @@ describe('semanticHash / fullHash', () => {
     expect(semanticHash(decorated)).toBe(semanticHash(bare));
     expect(fullHash(decorated)).not.toBe(fullHash(bare));
     expect(stripMeta(decorated)).toEqual(bare);
+  });
+});
+
+describe('metadata is stripped by position, not by name', () => {
+  /*
+   * `props`, `payload` and `args` are keyed by the author, so a field of theirs
+   * may be called anything — including `label` or `meta`. Stripping by name at
+   * every depth erased those fields from the hash: two sends carrying different
+   * values shared a contentHash, `plan` called a real change metadata-only, and
+   * the deploy wrote new content under the key in-flight journeys read from.
+   */
+  const sendEvent = (payload: Record<string, unknown>) => ({
+    id: '1',
+    type: 'send_event',
+    event: 'notified',
+    payload,
+  });
+
+  test('a payload field named `label` is part of the hash', () => {
+    expect(semanticHash(sendEvent({ label: 'old' }))).not.toBe(
+      semanticHash(sendEvent({ label: 'new' }))
+    );
+  });
+
+  test('so is one named `meta`, or `contentHash`', () => {
+    expect(semanticHash(sendEvent({ meta: 'a' }))).not.toBe(semanticHash(sendEvent({ meta: 'b' })));
+    expect(semanticHash(sendEvent({ contentHash: 'a' }))).not.toBe(
+      semanticHash(sendEvent({ contentHash: 'b' }))
+    );
+  });
+
+  test('the same holds for message props and action args', () => {
+    const message = (props: Record<string, unknown>) => ({
+      id: '1',
+      type: 'message',
+      channel: 'email',
+      template: 't',
+      props,
+    });
+    expect(semanticHash(message({ label: 'A' }))).not.toBe(semanticHash(message({ label: 'B' })));
+
+    const action = (args: Record<string, unknown>) => ({
+      id: '1',
+      type: 'action',
+      action: 'x',
+      args,
+    });
+    expect(semanticHash(action({ meta: 'one' }))).not.toBe(semanticHash(action({ meta: 'two' })));
+  });
+
+  test('but a node label, which is what the exclusion is for, is still excluded', () => {
+    const delay = (label: string) => ({
+      id: '1',
+      type: 'delay',
+      label,
+      duration: { value: '1 day', ms: 1 },
+    });
+    expect(semanticHash(delay('wait a bit'))).toBe(semanticHash(delay('hold')));
+  });
+
+  test('and node / workflow metadata is still excluded', () => {
+    const wf = (description: string) => ({
+      name: 'w',
+      meta: { description, loc: { file: 'a.ts', line: 1, column: 1 } },
+      flow: [{ id: '1', type: 'exit', meta: { loc: { file: 'a.ts', line: 2, column: 1 } } }],
+    });
+    expect(semanticHash(wf('first wording'))).toBe(semanticHash(wf('second wording')));
+  });
+});
+
+describe('contentHash is a permanent contract', () => {
+  /*
+   * Known answers for the fixture flows. contentHash addresses stored versions
+   * and pins in-flight journeys, so a change here is a migration, never a
+   * refactor — these fail loudly if the projection or the algorithm drifts.
+   */
+  test('the fixture workflows hash to their recorded values', () => {
+    expect(checkoutRecovery.toIR().contentHash).toBe('b9d031dde655eac95a8e4d8413f04f4a');
+    expect(winback.toIR().contentHash).toBe('6240e28eea1a6b996ba01f12f300fc3d');
+    expect(reengagement.toIR().contentHash).toBe('7c6cc29309b9ea624756aee2585e46bd');
+    expect(nudge.toIR().contentHash).toBe('b3588e5ce143a3e2c956b2fb5c313a4a');
   });
 });

@@ -100,7 +100,11 @@ function makeContext() {
   const step = new FakeStep();
   const facts = new FakeFacts();
   const sent: OutboundMessage[] = [];
-  const emitted: { event: string; payload: Record<string, ScalarIR | undefined> }[] = [];
+  const emitted: {
+    event: string;
+    payload: Record<string, ScalarIR | undefined>;
+    id: string;
+  }[] = [];
   const ctx: JourneyContext = {
     userId: 'u_1',
     instanceId: 'inst_1',
@@ -113,8 +117,8 @@ function makeContext() {
       },
     },
     events: {
-      emit: async (event, payload) => {
-        emitted.push({ event, payload });
+      emit: async (event, payload, id) => {
+        emitted.push({ event, payload, id });
       },
     },
   };
@@ -251,7 +255,14 @@ describe('runJourney: send_event', () => {
     const outcome = await runJourney(nudge.toIR(), ctx);
 
     expect(outcome).toEqual({ status: 'completed' });
-    expect(emitted).toEqual([{ event: 'nudge_due', payload: {} }]);
+    /*
+     * The id is the node's identity within this instance: the emit is wrapped
+     * in a step, and a retried step body would otherwise write the event twice
+     * into a log that count-based conditions read.
+     */
+    expect(emitted).toEqual([
+      { event: 'nudge_due', payload: {}, id: expect.stringMatching(/^inst_1:/) },
+    ]);
   });
 });
 

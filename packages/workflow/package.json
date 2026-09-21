@@ -31,6 +31,7 @@
         "default": "./dist/engine/index.cjs"
       }
     },
+    "./schema.sql": "./dist/cloudflare/schema.sql",
     "./cloudflare": {
       "import": {
         "types": "./dist/cloudflare/index.d.mts",
