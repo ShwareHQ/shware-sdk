@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { WorkflowIR, compileBundle, performed, segment, trigger, workflow } from '../src/index';
 import type { SourceLocIR } from '../src/ir';
+import { normalizeFile } from '../src/provenance';
 import { e, gettingStarted, proTips, purchaser, u } from './fixtures';
 
 /**
@@ -88,6 +89,45 @@ describe('provenance stays out of execution identity', () => {
   test('loc files never leak an absolute home directory when compiled under Node', () => {
     const loc = expectLocInThisFile(build().toIR().meta?.loc);
     expect(loc.file.startsWith('/')).toBe(false);
+  });
+});
+
+describe('recorded paths are portable', () => {
+  /*
+   * normalizeFile is the only platform-aware line in the compiler, and what it
+   * gets wrong ends up in the shipped IR. A Windows ESM frame is
+   * 'file:///C:/Users/alice/proj/src/wf.ts' while process.cwd() is
+   * 'C:\\Users\\alice\\proj': neither the separators nor the drive-letter slash
+   * line up, so the path stayed absolute and the author's home directory rode
+   * along into every deploy.
+   */
+  test('a Windows file URL relativizes against a backslash cwd', () => {
+    expect(normalizeFile('file:///C:/Users/alice/proj/src/wf.ts', 'C:\\Users\\alice\\proj')).toBe(
+      'src/wf.ts'
+    );
+  });
+
+  test('a drive letter matches whichever case the platform reported it in', () => {
+    expect(normalizeFile('file:///C:/Users/alice/proj/src/wf.ts', 'c:\\Users\\alice\\proj')).toBe(
+      'src/wf.ts'
+    );
+  });
+
+  test('a POSIX file URL and a bare path both relativize', () => {
+    expect(normalizeFile('file:///home/alice/proj/src/wf.ts', '/home/alice/proj')).toBe(
+      'src/wf.ts'
+    );
+    expect(normalizeFile('/home/alice/proj/src/wf.ts', '/home/alice/proj')).toBe('src/wf.ts');
+  });
+
+  test('percent-escapes are decoded and http(s) URLs pass through', () => {
+    expect(normalizeFile('file:///home/alice/my%20proj/src/wf.ts', '/home/alice/my proj')).toBe(
+      'src/wf.ts'
+    );
+    // Vite dev serves modules over http; there is no cwd to relativize against
+    expect(normalizeFile('http://localhost:5173/src/wf.ts', '/home/alice/proj')).toBe(
+      'http://localhost:5173/src/wf.ts'
+    );
   });
 });
 

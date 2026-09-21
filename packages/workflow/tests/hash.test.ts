@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { canonicalJSON, fullHash, semanticHash, sha256Hex, stripMeta } from '../src/hash';
-import { checkoutRecovery, nudge, reengagement, winback } from './fixtures';
+import { eq, trigger, workflow } from '../src/index';
+import { checkoutRecovery, e, nudge, reengagement, u, winback } from './fixtures';
 
 describe('sha256Hex', () => {
   /*
@@ -43,11 +44,12 @@ describe('semanticHash / fullHash', () => {
     expect(canonicalJSON({ b: 2, a: 1 })).toBe('{"a":1,"b":2}');
   });
 
-  test('meta / label / contentHash are excluded from semanticHash but not fullHash', () => {
-    const bare = { type: 'exit', reason: 'done' };
+  test('meta / label / reason / contentHash are excluded from semanticHash but not fullHash', () => {
+    const bare = { type: 'delay', duration: { value: '1 day', ms: 86_400_000 } };
     const decorated = {
       ...bare,
-      label: 'Exit',
+      label: 'Wait a day',
+      reason: 'audit line',
       meta: { loc: { file: 'x.ts', line: 1, column: 1 } },
       contentHash: 'deadbeef',
     };
@@ -124,6 +126,53 @@ describe('metadata is stripped by position, not by name', () => {
   });
 });
 
+describe('audit reasons are metadata, not semantics', () => {
+  /*
+   * An exit / filter `reason` is a string for the audit log: it cannot change
+   * which path a user takes, which is the criterion this module states. Hashing
+   * it meant rewording one moved the KV address the IR is stored under,
+   * stranding every in-flight journey on an orphaned version and reporting a
+   * semantic change in plan for a copy edit.
+   */
+  test('rewording an exit reason keeps contentHash stable', () => {
+    const build = (reason: string) =>
+      workflow('gate', { trigger: trigger.event(e.login) })
+        .exit(reason)
+        .toIR();
+
+    expect(build('not eligible').contentHash).toBe(build('no longer eligible').contentHash);
+  });
+
+  test('rewording a filter reason keeps contentHash stable, but the condition still counts', () => {
+    const build = (reason: string, plan: 'pro' | 'free' = 'pro') =>
+      workflow('gate', { trigger: trigger.event(e.login) })
+        .filter(eq(u.subscription_plan, plan), { reason })
+        .toIR();
+
+    expect(build('not eligible').contentHash).toBe(build('no longer eligible').contentHash);
+    expect(build('not eligible').contentHash).not.toBe(build('not eligible', 'free').contentHash);
+  });
+
+  test('the reason survives into the IR the studio and the audit log read', () => {
+    const node = workflow('gate', { trigger: trigger.event(e.login) })
+      .exit('not eligible')
+      .toIR().flow[0];
+    expect(node).toMatchObject({ type: 'exit', reason: 'not eligible' });
+  });
+
+  test('a payload / props / args field named `reason` is still hashed', () => {
+    // Author-keyed maps are never walked into, which is what keeps the
+    // exclusion positional — `subscription_cancelled` genuinely has a `reason`.
+    const sendEvent = (reason: string) => ({
+      id: '0',
+      type: 'send_event',
+      event: 'subscription_cancelled',
+      payload: { reason },
+    });
+    expect(semanticHash(sendEvent('too_expensive'))).not.toBe(semanticHash(sendEvent('other')));
+  });
+});
+
 describe('contentHash is a permanent contract', () => {
   /*
    * Known answers for the fixture flows. contentHash addresses stored versions
@@ -132,8 +181,16 @@ describe('contentHash is a permanent contract', () => {
    */
   test('the fixture workflows hash to their recorded values', () => {
     expect(checkoutRecovery.toIR().contentHash).toBe('b9d031dde655eac95a8e4d8413f04f4a');
-    expect(winback.toIR().contentHash).toBe('6240e28eea1a6b996ba01f12f300fc3d');
-    expect(reengagement.toIR().contentHash).toBe('7c6cc29309b9ea624756aee2585e46bd');
+    /*
+     * winback and reengagement moved once, deliberately, when exit / filter
+     * reasons left the hash (both fixtures carry an .exit('…')). That was a
+     * one-off migration of the projection, not a refactor: anything deployed
+     * before it keeps the old address and has to be republished. The two
+     * fixtures without a reason did not move, which is the check that nothing
+     * else about the projection changed with it.
+     */
+    expect(winback.toIR().contentHash).toBe('6822e0e7dc86bfc56f094faced85bc08');
+    expect(reengagement.toIR().contentHash).toBe('343ab5c4ca158e9813810494c4a12bbd');
     expect(nudge.toIR().contentHash).toBe('b3588e5ce143a3e2c956b2fb5c313a4a');
   });
 });
