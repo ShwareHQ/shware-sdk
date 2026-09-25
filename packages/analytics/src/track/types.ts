@@ -165,7 +165,6 @@ export interface AdvertisingInfo {
   campaign_id?: string;
   campaign_name?: string;
   placement?: string;
-  site_source_name?: string;
   /** Google Analytics fields */
   gclid?: string;
   gclsrc?: string;

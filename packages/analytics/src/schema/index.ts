@@ -141,7 +141,6 @@ export const tagsSchema = object({
   campaign_id: optional(string()),
   campaign_name: optional(string()),
   placement: optional(string()),
-  site_source_name: optional(string()),
   // Google Ads
   gclid: optional(string()),
   gclsrc: optional(string()),
