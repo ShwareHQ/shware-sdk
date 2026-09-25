@@ -128,6 +128,76 @@ describe('session_start', () => {
     const batches = sentBatches();
     expect(batches[1].body.map((e) => e.name)).toEqual(['custom_action']);
   });
+
+  it('carries the tags of the event that opened the session, not the tags at flush time', async () => {
+    // Each capture sees a different page: the landing page with its utm parameters first, then
+    // the page it redirected to before the batch went out.
+    let calls = 0;
+    const { track } = await load({ getTags: () => ({ call: ++calls }) });
+    respondWithIds();
+
+    track('page_view', undefined); // captures call 1, on the landing page
+    vi.advanceTimersByTime(1000); // the SPA has navigated on by the time the batch is flushed
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const [batch] = sentBatches();
+    expect(batch.body[0].name).toBe('session_start');
+    expect((batch.body[0].tags as TrackTags).call).toBe(1);
+    expect(calls).toBe(1); // no capture of its own
+  });
+
+  it('goes out again with the next batch of the session when its own batch was rejected', async () => {
+    let calls = 0;
+    const { track, jsonResponse } = await load({ getTags: () => ({ call: ++calls }) });
+    const onError = vi.fn();
+
+    // A 400 is not retried by fetch: one invalid event has failed the batch, session_start with it.
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid' }, 400));
+    const opening = new Date().toISOString();
+    track('custom_action', { a: 1 }, { onError });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    respondWithIds();
+    vi.advanceTimersByTime(5000);
+    track('custom_action', { a: 2 });
+    await vi.advanceTimersByTimeAsync(2000);
+    track('custom_action', { a: 3 });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const batches = sentBatches();
+    expect(batches).toHaveLength(3);
+    // The same announcement — landing tags, opening timestamp, same session — once, not twice.
+    expect(batches[1].body.map((e) => e.name)).toEqual(['session_start', 'custom_action']);
+    expect(batches[1].body[0]).toMatchObject({
+      timestamp: opening,
+      tags: { call: 1 },
+      session_id: batches[1].body[1].session_id,
+    });
+    expect(batches[2].body.map((e) => e.name)).toEqual(['custom_action']);
+  });
+
+  it('is not carried into a session that has since timed out', async () => {
+    const { track, jsonResponse } = await load();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid' }, 400));
+    const opening = new Date().toISOString();
+    track('custom_action', { a: 1 });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    // Half an hour later the next event opens a new session, which announces itself: the lost
+    // announcement belonged to a session nothing else will ever be filed under.
+    respondWithIds();
+    vi.advanceTimersByTime(31 * 60 * 1000);
+    const reopening = new Date().toISOString();
+    track('custom_action', { a: 2 });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const [, batch] = sentBatches();
+    const starts = batch.body.filter((e) => e.name === 'session_start');
+    expect(starts).toHaveLength(1);
+    expect(starts[0].timestamp).toBe(reopening);
+    expect(starts[0].timestamp).not.toBe(opening);
+  });
 });
 
 describe('tags', () => {

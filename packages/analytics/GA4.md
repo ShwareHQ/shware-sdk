@@ -101,7 +101,10 @@ event's timestamp. On the wire they are `sid`, `sct`, `seg`.
   from the moment its batch is flushed.
 - A new session clears the engagement its predecessor never reported.
 - `session_start` is emitted by the session machinery at the head of the batch that opened the
-  session, not by a hook on mount.
+  session, not by a hook on mount. It carries the tags of the event that opened the session, so a
+  landing page that redirects before the batch is flushed still attributes the session to the URL
+  it landed on; and if the server rejects that batch, it goes out again with the session's next
+  batch rather than being lost with the events around it.
 
 ## Where we deliberately differ
 
