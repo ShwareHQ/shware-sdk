@@ -111,7 +111,7 @@ describe('install referrer utm', () => {
     const getTags = await loadWith(storage);
 
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
-    expect(storage.map.get('install_referrer_claimed_time')).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(storage.map.get('install_referrer_claim_time')).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     // Later events of the same launch, and the visitor created from it, carry the utm too.
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
   });

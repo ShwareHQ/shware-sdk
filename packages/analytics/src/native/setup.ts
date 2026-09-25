@@ -112,8 +112,8 @@ export function getDeviceType(): string | undefined {
 let installLaunch: boolean | undefined;
 
 function claimInstallReferrer(): boolean {
-  if (config.storage.getItem(keys.install_referrer_claimed_time)) return false;
-  config.storage.setItem(keys.install_referrer_claimed_time, new Date().toISOString());
+  if (config.storage.getItem(keys.install_referrer_claim_time)) return false;
+  config.storage.setItem(keys.install_referrer_claim_time, new Date().toISOString());
   return true;
 }
 
