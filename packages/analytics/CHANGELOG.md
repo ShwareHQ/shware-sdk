@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 8.7.1
+
+### Patch Changes
+
+- 7a695e5: A `session_start` whose batch the server rejected goes out again with the session's next batch, under the same session id and with its original tags and timestamp. `fetch` already retries transient failures; this covers a batch rejected outright — one invalid event fails the whole batch, and the session's only attribution record with it — after which every later event of the session had no `session_start` to be attributed through. A session that has timed out in the meantime is not announced late: the carried-over start is dropped when the next batch opens a new session.
+- 7a695e5: `session_start` carries the tags of the event that opened the session, captured when that event happened, instead of capturing its own at flush time. A batch is flushed up to two seconds after the landing, and a landing page that redirects inside that window — an ad landing page that sends the visitor on to sign-in, a router that strips the query string — stamped the session's one attribution record with the URL the utm parameters and click ids had already been stripped from, so the session looked like direct traffic.
+
 ## 8.7.0
 
 ### Minor Changes
