@@ -97,35 +97,24 @@ export function getDeviceType(): string | undefined {
 }
 
 /**
- * Whether this process is the install launch — the one `first_open` is sent from.
+ * The install referrer's utm belongs to one launch: the first one to build tags, which is the
+ * install launch — `first_open` is the first event the app tracks, and tracking it is what builds
+ * the first tags. That launch claims the referrer by writing a marker of its own, and the claim
+ * is held in memory for the rest of the process, so every event of the install launch and the
+ * visitor created from it carry the utm; every later launch finds the marker and sends the raw
+ * `install_referrer` alone. Cleared storage and a reinstall lose the marker and claim again,
+ * exactly as they make `first_open` fire again.
  *
- * `first_open_time` is written by that launch, as an ISO timestamp. No marker means no launch has
- * sent `first_open` yet: this one is it. A marker means one has, and its timestamp tells which:
- * written within a minute of this process starting, it is this launch's own — the hook wrote it
- * before the first `getTags` ran, which the order of the two must be free to allow; written
- * further from it, in either direction, it belongs to an earlier launch. Cleared storage and a
- * reinstall read as an install launch, exactly as they make `first_open` fire again.
- *
- * A window rather than a one-sided bound because the two timestamps come from the same wall
- * clock and a clock correction can land between them either way: an NTP sync on a phone that
- * has just come online (when an install launch tends to happen) can pull the marker behind the
- * process start, and a clock that ran fast during an earlier launch and was set back since can
- * leave that launch's marker ahead of it. A minute bounds both. What it cannot tell apart is a
- * relaunch within that minute — a crash on the install launch and a retry — which reads as the
- * install launch again and repeats the utm once, on the same channel, in the same minute.
- *
- * `processStartedAt` is a plain number taken at import; the storage read waits for the first
- * `getTags`, because `setupAnalytics` and this module's evaluation can run where no storage
- * exists, and set-up must stay free of I/O.
+ * A marker of its own rather than `first_open_time`, so that nothing here depends on when the
+ * hook writes that one relative to the first `getTags`. The storage read waits for that call:
+ * `setupAnalytics` and this module's evaluation can run where no storage exists.
  */
-const processStartedAt = Date.now();
-const CLOCK_TOLERANCE = 60 * 1000;
 let installLaunch: boolean | undefined;
 
-function isInstallLaunch(): boolean {
-  const firstOpenTime = config.storage.getItem(keys.first_open_time);
-  if (!firstOpenTime) return true;
-  return Math.abs(Date.parse(firstOpenTime) - processStartedAt) <= CLOCK_TOLERANCE;
+function claimInstallReferrer(): boolean {
+  if (config.storage.getItem(keys.install_referrer_claimed_at)) return false;
+  config.storage.setItem(keys.install_referrer_claimed_at, new Date().toISOString());
+  return true;
 }
 
 export async function getTags(): Promise<TrackTags> {
@@ -137,9 +126,8 @@ export async function getTags(): Promise<TrackTags> {
   // so every session of an Android install reported the install campaign as its own acquisition
   // for as long as the app stayed installed, and a report reading a session's tags could not tell
   // the install from the thousandth open. The campaign is the install's touch, not every
-  // session's: the install launch carries it, on the visitor's initial_tags and on every event
-  // of that launch, and later launches send the raw `install_referrer` alone.
-  installLaunch ??= isInstallLaunch();
+  // session's.
+  installLaunch ??= claimInstallReferrer();
   const install_referrer = await getInstallReferrer();
   const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
 

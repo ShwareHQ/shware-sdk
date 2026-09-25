@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { memoryStorage } from '../test/setup';
 
 const getIosIdForVendorAsync = vi.fn(async () => 'ios-vendor-id');
 const getInstallReferrerAsync = vi.fn(
@@ -96,19 +97,35 @@ describe('getTags', () => {
 });
 
 describe('install referrer utm', () => {
-  async function loadWith(seed: Record<string, string>) {
-    const { baseOptions, memoryStorage } = await import('../test/setup');
+  async function loadWith(storage: ReturnType<typeof memoryStorage>) {
+    const { baseOptions } = await import('../test/setup');
     const { setupAnalytics } = await import('../setup/index');
-    const storage = memoryStorage(seed);
     setupAnalytics(baseOptions({ platform: 'android', storage }));
     const { getTags } = await import('./setup');
-    return { storage, getTags };
+    return getTags;
   }
 
-  it('is left off every launch after the install one', async () => {
-    // A first_open_time older than this process was written by an earlier launch.
-    const { getTags } = await loadWith({ first_open_time: '2025-12-01T00:00:00Z' });
-    const tags = await getTags();
+  it('is claimed by the first launch to build tags, and kept for that process', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    const storage = memoryStorage();
+    const getTags = await loadWith(storage);
+
+    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+    expect(storage.map.get('install_referrer_claimed_at')).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Later events of the same launch, and the visitor created from it, carry the utm too.
+    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+  });
+
+  it('is left off every launch after the one that claimed it', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    const storage = memoryStorage();
+    await (
+      await loadWith(storage)
+    )();
+
+    // A new process over the same storage: the next launch of the same install.
+    vi.resetModules();
+    const tags = await (await loadWith(storage))();
 
     // The referrer itself still travels; only its spread into the session's utm stops.
     expect(tags.install_referrer).toBe('utm_source=google-play&utm_medium=organic&gclid=G1');
@@ -116,45 +133,16 @@ describe('install referrer utm', () => {
     expect(tags.utm_medium).toBeUndefined();
   });
 
-  it('stays on when first_open_time was written by this process, whichever ran first', async () => {
-    const { getTags, storage } = await loadWith({});
-
-    // The hook has already sent first_open and written the marker before the first getTags —
-    // the order the decision must not depend on. The marker is this launch's own.
-    storage.setItem('first_open_time', new Date().toISOString());
-
-    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
-    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
-  });
-
-  it('forgives a clock correction of up to a minute in either direction', async () => {
-    // 30s behind the process start: the clock was set back between the two timestamps.
-    const behind = await loadWith({ first_open_time: new Date(Date.now() - 30_000).toISOString() });
-    await expect(behind.getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+  it('is claimed again once storage is gone, as after a reinstall', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    await (
+      await loadWith(memoryStorage())
+    )();
 
     vi.resetModules();
-    // 30s ahead of it: the clock was set forward between them.
-    const ahead = await loadWith({ first_open_time: new Date(Date.now() + 30_000).toISOString() });
-    await expect(ahead.getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
-  });
-
-  it('treats a marker more than a minute from the process start as an earlier launch', async () => {
-    const older = await loadWith({
-      first_open_time: new Date(Date.now() - 2 * 60_000).toISOString(),
+    await expect((await loadWith(memoryStorage()))()).resolves.toMatchObject({
+      utm_source: 'google-play',
     });
-    await expect(older.getTags()).resolves.toMatchObject({ utm_source: undefined });
-
-    vi.resetModules();
-    // Ahead of the process by more than a minute: an earlier launch on a clock since set back.
-    const newer = await loadWith({
-      first_open_time: new Date(Date.now() + 2 * 60_000).toISOString(),
-    });
-    await expect(newer.getTags()).resolves.toMatchObject({ utm_source: undefined });
-  });
-
-  it('treats an unreadable first_open_time as an earlier launch', async () => {
-    const { getTags } = await loadWith({ first_open_time: 'garbage' });
-    await expect(getTags()).resolves.toMatchObject({ utm_source: undefined });
   });
 });
 
