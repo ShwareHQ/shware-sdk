@@ -127,20 +127,29 @@ describe('install referrer utm', () => {
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
   });
 
-  it('forgives a clock correction of up to a minute between process start and the marker', async () => {
-    // The marker reads 30s before this process started: a clock that was set back in between,
-    // not an earlier launch — none can end and be followed by this one inside the same minute.
-    const { getTags } = await loadWith({
-      first_open_time: new Date(Date.now() - 30_000).toISOString(),
-    });
-    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+  it('forgives a clock correction of up to a minute in either direction', async () => {
+    // 30s behind the process start: the clock was set back between the two timestamps.
+    const behind = await loadWith({ first_open_time: new Date(Date.now() - 30_000).toISOString() });
+    await expect(behind.getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+
+    vi.resetModules();
+    // 30s ahead of it: the clock was set forward between them.
+    const ahead = await loadWith({ first_open_time: new Date(Date.now() + 30_000).toISOString() });
+    await expect(ahead.getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
   });
 
-  it('treats a marker more than a minute older than the process as an earlier launch', async () => {
-    const { getTags } = await loadWith({
+  it('treats a marker more than a minute from the process start as an earlier launch', async () => {
+    const older = await loadWith({
       first_open_time: new Date(Date.now() - 2 * 60_000).toISOString(),
     });
-    await expect(getTags()).resolves.toMatchObject({ utm_source: undefined });
+    await expect(older.getTags()).resolves.toMatchObject({ utm_source: undefined });
+
+    vi.resetModules();
+    // Ahead of the process by more than a minute: an earlier launch on a clock since set back.
+    const newer = await loadWith({
+      first_open_time: new Date(Date.now() + 2 * 60_000).toISOString(),
+    });
+    await expect(newer.getTags()).resolves.toMatchObject({ utm_source: undefined });
   });
 
   it('treats an unreadable first_open_time as an earlier launch', async () => {

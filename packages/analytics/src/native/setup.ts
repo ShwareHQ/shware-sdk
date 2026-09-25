@@ -99,17 +99,20 @@ export function getDeviceType(): string | undefined {
 /**
  * Whether this process is the install launch — the one `first_open` is sent from.
  *
- * `first_open_time` is written by that launch, as an ISO timestamp, so a marker no older than
- * this process is this launch's own: the answer is the same whether `getTags` first runs before
- * or after the hook has written it, and nothing here depends on the order of the two. A marker
- * from an earlier process means the install has launched before. Cleared storage and a reinstall
- * read as an install launch, exactly as they make `first_open` fire again.
+ * `first_open_time` is written by that launch, as an ISO timestamp. No marker means no launch has
+ * sent `first_open` yet: this one is it. A marker means one has, and its timestamp tells which:
+ * written within a minute of this process starting, it is this launch's own — the hook wrote it
+ * before the first `getTags` ran, which the order of the two must be free to allow; written
+ * further from it, in either direction, it belongs to an earlier launch. Cleared storage and a
+ * reinstall read as an install launch, exactly as they make `first_open` fire again.
  *
- * The comparison allows the marker to predate the process by up to a minute: the two timestamps
- * come from the same wall clock, and a clock correction landing between them — an NTP sync on a
- * phone that has just come online, which is when an install launch tends to happen — could pull
- * the marker behind the process start. No earlier launch can be that close: it would have to have
- * ended and this one started within the same minute.
+ * A window rather than a one-sided bound because the two timestamps come from the same wall
+ * clock and a clock correction can land between them either way: an NTP sync on a phone that
+ * has just come online (when an install launch tends to happen) can pull the marker behind the
+ * process start, and a clock that ran fast during an earlier launch and was set back since can
+ * leave that launch's marker ahead of it. A minute bounds both. What it cannot tell apart is a
+ * relaunch within that minute — a crash on the install launch and a retry — which reads as the
+ * install launch again and repeats the utm once, on the same channel, in the same minute.
  *
  * `processStartedAt` is a plain number taken at import; the storage read waits for the first
  * `getTags`, because `setupAnalytics` and this module's evaluation can run where no storage
@@ -121,7 +124,8 @@ let installLaunch: boolean | undefined;
 
 function isInstallLaunch(): boolean {
   const firstOpenTime = config.storage.getItem(keys.first_open_time);
-  return !firstOpenTime || Date.parse(firstOpenTime) >= processStartedAt - CLOCK_TOLERANCE;
+  if (!firstOpenTime) return true;
+  return Math.abs(Date.parse(firstOpenTime) - processStartedAt) <= CLOCK_TOLERANCE;
 }
 
 export async function getTags(): Promise<TrackTags> {
