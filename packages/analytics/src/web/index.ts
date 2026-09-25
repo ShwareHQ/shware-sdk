@@ -114,7 +114,6 @@ export async function getTags() {
     campaign_id: params.get('campaign_id') ?? undefined,
     campaign_name: params.get('campaign_name') ?? undefined,
     placement: params.get('placement') ?? undefined,
-    site_source_name: params.get('site_source_name') ?? undefined,
     // Google Ads — _gcl_aw/_gcl_gb are written by gtag and kept alive server-side (see
     // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
     // click id to every later page of the visit and to returning visits.
