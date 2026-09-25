@@ -106,7 +106,7 @@ describe('install referrer utm', () => {
   }
 
   it('is left off every launch after the install one', async () => {
-    // first_open_time is written by the install launch; its presence means this is a later one.
+    // A first_open_time older than this process was written by an earlier launch.
     const { getTags } = await loadWith({ first_open_time: '2025-12-01T00:00:00Z' });
     const tags = await getTags();
 
@@ -116,15 +116,20 @@ describe('install referrer utm', () => {
     expect(tags.utm_medium).toBeUndefined();
   });
 
-  it('is decided when analytics is set up, and kept once first_open_time is written', async () => {
+  it('stays on when first_open_time was written by this process, whichever ran first', async () => {
     const { getTags, storage } = await loadWith({});
 
-    // The install launch writes the marker as it sends first_open; every event of that launch,
-    // and the visitor created from it, still carry the referrer's utm.
+    // The hook has already sent first_open and written the marker before the first getTags —
+    // the order the decision must not depend on. The marker is this launch's own.
     storage.setItem('first_open_time', new Date().toISOString());
 
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+  });
+
+  it('treats an unreadable first_open_time as an earlier launch', async () => {
+    const { getTags } = await loadWith({ first_open_time: 'garbage' });
+    await expect(getTags()).resolves.toMatchObject({ utm_source: undefined });
   });
 });
 

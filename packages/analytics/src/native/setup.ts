@@ -14,6 +14,7 @@ import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
+import { keys } from '../constants/storage';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
@@ -95,6 +96,27 @@ export function getDeviceType(): string | undefined {
   }
 }
 
+/**
+ * Whether this process is the install launch — the one `first_open` is sent from.
+ *
+ * `first_open_time` is written by that launch, as an ISO timestamp, so a marker no older than
+ * this process is this launch's own: the answer is the same whether `getTags` first runs before
+ * or after the hook has written it, and nothing here depends on the order of the two. A marker
+ * from an earlier process means the install has launched before. Cleared storage and a reinstall
+ * read as an install launch, exactly as they make `first_open` fire again.
+ *
+ * `processStartedAt` is a plain number taken at import; the storage read waits for the first
+ * `getTags`, because `setupAnalytics` and this module's evaluation can run where no storage
+ * exists, and set-up must stay free of I/O.
+ */
+const processStartedAt = Date.now();
+let installLaunch: boolean | undefined;
+
+function isInstallLaunch(): boolean {
+  const firstOpenTime = config.storage.getItem(keys.first_open_time);
+  return !firstOpenTime || Date.parse(firstOpenTime) >= processStartedAt;
+}
+
 export async function getTags(): Promise<TrackTags> {
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);
@@ -106,8 +128,9 @@ export async function getTags(): Promise<TrackTags> {
   // the install from the thousandth open. The campaign is the install's touch, not every
   // session's: the install launch carries it, on the visitor's initial_tags and on every event
   // of that launch, and later launches send the raw `install_referrer` alone.
+  installLaunch ??= isInstallLaunch();
   const install_referrer = await getInstallReferrer();
-  const params = new URLSearchParams(config.firstLaunch ? install_referrer : undefined);
+  const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
 
   const tags: TrackTags = {
     os: `${osName} ${osVersion}`,
