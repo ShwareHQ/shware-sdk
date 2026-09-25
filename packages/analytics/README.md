@@ -60,6 +60,36 @@ changes. The framework `Analytics` components wire this up.
 - /analytics/tracks: track events
 - /analytics/visitor: app visitors
 
+## Sessions and attribution
+
+How the events this SDK sends are meant to be read on the server side, for attribution. Three
+layers, each derived from the one below it, none needing a table of its own:
+
+- **Session** — `event where name = 'session_start'`. The SDK opens a session after 30 minutes
+  without an event and sends exactly one `session_start` at the head of the batch that opened it,
+  carrying the tags of the event that opened it: the landing page's URL, utm parameters and click
+  ids, captured when that event happened rather than when the batch went out. A partial unique
+  index on `event (session_id) where name = 'session_start'` makes that row the session's one
+  record on the server; there is no session table.
+- **Touchpoint** — a view over those rows that reads each session's tags as `channel`, `medium`
+  and `campaign`. An explicit `utm_source` wins; then a click id (`fbclid`, `gclid`, … — one a
+  first-party cookie may carry over from an earlier click); then a landing page reserved for one
+  channel's ads. The rules for what counts as which channel live here and nowhere else.
+- **Attribution** — a view over touchpoints that credits a session with no touch of its own to
+  the same person's most recent paid touch, across devices (visitors sharing a `user_id`), within a
+  window. Last paid touch, first touch and multi-touch are alternative models at this layer over
+  the same touchpoints.
+
+What the SDK guarantees for this to hold:
+
+- `session_start` is sent once per session, first in its batch, with the opening event's tags and
+  timestamp. If the server rejected that batch, it goes out again with the session's next batch
+  under the same session id; the server's unique index drops a duplicate should both land.
+- On native, the install referrer's `utm_*` are attached only on the launch that first resolves
+  the referrer, so a later session is a touch only when it actually arrived through something.
+- `session_id` is a client-generated uuidv7 persisted in `config.storage`, shared across tabs and
+  reloads. It is a grouping key, not an identity: event and visitor ids are the server's.
+
 ## UTM params
 
 Typed as `UTMParams` (exported from `@shware/analytics`). Value unions follow the
