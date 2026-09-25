@@ -55,7 +55,20 @@ async function captureTags(): Promise<TrackTags> {
   }
 }
 
+/**
+ * The `session_start` a failed batch took down with it, kept for the next batch of the same
+ * session. `fetch` has already retried the transient failures by the time a batch fails here;
+ * what remains is a batch the server rejected outright — one invalid event fails the whole batch,
+ * and `session_start` with it — or a network that stayed down past the retries. Neither is a
+ * reason to lose the session's one attribution record, so it goes out again, with the tags and
+ * timestamp of the moment the session actually began, under the same session id. Held in memory
+ * only: a reload loses it, and with it the session_start — the same as before this existed.
+ */
+let pendingStart: { session_id: string; item: Item } | undefined;
+
 async function sendEvents(events: Item[]) {
+  /** The announcement this batch carries, if any, so the catch below can hold it back. */
+  let announcement: { session_id: string; item: Item } | undefined;
   try {
     if (events.length === 0) return;
 
@@ -63,21 +76,31 @@ async function sendEvents(events: Item[]) {
     // these events belong to and whether this batch is the one that started it. Timed by the
     // events themselves rather than by this moment — a tab frozen in the background can hold a
     // batch for far longer than `delay`, and those events belong to the session they happened in.
-    const firstTimestamp = events[0].timestamp;
+    const opening = events[0];
     const { id: session_id, started } = getSession().touch(
-      Date.parse(firstTimestamp),
+      Date.parse(opening.timestamp),
       Date.parse(events[events.length - 1].timestamp)
     );
-    if (started) {
-      events.unshift({
-        name: 'session_start',
-        properties: {},
-        options: { enableThirdPartyTracking: false },
-        tags: captureTags(),
-        // The session began with the event that opened it, not at this moment: a batch held in a
-        // frozen tab would otherwise announce its session later than the events inside it.
-        timestamp: firstTimestamp,
-      });
+    if (started || pendingStart?.session_id === session_id) {
+      // `session_start` is derived from the event that opened the session, as GA4 derives it
+      // from the hit that did: when that event happened is when the session began, and the page
+      // it was captured on is where. Neither is read now — this batch goes out up to `delay` ms
+      // later, a batch held in a frozen tab far later still, and a landing page that redirects
+      // inside that window would stamp the session's one attribution record with the URL the utm
+      // parameters were already stripped from.
+      const start: Item =
+        pendingStart?.session_id === session_id
+          ? pendingStart.item
+          : {
+              name: 'session_start',
+              properties: {},
+              options: { enableThirdPartyTracking: false },
+              tags: opening.tags,
+              timestamp: opening.timestamp,
+            };
+      pendingStart = undefined;
+      announcement = { session_id, item: start };
+      events.unshift(start);
     }
 
     await getTokenBucket().removeTokens();
@@ -144,6 +167,10 @@ async function sendEvents(events: Item[]) {
     }
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
+    // The other events are reported lost and stay lost; `session_start` alone is worth carrying
+    // over, because it is the session's only attribution record — a session without one has no
+    // channel, and its every later event drops out of an attribution join.
+    if (announcement) pendingStart = announcement;
     events.forEach((event) => event.options.onError?.(e));
   }
 }
