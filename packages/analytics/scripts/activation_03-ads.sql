@@ -2,13 +2,14 @@
 -- one row per session, credited to its own touch or to the same person's latest touch within
 -- ATTRIBUTION_WINDOW_DAYS (30), across devices. The cohort is people whose credited touch
 -- happened in the dashboard window; their events count whenever and on whatever platform they
--- happened. Dashboard variables: $channel (single value, e.g. `select distinct channel from
--- application.touchpoint`), $environment, $platform (multi, the platform the ad was clicked on).
+-- happened. One panel per channel, side by side: copy the query and change the 'meta' literal
+-- (the values are application.touchpoint's channel column). Dashboard variables: $environment,
+-- $platform (multi, the platform the ad was clicked on).
 
 -- Cohort size (Stat): the denominator for every rate below.
 select count(distinct a.person_id) as "People"
 from application.attribution a
-where a.channel = '$channel'
+where a.channel = 'meta'
   and a.touched_at between $__timeFrom() and $__timeTo()
   -- Redundant in results, required for the plan: touched_at comes from a lateral and cannot be
   -- pushed down; started_at can. The days added must equal ATTRIBUTION_WINDOW_DAYS.
@@ -22,7 +23,7 @@ where a.channel = '$channel'
 select e.name as event_name, count(distinct a.person_id) as event_count
 from application.event e
        join application.attribution a on a.session_id = e.session_id
-where a.channel = '$channel'
+where a.channel = 'meta'
   and a.touched_at between $__timeFrom() and $__timeTo()
   and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
   and a.touch_platform in (${platform:sqlstring})
@@ -45,7 +46,7 @@ select e.name as event_name,
        count(distinct a.person_id) as with_inherited
 from application.event e
        join application.attribution a on a.session_id = e.session_id
-where a.channel = '$channel'
+where a.channel = 'meta'
   and a.touched_at between $__timeFrom() and $__timeTo()
   and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
   and a.touch_platform in (${platform:sqlstring})
@@ -58,7 +59,7 @@ order by with_inherited desc;
 select a.touch_platform, a.platform as converted_on, count(distinct a.person_id) as buyers
 from application.event e
        join application.attribution a on a.session_id = e.session_id
-where a.channel = '$channel'
+where a.channel = 'meta'
   and a.touched_at between $__timeFrom() and $__timeTo()
   and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
   and e.environment = '$environment'
