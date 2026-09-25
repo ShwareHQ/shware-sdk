@@ -95,6 +95,41 @@ describe('getTags', () => {
   });
 });
 
+describe('install referrer utm', () => {
+  async function loadWith(seed: Record<string, string>) {
+    const { baseOptions, memoryStorage } = await import('../test/setup');
+    const { setupAnalytics } = await import('../setup/index');
+    const storage = memoryStorage(seed);
+    setupAnalytics(baseOptions({ platform: 'android', storage }));
+    const { getTags } = await import('./setup');
+    return { storage, getTags };
+  }
+
+  it('is left off every launch after the install one', async () => {
+    // first_open_time is written by the install launch; its presence means this is a later one.
+    const { getTags } = await loadWith({ first_open_time: '2025-12-01T00:00:00Z' });
+    const tags = await getTags();
+
+    // The referrer itself still travels; only its spread into the session's utm stops.
+    expect(tags.install_referrer).toBe('utm_source=google-play&utm_medium=organic&gclid=G1');
+    expect(tags.utm_source).toBeUndefined();
+    expect(tags.utm_medium).toBeUndefined();
+  });
+
+  it('is decided on the first call, before first_open_time is written, and then kept', async () => {
+    const { getTags, storage } = await loadWith({});
+
+    // `track('first_open')` starts the first `getTags`, and `sendFirstOpen` writes the marker as
+    // soon as `track` returns — before the referrer lookup inside that call has resolved.
+    const first = getTags();
+    storage.setItem('first_open_time', new Date().toISOString());
+
+    await expect(first).resolves.toMatchObject({ utm_source: 'google-play' });
+    // Later events of the same launch, and the visitor created from it, carry the utm too.
+    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+  });
+});
+
 describe('getDeviceId', () => {
   it('memoizes across calls', async () => {
     const { getDeviceId } = await load();
