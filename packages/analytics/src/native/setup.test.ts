@@ -105,7 +105,7 @@ describe('install referrer utm', () => {
     return getTags;
   }
 
-  it('is claimed by the first launch to build tags, and kept for that process', async () => {
+  it('is claimed by the first launch that resolves the referrer, and kept for that process', async () => {
     const { memoryStorage } = await import('../test/setup');
     const storage = memoryStorage();
     const getTags = await loadWith(storage);
@@ -119,13 +119,13 @@ describe('install referrer utm', () => {
   it('is left off every launch after the one that claimed it', async () => {
     const { memoryStorage } = await import('../test/setup');
     const storage = memoryStorage();
-    await (
-      await loadWith(storage)
-    )();
+    const installLaunch = await loadWith(storage);
+    await installLaunch();
 
     // A new process over the same storage: the next launch of the same install.
     vi.resetModules();
-    const tags = await (await loadWith(storage))();
+    const laterLaunch = await loadWith(storage);
+    const tags = await laterLaunch();
 
     // The referrer itself still travels; only its spread into the session's utm stops.
     expect(tags.install_referrer).toBe('utm_source=google-play&utm_medium=organic&gclid=G1');
@@ -140,25 +140,25 @@ describe('install referrer utm', () => {
     // Right after an install the Play Store service is often not reachable yet: this launch
     // gets no referrer, attaches no utm, and must leave the claim for a launch that can.
     getInstallReferrerAsync.mockResolvedValueOnce(undefined as never);
-    const first = await (await loadWith(storage))();
+    const offlineLaunch = await loadWith(storage);
+    const first = await offlineLaunch();
     expect(first.utm_source).toBeUndefined();
     expect(storage.map.has('install_referrer_claim_time')).toBe(false);
 
     vi.resetModules();
-    await expect((await loadWith(storage))()).resolves.toMatchObject({ utm_source: 'google-play' });
+    const laterLaunch = await loadWith(storage);
+    await expect(laterLaunch()).resolves.toMatchObject({ utm_source: 'google-play' });
     expect(storage.map.has('install_referrer_claim_time')).toBe(true);
   });
 
   it('is claimed again once storage is gone, as after a reinstall', async () => {
     const { memoryStorage } = await import('../test/setup');
-    await (
-      await loadWith(memoryStorage())
-    )();
+    const firstInstall = await loadWith(memoryStorage());
+    await firstInstall();
 
     vi.resetModules();
-    await expect((await loadWith(memoryStorage()))()).resolves.toMatchObject({
-      utm_source: 'google-play',
-    });
+    const reinstall = await loadWith(memoryStorage());
+    await expect(reinstall()).resolves.toMatchObject({ utm_source: 'google-play' });
   });
 });
 

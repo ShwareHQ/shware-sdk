@@ -156,7 +156,7 @@ export async function getTags(): Promise<TrackTags> {
     // ads
     advertising_id: getAdvertisingId() ?? undefined,
     install_referrer,
-    // utm params: from the install referrer, on the install launch only
+    // utm params: from the install referrer, on the launch that claimed it
     utm_source: params.get('utm_source') ?? undefined,
     utm_medium: params.get('utm_medium') ?? undefined,
     utm_campaign: params.get('utm_campaign') ?? undefined,
