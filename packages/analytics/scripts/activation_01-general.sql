@@ -69,26 +69,41 @@ from ttv_buckets
 group by week_start
 order by week_start;
 
--- User funnel (Bar chart)
+-- User funnel (Bar chart): people whose first session started in the window — newcomers, one
+-- per person across devices (application.touchpoint's person_id) — and how many of them did each
+-- step within 30 days of that first session. The previous version counted visitors, one per
+-- device, and every later event forever; the 30 days make periods comparable and bound the scan.
+-- Unordered on purpose: the steps are not one forced path, so read each bar against the first
+-- one, not against the bar before it. Finding each person's first session reads every session
+-- of the environment; fine at dashboard scale, a person-level view would replace it later.
+with first_session as (
+  select distinct on (t.person_id) t.person_id, t.started_at, t.platform
+  from application.touchpoint t
+  where t.environment = '$environment'
+  order by t.person_id, t.started_at
+),
+newcomers as (
+  select person_id, started_at
+  from first_session
+  where started_at between $__timeFrom() and $__timeTo()
+    and platform in (${platform:sqlstring})
+)
 select
   e.name as event_name,
-  count(distinct e.visitor_id) as event_count
-from application.event e
-where
-  e.name in (
-    'page_view',
-    'cta_button_clicked',
-    'login',
-    'begin_checkout',
-    'purchase'
-  )
-  and e.visitor_id in (
-    select v.id from application.visitor v
-    where
-      v.created_at between $__timeFrom() and $__timeTo()
-      and v.environment = '$environment'
-      and v.platform in (${platform:sqlstring})
-  )
+  count(distinct n.person_id) as event_count
+from newcomers n
+       join application.touchpoint t
+            on t.person_id = n.person_id
+              and t.environment = '$environment'
+              and t.started_at between n.started_at and n.started_at + interval '30 days'
+       join application.event e on e.session_id = t.session_id
+where e.name in (
+  'page_view',
+  'cta_button_clicked',
+  'login',
+  'begin_checkout',
+  'purchase'
+)
 group by event_name
 order by event_count desc;
 
