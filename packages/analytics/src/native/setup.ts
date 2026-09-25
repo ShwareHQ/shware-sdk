@@ -105,16 +105,23 @@ export function getDeviceType(): string | undefined {
  * from an earlier process means the install has launched before. Cleared storage and a reinstall
  * read as an install launch, exactly as they make `first_open` fire again.
  *
+ * The comparison allows the marker to predate the process by up to a minute: the two timestamps
+ * come from the same wall clock, and a clock correction landing between them — an NTP sync on a
+ * phone that has just come online, which is when an install launch tends to happen — could pull
+ * the marker behind the process start. No earlier launch can be that close: it would have to have
+ * ended and this one started within the same minute.
+ *
  * `processStartedAt` is a plain number taken at import; the storage read waits for the first
  * `getTags`, because `setupAnalytics` and this module's evaluation can run where no storage
  * exists, and set-up must stay free of I/O.
  */
 const processStartedAt = Date.now();
+const CLOCK_TOLERANCE = 60 * 1000;
 let installLaunch: boolean | undefined;
 
 function isInstallLaunch(): boolean {
   const firstOpenTime = config.storage.getItem(keys.first_open_time);
-  return !firstOpenTime || Date.parse(firstOpenTime) >= processStartedAt;
+  return !firstOpenTime || Date.parse(firstOpenTime) >= processStartedAt - CLOCK_TOLERANCE;
 }
 
 export async function getTags(): Promise<TrackTags> {

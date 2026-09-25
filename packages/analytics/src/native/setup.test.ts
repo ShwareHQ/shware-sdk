@@ -127,6 +127,22 @@ describe('install referrer utm', () => {
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
   });
 
+  it('forgives a clock correction of up to a minute between process start and the marker', async () => {
+    // The marker reads 30s before this process started: a clock that was set back in between,
+    // not an earlier launch — none can end and be followed by this one inside the same minute.
+    const { getTags } = await loadWith({
+      first_open_time: new Date(Date.now() - 30_000).toISOString(),
+    });
+    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
+  });
+
+  it('treats a marker more than a minute older than the process as an earlier launch', async () => {
+    const { getTags } = await loadWith({
+      first_open_time: new Date(Date.now() - 2 * 60_000).toISOString(),
+    });
+    await expect(getTags()).resolves.toMatchObject({ utm_source: undefined });
+  });
+
   it('treats an unreadable first_open_time as an earlier launch', async () => {
     const { getTags } = await loadWith({ first_open_time: 'garbage' });
     await expect(getTags()).resolves.toMatchObject({ utm_source: undefined });
