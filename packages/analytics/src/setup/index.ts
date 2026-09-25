@@ -1,3 +1,4 @@
+import { keys } from '../constants/storage';
 import type { Environment, Platform, ThirdPartyTracker, TrackTags } from '../track/types';
 import type { ThirdPartyUserSetter, Visitor } from '../visitor/types';
 
@@ -25,6 +26,14 @@ interface Config {
   storage: Storage;
   platform: Platform;
   environment: Environment;
+  /**
+   * Whether this process is the first launch of the install — the one `first_open` (native) or
+   * `first_visit` (web) is sent from. Decided when analytics is set up and held for the process:
+   * the hooks that write those markers go through `config.storage`, which does not exist before
+   * `setupAnalytics`, so a marker missing here is missing because this install has never sent it.
+   * Cleared storage and a reinstall both read as a first launch, exactly as the markers do.
+   */
+  firstLaunch: boolean;
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
   getHeaders: () => Record<string, string> | Promise<Record<string, string>>;
@@ -49,6 +58,7 @@ export const config: Config = {
   storage: null!,
   platform: null!,
   environment: null!,
+  firstLaunch: false,
   getTags: null!,
   getDeviceId: null!,
   getHeaders: null!,
@@ -62,6 +72,9 @@ export function setupAnalytics(init: Options) {
   config.storage = init.storage;
   config.platform = init.platform;
   config.environment = init.environment;
+  config.firstLaunch = !init.storage.getItem(
+    init.platform === 'web' ? keys.first_visit_time : keys.first_open_time
+  );
   config.endpoint = init.endpoint.endsWith('/') ? init.endpoint.slice(0, -1) : init.endpoint;
   config.getTags = init.getTags;
   config.getDeviceId = init.getDeviceId;

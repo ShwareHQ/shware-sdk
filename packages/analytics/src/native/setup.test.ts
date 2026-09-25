@@ -116,16 +116,14 @@ describe('install referrer utm', () => {
     expect(tags.utm_medium).toBeUndefined();
   });
 
-  it('is decided on the first call, before first_open_time is written, and then kept', async () => {
+  it('is decided when analytics is set up, and kept once first_open_time is written', async () => {
     const { getTags, storage } = await loadWith({});
 
-    // `track('first_open')` starts the first `getTags`, and `sendFirstOpen` writes the marker as
-    // soon as `track` returns — before the referrer lookup inside that call has resolved.
-    const first = getTags();
+    // The install launch writes the marker as it sends first_open; every event of that launch,
+    // and the visitor created from it, still carry the referrer's utm.
     storage.setItem('first_open_time', new Date().toISOString());
 
-    await expect(first).resolves.toMatchObject({ utm_source: 'google-play' });
-    // Later events of the same launch, and the visitor created from it, carry the utm too.
+    await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
     await expect(getTags()).resolves.toMatchObject({ utm_source: 'google-play' });
   });
 });

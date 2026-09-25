@@ -14,7 +14,6 @@ import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
-import { keys } from '../constants/storage';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
@@ -96,31 +95,19 @@ export function getDeviceType(): string | undefined {
   }
 }
 
-/**
- * Whether this process is the install launch, the one `first_open` is sent from.
- *
- * The install referrer never changes, and it used to be spread into `utm_*` on every launch — so
- * every session of an Android install reported the install campaign as its own acquisition, for
- * as long as the app stayed installed, and a report reading a session's tags could not tell the
- * install from the thousandth open. The campaign is the install's touch, not every session's:
- * only the install launch carries it, and later launches send the raw `install_referrer` alone.
- *
- * Decided once, on the first `getTags` call and before its first await. That call comes from
- * `track('first_open')`, and `sendFirstOpen` writes `first_open_time` the moment `track` returns,
- * so a read after the await would already see it set. Held for the process lifetime so the
- * visitor's `initial_tags` and every event of the install launch carry the referrer's utm.
- */
-let installLaunch: boolean | undefined;
-
 export async function getTags(): Promise<TrackTags> {
-  installLaunch ??= !config.storage.getItem(keys.first_open_time);
-
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);
   const screen_height = Math.floor(screen.height);
 
+  // The install referrer never changes, and it used to be spread into `utm_*` on every launch —
+  // so every session of an Android install reported the install campaign as its own acquisition
+  // for as long as the app stayed installed, and a report reading a session's tags could not tell
+  // the install from the thousandth open. The campaign is the install's touch, not every
+  // session's: the install launch carries it, on the visitor's initial_tags and on every event
+  // of that launch, and later launches send the raw `install_referrer` alone.
   const install_referrer = await getInstallReferrer();
-  const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
+  const params = new URLSearchParams(config.firstLaunch ? install_referrer : undefined);
 
   const tags: TrackTags = {
     os: `${osName} ${osVersion}`,
@@ -141,7 +128,7 @@ export async function getTags(): Promise<TrackTags> {
     // ads
     advertising_id: getAdvertisingId() ?? undefined,
     install_referrer,
-    // utm params: from the install referrer, on the install launch only (see `installLaunch`)
+    // utm params: from the install referrer, on the install launch only
     utm_source: params.get('utm_source') ?? undefined,
     utm_medium: params.get('utm_medium') ?? undefined,
     utm_campaign: params.get('utm_campaign') ?? undefined,
