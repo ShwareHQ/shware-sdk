@@ -133,6 +133,22 @@ describe('install referrer utm', () => {
     expect(tags.utm_medium).toBeUndefined();
   });
 
+  it('is not claimed by a launch that could not read the referrer, so a later one can', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    const storage = memoryStorage();
+
+    // Right after an install the Play Store service is often not reachable yet: this launch
+    // gets no referrer, attaches no utm, and must leave the claim for a launch that can.
+    getInstallReferrerAsync.mockResolvedValueOnce(undefined as never);
+    const first = await (await loadWith(storage))();
+    expect(first.utm_source).toBeUndefined();
+    expect(storage.map.has('install_referrer_claim_time')).toBe(false);
+
+    vi.resetModules();
+    await expect((await loadWith(storage))()).resolves.toMatchObject({ utm_source: 'google-play' });
+    expect(storage.map.has('install_referrer_claim_time')).toBe(true);
+  });
+
   it('is claimed again once storage is gone, as after a reinstall', async () => {
     const { memoryStorage } = await import('../test/setup');
     await (

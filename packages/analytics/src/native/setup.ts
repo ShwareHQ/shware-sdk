@@ -97,13 +97,19 @@ export function getDeviceType(): string | undefined {
 }
 
 /**
- * The install referrer's utm belongs to one launch: the first one to build tags, which is the
- * install launch — `first_open` is the first event the app tracks, and tracking it is what builds
- * the first tags. That launch claims the referrer by writing a marker of its own, and the claim
- * is held in memory for the rest of the process, so every event of the install launch and the
+ * The install referrer's utm belongs to one launch: the first one that has the referrer in hand
+ * — normally the install launch, since `first_open` is the first event the app tracks and
+ * tracking it builds the first tags. That launch claims the referrer by writing a marker of its
+ * own, and holds the claim for the rest of the process, so every event of the launch and the
  * visitor created from it carry the utm; every later launch finds the marker and sends the raw
  * `install_referrer` alone. Cleared storage and a reinstall lose the marker and claim again,
  * exactly as they make `first_open` fire again.
+ *
+ * Claimed only once a referrer has actually been resolved. The Install Referrer API needs the
+ * Play Store service, which is at its least available right after an install; a launch that
+ * could not reach it must not spend the claim on nothing, because the referrer stays readable
+ * for 90 days and a later launch can still take it — late attribution, rather than none. iOS
+ * has no referrer and so never claims.
  *
  * A marker of its own rather than `first_open_time`, so that nothing here depends on when the
  * hook writes that one relative to the first `getTags`. The storage read waits for that call:
@@ -127,8 +133,8 @@ export async function getTags(): Promise<TrackTags> {
   // for as long as the app stayed installed, and a report reading a session's tags could not tell
   // the install from the thousandth open. The campaign is the install's touch, not every
   // session's.
-  installLaunch ??= claimInstallReferrer();
   const install_referrer = await getInstallReferrer();
+  if (install_referrer && installLaunch === undefined) installLaunch = claimInstallReferrer();
   const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
 
   const tags: TrackTags = {
