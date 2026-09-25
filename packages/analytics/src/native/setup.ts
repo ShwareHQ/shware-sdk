@@ -14,6 +14,7 @@ import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
+import { keys } from '../constants/storage';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
 
@@ -95,13 +96,46 @@ export function getDeviceType(): string | undefined {
   }
 }
 
+/**
+ * The install referrer's utm belongs to one launch: the first one that has the referrer in hand
+ * — normally the install launch, since `first_open` is the first event the app tracks and
+ * tracking it builds the first tags. That launch claims the referrer by writing a marker of its
+ * own, and holds the claim for the rest of the process, so every event of the launch and the
+ * visitor created from it carry the utm; every later launch finds the marker and sends the raw
+ * `install_referrer` alone. Cleared storage and a reinstall lose the marker and claim again,
+ * exactly as they make `first_open` fire again.
+ *
+ * Claimed only once a referrer has actually been resolved. The Install Referrer API needs the
+ * Play Store service, which is at its least available right after an install; a launch that
+ * could not reach it must not spend the claim on nothing, because the referrer stays readable
+ * for 90 days and a later launch can still take it — late attribution, rather than none. iOS
+ * has no referrer and so never claims.
+ *
+ * A marker of its own rather than `first_open_time`, so that nothing here depends on when the
+ * hook writes that one relative to the first `getTags`. The storage read waits for that call:
+ * `setupAnalytics` and this module's evaluation can run where no storage exists.
+ */
+let installLaunch: boolean | undefined;
+
+function claimInstallReferrer(): boolean {
+  if (config.storage.getItem(keys.install_referrer_claim_time)) return false;
+  config.storage.setItem(keys.install_referrer_claim_time, new Date().toISOString());
+  return true;
+}
+
 export async function getTags(): Promise<TrackTags> {
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);
   const screen_height = Math.floor(screen.height);
 
+  // The install referrer never changes, and it used to be spread into `utm_*` on every launch —
+  // so every session of an Android install reported the install campaign as its own acquisition
+  // for as long as the app stayed installed, and a report reading a session's tags could not tell
+  // the install from the thousandth open. The campaign is the install's touch, not every
+  // session's.
   const install_referrer = await getInstallReferrer();
-  const params = new URLSearchParams(install_referrer);
+  if (install_referrer && installLaunch === undefined) installLaunch = claimInstallReferrer();
+  const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
 
   const tags: TrackTags = {
     os: `${osName} ${osVersion}`,
@@ -122,7 +156,7 @@ export async function getTags(): Promise<TrackTags> {
     // ads
     advertising_id: getAdvertisingId() ?? undefined,
     install_referrer,
-    // utm params
+    // utm params: from the install referrer, on the launch that claimed it
     utm_source: params.get('utm_source') ?? undefined,
     utm_medium: params.get('utm_medium') ?? undefined,
     utm_campaign: params.get('utm_campaign') ?? undefined,
