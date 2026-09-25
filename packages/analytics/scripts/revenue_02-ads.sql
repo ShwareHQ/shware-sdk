@@ -1,65 +1,50 @@
--- Google Ads
-with target_visitors as (
-  select id
-  from application.visitor
-  where initial_tags ->> 'utm_source' = 'google'
-    and initial_tags ->> 'utm_medium' = 'cpc'
-    and created_at between $__timeFrom() and $__timeTo()
-),
-unique_purchases as (
-  select distinct on (properties ->> 'transaction_id')
-    (properties ->> 'value')::numeric as revenue_value
-  from application.event
-  where name = 'purchase'
-    and visitor_id in (select id from target_visitors)
-  order by properties ->> 'transaction_id', created_at desc
-)
-select sum(revenue_value) as "Total Revenue" from unique_purchases;
+-- Ads revenue reads application.attribution (see activation_03-ads.sql for the cohort and the
+-- started_at bound). Revenue here is the `purchase` event's value: first purchases only — a
+-- renewal is written by the payment webhook and has no event. A purchase is one row per
+-- transaction_id (event_purchase_transaction_unique), so nothing needs deduplicating.
+-- Dashboard variables: $channel, $environment, $platform (the platform the ad was clicked on).
 
--- Google Ads Average Customer Value
-with target_visitors as (
-  select id
-  from application.visitor
-  where initial_tags ->> 'utm_source' = 'google'
-    and initial_tags ->> 'utm_medium' = 'cpc'
-    and created_at between $__timeFrom() and $__timeTo()
-),
-     unique_purchases as (
-       select distinct on (properties ->> 'transaction_id')
-  (properties ->> 'value')::numeric as revenue_value,
-  visitor_id
-from application.event
-where name = 'purchase'
-  and visitor_id in (select id from target_visitors)
-order by properties ->> 'transaction_id', created_at desc
-  )
-select
-  round(sum(revenue_value) / nullif(count(distinct visitor_id), 0), 2) as "Average Customer Value"
-from unique_purchases;
+-- Total Revenue (Stat)
+select coalesce(sum((e.properties ->> 'value')::numeric), 0) as "Total Revenue"
+from application.event e
+       join application.attribution a on a.session_id = e.session_id
+where e.name = 'purchase'
+  and a.channel = '$channel'
+  and a.touched_at between $__timeFrom() and $__timeTo()
+  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.touch_platform in (${platform:sqlstring})
+  and e.environment = '$environment';
 
--- Google Ads new Orders
-with target_visitors as (
-  select id
-  from application.visitor
-  where initial_tags ->> 'utm_source' = 'google'
-    and initial_tags ->> 'utm_medium' = 'cpc'
-    and created_at between $__timeFrom() and $__timeTo()
-),
-     unique_purchases as (
-       select distinct on (properties ->> 'transaction_id')
-  properties ->> 'transaction_id' as tx_id
-from application.event
-where name = 'purchase'
-  and visitor_id in (select id from target_visitors)
-order by properties ->> 'transaction_id', created_at desc
-  )
-select count(tx_id) as "Total Orders" from unique_purchases;
+-- Average Customer Value (Stat): revenue per buying person, not per device.
+select round(sum((e.properties ->> 'value')::numeric) / nullif(count(distinct a.person_id), 0), 2)
+         as "Average Customer Value"
+from application.event e
+       join application.attribution a on a.session_id = e.session_id
+where e.name = 'purchase'
+  and a.channel = '$channel'
+  and a.touched_at between $__timeFrom() and $__timeTo()
+  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.touch_platform in (${platform:sqlstring})
+  and e.environment = '$environment';
 
--- Google Ads new Customers
-select count(distinct visitor_id) from application.event
-where name = 'purchase' and visitor_id in (
-  select id from application.visitor
-  where initial_tags ->> 'utm_source' = 'google'
-    and initial_tags ->> 'utm_medium' = 'cpc'
-    and created_at between $__timeFrom() and $__timeTo()
-)
+-- Total Orders (Stat)
+select count(*) as "Total Orders"
+from application.event e
+       join application.attribution a on a.session_id = e.session_id
+where e.name = 'purchase'
+  and a.channel = '$channel'
+  and a.touched_at between $__timeFrom() and $__timeTo()
+  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.touch_platform in (${platform:sqlstring})
+  and e.environment = '$environment';
+
+-- New Customers (Stat)
+select count(distinct a.person_id) as "New Customers"
+from application.event e
+       join application.attribution a on a.session_id = e.session_id
+where e.name = 'purchase'
+  and a.channel = '$channel'
+  and a.touched_at between $__timeFrom() and $__timeTo()
+  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.touch_platform in (${platform:sqlstring})
+  and e.environment = '$environment';
