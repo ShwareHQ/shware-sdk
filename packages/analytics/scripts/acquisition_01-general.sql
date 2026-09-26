@@ -154,19 +154,16 @@ group by language
 order by visitor_count desc
 limit 20;
 
--- Sources (utm_source, gad_source) (Bar chart)
-select
-  case
-    when nullif(v.tags ->> 'utm_source', '') is not null then v.tags ->> 'utm_source' || ' (utm)'
-    when nullif(v.tags ->> 'gad_source', '') is not null then v.tags ->> 'gad_source' || ' (gad)'
-    else 'unknown'
-  end as source,
-  count(*) as event_count
-from application.visitor v
+-- Channels (Bar chart): sessions that started in the window, by the channel they arrived through.
+-- application.touchpoint reads each session's own landing tags (utm_source, click ids, ad landing
+-- page), so a channel here is what that session actually came in on — visitor.tags would give the
+-- visitor's latest touch merged over every visit.
+select t.channel, count(*) as sessions, count(distinct t.person_id) as people
+from application.touchpoint t
 where
-  v.created_at between $__timeFrom() and $__timeTo()
-  and v.environment = '$environment'
-  and v.platform in (${platform:sqlstring})
-group by source
-order by event_count desc;
+  t.started_at between $__timeFrom() and $__timeTo()
+  and t.environment = '$environment'
+  and t.platform in (${platform:sqlstring})
+group by t.channel
+order by sessions desc;
 
