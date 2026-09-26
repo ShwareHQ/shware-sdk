@@ -40,15 +40,18 @@ jobs:
       contents: write # push version commits, tags, and GitHub releases
       pull-requests: write # open and update the Version Packages PR (the GITHUB_TOKEN fallback)
       id-token: write # mint the OIDC token npm exchanges for publish access
+    # A step's `if` cannot read the secrets context; it can read env, so the id is copied here.
+    env:
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
     steps:
       # Skipped when the secrets are unset; its outputs are then empty and the action below
       # falls back to GITHUB_TOKEN.
       - name: Mint a release token
         id: app
-        if: ${{ secrets.RELEASE_APP_ID != '' }}
+        if: ${{ env.RELEASE_APP_ID != '' }}
         uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
+          app-id: ${{ env.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
       - name: Checkout
