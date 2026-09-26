@@ -102,9 +102,9 @@ jobs:
       # Auto-merge waits for main's ruleset (the CI check) and merges as the app. Only the app
       # can get there: a PR GITHUB_TOKEN opened never receives the check.
       - name: Auto-merge the Version Packages PR
-        if: steps.changesets.outputs.pullRequestNumber != ''
+        if: steps.changesets.outputs.pr-number != ''
         run: |
-          pr="${{ steps.changesets.outputs.pullRequestNumber }}"
+          pr="${{ steps.changesets.outputs.pr-number }}"
           if gh pr view "$pr" --json labels -q '.labels[].name' | grep -qx 'hold-release'; then
             echo "#$pr is labelled hold-release; leaving it for a person to merge"
             exit 0
