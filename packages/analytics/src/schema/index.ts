@@ -244,7 +244,6 @@ export const userProvidedDataSchema = object({
 export const updateVisitorSchema = object({
   user_id: optional(uuid()),
   user_data: optional(userProvidedDataSchema),
-  distinct_id: optional(string().check(trim(), minLength(1), maxLength(36))),
   tags: tagsSchema,
   properties: visitorPropertiesSchema,
 });
