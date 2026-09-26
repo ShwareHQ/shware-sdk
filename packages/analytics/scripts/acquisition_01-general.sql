@@ -158,7 +158,7 @@ limit 20;
 -- application.touchpoint reads each session's own landing tags (utm_source, click ids, ad landing
 -- page), so a channel here is what that session actually came in on — visitor.tags would give the
 -- visitor's latest touch merged over every visit.
-select t.channel, count(*) as sessions, count(distinct t.person_id) as people
+select t.channel, count(*) as sessions, count(distinct t.distinct_id) as people
 from application.touchpoint t
 where
   t.started_at between $__timeFrom() and $__timeTo()

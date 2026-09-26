@@ -7,7 +7,7 @@
 -- $platform (multi, the platform the ad was clicked on).
 
 -- Cohort size (Stat): the denominator for every rate below.
-select count(distinct a.person_id) as "People"
+select count(distinct a.distinct_id) as "People"
 from application.attribution a
 where a.channel = 'meta'
   and a.touched_at between $__timeFrom() and $__timeTo()
@@ -20,7 +20,7 @@ where a.channel = 'meta'
 -- Funnel (Bar chart): how many people of the cohort ever did each step. Unordered on purpose —
 -- the steps are not one forced path (an app user logs in without a page_view) — so read each bar
 -- against the cohort size, not against the bar before it.
-select e.name as event_name, count(distinct a.person_id) as event_count
+select e.name as event_name, count(distinct a.distinct_id) as event_count
 from application.event e
        join application.attribution a on a.session_id = e.session_id
 where a.channel = 'meta'
@@ -42,8 +42,8 @@ order by event_count desc;
 -- session's own touch only — what a per-device report would show; `with_inherited` adds the
 -- sessions credited across devices. The difference is what attribution recovered.
 select e.name as event_name,
-       count(distinct a.person_id) filter (where a.touch_kind = 'own') as own,
-       count(distinct a.person_id) as with_inherited
+       count(distinct a.distinct_id) filter (where a.touch_kind = 'own') as own,
+       count(distinct a.distinct_id) as with_inherited
 from application.event e
        join application.attribution a on a.session_id = e.session_id
 where a.channel = 'meta'
@@ -56,7 +56,7 @@ group by event_name
 order by with_inherited desc;
 
 -- Where the cohort converts (Table): touch platform × conversion platform.
-select a.touch_platform, a.platform as converted_on, count(distinct a.person_id) as buyers
+select a.touch_platform, a.platform as converted_on, count(distinct a.distinct_id) as buyers
 from application.event e
        join application.attribution a on a.session_id = e.session_id
 where a.channel = 'meta'
