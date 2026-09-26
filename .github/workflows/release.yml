@@ -1,7 +1,10 @@
 # Release via changesets + npm trusted publishing (OIDC).
 #
-# Push a changeset to main and this workflow opens (or updates) a "Version Packages" PR;
-# merging that PR versions the packages and publishes them to npm.
+# Push a changeset to main and this workflow opens (or updates) a "Version Packages" PR and
+# sets it to auto-merge; once its CI passes it merges itself, and the run that merge triggers
+# publishes the new versions to npm. So a merged changeset ships with no second click, while
+# the PR keeps the versioning reviewable and gives a place to hold a release: label it
+# `hold-release` (the run then leaves auto-merge off) or disable auto-merge on the PR.
 #
 # The PR is opened as the shware-release GitHub App, not as GITHUB_TOKEN: GitHub runs no
 # workflows for anything GITHUB_TOKEN creates, so a PR it opened would never get the CI check
@@ -86,6 +89,7 @@ jobs:
         run: pnpm run build
 
       - name: Version or publish
+        id: changesets
         uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
           publish-script: pnpm changeset publish
@@ -94,3 +98,18 @@ jobs:
           # The action refuses a GITHUB_TOKEN env var that differs from this input, so the
           # app token goes in here and nowhere else.
           github-token: ${{ steps.app.outputs.token || github.token }}
+
+      # Auto-merge waits for main's ruleset (the CI check) and merges as the app. Only the app
+      # can get there: a PR GITHUB_TOKEN opened never receives the check.
+      - name: Auto-merge the Version Packages PR
+        if: steps.changesets.outputs.pullRequestNumber != ''
+        run: |
+          pr="${{ steps.changesets.outputs.pullRequestNumber }}"
+          if gh pr view "$pr" --json labels -q '.labels[].name' | grep -qx 'hold-release'; then
+            echo "#$pr is labelled hold-release; leaving it for a person to merge"
+            exit 0
+          fi
+          gh pr merge "$pr" --auto --squash
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_REPO: ${{ github.repository }}
