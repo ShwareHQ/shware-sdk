@@ -17,7 +17,7 @@ where e.name = 'purchase'
   and e.environment = '$environment';
 
 -- Average Customer Value (Stat): revenue per buying person, not per device.
-select round(sum((e.properties ->> 'value')::numeric) / nullif(count(distinct a.person_id), 0), 2)
+select round(sum((e.properties ->> 'value')::numeric) / nullif(count(distinct a.distinct_id), 0), 2)
          as "Average Customer Value"
 from application.event e
        join application.attribution a on a.session_id = e.session_id
@@ -40,7 +40,7 @@ where e.name = 'purchase'
   and e.environment = '$environment';
 
 -- New Customers (Stat)
-select count(distinct a.person_id) as "New Customers"
+select count(distinct a.distinct_id) as "New Customers"
 from application.event e
        join application.attribution a on a.session_id = e.session_id
 where e.name = 'purchase'
