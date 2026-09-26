@@ -89,6 +89,10 @@ What the SDK guarantees for this to hold:
   the referrer, so a later session is a touch only when it actually arrived through something.
 - `session_id` is a client-generated uuidv7 persisted in `config.storage`, shared across tabs and
   reloads. It is a grouping key, not an identity: event and visitor ids are the server's.
+- The person a visitor belongs to is the server's too: `visitor.distinct_id`, the visitor's own id
+  until someone signs in on it and the user's id from then on. The client never sends it;
+  `setVisitor` hands the server's value to the third-party user setters, and PostHog is identified
+  by it once a user is known.
 
 ## UTM params
 

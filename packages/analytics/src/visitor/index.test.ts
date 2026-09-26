@@ -93,12 +93,15 @@ describe('setVisitor', () => {
     const { setVisitor, cache, config, jsonResponse } = await load();
     config.thirdPartyUserSetters = [setter];
     cache.visitor = { id: 'v1' } as never;
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1' }));
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1', distinct_id: 'u1' }));
 
     await setVisitor({ user_id: 'u1' });
 
     expect(cache.visitor).toMatchObject({ user_id: 'u1' });
-    expect(setter).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u1' }));
+    // The setter is told the server's distinct_id, not anything the client sent.
+    expect(setter).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: 'u1', distinct_id: 'u1' })
+    );
   });
 
   it('a throwing setter does not reject a PATCH that already succeeded', async () => {
