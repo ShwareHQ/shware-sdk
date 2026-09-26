@@ -91,5 +91,6 @@ jobs:
           publish-script: pnpm changeset publish
           pr-title: 'chore: release packages'
           commit-message: 'chore: release packages'
-        env:
-          GITHUB_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+          # The action refuses a GITHUB_TOKEN env var that differs from this input, so the
+          # app token goes in here and nowhere else.
+          github-token: ${{ steps.app.outputs.token || github.token }}
