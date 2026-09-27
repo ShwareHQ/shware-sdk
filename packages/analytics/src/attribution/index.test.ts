@@ -77,3 +77,9 @@ describe('priorities', () => {
     for (const kind of REPORTED_TOUCH_KINDS) expect(REPORTED_TOUCH_PRIORITY[kind]).toBeDefined();
   });
 });
+
+describe('channels', () => {
+  it('name a referral programme', () => {
+    expect(CHANNELS).toContain('referral_program');
+  });
+});
