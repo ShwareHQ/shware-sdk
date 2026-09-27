@@ -118,7 +118,7 @@ with cohort as (
   from application.user_attribution ua
   where
     ua.environment = '$environment'
-    and ua.first_channel = 'meta' and ua.first_channel_group = 'Paid Social'
+    and ua.first_channel = 'meta' and ua.first_channel_group = 'paid_social'
     and ua.first_seen_at between date_trunc('week', $__timeFrom()::timestamptz) and $__timeTo()
 ),
 retained as (
