@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CHANNELS,
   CLICK_ID_CHANNELS,
+  REFERRAL_CHANNEL,
+  REFERRAL_LANDING_PAGE,
   REFERRERS_NOT_A_TOUCH,
   REFERRER_SITES,
   REPORTED_TOUCH_KINDS,
@@ -75,5 +77,19 @@ describe('priorities', () => {
     expect(TOUCH_PRIORITY.referrer).toBeGreaterThan(TOUCH_PRIORITY.campaign);
     expect(TOUCH_PRIORITY.verified).toBe(TOUCH_PRIORITY.campaign);
     for (const kind of REPORTED_TOUCH_KINDS) expect(REPORTED_TOUCH_PRIORITY[kind]).toBeDefined();
+  });
+});
+
+describe('referral landing page', () => {
+  it('captures the code, with or without host, query and hash', () => {
+    for (const url of [
+      '/refer/AB12cd',
+      'https://app.test/refer/AB12cd?x=1',
+      'https://app.test/refer/AB12cd#top',
+    ]) {
+      expect(new RegExp(REFERRAL_LANDING_PAGE).exec(url)?.[1]).toBe('AB12cd');
+    }
+    expect(new RegExp(REFERRAL_LANDING_PAGE).test('https://app.test/referral')).toBe(false);
+    expect(CHANNELS).toContain(REFERRAL_CHANNEL);
   });
 });
