@@ -162,12 +162,18 @@ export const REPORTED_TOUCH_KINDS = ['survey', 'promo_code', 'phone', 'manual'] 
 export type ReportedTouchKind = (typeof REPORTED_TOUCH_KINDS)[number];
 
 /**
- * How much a touch is worth against another when attribution has to choose; lower wins, and the
- * latest wins among equals. Derived in the views, never stored, so renumbering is a view
- * regeneration.
+ * How much a touch is worth against another when attribution has to choose between sessions;
+ * lower wins, and the latest wins among equals. Derived in the views, never stored, so
+ * renumbering is a view regeneration.
+ *
+ * This ranks touches against each other. Within one session the rules that name its channel have
+ * their own order — `utm_source`, then a click id, then the ad landing page, then the referrer —
+ * and the first that says something wins; the session's priority is then the tier of that rule.
+ * So two sessions tagged with utm and gclid respectively are equal here (both `campaign`) and the
+ * later one is credited, while one session carrying both is named by its utm.
  */
 export const TOUCH_PRIORITY = {
-  /** utm, click id, ad landing page: someone tagged that link */
+  /** utm, click id, ad landing page: someone tagged that link (in that order within a session) */
   campaign: 1,
   /** a reported touch staff stand behind: a call on a channel's number, a recorded conversation */
   verified: 1,
