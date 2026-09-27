@@ -154,17 +154,18 @@ group by language
 order by visitor_count desc
 limit 20;
 
--- Channels (Bar chart): sessions that started in the window, by the channel they arrived through.
+-- Channels (Bar chart): sessions that started in the window, by GA4 channel group and the channel
+-- inside it — google / cpc and google / organic are two rows.
 -- application.touchpoint reads each session's own landing tags (utm_source, click ids, ad landing
 -- page), so a channel here is what that session actually came in on — visitor.tags would give the
 -- visitor's latest touch merged over every visit.
-select t.channel, count(*) as sessions, count(distinct t.distinct_id) as people
+select t.channel_group, t.channel, count(*) as sessions, count(distinct t.distinct_id) as people
 from application.touchpoint t
 where
   t.started_at between $__timeFrom() and $__timeTo()
   and t.environment = '$environment'
   and t.platform in (${platform:sqlstring})
-group by t.channel
+group by t.channel_group, t.channel
 order by sessions desc;
 
 
@@ -175,10 +176,10 @@ order by sessions desc;
 -- ad later still counts for that channel; (direct) is a person who never did. This is the
 -- user-level view GA4 calls "user acquisition"; the Channels chart above counts sessions.
 -- No platform filter: a person is not on one platform.
-select ua.first_channel, count(*) as people
+select ua.first_channel_group, ua.first_channel, count(*) as people
 from application.user_attribution ua
 where
   ua.first_seen_at between $__timeFrom() and $__timeTo()
   and ua.environment = '$environment'
-group by ua.first_channel
+group by ua.first_channel_group, ua.first_channel
 order by people desc;
