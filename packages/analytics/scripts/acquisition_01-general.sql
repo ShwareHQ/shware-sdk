@@ -167,3 +167,18 @@ where
 group by t.channel
 order by sessions desc;
 
+
+-- New users by first channel (Bar chart): people whose first session started in the window, by
+-- the channel they were first acquired through. application.user_attribution is one row per
+-- person (distinct_id, across devices); first_channel is the earliest session that arrived
+-- through something, so a person whose first session was direct and who came back through an
+-- ad later still counts for that channel; (direct) is a person who never did. This is the
+-- user-level view GA4 calls "user acquisition"; the Channels chart above counts sessions.
+-- No platform filter: a person is not on one platform.
+select ua.first_channel, count(*) as people
+from application.user_attribution ua
+where
+  ua.first_seen_at between $__timeFrom() and $__timeTo()
+  and ua.environment = '$environment'
+group by ua.first_channel
+order by people desc;
