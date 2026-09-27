@@ -100,9 +100,8 @@ cohort_size AS (
 SELECT
   r.cohort_day,
   r.day_diff,
-  ROUND(r.retained_users::numeric / c.total_users, 4) AS retention_rate,
-  -- r.retained_users,
-  -- c.total_users
+  ROUND(r.retained_users::numeric / c.total_users, 4) AS retention_rate
+  -- , r.retained_users, c.total_users
 FROM retention_raw r
 JOIN cohort_size c ON r.cohort_day = c.cohort_day
 ORDER BY r.cohort_day, r.day_diff;
