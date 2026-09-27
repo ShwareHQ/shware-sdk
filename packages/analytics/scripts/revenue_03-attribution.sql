@@ -74,3 +74,45 @@ where e.name = 'purchase'
   and e.environment = '$environment'
 group by days_since_touch
 order by days_since_touch;
+
+-- Time to convert by channel (Table): the same lag per credited channel group, as median and
+-- p75 days, with how many purchases it rests on. A channel whose p75 sits near the window is
+-- one whose slower buyers are being lost to (direct); a channel at 0 is one that converts in the
+-- session it brings.
+select
+  a.channel_group,
+  count(*) as purchases,
+  round(percentile_cont(0.5) within group (order by extract(epoch from e.created_at - a.touched_at) / 86400)::numeric, 1) as median_days,
+  round(percentile_cont(0.75) within group (order by extract(epoch from e.created_at - a.touched_at) / 86400)::numeric, 1) as p75_days
+from application.event e
+       join application.attribution a on a.session_id = e.session_id
+where e.name = 'purchase'
+  and a.touch_kind <> 'none'
+  and e.created_at between $__timeFrom() and $__timeTo()
+  and e.environment = '$environment'
+group by a.channel_group
+order by purchases desc;
+
+-- First touch to first payment (Table): per first-touch channel group, how long people take from
+-- the touch that acquired them to their first payment — the sales cycle a channel produces, and
+-- the number that decides whether 30 days is a sensible attribution window at all. Reads
+-- application.payment by user_id, so it is not limited to purchase events, and it is the lag from
+-- first touch rather than from the credited touch above. People who have not paid are not counted.
+with first_payment as (
+  select p.user_id, min(p.created_at) as paid_at
+  from application.payment p
+  group by p.user_id
+)
+select
+  ua.first_channel_group,
+  count(*) as payers,
+  round(percentile_cont(0.5) within group (order by extract(epoch from fp.paid_at - ua.first_touched_at) / 86400)::numeric, 1) as median_days,
+  round(percentile_cont(0.75) within group (order by extract(epoch from fp.paid_at - ua.first_touched_at) / 86400)::numeric, 1) as p75_days,
+  round(avg(case when fp.paid_at - ua.first_touched_at > interval '30 days' then 1 else 0 end)::numeric, 3) as share_beyond_30_days
+from application.user_attribution ua
+       join first_payment fp on fp.user_id = ua.user_id
+where ua.environment = '$environment'
+  and ua.first_touched_at is not null
+  and fp.paid_at between $__timeFrom() and $__timeTo()
+group by ua.first_channel_group
+order by payers desc;
