@@ -8,7 +8,7 @@ import {
   REPORTED_TOUCH_PRIORITY,
   SOURCE_ALIASES,
   TOUCH_PRIORITY,
-} from './index';
+} from './vocabulary';
 
 /** The patterns are written for Postgres; POSIX ERE and JavaScript agree on everything used here. */
 const matches = (pattern: string, host: string) => new RegExp(pattern).test(host);
