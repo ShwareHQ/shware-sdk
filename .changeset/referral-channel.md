@@ -2,4 +2,4 @@
 '@shware/analytics': minor
 ---
 
-`@shware/analytics/attribution`: `friend` joins `CHANNELS`, and `REFERRAL_LANDING_PAGE` / `REFERRAL_CHANNEL` describe a referral programme's landing page (`/refer/<code>`) as a touch of its own — read before the referrer, so a friend's link shared on Facebook or WhatsApp is credited to the programme, not to the site it was shared on, with the referrer's code as the campaign.
+`@shware/analytics/attribution`: `friend` joins `CHANNELS`, the channel of a referral programme — a session that came through a friend's link or code. How a product recognises one (a `/refer/<code>` path, a code entered at sign-up) differs too much between products to be a shared rule, so that stays with the product's `touchpoint`; the name is shared so dashboards agree.

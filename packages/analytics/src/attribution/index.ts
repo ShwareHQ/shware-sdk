@@ -34,7 +34,8 @@ export const CHANNELS = [
   'brave',
   'pinterest',
   'youtube',
-  /** a referral programme: the session came through a friend's link or code */
+  /** a referral programme: the session came through a friend's link or code. How a product
+   * recognises that (a `/refer/<code>` path, a code at sign-up) is the product's own rule. */
   'friend',
 ] as const;
 
@@ -100,15 +101,6 @@ export const CLICK_ID_CHANNELS = [
  * that names its landing pages differently replaces this.
  */
 export const AD_LANDING_PAGE = '^(?:https?://[^/]+)?/lp/([a-z]+)(?:[/?#]|$)';
-
-/**
- * A referral programme's landing page, `/refer/<code>`: the capture is the referrer's code. Read
- * before the referrer, so a friend's link shared on Facebook or WhatsApp is credited to the
- * programme (`REFERRAL_CHANNEL` / `referral`, the code as the campaign), not to the site it was
- * shared on. A product that routes referrals differently replaces the pattern.
- */
-export const REFERRAL_LANDING_PAGE = '^(?:https?://[^/]+)?/refer/([A-Za-z0-9]+)(?:[/?#]|$)';
-export const REFERRAL_CHANNEL = 'friend' satisfies Channel;
 
 export type ReferrerMedium = 'organic' | 'social' | 'video';
 
