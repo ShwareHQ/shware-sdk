@@ -80,6 +80,6 @@ describe('priorities', () => {
 
 describe('channels', () => {
   it('name a referral programme', () => {
-    expect(CHANNELS).toContain('friend');
+    expect(CHANNELS).toContain('referral_program');
   });
 });

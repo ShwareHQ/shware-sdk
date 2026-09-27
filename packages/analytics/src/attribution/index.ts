@@ -34,9 +34,11 @@ export const CHANNELS = [
   'brave',
   'pinterest',
   'youtube',
-  /** a referral programme: the session came through a friend's link or code. How a product
-   * recognises that (a `/refer/<code>` path, a code at sign-up) is the product's own rule. */
-  'friend',
+  /** the product's own referral programme: the session came through a member's link or code.
+   * How a product recognises one (a `/refer/<code>` path, a code at sign-up) is its own rule. Not
+   * `referral`: that word is the channel group of any outside site, and a channel of the same name
+   * would be impossible to tell apart in queries. */
+  'referral_program',
 ] as const;
 
 export type Channel = (typeof CHANNELS)[number];
