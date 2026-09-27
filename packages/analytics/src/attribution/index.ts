@@ -104,15 +104,16 @@ export type ReferrerMedium = 'organic' | 'social' | 'video';
 /**
  * Referrer hosts that name a channel, as POSIX regular expressions over the lower-cased host,
  * with the medium GA4 gives that kind of site. Anything else that refers is `referral`, kept as
- * its host.
+ * its host. A country TLD is one or two labels (`google.com`, `google.co.uk`, `google.com.hk`),
+ * never an open tail, so `google.com.evil.io` is not Google.
  */
 export const REFERRER_SITES = [
-  ['google', 'organic', String.raw`(^|\.)google\.[a-z.]+$`],
+  ['google', 'organic', String.raw`(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['microsoft', 'organic', String.raw`(^|\.)bing\.com$`],
-  ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z.]+$`],
+  ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['duckduckgo', 'organic', String.raw`(^|\.)duckduckgo\.com$`],
   ['baidu', 'organic', String.raw`(^|\.)baidu\.com$`],
-  ['yandex', 'organic', String.raw`(^|\.)yandex\.[a-z.]+$`],
+  ['yandex', 'organic', String.raw`(^|\.)yandex\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['ecosia', 'organic', String.raw`(^|\.)ecosia\.org$`],
   ['naver', 'organic', String.raw`(^|\.)naver\.com$`],
   ['brave', 'organic', String.raw`^search\.brave\.com$`],
@@ -121,7 +122,7 @@ export const REFERRER_SITES = [
   ['linkedin', 'social', String.raw`(^|\.)(linkedin\.com|lnkd\.in)$`],
   ['reddit', 'social', String.raw`(^|\.)reddit\.com$`],
   ['tiktok', 'social', String.raw`(^|\.)tiktok\.com$`],
-  ['pinterest', 'social', String.raw`(^|\.)pinterest\.[a-z.]+$`],
+  ['pinterest', 'social', String.raw`(^|\.)pinterest\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['snapchat', 'social', String.raw`(^|\.)snapchat\.com$`],
   ['youtube', 'video', String.raw`(^|\.)(youtube\.com|youtu\.be)$`],
 ] as const satisfies readonly (readonly [Channel, ReferrerMedium, string])[];

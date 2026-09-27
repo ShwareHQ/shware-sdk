@@ -17,6 +17,7 @@ describe('referrer sites', () => {
   it.each([
     ['www.google.com', 'google', 'organic'],
     ['www.google.co.uk', 'google', 'organic'],
+    ['www.google.com.hk', 'google', 'organic'],
     ['www.bing.com', 'microsoft', 'organic'],
     ['search.brave.com', 'brave', 'organic'],
     ['l.facebook.com', 'meta', 'social'],
