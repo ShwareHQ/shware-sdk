@@ -1,5 +1,13 @@
 # @shware/analytics
 
+## 8.13.1
+
+### Patch Changes
+
+- 0d439e3: Upgrade dependencies and peer dependencies to their latest versions.
+- Updated dependencies [0d439e3]
+  - @shware/utils@1.6.2
+
 ## 8.13.0
 
 ### Minor Changes
