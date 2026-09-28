@@ -69,16 +69,22 @@ const socialChannels = channelsBy('social');
 const videoChannels = channelsBy('video');
 const aiChannels = channelsBy('ai');
 
-/** A tag as text, lower-cased; absent when missing or empty. */
+/**
+ * A tag as text; absent when missing, empty, or the strings a broken template writes
+ * (`undefined`, `null`, an unexpanded `{{macro}}` other than Meta's placement, read elsewhere).
+ */
 function text(tags: TrackTags, key: string): string | null {
   const value = tags[key];
-  if (value === undefined || value === null || value === '') return null;
-  return String(value);
+  if (value === undefined || value === null) return null;
+  const s = String(value);
+  return s === '' || s === 'undefined' || s === 'null' ? null : s;
 }
 
 /** 1. What the campaign said: `utm_source`, with the aliases folded. */
 function utmChannel(tags: TrackTags): string | null {
-  const source = text(tags, 'utm_source')?.toLowerCase();
+  // A source with the rest of the query glued on (`email&utm_medium=promo`, `toolify/`,
+  // `x?utm_source=x`): a link built by hand or double-encoded. Keep the source.
+  const source = text(tags, 'utm_source')?.toLowerCase().split(/[?&#]/)[0]?.replace(/\/+$/, '');
   if (!source) return null;
   return (SOURCE_ALIASES as Record<string, string>)[source] ?? source;
 }
@@ -127,14 +133,16 @@ function referrer(
  * GA4's default channel group of a (channel, medium) pair, with GA4's rule that the source
  * decides too: `linkedin / (not set)` is Organic Social and `email / promo` is Email, because
  * GA4 matches its site lists on the source, not only the medium. Two additions to GA4: Meta's
- * placement names as a medium are paid (see `META_PLACEMENT_MEDIUM`), and the AI assistants
- * have `organic_ai`. Checked in GA4's order — paid before organic, the organic groups before
+ * placement names as a medium are a paid Meta click (see `META_PLACEMENT_MEDIUM`), and the AI
+ * assistants have `organic_ai`. Checked in GA4's order — paid before organic, the organic groups before
  * email, referral last — so a pair that fits two rules lands where GA4 would put it.
  */
 export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if (channel === DIRECT_CHANNEL) return 'direct';
   if ((DISPLAY_MEDIUMS as readonly string[]).includes(medium)) return 'display';
-  if (paidMedium.test(medium) || (channel === 'meta' && metaPlacementMedium.test(medium))) {
+  // A Meta placement as the medium is a Meta ad whatever the source was tagged as.
+  if (metaPlacementMedium.test(medium)) return 'paid_social';
+  if (paidMedium.test(medium)) {
     if (socialChannels.has(channel) || videoChannels.has(channel)) return 'paid_social';
     if (searchChannels.has(channel)) return 'paid_search';
     return 'paid_other';

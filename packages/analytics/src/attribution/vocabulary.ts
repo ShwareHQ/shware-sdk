@@ -87,8 +87,10 @@ export const SOURCE_ALIASES = {
   adwords: 'google',
   'chatgpt.com': 'chatgpt',
   'chat.openai.com': 'chatgpt',
+  openai: 'chatgpt',
   'perplexity.ai': 'perplexity',
   'claude.ai': 'claude',
+  'copilot.com': 'copilot',
 } as const satisfies Record<string, Channel>;
 
 /**
@@ -137,7 +139,7 @@ export const REFERRER_SITES = [
   ['perplexity', 'ai', String.raw`(^|\.)perplexity\.ai$`],
   ['gemini', 'ai', String.raw`^gemini\.google\.com$`],
   ['claude', 'ai', String.raw`(^|\.)claude\.ai$`],
-  ['copilot', 'ai', String.raw`^copilot\.microsoft\.com$`],
+  ['copilot', 'ai', String.raw`^copilot\.microsoft\.com$|(^|\.)copilot\.com$`],
   ['google', 'organic', String.raw`(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['microsoft', 'organic', String.raw`(^|\.)bing\.com$`],
   ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$`],
@@ -177,17 +179,19 @@ export const PAID_MEDIUM = '^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max
 /**
  * Meta's `{{placement}}` values, which an ad URL template of `utm_medium={{placement}}` puts in
  * the medium: facebook_mobile_feed, instagram_reels, facebook_right_column, messenger_inbox,
- * audience_network / an, others, … Only an ad carries one — an organic post arrives as a
- * referrer, with no utm at all — so a medium like this on a `meta` session is a paid click. A
- * prefix match, so a placement Meta adds later is still paid.
+ * audience_network / an, whatsapp_status, others, … — or the literal `{{placement}}` when the
+ * macro was not expanded. Only an ad carries one — an organic post arrives as a referrer, with no
+ * utm at all — so a medium like this is a paid Meta click whatever the source says (a template
+ * with `utm_source=meta-websitekeyinfo` was seen). A prefix match, so a placement Meta adds
+ * later is still paid.
  */
 export const META_PLACEMENT_MEDIUM =
-  '^(facebook|instagram|messenger|threads|audience_network|an|others)(_|$)';
+  '^(facebook|instagram|messenger|threads|whatsapp|audience_network|an|others)(_|$)|^\\{\\{placement\\}\\}$';
 export const DISPLAY_MEDIUMS = ['display', 'banner', 'expandable', 'interstitial'] as const;
 /** GA4's email spellings, as a source or a medium. */
 export const EMAIL_MEDIUMS = ['email', 'e-mail', 'e_mail', 'e mail'] as const;
-/** A medium that says email anywhere in it: `outbound email`, `email_promo`, and GA4's four. */
-export const EMAIL_MEDIUM = '(^|[^a-z])e[-_ ]?mail([^a-z]|$)';
+/** A medium that says email or newsletter anywhere in it: `outbound email`, `cold_email`, `newsletter`, and GA4's four. */
+export const EMAIL_MEDIUM = '(^|[^a-z])(e[-_ ]?mail|newsletter)([^a-z]|$)';
 
 /** Where a touch came from: a tracked session, or a report by the user or staff. */
 export const TOUCH_SOURCES = ['tracked', 'reported'] as const;
