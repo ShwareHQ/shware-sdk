@@ -10,8 +10,7 @@ import {
   TOUCH_PRIORITY,
 } from './vocabulary';
 
-/** The patterns are written for Postgres; POSIX ERE and JavaScript agree on everything used here. */
-const matches = (pattern: string, host: string) => new RegExp(pattern).test(host);
+const matches = (pattern: RegExp, host: string) => pattern.test(host);
 
 describe('referrer sites', () => {
   it.each([
@@ -25,6 +24,11 @@ describe('referrer sites', () => {
     ['t.co', 'x', 'social'],
     ['lnkd.in', 'linkedin', 'social'],
     ['youtu.be', 'youtube', 'video'],
+    ['chatgpt.com', 'chatgpt', 'ai'],
+    ['gemini.google.com', 'gemini', 'ai'],
+    ['copilot.microsoft.com', 'copilot', 'ai'],
+    ['yiyan.baidu.com', 'ernie', 'ai'],
+    ['www.baidu.com', 'baidu', 'organic'],
   ])('%s → %s / %s', (host, channel, medium) => {
     const hit = REFERRER_SITES.find(([, , pattern]) => matches(pattern, host));
     expect(hit?.[0]).toBe(channel);
@@ -43,15 +47,37 @@ describe('referrer sites', () => {
 });
 
 describe('referrers that are not a touch', () => {
-  it.each(['checkout.stripe.com', 'accounts.google.com', 'appleid.apple.com', 'localhost:3000'])(
-    '%s',
-    (host) => {
-      expect(REFERRERS_NOT_A_TOUCH.some((pattern) => matches(pattern, host))).toBe(true);
-    }
-  );
+  it.each([
+    'checkout.stripe.com',
+    'www.paypal.com',
+    'accounts.google.com',
+    'appleid.apple.com',
+    'login.live.com',
+    'open.weixin.qq.com',
+    'kauth.kakao.com',
+    'nid.naver.com',
+    'login.yahoo.com',
+    'api.twitter.com',
+    'abc.supabase.co',
+    'my-app.firebaseapp.com',
+    'tenant.auth0.com',
+    'localhost:3000',
+  ])('%s', (host) => {
+    expect(REFERRERS_NOT_A_TOUCH.some((pattern) => matches(pattern, host))).toBe(true);
+  });
 
   it('leaves real referrers alone', () => {
-    for (const host of ['www.google.com', 'news.ycombinator.com', 'mail.google.com']) {
+    for (const host of [
+      'www.google.com',
+      'news.ycombinator.com',
+      'mail.google.com',
+      'search.naver.com',
+      'search.yahoo.com',
+      'mp.weixin.qq.com',
+      'www.facebook.com',
+      'x.com',
+      'github.com',
+    ]) {
       expect(REFERRERS_NOT_A_TOUCH.some((pattern) => matches(pattern, host))).toBe(false);
     }
   });

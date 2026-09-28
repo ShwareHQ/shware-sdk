@@ -4,7 +4,7 @@ import { type TouchRule, channelGroupOf, classifyTouch } from './classify';
 import { TOUCH_PRIORITY } from './vocabulary';
 
 const at = (page_location: string, rest: TrackTags = {}): TrackTags => ({ page_location, ...rest });
-const own = { ownHosts: [String.raw`(^|\.)shware\.net$`] };
+const own = { ownHosts: [/(^|\.)shware\.net$/] };
 
 /** A product's referral landing page, `/refer/<code>`: the code is the referrer's. */
 const referralLink: TouchRule = (tags) => {
@@ -42,7 +42,59 @@ describe('classifyTouch', () => {
       'brand',
     ],
     [{ utm_source: 'fb', utm_medium: 'paid_social' }, 'meta', 'paid_social', 'paid_social', null],
-    [{ utm_source: 'Twitter' }, 'x', '(not set)', 'unassigned', null],
+    [{ utm_source: 'Twitter' }, 'x', '(not set)', 'organic_social', null],
+    [{ utm_source: 'linkedin' }, 'linkedin', '(not set)', 'organic_social', null],
+    [{ utm_source: 'google ads', utm_medium: 'cpc' }, 'google', 'cpc', 'paid_search', null],
+    [
+      { utm_source: 'google', utm_medium: 'pmax', utm_campaign: 'pm1' },
+      'google',
+      'pmax',
+      'paid_search',
+      'pm1',
+    ],
+    [
+      { utm_source: 'fb', utm_medium: 'facebook_mobile_feed' },
+      'meta',
+      'facebook_mobile_feed',
+      'paid_social',
+      null,
+    ],
+    [
+      { utm_source: 'ig', utm_medium: 'Instagram_Reels' },
+      'meta',
+      'instagram_reels',
+      'paid_social',
+      null,
+    ],
+    [{ utm_source: 'an', utm_medium: 'an' }, 'meta', 'an', 'paid_social', null],
+    [{ utm_source: 'msg', utm_medium: 'others' }, 'meta', 'others', 'paid_social', null],
+    [{ utm_source: 'email', utm_medium: 'promo' }, 'email', 'promo', 'email', null],
+    [
+      { utm_source: 'instantly', utm_medium: 'outbound email' },
+      'instantly',
+      'outbound email',
+      'email',
+      null,
+    ],
+    [{ utm_source: 'chatgpt.com' }, 'chatgpt', '(not set)', 'organic_ai', null],
+    [{ utm_source: 'openai' }, 'chatgpt', '(not set)', 'organic_ai', null],
+    [{ utm_source: 'copilot.com' }, 'copilot', '(not set)', 'organic_ai', null],
+    [{ utm_source: 'deepseek.com' }, 'deepseek', '(not set)', 'organic_ai', null],
+    [
+      { utm_source: 'email&utm_medium=promo&utm_campaign=welcome' },
+      'email',
+      '(not set)',
+      'email',
+      null,
+    ],
+    [{ utm_source: 'toolify/' }, 'toolify', '(not set)', 'unassigned', null],
+    [
+      { utm_source: 'aitoolhunt', utm_medium: 'undefined' },
+      'aitoolhunt',
+      '(not set)',
+      'unassigned',
+      null,
+    ],
     [{ utm_source: 'newsletter', utm_medium: 'Email' }, 'newsletter', 'email', 'email', null],
     [
       { utm_source: 'partner-x', utm_medium: 'affiliate' },
@@ -101,6 +153,20 @@ describe('classifyTouch', () => {
     ['https://l.facebook.com/l.php?u=x', 'meta', 'social', 'organic_social'],
     ['https://t.co/abc', 'x', 'social', 'organic_social'],
     ['https://youtu.be/abc', 'youtube', 'video', 'organic_video'],
+    ['https://chatgpt.com/', 'chatgpt', 'ai', 'organic_ai'],
+    ['https://www.perplexity.ai/search?q=x', 'perplexity', 'ai', 'organic_ai'],
+    ['https://gemini.google.com/app', 'gemini', 'ai', 'organic_ai'],
+    ['https://copilot.microsoft.com/', 'copilot', 'ai', 'organic_ai'],
+    ['https://copilot.com/chats/x', 'copilot', 'ai', 'organic_ai'],
+    ['https://grok.com/', 'grok', 'ai', 'organic_ai'],
+    ['https://chat.deepseek.com/', 'deepseek', 'ai', 'organic_ai'],
+    ['https://www.doubao.com/chat/', 'doubao', 'ai', 'organic_ai'],
+    ['https://www.kimi.com/', 'kimi', 'ai', 'organic_ai'],
+    ['https://tongyi.aliyun.com/qianwen', 'qwen', 'ai', 'organic_ai'],
+    ['https://yuanbao.tencent.com/chat', 'yuanbao', 'ai', 'organic_ai'],
+    ['https://yiyan.baidu.com/', 'ernie', 'ai', 'organic_ai'],
+    ['https://chatglm.cn/', 'zhipu', 'ai', 'organic_ai'],
+    ['https://www.baidu.com/s?wd=x', 'baidu', 'organic', 'organic_search'],
     ['https://blog.example.com/post', 'blog.example.com', 'referral', 'referral'],
     ['https://Blog.Example.com:8443/post', 'blog.example.com', 'referral', 'referral'],
   ])('referrer %s → %s / %s', (page_referrer, channel, medium, group) => {
@@ -117,6 +183,9 @@ describe('classifyTouch', () => {
     for (const page_referrer of [
       'https://checkout.stripe.com/',
       'https://accounts.google.com/',
+      'https://open.weixin.qq.com/connect/qrconnect',
+      'https://nid.naver.com/oauth2.0/authorize',
+      'https://abc.supabase.co/auth/v1/callback',
       'https://www.shware.net/pricing',
       'http://localhost:3000/',
     ]) {
@@ -125,6 +194,19 @@ describe('classifyTouch', () => {
         priority: null,
       });
     }
+    // The search and content hosts next to those login hosts are still what they are.
+    expect(
+      classifyTouch(
+        at('https://app.shware.net/', {
+          page_referrer: 'https://search.naver.com/search.naver?query=x',
+        })
+      )
+    ).toMatchObject({ channel: 'naver', medium: 'organic' });
+    expect(
+      classifyTouch(
+        at('https://app.shware.net/', { page_referrer: 'https://mp.weixin.qq.com/s/abc' })
+      )
+    ).toMatchObject({ channel: 'mp.weixin.qq.com', medium: 'referral' });
     // Without the product's hosts, its own site is an ordinary referrer.
     expect(
       classifyTouch(at('https://app.shware.net/', { page_referrer: 'https://www.shware.net/' }))
@@ -197,8 +279,27 @@ describe('channelGroupOf', () => {
     ['google', 'banner', 'display'],
     ['newsletter', 'e-mail', 'email'],
     ['partner', 'affiliate', 'affiliate'],
-    ['x', '(not set)', 'unassigned'],
-    ['google', 'qr', 'unassigned'],
+    ['x', '(not set)', 'organic_social'],
+    ['google', '(not set)', 'organic_search'],
+    ['chatgpt', '(not set)', 'organic_ai'],
+    ['meta', 'facebook_stories', 'paid_social'],
+    ['meta', 'audience_network_classic', 'paid_social'],
+    // a hand-tagged organic post is not an ad because of how its medium is spelled
+    ['meta', 'facebook_group', 'organic_social'],
+    ['meta', 'instagram_bio', 'organic_social'],
+    ['meta', 'whatsapp_status', 'paid_social'],
+    ['meta', 'threads_feed', 'paid_social'],
+    ['meta', '{{placement}}', 'paid_social'],
+    ['meta', '(not set)', 'organic_social'],
+    ['meta-websitekeyinfo', 'facebook_mobile_feed', 'paid_social'],
+    ['copilot', '(not set)', 'organic_ai'],
+    ['visiblehands.beehiiv.com', 'newsletter', 'email'],
+    ['instantly', 'cold_email', 'email'],
+    ['google', 'pmax', 'paid_search'],
+    ['email', 'promo', 'email'],
+    ['newsletter', 'email_promo', 'email'],
+    ['inman', 'articles', 'unassigned'],
+    ['th', 'qr', 'unassigned'],
   ] as const)('%s / %s → %s', (channel, medium, group) => {
     expect(channelGroupOf(channel, medium)).toBe(group);
   });

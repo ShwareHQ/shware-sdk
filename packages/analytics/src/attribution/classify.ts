@@ -5,8 +5,10 @@ import {
   type ChannelGroup,
   DIRECT_CHANNEL,
   DISPLAY_MEDIUMS,
+  EMAIL_MEDIUM,
   EMAIL_MEDIUMS,
   MEDIUM_NOT_SET,
+  META_PLACEMENTS,
   NO_MEDIUM,
   PAID_MEDIUM,
   REFERRERS_NOT_A_TOUCH,
@@ -46,35 +48,36 @@ export interface ClassifyOptions {
    * starts from an internal link after the session timeout refers to them, which is navigation,
    * not acquisition. The SDK adds the payment and sign-in providers (`REFERRERS_NOT_A_TOUCH`).
    */
-  ownHosts?: readonly (RegExp | string)[];
+  ownHosts?: readonly RegExp[];
   /** The product's rules, in order; the first that names the session wins. */
   rules?: readonly TouchRule[];
 }
 
-const adLandingPage = new RegExp(AD_LANDING_PAGE);
-const paidMedium = new RegExp(PAID_MEDIUM);
+const metaPlacements = new Set<string>(META_PLACEMENTS);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
-const notATouch = REFERRERS_NOT_A_TOUCH.map((pattern) => new RegExp(pattern));
-const referrerSites = REFERRER_SITES.map(
-  ([channel, medium, pattern]) => [channel, medium, new RegExp(pattern)] as const
-);
-const searchChannels = new Set<string>(
-  REFERRER_SITES.filter(([, medium]) => medium === 'organic').map(([channel]) => channel)
-);
-const socialChannels = new Set<string>(
-  REFERRER_SITES.filter(([, medium]) => medium !== 'organic').map(([channel]) => channel)
-);
+const channelsBy = (medium: string) =>
+  new Set<string>(REFERRER_SITES.filter(([, m]) => m === medium).map(([channel]) => channel));
+const searchChannels = channelsBy('organic');
+const socialChannels = channelsBy('social');
+const videoChannels = channelsBy('video');
+const aiChannels = channelsBy('ai');
 
-/** A tag as text, lower-cased; absent when missing or empty. */
+/**
+ * A tag as text; absent when missing, empty, or the strings a broken template writes
+ * (`undefined`, `null`, an unexpanded `{{macro}}` other than Meta's placement, read elsewhere).
+ */
 function text(tags: TrackTags, key: string): string | null {
   const value = tags[key];
-  if (value === undefined || value === null || value === '') return null;
-  return String(value);
+  if (value === undefined || value === null) return null;
+  const s = String(value);
+  return s === '' || s === 'undefined' || s === 'null' ? null : s;
 }
 
 /** 1. What the campaign said: `utm_source`, with the aliases folded. */
 function utmChannel(tags: TrackTags): string | null {
-  const source = text(tags, 'utm_source')?.toLowerCase();
+  // A source with the rest of the query glued on (`email&utm_medium=promo`, `toolify/`,
+  // `x?utm_source=x`): a link built by hand or double-encoded. Keep the source.
+  const source = text(tags, 'utm_source')?.toLowerCase().split(/[?&#]/)[0]?.replace(/\/+$/, '');
   if (!source) return null;
   return (SOURCE_ALIASES as Record<string, string>)[source] ?? source;
 }
@@ -90,7 +93,7 @@ function clickChannel(tags: TrackTags): string | null {
 /** 3. A landing page reserved for one channel's ads. */
 function landingChannel(tags: TrackTags): string | null {
   const location = text(tags, 'page_location');
-  return location ? (adLandingPage.exec(location)?.[1] ?? null) : null;
+  return location ? (AD_LANDING_PAGE.exec(location)?.[1] ?? null) : null;
 }
 
 /** 4. The product's rules, in order. */
@@ -108,32 +111,43 @@ function productTouch(tags: TrackTags, rules: readonly TouchRule[]): ProductTouc
  */
 function referrer(
   tags: TrackTags,
-  ownHosts: readonly (RegExp | string)[]
+  ownHosts: readonly RegExp[]
 ): { channel: string; medium: string } | null {
   const url = text(tags, 'page_referrer');
   const host = url ? referrerHostOf.exec(url)?.[1]?.toLowerCase() : undefined;
   if (!host) return null;
-  if (notATouch.some((pattern) => pattern.test(host))) return null;
-  if (ownHosts.some((pattern) => new RegExp(pattern).test(host))) return null;
-  const site = referrerSites.find(([, , pattern]) => pattern.test(host));
+  if (REFERRERS_NOT_A_TOUCH.some((pattern) => pattern.test(host))) return null;
+  if (ownHosts.some((pattern) => pattern.test(host))) return null;
+  const site = REFERRER_SITES.find(([, , pattern]) => pattern.test(host));
   return site ? { channel: site[0], medium: site[1] } : { channel: host, medium: 'referral' };
 }
 
-/** GA4's default channel group of a (channel, medium) pair. */
+/**
+ * GA4's default channel group of a (channel, medium) pair, with GA4's rule that the source
+ * decides too: `linkedin / (not set)` is Organic Social and `email / promo` is Email, because
+ * GA4 matches its site lists on the source, not only the medium. Two additions to GA4: Meta's
+ * placement names as a medium are a paid Meta click (see `META_PLACEMENTS`), and the AI
+ * assistants have `organic_ai`. Checked in GA4's order — paid before organic, the organic groups before
+ * email, referral last — so a pair that fits two rules lands where GA4 would put it.
+ */
 export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if (channel === DIRECT_CHANNEL) return 'direct';
   if ((DISPLAY_MEDIUMS as readonly string[]).includes(medium)) return 'display';
-  if (paidMedium.test(medium)) {
-    if (socialChannels.has(channel)) return 'paid_social';
+  // A Meta placement as the medium is a Meta ad whatever the source was tagged as.
+  if (metaPlacements.has(medium)) return 'paid_social';
+  if (PAID_MEDIUM.test(medium)) {
+    if (socialChannels.has(channel) || videoChannels.has(channel)) return 'paid_social';
     if (searchChannels.has(channel)) return 'paid_search';
     return 'paid_other';
   }
-  if (medium === 'organic') return 'organic_search';
-  if (medium === 'social') return 'organic_social';
-  if (medium === 'video') return 'organic_video';
-  if (medium === 'referral') return 'referral';
-  if ((EMAIL_MEDIUMS as readonly string[]).includes(medium)) return 'email';
+  if (medium === 'social' || socialChannels.has(channel)) return 'organic_social';
+  if (medium === 'video' || videoChannels.has(channel)) return 'organic_video';
+  if (medium === 'ai' || aiChannels.has(channel)) return 'organic_ai';
+  if (medium === 'organic' || searchChannels.has(channel)) return 'organic_search';
+  if (EMAIL_MEDIUM.test(medium) || (EMAIL_MEDIUMS as readonly string[]).includes(channel))
+    return 'email';
   if (medium === 'affiliate') return 'affiliate';
+  if (medium === 'referral') return 'referral';
   return 'unassigned';
 }
 
