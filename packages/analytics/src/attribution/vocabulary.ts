@@ -44,7 +44,7 @@ export const CHANNELS = [
   'claude',
   'copilot',
   'grok',
-  /** and the Chinese ones — DeepSeek, 豆包, Kimi, 通义, 腾讯元宝, 文心一言, 智谱清言, 秘塔 */
+  /** and the Chinese ones — DeepSeek, 豆包, Kimi, 通义, 腾讯元宝, 文心一言, 智谱清言 */
   'deepseek',
   'doubao',
   'kimi',
@@ -52,7 +52,6 @@ export const CHANNELS = [
   'yuanbao',
   'ernie',
   'zhipu',
-  'metaso',
   /** the product's own referral programme: the session came through a member's link or code.
    * How a product recognises one (a `/refer/<code>` path, a code at sign-up) is its own rule. Not
    * `referral`: that word is the channel group of any outside site, and a channel of the same name
@@ -104,7 +103,6 @@ export const SOURCE_ALIASES = {
   'deepseek.com': 'deepseek',
   'doubao.com': 'doubao',
   'kimi.com': 'kimi',
-  'metaso.cn': 'metaso',
 } as const satisfies Record<string, Channel>;
 
 /**
@@ -162,7 +160,6 @@ export const REFERRER_SITES = [
   ['yuanbao', 'ai', String.raw`^yuanbao\.tencent\.com$`],
   ['ernie', 'ai', String.raw`^yiyan\.baidu\.com$|(^|\.)ernie\.baidu\.com$`],
   ['zhipu', 'ai', String.raw`(^|\.)(chatglm\.cn|zhipuai\.cn|bigmodel\.cn)$`],
-  ['metaso', 'ai', String.raw`(^|\.)metaso\.cn$`],
   ['google', 'organic', String.raw`(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['microsoft', 'organic', String.raw`(^|\.)bing\.com$`],
   ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$`],

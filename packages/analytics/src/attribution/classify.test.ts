@@ -166,7 +166,6 @@ describe('classifyTouch', () => {
     ['https://yuanbao.tencent.com/chat', 'yuanbao', 'ai', 'organic_ai'],
     ['https://yiyan.baidu.com/', 'ernie', 'ai', 'organic_ai'],
     ['https://chatglm.cn/', 'zhipu', 'ai', 'organic_ai'],
-    ['https://metaso.cn/', 'metaso', 'ai', 'organic_ai'],
     ['https://www.baidu.com/s?wd=x', 'baidu', 'organic', 'organic_search'],
     ['https://blog.example.com/post', 'blog.example.com', 'referral', 'referral'],
     ['https://Blog.Example.com:8443/post', 'blog.example.com', 'referral', 'referral'],
