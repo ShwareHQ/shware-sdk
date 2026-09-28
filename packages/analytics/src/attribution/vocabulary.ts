@@ -180,18 +180,46 @@ export const REFERRER_SITES = [
 ] as const satisfies readonly (readonly [Channel, ReferrerMedium, RegExp])[];
 
 /**
- * Referrer hosts that are navigation, not acquisition: the payment and sign-in providers a
- * visitor is bounced through and back from, and the local dev host. A product appends its own
+ * Referrer hosts that are navigation, not acquisition, when a session happens to start on the way
+ * back from them: the local dev host; the payment providers a visitor is bounced through; the
+ * sign-in providers whose login lives on a host of its own (Google, Apple, Microsoft, WeChat,
+ * Kakao, LINE, Naver, Yahoo, Twitch, X's OAuth 1.0a endpoint); and the hosted auth services a
+ * product may sit behind (Auth0, Okta, Supabase, Firebase, Clerk). A product appends its own
  * hostnames — a session that starts from an internal link after the session timeout refers to
- * them. Regular expressions over the lower-cased host.
+ * them. Matched before `REFERRER_SITES`, so `nid.naver.com` and `login.yahoo.com` are not read as
+ * a search. Providers whose login shares the host with their content — Facebook, X's OAuth 2.0,
+ * LinkedIn, GitHub, Discord — cannot be told apart by host (referrer policies strip the path) and
+ * are left as the referrers they usually are. Regular expressions over the lower-cased host.
  */
 export const REFERRERS_NOT_A_TOUCH = [
   /^localhost(:|$)/,
+  // payment
   /(^|\.)stripe\.com$/,
-  /^(pay|accounts)\.google\.com$/,
-  /^(appleid|apps)\.apple\.com$/,
+  /^pay\.google\.com$/,
+  /(^|\.)paypal\.com$/,
+  /(^|\.)alipay\.com$/,
+  /(^|\.)paddle\.com$/,
+  /(^|\.)lemonsqueezy\.com$/,
+  // app stores
+  /^apps\.apple\.com$/,
   /^play\.google\.com$/,
-  /^login\.microsoftonline\.com$/,
+  // sign-in providers with a login host of their own
+  /^accounts\.google\.com$/,
+  /^appleid\.apple\.com$/,
+  /^login\.(microsoftonline|live)\.com$/,
+  /^open\.weixin\.qq\.com$/,
+  /^(kauth|accounts)\.kakao\.com$/,
+  /^access\.line\.me$/,
+  /^nid\.naver\.com$/,
+  /^login\.yahoo\.com$/,
+  /^id\.twitch\.tv$/,
+  /^api\.twitter\.com$/,
+  // hosted auth services
+  /(^|\.)auth0\.com$/,
+  /(^|\.)okta\.com$/,
+  /(^|\.)supabase\.co$/,
+  /(^|\.)firebaseapp\.com$/,
+  /(^|\.)clerk\.accounts\.dev$/,
 ] as const;
 
 /** GA4's paid mediums — cpc, cpm, ppc, retargeting, paid_social, … — plus Performance Max. */

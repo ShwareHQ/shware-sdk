@@ -183,6 +183,9 @@ describe('classifyTouch', () => {
     for (const page_referrer of [
       'https://checkout.stripe.com/',
       'https://accounts.google.com/',
+      'https://open.weixin.qq.com/connect/qrconnect',
+      'https://nid.naver.com/oauth2.0/authorize',
+      'https://abc.supabase.co/auth/v1/callback',
       'https://www.shware.net/pricing',
       'http://localhost:3000/',
     ]) {
@@ -191,6 +194,19 @@ describe('classifyTouch', () => {
         priority: null,
       });
     }
+    // The search and content hosts next to those login hosts are still what they are.
+    expect(
+      classifyTouch(
+        at('https://app.shware.net/', {
+          page_referrer: 'https://search.naver.com/search.naver?query=x',
+        })
+      )
+    ).toMatchObject({ channel: 'naver', medium: 'organic' });
+    expect(
+      classifyTouch(
+        at('https://app.shware.net/', { page_referrer: 'https://mp.weixin.qq.com/s/abc' })
+      )
+    ).toMatchObject({ channel: 'mp.weixin.qq.com', medium: 'referral' });
     // Without the product's hosts, its own site is an ordinary referrer.
     expect(
       classifyTouch(at('https://app.shware.net/', { page_referrer: 'https://www.shware.net/' }))

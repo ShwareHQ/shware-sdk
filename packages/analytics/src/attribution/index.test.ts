@@ -47,15 +47,37 @@ describe('referrer sites', () => {
 });
 
 describe('referrers that are not a touch', () => {
-  it.each(['checkout.stripe.com', 'accounts.google.com', 'appleid.apple.com', 'localhost:3000'])(
-    '%s',
-    (host) => {
-      expect(REFERRERS_NOT_A_TOUCH.some((pattern) => matches(pattern, host))).toBe(true);
-    }
-  );
+  it.each([
+    'checkout.stripe.com',
+    'www.paypal.com',
+    'accounts.google.com',
+    'appleid.apple.com',
+    'login.live.com',
+    'open.weixin.qq.com',
+    'kauth.kakao.com',
+    'nid.naver.com',
+    'login.yahoo.com',
+    'api.twitter.com',
+    'abc.supabase.co',
+    'my-app.firebaseapp.com',
+    'tenant.auth0.com',
+    'localhost:3000',
+  ])('%s', (host) => {
+    expect(REFERRERS_NOT_A_TOUCH.some((pattern) => matches(pattern, host))).toBe(true);
+  });
 
   it('leaves real referrers alone', () => {
-    for (const host of ['www.google.com', 'news.ycombinator.com', 'mail.google.com']) {
+    for (const host of [
+      'www.google.com',
+      'news.ycombinator.com',
+      'mail.google.com',
+      'search.naver.com',
+      'search.yahoo.com',
+      'mp.weixin.qq.com',
+      'www.facebook.com',
+      'x.com',
+      'github.com',
+    ]) {
       expect(REFERRERS_NOT_A_TOUCH.some((pattern) => matches(pattern, host))).toBe(false);
     }
   });
