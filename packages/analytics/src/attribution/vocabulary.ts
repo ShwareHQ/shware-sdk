@@ -43,6 +43,16 @@ export const CHANNELS = [
   'gemini',
   'claude',
   'copilot',
+  'grok',
+  /** and the Chinese ones — DeepSeek, 豆包, Kimi, 通义, 腾讯元宝, 文心一言, 智谱清言, 秘塔 */
+  'deepseek',
+  'doubao',
+  'kimi',
+  'qwen',
+  'yuanbao',
+  'ernie',
+  'zhipu',
+  'metaso',
   /** the product's own referral programme: the session came through a member's link or code.
    * How a product recognises one (a `/refer/<code>` path, a code at sign-up) is its own rule. Not
    * `referral`: that word is the channel group of any outside site, and a channel of the same name
@@ -91,6 +101,10 @@ export const SOURCE_ALIASES = {
   'perplexity.ai': 'perplexity',
   'claude.ai': 'claude',
   'copilot.com': 'copilot',
+  'deepseek.com': 'deepseek',
+  'doubao.com': 'doubao',
+  'kimi.com': 'kimi',
+  'metaso.cn': 'metaso',
 } as const satisfies Record<string, Channel>;
 
 /**
@@ -131,8 +145,8 @@ export type ReferrerMedium = 'organic' | 'social' | 'video' | 'ai';
  * with the medium GA4 gives that kind of site. Anything else that refers is `referral`, kept as
  * its host. A country TLD is one or two labels (`google.com`, `google.co.uk`, `google.com.hk`),
  * never an open tail, so `google.com.evil.io` is not Google. In match order: the AI assistants
- * first, because `gemini.google.com` and `copilot.microsoft.com` would otherwise be Google and
- * Microsoft search.
+ * first, because `gemini.google.com`, `copilot.microsoft.com` and `yiyan.baidu.com` would
+ * otherwise be Google, Microsoft and Baidu search.
  */
 export const REFERRER_SITES = [
   ['chatgpt', 'ai', String.raw`(^|\.)(chatgpt\.com|chat\.openai\.com)$`],
@@ -140,6 +154,15 @@ export const REFERRER_SITES = [
   ['gemini', 'ai', String.raw`^gemini\.google\.com$`],
   ['claude', 'ai', String.raw`(^|\.)claude\.ai$`],
   ['copilot', 'ai', String.raw`^copilot\.microsoft\.com$|(^|\.)copilot\.com$`],
+  ['grok', 'ai', String.raw`(^|\.)(grok\.com|x\.ai)$`],
+  ['deepseek', 'ai', String.raw`(^|\.)deepseek\.com$`],
+  ['doubao', 'ai', String.raw`(^|\.)doubao\.com$`],
+  ['kimi', 'ai', String.raw`(^|\.)(kimi\.com|kimi\.moonshot\.cn|moonshot\.cn)$`],
+  ['qwen', 'ai', String.raw`^tongyi\.aliyun\.com$|(^|\.)(tongyi\.com|qianwen\.com|qwen\.ai)$`],
+  ['yuanbao', 'ai', String.raw`^yuanbao\.tencent\.com$`],
+  ['ernie', 'ai', String.raw`^yiyan\.baidu\.com$|(^|\.)ernie\.baidu\.com$`],
+  ['zhipu', 'ai', String.raw`(^|\.)(chatglm\.cn|zhipuai\.cn|bigmodel\.cn)$`],
+  ['metaso', 'ai', String.raw`(^|\.)metaso\.cn$`],
   ['google', 'organic', String.raw`(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['microsoft', 'organic', String.raw`(^|\.)bing\.com$`],
   ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$`],
@@ -177,16 +200,56 @@ export const REFERRERS_NOT_A_TOUCH = [
 /** GA4's paid mediums — cpc, cpm, ppc, retargeting, paid_social, … — plus Performance Max. */
 export const PAID_MEDIUM = '^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max)$';
 /**
- * Meta's `{{placement}}` values, which an ad URL template of `utm_medium={{placement}}` puts in
- * the medium: facebook_mobile_feed, instagram_reels, facebook_right_column, messenger_inbox,
- * audience_network / an, whatsapp_status, others, … — or the literal `{{placement}}` when the
- * macro was not expanded. Only an ad carries one — an organic post arrives as a referrer, with no
- * utm at all — so a medium like this is a paid Meta click whatever the source says (a template
- * with `utm_source=meta-websitekeyinfo` was seen). A prefix match, so a placement Meta adds
- * later is still paid.
+ * Meta's `{{placement}}` values, lower-cased, which an ad URL template of `utm_medium={{placement}}`
+ * puts in the medium. Only an ad carries one — an organic post arrives as a referrer, with no utm
+ * at all — so a medium in this list is a paid Meta click whatever the source says (a template with
+ * `utm_source=meta-websitekeyinfo` was seen). Listed one by one rather than matched by prefix, so
+ * that a hand-tagged `instagram_stories` post cannot be mistaken for an ad only because of how it
+ * is spelled … which means a placement Meta adds later shows up as unassigned until it is added
+ * here. Meta's documented values plus the ones seen in the wild (`facebook_mobile_reels`,
+ * `facebook_notification`, `an`), and the literal macro for a template that did not expand it.
  */
-export const META_PLACEMENT_MEDIUM =
-  '^(facebook|instagram|messenger|threads|whatsapp|audience_network|an|others)(_|$)|^\\{\\{placement\\}\\}$';
+export const META_PLACEMENTS = [
+  'facebook_desktop_feed',
+  'facebook_mobile_feed',
+  'facebook_mobile_reels',
+  'facebook_reels',
+  'facebook_reels_overlay',
+  'facebook_right_column',
+  'facebook_marketplace',
+  'facebook_video_feeds',
+  'facebook_stories',
+  'facebook_search',
+  'facebook_instream_video',
+  'facebook_instant_article',
+  'facebook_groups_feed',
+  'facebook_profile_feed',
+  'facebook_notification',
+  'facebook_notifications',
+  'facebook_business_explore',
+  'instagram_feed',
+  'instagram_stories',
+  'instagram_reels',
+  'instagram_reels_overlay',
+  'instagram_explore',
+  'instagram_explore_home',
+  'instagram_search',
+  'instagram_shop',
+  'instagram_profile_feed',
+  'instagram_profile_reels',
+  'instagram_igtv',
+  'messenger_inbox',
+  'messenger_stories',
+  'messenger_sponsored_messages',
+  'threads_feed',
+  'whatsapp_status',
+  'audience_network_classic',
+  'audience_network_rewarded_video',
+  'audience_network_native_banner_and_interstitial',
+  'an',
+  'others',
+  '{{placement}}',
+] as const;
 export const DISPLAY_MEDIUMS = ['display', 'banner', 'expandable', 'interstitial'] as const;
 /** GA4's email spellings, as a source or a medium. */
 export const EMAIL_MEDIUMS = ['email', 'e-mail', 'e_mail', 'e mail'] as const;

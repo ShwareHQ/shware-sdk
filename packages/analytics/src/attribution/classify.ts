@@ -8,7 +8,7 @@ import {
   EMAIL_MEDIUM,
   EMAIL_MEDIUMS,
   MEDIUM_NOT_SET,
-  META_PLACEMENT_MEDIUM,
+  META_PLACEMENTS,
   NO_MEDIUM,
   PAID_MEDIUM,
   REFERRERS_NOT_A_TOUCH,
@@ -55,7 +55,7 @@ export interface ClassifyOptions {
 
 const adLandingPage = new RegExp(AD_LANDING_PAGE);
 const paidMedium = new RegExp(PAID_MEDIUM);
-const metaPlacementMedium = new RegExp(META_PLACEMENT_MEDIUM);
+const metaPlacements = new Set<string>(META_PLACEMENTS);
 const emailMedium = new RegExp(EMAIL_MEDIUM);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
 const notATouch = REFERRERS_NOT_A_TOUCH.map((pattern) => new RegExp(pattern));
@@ -133,7 +133,7 @@ function referrer(
  * GA4's default channel group of a (channel, medium) pair, with GA4's rule that the source
  * decides too: `linkedin / (not set)` is Organic Social and `email / promo` is Email, because
  * GA4 matches its site lists on the source, not only the medium. Two additions to GA4: Meta's
- * placement names as a medium are a paid Meta click (see `META_PLACEMENT_MEDIUM`), and the AI
+ * placement names as a medium are a paid Meta click (see `META_PLACEMENTS`), and the AI
  * assistants have `organic_ai`. Checked in GA4's order — paid before organic, the organic groups before
  * email, referral last — so a pair that fits two rules lands where GA4 would put it.
  */
@@ -141,7 +141,7 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if (channel === DIRECT_CHANNEL) return 'direct';
   if ((DISPLAY_MEDIUMS as readonly string[]).includes(medium)) return 'display';
   // A Meta placement as the medium is a Meta ad whatever the source was tagged as.
-  if (metaPlacementMedium.test(medium)) return 'paid_social';
+  if (metaPlacements.has(medium)) return 'paid_social';
   if (paidMedium.test(medium)) {
     if (socialChannels.has(channel) || videoChannels.has(channel)) return 'paid_social';
     if (searchChannels.has(channel)) return 'paid_search';

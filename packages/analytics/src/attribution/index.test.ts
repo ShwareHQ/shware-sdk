@@ -28,6 +28,8 @@ describe('referrer sites', () => {
     ['chatgpt.com', 'chatgpt', 'ai'],
     ['gemini.google.com', 'gemini', 'ai'],
     ['copilot.microsoft.com', 'copilot', 'ai'],
+    ['yiyan.baidu.com', 'ernie', 'ai'],
+    ['www.baidu.com', 'baidu', 'organic'],
   ])('%s → %s / %s', (host, channel, medium) => {
     const hit = REFERRER_SITES.find(([, , pattern]) => matches(pattern, host));
     expect(hit?.[0]).toBe(channel);
