@@ -1,5 +1,13 @@
 # @shware/security
 
+## 3.3.2
+
+### Patch Changes
+
+- 0d439e3: Upgrade dependencies and peer dependencies to their latest versions.
+- Updated dependencies [0d439e3]
+  - @shware/utils@1.6.2
+
 ## 3.3.1
 
 ### Patch Changes
