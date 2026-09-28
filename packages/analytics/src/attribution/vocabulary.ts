@@ -245,6 +245,8 @@ export const META_PLACEMENTS = [
   'audience_network_native_banner_and_interstitial',
   'an',
   'others',
+  /** the macro itself, when Meta did not expand it (written in a field it does not substitute, or a
+   * preview click): still only ever produced by a Meta ad URL, so still a paid Meta click */
   '{{placement}}',
 ] as const;
 export const DISPLAY_MEDIUMS = ['display', 'banner', 'expandable', 'interstitial'] as const;
