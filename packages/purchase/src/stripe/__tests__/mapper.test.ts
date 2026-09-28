@@ -55,7 +55,12 @@ describe('mapCancellationDetails', () => {
   it('is null for the all-null details every live subscription carries', () => {
     expect(
       mapCancellationDetails({
-        cancellation_details: { comment: null, feedback: null, reason: null },
+        cancellation_details: {
+          comment: null,
+          feedback: null,
+          feedback_option: null,
+          reason: null,
+        },
       })
     ).toBeNull();
     expect(mapCancellationDetails({ cancellation_details: null })).toBeNull();
@@ -67,6 +72,7 @@ describe('mapCancellationDetails', () => {
         cancellation_details: {
           comment: 'Too pricey for me',
           feedback: 'too_expensive',
+          feedback_option: null,
           reason: 'cancellation_requested',
         },
       })
@@ -78,7 +84,12 @@ describe('mapCancellationDetails', () => {
     });
     expect(
       mapCancellationDetails({
-        cancellation_details: { comment: null, feedback: null, reason: 'payment_failed' },
+        cancellation_details: {
+          comment: null,
+          feedback: null,
+          feedback_option: null,
+          reason: 'payment_failed',
+        },
       })
     ).toMatchObject({ initiator: 'system', reason: 'payment_failed', feedback: null });
   });
@@ -89,6 +100,7 @@ describe('mapCancellationDetails', () => {
         cancellation_details: {
           comment: null,
           feedback: 'brand_new_value' as never,
+          feedback_option: null,
           reason: 'cancellation_requested',
         },
       })
