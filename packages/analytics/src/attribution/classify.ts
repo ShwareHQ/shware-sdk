@@ -5,8 +5,10 @@ import {
   type ChannelGroup,
   DIRECT_CHANNEL,
   DISPLAY_MEDIUMS,
+  EMAIL_MEDIUM,
   EMAIL_MEDIUMS,
   MEDIUM_NOT_SET,
+  META_PLACEMENT_MEDIUM,
   NO_MEDIUM,
   PAID_MEDIUM,
   REFERRERS_NOT_A_TOUCH,
@@ -53,17 +55,19 @@ export interface ClassifyOptions {
 
 const adLandingPage = new RegExp(AD_LANDING_PAGE);
 const paidMedium = new RegExp(PAID_MEDIUM);
+const metaPlacementMedium = new RegExp(META_PLACEMENT_MEDIUM);
+const emailMedium = new RegExp(EMAIL_MEDIUM);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
 const notATouch = REFERRERS_NOT_A_TOUCH.map((pattern) => new RegExp(pattern));
 const referrerSites = REFERRER_SITES.map(
   ([channel, medium, pattern]) => [channel, medium, new RegExp(pattern)] as const
 );
-const searchChannels = new Set<string>(
-  REFERRER_SITES.filter(([, medium]) => medium === 'organic').map(([channel]) => channel)
-);
-const socialChannels = new Set<string>(
-  REFERRER_SITES.filter(([, medium]) => medium !== 'organic').map(([channel]) => channel)
-);
+const channelsBy = (medium: string) =>
+  new Set<string>(REFERRER_SITES.filter(([, m]) => m === medium).map(([channel]) => channel));
+const searchChannels = channelsBy('organic');
+const socialChannels = channelsBy('social');
+const videoChannels = channelsBy('video');
+const aiChannels = channelsBy('ai');
 
 /** A tag as text, lower-cased; absent when missing or empty. */
 function text(tags: TrackTags, key: string): string | null {
@@ -119,21 +123,30 @@ function referrer(
   return site ? { channel: site[0], medium: site[1] } : { channel: host, medium: 'referral' };
 }
 
-/** GA4's default channel group of a (channel, medium) pair. */
+/**
+ * GA4's default channel group of a (channel, medium) pair, with GA4's rule that the source
+ * decides too: `linkedin / (not set)` is Organic Social and `email / promo` is Email, because
+ * GA4 matches its site lists on the source, not only the medium. Two additions to GA4: Meta's
+ * placement names as a medium are paid (see `META_PLACEMENT_MEDIUM`), and the AI assistants
+ * have `organic_ai`. Checked in GA4's order — paid before organic, the organic groups before
+ * email, referral last — so a pair that fits two rules lands where GA4 would put it.
+ */
 export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if (channel === DIRECT_CHANNEL) return 'direct';
   if ((DISPLAY_MEDIUMS as readonly string[]).includes(medium)) return 'display';
-  if (paidMedium.test(medium)) {
-    if (socialChannels.has(channel)) return 'paid_social';
+  if (paidMedium.test(medium) || (channel === 'meta' && metaPlacementMedium.test(medium))) {
+    if (socialChannels.has(channel) || videoChannels.has(channel)) return 'paid_social';
     if (searchChannels.has(channel)) return 'paid_search';
     return 'paid_other';
   }
-  if (medium === 'organic') return 'organic_search';
-  if (medium === 'social') return 'organic_social';
-  if (medium === 'video') return 'organic_video';
-  if (medium === 'referral') return 'referral';
-  if ((EMAIL_MEDIUMS as readonly string[]).includes(medium)) return 'email';
+  if (medium === 'social' || socialChannels.has(channel)) return 'organic_social';
+  if (medium === 'video' || videoChannels.has(channel)) return 'organic_video';
+  if (medium === 'ai' || aiChannels.has(channel)) return 'organic_ai';
+  if (medium === 'organic' || searchChannels.has(channel)) return 'organic_search';
+  if (emailMedium.test(medium) || (EMAIL_MEDIUMS as readonly string[]).includes(channel))
+    return 'email';
   if (medium === 'affiliate') return 'affiliate';
+  if (medium === 'referral') return 'referral';
   return 'unassigned';
 }
 

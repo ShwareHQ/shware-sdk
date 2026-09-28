@@ -35,6 +35,14 @@ export const CHANNELS = [
   'brave',
   'pinterest',
   'youtube',
+  /** AI assistants that send people to sites: ChatGPT tags its links `utm_source=chatgpt.com`, the
+   * others show as a referrer. Their own channel group, `organic_ai`, since GA4's default groups
+   * would file them under Referral / Unassigned and the question "how much does AI bring" comes up. */
+  'chatgpt',
+  'perplexity',
+  'gemini',
+  'claude',
+  'copilot',
   /** the product's own referral programme: the session came through a member's link or code.
    * How a product recognises one (a `/refer/<code>` path, a code at sign-up) is its own rule. Not
    * `referral`: that word is the channel group of any outside site, and a channel of the same name
@@ -54,6 +62,8 @@ export const CHANNEL_GROUPS = [
   'organic_search',
   'organic_social',
   'organic_video',
+  /** not in GA4's default grouping: sessions an AI assistant sent, by referrer or by ChatGPT's utm */
+  'organic_ai',
   'referral',
   'email',
   'affiliate',
@@ -72,6 +82,13 @@ export const SOURCE_ALIASES = {
   instagram: 'meta',
   bing: 'microsoft',
   twitter: 'x',
+  'google ads': 'google',
+  googleads: 'google',
+  adwords: 'google',
+  'chatgpt.com': 'chatgpt',
+  'chat.openai.com': 'chatgpt',
+  'perplexity.ai': 'perplexity',
+  'claude.ai': 'claude',
 } as const satisfies Record<string, Channel>;
 
 /**
@@ -105,15 +122,22 @@ export const CLICK_ID_CHANNELS = [
  */
 export const AD_LANDING_PAGE = '^(?:https?://[^/]+)?/lp/([a-z]+)(?:[/?#]|$)';
 
-export type ReferrerMedium = 'organic' | 'social' | 'video';
+export type ReferrerMedium = 'organic' | 'social' | 'video' | 'ai';
 
 /**
  * Referrer hosts that name a channel, as POSIX regular expressions over the lower-cased host,
  * with the medium GA4 gives that kind of site. Anything else that refers is `referral`, kept as
  * its host. A country TLD is one or two labels (`google.com`, `google.co.uk`, `google.com.hk`),
- * never an open tail, so `google.com.evil.io` is not Google.
+ * never an open tail, so `google.com.evil.io` is not Google. In match order: the AI assistants
+ * first, because `gemini.google.com` and `copilot.microsoft.com` would otherwise be Google and
+ * Microsoft search.
  */
 export const REFERRER_SITES = [
+  ['chatgpt', 'ai', String.raw`(^|\.)(chatgpt\.com|chat\.openai\.com)$`],
+  ['perplexity', 'ai', String.raw`(^|\.)perplexity\.ai$`],
+  ['gemini', 'ai', String.raw`^gemini\.google\.com$`],
+  ['claude', 'ai', String.raw`(^|\.)claude\.ai$`],
+  ['copilot', 'ai', String.raw`^copilot\.microsoft\.com$`],
   ['google', 'organic', String.raw`(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$`],
   ['microsoft', 'organic', String.raw`(^|\.)bing\.com$`],
   ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$`],
@@ -148,10 +172,22 @@ export const REFERRERS_NOT_A_TOUCH = [
   String.raw`^login\.microsoftonline\.com$`,
 ] as const;
 
-/** GA4's paid mediums: cpc, cpm, ppc, retargeting, paid_social, … */
-export const PAID_MEDIUM = '^(.*cp.*|ppc|retargeting|paid.*)$';
+/** GA4's paid mediums — cpc, cpm, ppc, retargeting, paid_social, … — plus Performance Max. */
+export const PAID_MEDIUM = '^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max)$';
+/**
+ * Meta's `{{placement}}` values, which an ad URL template of `utm_medium={{placement}}` puts in
+ * the medium: facebook_mobile_feed, instagram_reels, facebook_right_column, messenger_inbox,
+ * audience_network / an, others, … Only an ad carries one — an organic post arrives as a
+ * referrer, with no utm at all — so a medium like this on a `meta` session is a paid click. A
+ * prefix match, so a placement Meta adds later is still paid.
+ */
+export const META_PLACEMENT_MEDIUM =
+  '^(facebook|instagram|messenger|threads|audience_network|an|others)(_|$)';
 export const DISPLAY_MEDIUMS = ['display', 'banner', 'expandable', 'interstitial'] as const;
+/** GA4's email spellings, as a source or a medium. */
 export const EMAIL_MEDIUMS = ['email', 'e-mail', 'e_mail', 'e mail'] as const;
+/** A medium that says email anywhere in it: `outbound email`, `email_promo`, and GA4's four. */
+export const EMAIL_MEDIUM = '(^|[^a-z])e[-_ ]?mail([^a-z]|$)';
 
 /** Where a touch came from: a tracked session, or a report by the user or staff. */
 export const TOUCH_SOURCES = ['tracked', 'reported'] as const;

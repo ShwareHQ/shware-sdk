@@ -25,6 +25,9 @@ describe('referrer sites', () => {
     ['t.co', 'x', 'social'],
     ['lnkd.in', 'linkedin', 'social'],
     ['youtu.be', 'youtube', 'video'],
+    ['chatgpt.com', 'chatgpt', 'ai'],
+    ['gemini.google.com', 'gemini', 'ai'],
+    ['copilot.microsoft.com', 'copilot', 'ai'],
   ])('%s → %s / %s', (host, channel, medium) => {
     const hit = REFERRER_SITES.find(([, , pattern]) => matches(pattern, host));
     expect(hit?.[0]).toBe(channel);
