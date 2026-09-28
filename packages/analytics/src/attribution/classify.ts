@@ -48,20 +48,13 @@ export interface ClassifyOptions {
    * starts from an internal link after the session timeout refers to them, which is navigation,
    * not acquisition. The SDK adds the payment and sign-in providers (`REFERRERS_NOT_A_TOUCH`).
    */
-  ownHosts?: readonly (RegExp | string)[];
+  ownHosts?: readonly RegExp[];
   /** The product's rules, in order; the first that names the session wins. */
   rules?: readonly TouchRule[];
 }
 
-const adLandingPage = new RegExp(AD_LANDING_PAGE);
-const paidMedium = new RegExp(PAID_MEDIUM);
 const metaPlacements = new Set<string>(META_PLACEMENTS);
-const emailMedium = new RegExp(EMAIL_MEDIUM);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
-const notATouch = REFERRERS_NOT_A_TOUCH.map((pattern) => new RegExp(pattern));
-const referrerSites = REFERRER_SITES.map(
-  ([channel, medium, pattern]) => [channel, medium, new RegExp(pattern)] as const
-);
 const channelsBy = (medium: string) =>
   new Set<string>(REFERRER_SITES.filter(([, m]) => m === medium).map(([channel]) => channel));
 const searchChannels = channelsBy('organic');
@@ -100,7 +93,7 @@ function clickChannel(tags: TrackTags): string | null {
 /** 3. A landing page reserved for one channel's ads. */
 function landingChannel(tags: TrackTags): string | null {
   const location = text(tags, 'page_location');
-  return location ? (adLandingPage.exec(location)?.[1] ?? null) : null;
+  return location ? (AD_LANDING_PAGE.exec(location)?.[1] ?? null) : null;
 }
 
 /** 4. The product's rules, in order. */
@@ -118,14 +111,14 @@ function productTouch(tags: TrackTags, rules: readonly TouchRule[]): ProductTouc
  */
 function referrer(
   tags: TrackTags,
-  ownHosts: readonly (RegExp | string)[]
+  ownHosts: readonly RegExp[]
 ): { channel: string; medium: string } | null {
   const url = text(tags, 'page_referrer');
   const host = url ? referrerHostOf.exec(url)?.[1]?.toLowerCase() : undefined;
   if (!host) return null;
-  if (notATouch.some((pattern) => pattern.test(host))) return null;
-  if (ownHosts.some((pattern) => new RegExp(pattern).test(host))) return null;
-  const site = referrerSites.find(([, , pattern]) => pattern.test(host));
+  if (REFERRERS_NOT_A_TOUCH.some((pattern) => pattern.test(host))) return null;
+  if (ownHosts.some((pattern) => pattern.test(host))) return null;
+  const site = REFERRER_SITES.find(([, , pattern]) => pattern.test(host));
   return site ? { channel: site[0], medium: site[1] } : { channel: host, medium: 'referral' };
 }
 
@@ -142,7 +135,7 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if ((DISPLAY_MEDIUMS as readonly string[]).includes(medium)) return 'display';
   // A Meta placement as the medium is a Meta ad whatever the source was tagged as.
   if (metaPlacements.has(medium)) return 'paid_social';
-  if (paidMedium.test(medium)) {
+  if (PAID_MEDIUM.test(medium)) {
     if (socialChannels.has(channel) || videoChannels.has(channel)) return 'paid_social';
     if (searchChannels.has(channel)) return 'paid_search';
     return 'paid_other';
@@ -151,7 +144,7 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if (medium === 'video' || videoChannels.has(channel)) return 'organic_video';
   if (medium === 'ai' || aiChannels.has(channel)) return 'organic_ai';
   if (medium === 'organic' || searchChannels.has(channel)) return 'organic_search';
-  if (emailMedium.test(medium) || (EMAIL_MEDIUMS as readonly string[]).includes(channel))
+  if (EMAIL_MEDIUM.test(medium) || (EMAIL_MEDIUMS as readonly string[]).includes(channel))
     return 'email';
   if (medium === 'affiliate') return 'affiliate';
   if (medium === 'referral') return 'referral';

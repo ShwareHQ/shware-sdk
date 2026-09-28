@@ -2,8 +2,8 @@ import type { AdvertisingInfo } from '../track/types';
 
 /**
  * The vocabulary attribution is built from, shared by every product's `session` table and by the
- * dashboards that read it. Data only: `classifyTouch` (./classify) turns it into a channel, and a
- * product's dashboards read the same names back. What stays with the product is its own hostnames
+ * dashboards that read it. Data for `classifyTouch` (./classify), which turns it into a channel;
+ * a product's dashboards read the same names back. What stays with the product is its own hostnames
  * (referrer exclusions) and its landing-page conventions.
  */
 
@@ -134,12 +134,12 @@ export const CLICK_ID_CHANNELS = [
  * `/lp/<channel>`, with or without host, query and hash; the capture is the channel. A product
  * that names its landing pages differently replaces this.
  */
-export const AD_LANDING_PAGE = '^(?:https?://[^/]+)?/lp/([a-z]+)(?:[/?#]|$)';
+export const AD_LANDING_PAGE = /^(?:https?:\/\/[^/]+)?\/lp\/([a-z]+)(?:[/?#]|$)/;
 
 export type ReferrerMedium = 'organic' | 'social' | 'video' | 'ai';
 
 /**
- * Referrer hosts that name a channel, as POSIX regular expressions over the lower-cased host,
+ * Referrer hosts that name a channel, as regular expressions over the lower-cased host,
  * with the medium GA4 gives that kind of site. Anything else that refers is `referral`, kept as
  * its host. A country TLD is one or two labels (`google.com`, `google.co.uk`, `google.com.hk`),
  * never an open tail, so `google.com.evil.io` is not Google. In match order: the AI assistants
@@ -147,55 +147,55 @@ export type ReferrerMedium = 'organic' | 'social' | 'video' | 'ai';
  * otherwise be Google, Microsoft and Baidu search.
  */
 export const REFERRER_SITES = [
-  ['chatgpt', 'ai', String.raw`(^|\.)(chatgpt\.com|chat\.openai\.com)$`],
-  ['perplexity', 'ai', String.raw`(^|\.)perplexity\.ai$`],
-  ['gemini', 'ai', String.raw`^gemini\.google\.com$`],
-  ['claude', 'ai', String.raw`(^|\.)claude\.ai$`],
-  ['copilot', 'ai', String.raw`^copilot\.microsoft\.com$|(^|\.)copilot\.com$`],
-  ['grok', 'ai', String.raw`(^|\.)(grok\.com|x\.ai)$`],
-  ['deepseek', 'ai', String.raw`(^|\.)deepseek\.com$`],
-  ['doubao', 'ai', String.raw`(^|\.)doubao\.com$`],
-  ['kimi', 'ai', String.raw`(^|\.)(kimi\.com|kimi\.moonshot\.cn|moonshot\.cn)$`],
-  ['qwen', 'ai', String.raw`^tongyi\.aliyun\.com$|(^|\.)(tongyi\.com|qianwen\.com|qwen\.ai)$`],
-  ['yuanbao', 'ai', String.raw`^yuanbao\.tencent\.com$`],
-  ['ernie', 'ai', String.raw`^yiyan\.baidu\.com$|(^|\.)ernie\.baidu\.com$`],
-  ['zhipu', 'ai', String.raw`(^|\.)(chatglm\.cn|zhipuai\.cn|bigmodel\.cn)$`],
-  ['google', 'organic', String.raw`(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$`],
-  ['microsoft', 'organic', String.raw`(^|\.)bing\.com$`],
-  ['yahoo', 'organic', String.raw`(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$`],
-  ['duckduckgo', 'organic', String.raw`(^|\.)duckduckgo\.com$`],
-  ['baidu', 'organic', String.raw`(^|\.)baidu\.com$`],
-  ['yandex', 'organic', String.raw`(^|\.)yandex\.[a-z]{2,}(\.[a-z]{2,3})?$`],
-  ['ecosia', 'organic', String.raw`(^|\.)ecosia\.org$`],
-  ['naver', 'organic', String.raw`(^|\.)naver\.com$`],
-  ['brave', 'organic', String.raw`^search\.brave\.com$`],
-  ['meta', 'social', String.raw`(^|\.)(facebook\.com|instagram\.com|fb\.com|threads\.net)$`],
-  ['x', 'social', String.raw`(^|\.)(twitter\.com|x\.com|t\.co)$`],
-  ['linkedin', 'social', String.raw`(^|\.)(linkedin\.com|lnkd\.in)$`],
-  ['reddit', 'social', String.raw`(^|\.)reddit\.com$`],
-  ['tiktok', 'social', String.raw`(^|\.)tiktok\.com$`],
-  ['pinterest', 'social', String.raw`(^|\.)pinterest\.[a-z]{2,}(\.[a-z]{2,3})?$`],
-  ['snapchat', 'social', String.raw`(^|\.)snapchat\.com$`],
-  ['youtube', 'video', String.raw`(^|\.)(youtube\.com|youtu\.be)$`],
-] as const satisfies readonly (readonly [Channel, ReferrerMedium, string])[];
+  ['chatgpt', 'ai', /(^|\.)(chatgpt\.com|chat\.openai\.com)$/],
+  ['perplexity', 'ai', /(^|\.)perplexity\.ai$/],
+  ['gemini', 'ai', /^gemini\.google\.com$/],
+  ['claude', 'ai', /(^|\.)claude\.ai$/],
+  ['copilot', 'ai', /^copilot\.microsoft\.com$|(^|\.)copilot\.com$/],
+  ['grok', 'ai', /(^|\.)(grok\.com|x\.ai)$/],
+  ['deepseek', 'ai', /(^|\.)deepseek\.com$/],
+  ['doubao', 'ai', /(^|\.)doubao\.com$/],
+  ['kimi', 'ai', /(^|\.)(kimi\.com|kimi\.moonshot\.cn|moonshot\.cn)$/],
+  ['qwen', 'ai', /^tongyi\.aliyun\.com$|(^|\.)(tongyi\.com|qianwen\.com|qwen\.ai)$/],
+  ['yuanbao', 'ai', /^yuanbao\.tencent\.com$/],
+  ['ernie', 'ai', /^yiyan\.baidu\.com$|(^|\.)ernie\.baidu\.com$/],
+  ['zhipu', 'ai', /(^|\.)(chatglm\.cn|zhipuai\.cn|bigmodel\.cn)$/],
+  ['google', 'organic', /(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$/],
+  ['microsoft', 'organic', /(^|\.)bing\.com$/],
+  ['yahoo', 'organic', /(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$/],
+  ['duckduckgo', 'organic', /(^|\.)duckduckgo\.com$/],
+  ['baidu', 'organic', /(^|\.)baidu\.com$/],
+  ['yandex', 'organic', /(^|\.)yandex\.[a-z]{2,}(\.[a-z]{2,3})?$/],
+  ['ecosia', 'organic', /(^|\.)ecosia\.org$/],
+  ['naver', 'organic', /(^|\.)naver\.com$/],
+  ['brave', 'organic', /^search\.brave\.com$/],
+  ['meta', 'social', /(^|\.)(facebook\.com|instagram\.com|fb\.com|threads\.net)$/],
+  ['x', 'social', /(^|\.)(twitter\.com|x\.com|t\.co)$/],
+  ['linkedin', 'social', /(^|\.)(linkedin\.com|lnkd\.in)$/],
+  ['reddit', 'social', /(^|\.)reddit\.com$/],
+  ['tiktok', 'social', /(^|\.)tiktok\.com$/],
+  ['pinterest', 'social', /(^|\.)pinterest\.[a-z]{2,}(\.[a-z]{2,3})?$/],
+  ['snapchat', 'social', /(^|\.)snapchat\.com$/],
+  ['youtube', 'video', /(^|\.)(youtube\.com|youtu\.be)$/],
+] as const satisfies readonly (readonly [Channel, ReferrerMedium, RegExp])[];
 
 /**
  * Referrer hosts that are navigation, not acquisition: the payment and sign-in providers a
  * visitor is bounced through and back from, and the local dev host. A product appends its own
  * hostnames — a session that starts from an internal link after the session timeout refers to
- * them. POSIX regular expressions over the lower-cased host.
+ * them. Regular expressions over the lower-cased host.
  */
 export const REFERRERS_NOT_A_TOUCH = [
-  String.raw`^localhost(:|$)`,
-  String.raw`(^|\.)stripe\.com$`,
-  String.raw`^(pay|accounts)\.google\.com$`,
-  String.raw`^(appleid|apps)\.apple\.com$`,
-  String.raw`^play\.google\.com$`,
-  String.raw`^login\.microsoftonline\.com$`,
+  /^localhost(:|$)/,
+  /(^|\.)stripe\.com$/,
+  /^(pay|accounts)\.google\.com$/,
+  /^(appleid|apps)\.apple\.com$/,
+  /^play\.google\.com$/,
+  /^login\.microsoftonline\.com$/,
 ] as const;
 
 /** GA4's paid mediums — cpc, cpm, ppc, retargeting, paid_social, … — plus Performance Max. */
-export const PAID_MEDIUM = '^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max)$';
+export const PAID_MEDIUM = /^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max)$/;
 /**
  * Meta's `{{placement}}` values, lower-cased, which an ad URL template of `utm_medium={{placement}}`
  * puts in the medium. Only an ad carries one — an organic post arrives as a referrer, with no utm
@@ -253,7 +253,7 @@ export const DISPLAY_MEDIUMS = ['display', 'banner', 'expandable', 'interstitial
 /** GA4's email spellings, as a source or a medium. */
 export const EMAIL_MEDIUMS = ['email', 'e-mail', 'e_mail', 'e mail'] as const;
 /** A medium that says email or newsletter anywhere in it: `outbound email`, `cold_email`, `newsletter`, and GA4's four. */
-export const EMAIL_MEDIUM = '(^|[^a-z])(e[-_ ]?mail|newsletter)([^a-z]|$)';
+export const EMAIL_MEDIUM = /(^|[^a-z])(e[-_ ]?mail|newsletter)([^a-z]|$)/;
 
 /** Where a touch came from: a tracked session, or a report by the user or staff. */
 export const TOUCH_SOURCES = ['tracked', 'reported'] as const;

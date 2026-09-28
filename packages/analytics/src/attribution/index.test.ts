@@ -10,8 +10,7 @@ import {
   TOUCH_PRIORITY,
 } from './vocabulary';
 
-/** The patterns are written for Postgres; POSIX ERE and JavaScript agree on everything used here. */
-const matches = (pattern: string, host: string) => new RegExp(pattern).test(host);
+const matches = (pattern: RegExp, host: string) => pattern.test(host);
 
 describe('referrer sites', () => {
   it.each([

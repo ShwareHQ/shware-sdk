@@ -4,7 +4,7 @@ import { type TouchRule, channelGroupOf, classifyTouch } from './classify';
 import { TOUCH_PRIORITY } from './vocabulary';
 
 const at = (page_location: string, rest: TrackTags = {}): TrackTags => ({ page_location, ...rest });
-const own = { ownHosts: [String.raw`(^|\.)shware\.net$`] };
+const own = { ownHosts: [/(^|\.)shware\.net$/] };
 
 /** A product's referral landing page, `/refer/<code>`: the code is the referrer's. */
 const referralLink: TouchRule = (tags) => {
