@@ -52,18 +52,25 @@ select count(id)
 from application.feedback
 where created_at between $__timeFrom() and $__timeTo()
 
--- PV/UV (Time series)
+-- PV/UV (Time series): page views and unique visitors per day, per hour when the dashboard
+-- window is a day or less. UV is not additive — a visitor active in five hours counts in five
+-- hourly buckets — so hourly UV is for a day's shape, not a daily figure. Days are UTC days; pass
+-- a time zone as date_trunc's third argument to cut them at local midnight.
 select
-  date_trunc('hour', created_at) as time,
+  date_trunc(
+    case when $__timeTo()::timestamptz - $__timeFrom()::timestamptz <= interval '1 day' then 'hour' else 'day' end,
+    created_at
+  ) as time,
   count(id) as pv,
   count(distinct visitor_id) as uv
 from application.event
 where
-  created_at between $__timeFrom() and $__timeTo()
+  $__timeFilter(created_at)
   and name = 'page_view'
   and environment = '$environment'
   and platform in (${platform:sqlstring})
-group by time;
+group by 1
+order by 1;
 
 -- Referral sources (Bar chart)
 select
