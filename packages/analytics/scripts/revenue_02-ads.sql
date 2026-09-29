@@ -12,7 +12,7 @@ from application.event e
 where e.name = 'purchase'
   and a.channel = 'meta' and a.channel_group = 'paid_social'
   and a.touched_at between $__timeFrom() and $__timeTo()
-  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.started_at between $__timeFrom() and $__timeTo()::timestamptz + interval '30 days'
   and a.touch_platform in (${platform:sqlstring})
   and e.environment = '$environment';
 
@@ -24,7 +24,7 @@ from application.event e
 where e.name = 'purchase'
   and a.channel = 'meta' and a.channel_group = 'paid_social'
   and a.touched_at between $__timeFrom() and $__timeTo()
-  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.started_at between $__timeFrom() and $__timeTo()::timestamptz + interval '30 days'
   and a.touch_platform in (${platform:sqlstring})
   and e.environment = '$environment';
 
@@ -35,7 +35,7 @@ from application.event e
 where e.name = 'purchase'
   and a.channel = 'meta' and a.channel_group = 'paid_social'
   and a.touched_at between $__timeFrom() and $__timeTo()
-  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.started_at between $__timeFrom() and $__timeTo()::timestamptz + interval '30 days'
   and a.touch_platform in (${platform:sqlstring})
   and e.environment = '$environment';
 
@@ -46,7 +46,7 @@ from application.event e
 where e.name = 'purchase'
   and a.channel = 'meta' and a.channel_group = 'paid_social'
   and a.touched_at between $__timeFrom() and $__timeTo()
-  and a.started_at between $__timeFrom() and $__timeTo() + interval '30 days'
+  and a.started_at between $__timeFrom() and $__timeTo()::timestamptz + interval '30 days'
   and a.touch_platform in (${platform:sqlstring})
   and e.environment = '$environment';
 
