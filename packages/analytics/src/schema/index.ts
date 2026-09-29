@@ -187,18 +187,50 @@ const visitorPropertiesSchema = optional(
   )
 );
 
-export const createTrackEventSchema = array(
-  object({
-    name: string().check(trim(), minLength(1), maxLength(64)),
-    visitor_id: uuid(),
-    session_id: uuid(),
-    platform: _enum(ALL_PLATFORMS),
-    environment: _enum(ALL_ENVIRONMENTS),
-    timestamp: iso.datetime(),
-    tags: tagsSchema,
-    properties: propertiesSchema,
-  })
-).check(minLength(1), maxLength(100));
+/**
+ * How far an event's time may be from the server's before the client clock it was stamped with is
+ * taken as wrong. A batch legitimately arrives late — a tab frozen in the background, a
+ * session_start held back after a failed batch — by hours, not days; a phone set to another year
+ * writes its sessions into that year.
+ */
+const MAX_CLOCK_SKEW = 24 * 60 * 60 * 1000;
+
+/**
+ * Puts the events stamped by a wrong client clock onto the server's, where they are parsed. Only
+ * the events outside `MAX_CLOCK_SKEW` move, so one bad event cannot drag the rest of its batch
+ * along: they move together by their own latest one — the wrong clock at sending — keeping their
+ * order and spacing, and one still out after that (a batch mixing two wrong clocks) is on no clock
+ * at all and takes the server's time. Corrected rather than rejected, for the same reason values
+ * are truncated: a wrong clock should cost the event its time, not the batch its events.
+ */
+function alignClock<T extends { timestamp: string }>(events: T[], now = Date.now()): T[] {
+  const within = (time: number) => Math.abs(now - time) <= MAX_CLOCK_SKEW;
+  const times = events.map((event) => Date.parse(event.timestamp));
+  const wrong = times.filter((time) => !within(time));
+  if (wrong.length === 0) return events;
+  const offset = now - Math.max(...wrong);
+  return events.map((event, i) => {
+    if (within(times[i])) return event;
+    const shifted = times[i] + offset;
+    return { ...event, timestamp: new Date(within(shifted) ? shifted : now).toISOString() };
+  });
+}
+
+export const createTrackEventSchema = pipe(
+  array(
+    object({
+      name: string().check(trim(), minLength(1), maxLength(64)),
+      visitor_id: uuid(),
+      session_id: uuid(),
+      platform: _enum(ALL_PLATFORMS),
+      environment: _enum(ALL_ENVIRONMENTS),
+      timestamp: iso.datetime(),
+      tags: tagsSchema,
+      properties: propertiesSchema,
+    })
+  ).check(minLength(1), maxLength(100)),
+  transform((events) => alignClock(events))
+);
 
 export const createVisitorSchema = object({
   device_id: string().check(trim(), minLength(1), maxLength(36)),
