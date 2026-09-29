@@ -103,9 +103,8 @@ with newcomers as (
     order by s.started_at
     limit 1
   ) fs
-  -- started_at is the client's clock: a wrong one would open a week years back.
   where fs.platform in (${platform:sqlstring})
-    and fs.started_at between $__timeFrom() and date_trunc('week', now() - interval '7 days')
+    and fs.started_at < date_trunc('week', now() - interval '7 days')
     and fs.channel = 'google' and fs.medium in ('cpc', 'pmax')
 ), ttv as (
   select date_trunc('week', p.first_seen) as week, p.segment,
