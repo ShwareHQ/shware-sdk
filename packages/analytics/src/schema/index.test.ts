@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createLinkSchema,
   createTrackEventSchema,
@@ -61,6 +61,61 @@ describe('createTrackEventSchema', () => {
     expect(parsed).toHaveLength(2);
     expect(parsed[0].properties?.link_text).toHaveLength(512);
     expect(parsed[1].properties?.kept).toBe('second event');
+  });
+
+  describe('a wrong client clock', () => {
+    const now = Date.parse('2026-09-29T12:00:00.000Z');
+    const at = (timestamp: string) => ({ ...event({}), timestamp });
+    const times = (events: ReturnType<typeof at>[]) =>
+      createTrackEventSchema.parse(events).map((e) => e.timestamp);
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(now);
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('moves a batch stamped in another year onto the server clock, keeping its spacing', () => {
+      expect(times([at('2019-12-02T08:00:00.000Z'), at('2019-12-02T08:00:05.000Z')])).toEqual([
+        '2026-09-29T11:59:55.000Z',
+        '2026-09-29T12:00:00.000Z',
+      ]);
+      expect(times([at('1970-01-01T00:00:00.000Z')])).toEqual(['2026-09-29T12:00:00.000Z']);
+      expect(times([at('2031-01-01T00:00:00.000Z')])).toEqual(['2026-09-29T12:00:00.000Z']);
+    });
+
+    it('leaves a batch that is late by hours, not wrong, as it was', () => {
+      const late = ['2026-09-29T03:00:00.000Z', '2026-09-29T11:59:00.000Z'];
+      expect(times(late.map(at))).toEqual(late);
+    });
+
+    it('moves only the wrong events of a batch, never the right ones', () => {
+      // One event from a clock set years ahead cannot drag the rest back with it.
+      expect(times([at('2026-09-29T11:59:00.000Z'), at('2030-01-01T00:00:00.000Z')])).toEqual([
+        '2026-09-29T11:59:00.000Z',
+        '2026-09-29T12:00:00.000Z',
+      ]);
+      // Old events stamped before the clock was fixed move together, the right one stays.
+      expect(
+        times([
+          at('2019-12-02T08:00:00.000Z'),
+          at('2019-12-02T08:00:30.000Z'),
+          at('2026-09-29T11:59:50.000Z'),
+        ])
+      ).toEqual([
+        '2026-09-29T11:59:30.000Z',
+        '2026-09-29T12:00:00.000Z',
+        '2026-09-29T11:59:50.000Z',
+      ]);
+    });
+
+    it('gives the server time to an event that is still out after the move', () => {
+      // Two wrong clocks in one batch: 1970 moved by 2030's offset is still years off.
+      expect(times([at('1970-01-01T00:00:00.000Z'), at('2030-01-01T00:00:00.000Z')])).toEqual([
+        '2026-09-29T12:00:00.000Z',
+        '2026-09-29T12:00:00.000Z',
+      ]);
+    });
   });
 
   it('rejects an empty batch and non-uuid identity', () => {
