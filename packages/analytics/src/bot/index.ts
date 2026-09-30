@@ -235,18 +235,15 @@ export function botOf(tags: TrackTags): Bot {
     if (pattern.test(userAgent)) return { is_bot: true, bot_name: name, bot_category: category };
   }
 
+  const generic = userAgent ? GENERIC_BOT.exec(userAgent) : null;
+  const unknownName = generic ? nameOfUnknownBot(userAgent, generic[0]) : null;
+
+  // A scripted browser that says so in its user agent takes that name, else it is just WebDriver.
   if (tags.webdriver === true) {
-    return { is_bot: true, bot_name: 'WebDriver', bot_category: 'headless_browser' };
+    return { is_bot: true, bot_name: unknownName ?? 'WebDriver', bot_category: 'headless_browser' };
   }
 
-  const generic = userAgent ? GENERIC_BOT.exec(userAgent) : null;
-  if (generic) {
-    return {
-      is_bot: true,
-      bot_name: nameOfUnknownBot(userAgent, generic[0]),
-      bot_category: 'other',
-    };
-  }
+  if (unknownName) return { is_bot: true, bot_name: unknownName, bot_category: 'other' };
 
   if (!userAgent)
     return { is_bot: true, bot_name: '(no user agent)', bot_category: 'no_user_agent' };

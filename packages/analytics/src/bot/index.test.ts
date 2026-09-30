@@ -168,6 +168,11 @@ describe('botOf: the long tail and other signals', () => {
       bot_name: 'WebDriver',
       bot_category: 'headless_browser',
     });
+    expect(web(`${chrome} ScraperKit/2.1`, { webdriver: true })).toEqual({
+      is_bot: true,
+      bot_name: 'ScraperKit',
+      bot_category: 'headless_browser',
+    });
     expect(web(chrome, { webdriver: false })).toEqual(NOT_A_BOT);
   });
 
