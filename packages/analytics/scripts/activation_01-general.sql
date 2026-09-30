@@ -148,7 +148,9 @@ select
 from application.event e
 where
   e.name = 'page_view'
-  and e.properties ->> 'page_path' not like '/blogs/%'
+  and e.properties ->> 'page_path' not like '/blog/%'
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
@@ -163,12 +165,14 @@ limit 10;
 
 -- User blog views (Bar chart)
 select
-  substring(e.properties ->> 'page_path' from 8) as slug,
+  substring(e.properties ->> 'page_path' from 7) as slug,
   count(e.id) as event_count
 from application.event e
 where
   e.name = 'page_view'
   and e.properties ->> 'page_path' like '/blog/%'
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
@@ -194,6 +198,8 @@ where
     'begin_checkout',
     'purchase'
   )
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
@@ -219,6 +225,8 @@ where
     'begin_checkout',
     'purchase'
   )
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
