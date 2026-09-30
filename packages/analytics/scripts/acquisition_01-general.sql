@@ -1,3 +1,6 @@
+-- Bots (visitor.is_bot, from @shware/analytics botOf) are left out of every visitor and page view
+-- count here; see acquisition_06-bots.sql for them.
+
 -- Unique visitors (Stat)
 select
   count(distinct visitor_id) as uv
@@ -6,7 +9,8 @@ where
   created_at between $__timeFrom() and $__timeTo()
   and name = 'page_view'
   and environment = '$environment'
-  and platform in (${platform:sqlstring});
+  and platform in (${platform:sqlstring})
+  and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot);
 
 -- Page views (Stat)
 select
@@ -16,7 +20,8 @@ where
   created_at between $__timeFrom() and $__timeTo()
   and name = 'page_view'
   and environment = '$environment'
-  and platform in (${platform:sqlstring});
+  and platform in (${platform:sqlstring})
+  and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot);
 
 -- New Users
 select count(id) as total
@@ -37,6 +42,7 @@ v as (
     created_at between $__timeFrom() and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
+    and is_bot is not true
 )
 select u.total::float / nullif(v.total, 0) as rate from u, v;
 
@@ -69,6 +75,7 @@ where
   and name = 'page_view'
   and environment = '$environment'
   and platform in (${platform:sqlstring})
+  and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot)
 group by 1
 order by 1;
 
@@ -86,6 +93,7 @@ where
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'page_view'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by host
 order by event_count desc
 limit 10;
@@ -99,6 +107,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
+  and v.is_bot is not true
 group by device_type
 order by visitor_count desc
 limit 20;
@@ -118,6 +127,9 @@ left join application.iso_3166_1 c
 on v.tags ->> 'country' = c.alpha2
 where
   v.created_at between $__timeFrom() and $__timeTo()
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
+  and v.is_bot is not true
 group by country
 order by visitor_count desc
 limit 20;
@@ -131,6 +143,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
+  and v.is_bot is not true
 group by os_name
 order by visitor_count desc
 limit 20;
@@ -144,6 +157,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
+  and v.is_bot is not true
 group by browser_name
 order by visitor_count desc
 limit 20;
@@ -157,6 +171,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
+  and v.is_bot is not true
 group by language
 order by visitor_count desc
 limit 20;

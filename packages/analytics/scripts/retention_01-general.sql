@@ -6,6 +6,8 @@ with v as (
     created_at between date_trunc('month', CURRENT_DATE - INTERVAL '2 months') and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
+    -- A bot never comes back; in the cohort it reads as churn.
+    and is_bot is not true
 ),
 r as (
   select
@@ -54,6 +56,7 @@ WITH cohort AS (
     MIN(date_trunc('day', created_at)) AS cohort_day
   FROM application.event
   WHERE name = 'login' AND created_at BETWEEN date_trunc('month', CURRENT_DATE - INTERVAL '2 months') AND CURRENT_DATE
+    AND environment = '$environment'
   GROUP BY visitor_id
 ),
 events AS (
@@ -62,7 +65,7 @@ events AS (
     visitor_id,
     date_trunc('day', created_at) AS activity_day
   FROM application.event
-  WHERE name = 'page_view'
+  WHERE name = 'page_view' AND environment = '$environment'
 ),
 
 joined AS (

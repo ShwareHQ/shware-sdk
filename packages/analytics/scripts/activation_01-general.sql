@@ -6,6 +6,8 @@ with sessions as (
     and created_at between $__timeFrom() and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
+    -- A bot's session lasts no time and would pull the average down.
+    and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot)
 ),
 durations as (
   select sum(coalesce((properties ->> 'engagement_time_msec')::float8, 0)) / 1000 as duration
@@ -134,6 +136,7 @@ where
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'page_view'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by host
 order by event_count desc
 limit 10;
@@ -145,13 +148,16 @@ select
 from application.event e
 where
   e.name = 'page_view'
-  and e.properties ->> 'page_path' not like '/blogs/%'
+  and e.properties ->> 'page_path' not like '/blog/%'
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
   )
 group by page_path
 order by event_count desc
@@ -159,18 +165,21 @@ limit 10;
 
 -- User blog views (Bar chart)
 select
-  substring(e.properties ->> 'page_path' from 8) as slug,
+  substring(e.properties ->> 'page_path' from 7) as slug,
   count(e.id) as event_count
 from application.event e
 where
   e.name = 'page_view'
   and e.properties ->> 'page_path' like '/blog/%'
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
   )
 group by slug
 order by event_count desc
@@ -189,12 +198,15 @@ where
     'begin_checkout',
     'purchase'
   )
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
       and v.tags ->> 'utm_source' = 'x'
   )
 group by event_name
@@ -213,12 +225,15 @@ where
     'begin_checkout',
     'purchase'
   )
+  -- A visitor's events come after it was created (a day of slack for client clocks): bounds the scan.
+  and e.created_at >= $__timeFrom()::timestamptz - interval '1 day'
   and e.visitor_id in (
     select v.id from application.visitor v
     where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
       and nullif(v.tags ->> 'utm_source', '') is null
       and nullif(v.tags ->> 'gad_source', '') is null
   )
