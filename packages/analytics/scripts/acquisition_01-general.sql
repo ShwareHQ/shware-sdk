@@ -42,7 +42,7 @@ v as (
     created_at between $__timeFrom() and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
-    and is_bot is not true
+    and is_bot = false
 )
 select u.total::float / nullif(v.total, 0) as rate from u, v;
 
@@ -107,7 +107,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by device_type
 order by visitor_count desc
 limit 20;
@@ -129,7 +129,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by country
 order by visitor_count desc
 limit 20;
@@ -143,7 +143,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by os_name
 order by visitor_count desc
 limit 20;
@@ -157,7 +157,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by browser_name
 order by visitor_count desc
 limit 20;
@@ -171,7 +171,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by language
 order by visitor_count desc
 limit 20;

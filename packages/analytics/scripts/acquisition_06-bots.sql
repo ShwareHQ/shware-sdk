@@ -2,7 +2,7 @@
 -- request's user agent and navigator.webdriver (visitor.is_bot / bot_name / bot_category). Web
 -- only: a native visitor is never a bot. They stay in the tables; the touchpoint view, and so
 -- attribution and user_attribution, leaves them out. To keep them out of a panel that reads
--- visitor, add `and v.is_bot is not true`; one that reads only event or analytics_session:
+-- visitor, add `and v.is_bot = false`; one that reads only event or analytics_session:
 --   and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 -- Only bots that run JavaScript create a visitor; crawlers that do not are in the server logs.
 
