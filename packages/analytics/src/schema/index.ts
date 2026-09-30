@@ -113,6 +113,7 @@ export const tagsSchema = object({
       transform((v) => v as `${number}x${number}`)
     )
   ),
+  webdriver: optional(boolean()),
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),

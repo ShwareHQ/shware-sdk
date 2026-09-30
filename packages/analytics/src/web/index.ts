@@ -96,6 +96,7 @@ export async function getTags() {
     screen_width: window.screen.width,
     screen_height: window.screen.height,
     screen_resolution: `${window.screen.width}x${window.screen.height}`,
+    webdriver: navigator.webdriver || undefined,
     release: config.release,
     language: navigator.language,
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,

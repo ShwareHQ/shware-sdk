@@ -107,6 +107,8 @@ export interface DeviceInfo {
   screen_width?: number;
   screen_height?: number;
   screen_resolution?: `${number}x${number}`;
+  /** Web only, and only when true: `navigator.webdriver`, set by a browser under automation. */
+  webdriver?: boolean;
 }
 
 export interface AppInfo {
