@@ -1,3 +1,20 @@
+/**
+ * The cases here are picked from larger sets of real user agents. Run `botOf` over the full sets
+ * when the named table or the vendored isbot patterns change, and add a case here for anything it
+ * gets wrong:
+ *
+ * - crawler-user-agents: ~1,500 bot patterns, each with real user agents (`instances`)
+ *   https://raw.githubusercontent.com/monperrus/crawler-user-agents/master/crawler-user-agents.json
+ * - PostHog's bot definitions and the user agents its tests classify
+ *   https://github.com/PostHog/posthog/blob/master/products/web_analytics/backend/hogql_queries/bot_definitions.py
+ *   https://github.com/PostHog/posthog/blob/master/products/web_analytics/backend/hogql_queries/bot_ua_fixtures.py
+ * - ai.robots.txt: AI crawlers, assistants and agents by token, with their operators
+ *   https://raw.githubusercontent.com/ai-robots-txt/ai.robots.txt/main/robots.json
+ * - bowser's acceptance fixtures: real browsers (and a few bots), to catch browsers taken for bots
+ *   https://raw.githubusercontent.com/bowser-js/bowser/master/test/acceptance/useragentstrings.yml
+ * - isbot's fixtures, the source of the generic pattern
+ *   https://github.com/omrilotan/isbot/tree/main/fixtures
+ */
 import { describe, expect, it } from 'vitest';
 import { BOT_CATEGORIES, NAMED_BOTS, NOT_A_BOT, botOf, nameOfUnknownBot } from './index';
 
