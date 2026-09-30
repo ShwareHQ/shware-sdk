@@ -8,7 +8,10 @@ select
   coalesce(
     round(
       count(distinct case when e.name = 'login' and v.id in (
-        select visitor_id from application.event where name = 'login_request'
+        select visitor_id from application.event
+        where name = 'login_request' and environment = '$environment'
+          -- The visitor was created in the window, so its login requests come after it (a day of slack for client clocks).
+          and created_at >= $__timeFrom()::timestamptz - interval '1 day'
       ) then v.id end) * 100.0 /
       nullif(count(distinct case when e.name = 'login_request' then v.id end), 0),
       2
