@@ -64,7 +64,7 @@ describe('botOf: named bots', () => {
     [
       'meta-externalads/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)',
       'Meta-ExternalAds',
-      'ad_review',
+      'advertising',
     ],
     [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 (compatible; meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler))',
@@ -81,7 +81,7 @@ describe('botOf: named bots', () => {
       'Bingbot',
       'search_crawler',
     ],
-    ['AdsBot-Google (+http://www.google.com/adsbot.html)', 'AdsBot-Google', 'ad_review'],
+    ['AdsBot-Google (+http://www.google.com/adsbot.html)', 'AdsBot-Google', 'advertising'],
     [
       'Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)',
       'Bytespider',

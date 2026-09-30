@@ -10,7 +10,8 @@ import { GENERIC_BOT } from './generic';
  * - ai_crawler: collects content to train models (GPTBot, ClaudeBot, Meta-ExternalAgent)
  * - ai_search: indexes pages for an AI search product (OAI-SearchBot, PerplexityBot)
  * - ai_assistant: fetches a page because a person asked an assistant to (ChatGPT-User)
- * - ad_review: checks ad landing pages (Meta-ExternalAds, AdsBot-Google)
+ * - advertising: works for an ad system — reviews landing pages, targets or verifies ads
+ *   (Meta-ExternalAds, AdsBot-Google, Mediapartners-Google)
  * - link_preview: renders the card of a link shared in a feed or a chat (facebookexternalhit)
  * - seo_tool: SEO, marketing and page-speed tools (AhrefsBot, Lighthouse, HubSpot)
  * - monitoring: uptime checks, synthetics and service callers (Pingdom, Stripe)
@@ -24,7 +25,7 @@ export const BOT_CATEGORIES = [
   'ai_crawler',
   'ai_search',
   'ai_assistant',
-  'ad_review',
+  'advertising',
   'link_preview',
   'seo_tool',
   'monitoring',
@@ -55,13 +56,13 @@ export const NOT_A_BOT: Bot = { is_bot: false, bot_name: null, bot_category: nul
  * the generic pattern and filed as `other`.
  */
 export const NAMED_BOTS = [
-  // ad review: before the search crawlers, AdsBot and Mediapartners carry Google's name
-  ['Meta-ExternalAds', 'ad_review', /meta-externalads/i],
-  ['facebookcatalog', 'ad_review', /facebookcatalog/i],
-  ['AdsBot-Google', 'ad_review', /adsbot-google/i],
-  ['Mediapartners-Google', 'ad_review', /mediapartners-google/i],
-  ['AdIdxBot', 'ad_review', /adidxbot/i],
-  ['Google-Adwords-Instant', 'ad_review', /google-adwords-instant/i],
+  // advertising: before the search crawlers, AdsBot and Mediapartners carry Google's name
+  ['Meta-ExternalAds', 'advertising', /meta-externalads/i],
+  ['facebookcatalog', 'advertising', /facebookcatalog/i],
+  ['AdsBot-Google', 'advertising', /adsbot-google/i],
+  ['Mediapartners-Google', 'advertising', /mediapartners-google/i],
+  ['AdIdxBot', 'advertising', /adidxbot/i],
+  ['Google-Adwords-Instant', 'advertising', /google-adwords-instant/i],
 
   // AI assistants: a person asked for this page
   ['ChatGPT-User', 'ai_assistant', /chatgpt-user/i],
