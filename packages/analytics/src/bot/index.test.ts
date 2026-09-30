@@ -90,7 +90,7 @@ describe('botOf: named bots', () => {
     [
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/150.0.0.0 Safari/537.36',
       'HeadlessChrome',
-      'headless',
+      'headless_browser',
     ],
     [
       'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot',
@@ -166,13 +166,17 @@ describe('botOf: the long tail and other signals', () => {
     expect(web(chrome, { webdriver: true })).toEqual({
       is_bot: true,
       bot_name: 'WebDriver',
-      bot_category: 'headless',
+      bot_category: 'headless_browser',
     });
     expect(web(chrome, { webdriver: false })).toEqual(NOT_A_BOT);
   });
 
   it('calls a web visitor without a user agent a bot', () => {
-    expect(botOf({})).toEqual({ is_bot: true, bot_name: '(no user agent)', bot_category: 'other' });
+    expect(botOf({})).toEqual({
+      is_bot: true,
+      bot_name: '(no user agent)',
+      bot_category: 'no_user_agent',
+    });
   });
 
   it('names unknown bots from their user agent', () => {

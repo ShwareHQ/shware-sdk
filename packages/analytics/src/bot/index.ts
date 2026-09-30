@@ -14,8 +14,9 @@ import { GENERIC_BOT } from './generic';
  * - link_preview: renders the card of a link shared in a feed or a chat (facebookexternalhit)
  * - seo_tool: SEO, marketing and page-speed tools (AhrefsBot, Lighthouse, HubSpot)
  * - monitoring: uptime checks, synthetics and service callers (Pingdom, Stripe)
- * - headless: a scripted browser (HeadlessChrome, Playwright, a WebDriver session)
+ * - headless_browser: a scripted browser (HeadlessChrome, Playwright, a WebDriver session)
  * - http_client: a library or command-line client (curl, python-requests)
+ * - no_user_agent: a request without a user agent, which no browser sends
  * - other: automated by every sign, but none of the above
  */
 export const BOT_CATEGORIES = [
@@ -27,8 +28,9 @@ export const BOT_CATEGORIES = [
   'link_preview',
   'seo_tool',
   'monitoring',
-  'headless',
+  'headless_browser',
   'http_client',
+  'no_user_agent',
   'other',
 ] as const;
 
@@ -166,13 +168,13 @@ export const NAMED_BOTS = [
   ['Stripe', 'monitoring', /stripe\/1\.0|stripebot/i],
 
   // scripted browsers
-  ['HeadlessChrome', 'headless', /headlesschrome/i],
-  ['PhantomJS', 'headless', /phantomjs/i],
-  ['SlimerJS', 'headless', /slimerjs/i],
-  ['Playwright', 'headless', /playwright/i],
-  ['Puppeteer', 'headless', /puppeteer/i],
-  ['Selenium', 'headless', /selenium/i],
-  ['Cypress', 'headless', /cypress/i],
+  ['HeadlessChrome', 'headless_browser', /headlesschrome/i],
+  ['PhantomJS', 'headless_browser', /phantomjs/i],
+  ['SlimerJS', 'headless_browser', /slimerjs/i],
+  ['Playwright', 'headless_browser', /playwright/i],
+  ['Puppeteer', 'headless_browser', /puppeteer/i],
+  ['Selenium', 'headless_browser', /selenium/i],
+  ['Cypress', 'headless_browser', /cypress/i],
 
   // libraries and command-line clients
   ['curl', 'http_client', /^curl\//i],
@@ -233,7 +235,7 @@ export function botOf(tags: TrackTags): Bot {
   }
 
   if (tags.webdriver === true) {
-    return { is_bot: true, bot_name: 'WebDriver', bot_category: 'headless' };
+    return { is_bot: true, bot_name: 'WebDriver', bot_category: 'headless_browser' };
   }
 
   const generic = userAgent ? GENERIC_BOT.exec(userAgent) : null;
@@ -245,7 +247,8 @@ export function botOf(tags: TrackTags): Bot {
     };
   }
 
-  if (!userAgent) return { is_bot: true, bot_name: '(no user agent)', bot_category: 'other' };
+  if (!userAgent)
+    return { is_bot: true, bot_name: '(no user agent)', bot_category: 'no_user_agent' };
 
   return NOT_A_BOT;
 }
