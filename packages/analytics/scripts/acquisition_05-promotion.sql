@@ -16,6 +16,8 @@ from
 where 
   name in ('view_promotion', 'select_promotion')
   and created_at between $__timeFrom() and $__timeTo()
+  -- Bots load landing pages and count as impressions (ad review crawlers follow every ad).
+  and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot)
 group by
   properties ->> 'promotion_id'
 order by

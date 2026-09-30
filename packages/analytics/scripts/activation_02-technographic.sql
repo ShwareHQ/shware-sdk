@@ -14,7 +14,8 @@ select
 from application.visitor v
 left join application.event e on v.id = e.visitor_id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.tags ->> 'environment' = '$environment'
+  and v.environment = '$environment'
+  and v.is_bot is not true
 group by 1
 order by activation_rate_pct desc limit 10;
 
@@ -34,7 +35,8 @@ select
 from application.visitor v
 left join application.event e on v.id = e.visitor_id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.tags ->> 'environment' = '$environment'
+  and v.environment = '$environment'
+  and v.is_bot is not true
 group by 1
 order by registration_rate_pct desc limit 10;
 
@@ -57,6 +59,7 @@ select
 from application.visitor v
 left join application.event e on v.id = e.visitor_id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.tags ->> 'environment' = '$environment'
+  and v.environment = '$environment'
+  and v.is_bot is not true
 group by 1
 order by purchase_rate_pct desc limit 10;

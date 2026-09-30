@@ -6,6 +6,8 @@ with sessions as (
     and created_at between $__timeFrom() and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
+    -- A bot's session lasts no time and would pull the average down.
+    and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot)
 ),
 durations as (
   select sum(coalesce((properties ->> 'engagement_time_msec')::float8, 0)) / 1000 as duration
@@ -134,6 +136,7 @@ where
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'page_view'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by host
 order by event_count desc
 limit 10;
@@ -152,6 +155,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
   )
 group by page_path
 order by event_count desc
@@ -171,6 +175,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
   )
 group by slug
 order by event_count desc
@@ -195,6 +200,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
       and v.tags ->> 'utm_source' = 'x'
   )
 group by event_name
@@ -219,6 +225,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
+      and v.is_bot is not true
       and nullif(v.tags ->> 'utm_source', '') is null
       and nullif(v.tags ->> 'gad_source', '') is null
   )

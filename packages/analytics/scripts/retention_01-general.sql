@@ -6,6 +6,8 @@ with v as (
     created_at between date_trunc('month', CURRENT_DATE - INTERVAL '2 months') and $__timeTo()
     and environment = '$environment'
     and platform in (${platform:sqlstring})
+    -- A bot never comes back; in the cohort it reads as churn.
+    and is_bot is not true
 ),
 r as (
   select
