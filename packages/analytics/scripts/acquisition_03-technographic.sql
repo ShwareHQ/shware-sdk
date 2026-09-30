@@ -17,9 +17,15 @@ select
   ) as success_rate_pct,
   count(distinct case when e.name = 'login_request' then v.id end) as total_request_visitors
 from application.visitor v
-left join application.event e on v.id = e.visitor_id
+-- Only the events counted, from the window: a visitor's events all come after it was created.
+left join (
+  select visitor_id, name, properties from application.event
+  where name in ('login', 'login_request') and environment = '$environment' and created_at >= $__timeFrom()
+) e on e.visitor_id = v.id
 where v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
+  and v.is_bot is not true
 group by 1
 order by success_rate_pct desc;
 

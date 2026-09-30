@@ -127,6 +127,8 @@ left join application.iso_3166_1 c
 on v.tags ->> 'country' = c.alpha2
 where
   v.created_at between $__timeFrom() and $__timeTo()
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
   and v.is_bot is not true
 group by country
 order by visitor_count desc
