@@ -48,12 +48,26 @@ export type Bot =
 export const NOT_A_BOT: Bot = { is_bot: false, bot_name: null, bot_category: null };
 
 /**
- * Bots we can name, as `[name, category, pattern]`, tried in order. Names are the operators'
- * own spelling of their user agent token. The list starts from bowser's bots (which are named
- * but few) and the ones seen in production that bowser misses, and follows each operator's
- * published user agents. More specific tokens come first where one contains another's prefix
- * (Meta's agents, Anthropic's, Perplexity's). Anything automated that is not here is caught by
- * the generic pattern and filed as `other`.
+ * Bots we can name, as `[name, category, pattern]`, tried in order; the first match wins.
+ *
+ * Where the list comes from (checked 2026-09-30):
+ * - bowser's bot parsers (the ~25 named bots its `platform.type === 'bot'` reports), which this
+ *   replaces.
+ * - PostHog's `bot_definitions.py` (web analytics traffic classification), for the bots and
+ *   categories an analytics product sees most.
+ * - ai.robots.txt (`robots.json`), for AI crawlers, search bots, assistants and agents.
+ * - The operators' own docs for the big ones: Google's crawler list, OpenAI's and Anthropic's
+ *   bot pages, Meta's web crawlers, Perplexity, Bing, Apple.
+ * - Bots seen in production (Meta-ExternalAds, HubSpot, Bytespider).
+ * Every entry was run against the real user agents in crawler-user-agents and PostHog's
+ * fixtures, and bowser's browser fixtures were run to check no browser is taken for a bot
+ * (Sogou's browser against its spider, Pinterest's in-app browser against its bot).
+ *
+ * Names are the operators' spelling of their user agent token. Order matters where one token
+ * contains another or borrows a name: advertising and SEO tools come before the search engines
+ * whose names they carry, and the more specific of Meta's, Anthropic's and Perplexity's tokens
+ * come first. The long tail is left to the generic pattern, filed as `other` and named by
+ * `nameOfUnknownBot`; add a bot here when it is worth its own category or name in a dashboard.
  */
 export const NAMED_BOTS = [
   // advertising: before the search crawlers, AdsBot and Mediapartners carry Google's name
@@ -62,9 +76,13 @@ export const NAMED_BOTS = [
   ['AdsBot-Google', 'advertising', /adsbot-google/i],
   ['Mediapartners-Google', 'advertising', /mediapartners-google/i],
   ['AdIdxBot', 'advertising', /adidxbot/i],
-  ['Google-Adwords-Instant', 'advertising', /google-adwords-instant/i],
+  ['Google-AdWords', 'advertising', /google-adwords/i],
+  ['Google-Ads-Conversions', 'advertising', /google-ads-conversions/i],
+  ['OAI-AdsBot', 'advertising', /oai-adsbot/i],
+  ['SnapchatAds', 'advertising', /snapchatads/i],
+  ['Taboolabot', 'advertising', /taboolabot/i],
 
-  // AI assistants: a person asked for this page
+  // AI assistants and agents: a person asked for this page
   ['ChatGPT-User', 'ai_assistant', /chatgpt-user/i],
   ['Claude-User', 'ai_assistant', /claude-user/i],
   ['Claude-Web', 'ai_assistant', /claude-web/i],
@@ -73,6 +91,18 @@ export const NAMED_BOTS = [
   ['Meta-ExternalFetcher', 'ai_assistant', /meta-externalfetcher/i],
   ['MistralAI-User', 'ai_assistant', /mistralai-user/i],
   ['Manus-User', 'ai_assistant', /manus-user/i],
+  ['Amzn-User', 'ai_assistant', /amzn-user/i],
+  ['amazon-QBusiness', 'ai_assistant', /amazon-qbusiness/i],
+  ['Amazon-Bedrock-AgentCore-Browser', 'ai_assistant', /amazon-bedrock-agentcore/i],
+  ['Google-Agent', 'ai_assistant', /google-?agent/i],
+  ['Gemini-Deep-Research', 'ai_assistant', /gemini-deep-research/i],
+  ['Google-NotebookLM', 'ai_assistant', /google-notebooklm/i],
+  ['Kimi-User', 'ai_assistant', /kimi-(?:user|agent)/i],
+  ['TongyiBot', 'ai_assistant', /tongyibot/i],
+  ['YiyanBot', 'ai_assistant', /yiyanbot/i],
+  ['kagi-fetcher', 'ai_assistant', /kagi-fetcher/i],
+  ['Devin', 'ai_assistant', /\bdevin\/\d/i],
+  ['NovaAct', 'ai_assistant', /novaact/i],
 
   // AI search
   ['OAI-SearchBot', 'ai_search', /oai-searchbot/i],
@@ -82,6 +112,16 @@ export const NAMED_BOTS = [
   ['Amazonbot', 'ai_search', /amazonbot/i],
   ['YouBot', 'ai_search', /youbot/i],
   ['PhindBot', 'ai_search', /phindbot/i],
+  ['Amzn-SearchBot', 'ai_search', /amzn-searchbot/i],
+  ['AzureAI-SearchBot', 'ai_search', /azureai-searchbot/i],
+  ['Kimi-SearchBot', 'ai_search', /kimi-searchbot/i],
+  ['MistralAI-Index', 'ai_search', /mistralai-index/i],
+  ['ExaSearchBot', 'ai_search', /exasearchbot|\bexabot/i],
+  ['TavilyBot', 'ai_search', /tavilybot/i],
+  ['LinkupBot', 'ai_search', /linkupbot/i],
+  ['iAskBot', 'ai_search', /iask(?:bot|spider)/i],
+  ['Andibot', 'ai_search', /andibot/i],
+  ['Cloudflare-AutoRAG', 'ai_search', /cloudflare-autorag/i],
 
   // AI training
   ['GPTBot', 'ai_crawler', /gptbot/i],
@@ -94,11 +134,30 @@ export const NAMED_BOTS = [
   ['Google-CloudVertexBot', 'ai_crawler', /google-cloudvertexbot/i],
   ['cohere-ai', 'ai_crawler', /cohere-(?:ai|training-data-crawler)/i],
   ['Diffbot', 'ai_crawler', /diffbot/i],
-  ['Omgilibot', 'ai_crawler', /omgilibot|webzio-extended/i],
+  ['Omgili', 'ai_crawler', /omgili|webzio-extended/i],
   ['ImagesiftBot', 'ai_crawler', /imagesiftbot/i],
   ['Timpibot', 'ai_crawler', /timpibot/i],
   ['AI2Bot', 'ai_crawler', /ai2bot/i],
   ['PanguBot', 'ai_crawler', /pangubot/i],
+  ['TikTokSpider', 'ai_crawler', /tiktokspider/i],
+  ['DeepSeekBot', 'ai_crawler', /deepseekbot/i],
+  ['DoubaoBot', 'ai_crawler', /doubaobot/i],
+  ['ERNIEBot', 'ai_crawler', /erniebot/i],
+  ['QwenBot', 'ai_crawler', /qwenbot/i],
+  ['KimiBot', 'ai_crawler', /kimibot/i],
+  ['ChatGLM-Spider', 'ai_crawler', /chatglm-spider/i],
+  ['MistralAI-Training', 'ai_crawler', /mistralai-training/i],
+  ['YandexAdditional', 'ai_crawler', /yandexadditional/i],
+  ['Google-Extended', 'ai_crawler', /google-extended/i],
+  ['Amazon Kendra', 'ai_crawler', /amazon-kendra|kendrabot/i],
+  ['bedrockbot', 'ai_crawler', /bedrockbot/i],
+  ['Brightbot', 'ai_crawler', /brightbot/i],
+  ['FirecrawlAgent', 'ai_crawler', /firecrawl/i],
+  ['Crawl4AI', 'ai_crawler', /crawl4ai/i],
+  ['ApifyBot', 'ai_crawler', /apify/i],
+  ['img2dataset', 'ai_crawler', /img2dataset/i],
+  ['LAION', 'ai_crawler', /laion/i],
+  ['Cloudflare Browser Rendering', 'ai_crawler', /cloudflarebrowserrendering/i],
 
   // link previews
   ['facebookexternalhit', 'link_preview', /facebookexternalhit/i],
@@ -109,7 +168,7 @@ export const NAMED_BOTS = [
   ['Discordbot', 'link_preview', /discordbot/i],
   ['TelegramBot', 'link_preview', /telegrambot/i],
   ['WhatsApp', 'link_preview', /^whatsapp\//i],
-  ['Pinterestbot', 'link_preview', /pinterestbot/i],
+  ['Pinterestbot', 'link_preview', /pinterestbot|^pinterest\/0\./i],
   ['redditbot', 'link_preview', /redditbot/i],
   ['Snap URL Preview', 'link_preview', /snap url preview/i],
   ['SkypeUriPreview', 'link_preview', /skypeuripreview/i],
@@ -118,6 +177,10 @@ export const NAMED_BOTS = [
   ['Embedly', 'link_preview', /embedly/i],
   ['KakaoTalk-scrap', 'link_preview', /kakaotalk-scrap/i],
   ['vkShare', 'link_preview', /vkshare/i],
+  ['Viber', 'link_preview', /^viber\b|viber-crawler/i],
+  ['Bluesky Cardyb', 'link_preview', /cardyb/i],
+  ['Google-PageRenderer', 'link_preview', /google-pagerenderer/i],
+  ['vercel-screenshot', 'link_preview', /vercel-screenshot/i],
 
   // SEO, marketing and page-speed tools; before the search crawlers, Lighthouse and the
   // Search Console tester borrow Google's name
@@ -134,6 +197,17 @@ export const NAMED_BOTS = [
   ['BLEXBot', 'seo_tool', /blexbot/i],
   ['DataForSeoBot', 'seo_tool', /dataforseobot/i],
   ['HubSpot', 'seo_tool', /hubspot/i],
+  ['Google-Structured-Data-Testing-Tool', 'seo_tool', /google-structured-data-testing-tool/i],
+  ['WebPageTest', 'seo_tool', /\bptst\/\d/i],
+  ['DareBoost', 'seo_tool', /dareboost/i],
+  ['Barkrowler', 'seo_tool', /barkrowler/i],
+  ['SE Ranking', 'seo_tool', /seranking|sebot-wa/i],
+  ['BrightEdge', 'seo_tool', /brightedge/i],
+  ['SearchAtlas', 'seo_tool', /searchatlas/i],
+  ['Siteimprove', 'seo_tool', /siteimprove/i],
+  ['Dataprovider', 'seo_tool', /dataprovider\.com/i],
+  ['Meltwater', 'seo_tool', /meltwater/i],
+  ['Awario', 'seo_tool', /awario/i],
 
   // search engines
   ['Googlebot', 'search_crawler', /googlebot/i],
@@ -145,7 +219,7 @@ export const NAMED_BOTS = [
   ['YandexBot', 'search_crawler', /yandex(?:\w*bot|images|metrika)/i],
   ['DuckDuckBot', 'search_crawler', /duckduckbot/i],
   ['Yahoo Slurp', 'search_crawler', /yahoo!?[\s/]*slurp/i],
-  ['Sogou', 'search_crawler', /sogou/i],
+  ['Sogou', 'search_crawler', /sogou[\w\s-]*spider/i],
   ['360Spider', 'search_crawler', /360spider|haosouspider/i],
   ['YisouSpider', 'search_crawler', /yisouspider/i],
   ['PetalBot', 'search_crawler', /petalbot/i],
@@ -155,18 +229,38 @@ export const NAMED_BOTS = [
   ['Qwantbot', 'search_crawler', /qwant(?:bot|ify)/i],
   ['coccocbot', 'search_crawler', /coccocbot/i],
   ['MojeekBot', 'search_crawler', /mojeekbot/i],
+  ['Bravebot', 'search_crawler', /bravebot/i],
+  ['SeekportBot', 'search_crawler', /seekport/i],
+  ['mwmbl', 'search_crawler', /mwmbl/i],
+  ['Internet Archive', 'search_crawler', /archive\.org_bot|ia_archiver|archive-it|archiveteam/i],
 
-  // monitoring and service callers
+  // monitoring, synthetics, security and consent scanners, service callers
   ['Pingdom', 'monitoring', /pingdom/i],
   ['UptimeRobot', 'monitoring', /uptimerobot/i],
   ['StatusCake', 'monitoring', /statuscake/i],
   ['Site24x7', 'monitoring', /site24x7/i],
   ['Better Stack', 'monitoring', /better ?uptime|betterstack/i],
-  ['Datadog Synthetics', 'monitoring', /datadogsynthetics/i],
+  ['Datadog', 'monitoring', /datadog/i],
   ['Checkly', 'monitoring', /checkly/i],
   ['NewRelicPinger', 'monitoring', /newrelicpinger/i],
   ['Uptime-Kuma', 'monitoring', /uptime-kuma/i],
-  ['Stripe', 'monitoring', /stripe\/1\.0|stripebot/i],
+  ['Grafana Synthetic Monitoring', 'monitoring', /grafanasyntheticmonitoring/i],
+  ['Dynatrace', 'monitoring', /ruxitsynthetic|dynatrace/i],
+  ['Splunk', 'monitoring', /splunk/i],
+  ['Catchpoint', 'monitoring', /catchpoint/i],
+  ['Ghost Inspector', 'monitoring', /ghost inspector/i],
+  ['DigitalOcean Uptime', 'monitoring', /digitalocean uptime/i],
+  ['OhDear', 'monitoring', /ohdear/i],
+  ['Google-Safety', 'monitoring', /google-safety/i],
+  ['Cookiebot', 'monitoring', /cookiebot/i],
+  ['OneTrust', 'monitoring', /onetrust/i],
+  ['CookieHub', 'monitoring', /cookiehub/i],
+  ['Detectify', 'monitoring', /detectify/i],
+  ['CensysInspect', 'monitoring', /censysinspect/i],
+  ['BitSightBot', 'monitoring', /bitsightbot/i],
+  ['zgrab', 'monitoring', /zgrab/i],
+  ['Nmap', 'monitoring', /nmap scripting engine/i],
+  ['Stripe', 'monitoring', /stripe\/1\.0|stripebot|merchantsecurityscanner/i],
 
   // scripted browsers
   ['HeadlessChrome', 'headless_browser', /headlesschrome/i],
@@ -176,6 +270,8 @@ export const NAMED_BOTS = [
   ['Puppeteer', 'headless_browser', /puppeteer/i],
   ['Selenium', 'headless_browser', /selenium/i],
   ['Cypress', 'headless_browser', /cypress/i],
+  ['Lightpanda', 'headless_browser', /lightpanda/i],
+  ['wkhtmltopdf', 'headless_browser', /wkhtmltopdf/i],
 
   // libraries and command-line clients
   ['curl', 'http_client', /^curl\//i],
@@ -195,24 +291,40 @@ export const NAMED_BOTS = [
   ['insomnia', 'http_client', /^insomnia\//i],
   ['libwww-perl', 'http_client', /libwww-perl/i],
   ['Guzzle', 'http_client', /guzzlehttp/i],
+  ['Google-Apps-Script', 'http_client', /google-apps-script/i],
+  ['GoogleDocs', 'http_client', /googledocs/i],
 ] as const satisfies readonly (readonly [string, BotCategory, RegExp])[];
 
-const productToken = /^([\w.-]+)\//;
 const botishToken =
   /\b([\w.-]*?(?:bot|crawler|spider|scraper|fetcher|agent|preview|checker|monitor)[\w-]*)\b/i;
+const botishWord = /^(?:bot|crawler|spider|scraper|fetcher|agent|preview|checker|monitor)$/i;
+const compatibleToken = /compatible;\s*([a-z][\w.-]*(?: [a-z][\w.-]*)?)/i;
+const productTokens = /([a-z][\w.-]*)\/\d/gi;
+const browserToken =
+  /^(?:mozilla|applewebkit|khtml|gecko|chrome|chromium|safari|version|mobile|firefox|edg|edge|opr|msie|trident)$/i;
 
 /**
- * A name for a bot that is not in the named table: the token that sounds like one
- * (`Bytespider`, `ABEvalBot`), else the product at the head of the user agent, else what the
- * generic pattern matched. URLs are dropped first, as nearly every crawler links its docs.
+ * A name for a bot that is not in the named table, from the first of: a token that sounds like
+ * one (`Bytespider`, `ABEvalBot`), the name after `compatible;` (`Google-Read-Aloud`), a product
+ * token that is not a browser's (`Barkrowler/0.5`), what the generic pattern matched. URLs and
+ * email addresses are dropped first, as nearly every crawler links its docs.
  */
 export function nameOfUnknownBot(userAgent: string, matched: string): string {
-  const withoutUrls = userAgent.replace(/\+?https?:\/\/\S+/gi, ' ');
-  const botish = botishToken.exec(withoutUrls)?.[1];
-  if (botish && botish.length >= 3) return botish.slice(0, 64);
-  const product = productToken.exec(withoutUrls.trim())?.[1];
-  if (product && !/^mozilla$/i.test(product)) return product.slice(0, 64);
-  return matched.trim().slice(0, 64) || 'unknown';
+  const text = userAgent
+    .replace(/\+?https?:\/\/\S+/gi, ' ')
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, ' ');
+
+  const botish = botishToken.exec(text)?.[1];
+  if (botish && !botishWord.test(botish)) return botish.slice(0, 64);
+
+  const compatible = compatibleToken.exec(text)?.[1];
+  if (compatible && !browserToken.test(compatible)) return compatible.slice(0, 64);
+
+  for (const [, product] of text.matchAll(productTokens)) {
+    if (!browserToken.test(product)) return product.slice(0, 64);
+  }
+
+  return matched.replace(/^\W+|\W+$/g, '').slice(0, 64) || 'unknown';
 }
 
 /**

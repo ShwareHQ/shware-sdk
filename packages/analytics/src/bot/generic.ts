@@ -2,7 +2,8 @@
  * The generic bot pattern of isbot 5.2.2 (https://github.com/omrilotan/isbot, released into the
  * public domain under the Unlicense), vendored so that `botOf` has no dependency. It says whether a
  * user agent looks automated, not which bot it is: `botOf` tries its named table first and falls
- * back to this for the long tail. Refresh it by copying `list` from a newer isbot release.
+ * back to this for the long tail. Refresh it by copying `list` from a newer isbot release, keeping
+ * the local changes marked below.
  */
 export const GENERIC_BOT_PATTERNS: readonly string[] = [
   ' daum[ /]',
@@ -190,7 +191,8 @@ export const GENERIC_BOT_PATTERNS: readonly string[] = [
   'server',
   'silktide',
   'sindup/',
-  'sogou',
+  // isbot has `sogou`, which also takes Sogou's own browser (SogouMobileBrowser) for a bot
+  'sogou[\\w\\s-]*spider',
   'sparkler/',
   'speedcurve',
   'spider',

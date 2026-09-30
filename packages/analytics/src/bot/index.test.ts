@@ -50,6 +50,18 @@ describe('botOf: people', () => {
       'LinkedIn in-app',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [LinkedInApp]/9.30.1',
     ],
+    [
+      'Pinterest in-app',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [Pinterest/iOS]',
+    ],
+    [
+      'Snapchat in-app',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Snapchat/13.50.0.43 (like Safari/8621.2.5.10.8, panda)',
+    ],
+    [
+      'Sogou browser',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 12_4_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 SogouMobileBrowser/5.22.1',
+    ],
   ])('%s is a person', (_, userAgent) => {
     expect(web(userAgent)).toEqual(NOT_A_BOT);
   });
@@ -133,6 +145,22 @@ describe('botOf: named bots', () => {
       'link_preview',
     ],
     ['WhatsApp/2.23.20.0', 'WhatsApp', 'link_preview'],
+    [
+      'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; OAI-AdsBot/1.0; +https://openai.com/adsbot)',
+      'OAI-AdsBot',
+      'advertising',
+    ],
+    [
+      'Mozilla/5.0 (compatible; DeepSeekBot/1.0; +https://www.deepseek.com/bot)',
+      'DeepSeekBot',
+      'ai_crawler',
+    ],
+    [
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent)',
+      'Google-Agent',
+      'ai_assistant',
+    ],
+    ['Pinterest/0.2 (+http://www.pinterest.com/bot.html)', 'Pinterestbot', 'link_preview'],
     ['curl/8.4.0', 'curl', 'http_client'],
     ['python-requests/2.32.3', 'python-requests', 'http_client'],
   ] as const)('%s → %s (%s)', (userAgent, name, category) => {
@@ -192,6 +220,15 @@ describe('botOf: the long tail and other signals', () => {
       )
     ).toBe('FooCrawler');
     expect(nameOfUnknownBot('Thumbor/7.0', 'thumbor/')).toBe('Thumbor');
+    expect(
+      nameOfUnknownBot(
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.118 Safari/537.36 (compatible; Google-Read-Aloud; +https://developers.google.com/search/docs/crawling-indexing/read-aloud-user-agent)',
+        'google'
+      )
+    ).toBe('Google-Read-Aloud');
+    expect(nameOfUnknownBot('Mozilla/5.0 (compatible; Kangaroo Bot/1.0)', 'bot')).toBe(
+      'Kangaroo Bot'
+    );
     expect(nameOfUnknownBot('Mozilla/5.0 (compatible)', 'x')).toBe('x');
   });
 });
