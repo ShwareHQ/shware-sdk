@@ -113,6 +113,10 @@ export const NAMED_BOTS = [
   ['MistralAI-User', 'ai_assistant', /mistralai-user/i],
   // https://knownagents.com/agents/manus-user
   ['Manus-User', 'ai_assistant', /manus-user/i],
+  // https://knownagents.com/agents/shap-user
+  ['Shap-User', 'ai_assistant', /shap-user/i],
+  // https://quillbot.com
+  ['QuillBot', 'ai_assistant', /quillbot/i],
   // https://developer.amazon.com/amazonbot
   ['Amzn-User', 'ai_assistant', /amzn-user/i],
   // https://knownagents.com/agents/amazon-qbusiness
@@ -172,6 +176,8 @@ export const NAMED_BOTS = [
   ['Andibot', 'ai_search', /andibot/i],
   // https://developers.cloudflare.com/autorag
   ['Cloudflare-AutoRAG', 'ai_search', /cloudflare-autorag/i],
+  // https://docs.parallel.ai/resources/crawler
+  ['ShapBot', 'ai_search', /shapbot/i],
 
   // AI training
   // https://developers.openai.com/api/docs/bots
@@ -204,6 +210,10 @@ export const NAMED_BOTS = [
   ['AI2Bot', 'ai_crawler', /ai2bot/i],
   // https://knownagents.com/agents/pangubot
   ['PanguBot', 'ai_crawler', /pangubot/i],
+  // https://knownagents.com/agents/promptingbot
+  ['PromptingBot', 'ai_crawler', /promptingbot/i],
+  // https://knownagents.com/agents/reflectionbot
+  ['Reflectionbot', 'ai_crawler', /reflectionbot/i],
   // https://knownagents.com/agents/tiktokspider
   ['TikTokSpider', 'ai_crawler', /tiktokspider/i],
   // https://knownagents.com/agents/deepseekbot
@@ -534,6 +544,18 @@ export function nameOfUnknownBot(userAgent: string, matched: string): string {
 }
 
 /**
+ * The request user agent of a page opened in Facebook's or Instagram's in-app browser when the
+ * app sends the page's requests through its own network stack: `[FBAN/FB4A;FBAV/…]`,
+ * `Instagram 445.0.0.34.44 (iPhone18,1; iOS 26_6_1; …) AppleWebKit/420+`. The page itself still
+ * reads a browser's `navigator.userAgent`, which is why PostHog, GA4 and Matomo see a person.
+ * isbot's generic pattern takes both for bots (a long token with no space, a product token that is
+ * no browser's), so they are people here before it runs. Meta's ad prefetch loads only the HTML,
+ * which runs no script and creates no visitor. The in-app browser's own user agent starts with
+ * `Mozilla/5.0`, so the anchors leave it alone.
+ */
+const META_APP = /^\[FBAN\/|^Instagram \d+(?:\.\d+)+ \(/;
+
+/**
  * Whether a web visitor is a bot, which one, and what kind. Run on the server when the visitor
  * is created, with the tags it was created with: the user agent is the request's header
  * (`tags.user_agent`, which the server writes), not anything the client says about itself, so
@@ -544,7 +566,8 @@ export function nameOfUnknownBot(userAgent: string, matched: string): string {
  *
  * In order: a bot we can name; a browser driven by WebDriver (`tags.webdriver`, which the SDK
  * sets from `navigator.webdriver`, the one sign a scripted browser with a normal user agent
- * gives); anything the generic pattern calls automated; no user agent at all.
+ * gives); a person in a Meta app (`META_APP`); anything the generic pattern calls automated; no
+ * user agent at all.
  */
 export function botOf(tags: TrackTags): Bot {
   const userAgent = typeof tags.user_agent === 'string' ? tags.user_agent.trim() : '';
@@ -560,6 +583,8 @@ export function botOf(tags: TrackTags): Bot {
   if (tags.webdriver === true) {
     return { is_bot: true, bot_name: unknownName ?? 'WebDriver', bot_category: 'headless_browser' };
   }
+
+  if (META_APP.test(userAgent)) return NOT_A_BOT;
 
   if (unknownName) return { is_bot: true, bot_name: unknownName, bot_category: 'other' };
 

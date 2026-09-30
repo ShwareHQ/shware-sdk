@@ -76,6 +76,14 @@ describe('botOf: people', () => {
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Snapchat/13.50.0.43 (like Safari/8621.2.5.10.8, panda)',
     ],
     [
+      'Facebook app, requests sent by the app',
+      '[FBAN/FB4A;FBAV/572.0.0.38.71;FBBV/1027405353;FBDM/{density=2.8125,width=1080,height=2340};FBLC/en_US;FBRV/0;FBCR/T-Mobile;FBMF/samsung;FBBD/samsung;FBPN/com.facebook.katana;FBDV/SM-S926U;FBSV/16;FBOP/1;FBCA/arm64-v8a:;]',
+    ],
+    [
+      'Instagram app, requests sent by the app',
+      'Instagram 445.0.0.34.44 (iPhone18,1; iOS 26_6_1; en_US; en; scale=3.00; 1206x2622; 1053791553) AppleWebKit/420+',
+    ],
+    [
       'Sogou browser',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 12_4_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 SogouMobileBrowser/5.22.1',
     ],
@@ -178,6 +186,18 @@ describe('botOf: named bots', () => {
       'ai_assistant',
     ],
     ['Pinterest/0.2 (+http://www.pinterest.com/bot.html)', 'Pinterestbot', 'link_preview'],
+    [
+      'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ShapBot/0.1.0',
+      'ShapBot',
+      'ai_search',
+    ],
+    ['Mozilla/5.0 (compatible; PromptingBot/1.0)', 'PromptingBot', 'ai_crawler'],
+    [
+      'Mozilla/5.0 (compatible; Reflectionbot/1.0; +https://reflection.ai)',
+      'Reflectionbot',
+      'ai_crawler',
+    ],
+    ['Mozilla/5.0 (compatible; quillbot/1.0; +https://quillbot.com)', 'QuillBot', 'ai_assistant'],
     ['curl/8.4.0', 'curl', 'http_client'],
     ['python-requests/2.32.3', 'python-requests', 'http_client'],
   ] as const)('%s → %s (%s)', (userAgent, name, category) => {
