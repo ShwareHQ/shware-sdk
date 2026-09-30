@@ -7,7 +7,7 @@ with v as (
     and environment = '$environment'
     and platform in (${platform:sqlstring})
     -- A bot never comes back; in the cohort it reads as churn.
-    and is_bot is not true
+    and is_bot = false
 ),
 r as (
   select

@@ -42,7 +42,7 @@ with newcomers as (
       and least($__timeTo()::timestamptz, date_trunc('week', now() - interval '7 days'))
     and bool_or(v.platform in (${platform:sqlstring}))
     -- A bot is nobody's first visit (visitor.is_bot, judged by @shware/analytics botOf).
-    and bool_and(v.is_bot is not true)
+    and bool_and(v.is_bot = false)
 ), people as (
   -- The person's first session across devices, and what brought them. $platform keeps the people
   -- who started there: on web, the ones whose very first session was on web.
@@ -157,7 +157,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
-      and v.is_bot is not true
+      and v.is_bot = false
   )
 group by page_path
 order by event_count desc
@@ -179,7 +179,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
-      and v.is_bot is not true
+      and v.is_bot = false
   )
 group by slug
 order by event_count desc
@@ -206,7 +206,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
-      and v.is_bot is not true
+      and v.is_bot = false
       and v.tags ->> 'utm_source' = 'x'
   )
 group by event_name
@@ -233,7 +233,7 @@ where
       v.created_at between $__timeFrom() and $__timeTo()
       and v.environment = '$environment'
       and v.platform in (${platform:sqlstring})
-      and v.is_bot is not true
+      and v.is_bot = false
       and nullif(v.tags ->> 'utm_source', '') is null
       and nullif(v.tags ->> 'gad_source', '') is null
   )

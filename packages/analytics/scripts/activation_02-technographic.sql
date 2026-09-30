@@ -20,7 +20,7 @@ left join (
 where v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by 1
 order by activation_rate_pct desc limit 10;
 
@@ -46,7 +46,7 @@ left join (
 where v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by 1
 order by registration_rate_pct desc limit 10;
 
@@ -75,6 +75,6 @@ left join (
 where v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by 1
 order by purchase_rate_pct desc limit 10;

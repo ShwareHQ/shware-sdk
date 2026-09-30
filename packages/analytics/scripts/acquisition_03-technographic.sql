@@ -28,7 +28,7 @@ left join (
 where v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by 1
 order by success_rate_pct desc;
 
@@ -42,7 +42,7 @@ where
   v.created_at between $__timeFrom() and $__timeTo()
   and v.environment = '$environment'
   and v.platform in (${platform:sqlstring})
-  and v.is_bot is not true
+  and v.is_bot = false
 group by ver
   order by visitor_count desc
 limit 20;
