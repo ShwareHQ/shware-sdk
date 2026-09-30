@@ -31,16 +31,6 @@
         "default": "./dist/attribution/index.cjs"
       }
     },
-    "./bot": {
-      "import": {
-        "types": "./dist/bot/index.d.mts",
-        "default": "./dist/bot/index.mjs"
-      },
-      "require": {
-        "types": "./dist/bot/index.d.cts",
-        "default": "./dist/bot/index.cjs"
-      }
-    },
     "./native": {
       "import": {
         "types": "./dist/native/index.d.mts",

@@ -14,6 +14,7 @@ export {
   type CreateFeedbackDTO,
   type CreateLinkDTO,
 } from './schema/index';
+export { BOT_CATEGORIES, NOT_A_BOT, botOf, type Bot, type BotCategory } from './bot/index';
 export { stripeMinorUnits } from './utils/stripe';
 export { useTrackImpression } from './hooks/use-track-impression';
 
