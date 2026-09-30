@@ -89,6 +89,8 @@ with newcomers as (
   having min(v.created_at) between $__timeFrom()
       and least($__timeTo()::timestamptz, date_trunc('week', now() - interval '7 days'))
     and bool_or(v.platform in (${platform:sqlstring}))
+    -- A bot is nobody's first visit (visitor.is_bot, judged by @shware/analytics botOf).
+    and bool_and(v.is_bot is not true)
 ), people as (
   -- The person's first session across devices, and what brought them. $platform keeps the people
   -- who started there: on web, the ones whose very first session was on web.
