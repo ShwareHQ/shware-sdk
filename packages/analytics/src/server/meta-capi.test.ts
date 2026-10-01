@@ -363,8 +363,11 @@ describe('differential fuzz: seeded random inputs through both builders', () => 
         },
         tags: {
           fbclid: maybe(`CLK${i}`),
-          fbc: maybe('fb.1.1700000000000.COOKIE'),
-          fbp: maybe('fb.1.1700000000000.987654'),
+          _fbc: maybe(`fb.1.1700000000000.${pick(['COOKIE', `CLK${i}`])}`),
+          _fbp: maybe('fb.1.1700000000000.987654'),
+          // clients older than 9.0.0
+          fbc: maybe('fb.1.1700000000000.LEGACY'),
+          fbp: maybe('fb.1.1700000000000.123456'),
           advertising_id: maybe('IDFA-1'),
           ip_address: maybe('198.51.100.7'),
           page_location: maybe('https://shop.example/p'),

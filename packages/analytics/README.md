@@ -72,8 +72,8 @@ layers, each derived from the one below it, none needing a table of its own:
   index on `event (session_id) where name = 'session_start'` makes that row the session's one
   record on the server; there is no session table.
 - **Touchpoint** — a view over those rows that reads each session's tags as `channel`, `medium`
-  and `campaign`. An explicit `utm_source` wins; then a click id (`fbclid`, `gclid`, … — one a
-  first-party cookie may carry over from an earlier click); then a landing page reserved for one
+  and `campaign`. An explicit `utm_source` wins; then a click id in the landing URL (`fbclid`,
+  `gclid`, … — never the cookie an earlier click left); then a landing page reserved for one
   channel's ads. The rules for what counts as which channel live here and nowhere else.
 - **Attribution** — a view over touchpoints that credits a session with no touch of its own to
   the same person's most recent paid touch, across devices (visitors sharing a `user_id`), within a
@@ -153,19 +153,43 @@ falls into **Unassigned/Referral**, breaking channel reports.
 - gad_campaignid
 - gclid
 
+## Click ids and ad cookies
+
+Each tag is named after where it was read. A URL parameter keeps its own name (`fbclid`, `gclid`,
+`msclkid`, `oppref`, `ScCid`); an ad platform's first-party cookie keeps the cookie's name, which
+starts with an underscore (`_fbc`, `_fbp`, `_gcl_aw`, `_gcl_gb`, `_uetmsclkid`, `_rdt_cid`,
+`_rdt_uuid`, `__oppref`, `__obref`). The one exception is LinkedIn's `li_fat_id` cookie, named
+like its URL parameter, which the tags keep as `_li_fat_id`. A tag is never filled from the other
+source.
+
+- Channel classification reads the URL parameters only: they are this visit's click, where a click
+  cookie lives on for weeks after it.
+- The Conversions API senders take the URL parameter first and the cookie on a page without one —
+  the later pages and visits a conversion usually happens on. On the landing page the URL is this
+  click while the cookie may still hold an earlier one.
+- Clients older than 9.0.0 send `fbc`, `fbp` and `rdt_uuid` for `_fbc`, `_fbp` and `_rdt_uuid`;
+  the senders still read them as a fallback (deprecated).
+
 ## Third Parties Advices
 
 ### Reddit
 
 We strongly recommend using the Reddit Pixel and Conversions API (CAPI) together.
 
-- rdt_cid: from url params
+- rdt_cid: from url params, else the `_rdt_cid` cookie
 - \_rdt_uuid: from a first-party cookie
 
 ### LinkedIn
 
 If we receive an Insight Tag event and a Conversions API event from the same account with the same eventId, we discard the Conversions API event and count only the Insight Tag event in campaign reporting.
 ``
+
+### OpenAI (ChatGPT Ads)
+
+The pixel captures `oppref` from the landing URL into its `__oppref` cookie (30 days) and keeps a
+browser reference in `__obref` (365 days); it writes both only with measurement consent. The
+Conversions API does not capture either: the sender passes `oppref` (the URL's, else
+`__oppref`) and `user.obref`, and the user identifiers as the plural, hashed lists the API takes.
 
 ### Microsoft Advertising (Bing Ads)
 
@@ -231,4 +255,4 @@ await sendMicrosoftEvents(process.env.MS_ADS_CAPI_TOKEN, 97267979, events, userD
   destination-URL goal with variable revenue needs alongside its `pageLoad`. With the tag on the
   page neither applies — the tag reports page loads itself.
 
-- [Click IDs](https://learn.microsoft.com/en-us/linkedin/marketing/conversions/enabling-first-party-cookies?view=li-lms-2025-10&source=recommendations): get li_fat_id from url params and cookie
+- [Click IDs](https://learn.microsoft.com/en-us/linkedin/marketing/conversions/enabling-first-party-cookies?view=li-lms-2025-10&source=recommendations): get li_fat_id from url params, else the Insight Tag's `li_fat_id` cookie (the `_li_fat_id` tag)

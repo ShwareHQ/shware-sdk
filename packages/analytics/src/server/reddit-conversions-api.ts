@@ -4,6 +4,7 @@ import { type ServerStandardEvent, mapRDTEvent, mapServerStandardEvent } from '.
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
+import { redditClickId, redditUuid } from './click-ids';
 
 /**
  * https://ads-api.reddit.com/docs/v3/operations/Post%20Conversion%20Events
@@ -86,7 +87,7 @@ export function getServerEvent(
   const source = resolveActionSource(platform, actionSource);
 
   return {
-    click_id: tags.rdt_cid,
+    click_id: redditClickId(tags),
     event_at: new Date(created_at).getTime(),
     action_source: source === 'web' ? 'WEBSITE' : source === 'app' ? 'APP' : 'UNKNOWN',
     type: {
@@ -117,7 +118,7 @@ export function getServerEvent(
       user_agent: data.user_agent,
       idfa: platform === 'ios' ? tags.advertising_id : undefined,
       aaid: platform === 'android' ? tags.advertising_id : undefined,
-      uuid: tags.rdt_uuid,
+      uuid: redditUuid(tags),
       screen_dimensions:
         tags.screen_width && tags.screen_height
           ? { width: tags.screen_width, height: tags.screen_height }

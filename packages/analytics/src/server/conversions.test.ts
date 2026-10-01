@@ -55,9 +55,64 @@ describe('OpenAI', () => {
     });
   });
 
-  it('passes the oppref click id from the landing URL', () => {
-    expect(openaiServerEvent(event({ tags: { oppref: 'opp-1' } }), {}).oppref).toBe('opp-1');
-    expect(openaiServerEvent(event(), {}).oppref).toBeUndefined();
+  it('passes the oppref of the landing URL, else the one the pixel kept', () => {
+    const oppref = (tags: TrackEvent['tags']) => openaiServerEvent(event({ tags }), {}).oppref;
+    expect(oppref({ oppref: 'opp-1', __oppref: 'opp-0' })).toBe('opp-1');
+    expect(oppref({ __oppref: 'opp-0' })).toBe('opp-0');
+    expect(oppref({})).toBeUndefined();
+  });
+
+  it('sends the pixel browser reference unhashed in user', () => {
+    const out = openaiServerEvent(event({ tags: { __obref: 'ob-1' } }), {});
+    expect(out.user?.obref).toBe('ob-1');
+  });
+
+  it('normalizes identifiers as the documentation examples do', () => {
+    const out = openaiServerEvent(event(), {
+      phone_number: '+1 (415) 555-2671',
+      address: [{ first_name: 'Mary Jane', last_name: "O'Connor" }, { first_name: 'José' }],
+    });
+    // The normalization table of https://developers.openai.com/ads/conversions-api; the phone
+    // digest is the one its user object example carries.
+    const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+    expect(out.user?.phone_numbers_sha256).toEqual([
+      '758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0',
+    ]);
+    expect(out.user?.first_names_sha256).toEqual([sha('maryjane'), sha('josé')]);
+    expect(out.user?.last_names_sha256).toEqual([sha('oconnor')]);
+  });
+
+  it('sends every email, address and the GAID as the plural fields', () => {
+    const out = openaiServerEvent(event({ platform: 'android', tags: { advertising_id: 'g-1' } }), {
+      email: [' Ada@Example.COM ', 'ada@example.com', 'b@example.com'],
+      phone_number: '12345',
+      user_id: ' u1 ',
+      address: {
+        city: ' San Francisco ',
+        region: 'California',
+        postal_code: '94107',
+        country: 'us',
+      },
+    });
+    const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+    expect(out.user).toEqual({
+      emails_sha256: [sha('ada@example.com'), sha('b@example.com')],
+      // too short to be a phone number with its country code
+      phone_numbers_sha256: undefined,
+      external_ids_sha256: [sha('u1')],
+      first_names_sha256: undefined,
+      last_names_sha256: undefined,
+      regions: ['California'],
+      postal_codes: ['94107'],
+      cities: ['San Francisco'],
+      countries: ['US'],
+      android_advertising_id: 'g-1',
+      obref: undefined,
+      ip_address: undefined,
+      user_agent: undefined,
+    });
+    const ios = openaiServerEvent(event({ platform: 'ios', tags: { advertising_id: 'idfa' } }), {});
+    expect(ios.user).toBeUndefined();
   });
 
   it('derives the action source from the platform and lets an override win', () => {
@@ -115,9 +170,29 @@ describe('Meta', () => {
     expect(out.user_data.fbc).toBe(`fb.1.${CREATED_MS}.CLICK123`);
   });
 
-  it('prefers a real _fbc cookie over synthesis', () => {
-    const out = metaServerEvent(event({ tags: { fbc: 'fb.1.111.REAL', fbclid: 'IGNORED' } }), {});
-    expect(out.user_data.fbc).toBe('fb.1.111.REAL');
+  it('keeps the _fbc cookie opened by the same click, for its creationTime', () => {
+    const cookie = 'fb.1.1768046000000.CLICK123';
+    const out = metaServerEvent(event({ tags: { _fbc: cookie, fbclid: 'CLICK123' } }), {});
+    expect(out.user_data.fbc).toBe(cookie);
+  });
+
+  it("lets this page's fbclid win over the cookie of an earlier click", () => {
+    const tags = { _fbc: 'fb.1.1767000000000.OLD', fbclid: 'NEW' };
+    expect(metaServerEvent(event({ tags }), {}).user_data.fbc).toBe(`fb.1.${CREATED_MS}.NEW`);
+  });
+
+  it('falls back to the cookies on a page without a click id', () => {
+    const tags = { _fbc: 'fb.1.1767000000000.OLD', _fbp: 'fb.1.1767000000000.42' };
+    const out = metaServerEvent(event({ tags }), {});
+    expect(out.user_data.fbc).toBe('fb.1.1767000000000.OLD');
+    expect(out.user_data.fbp).toBe('fb.1.1767000000000.42');
+  });
+
+  it('still reads fbc / fbp from clients older than 9.0.0', () => {
+    const tags = { fbc: 'fb.1.1767000000000.OLD', fbp: 'fb.1.1767000000000.42' };
+    const out = metaServerEvent(event({ tags }), {});
+    expect(out.user_data.fbc).toBe('fb.1.1767000000000.OLD');
+    expect(out.user_data.fbp).toBe('fb.1.1767000000000.42');
   });
 
   it('always sends an action_source, falling back to other', () => {

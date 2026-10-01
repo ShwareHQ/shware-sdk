@@ -7,11 +7,11 @@ import {
   ServerEvent,
   UserData,
 } from 'facebook-nodejs-business-sdk';
-import { formatFbc } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
+import { metaFbc, metaFbp } from './click-ids';
 import { pageLocation } from './page-location';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
@@ -102,24 +102,13 @@ function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: numbe
   }
 
   // set tags info
-  if (tags.fbc) {
-    userData.setFbc(tags.fbc);
-  } else if (tags.fbclid) {
-    // ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc#2--format-clickid
-    // The formatted ClickID value must be of the form `version.subdomainIndex.creationTime.<fbclid>`, where:
-    // - version is always this prefix: fb
-    // - subdomainIndex is which domain the cookie is defined on ('com' = 0, 'example.com' = 1, 'www.example.com' = 2)
-    // - creationTime is the UNIX time since epoch in milliseconds when the _fbc was stored. If you don't save the _fbc cookie, use the timestamp when you first observed or received this fbclid value
-    // - <fbclid> is the value for the fbclid query parameter in the page URL.
-
-    // "the timestamp when you first observed or received this fbclid value" — the event's own
-    // time is the closest thing the server has to that, and it does not move when a queued or
-    // retried batch finally goes out.
-    userData.setFbc(formatFbc(tags.fbclid, eventTimeMs));
+  const fbc = metaFbc(tags, eventTimeMs);
+  if (fbc) {
+    userData.setFbc(fbc);
   }
-
-  if (tags.fbp) {
-    userData.setFbp(tags.fbp);
+  const fbp = metaFbp(tags);
+  if (fbp) {
+    userData.setFbp(fbp);
   }
   if (tags.advertising_id) {
     userData.setMadid(tags.advertising_id);

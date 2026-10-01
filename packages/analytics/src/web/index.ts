@@ -1,7 +1,6 @@
 import Bowser from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
-import { parseGcl, parseUetMsclkid } from '../click-id/index';
 import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
@@ -104,9 +103,9 @@ export async function getTags() {
     page_referrer,
     page_title,
     page_load_id,
-    // Meta Ads — _fbc is set server-side (see @shware/analytics/server resolveClickIdCookies)
-    fbc: parsed._fbc ?? undefined,
-    fbp: parsed._fbp,
+    // Ad click ids from the URL, each under its parameter's name: this page's click, which
+    // names the visit's channel (`CLICK_ID_CHANNELS`). Never filled from a cookie — a cookie
+    // outlives the click; the cookies go below under their own names.
     fbclid: params.get('fbclid') ?? undefined,
     ad_id: params.get('ad_id') ?? undefined,
     ad_name: params.get('ad_name') ?? undefined,
@@ -115,36 +114,40 @@ export async function getTags() {
     campaign_id: params.get('campaign_id') ?? undefined,
     campaign_name: params.get('campaign_name') ?? undefined,
     placement: params.get('placement') ?? undefined,
-    // Google Ads — _gcl_aw/_gcl_gb are written by gtag and kept alive server-side (see
-    // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
-    // click id to every later page of the visit and to returning visits.
-    gclid: params.get('gclid') ?? parseGcl(parsed._gcl_aw)?.clickId,
+    gclid: params.get('gclid') ?? undefined,
     gclsrc: params.get('gclsrc') ?? undefined,
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
-    // Reddit Ads — _rdt_cid is set server-side (see @shware/analytics/server resolveClickIdCookies)
-    rdt_cid: params.get('rdt_cid') ?? parsed._rdt_cid ?? undefined,
-    rdt_uuid: parsed._rdt_uuid,
-    // LinkedIn Ads: get click id from url params or first-party cookie
-    li_fat_id: params.get('li_fat_id') ?? parsed.li_fat_id ?? undefined,
-    // click ids
+    wbraid: params.get('wbraid') ?? undefined,
+    gbraid: params.get('gbraid') ?? undefined,
     dclid: params.get('dclid') ?? undefined,
+    msclkid: params.get('msclkid') ?? undefined,
+    rdt_cid: params.get('rdt_cid') ?? undefined,
+    li_fat_id: params.get('li_fat_id') ?? undefined,
+    oppref: params.get('oppref') ?? undefined,
     ko_click_id: params.get('ko_click_id') ?? undefined,
-    // Microsoft Ads — _uetmsclkid is written by the UET tag and kept alive server-side (see
-    // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
-    // click id to every later page of the visit and to returning visits.
-    msclkid: params.get('msclkid') ?? parseUetMsclkid(parsed._uetmsclkid),
     // Snapchat appends `ScCid`, and URL parameters are case-sensitive.
     ScCid: params.get('ScCid') ?? undefined,
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
-    wbraid: params.get('wbraid') ?? parseGcl(parsed._gcl_gb)?.clickId,
-    gbraid: params.get('gbraid') ?? undefined,
     yclid: params.get('yclid') ?? undefined,
-    // From the URL only, not the `__oppref` / `_epik` cookies the pixels keep: a cookie outlives
-    // the click, and a click id here names the visit's channel (`CLICK_ID_CHANNELS`).
-    oppref: params.get('oppref') ?? undefined,
     epik: params.get('epik') ?? undefined,
+    // The ad platforms' first-party cookies, raw and under the cookie's own name, for the
+    // conversion senders only: they carry the click to the later pages and visits where the
+    // URL no longer does. `_fbc`, `_rdt_cid`, `_gcl_*` and `_uetmsclkid` are kept alive
+    // server-side (see @shware/analytics/server resolveClickIdCookies); the rest are the pixels'.
+    _fbc: parsed._fbc || undefined,
+    _fbp: parsed._fbp || undefined,
+    _gcl_aw: parsed._gcl_aw || undefined,
+    _gcl_gb: parsed._gcl_gb || undefined,
+    _uetmsclkid: parsed._uetmsclkid || undefined,
+    _rdt_cid: parsed._rdt_cid || undefined,
+    _rdt_uuid: parsed._rdt_uuid || undefined,
+    // The Insight Tag's cookie is itself named `li_fat_id`; renamed so it cannot pass for the
+    // URL parameter.
+    _li_fat_id: parsed.li_fat_id || undefined,
+    __oppref: parsed.__oppref || undefined,
+    __obref: parsed.__obref || undefined,
     // utm params
     utm_source: link?.utm_source ?? params.get('utm_source') ?? undefined,
     utm_medium: link?.utm_medium ?? params.get('utm_medium') ?? undefined,
