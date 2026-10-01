@@ -5,8 +5,9 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import type { TrackEvent, UserProvidedData } from '../track/types';
+import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
+import { linkedinFatId } from './click-ids';
 
 /**
  * The identifier types LinkedIn matches on, as of version 202609. `ORACLE_MOAT_ID` used to be
@@ -126,6 +127,11 @@ export async function sendEvents(
     if (email) userIds.push({ idType: 'SHA256_EMAIL', idValue: hashEmail(email) });
   }
 
+  const fatIds = (tags: TrackTags): { idType: UserIdType; idValue: string }[] => {
+    const id = linkedinFatId(tags);
+    return id ? [{ idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID', idValue: id }] : [];
+  };
+
   const dto: CreateMultipleLinkedinEventsDTO = {
     elements: events
       .filter((event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name))
@@ -138,15 +144,7 @@ export async function sendEvents(
           amount: event.properties?.value?.toString() ?? '0',
         },
         user: {
-          userIds: event.tags.li_fat_id
-            ? [
-                {
-                  idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID',
-                  idValue: event.tags.li_fat_id,
-                },
-                ...userIds,
-              ]
-            : userIds,
+          userIds: [...fatIds(event.tags), ...userIds],
           userInfo,
           externalIds,
         },

@@ -27,6 +27,7 @@ import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
+import { googleClickIds } from './click-ids';
 
 const ENDPOINT = 'https://datamanager.googleapis.com/v1/events:ingest';
 
@@ -159,7 +160,7 @@ export function getDataManagerEvent(
     currency: normalizeCurrency(event.properties?.currency),
   };
 
-  const { gclid, gbraid, wbraid } = event.tags;
+  const { gclid, gbraid, wbraid } = googleClickIds(event.tags);
   if (gclid) dmEvent.adIdentifiers = { gclid };
   else if (gbraid) dmEvent.adIdentifiers = { gbraid };
   else if (wbraid) dmEvent.adIdentifiers = { wbraid };

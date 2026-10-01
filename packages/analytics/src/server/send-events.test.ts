@@ -169,7 +169,7 @@ describe('OpenAI sendEvents', () => {
 
     const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.validate_only).toBe(true);
-    expect(body.events[0].user.email_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.events[0].user.emails_sha256).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/)]);
   });
 
   it('omits the user block entirely when no identity field is set', async () => {

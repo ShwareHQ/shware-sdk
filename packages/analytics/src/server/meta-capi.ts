@@ -24,11 +24,11 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { PII_DATA_TYPE, ParamBuilder } from 'capi-param-builder-nodejs';
-import { formatFbc } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
+import { metaFbc, metaFbp } from './click-ids';
 import { pageLocation } from './page-location';
 
 /** Matches the Graph API version the pinned business SDK speaks (`FacebookAdsApi.VERSION`). */
@@ -194,13 +194,13 @@ function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: numbe
     userData.page_id = data.fb_page_id;
   }
 
-  if (tags.fbc) {
-    userData.fbc = tags.fbc;
-  } else if (tags.fbclid) {
-    userData.fbc = formatFbc(tags.fbclid, eventTimeMs);
+  const fbc = metaFbc(tags, eventTimeMs);
+  if (fbc) {
+    userData.fbc = fbc;
   }
-  if (tags.fbp) {
-    userData.fbp = tags.fbp;
+  const fbp = metaFbp(tags);
+  if (fbp) {
+    userData.fbp = fbp;
   }
   if (tags.advertising_id) {
     userData.madid = tags.advertising_id;

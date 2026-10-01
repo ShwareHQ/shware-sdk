@@ -50,9 +50,11 @@ export const UET_MSCLKID_COOKIE = '_uetmsclkid';
 export type ParsedFbc = { raw: string; creationTime: number; fbclid: string };
 
 /**
- * Parse `fb.<subdomainIndex>.<creationTime>.<fbclid>`.
- * Returns undefined for anything malformed — a fbclid never contains a dot, but joining the tail
- * back together keeps us forward-compatible if that ever changes.
+ * Parse `fb.<subdomainIndex>.<creationTime>.<fbclid>[.<appendix>]`. The appendix is what Meta's
+ * Parameter Builder adds to the values it writes ("an appendix field at the end of each
+ * parameter"); it is not part of the click id, so `fbclid` is the fourth segment alone and the
+ * value is passed on as `raw`, unchanged. Returns undefined for anything malformed.
+ * ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameter-builder-library
  */
 export function parseFbc(
   raw: string | undefined | null,
@@ -60,10 +62,11 @@ export function parseFbc(
 ): ParsedFbc | undefined {
   if (!raw) return undefined;
   const parts = raw.split('.');
-  if (parts.length < 4 || parts[0] !== 'fb') return undefined;
+  if (parts.length < 4 || parts.length > 5 || parts[0] !== 'fb') return undefined;
+  if (parts.length === 5 && !parts[4]) return undefined;
 
   const creationTime = Number(parts[2]);
-  const fbclid = parts.slice(3).join('.');
+  const fbclid = parts[3];
   if (!fbclid) return undefined;
   // creationTime is UNIX ms; reject seconds-precision or future-dated values as malformed.
   if (!Number.isFinite(creationTime)) return undefined;
@@ -81,6 +84,16 @@ export function formatFbc(fbclid: string, now: number, subdomainIndex = 1): stri
 }
 
 export type ParsedGcl = { raw: string; creationTime: number; clickId: string };
+
+/**
+ * Whether a URL's `gclid` is a Google Ads click, by its `gclsrc` — gtag's own gating: absent or
+ * `aw.ds` is Google Ads; `ds` / `3p.ds` are Search Ads 360's (a click on another engine, or on
+ * Google with auto-tagging off), which gtag keeps in `_gcl_dc` and not `_gcl_aw`.
+ * ref: https://support.google.com/sa360/answer/7342044
+ */
+export function isGoogleAdsGclid(gclsrc: string | null | undefined): boolean {
+  return !gclsrc || gclsrc === 'aw.ds';
+}
 
 // gtag's own value validator, extracted from the live gtag.js bundle (2026-09): its parser
 // accepts version "GCL" or "1", a /^\d+$/ seconds timestamp, and a click id matching this.
@@ -122,6 +135,11 @@ export function formatGcl(clickId: string, now: number): string {
 // the format is UET's, not ours.
 const UET_MSCLKID_PREFIX = '_uet';
 const MSCLKID = /^[0-9a-f]{32}$/i;
+
+/** Whether a value has the shape of a Microsoft click id: 32 hex digits, no dashes. */
+export function isMsclkid(value: string | null | undefined): value is string {
+  return !!value && MSCLKID.test(value);
+}
 
 /**
  * Parse a `_uetmsclkid` value: `_uet<32 hex>`. Returns the click id, lowercased, or undefined
@@ -267,9 +285,9 @@ export function resolveClickIdCookies(
   const google = [
     {
       cookie: GCL_AW_COOKIE,
-      // gtag's own gating, verbatim: a gclid enters _gcl_aw only when gclsrc is absent or
-      // 'aw.ds' — 'ds'/'3p.ds' clicks are Search Ads 360's and belong to _gcl_dc.
-      urlClickId: !gclsrc || gclsrc === 'aw.ds' ? params.get('gclid') || undefined : undefined,
+      // gtag's own gating (`isGoogleAdsGclid`): a gclid enters _gcl_aw only when gclsrc is
+      // absent or 'aw.ds' — 'ds'/'3p.ds' clicks are Search Ads 360's and belong to _gcl_dc.
+      urlClickId: isGoogleAdsGclid(gclsrc) ? params.get('gclid') || undefined : undefined,
       assign: (value: string) => (result.gclid = value),
     },
     {

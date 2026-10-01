@@ -117,10 +117,9 @@ export const SOURCE_ALIASES = {
  * and shares included. `twclid` and `ko_click_id` are `'any'` until it is clear they never
  * decorate an organic link.
  *
- * Deliberately absent: `fbp` and `rdt_uuid`, pixel browser ids present with or without a click;
- * and `fbc`, which the SDK only ever reads from the `_fbc` cookie. That cookie lives 90 days after
- * a Meta click, so counting it named every later visit — typed in, from search, from an email — a
- * new Meta click. `fbclid` is read from the landing URL only, so it is this visit's click.
+ * Only URL parameters, never the cookies the tags keep beside them (`_fbc`, `_gcl_aw`, … — every
+ * underscore key of `AdvertisingInfo`): a click cookie lives up to 90 days after the click, so
+ * counting it named every later visit — typed in, from search, from an email — a new ad click.
  */
 export const CLICK_ID_CHANNELS = [
   ['fbclid', 'meta', 'any'],

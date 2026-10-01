@@ -21,6 +21,7 @@ import { formatMsclkid } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
+import { microsoftMsclkid } from './click-ids';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://capi.uet.microsoft.com/v1';
@@ -173,9 +174,10 @@ function getUserData(
   const { tags, platform, visitor_id } = event;
   const email = Array.isArray(data.email) ? data.email[0] : data.email;
   const phone = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
+  const msclkid = microsoftMsclkid(tags);
 
   return {
-    msclkid: tags.msclkid ? formatMsclkid(tags.msclkid) : undefined,
+    msclkid: msclkid ? formatMsclkid(msclkid) : undefined,
     em: hashEmail(email),
     ph: hashPhone(phone),
     // Microsoft requires this to equal the `VID` of the client-side ID Sync pixel; both sides use

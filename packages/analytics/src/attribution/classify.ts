@@ -76,10 +76,9 @@ function text(tags: TrackTags, key: string): string | null {
 /**
  * 1. What the campaign said: `utm_source`, with the aliases folded. It comes before the click
  * ids, as in GA4: a utm is written for this link by whoever placed it, while a click id can be
- * left over or added by someone else — some are read from a first-party cookie set by an earlier
- * click (`_gcl_aw`, `_uetmsclkid`, `_rdt_cid`), and Meta puts `fbclid` on organic links too.
- * When the two disagree, the utm is the one that was right: a Google ad or a newsletter visited
- * with a Meta cookie still set, an Instagram profile link carrying `fbclid`.
+ * added by someone else — Meta puts `fbclid` on organic links too, and a shared or forwarded ad
+ * link keeps the click id of the ad. When the two disagree, the utm is the one that was right:
+ * an Instagram profile link carrying `fbclid`, a newsletter link copied from an ad.
  */
 function utmChannel(tags: TrackTags): string | null {
   // A source with the rest of the query glued on (`email&utm_medium=promo`, `toolify/`,
@@ -90,8 +89,9 @@ function utmChannel(tags: TrackTags): string | null {
 }
 
 /**
- * 2. A click id, possibly carried by a first-party cookie from an earlier click. Presence of the
- * key is the signal, as it is for the pixel that reads it.
+ * 2. A click id in this page's URL — the tags never fill one from the cookie an earlier click
+ * left (that is `_gcl_aw`, `_fbc`, …). Presence of the key is the signal, as it is for the pixel
+ * that reads it.
  */
 function clickChannel(tags: TrackTags): string | null {
   return CLICK_ID_CHANNELS.find(([key]) => key in tags)?.[1] ?? null;

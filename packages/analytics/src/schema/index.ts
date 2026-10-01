@@ -131,9 +131,8 @@ export const tagsSchema = object({
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
+  // Ad click ids (URL parameters) and ad platform cookies (underscore names); see AdvertisingInfo.
   // Meta Ads
-  fbc: optional(string()),
-  fbp: optional(string()),
   fbclid: optional(string()),
   ad_id: optional(string()),
   ad_name: optional(string()),
@@ -142,26 +141,47 @@ export const tagsSchema = object({
   campaign_id: optional(string()),
   campaign_name: optional(string()),
   placement: optional(string()),
+  _fbc: optional(string()),
+  _fbp: optional(string()),
+  /**
+   * @deprecated `fbc` / `fbp` / `rdt_uuid` were renamed to `_fbc` / `_fbp` / `_rdt_uuid` in 9.0.0.
+   * Accepted so that conversions from clients still on an older SDK keep their match keys; the
+   * senders read them only as a fallback (`server/click-ids.ts`). Remove once those clients are
+   * gone.
+   */
+  fbc: optional(string()),
+  fbp: optional(string()),
+  rdt_uuid: optional(string()),
   // Google Ads
   gclid: optional(string()),
   gclsrc: optional(string()),
   gad_source: optional(string()),
   gad_campaignid: optional(string()),
-  // Reddit ads
-  rdt_cid: optional(string()),
-  rdt_uuid: optional(string()),
-  // click ids
+  wbraid: optional(string()),
+  gbraid: optional(string()),
   dclid: optional(string()),
-  ko_click_id: optional(string()),
-  li_fat_id: optional(string()),
+  _gcl_aw: optional(string()),
+  _gcl_gb: optional(string()),
+  // Microsoft Ads
   msclkid: optional(string()),
+  _uetmsclkid: optional(string()),
+  // Reddit Ads
+  rdt_cid: optional(string()),
+  _rdt_cid: optional(string()),
+  _rdt_uuid: optional(string()),
+  // LinkedIn Ads
+  li_fat_id: optional(string()),
+  _li_fat_id: optional(string()),
+  // OpenAI Ads
+  oppref: optional(string()),
+  __oppref: optional(string()),
+  __obref: optional(string()),
+  // other click ids
+  ko_click_id: optional(string()),
   ScCid: optional(string()),
   ttclid: optional(string()),
   twclid: optional(string()),
-  wbraid: optional(string()),
-  gbraid: optional(string()),
   yclid: optional(string()),
-  oppref: optional(string()),
   epik: optional(string()),
   // utm params
   utm_source: optional(string()),
