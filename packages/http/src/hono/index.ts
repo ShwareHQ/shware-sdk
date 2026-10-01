@@ -1,4 +1,4 @@
-export { zValidator, bigintId } from './validator';
+export { zValidator, zBeaconJson, bigintId } from './validator';
 export { errorHandler } from './handler';
 export { geolocation } from './geolocation';
 export { authorizer, type AuthorizerConfig } from './authorizer';
