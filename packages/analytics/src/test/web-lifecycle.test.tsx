@@ -183,6 +183,33 @@ describe('leaving before the first batch', () => {
   });
 });
 
+describe('leaving through an outbound link', () => {
+  it('the click tracked as the page goes is delivered by beacon, in the live session', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    const { Page, track } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
+    render(<Page pathname="/" />);
+    present();
+    await vi.advanceTimersByTimeAsync(2000); // the landing batch went out
+    const [landing] = eventRequests();
+
+    track('click', {
+      link_id: '',
+      link_url: 'https://example.com/',
+      link_text: 'example',
+      link_domain: 'example.com',
+      link_classes: '',
+      outbound: true,
+    });
+    window.dispatchEvent(new Event('pagehide')); // the browser leaves for the link
+
+    const sent = await beaconEvents();
+    const click = sent.find((e) => e.name === 'click');
+    expect(click?.session_id).toBe(landing.body[0].session_id);
+    expect(sent.some((e) => e.name === 'session_start')).toBe(false); // already announced
+    window.dispatchEvent(new Event('pageshow'));
+  });
+});
+
 describe('engagement accounting', () => {
   it('counts only focused-and-visible time, reported by the beacon when the tab hides', async () => {
     const { Page } = await launch();

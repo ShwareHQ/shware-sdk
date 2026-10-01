@@ -79,23 +79,22 @@ let timer: ReturnType<typeof setTimeout> | null = null;
  * session: the landing page is where the session began, whatever the page has navigated to by
  * the time the batch goes out.
  */
-function enqueue(name: Item['name'], properties: Item['properties'], options: TrackOptions) {
+function enqueue(name: Item['name'], properties: Item['properties'], options: TrackOptions): Item {
   const timestamp = new Date().toISOString();
   const tags = captureTags();
   const { id: session_id, started } = getSession().touch(Date.parse(timestamp));
   const item = (fields: Pick<Item, 'name' | 'properties' | 'options'>): Item => {
     const result: Item = { ...fields, tags, timestamp, session_id };
-    void tags.then((settled) => {
-      result.settled = settled;
-    });
+    void tags.then((settled) => (result.settled = settled));
     return result;
   };
   if (started) {
-    list.push(
-      item({ name: 'session_start', properties: {}, options: { enableThirdPartyTracking: false } })
-    );
+    const options = { enableThirdPartyTracking: false };
+    list.push(item({ name: 'session_start', properties: {}, options }));
   }
-  list.push(item({ name, properties, options }));
+  const event = item({ name, properties, options });
+  list.push(event);
+  return event;
 }
 
 /**
@@ -133,14 +132,16 @@ async function flush() {
       }))
     );
 
+    const body = JSON.stringify(dto);
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
-      // Survive the page being unloaded mid-flight: the request outlives the page, and the
-      // body stays far under keepalive's 64KB in-flight budget.
-      keepalive: true,
+      // keepalive lets the request survive the page being unloaded mid-flight, within a 64KB
+      // budget shared by every such request of the page; a body that could not fit goes as a
+      // plain POST rather than failing outright.
+      keepalive: body.length < 60_000,
       headers,
-      body: JSON.stringify(dto),
+      body,
     });
 
     if (!response.ok) {
@@ -196,26 +197,36 @@ export function track<T extends EventName = EventName>(
   timer = setTimeout(() => void flush(), delay);
 }
 
-/** Sends the event now, with whatever is queued, and resolves once it has been sent or lost. */
+/**
+ * Sends the event now, with whatever is queued, and resolves once it has been sent or lost — or,
+ * when no visitor could be created to send it with, at once, the event left queued for the next
+ * send. It never rejects: tracking must not fail the step that awaits it.
+ */
 export async function trackAsync<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   options: TrackOptions = defaultOptions
 ) {
-  await new Promise<void>((resolve) => {
-    enqueue(name, properties, {
-      ...options,
-      onSucceed: (response) => {
-        options.onSucceed?.(response);
-        resolve();
-      },
-      onError: (error) => {
-        options.onError?.(error);
-        resolve();
-      },
-    });
-    void flush();
+  let settle!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    settle = resolve;
   });
+  const event = enqueue(name, properties, {
+    ...options,
+    onSucceed: (response) => {
+      options.onSucceed?.(response);
+      settle();
+    },
+    onError: (error) => {
+      options.onError?.(error);
+      settle();
+    },
+  });
+  await flush();
+  // Still queued: this send could not take it — no visitor id to send it with yet. It waits for
+  // the next send, but the caller, who may be holding a navigation on this, does not.
+  if (list.includes(event)) return;
+  await settled;
 }
 
 /**
@@ -233,7 +244,10 @@ function beaconVisitorId(): string | undefined {
 function beacon(dto: CreateTrackEventDTO): boolean {
   // Not every runtime with a `navigator` has it: React Native has neither beacons nor pages.
   if (typeof navigator === 'undefined' || !('sendBeacon' in navigator)) return false;
-  const blob = new Blob([JSON.stringify(dto)], { type: 'application/json' });
+  // text/plain keeps a cross-origin beacon a CORS simple request: as application/json it needs a
+  // preflight, which a page being closed often cannot complete, and the beacon is then dropped.
+  // The server reads it as JSON (`zBeaconJson` in @shware/http).
+  const blob = new Blob([JSON.stringify(dto)], { type: 'text/plain;charset=UTF-8' });
   return navigator.sendBeacon(`${config.endpoint}/events`, blob);
 }
 

@@ -366,6 +366,10 @@ describe('useWebAnalytics', () => {
       'user_engagement',
       expect.objectContaining({ trigger: 'pagehide' })
     );
+    // The queue first, here as on hidden.
+    expect(sendPendingEvents.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      sendBeacon.mock.invocationCallOrder.at(-1) ?? 0
+    );
     const [, props] = sendBeacon.mock.calls.at(-1) as [string, { engagement_time_msec: number }];
     expect(props.engagement_time_msec).toBeGreaterThanOrEqual(2000);
 
