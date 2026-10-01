@@ -102,7 +102,7 @@ describe('getTags', () => {
     const { getTags } = await load();
     window.history.replaceState(null, '', '/?ScCid=S1&oppref=O1&epik=E1');
 
-    expect(await getTags()).toMatchObject({ sccid: 'S1', oppref: 'O1', epik: 'E1' });
+    expect(await getTags()).toMatchObject({ ScCid: 'S1', oppref: 'O1', epik: 'E1' });
   });
 
   it('reads the ad identity cookies the server and pixels left behind', async () => {

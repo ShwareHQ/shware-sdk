@@ -155,7 +155,7 @@ export const tagsSchema = object({
   ko_click_id: optional(string()),
   li_fat_id: optional(string()),
   msclkid: optional(string()),
-  sccid: optional(string()),
+  ScCid: optional(string()),
   ttclid: optional(string()),
   twclid: optional(string()),
   wbraid: optional(string()),

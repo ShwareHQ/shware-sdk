@@ -135,7 +135,7 @@ export async function getTags() {
     // click id to every later page of the visit and to returning visits.
     msclkid: params.get('msclkid') ?? parseUetMsclkid(parsed._uetmsclkid),
     // Snapchat appends `ScCid`, and URL parameters are case-sensitive.
-    sccid: params.get('ScCid') ?? undefined,
+    ScCid: params.get('ScCid') ?? undefined,
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
     wbraid: params.get('wbraid') ?? parseGcl(parsed._gcl_gb)?.clickId,

@@ -134,7 +134,7 @@ export const CLICK_ID_CHANNELS = [
   ['ttclid', 'tiktok', 'ads'],
   ['rdt_cid', 'reddit', 'ads'],
   ['li_fat_id', 'linkedin', 'ads'],
-  ['sccid', 'snapchat', 'ads'],
+  ['ScCid', 'snapchat', 'ads'],
   ['twclid', 'x', 'any'],
   ['ko_click_id', 'kakao', 'any'],
   ['yclid', 'yandex', 'ads'],
