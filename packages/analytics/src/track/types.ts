@@ -162,7 +162,7 @@ export interface PageInfo {
  * parameter first and the cookie when the page carries none (`server/click-ids`).
  */
 export interface AdvertisingInfo {
-  // Meta Ads. `ad_id` … `placement` are our own landing-URL template parameters.
+  // Meta Ads. `ad_id` … `placement` come from the ad's URL parameters template.
   fbclid?: string;
   ad_id?: string;
   ad_name?: string;

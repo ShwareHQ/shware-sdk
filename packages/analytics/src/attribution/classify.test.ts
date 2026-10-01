@@ -132,15 +132,32 @@ describe('classifyTouch', () => {
     });
   });
 
-  it('does not take the _fbc cookie for a click: it outlives the visit it came from', () => {
-    expect(classifyTouch({ fbc: 'fb.1.1700000000000.abc' })).toMatchObject({
+  it('does not take an ad cookie for a click: it outlives the visit it came from', () => {
+    const cookies = {
+      _fbc: 'fb.1.1700000000000.abc',
+      _gcl_aw: 'GCL.1700000000.G1',
+      _gcl_gb: 'GCL.1700000000.W1',
+      _uetmsclkid: '_uetdd4afcccb1c94a4cad9544dd7e5006ab',
+      _rdt_cid: 'R1',
+      _li_fat_id: 'L1',
+      __oppref: 'O1',
+      // clients older than 9.0.0
+      fbc: 'fb.1.1700000000000.abc',
+    };
+    expect(classifyTouch(cookies)).toMatchObject({
       channel: '(direct)',
       medium: '(none)',
       priority: null,
     });
-    expect(
-      classifyTouch({ fbc: 'fb.1.1700000000000.abc', page_referrer: 'https://www.google.com/' })
-    ).toMatchObject({ channel: 'google', medium: 'organic' });
+    expect(classifyTouch({ ...cookies, page_referrer: 'https://www.google.com/' })).toMatchObject({
+      channel: 'google',
+      medium: 'organic',
+    });
+    // Nor say a utm_source without a medium was paid.
+    expect(classifyTouch({ ...cookies, utm_source: 'google' })).toMatchObject({
+      channel: 'google',
+      medium: '(not set)',
+    });
   });
 
   it('calls a utm_source without a medium paid when an ad-only click id of its channel came along', () => {

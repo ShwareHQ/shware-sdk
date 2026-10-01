@@ -36,12 +36,19 @@ export function metaFbp(tags: TrackTags): string | undefined {
   return tags._fbp ?? tags.fbp;
 }
 
-/** Google Ads' click ids; gbraid is an app-to-web id and never kept in a cookie. */
+/**
+ * Google Ads' click ids, from the URL when it carries any of them, else from gtag's cookies.
+ * All or nothing rather than one by one: the sender picks gclid over gbraid / wbraid, so a
+ * landing URL with a fresh gbraid next to the `_gcl_aw` of an earlier click would otherwise send
+ * the earlier click. gbraid is an app-to-web id and never kept in a cookie.
+ */
 export function googleClickIds(tags: TrackTags) {
+  const { gclid, gbraid, wbraid } = tags;
+  if (gclid || gbraid || wbraid) return { gclid, gbraid, wbraid };
   return {
-    gclid: tags.gclid ?? parseGcl(tags._gcl_aw)?.clickId,
-    gbraid: tags.gbraid,
-    wbraid: tags.wbraid ?? parseGcl(tags._gcl_gb)?.clickId,
+    gclid: parseGcl(tags._gcl_aw)?.clickId,
+    gbraid: undefined,
+    wbraid: parseGcl(tags._gcl_gb)?.clickId,
   };
 }
 

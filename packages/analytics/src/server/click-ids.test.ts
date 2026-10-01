@@ -37,6 +37,11 @@ describe('click ids for the conversion senders', () => {
     expect(linkedinFatId(cookies)).toBe('LI_COOKIE');
   });
 
+  it("never mixes Google's URL click ids with an earlier click's cookie", () => {
+    const tags = { gbraid: 'B_URL', _gcl_aw: 'GCL.1700000000.G_COOKIE' };
+    expect(googleClickIds(tags)).toEqual({ gclid: undefined, gbraid: 'B_URL', wbraid: undefined });
+  });
+
   it('ignores a cookie in a shape its tag would not read back', () => {
     expect(googleClickIds({ _gcl_aw: 'garbage' }).gclid).toBeUndefined();
     expect(microsoftMsclkid({ _uetmsclkid: 'garbage' })).toBeUndefined();
