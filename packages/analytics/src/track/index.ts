@@ -69,11 +69,6 @@ const batchSize = 10;
 const delay = 2000;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-function arm() {
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => void flush(), delay);
-}
-
 /**
  * Queues an event, preceded by a `session_start` when it is the one that opens a session.
  *
@@ -197,7 +192,8 @@ export function track<T extends EventName = EventName>(
     void flush();
     return;
   }
-  arm();
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void flush(), delay);
 }
 
 /** Sends the event now, with whatever is queued, and resolves once it has been sent or lost. */
