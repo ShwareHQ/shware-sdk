@@ -169,6 +169,28 @@ describe('classifyTouch', () => {
     });
   });
 
+  it("reads ChatGPT's and Pinterest's ad click ids as paid clicks on their channels", () => {
+    expect(classifyTouch({ oppref: 'x' })).toMatchObject({
+      channel: 'chatgpt',
+      medium: 'cpc',
+      channel_group: 'paid_other',
+    });
+    expect(classifyTouch({ utm_source: 'openai', oppref: 'x' })).toMatchObject({
+      channel: 'chatgpt',
+      medium: 'cpc',
+    });
+    // ChatGPT's own utm on an organic answer link stays organic AI.
+    expect(classifyTouch({ utm_source: 'chatgpt.com' })).toMatchObject({
+      channel: 'chatgpt',
+      channel_group: 'organic_ai',
+    });
+    expect(classifyTouch({ epik: 'x' })).toMatchObject({
+      channel: 'pinterest',
+      medium: 'cpc',
+      channel_group: 'paid_social',
+    });
+  });
+
   it("folds Meta's Threads placement source into meta", () => {
     expect(classifyTouch({ utm_source: 'th', utm_medium: 'paid', fbclid: 'x' })).toMatchObject({
       channel: 'meta',

@@ -55,6 +55,11 @@ describe('OpenAI', () => {
     });
   });
 
+  it('passes the oppref click id from the landing URL', () => {
+    expect(openaiServerEvent(event({ tags: { oppref: 'opp-1' } }), {}).oppref).toBe('opp-1');
+    expect(openaiServerEvent(event(), {}).oppref).toBeUndefined();
+  });
+
   it('derives the action source from the platform and lets an override win', () => {
     expect(openaiServerEvent(event({ platform: 'ios' }), {}).action_source).toBe('mobile_app');
     expect(openaiServerEvent(event({ platform: 'unknown' }), {}).action_source).toBeUndefined();

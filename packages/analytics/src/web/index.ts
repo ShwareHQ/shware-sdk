@@ -134,12 +134,17 @@ export async function getTags() {
     // @shware/analytics/server resolveClickIdCookies); the URL wins, the cookie carries the
     // click id to every later page of the visit and to returning visits.
     msclkid: params.get('msclkid') ?? parseUetMsclkid(parsed._uetmsclkid),
-    sccid: params.get('sccid') ?? undefined,
+    // Snapchat appends `ScCid`, and URL parameters are case-sensitive.
+    sccid: params.get('ScCid') ?? undefined,
     ttclid: params.get('ttclid') ?? undefined,
     twclid: params.get('twclid') ?? undefined,
     wbraid: params.get('wbraid') ?? parseGcl(parsed._gcl_gb)?.clickId,
     gbraid: params.get('gbraid') ?? undefined,
     yclid: params.get('yclid') ?? undefined,
+    // From the URL only, not the `__oppref` / `_epik` cookies the pixels keep: a cookie outlives
+    // the click, and a click id here names the visit's channel (`CLICK_ID_CHANNELS`).
+    oppref: params.get('oppref') ?? undefined,
+    epik: params.get('epik') ?? undefined,
     // utm params
     utm_source: link?.utm_source ?? params.get('utm_source') ?? undefined,
     utm_medium: link?.utm_medium ?? params.get('utm_medium') ?? undefined,

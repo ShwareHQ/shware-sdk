@@ -181,12 +181,14 @@ export interface AdvertisingInfo {
   dclid?: string; // Google Display Network
   ko_click_id?: string; // Kakao Ads
   msclkid?: string; // Microsoft Ads (Bing Ads)
-  sccid?: string; // Snapchat Ads
+  sccid?: string; // Snapchat Ads: the URL parameter is `ScCid`
   ttclid?: string; // TikTok Ads
   twclid?: string; // Twitter Ads (X Ads)
   wbraid?: string; // Google Ads web-to-app (iOS, post-ATT)
   gbraid?: string; // Google Ads app-to-web (iOS, post-ATT)
   yclid?: string; // Yandex Ads
+  oppref?: string; // OpenAI (ChatGPT) Ads
+  epik?: string; // Pinterest Ads
 }
 
 /**

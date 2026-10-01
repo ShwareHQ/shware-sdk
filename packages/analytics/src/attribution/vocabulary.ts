@@ -130,13 +130,16 @@ export const CLICK_ID_CHANNELS = [
   ['twclid', 'x'],
   ['ko_click_id', 'kakao'],
   ['yclid', 'yandex'],
+  ['oppref', 'chatgpt'],
+  ['epik', 'pinterest'],
 ] as const satisfies readonly (readonly [keyof AdvertisingInfo, Channel])[];
 
 /**
  * The click ids an ad platform adds to its own ad clicks and nothing else, so they can say the
  * click was paid when a `utm_source` names the channel but no `utm_medium` says how (a Reddit ad
  * tagged `utm_source=reddit` and nothing more). `fbclid` is not one: Meta decorates every outbound
- * link with it, organic posts, profile links and shares included.
+ * link with it, organic posts, profile links and shares included. `twclid` and `ko_click_id` are
+ * left out until it is clear they never decorate an organic link.
  */
 export const AD_CLICK_IDS = [
   'gclid',
@@ -148,6 +151,11 @@ export const AD_CLICK_IDS = [
   'msclkid',
   'ttclid',
   'rdt_cid',
+  'li_fat_id',
+  'sccid',
+  'yclid',
+  'oppref',
+  'epik',
 ] as const satisfies readonly (keyof AdvertisingInfo)[];
 
 /**

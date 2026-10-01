@@ -161,6 +161,8 @@ export const tagsSchema = object({
   wbraid: optional(string()),
   gbraid: optional(string()),
   yclid: optional(string()),
+  oppref: optional(string()),
+  epik: optional(string()),
   // utm params
   utm_source: optional(string()),
   utm_medium: optional(string()),
