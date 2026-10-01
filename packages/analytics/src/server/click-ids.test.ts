@@ -16,14 +16,19 @@ describe('click ids for the conversion senders', () => {
       _rdt_cid: 'R_COOKIE',
       _li_fat_id: 'LI_COOKIE',
     };
-    const url = { gclid: 'G_URL', wbraid: 'W_URL', msclkid: 'M_URL', rdt_cid: 'R_URL' };
+    const url = {
+      gclid: 'G_URL',
+      wbraid: 'W_URL',
+      msclkid: '0123456789abcdef0123456789abcdef',
+      rdt_cid: 'R_URL',
+    };
 
     expect(googleClickIds({ ...cookies, ...url, gbraid: 'B' })).toEqual({
       gclid: 'G_URL',
       gbraid: 'B',
       wbraid: 'W_URL',
     });
-    expect(microsoftMsclkid({ ...cookies, ...url })).toBe('M_URL');
+    expect(microsoftMsclkid({ ...cookies, ...url })).toBe('0123456789abcdef0123456789abcdef');
     expect(redditClickId({ ...cookies, ...url })).toBe('R_URL');
     expect(linkedinFatId({ ...cookies, li_fat_id: 'LI_URL' })).toBe('LI_URL');
 
@@ -40,6 +45,23 @@ describe('click ids for the conversion senders', () => {
   it("never mixes Google's URL click ids with an earlier click's cookie", () => {
     const tags = { gbraid: 'B_URL', _gcl_aw: 'GCL.1700000000.G_COOKIE' };
     expect(googleClickIds(tags)).toEqual({ gclid: undefined, gbraid: 'B_URL', wbraid: undefined });
+  });
+
+  it("leaves out a Search Ads 360 gclid, and its cookie's stands", () => {
+    const cookie = { _gcl_aw: 'GCL.1700000000.G_COOKIE' };
+    expect(googleClickIds({ ...cookie, gclid: 'SA360', gclsrc: 'ds' }).gclid).toBe('G_COOKIE');
+    expect(googleClickIds({ gclid: 'SA360', gclsrc: '3p.ds' }).gclid).toBeUndefined();
+    expect(googleClickIds({ ...cookie, gclid: 'G_URL', gclsrc: 'aw.ds' }).gclid).toBe('G_URL');
+  });
+
+  it('takes a URL msclkid only in the shape of one', () => {
+    const cookie = { _uetmsclkid: '_uetdd4afcccb1c94a4cad9544dd7e5006ab' };
+    expect(microsoftMsclkid({ ...cookie, msclkid: 'not-a-click-id' })).toBe(
+      'dd4afcccb1c94a4cad9544dd7e5006ab'
+    );
+    expect(microsoftMsclkid({ msclkid: ' 0123456789ABCDEF0123456789abcdef ' })).toBe(
+      '0123456789ABCDEF0123456789abcdef'
+    );
   });
 
   it('ignores a cookie in a shape its tag would not read back', () => {

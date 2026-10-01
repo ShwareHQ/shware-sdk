@@ -176,6 +176,12 @@ describe('Meta', () => {
     expect(out.user_data.fbc).toBe(cookie);
   });
 
+  it("keeps a same-click _fbc carrying Meta's appendix", () => {
+    const cookie = 'fb.1.1768046000000.CLICK123.AQAAAAAA';
+    const out = metaServerEvent(event({ tags: { _fbc: cookie, fbclid: 'CLICK123' } }), {});
+    expect(out.user_data.fbc).toBe(cookie);
+  });
+
   it("lets this page's fbclid win over the cookie of an earlier click", () => {
     const tags = { _fbc: 'fb.1.1767000000000.OLD', fbclid: 'NEW' };
     expect(metaServerEvent(event({ tags }), {}).user_data.fbc).toBe(`fb.1.${CREATED_MS}.NEW`);

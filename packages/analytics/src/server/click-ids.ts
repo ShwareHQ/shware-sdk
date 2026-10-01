@@ -12,7 +12,14 @@
  * as a fallback. Transitional: drop them here and in `tagsSchema` and `AdvertisingInfo` once no
  * client sends them.
  */
-import { formatFbc, parseFbc, parseGcl, parseUetMsclkid } from '../click-id/index';
+import {
+  formatFbc,
+  isGoogleAdsGclid,
+  isMsclkid,
+  parseFbc,
+  parseGcl,
+  parseUetMsclkid,
+} from '../click-id/index';
 import type { TrackTags } from '../track/types';
 
 /**
@@ -42,10 +49,13 @@ export function metaFbp(tags: TrackTags): string | undefined {
  * Google Ads' click ids, from the URL when it carries any of them, else from gtag's cookies.
  * All or nothing rather than one by one: the sender picks gclid over gbraid / wbraid, so a
  * landing URL with a fresh gbraid next to the `_gcl_aw` of an earlier click would otherwise send
- * the earlier click. gbraid is an app-to-web id and never kept in a cookie.
+ * the earlier click. gbraid is an app-to-web id and never kept in a cookie. A gclid that
+ * `gclsrc` says is Search Ads 360's is not a Google Ads click and is left out, as gtag leaves it
+ * out of `_gcl_aw`.
  */
 export function googleClickIds(tags: TrackTags) {
-  const { gclid, gbraid, wbraid } = tags;
+  const gclid = isGoogleAdsGclid(tags.gclsrc) ? tags.gclid : undefined;
+  const { gbraid, wbraid } = tags;
   if (gclid || gbraid || wbraid) return { gclid, gbraid, wbraid };
   return {
     gclid: parseGcl(tags._gcl_aw)?.clickId,
@@ -54,9 +64,13 @@ export function googleClickIds(tags: TrackTags) {
   };
 }
 
-/** Microsoft Ads' click id, in the 32-hex form of the URL and the cookie. */
+/**
+ * Microsoft Ads' click id, in the 32-hex form of the URL and the cookie. A URL value in any other
+ * shape is not one (the API drops it), so it does not hide the cookie's.
+ */
 export function microsoftMsclkid(tags: TrackTags): string | undefined {
-  return tags.msclkid ?? parseUetMsclkid(tags._uetmsclkid);
+  const url = tags.msclkid?.trim();
+  return isMsclkid(url) ? url : parseUetMsclkid(tags._uetmsclkid);
 }
 
 export function redditClickId(tags: TrackTags): string | undefined {

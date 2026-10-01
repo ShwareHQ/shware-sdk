@@ -31,8 +31,12 @@ describe('parseFbc', () => {
     });
   });
 
-  it('keeps a fbclid that contains dots', () => {
-    expect(parseFbc(`fb.1.${NOW}.A.B.C`, NOW)?.fbclid).toBe('A.B.C');
+  it("reads the fbclid apart from Meta's appendix and keeps the value whole", () => {
+    expect(parseFbc(`fb.1.${NOW}.ABC123.AQAAAAAA`, NOW)).toEqual({
+      raw: `fb.1.${NOW}.ABC123.AQAAAAAA`,
+      creationTime: NOW,
+      fbclid: 'ABC123',
+    });
   });
 
   it.each([
@@ -40,6 +44,8 @@ describe('parseFbc', () => {
     ['garbage', 'not-an-fbc'],
     ['wrong prefix', `xx.1.${NOW}.ABC`],
     ['missing fbclid', `fb.1.${NOW}.`],
+    ['empty appendix', `fb.1.${NOW}.ABC.`],
+    ['too many segments', `fb.1.${NOW}.A.B.C`],
     ['seconds-precision creationTime', 'fb.1.1767225600.ABC'],
     ['non-numeric creationTime', 'fb.1.nope.ABC'],
     ['future creationTime', `fb.1.${NOW + 2 * DAY_MS}.ABC`],
@@ -91,6 +97,17 @@ describe('resolveClickIdCookies — _fbc', () => {
     const { cookie, fbc } = fbcCookie('https://shware.io/', `_fbc=${existing}`, later);
     expect(cookie?.value).toBe(existing);
     expect(cookie?.maxAge).toBe(((90 - 10) * DAY_MS) / 1000);
+    expect(fbc).toBe(existing);
+  });
+
+  it('treats a cookie with an appendix as the same click, and re-issues it byte-identical', () => {
+    const existing = `fb.1.${NOW}.ABC123.AQAAAAAA`;
+    const { cookie, fbc } = fbcCookie(
+      'https://shware.io/?fbclid=ABC123',
+      `_fbc=${existing}`,
+      NOW + DAY_MS
+    );
+    expect(cookie).toMatchObject({ value: existing, maxAge: (89 * DAY_MS) / 1000 });
     expect(fbc).toBe(existing);
   });
 
