@@ -16,19 +16,21 @@ import { formatFbc, parseFbc, parseGcl, parseUetMsclkid } from '../click-id/inde
 import type { TrackTags } from '../track/types';
 
 /**
- * Meta's `fbc`. The cookie is preferred over a `fbc` built from `fbclid` only when it was opened
- * by that same click, for its creationTime: `resolveClickIdCookies` sets it on the landing
- * document, before any event of the page.
+ * Meta's `fbc`: built from this page's `fbclid`, else the `_fbc` cookie. One exception on the
+ * landing page: a cookie opened by that same `fbclid` is sent as it is, for its creationTime —
+ * `resolveClickIdCookies` sets it on the landing document, before any event of the page.
  */
 export function metaFbc(tags: TrackTags, eventTimeMs: number): string | undefined {
   const cookie = tags._fbc ?? tags.fbc;
-  if (!tags.fbclid) return cookie;
-  if (parseFbc(cookie)?.fbclid === tags.fbclid) return cookie;
-  // ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc#2--format-clickid
-  // creationTime is "the timestamp when you first observed or received this fbclid value" when
-  // the _fbc cookie is not saved — the event's own time is the closest thing the server has to
-  // that, and it does not move when a queued or retried batch finally goes out.
-  return formatFbc(tags.fbclid, eventTimeMs);
+  if (tags.fbclid) {
+    if (parseFbc(cookie)?.fbclid === tags.fbclid) return cookie;
+    // ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc#2--format-clickid
+    // Without the cookie, creationTime is "the timestamp when you first observed or received
+    // this fbclid value" — the event's own time is the closest thing the server has to that,
+    // and it does not move when a queued or retried batch finally goes out.
+    return formatFbc(tags.fbclid, eventTimeMs);
+  }
+  return cookie;
 }
 
 /** Meta's `fbp`: the pixel's browser id, a cookie only. */
