@@ -177,15 +177,15 @@ describe('session_start', () => {
     expect(batches[2].body.map((e) => e.name)).toEqual(['custom_action']);
   });
 
-  it('is not carried into a session that has since timed out', async () => {
+  it('keeps its own session when a new one has started since', async () => {
     const { track, jsonResponse } = await load();
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid' }, 400));
     const opening = new Date().toISOString();
     track('custom_action', { a: 1 });
     await vi.advanceTimersByTimeAsync(2000);
 
-    // Half an hour later the next event opens a new session, which announces itself: the lost
-    // announcement belonged to a session nothing else will ever be filed under.
+    // Half an hour later the next event opens a new session, which announces itself; the
+    // retried announcement still goes out, under the session it belongs to: the visit happened.
     respondWithIds();
     vi.advanceTimersByTime(31 * 60 * 1000);
     const reopening = new Date().toISOString();
@@ -194,9 +194,8 @@ describe('session_start', () => {
 
     const [, batch] = sentBatches();
     const starts = batch.body.filter((e) => e.name === 'session_start');
-    expect(starts).toHaveLength(1);
-    expect(starts[0].timestamp).toBe(reopening);
-    expect(starts[0].timestamp).not.toBe(opening);
+    expect(starts.map((e) => e.timestamp)).toEqual([opening, reopening]);
+    expect(starts[0].session_id).not.toBe(starts[1].session_id);
   });
 });
 
@@ -323,32 +322,34 @@ describe('callbacks and third parties', () => {
 });
 
 describe('when the visitor request fails', () => {
-  it('the batch reports onError, and the next batch recovers with it', async () => {
+  it('the events stay queued, and the next send delivers them', async () => {
     const { track, cache, jsonResponse } = await load();
     cache.visitor = null; // the id has to come from the network
     const onError = vi.fn();
     const onSucceed = vi.fn();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    // The visitor POST fails outright; the batch cannot be attributed and must say so.
+    // The visitor POST fails outright: nothing can be sent without an id, so nothing leaves the
+    // queue — the events are not lost, they wait.
     fetchMock.mockResolvedValueOnce(jsonResponse('down', 400));
     track('custom_action', { a: 1 }, { onError, onSucceed });
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
     expect(onSucceed).not.toHaveBeenCalled();
     // Only the visitor request went out — the events request never had an id to send with.
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // The network recovers: the failed visitor attempt was not cached, so the next batch
-    // creates the visitor and delivers — one bad request must not kill tracking for the page.
+    // The network recovers: the failed visitor attempt was not cached, so the next send creates
+    // the visitor and delivers both events — one bad request must not kill tracking for the page.
     fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'visitor-2' }));
     respondWithIds();
     track('custom_action', { a: 2 }, { onError, onSucceed });
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(onSucceed).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledTimes(1); // still just the first batch
+    expect(onSucceed).toHaveBeenCalledTimes(2);
     const events = sentBatches().at(-1)?.body;
+    expect(events?.map((e) => e.name)).toEqual(['session_start', 'custom_action', 'custom_action']);
     expect(events?.every((e) => e.visitor_id === 'visitor-2')).toBe(true);
   });
 });
@@ -360,6 +361,78 @@ describe('trackAsync', () => {
 
     await trackAsync('custom_action', { a: 1 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sendPendingEvents', () => {
+  const beacon = vi.fn(() => true);
+
+  beforeEach(() => {
+    beacon.mockReset();
+    beacon.mockReturnValue(true);
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+  });
+
+  async function beaconed(call: number) {
+    const [, blob] = beacon.mock.calls[call] as unknown as [string, Blob];
+    return JSON.parse(await blob.text()) as Record<string, unknown>[];
+  }
+
+  it('sends the queue, session_start first, and cancels the batch timer', async () => {
+    const { track, sendPendingEvents } = await load({ getTags: () => ({ utm_source: 'google' }) });
+    respondWithIds();
+    const onSucceed = vi.fn();
+
+    track('page_view', undefined, { onSucceed });
+    await vi.advanceTimersByTimeAsync(500); // tags settled, batch still waiting
+    sendPendingEvents();
+
+    const sent = await beaconed(0);
+    expect(sent.map((e) => e.name)).toEqual(['session_start', 'page_view']);
+    expect(sent[0]).toMatchObject({ tags: { utm_source: 'google' }, visitor_id: 'visitor-1' });
+    expect(onSucceed).toHaveBeenCalledWith(undefined);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reaches a batch still waiting for its visitor: it has not left the queue', async () => {
+    const { track, sendPendingEvents, cache, storage } = await load();
+    cache.visitor = null;
+    storage.map.set('visitor_id', 'stored-visitor');
+    let created!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        created = resolve;
+      })
+    );
+
+    track('page_view', undefined);
+    await vi.advanceTimersByTimeAsync(2000); // the send is awaiting the visitor request
+    sendPendingEvents();
+
+    expect((await beaconed(0)).map((e) => e.name)).toEqual(['session_start', 'page_view']);
+    created(new Response(JSON.stringify({ id: 'stored-visitor' }), { status: 200 }));
+    await vi.advanceTimersByTimeAsync(0);
+    // Only the visitor request: the events went by beacon, the send found the queue empty.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the queue to the usual send when no beacon can take it', async () => {
+    const { track, sendPendingEvents } = await load();
+    respondWithIds();
+    beacon.mockReturnValue(false);
+
+    track('page_view', undefined);
+    sendPendingEvents();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sentBatches()[0].body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
+  });
+
+  it('sends nothing when nothing is queued', async () => {
+    const { sendPendingEvents } = await load();
+    sendPendingEvents();
+    expect(beacon).not.toHaveBeenCalled();
   });
 });
 
@@ -375,6 +448,7 @@ describe('sendBeacon', () => {
     const { sendBeacon, cache, storage } = await load();
     cache.visitor = null; // the page's own round trip has not finished
     storage.map.set('visitor_id', 'stored-visitor');
+    storage.map.set('session', `1.live-session.${Date.now()}`);
 
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
 
@@ -410,8 +484,9 @@ describe('sendBeacon', () => {
   it('warns instead of throwing when the browser refuses the beacon', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     beacon.mockReturnValueOnce(false);
-    const { sendBeacon, cache } = await load();
+    const { sendBeacon, cache, storage } = await load();
     cache.visitor = { id: 'visitor-1' } as never;
+    storage.map.set('session', `1.live-session.${Date.now()}`);
 
     expect(() =>
       sendBeacon('user_engagement', { engagement_time_msec: 5, trigger: 'pagehide' })

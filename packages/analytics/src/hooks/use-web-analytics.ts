@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
-import { sendBeacon, track } from '../track/index';
+import { sendBeacon, sendPendingEvents, track } from '../track/index';
 import { getPageKey } from '../web/page-key';
 import { usePrevious } from './use-previous';
 
@@ -40,14 +40,19 @@ function getScrollPercent() {
   return ((scrollTop + windowHeight) * 100) / docHeight;
 }
 
+// The queue goes first: a new session's `session_start` is in it, ahead of the engagement that
+// reports for that session. On `hidden` as well as on `pagehide`, as GA4 does: a mobile browser
+// often discards a hidden page without firing `pagehide`.
 function onPageHide() {
   getSession().pagehide();
+  sendPendingEvents();
   sendUserEngagement('pagehide');
 }
 
 function onVisibilityChange() {
   getSession().visibilitychange(document.visibilityState);
   if (document.visibilityState === 'hidden') {
+    sendPendingEvents();
     sendUserEngagement('visibilitychange');
   }
 }
