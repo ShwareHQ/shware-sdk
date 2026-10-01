@@ -87,6 +87,7 @@ export const SOURCE_ALIASES = {
   ig: 'meta',
   an: 'meta',
   msg: 'meta',
+  th: 'meta',
   facebook: 'meta',
   instagram: 'meta',
   bing: 'microsoft',
@@ -107,12 +108,14 @@ export const SOURCE_ALIASES = {
 
 /**
  * Which click id belongs to which channel, in priority order. Every key is a field this SDK
- * collects (`AdvertisingInfo`); `fbp` and `rdt_uuid` are deliberately absent — they are pixel
- * browser ids, present with or without a click.
+ * collects (`AdvertisingInfo`). Deliberately absent: `fbp` and `rdt_uuid`, pixel browser ids
+ * present with or without a click; and `fbc`, which the SDK only ever reads from the `_fbc`
+ * cookie. That cookie lives 90 days after a Meta click, so counting it named every later visit —
+ * typed in, from search, from an email — a new Meta click. `fbclid` is read from the landing URL
+ * only, so it is this visit's click.
  */
 export const CLICK_ID_CHANNELS = [
   ['fbclid', 'meta'],
-  ['fbc', 'meta'],
   ['gclid', 'google'],
   ['gbraid', 'google'],
   ['wbraid', 'google'],
@@ -128,6 +131,24 @@ export const CLICK_ID_CHANNELS = [
   ['ko_click_id', 'kakao'],
   ['yclid', 'yandex'],
 ] as const satisfies readonly (readonly [keyof AdvertisingInfo, Channel])[];
+
+/**
+ * The click ids an ad platform adds to its own ad clicks and nothing else, so they can say the
+ * click was paid when a `utm_source` names the channel but no `utm_medium` says how (a Reddit ad
+ * tagged `utm_source=reddit` and nothing more). `fbclid` is not one: Meta decorates every outbound
+ * link with it, organic posts, profile links and shares included.
+ */
+export const AD_CLICK_IDS = [
+  'gclid',
+  'gbraid',
+  'wbraid',
+  'gad_source',
+  'gad_campaignid',
+  'dclid',
+  'msclkid',
+  'ttclid',
+  'rdt_cid',
+] as const satisfies readonly (keyof AdvertisingInfo)[];
 
 /**
  * A landing page reserved for one channel's ads, for ads that lost their parameters:

@@ -1,5 +1,6 @@
 import type { TrackTags } from '../track/types';
 import {
+  AD_CLICK_IDS,
   AD_LANDING_PAGE,
   CLICK_ID_CHANNELS,
   type ChannelGroup,
@@ -73,7 +74,14 @@ function text(tags: TrackTags, key: string): string | null {
   return s === '' || s === 'undefined' || s === 'null' ? null : s;
 }
 
-/** 1. What the campaign said: `utm_source`, with the aliases folded. */
+/**
+ * 1. What the campaign said: `utm_source`, with the aliases folded. It comes before the click
+ * ids, as in GA4: a utm is written for this link by whoever placed it, while a click id can be
+ * left over or added by someone else — some are read from a first-party cookie set by an earlier
+ * click (`_gcl_aw`, `_uetmsclkid`, `_rdt_cid`), and Meta puts `fbclid` on organic links too.
+ * When the two disagree, the utm is the one that was right: a Google ad or a newsletter visited
+ * with a Meta cookie still set, an Instagram profile link carrying `fbclid`.
+ */
 function utmChannel(tags: TrackTags): string | null {
   // A source with the rest of the query glued on (`email&utm_medium=promo`, `toolify/`,
   // `x?utm_source=x`): a link built by hand or double-encoded. Keep the source.
@@ -88,6 +96,12 @@ function utmChannel(tags: TrackTags): string | null {
  */
 function clickChannel(tags: TrackTags): string | null {
   return CLICK_ID_CHANNELS.find(([key]) => key in tags)?.[1] ?? null;
+}
+
+/** The channel of the first ad-only click id in the tags (`AD_CLICK_IDS`), if any. */
+function adClickChannel(tags: TrackTags): string | null {
+  const key = AD_CLICK_IDS.find((id) => id in tags);
+  return key ? (CLICK_ID_CHANNELS.find(([id]) => id === key)?.[1] ?? null) : null;
 }
 
 /** 3. A landing page reserved for one channel's ads. */
@@ -158,7 +172,8 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * The rules, in order, the first that says something naming the channel: an explicit
  * `utm_source`, a click id, an ad landing page, the product's own rules, the referrer's host;
  * `(direct)` when none does. `medium` is `utm_medium` as declared (lower-cased), else what that
- * rule implies: `(not set)` for a utm_source alone, `cpc` for a bare click id or ad landing page,
+ * rule implies: `(not set)` for a utm_source alone — but `cpc` when an ad-only click id of the
+ * same channel came with it (`AD_CLICK_IDS`) — `cpc` for a bare click id or ad landing page,
  * the product rule's own, `organic` / `social` / `video` / `referral` for a referrer, `(none)`
  * for direct. `campaign` is `utm_campaign`, else what a product rule captured — even when the
  * utm named the channel, so a tagged referral link keeps its code. `priority` is the tier of
@@ -178,7 +193,9 @@ export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): T
   const medium =
     declaredMedium ??
     (utm
-      ? MEDIUM_NOT_SET
+      ? adClickChannel(tags) === utm
+        ? 'cpc'
+        : MEDIUM_NOT_SET
       : click || landing
         ? 'cpc'
         : (product?.medium ?? referred?.medium ?? NO_MEDIUM));

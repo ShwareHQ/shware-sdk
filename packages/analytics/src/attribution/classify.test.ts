@@ -132,6 +132,50 @@ describe('classifyTouch', () => {
     });
   });
 
+  it('does not take the _fbc cookie for a click: it outlives the visit it came from', () => {
+    expect(classifyTouch({ fbc: 'fb.1.1700000000000.abc' })).toMatchObject({
+      channel: '(direct)',
+      medium: '(none)',
+      priority: null,
+    });
+    expect(
+      classifyTouch({ fbc: 'fb.1.1700000000000.abc', page_referrer: 'https://www.google.com/' })
+    ).toMatchObject({ channel: 'google', medium: 'organic' });
+  });
+
+  it('calls a utm_source without a medium paid when an ad-only click id of its channel came along', () => {
+    expect(classifyTouch({ utm_source: 'reddit', rdt_cid: 'x' })).toMatchObject({
+      channel: 'reddit',
+      medium: 'cpc',
+      channel_group: 'paid_social',
+    });
+    expect(classifyTouch({ utm_source: 'reddit' })).toMatchObject({
+      medium: '(not set)',
+      channel_group: 'organic_social',
+    });
+    // A declared medium stands; another channel's click id says nothing about this one.
+    expect(
+      classifyTouch({ utm_source: 'google', utm_medium: 'organic', gclid: 'x' })
+    ).toMatchObject({
+      medium: 'organic',
+    });
+    expect(classifyTouch({ utm_source: 'reddit', gclid: 'x' })).toMatchObject({
+      medium: '(not set)',
+    });
+    // fbclid is on organic Meta links too, so it proves nothing.
+    expect(classifyTouch({ utm_source: 'ig', fbclid: 'x' })).toMatchObject({
+      channel: 'meta',
+      medium: '(not set)',
+    });
+  });
+
+  it("folds Meta's Threads placement source into meta", () => {
+    expect(classifyTouch({ utm_source: 'th', utm_medium: 'paid', fbclid: 'x' })).toMatchObject({
+      channel: 'meta',
+      channel_group: 'paid_social',
+    });
+  });
+
   it('reads an ad landing page as that channel', () => {
     expect(classifyTouch(at('https://app.shware.net/lp/meta?fbclid=1'))).toMatchObject({
       channel: 'meta',
