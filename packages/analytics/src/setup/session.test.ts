@@ -109,10 +109,10 @@ describe('extend', () => {
     expect(getSession().touch(Date.now()).started).toBe(true);
   });
 
-  it('creates a session when nothing is stored at all', async () => {
+  it('starts no session when nothing is stored: it could never be announced', async () => {
     const { getSession, storage } = await load();
-    const id = getSession().extend();
-    expect(storage.map.get('session')).toContain(id);
+    expect(getSession().extend()).toBeUndefined();
+    expect(storage.map.has('session')).toBe(false);
   });
 });
 

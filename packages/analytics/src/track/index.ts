@@ -33,6 +33,10 @@ type Item = {
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   properties: TrackProperties<any>;
   tags: Promise<TrackTags>;
+  /** `tags` once settled: a page being hidden can await nothing, and sends what it has. */
+  settled?: TrackTags;
+  /** Decided when the event happens, as GA4 and PostHog decide it, never when it is sent. */
+  session_id: string;
   timestamp: string;
   options: TrackOptions;
 };
@@ -56,79 +60,88 @@ async function captureTags(): Promise<TrackTags> {
 }
 
 /**
- * The `session_start` a failed batch took down with it, kept for the next batch of the same
- * session. `fetch` has already retried the transient failures by the time a batch fails here;
- * what remains is a batch the server rejected outright — one invalid event fails the whole batch,
- * and `session_start` with it — or a network that stayed down past the retries. Neither is a
- * reason to lose the session's one attribution record, so it goes out again, with the tags and
- * timestamp of the moment the session actually began, under the same session id. Held in memory
- * only: a reload loses it, and with it the session_start — the same as before this existed.
+ * The events not yet sent, and the only place they are: a batch leaves it at the moment it is
+ * handed to `fetch` or to a beacon, never earlier. So when the page is hidden or left,
+ * everything still unsent is right here for `sendPendingEvents`.
  */
-let pendingStart: { session_id: string; item: Item } | undefined;
+const list: Item[] = [];
+const batchSize = 10;
+const delay = 2000;
+let timer: ReturnType<typeof setTimeout> | null = null;
 
-async function sendEvents(events: Item[]) {
-  /** The announcement this batch carries, if any, so the catch below can hold it back. */
-  let announcement: { session_id: string; item: Item } | undefined;
+/**
+ * Queues an event, preceded by a `session_start` when it is the one that opens a session.
+ *
+ * The session is decided here, when the event happens, as GA4 and PostHog decide it: the
+ * `session_start` then sits in the queue right before the event that opened the session, so
+ * wherever that event goes — a batch, a beacon, a retry — its announcement has gone ahead of it.
+ * It carries that event's tags and time, as GA4 derives it from the hit that started the
+ * session: the landing page is where the session began, whatever the page has navigated to by
+ * the time the batch goes out.
+ */
+function enqueue(name: Item['name'], properties: Item['properties'], options: TrackOptions): Item {
+  const timestamp = new Date().toISOString();
+  const tags = captureTags();
+  const { id: session_id, started } = getSession().touch(Date.parse(timestamp));
+  const item = (fields: Pick<Item, 'name' | 'properties' | 'options'>): Item => {
+    const result: Item = { ...fields, tags, timestamp, session_id };
+    void tags.then((settled) => (result.settled = settled));
+    return result;
+  };
+  if (started) {
+    const options = { enableThirdPartyTracking: false };
+    list.push(item({ name: 'session_start', properties: {}, options }));
+  }
+  const event = item({ name, properties, options });
+  list.push(event);
+  return event;
+}
+
+/**
+ * Sends the queue. Everything that has to be awaited is awaited first, and only then are the
+ * events taken off the queue and handed to `fetch` in the same synchronous step — so there is
+ * no moment at which an event is neither queued nor sent.
+ */
+async function flush() {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  if (list.length === 0) return;
+
+  let events: Item[] = [];
   try {
-    if (events.length === 0) return;
-
-    // One read-modify-write of the stored session for the whole batch: it answers which session
-    // these events belong to and whether this batch is the one that started it. Timed by the
-    // events themselves rather than by this moment — a tab frozen in the background can hold a
-    // batch for far longer than `delay`, and those events belong to the session they happened in.
-    const opening = events[0];
-    const { id: session_id, started } = getSession().touch(
-      Date.parse(opening.timestamp),
-      Date.parse(events[events.length - 1].timestamp)
-    );
-    if (started || pendingStart?.session_id === session_id) {
-      // `session_start` is derived from the event that opened the session, as GA4 derives it
-      // from the hit that did: when that event happened is when the session began, and the page
-      // it was captured on is where. Neither is read now — this batch goes out up to `delay` ms
-      // later, a batch held in a frozen tab far later still, and a landing page that redirects
-      // inside that window would stamp the session's one attribution record with the URL the utm
-      // parameters were already stripped from.
-      const start: Item =
-        pendingStart?.session_id === session_id
-          ? pendingStart.item
-          : {
-              name: 'session_start',
-              properties: {},
-              options: { enableThirdPartyTracking: false },
-              tags: opening.tags,
-              timestamp: opening.timestamp,
-            };
-      pendingStart = undefined;
-      announcement = { session_id, item: start };
-      events.unshift(start);
-    }
-
     await getTokenBucket().removeTokens();
-
     const visitor_id = (await getVisitor()).id;
+    const headers = await config.getHeaders();
+    // Settled before the events leave the queue; those queued meanwhile are a microtask away.
+    await Promise.all(list.map((event) => event.tags));
 
+    events = list.splice(0);
+    if (events.length === 0) return;
     const dto: CreateTrackEventDTO = await Promise.all(
       events.map(async (event) => ({
         name: event.name,
         properties: event.properties,
         tags: await event.tags,
         visitor_id,
-        session_id,
+        session_id: event.session_id,
         platform: config.platform,
         environment: config.environment,
         timestamp: event.timestamp,
       }))
     );
 
+    const body = JSON.stringify(dto);
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
-      // Survive the page being unloaded mid-flight: a batch waits up to `delay` ms, so closing
-      // the tab inside that window would otherwise abort the request and lose every event in it.
-      // The body stays far under keepalive's 64KB in-flight budget at 100 events per batch.
-      keepalive: true,
-      headers: await config.getHeaders(),
-      body: JSON.stringify(dto),
+      // keepalive lets the request survive the page being unloaded mid-flight, within a 64KB
+      // budget shared by every such request of the page; a body that could not fit goes as a
+      // plain POST rather than failing outright.
+      keepalive: body.length < 60_000,
+      headers,
+      body,
     });
 
     if (!response.ok) {
@@ -137,62 +150,37 @@ async function sendEvents(events: Item[]) {
 
     const data = (await response.json()) as TrackEventResponse;
 
-    let index = 0;
-    while (events.length > 0) {
-      const event = events.shift();
-      if (!event) {
-        index++;
-        continue;
-      }
-      const { options, name, properties } = event;
+    events.forEach((event, index) => {
       const eventId = data.at(index)?.id;
-      options.onSucceed?.(eventId ? { id: eventId } : undefined);
-      index++;
+      event.options.onSucceed?.(eventId ? { id: eventId } : undefined);
       // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
       // object wholesale, and leaving the flag out must not silently switch forwarding off.
-      if (options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(name)) {
-        continue;
+      if (event.options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
+        return;
       }
       config.thirdPartyTrackers.forEach((tracker) => {
         try {
-          tracker(name, properties, eventId);
+          tracker(event.name, event.properties, eventId);
         } catch (e: unknown) {
-          // A third-party script does not get to take the rest of the batch with it. This loop is
-          // still draining `events` with `shift`, so a throw would escape to the catch below and
-          // report failure to whatever is left in the queue — for events the server has already
-          // accepted, and after the ones ahead of them were told they succeeded.
+          // A third-party script does not get to take the rest of the batch with it.
           if (e instanceof Error) console.log(e.message);
         }
       });
-    }
+    });
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
-    // The other events are reported lost and stay lost; `session_start` alone is worth carrying
-    // over, because it is the session's only attribution record — a session without one has no
-    // channel, and its every later event drops out of an attribution join.
-    if (announcement) pendingStart = announcement;
-    events.forEach((event) => event.options.onError?.(e));
+    // `fetch` has already retried the transient failures by the time a batch fails here; what
+    // remains is a batch the server rejected outright — one invalid event fails the whole batch
+    // — or a network that stayed down past the retries. The other events are reported lost;
+    // `session_start` alone goes back on the queue for the next send, because it is the
+    // session's only attribution record: a session without one has no channel, and its every
+    // later event drops out of an attribution join.
+    const starts = events.filter((event) => event.name === 'session_start');
+    list.unshift(...starts);
+    events
+      .filter((event) => event.name !== 'session_start')
+      .forEach((event) => event.options.onError?.(e));
   }
-}
-
-const batch = 10;
-const delay = 2000;
-const list: Item[] = [];
-let timer: ReturnType<typeof setTimeout> | null = null;
-
-/**
- * Both paths into a send go through here, so a batch that fills up cancels the timer the
- * previous push armed rather than leaving it to wake up on its own with nothing to send.
- */
-function flush() {
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
-  }
-  if (list.length === 0) return;
-  const copy = [...list];
-  list.length = 0;
-  void sendEvents(copy);
 }
 
 export function track<T extends EventName = EventName>(
@@ -200,42 +188,114 @@ export function track<T extends EventName = EventName>(
   properties?: TrackProperties<T>,
   options: TrackOptions = defaultOptions
 ) {
-  list.push({
-    name,
-    properties,
-    options,
-    tags: captureTags(),
-    timestamp: new Date().toISOString(),
-  });
-  if (list.length >= batch) {
-    flush();
+  enqueue(name, properties, options);
+  if (list.length >= batchSize) {
+    void flush();
     return;
   }
   if (timer) clearTimeout(timer);
-  timer = setTimeout(flush, delay);
+  timer = setTimeout(() => void flush(), delay);
 }
 
+/**
+ * Sends the event now, with whatever is queued, and resolves once it has been sent or lost — or,
+ * when no visitor could be created to send it with, at once, the event left queued for the next
+ * send. It never rejects: tracking must not fail the step that awaits it.
+ */
 export async function trackAsync<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   options: TrackOptions = defaultOptions
 ) {
-  await sendEvents([
-    { name, properties, options, tags: captureTags(), timestamp: new Date().toISOString() },
-  ]);
+  let settle!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const event = enqueue(name, properties, {
+    ...options,
+    onSucceed: (response) => {
+      options.onSucceed?.(response);
+      settle();
+    },
+    onError: (error) => {
+      options.onError?.(error);
+      settle();
+    },
+  });
+  await flush();
+  // Still queued: this send could not take it — no visitor id to send it with yet. It waits for
+  // the next send, but the caller, who may be holding a navigation on this, does not.
+  if (list.includes(event)) return;
+  await settled;
+}
+
+/**
+ * The visitor id a beacon can carry. It is persisted, so a returning visitor already has one
+ * before `getVisitor` has finished its round trip for this page. Requiring the in-memory copy
+ * threw away exactly the events a beacon exists for: everything a visit accrues before its first
+ * batch comes back, which for a short visit is the whole of it. A visitor the server has never
+ * seen has none: the server would reject its events.
+ */
+function beaconVisitorId(): string | undefined {
+  const stored = config.storage.getItem(keys.visitor_id);
+  return cache.visitor?.id ?? (stored && stored !== 'undefined' ? stored : undefined);
+}
+
+function beacon(dto: CreateTrackEventDTO): boolean {
+  // Not every runtime with a `navigator` has it: React Native has neither beacons nor pages.
+  if (typeof navigator === 'undefined' || !('sendBeacon' in navigator)) return false;
+  // text/plain keeps a cross-origin beacon a CORS simple request: as application/json it needs a
+  // preflight, which a page being closed often cannot complete, and the beacon is then dropped.
+  // The server reads it as JSON (`zBeaconJson` in @shware/http).
+  const blob = new Blob([JSON.stringify(dto)], { type: 'text/plain;charset=UTF-8' });
+  return navigator.sendBeacon(`${config.endpoint}/events`, blob);
+}
+
+/**
+ * Sends the queue by beacon, now: for when the page is hidden or left, the last moment its
+ * script is sure to run — what PostHog's `requestQueue.unload()` and GA4 do on the same events.
+ * Call it before the engagement beacon: a new session's `session_start` is in this queue.
+ *
+ * Nothing can be awaited here, so the events go with the tags they have settled on (the last
+ * built ones otherwise), and without the server's ids: their third-party trackers are not fired,
+ * as an id-less browser event could not be deduplicated against the server's. When no beacon can
+ * take them — a visitor the server does not know yet, no `sendBeacon`, a refused body — they stay
+ * queued for the usual send, which also creates the visitor.
+ */
+export function sendPendingEvents() {
+  if (list.length === 0) return;
+  const visitor_id = beaconVisitorId();
+  const dto: CreateTrackEventDTO = list.map((event) => ({
+    name: event.name,
+    properties: event.properties,
+    tags: event.settled ?? cache.tags ?? {},
+    visitor_id: visitor_id ?? '',
+    session_id: event.session_id,
+    platform: config.platform,
+    environment: config.environment,
+    timestamp: event.timestamp,
+  }));
+  if (!visitor_id || !beacon(dto)) {
+    void flush();
+    return;
+  }
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  list.splice(0).forEach((event) => event.options.onSucceed?.(undefined));
 }
 
 export function sendBeacon<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  // The visitor id is persisted, so a returning visitor already has one before `getVisitor` has
-  // finished its round trip for this page. Requiring the in-memory copy threw away exactly the
-  // events this function exists for: everything a visit accrues before its first batch comes
-  // back, which for a short visit is the whole of it.
-  const stored = config.storage.getItem(keys.visitor_id);
-  const visitor_id = cache.visitor?.id ?? (stored && stored !== 'undefined' ? stored : undefined);
+  const visitor_id = beaconVisitorId();
   if (!visitor_id) return;
+  // No stored session means no event was ever queued from this storage, so there is no session
+  // to report for — and one started here could never be announced. See `Session.extend`.
+  const session_id = getSession().extend();
+  if (!session_id) return;
 
   const dto: CreateTrackEventDTO = [
     {
@@ -245,14 +305,12 @@ export function sendBeacon<T extends EventName = EventName>(
       // engagement, and every field in `tagsSchema` is optional.
       tags: cache.tags ?? {},
       visitor_id,
-      session_id: getSession().extend(),
+      session_id,
       platform: config.platform,
       environment: config.environment,
       timestamp: new Date().toISOString(),
     },
   ];
-  const blob = new Blob([JSON.stringify(dto)], { type: 'application/json' });
-  const success = navigator.sendBeacon(`${config.endpoint}/events`, blob);
-  if (success) return;
+  if (beacon(dto)) return;
   console.warn('Failed to send beacon', name, properties);
 }
