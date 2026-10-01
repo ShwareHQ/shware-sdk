@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 8.16.0
+
+### Minor Changes
+
+- 3e60fc5: Collect two more ad click ids from the landing URL: `oppref` (OpenAI's ChatGPT Ads) and `epik` (Pinterest Ads). Both name their channel in `classifyTouch` (`chatgpt`, `pinterest`), so an ad click without utm tags is a paid touch and not organic AI or a referral, and the OpenAI Conversions API events now carry `oppref`, which OpenAI matches conversions to clicks with. Snapchat's click id is read as `ScCid`, the case Snapchat appends it in (it was never captured before), and the tag is renamed from `sccid` to `ScCid` so that every click id tag is named after its URL parameter. `li_fat_id`, `ScCid`, `yclid`, `oppref` and `epik` are marked `'ads'` in `CLICK_ID_CHANNELS`. The pixels' `__oppref` / `_epik` cookies are not read: a click id names the visit's channel, and a cookie outlives the visit.
+- 3e60fc5: `classifyTouch` no longer counts the `_fbc` cookie as a Meta click: it outlives the visit by 90 days, so it named later direct, search and email visits Meta. `fbclid`, read from the landing URL, still counts. A `utm_source` without a `utm_medium` is `cpc` when a click id of the same channel that its platform puts on ad clicks only came with it: `CLICK_ID_CHANNELS` entries gain a third element, `'ads'` or `'any'` (`fbclid` is `'any'`: Meta puts it on organic links too). Code destructuring `[key, channel]` is unaffected. `utm_source=th` (Meta's Threads placement) folds into `meta`. The comments record why a `utm_source` outranks a click id. Reclassify stored sessions after upgrading.
+
 ## 8.15.1
 
 ### Patch Changes
