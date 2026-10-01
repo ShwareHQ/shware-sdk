@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 9.0.0
+
+### Major Changes
+
+- d2ecdbd: Name every ad click id and ad cookie tag after where it was read, and never fill one from the other. URL parameters keep their own names (`fbclid`, `gclid`, `wbraid`, `msclkid`, `rdt_cid`, `li_fat_id`, `oppref`, …) and are now read from the URL only: `gclid`, `wbraid`, `msclkid`, `rdt_cid` and `li_fat_id` no longer fall back to a cookie, so channel classification only ever sees this visit's click. The ad platforms' first-party cookies are kept raw under the cookie's name: `_fbc`, `_fbp`, `_gcl_aw`, `_gcl_gb`, `_uetmsclkid`, `_rdt_cid`, `_rdt_uuid`, `__oppref`, `__obref`, and `_li_fat_id` for LinkedIn's `li_fat_id` cookie. Breaking: the `fbc`, `fbp` and `rdt_uuid` tags are renamed to `_fbc`, `_fbp` and `_rdt_uuid`; queries reading `tags->>'fbc'` and the like need the new names. The Conversions API senders take the URL click id first and the cookie on a page without one — for Google all of `gclid` / `gbraid` / `wbraid` from the URL when it carries any, so a fresh click never goes out as an earlier one — and Meta keeps the `_fbc` cookie over a rebuilt `fbc` only when it was opened by the same `fbclid`. The old `fbc`, `fbp` and `rdt_uuid` are deprecated but still accepted by `tagsSchema` and read by the senders, for clients not yet upgraded.
+
+### Patch Changes
+
+- d2ecdbd: Tighten which click ids the Conversions API senders pass on. A `gclid` whose `gclsrc` marks it as Search Ads 360's (`ds`, `3p.ds`) is no longer sent to Google Ads, the same gating gtag applies to `_gcl_aw` (now shared as `isGoogleAdsGclid`), so it no longer hides a valid `_gcl_aw` click either. A URL `msclkid` not in the 32-hex shape of one is ignored in favour of the `_uetmsclkid` cookie. `parseFbc` reads `fb.<index>.<time>.<fbclid>.<appendix>`, the format Meta's Parameter Builder writes, with the fbclid as the fourth segment alone, so such a cookie is recognised as the same click instead of being rewritten with a new creationTime.
+- d2ecdbd: Send the OpenAI Conversions API `user` object in the fields the API documents: the plural, hashed lists `emails_sha256`, `phone_numbers_sha256`, `external_ids_sha256`, `first_names_sha256`, `last_names_sha256` and the raw `regions`, `postal_codes`, `cities`, `countries`, from every email, phone number and address given rather than the first, normalized as documented. The singular `email_sha256`, `external_id_sha256`, `country`, `city` and `zip_code` it sent before are not in the API. Also sends the pixel's `__obref` cookie as `user.obref`, the GAID of Android events as `android_advertising_id`, and the pixel's `__oppref` cookie as `oppref` when the page URL carries none.
+
 ## 8.16.0
 
 ### Minor Changes
