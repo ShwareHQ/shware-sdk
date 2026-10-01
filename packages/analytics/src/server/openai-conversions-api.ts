@@ -117,6 +117,8 @@ export function getServerEvent(
     custom_event_name: type === 'custom' ? event.name : undefined,
     timestamp_ms: new Date(event.created_at).getTime(),
     source_url: pageLocation(event.tags),
+    // The click id OpenAI appends to an ad's landing URL; what ties the conversion to the click.
+    oppref: event.tags.oppref,
     action_source: mapActionSource(event.platform, actionSource),
     user: getUser(data),
     data: eventData,

@@ -98,6 +98,13 @@ describe('getTags', () => {
     });
   });
 
+  it("reads Snapchat's ScCid as it is spelled, and OpenAI's and Pinterest's click ids", async () => {
+    const { getTags } = await load();
+    window.history.replaceState(null, '', '/?ScCid=S1&oppref=O1&epik=E1');
+
+    expect(await getTags()).toMatchObject({ ScCid: 'S1', oppref: 'O1', epik: 'E1' });
+  });
+
   it('reads the ad identity cookies the server and pixels left behind', async () => {
     const { getTags } = await load();
     document.cookie = '_fbp=fb.1.1700000000000.987654';

@@ -87,6 +87,7 @@ export const SOURCE_ALIASES = {
   ig: 'meta',
   an: 'meta',
   msg: 'meta',
+  th: 'meta',
   facebook: 'meta',
   instagram: 'meta',
   bing: 'microsoft',
@@ -106,28 +107,40 @@ export const SOURCE_ALIASES = {
 } as const satisfies Record<string, Channel>;
 
 /**
- * Which click id belongs to which channel, in priority order. Every key is a field this SDK
- * collects (`AdvertisingInfo`); `fbp` and `rdt_uuid` are deliberately absent — they are pixel
- * browser ids, present with or without a click.
+ * Which click id belongs to which channel, in priority order, and whether the platform puts it on
+ * its ad clicks only (`'ads'`) or on other links as well (`'any'`). Every key is a field this SDK
+ * collects (`AdvertisingInfo`).
+ *
+ * The third column decides whether the id can say a click was paid when a `utm_source` names the
+ * channel but no `utm_medium` says how (a Reddit ad tagged `utm_source=reddit` and nothing more).
+ * `fbclid` is `'any'`: Meta decorates every outbound link with it, organic posts, profile links
+ * and shares included. `twclid` and `ko_click_id` are `'any'` until it is clear they never
+ * decorate an organic link.
+ *
+ * Deliberately absent: `fbp` and `rdt_uuid`, pixel browser ids present with or without a click;
+ * and `fbc`, which the SDK only ever reads from the `_fbc` cookie. That cookie lives 90 days after
+ * a Meta click, so counting it named every later visit — typed in, from search, from an email — a
+ * new Meta click. `fbclid` is read from the landing URL only, so it is this visit's click.
  */
 export const CLICK_ID_CHANNELS = [
-  ['fbclid', 'meta'],
-  ['fbc', 'meta'],
-  ['gclid', 'google'],
-  ['gbraid', 'google'],
-  ['wbraid', 'google'],
-  ['gad_source', 'google'],
-  ['gad_campaignid', 'google'],
-  ['dclid', 'dv360'],
-  ['msclkid', 'microsoft'],
-  ['ttclid', 'tiktok'],
-  ['rdt_cid', 'reddit'],
-  ['li_fat_id', 'linkedin'],
-  ['sccid', 'snapchat'],
-  ['twclid', 'x'],
-  ['ko_click_id', 'kakao'],
-  ['yclid', 'yandex'],
-] as const satisfies readonly (readonly [keyof AdvertisingInfo, Channel])[];
+  ['fbclid', 'meta', 'any'],
+  ['gclid', 'google', 'ads'],
+  ['gbraid', 'google', 'ads'],
+  ['wbraid', 'google', 'ads'],
+  ['gad_source', 'google', 'ads'],
+  ['gad_campaignid', 'google', 'ads'],
+  ['dclid', 'dv360', 'ads'],
+  ['msclkid', 'microsoft', 'ads'],
+  ['ttclid', 'tiktok', 'ads'],
+  ['rdt_cid', 'reddit', 'ads'],
+  ['li_fat_id', 'linkedin', 'ads'],
+  ['ScCid', 'snapchat', 'ads'],
+  ['twclid', 'x', 'any'],
+  ['ko_click_id', 'kakao', 'any'],
+  ['yclid', 'yandex', 'ads'],
+  ['oppref', 'chatgpt', 'ads'],
+  ['epik', 'pinterest', 'ads'],
+] as const satisfies readonly (readonly [keyof AdvertisingInfo, Channel, 'ads' | 'any'])[];
 
 /**
  * A landing page reserved for one channel's ads, for ads that lost their parameters:
