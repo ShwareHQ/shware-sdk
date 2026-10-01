@@ -49,6 +49,21 @@ describe('sendOpenAIEvent', () => {
     );
   });
 
+  it('names a custom event as the API allows, and sends none it cannot name', () => {
+    const oaiq = vi.fn();
+    vendor.oaiq = oaiq;
+
+    sendOpenAIEvent('Banner.Dismissed' as never, undefined, 'event-3');
+    expect(oaiq).toHaveBeenCalledWith('measure', 'custom', expect.anything(), {
+      event_id: 'event-3',
+      custom_event_name: 'banner_dismissed',
+    });
+
+    oaiq.mockClear();
+    sendOpenAIEvent('...' as never, undefined, 'event-4');
+    expect(oaiq).not.toHaveBeenCalled();
+  });
+
   it('drops web vitals and promotion events', () => {
     const oaiq = vi.fn();
     vendor.oaiq = oaiq;
@@ -65,15 +80,23 @@ describe('sendOpenAIEvent', () => {
 });
 
 describe('setOpenAIUser', () => {
-  it('hashes email and external id, normalizes geography, then re-inits', async () => {
+  it('hashes the identifiers as OpenAI normalizes them, sends geography raw, then re-inits', async () => {
     const oaiq = vi.fn();
     vendor.oaiq = oaiq;
 
     setOpenAIUser('pixel-1')({
-      user_id: 'u1',
+      user_id: ' u1 ',
       user_data: {
         email: [' Ada@Example.COM ', 'ignored@x.co'],
-        address: { city: ' London ', postal_code: 'SW1', country: ' gb ' },
+        phone_number: '+1 (415) 555-2671',
+        address: {
+          first_name: 'Mary Jane',
+          last_name: "O'Connor",
+          city: ' London ',
+          region: 'Greater London',
+          postal_code: ' SW1 ',
+          country: ' gb ',
+        },
       },
       tags: {},
     });
@@ -84,10 +107,16 @@ describe('setOpenAIUser', () => {
       pixelId: 'pixel-1',
       user: {
         country: 'GB',
-        city: 'london',
-        zip_code: 'SW1',
+        city: 'London',
+        region: 'Greater London',
+        // `postal_code`, as the pixel documents it — not the `zip_code` it was sent as before.
+        postal_code: 'SW1',
         email_sha256: sha256('ada@example.com'),
+        // The digest of the documentation's own example.
+        phone_number_sha256: '758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0',
         external_id_sha256: sha256('u1'),
+        first_name_sha256: sha256('maryjane'),
+        last_name_sha256: sha256('oconnor'),
       },
     });
   });

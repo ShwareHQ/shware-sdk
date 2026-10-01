@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent, mapItems as mapFBItems, normalize } from './fbq';
-import { NON_AD_EVENTS, mapContents, mapOAIEvent, toMinorUnits } from './oaiq';
+import { NON_AD_EVENTS, mapContents, mapOAIEvent, oaiCustomEventName, toMinorUnits } from './oaiq';
 import { mapRDTEvent, mapServerStandardEvent } from './rdt';
 import { mapUETEvent } from './uetq';
 
@@ -268,12 +268,49 @@ describe('mapOAIEvent', () => {
   });
 });
 
+describe('amounts without a currency', () => {
+  it('are left out, at the event and at the item, rather than sent invalid', () => {
+    const { data } = mapOAIEvent('purchase', {
+      value: 10,
+      transaction_id: 't',
+      items: [{ item_id: 'a', price: 5 }],
+    } as never);
+    expect(data).toMatchObject({ amount: undefined, currency: undefined });
+    expect(
+      (data as { contents?: { amount?: number; currency?: string }[] }).contents?.[0]
+    ).toMatchObject({
+      amount: undefined,
+      currency: undefined,
+    });
+  });
+});
+
+describe('oaiCustomEventName', () => {
+  it('keeps a valid name, lowercased as the API stores it', () => {
+    expect(oaiCustomEventName('image_task_failed')).toBe('image_task_failed');
+    expect(oaiCustomEventName('Export-PDF')).toBe('export-pdf');
+  });
+
+  it('turns what is not allowed into underscores, trims the ends, and caps it at 64', () => {
+    expect(oaiCustomEventName('Sign Up.Clicked!')).toBe('sign_up_clicked');
+    expect(oaiCustomEventName(`_${'a'.repeat(70)}`)).toBe('a'.repeat(63));
+  });
+
+  it('gives up on a name with nothing left, or one a standard event already uses', () => {
+    expect(oaiCustomEventName('...')).toBeUndefined();
+    expect(oaiCustomEventName('order_created')).toBeUndefined();
+  });
+});
+
 describe('toMinorUnits', () => {
   it('uses the currency exponent: 2 by default, 0 and 3 for the exceptions', () => {
     expect(toMinorUnits(129.99, 'usd')).toBe(12999);
     expect(toMinorUnits(1000, 'JPY')).toBe(1000);
     expect(toMinorUnits(1.234, 'BHD')).toBe(1234);
-    expect(toMinorUnits(10)).toBe(1000); // unknown currency falls back to 2 decimals
+    expect(toMinorUnits(10, 'xyz')).toBe(1000); // a currency outside the lists has 2 decimals
+    // No currency, no amount: OpenAI requires a currency with every amount.
+    expect(toMinorUnits(10)).toBeUndefined();
+    expect(toMinorUnits(10, '')).toBeUndefined();
   });
 
   it('rounds half-up artifacts away and refuses non-numbers', () => {

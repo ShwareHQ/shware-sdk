@@ -11,7 +11,8 @@ import { sendEvent as sendMetaEvent, sendEvents as sendMetaEvents } from './meta
 import { sendEvents as sendOpenAIEvents } from './openai-conversions-api';
 import { sendEvents as sendRedditEvents } from './reddit-conversions-api';
 
-const CREATED_AT = '2026-01-10T12:00:00.000Z';
+// A minute ago: the senders leave out events older than their API's window (`withinWindow`).
+const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any
 function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {

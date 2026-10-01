@@ -12,6 +12,7 @@ import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
+import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
@@ -320,9 +321,10 @@ export async function sendEvents(
   appPackageName?: string,
   actionSource?: EventActionSource
 ) {
-  const fbEvents = events
-    .filter((event) => !IGNORED_EVENTS.includes(event.name))
-    .map((event) => getServerEvent(event, data, appPackageName, actionSource));
+  const fbEvents = withinWindow(
+    'meta',
+    events.filter((event) => !IGNORED_EVENTS.includes(event.name))
+  ).map((event) => getServerEvent(event, data, appPackageName, actionSource));
   if (fbEvents.length === 0) return undefined;
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);

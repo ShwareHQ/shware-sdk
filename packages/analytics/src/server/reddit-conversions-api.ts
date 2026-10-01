@@ -5,6 +5,8 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { redditClickId, redditUuid } from './click-ids';
+import { withinWindow } from './event-window';
+import { pageLocation } from './page-location';
 
 /**
  * https://ads-api.reddit.com/docs/v3/operations/Post%20Conversion%20Events
@@ -17,7 +19,17 @@ export interface RedditEvent {
   /** Unix epoch timestamp in milliseconds, event_at can't be older than seven days. */
   event_at: number;
 
-  action_source: 'WEBSITE' | 'APP' | (string & {});
+  /**
+   * Where the conversion happened. Pixel events are deduplicated only against `WEBSITE` ones.
+   * https://business.reddithelp.com/s/article/Conversions-API#measure-impact-across-channels
+   */
+  action_source: 'WEBSITE' | 'APP' | 'PHYSICAL_STORE' | 'OTHER';
+
+  /**
+   * The page the event happened on, for `WEBSITE` events: Reddit reads the domain from it, and the
+   * click id when `click_id` is missing.
+   */
+  event_source_url?: string;
 
   type: {
     tracking_type: ServerStandardEvent | 'CUSTOM';
@@ -82,14 +94,15 @@ export function getServerEvent(
 ): RedditEvent {
   const { id, name, properties, tags, platform, created_at } = event;
   const [type, params] = mapRDTEvent(name, properties, id);
-  // Reddit documents WEBSITE and APP only, so an offline conversion shares the fallback with an
-  // undeterminable platform rather than inventing an enum value the API may reject.
+  // An offline conversion — in store, from a CRM, over the phone — is `OTHER` rather than
+  // `PHYSICAL_STORE`, which only one of those is; so is an undeterminable platform.
   const source = resolveActionSource(platform, actionSource);
 
   return {
     click_id: redditClickId(tags),
     event_at: new Date(created_at).getTime(),
-    action_source: source === 'web' ? 'WEBSITE' : source === 'app' ? 'APP' : 'UNKNOWN',
+    action_source: source === 'web' ? 'WEBSITE' : source === 'app' ? 'APP' : 'OTHER',
+    event_source_url: source === 'web' ? pageLocation(tags) : undefined,
     type: {
       tracking_type: type === 'Custom' ? 'CUSTOM' : mapServerStandardEvent(type),
       custom_event_name: type === 'Custom' ? params.customEventName : undefined,
@@ -139,9 +152,10 @@ export async function sendEvents(
   const dto: CreateRedditEventDTO = {
     data: {
       test_id: testId,
-      events: events
-        .filter((event) => !IGNORED_EVENTS.includes(event.name))
-        .map((event) => getServerEvent(event, data, actionSource)),
+      events: withinWindow(
+        'reddit',
+        events.filter((event) => !IGNORED_EVENTS.includes(event.name))
+      ).map((event) => getServerEvent(event, data, actionSource)),
     },
   };
 

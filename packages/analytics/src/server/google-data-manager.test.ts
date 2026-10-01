@@ -87,8 +87,17 @@ describe('getDataManagerEvent', () => {
   });
 
   it('maps platform to eventSource', () => {
-    expect(getDataManagerEvent(event({ platform: 'ios' }), config)?.eventSource).toBe('APP');
-    expect(getDataManagerEvent(event({ platform: 'unknown' }), config)?.eventSource).toBe('OTHER');
+    // A webpage action (the default) takes WEB or nothing: anything else fails the request.
+    expect(getDataManagerEvent(event({ platform: 'ios' }), config)?.eventSource).toBeUndefined();
+    expect(
+      getDataManagerEvent(event({ platform: 'unknown' }), config)?.eventSource
+    ).toBeUndefined();
+    // An offline (upload) action requires it, and takes any value.
+    const offline = (platform: TrackEvent['platform']) =>
+      getDataManagerEvent(event({ platform }), config, {}, 'offline')?.eventSource;
+    expect(offline('web')).toBe('WEB');
+    expect(offline('ios')).toBe('APP');
+    expect(offline('unknown')).toBe('OTHER');
   });
 
   it('hashes identifiers with Google email normalization, capped at ten', () => {

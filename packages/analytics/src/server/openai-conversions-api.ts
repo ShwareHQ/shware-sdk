@@ -6,10 +6,18 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { type EventData, NON_AD_EVENTS, mapOAIEvent } from '../track/oaiq';
+import {
+  type EventData,
+  NON_AD_EVENTS,
+  mapOAIEvent,
+  normalizeOAIName,
+  normalizeOAIPhone,
+  oaiCustomEventName,
+} from '../track/oaiq';
 import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { openaiOppref } from './click-ids';
+import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
@@ -106,19 +114,6 @@ function values(items: (string | undefined)[]): string[] | undefined {
   return result.length > 0 ? result : undefined;
 }
 
-function normalizePhone(phone: string): string | undefined {
-  const digits = phone
-    .replace(/[\s().-]/g, '')
-    .replace(/^\+/, '')
-    .replace(/^0+/, '');
-  return /^\d{8,15}$/.test(digits) ? digits : undefined;
-}
-
-// Lowercase, without whitespace or ASCII punctuation; other characters (accents) are kept.
-function normalizeName(name: string | undefined): string | undefined {
-  return name?.toLowerCase().replace(/[\s!-/:-@[-`{-~]/g, '') || undefined;
-}
-
 function getUser(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
@@ -130,10 +125,10 @@ function getUser(
   const user: OpenAIUser = {
     obref: event.tags.__obref,
     emails_sha256: hashed(list(data.email).map((email) => email.trim().toLowerCase())),
-    phone_numbers_sha256: hashed(list(data.phone_number).map(normalizePhone)),
+    phone_numbers_sha256: hashed(list(data.phone_number).map(normalizeOAIPhone)),
     external_ids_sha256: hashed([data.user_id?.trim()]),
-    first_names_sha256: hashed(addresses.map((a) => normalizeName(a.first_name))),
-    last_names_sha256: hashed(addresses.map((a) => normalizeName(a.last_name))),
+    first_names_sha256: hashed(addresses.map((a) => normalizeOAIName(a.first_name))),
+    last_names_sha256: hashed(addresses.map((a) => normalizeOAIName(a.last_name))),
     regions: values(addresses.map((a) => a.region?.trim())),
     postal_codes: values(addresses.map((a) => a.postal_code?.trim())),
     cities: values(addresses.map((a) => a.city?.trim())),
@@ -158,9 +153,9 @@ export function getServerEvent(
   return {
     id: event.tags.idempotency_key ?? event.id,
     type,
-    // For custom events the original track name is the OpenAI custom_event_name; this matches
-    // the browser pixel so the two deduplicate. Standard events omit it.
-    custom_event_name: type === 'custom' ? event.name : undefined,
+    // For custom events the track name, made valid (`oaiCustomEventName`); the browser pixel
+    // names it the same way, so the two deduplicate. Standard events omit it.
+    custom_event_name: type === 'custom' ? oaiCustomEventName(event.name) : undefined,
     timestamp_ms: new Date(event.created_at).getTime(),
     source_url: pageLocation(event.tags),
     // The click id OpenAI appends to an ad's landing URL; what ties the conversion to the click.
@@ -182,10 +177,15 @@ export async function sendEvents(
 ) {
   const dto: CreateOpenAIEventsDTO = {
     validate_only: validateOnly,
-    events: events
-      .filter((event) => !IGNORED_EVENTS.includes(event.name))
-      .filter((event) => !NON_AD_EVENTS.includes(event.name))
-      .map((event) => getServerEvent(event, data, actionSource)),
+    events: withinWindow(
+      'openai',
+      events.filter(
+        (event) => !IGNORED_EVENTS.includes(event.name) && !NON_AD_EVENTS.includes(event.name)
+      )
+    )
+      .map((event) => getServerEvent(event, data, actionSource))
+      // A custom event whose name cannot be made valid would fail the whole request.
+      .filter((event) => event.type !== 'custom' || event.custom_event_name !== undefined),
   };
 
   if (dto.events.length === 0) return;

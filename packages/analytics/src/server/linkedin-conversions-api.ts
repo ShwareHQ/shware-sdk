@@ -8,6 +8,7 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { linkedinFatId } from './click-ids';
+import { withinWindow } from './event-window';
 
 /**
  * The identifier types LinkedIn matches on, as of version 202609. `ORACLE_MOAT_ID` used to be
@@ -133,8 +134,12 @@ export async function sendEvents(
   };
 
   const dto: CreateMultipleLinkedinEventsDTO = {
-    elements: events
-      .filter((event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name))
+    elements: withinWindow(
+      'linkedin',
+      events.filter(
+        (event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name)
+      )
+    )
       .map((event): CreateLinkedinEventDTO => ({
         eventId: event.id,
         conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,

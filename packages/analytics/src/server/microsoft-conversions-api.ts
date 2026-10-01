@@ -22,6 +22,7 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
 import { microsoftMsclkid } from './click-ids';
+import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://capi.uet.microsoft.com/v1';
@@ -272,10 +273,12 @@ export async function sendEvents(
 ): Promise<MicrosoftConversionsResponse[]> {
   const { consent, pageLoads = false, dataProvider, continueOnValidationError = true } = options;
 
-  const capiEvents = events
-    .filter(
+  const capiEvents = withinWindow(
+    'microsoft',
+    events.filter(
       (event) => (pageLoads && event.name === 'page_view') || !IGNORED_EVENTS.includes(event.name)
     )
+  )
     .map((event) => getServerEvent(event, data, { consent, pageLoads }))
     // A pageLoad without a URL is rejected by the API, and a page-less event has nothing to say.
     .filter((event) => event.eventType !== 'pageLoad' || event.eventSourceUrl);

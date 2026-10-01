@@ -29,6 +29,7 @@ import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
+import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 /** Matches the Graph API version the pinned business SDK speaks (`FacebookAdsApi.VERSION`). */
@@ -381,9 +382,10 @@ export async function sendEvents(
   data: UserProvidedData = {},
   options: MetaConversionsOptions = {}
 ): Promise<MetaConversionsResponse | undefined> {
-  const capiEvents = events
-    .filter((event) => !IGNORED_EVENTS.includes(event.name))
-    .map((event) => getCapiEvent(event, data, options.appPackageName));
+  const capiEvents = withinWindow(
+    'meta',
+    events.filter((event) => !IGNORED_EVENTS.includes(event.name))
+  ).map((event) => getCapiEvent(event, data, options.appPackageName));
   if (capiEvents.length === 0) return undefined;
 
   const version = options.apiVersion ?? API_VERSION;

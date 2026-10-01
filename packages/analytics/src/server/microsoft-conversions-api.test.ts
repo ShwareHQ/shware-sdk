@@ -25,9 +25,11 @@ function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {
 }
 
 beforeEach(() => {
-  // Senders must not read the clock: everything they stamp comes from the event.
+  // Senders stamp nothing from the clock: everything comes from the event. A clock a day past
+  // created_at turns any Date.now() regression into a visible failure, while keeping the event
+  // inside the API's 7-day window the sender filters on.
   vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-03-01T00:00:00Z'));
+  vi.setSystemTime(new Date('2026-01-11T12:00:00Z'));
 });
 
 afterEach(() => {
