@@ -1,6 +1,5 @@
 import type { TrackTags } from '../track/types';
 import {
-  AD_CLICK_IDS,
   AD_LANDING_PAGE,
   CLICK_ID_CHANNELS,
   type ChannelGroup,
@@ -98,10 +97,9 @@ function clickChannel(tags: TrackTags): string | null {
   return CLICK_ID_CHANNELS.find(([key]) => key in tags)?.[1] ?? null;
 }
 
-/** The channel of the first ad-only click id in the tags (`AD_CLICK_IDS`), if any. */
+/** The channel of the first click id in the tags that its platform puts on ad clicks only. */
 function adClickChannel(tags: TrackTags): string | null {
-  const key = AD_CLICK_IDS.find((id) => id in tags);
-  return key ? (CLICK_ID_CHANNELS.find(([id]) => id === key)?.[1] ?? null) : null;
+  return CLICK_ID_CHANNELS.find(([key, , on]) => on === 'ads' && key in tags)?.[1] ?? null;
 }
 
 /** 3. A landing page reserved for one channel's ads. */
@@ -173,7 +171,7 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * `utm_source`, a click id, an ad landing page, the product's own rules, the referrer's host;
  * `(direct)` when none does. `medium` is `utm_medium` as declared (lower-cased), else what that
  * rule implies: `(not set)` for a utm_source alone — but `cpc` when an ad-only click id of the
- * same channel came with it (`AD_CLICK_IDS`) — `cpc` for a bare click id or ad landing page,
+ * same channel came with it (`'ads'` in `CLICK_ID_CHANNELS`) — `cpc` for a bare click id or ad landing page,
  * the product rule's own, `organic` / `social` / `video` / `referral` for a referrer, `(none)`
  * for direct. `campaign` is `utm_campaign`, else what a product rule captured — even when the
  * utm named the channel, so a tagged referral link keeps its code. `priority` is the tier of
