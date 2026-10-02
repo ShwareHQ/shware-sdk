@@ -33,7 +33,14 @@ import { type SetCookie, parseCookie, stringifySetCookie } from 'cookie';
 // when the embedded creationTime is older than 90 days and match quality/attribution may degrade;
 // no hard drop is documented.
 const FBC_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// Reddit's pixel.js rewrites `_rdt_cid` and `_rdt_uuid` for 90 days on every page load.
 const RDT_CID_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const RDT_UUID_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// Meta's pixel rewrites `_fbp` for 90 days on every page load.
+const FBP_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// OpenAI's oaiq: `__oppref` for 30 days (`720*60*60` s), `__obref` for 365 days.
+const OPPREF_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const OBREF_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 // bat.js's own expiry for _uetmsclkid (`msClkIdExpirationTime`), the Microsoft Ads click window.
 const MSCLKID_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 // gtag's own expiry for _gcl_* — 90 days, the length of a Google Ads click's upload window.
@@ -46,6 +53,12 @@ export const RDT_CID_COOKIE = '_rdt_cid';
 export const GCL_AW_COOKIE = '_gcl_aw';
 export const GCL_GB_COOKIE = '_gcl_gb';
 export const UET_MSCLKID_COOKIE = '_uetmsclkid';
+export const RDT_UUID_COOKIE = '_rdt_uuid';
+export const FBP_COOKIE = '_fbp';
+export const OPPREF_COOKIE = '__oppref';
+export const OBREF_COOKIE = '__obref';
+/** OpenAI's consent cookie; `false` is the visitor's opt-out, on which oaiq deletes its cookies. */
+export const OAIQ_CONSENT_COOKIE = '__oaiq_consent';
 
 export type ParsedFbc = { raw: string; creationTime: number; fbclid: string };
 
@@ -173,20 +186,27 @@ export type ResolveClickIdCookiesInput = {
   cookieHeader?: string | null;
   /** Overridable clock, primarily for tests. Defaults to `Date.now()`. */
   now?: number;
-  /** `Domain` attribute for the emitted cookies, e.g. `.shware.io`. Omit for a host-only cookie. */
-  domain?: string;
+  /**
+   * `Domain` attribute for the emitted cookies: the site's registrable domain, e.g.
+   * `.shware.io`, where the pixels write theirs. Required in production: a host-only cookie is a
+   * second cookie of the same name next to the pixel's, which the pixel then reads — or deletes,
+   * as Reddit's does at every subdomain level before writing its own. `null` for a host-only
+   * cookie, which only a local `localhost` setup should ask for.
+   */
+  domain: string | null;
   /** `Secure` attribute, default true. Set false only for local http testing. */
   secure?: boolean;
   /** subdomainIndex for a freshly built `_fbc` (see {@link formatFbc}). Default 1. */
   subdomainIndex?: number;
   /**
-   * Re-issue a still-valid `_fbc` at its *remaining* lifetime on every call. On by default, as an
-   * ITP self-heal: cookies follow last-writer-wins, so if the Meta Pixel overwrote `_fbc` via
-   * `document.cookie` (Safari caps JS-written cookies on a fbclid-decorated landing to 24h),
-   * re-issuing the long-lived HTTP cookie on the next navigation restores it — the same
-   * continuous-re-issue mitigation the sGTM ecosystem uses (stape Cookie Keeper, Cookie Monster).
-   * The value (and its creationTime) is byte-for-byte identical and the window never slides, so it
-   * cannot trigger Meta's expired/modified-fbclid warnings.
+   * Re-issue the stored click and browser ids on every call. On by default, as an ITP self-heal:
+   * cookies follow last-writer-wins, so when a pixel has rewritten one through `document.cookie`
+   * (Safari caps JS-written cookies at 7 days, 24h on an ad-decorated landing), re-issuing the
+   * long-lived HTTP cookie on the next navigation restores it — the same continuous-re-issue
+   * mitigation the sGTM ecosystem uses (stape Cookie Keeper, Cookie Monster). `_fbc` and
+   * `_gcl_*` are re-issued byte-for-byte at their *remaining* lifetime, so their window never
+   * slides (Meta warns on a moved fbclid); the others at the lifetime their pixel itself gives
+   * them on every page load (see each below).
    *
    * Set false to strictly follow Meta's documented conditional-write rule ("only set the cookie if
    * it doesn't exist or the fbclid changed") — e.g. to keep pages CDN-cacheable, since the
@@ -245,7 +265,7 @@ export function resolveClickIdCookies(
   const cookies: SetCookie[] = [];
   const result: ResolveClickIdCookiesResult = { cookies };
 
-  const base = { path: '/', secure, sameSite: 'lax', domain } as const;
+  const base = { path: '/', secure, sameSite: 'lax', domain: domain ?? undefined } as const;
   const set = (name: string, value: string, ttlMs: number) =>
     cookies.push({ name, value, maxAge: Math.floor(ttlMs / 1000), ...base });
   const del = (name: string) => cookies.push({ name, value: '', maxAge: 0, ...base });
@@ -312,9 +332,11 @@ export function resolveClickIdCookies(
     }
   }
 
-  // --- Reddit _rdt_cid ---
-  // No embedded timestamp, so it can only be anchored at first capture; set it once from the URL and
-  // otherwise leave the existing cookie untouched (re-issuing would slide its window).
+  // --- Reddit _rdt_cid / _rdt_uuid ---
+  // Reddit's pixel.js rewrites both on every page load through `document.cookie` — the click id
+  // from the URL, else the stored one, and the browser id — each for a fresh 90 days. So Reddit
+  // slides the window itself, and the re-issue (default on, see `refresh`) does the same over
+  // HTTP: without it the pixel's JS copy, capped at 7 days in Safari, is the only one left.
   const urlRdtCid = params.get('rdt_cid') || undefined;
   const existingRdtCid = jar[RDT_CID_COOKIE] || undefined;
   if (urlRdtCid && urlRdtCid !== existingRdtCid) {
@@ -322,6 +344,33 @@ export function resolveClickIdCookies(
     result.rdt_cid = urlRdtCid;
   } else if (existingRdtCid) {
     result.rdt_cid = existingRdtCid;
+    if (refresh) set(RDT_CID_COOKIE, existingRdtCid, RDT_CID_TTL_MS);
+  }
+  const existingRdtUuid = jar[RDT_UUID_COOKIE] || undefined;
+  if (existingRdtUuid && refresh) set(RDT_UUID_COOKIE, existingRdtUuid, RDT_UUID_TTL_MS);
+
+  // --- Meta _fbp ---
+  // The pixel's browser id: created by the pixel, which rewrites it for 90 days on every page
+  // load, as Reddit's does its own. Re-issued as it is, never created here.
+  const existingFbp = jar[FBP_COOKIE] || undefined;
+  if (existingFbp && refresh) set(FBP_COOKIE, existingFbp, FBP_TTL_MS);
+
+  // --- OpenAI __oppref / __obref ---
+  // oaiq writes `__oppref` only when the URL carries `oppref` (30 days), and `__obref` — its
+  // browser reference — only when there is none (365 days); otherwise it reads them, through
+  // `document.cookie`, so in Safari each is gone after 7 days and the browser starts over with a
+  // new reference. The first is captured here from the URL as well, and both are re-issued as
+  // they are, `__obref` never created. Unlike oaiq, the re-issue restarts their windows: their
+  // values carry no creation time to count a remaining lifetime from, and OpenAI applies its own
+  // attribution window to the click whatever the cookie's age. Nothing is written once the
+  // visitor has opted out of oaiq, which deletes both cookies then.
+  if (jar[OAIQ_CONSENT_COOKIE] !== 'false') {
+    const urlOppref = params.get('oppref') || undefined;
+    const existingOppref = jar[OPPREF_COOKIE] || undefined;
+    if (urlOppref) set(OPPREF_COOKIE, urlOppref, OPPREF_TTL_MS);
+    else if (existingOppref && refresh) set(OPPREF_COOKIE, existingOppref, OPPREF_TTL_MS);
+    const existingObref = jar[OBREF_COOKIE] || undefined;
+    if (existingObref && refresh) set(OBREF_COOKIE, existingObref, OBREF_TTL_MS);
   }
 
   // --- Microsoft Ads _uetmsclkid ---

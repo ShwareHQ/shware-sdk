@@ -76,6 +76,7 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     window.history.replaceState(null, '', '/landing?fbclid=CLK99');
     const { resolveClickIdCookies } = await import('../click-id/index');
     const resolved = resolveClickIdCookies({
+      domain: null,
       url: window.location.href,
       cookieHeader: document.cookie || null,
     });

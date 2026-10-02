@@ -35,7 +35,7 @@ type RunInput = {
 };
 
 async function run(
-  options: Parameters<typeof createClickIdMiddleware>[0],
+  options: Partial<Parameters<typeof createClickIdMiddleware>[0]>,
   {
     url = 'https://shware.io/?fbclid=CLK1',
     cookieHeader,
@@ -43,7 +43,7 @@ async function run(
     response = new Response('<html></html>', { status: 200 }),
   }: RunInput = {}
 ) {
-  createClickIdMiddleware(options);
+  createClickIdMiddleware({ domain: null, ...options });
   const server = captured.server;
   if (!server) throw new Error('middleware never registered its server fn');
 

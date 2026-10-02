@@ -170,6 +170,40 @@ source.
 - Clients older than 9.0.0 send `fbc`, `fbp` and `rdt_uuid` for `_fbc`, `_fbp` and `_rdt_uuid`;
   the senders still read them as a fallback (deprecated).
 
+### Keeping the cookies past Safari's limits (TanStack Start)
+
+The pixels write their cookies through `document.cookie`, which Safari caps at 7 days (24 hours on
+a landing page decorated by an ad click), so a visitor returning a week later has lost the click
+and, for the browser ids, gets a new identity. `createClickIdMiddleware` re-issues them over HTTP
+on every document response — the server-set copy is not capped — and captures the click ids from
+the landing URL:
+
+| Cookie                    | Written by                                                   | Re-issued for                                                      |
+| ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `_fbc`                    | this middleware, from `fbclid`                               | its remaining 90 days (never slides: Meta warns on a moved fbclid) |
+| `_gcl_aw` / `_gcl_gb`     | gtag                                                         | their remaining 90 days                                            |
+| `_fbp`, `_rdt_uuid`       | the Meta / Reddit pixel                                      | 90 days, as the pixel itself rewrites them on every page           |
+| `_rdt_cid`, `_uetmsclkid` | the Reddit pixel / UET tag, and this middleware from the URL | 90 days, as their pixel does                                       |
+| `__oppref`                | oaiq, and this middleware from `oppref`                      | 30 days                                                            |
+| `__obref`                 | oaiq                                                         | 365 days                                                           |
+
+A browser id is only ever re-issued, never created: the pixel creates it. Nothing is written for
+OpenAI once the visitor has opted out of oaiq (`__oaiq_consent=false`).
+
+`domain` is required: in production the site's registrable domain (e.g. `.example.com`), where
+the pixels write theirs — a host-only cookie would be a second cookie of the same name, which
+the pixels read in its place or delete. `null` (host-only) is only for `localhost`:
+
+```ts
+// src/start.ts
+import { createClickIdMiddleware } from '@shware/analytics/tanstack';
+
+const clickIdMiddleware = createClickIdMiddleware(
+  import.meta.env.DEV ? { domain: null, secure: false } : { domain: '.example.com' }
+);
+export const startInstance = createStart(() => ({ requestMiddleware: [clickIdMiddleware] }));
+```
+
 ## Third Parties Advices
 
 ### Reddit
