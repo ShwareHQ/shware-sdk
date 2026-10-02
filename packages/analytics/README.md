@@ -151,6 +151,34 @@ overwritten by the organic visit that follows it within the window, which is wha
 panel expects. The touchpoint layer still has every session's own touch, so the GA4-style figure
 is one query away, and `overridden` measures the difference.
 
+**Retargeting.** No click-based model can tell whether an ad caused the visit, and retargeting is
+where that shows: someone who would have come back anyway clicks a retargeting ad on the way in.
+For a returning customer who was going to buy anyway:
+
+| What happened                                                     | GA4 last non-direct click | This model |
+| ----------------------------------------------------------------- | ------------------------- | ---------- |
+| Clicks a retargeting ad, buys in that session                     | the ad                    | the ad     |
+| Clicks a retargeting ad, types the site in the next day and buys  | the ad (direct inherits)  | the ad     |
+| Clicks a retargeting ad, searches the brand the next day and buys | **the search**            | the ad     |
+
+GA4's model only removes the third row, and that row is the credit a prospecting ad deserves (the
+ad made the brand known, the search followed); the first two rows, where most of retargeting's
+inflation is, stay in both. So crediting the search is not a fix. Read retargeting through the
+report instead of the model:
+
+1. **Acquisition by first touch.** A person's first touch (`user_attribution` in the reference
+   views) is settled long before any retargeting reaches them, so new users and their lifetime
+   value by first channel leave retargeting out by construction. Judge acquisition ROAS there.
+2. **Keep retargeting apart.** Name retargeting campaigns so they can be told apart
+   (`utm_campaign` with an `rt_` prefix, say), and read the session-level attribution of those
+   campaigns split into new and returning people: a high share of returning people is credit that
+   was probably not incremental.
+3. **Measure the increment when the spend justifies it.** A holdout (Meta's Conversion Lift, a
+   geo split) is the only way to answer whether the ad caused the purchase.
+
+Special cases in the model ("an ad clicked by a paying customer does not override") are not
+worth it: the rules get harder to explain, and the first two rows remain.
+
 What the SDK guarantees for this to hold:
 
 - `session_start` is sent once per session, first in its batch, with the opening event's tags and
