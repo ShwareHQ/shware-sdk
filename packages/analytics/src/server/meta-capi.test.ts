@@ -13,7 +13,7 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getCapiEvent, sendEvents } from './meta-capi';
 import { getServerEvent } from './meta-conversions-api';
 
-// A minute ago: the senders leave out events older than their API's window (`withinWindow`).
+// A minute ago: the senders leave out events older than their API accepts.
 const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 

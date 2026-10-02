@@ -29,7 +29,6 @@ import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
-import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 /** Matches the Graph API version the pinned business SDK speaks (`FacebookAdsApi.VERSION`). */
@@ -370,6 +369,13 @@ export interface MetaConversionsResponse {
 }
 
 /**
+ * An `event_time` over 7 days old fails the whole request — "we return an error for the entire
+ * request and process no events" — so such an event is left out; a minute's margin for the trip.
+ * https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/server-event
+ */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
+/**
  * The lightweight counterpart to the legacy SDK sender (`@shware/analytics/server/legacy`):
  * same filtering, same payload, same never-throws contract, minus the 31MB SDK. The token
  * travels in the JSON body, never in the URL, and is never logged.
@@ -382,10 +388,10 @@ export async function sendEvents(
   data: UserProvidedData = {},
   options: MetaConversionsOptions = {}
 ): Promise<MetaConversionsResponse | undefined> {
-  const capiEvents = withinWindow(
-    'meta',
-    events.filter((event) => !IGNORED_EVENTS.includes(event.name))
-  ).map((event) => getCapiEvent(event, data, options.appPackageName));
+  const capiEvents = events
+    .filter((event) => !IGNORED_EVENTS.includes(event.name))
+    .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
+    .map((event) => getCapiEvent(event, data, options.appPackageName));
   if (capiEvents.length === 0) return undefined;
 
   const version = options.apiVersion ?? API_VERSION;

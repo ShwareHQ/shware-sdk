@@ -8,7 +8,6 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { linkedinFatId } from './click-ids';
-import { withinWindow } from './event-window';
 
 /**
  * The identifier types LinkedIn matches on, as of version 202609. `ORACLE_MOAT_ID` used to be
@@ -103,6 +102,12 @@ const hashName = (name: string) => sha256(name.toLowerCase().replace(/[\s\p{P}]/
 
 export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
+/**
+ * `conversionHappenedAt` must be "within the past 90 days", and one invalid record makes "all
+ * records fail"; such an event is left out, with a minute's margin for the trip.
+ */
+const MAX_EVENT_AGE_MS = 90 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 export async function sendEvents(
   accessToken: string,
   config: LinkedinConversionConfig,
@@ -134,12 +139,9 @@ export async function sendEvents(
   };
 
   const dto: CreateMultipleLinkedinEventsDTO = {
-    elements: withinWindow(
-      'linkedin',
-      events.filter(
-        (event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name)
-      )
-    )
+    elements: events
+      .filter((event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name))
+      .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
       .map((event): CreateLinkedinEventDTO => ({
         eventId: event.id,
         conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,

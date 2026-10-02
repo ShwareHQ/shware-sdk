@@ -5,7 +5,6 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { redditClickId, redditUuid } from './click-ids';
-import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 /**
@@ -140,6 +139,9 @@ export function getServerEvent(
   };
 }
 
+/** `event_at` "can't be older than seven days"; a minute's margin for the trip. */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
@@ -152,10 +154,10 @@ export async function sendEvents(
   const dto: CreateRedditEventDTO = {
     data: {
       test_id: testId,
-      events: withinWindow(
-        'reddit',
-        events.filter((event) => !IGNORED_EVENTS.includes(event.name))
-      ).map((event) => getServerEvent(event, data, actionSource)),
+      events: events
+        .filter((event) => !IGNORED_EVENTS.includes(event.name))
+        .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
+        .map((event) => getServerEvent(event, data, actionSource)),
     },
   };
 

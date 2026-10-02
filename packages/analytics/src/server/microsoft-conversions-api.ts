@@ -22,7 +22,6 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
 import { microsoftMsclkid } from './click-ids';
-import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://capi.uet.microsoft.com/v1';
@@ -258,6 +257,9 @@ function compact<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** `eventTime` must be "within the last 7 days"; a minute's margin for the trip. */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 /**
  * Send events to `POST /v1/{tagId}/events`. Batches above the API's 1,000-event limit are split
  * into consecutive requests; one response is returned per request made. Never throws: an HTTP
@@ -273,12 +275,11 @@ export async function sendEvents(
 ): Promise<MicrosoftConversionsResponse[]> {
   const { consent, pageLoads = false, dataProvider, continueOnValidationError = true } = options;
 
-  const capiEvents = withinWindow(
-    'microsoft',
-    events.filter(
+  const capiEvents = events
+    .filter(
       (event) => (pageLoads && event.name === 'page_view') || !IGNORED_EVENTS.includes(event.name)
     )
-  )
+    .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getServerEvent(event, data, { consent, pageLoads }))
     // A pageLoad without a URL is rejected by the API, and a page-less event has nothing to say.
     .filter((event) => event.eventType !== 'pageLoad' || event.eventSourceUrl);

@@ -17,7 +17,6 @@ import {
 import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { openaiOppref } from './click-ids';
-import { withinWindow } from './event-window';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
@@ -166,6 +165,13 @@ export function getServerEvent(
   };
 }
 
+/**
+ * `timestamp_ms` "must be within the last 7 days and no more than 10 minutes in the future", or
+ * the request fails; such an event is left out, with a minute's margin for the trip.
+ */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+const MAX_EVENT_AHEAD_MS = 10 * 60 * 1000;
+
 export async function sendEvents(
   apiKey: string,
   pixelId: string,
@@ -177,12 +183,13 @@ export async function sendEvents(
 ) {
   const dto: CreateOpenAIEventsDTO = {
     validate_only: validateOnly,
-    events: withinWindow(
-      'openai',
-      events.filter(
-        (event) => !IGNORED_EVENTS.includes(event.name) && !NON_AD_EVENTS.includes(event.name)
-      )
-    )
+    events: events
+      .filter((event) => !IGNORED_EVENTS.includes(event.name))
+      .filter((event) => !NON_AD_EVENTS.includes(event.name))
+      .filter((event) => {
+        const age = Date.now() - Date.parse(event.created_at);
+        return age <= MAX_EVENT_AGE_MS && age >= -MAX_EVENT_AHEAD_MS;
+      })
       .map((event) => getServerEvent(event, data, actionSource))
       // A custom event whose name cannot be made valid would fail the whole request.
       .filter((event) => event.type !== 'custom' || event.custom_event_name !== undefined),
