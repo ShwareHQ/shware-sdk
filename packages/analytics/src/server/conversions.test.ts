@@ -216,17 +216,35 @@ describe('Meta', () => {
   });
 
   it('always sends an action_source, falling back to other', () => {
+    const ios = { platform: 'ios' as const, tags: { os_name: 'iOS' } };
     expect(metaServerEvent(event(), {}).action_source).toBe('website');
-    expect(metaServerEvent(event({ platform: 'ios' }), {}).action_source).toBe('app');
+    expect(metaServerEvent(event(ios), {}, 'com.example.app').action_source).toBe('app');
     expect(metaServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('other');
     expect(metaServerEvent(event(), {}, undefined, 'offline').action_source).toBe('other');
   });
 
-  it('attaches app data only for an app event with a package name', () => {
-    const web = metaServerEvent(event(), {}, 'com.example.app');
-    expect(web.app_data).toBeUndefined();
-    const app = metaServerEvent(event({ platform: 'ios' }), {}, 'com.example.app');
-    expect(app.app_data).toBeDefined();
+  it('sends an app event only with the app_data Meta requires of one, else as other', () => {
+    const ios = { platform: 'ios' as const, tags: { os_name: 'iOS' } };
+    expect(metaServerEvent(event(), {}, 'com.example.app').app_data).toBeUndefined();
+    const app = metaServerEvent(event(ios), {}, 'com.example.app').normalize();
+    expect(app.app_data).toMatchObject({ advertiser_tracking_enabled: false });
+    expect(app.app_data.extinfo).toMatchObject({ 0: 'i2', 1: 'com.example.app' });
+    // No package name, or a desktop OS Meta has no extinfo version for: not an app event.
+    expect(metaServerEvent(event(ios), {}).action_source).toBe('other');
+    const mac = { platform: 'macos' as const, tags: { os_name: 'macOS' } };
+    expect(metaServerEvent(event(mac), {}, 'com.example.app')).toMatchObject({
+      action_source: 'other',
+      app_data: undefined,
+    });
+  });
+
+  it('says whether the user allowed tracking: an advertising id is only readable then', () => {
+    const tags = { os_name: 'Android', advertising_id: 'gaid-1' };
+    const out = metaServerEvent(event({ platform: 'android', tags }), {}, 'com.example.app');
+    expect(out.normalize().app_data).toMatchObject({
+      advertiser_tracking_enabled: true,
+      extinfo: { 0: 'a2' },
+    });
   });
 
   it('dedupes on the idempotency key when present', () => {
@@ -377,6 +395,34 @@ describe('LinkedIn', () => {
       conversionHappenedAt: CREATED_MS,
       conversionValue: { currencyCode: 'USD', amount: '42' },
     });
+  });
+
+  it('adds the IPv4 address and the Android advertising id to the user ids', async () => {
+    await sendLinkedinEvents(
+      'token',
+      { purchase: 123 },
+      [
+        event({ platform: 'android', tags: { advertising_id: 'gaid-1' } }),
+        event({ id: 'event-2' }),
+      ],
+      { ip_address: '203.0.113.7' }
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.elements[0].user.userIds).toEqual([
+      { idType: 'GOOGLE_AID', idValue: 'gaid-1' },
+      { idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' },
+    ]);
+    expect(body.elements[1].user.userIds).toEqual([
+      { idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' },
+    ]);
+
+    fetchMock.mockClear();
+    await sendLinkedinEvents('token', { purchase: 123 }, [event()], {
+      ip_address: '2001:db8::1', // IPv6 is not taken
+      user_id: 'u1',
+    });
+    const v6 = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(v6.elements[0].user.userIds).toEqual([]);
   });
 
   it('puts the first-party click id first among the user ids', async () => {

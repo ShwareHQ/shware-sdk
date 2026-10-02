@@ -258,3 +258,17 @@ describe('events outside the API time window', () => {
     expect(body.elements.map((e: { eventId: string }) => e.eventId)).toEqual(['month']);
   });
 });
+
+describe('Meta client_user_agent', () => {
+  it('warns when website events go without a user agent, which Meta requires of them', async () => {
+    vi.spyOn(EventRequest.prototype, 'execute').mockResolvedValue({} as never);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await sendMetaEvents('token', 'pixel', [event()], {});
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('client_user_agent'));
+
+    warn.mockClear();
+    await sendMetaEvents('token', 'pixel', [event()], { user_agent: 'Mozilla/5.0' });
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

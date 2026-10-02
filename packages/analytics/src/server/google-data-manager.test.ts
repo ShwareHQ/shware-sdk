@@ -28,6 +28,8 @@ const config = { purchase: 111, sign_up: '222' } as const;
 describe('normalizeEmail', () => {
   it('strips dots and plus suffixes for gmail only', () => {
     expect(normalizeEmail(' First.Last+tag@Gmail.com ')).toBe('firstlast@gmail.com');
+    // Intermediate whitespace goes too.
+    expect(normalizeEmail('ada lovelace@example.com')).toBe('adalovelace@example.com');
     expect(normalizeEmail('first.last@googlemail.com')).toBe('firstlast@googlemail.com');
     expect(normalizeEmail('First.Last+tag@company.com')).toBe('first.last+tag@company.com');
   });
@@ -46,12 +48,14 @@ describe('getDataManagerEvent', () => {
     });
   });
 
-  it('sends at most one click id, preferring gclid, then gbraid', () => {
+  it('sends the gclid with the gbraid, as Google recommends, and never a wbraid beside them', () => {
     const both = getDataManagerEvent(
       event({ tags: { gclid: 'G', gbraid: 'B', wbraid: 'W' } }),
       config
     );
-    expect(both?.adIdentifiers).toEqual({ gclid: 'G' });
+    expect(both?.adIdentifiers).toEqual({ gclid: 'G', gbraid: 'B' });
+    const web = getDataManagerEvent(event({ tags: { gclid: 'G', wbraid: 'W' } }), config);
+    expect(web?.adIdentifiers).toEqual({ gclid: 'G' });
 
     const ios = getDataManagerEvent(event({ tags: { gbraid: 'B', wbraid: 'W' } }), config);
     expect(ios?.adIdentifiers).toEqual({ gbraid: 'B' });

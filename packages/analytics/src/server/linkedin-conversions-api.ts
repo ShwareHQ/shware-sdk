@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
+import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { linkedinFatId } from './click-ids';
 
@@ -100,6 +100,8 @@ const hashEmail = (email: string) => sha256(email.toLowerCase().replace(/\s/g, '
  */
 const hashName = (name: string) => sha256(name.toLowerCase().replace(/[\s\p{P}]/gu, ''));
 
+const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+
 export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
 /**
@@ -133,9 +135,22 @@ export async function sendEvents(
     if (email) userIds.push({ idType: 'SHA256_EMAIL', idValue: hashEmail(email) });
   }
 
-  const fatIds = (tags: TrackTags): { idType: UserIdType; idValue: string }[] => {
-    const id = linkedinFatId(tags);
-    return id ? [{ idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID', idValue: id }] : [];
+  // LinkedIn takes the IP as is (it salts and hashes it itself), IPv4 only.
+  // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api
+  if (data.ip_address && IPV4.test(data.ip_address)) {
+    userIds.push({ idType: 'PLAINTEXT_IP_ADDRESS', idValue: data.ip_address });
+  }
+
+  // The identifiers each event carries itself: the click id, and the Android advertising id.
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+  const eventIds = (event: TrackEvent<any>): { idType: UserIdType; idValue: string }[] => {
+    const ids: { idType: UserIdType; idValue: string }[] = [];
+    const fatId = linkedinFatId(event.tags);
+    if (fatId) ids.push({ idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID', idValue: fatId });
+    if (event.platform === 'android' && event.tags.advertising_id) {
+      ids.push({ idType: 'GOOGLE_AID', idValue: event.tags.advertising_id });
+    }
+    return ids;
   };
 
   const dto: CreateMultipleLinkedinEventsDTO = {
@@ -151,7 +166,7 @@ export async function sendEvents(
           amount: event.properties?.value?.toString() ?? '0',
         },
         user: {
-          userIds: [...fatIds(event.tags), ...userIds],
+          userIds: [...eventIds(event), ...userIds],
           userInfo,
           externalIds,
         },
