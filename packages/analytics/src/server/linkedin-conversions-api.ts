@@ -3,6 +3,7 @@
  * https://learn.microsoft.com/en-us/linkedin/marketing/conversions/conversions-overview?view=li-lms-2026-09
  */
 import { createHash } from 'node:crypto';
+import { isIPv4 } from 'node:net';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
@@ -100,8 +101,6 @@ const hashEmail = (email: string) => sha256(email.toLowerCase().replace(/\s/g, '
  */
 const hashName = (name: string) => sha256(name.toLowerCase().replace(/[\s\p{P}]/gu, ''));
 
-const IPV4 = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
-
 export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
 /**
@@ -137,7 +136,7 @@ export async function sendEvents(
 
   // LinkedIn takes the IP as is (it salts and hashes it itself), IPv4 only.
   // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api
-  if (data.ip_address && IPV4.test(data.ip_address)) {
+  if (data.ip_address && isIPv4(data.ip_address)) {
     userIds.push({ idType: 'PLAINTEXT_IP_ADDRESS', idValue: data.ip_address });
   }
 
