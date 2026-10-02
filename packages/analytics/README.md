@@ -63,22 +63,175 @@ changes. The framework `Analytics` components wire this up.
 ## Sessions and attribution
 
 How the events this SDK sends are meant to be read on the server side, for attribution. Three
-layers, each derived from the one below it, none needing a table of its own:
+layers, each derived from the one below it:
 
-- **Session** — `event where name = 'session_start'`. The SDK opens a session after 30 minutes
-  without an event and sends exactly one `session_start` at the head of the batch that opened it,
-  carrying the tags of the event that opened it: the landing page's URL, utm parameters and click
-  ids, captured when that event happened rather than when the batch went out. A partial unique
-  index on `event (session_id) where name = 'session_start'` makes that row the session's one
-  record on the server; there is no session table.
-- **Touchpoint** — a view over those rows that reads each session's tags as `channel`, `medium`
-  and `campaign`. An explicit `utm_source` wins; then a click id in the landing URL (`fbclid`,
-  `gclid`, … — never the cookie an earlier click left); then a landing page reserved for one
-  channel's ads. The rules for what counts as which channel live here and nowhere else.
-- **Attribution** — a view over touchpoints that credits a session with no touch of its own to
-  the same person's most recent paid touch, across devices (visitors sharing a `user_id`), within a
-  window. Last paid touch, first touch and multi-touch are alternative models at this layer over
-  the same touchpoints.
+- **Session** — one row per `session_start`. The SDK opens a session after 30 minutes without an
+  event and sends exactly one `session_start` at the head of the batch that opened it, carrying
+  the tags of the event that opened it: the landing page's URL, utm parameters and click ids,
+  captured when that event happened rather than when the batch went out. A partial unique index on
+  `event (session_id) where name = 'session_start'` makes that row the session's one record. The
+  server reads its tags once, when it writes the session, with `classifyTouch`
+  (`@shware/analytics/attribution`) and stores the touch on the session row; a rule change is
+  applied to history by reclassifying.
+- **Touchpoint** — one row per touch: every session with its stored touch, plus the touches people
+  report (a survey answer, a call on a channel's number). Nothing is derived at query time.
+- **Attribution** — one row per session, credited to the strongest touch of the same person
+  (across devices) within a window, the session's own touch included. See the rules below.
+
+### How a session is read as a touch (`classifyTouch`)
+
+The channel and medium come from the first rule that says something:
+
+| Order | Signal                                                                                          | `channel`                                                                                                          | `medium`                                           |
+| ----- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| 1     | `utm_source` in the URL                                                                         | the source, aliases folded (`fb`, `ig` → `meta`)                                                                   | `utm_medium`, or `(not set)`                       |
+| 2     | A click id in the URL (`gclid`, `fbclid`, `rdt_cid`, …; never the cookie an earlier click left) | the id's platform                                                                                                  | `cpc`                                              |
+| 3     | An ad landing page, `/lp/<channel>`                                                             | that channel                                                                                                       | `cpc`                                              |
+| 4     | The product's own rules (`TouchRule`, e.g. a referral link)                                     | as the rule says                                                                                                   | as the rule says                                   |
+| 5     | The referrer's host                                                                             | a known search engine, social network, video site or AI assistant folded to its channel; any other host kept as is | `organic` / `social` / `video` / `ai` / `referral` |
+| 6     | Nothing                                                                                         | `(direct)`                                                                                                         | `(none)`                                           |
+
+One exception: an ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`), or the
+channel's ad landing page, proves the click was paid, so the medium becomes `cpc` when it was left
+out or puts the touch in an organic group — a Reddit ad tagged `utm_source=reddit&utm_medium=social`
+that carries `rdt_cid`. A declared paid medium is kept as it is. `fbclid` never proves anything:
+Meta puts it on organic links too; nor does another channel's id (an ad link copied and shared
+under a utm of its own).
+
+`channel_group` is GA4's default channel grouping of the two (`channelGroupOf`): `paid_search`,
+`organic_search`, `paid_social`, `email`, ….
+
+The touch's `priority` (`TOUCH_PRIORITY`, lower is stronger) decides which touch wins in the
+attribution layer:
+
+| Priority         | Touches                                                                                                                                                                                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — campaign** | A utm, click id or ad landing page whose group is paid, display, affiliate or unassigned; a product rule that says so (a referral link); a reported touch staff stand behind (`phone`, `manual`)                                                                        |
+| **2 — referrer** | A touch read from the referrer (organic search, social, other sites); **and** a utm, click id or ad landing page whose group comes out `organic_*`, `referral` or `email` (`utm_source=chatgpt.com` on ChatGPT's organic citations, `utm_medium=organic`, a newsletter) |
+| **3 — claimed**  | A reported touch that is the user's claim (`survey`, `promo_code`)                                                                                                                                                                                                      |
+| none             | Direct: no touch                                                                                                                                                                                                                                                        |
+
+When a product rule matched as well as a campaign rule, the stronger tier holds: a referral link
+shared under `utm_source=facebook` is named by the utm (`meta`, organic social) and still ranks as
+the referral programme declares.
+
+In short: a link someone paid for is 1; what the browser brought, a tag that calls itself organic,
+and our own emails are 2; what the user says is 3. Email is 2 because it reaches people we already
+know, often because an ad brought them, and its links (a welcome mail, a trial reminder) come
+between that ad and the purchase: it must not take the ad's credit, and with no ad in the window
+it still wins as the latest touch.
+
+### How a session is credited (the attribution view)
+
+For every session, among the same person's touches within the window (30 days in the reference
+views), **the session's own touch included**:
+
+1. the lowest `priority` wins;
+2. among equals, the latest wins;
+3. on a full tie, the session's own touch wins.
+
+| `touch_kind` | Meaning                                                              |
+| ------------ | -------------------------------------------------------------------- |
+| `own`        | The session's own touch won                                          |
+| `inherited`  | A direct session, credited to an earlier touch                       |
+| `overridden` | The session had a touch of its own, but an earlier, stronger one won |
+| `none`       | A direct session with no touch in the window                         |
+
+| #   | What happened                                                                      | The current session is credited to | `touch_kind` | Why                                 |
+| --- | ---------------------------------------------------------------------------------- | ---------------------------------- | ------------ | ----------------------------------- |
+| 1   | Day 1 a Meta ad click, day 2 a branded Google search                               | **Meta**                           | `overridden` | 1 beats 2                           |
+| 2   | Day 1 a Meta ad click, day 2 typed in                                              | **Meta**                           | `inherited`  | direct inherits                     |
+| 3   | Day 1 an organic search, day 2 a Meta ad click                                     | **Meta**                           | `own`        | its own touch is stronger           |
+| 4   | Day 1 a Meta ad click, day 3 a Google ad click                                     | **Google**                         | `own`        | both 1, the latest wins             |
+| 5   | Day 1 a Meta ad click, day 2 a ChatGPT citation with its utm                       | **Meta**                           | `overridden` | ChatGPT's organic utm ranks 2       |
+| 6   | Day 1 an organic search, day 5 a ChatGPT citation                                  | **ChatGPT**                        | `own`        | both 2, the latest wins             |
+| 7   | An ad click 45 days ago, an organic search today                                   | **Organic search**                 | `own`        | the ad is out of the window         |
+| 8   | A Reddit ad tagged `utm_medium=social` with `rdt_cid`                              | **reddit / cpc**                   | `own`        | the click id proves a paid click    |
+| 9   | Day 1 a Meta ad click, day 2 a newsletter link (`utm_medium=email`)                | **Meta**                           | `overridden` | email ranks 2                       |
+| 10  | Day 1 an organic search, day 2 a newsletter link, no ad in the window              | **Email**                          | `own`        | both 2, the latest wins             |
+| 11  | A survey answer "a podcast" (backdated to the first visit), then an organic search | **Organic search**                 | `own`        | 2 beats 3; a claim only fills a gap |
+
+**How this differs from GA4.** GA4's last non-direct click credits the latest touch that is not
+direct, whatever it was: cases 1, 5 and 9 go to the search, ChatGPT and the email. Here an ad click is not
+overwritten by the organic visit that follows it within the window, which is what a paid ROAS
+panel expects. The touchpoint layer still has every session's own touch, so the GA4-style figure
+is one query away, and `overridden` measures the difference.
+
+**Retargeting.** No click-based model can tell whether an ad caused the visit, and retargeting is
+where that shows: someone who would have come back anyway clicks a retargeting ad on the way in.
+For a returning customer who was going to buy anyway:
+
+| What happened                                                     | GA4 last non-direct click | This model |
+| ----------------------------------------------------------------- | ------------------------- | ---------- |
+| Clicks a retargeting ad, buys in that session                     | the ad                    | the ad     |
+| Clicks a retargeting ad, types the site in the next day and buys  | the ad (direct inherits)  | the ad     |
+| Clicks a retargeting ad, searches the brand the next day and buys | **the search**            | the ad     |
+
+GA4's model only removes the third row, and that row is the credit a prospecting ad deserves (the
+ad made the brand known, the search followed); the first two rows, where most of retargeting's
+inflation is, stay in both. So crediting the search is not a fix. Read retargeting through the
+report instead of the model:
+
+1. **Acquisition by first touch.** A person's first touch (`user_attribution` in the reference
+   views) is settled long before any retargeting reaches them, so new users and their lifetime
+   value by first channel leave retargeting out by construction. Judge acquisition ROAS there.
+2. **Keep retargeting apart.** Name retargeting campaigns so they can be told apart
+   (`utm_campaign` with an `rt_` prefix, say), and read the session-level attribution of those
+   campaigns split into new and returning people: a high share of returning people is credit that
+   was probably not incremental.
+3. **Measure the increment when the spend justifies it.** A holdout (Meta's Conversion Lift, a
+   geo split) is the only way to answer whether the ad caused the purchase.
+
+Special cases in the model ("an ad clicked by a paying customer does not override") are not
+worth it: the rules get harder to explain, and the first two rows remain.
+
+### Compared with other tools
+
+How other tools credit a visit, as far as their documented defaults go (they change often; check
+the vendor's documentation before relying on a detail):
+
+| Tool                                                | Main model                                                                                                                                                                   | Direct visits                                               | Priority between channels                                         | Window                                                   | Across devices                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------- |
+| **GA4**                                             | Data-driven by default; paid and organic last click, and Google paid channels last click, as options                                                                         | Inherit the last non-direct source                          | Only in "Google paid channels last click", for Google Ads         | 30 days (configurable)                                   | Signed-in user id, Google signals |
+| **PostHog**                                         | A session's entry source (`$entry_utm_*`, `$entry_referring_domain`, grouped GA4-style) and a person's first touch (`$initial_*`); funnels break down by first or last touch | A direct session stays direct: no look-back                 | None                                                              | —                                                        | Merged persons via `identify`     |
+| **Mixpanel**                                        | Picked per report: first touch, last touch, linear, U-shaped, time decay, participation                                                                                      | Only events with utm count as touches, so direct is skipped | None                                                              | Configurable look-back                                   | Identity merge                    |
+| **Amplitude**                                       | Initial / latest utm user properties (latest changes only on a new utm), plus multi-touch models                                                                             | Skipped                                                     | None                                                              | Configurable                                             | Identity merge                    |
+| **Adobe Analytics**                                 | Marketing channels classified by ordered processing rules; first and last touch channel with expiry; Attribution IQ models incl. algorithmic                                 | Usually set not to override                                 | **Yes**: per channel, whether it overrides the last touch         | Visit or days, configurable                              | Identity stitching                |
+| **Ad platforms** (Meta, Google Ads, …)              | Each claims the conversions it touched (Meta: 7-day click, 1-day view by default; Google Ads: data-driven)                                                                   | Not their concern                                           | Only themselves, so platforms **claim the same conversion twice** | Their own                                                | Their own accounts                |
+| **Mobile measurement partners** (AppsFlyer, Adjust) | Last click on install, with a **priority hierarchy** (click over view, device id match over probabilistic); organic when nothing in the window                               | Organic install                                             | **Yes**, the core of the model                                    | Click about 7 days, configurable; re-attribution windows | Device                            |
+| **HubSpot**                                         | A contact's original source (first touch) and multi-touch revenue models                                                                                                     | Does not change the first touch                             | None                                                              | —                                                        | Contact                           |
+
+Where this model stands:
+
+| Trait                                                 | Shared with                                                                                                         | Unlike                                                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Direct visits inherit an earlier source               | GA4, Mixpanel, Amplitude, Adobe — the common ground                                                                 | PostHog's session-level source, which does not look back                               |
+| Channels are ranked, a paid touch over an organic one | **Adobe's override rules, the MMPs' priority hierarchy** — the tools built for marketing and media-buying decisions | The product analytics tools (PostHog, Mixpanel, Amplitude), where every touch is equal |
+| One touch per session                                 | Every first- or last-touch model                                                                                    | Multi-touch models, which split the credit                                             |
+| A first-touch view per person                         | GA4's first user source, PostHog's and Amplitude's initial properties, HubSpot's original source                    | —                                                                                      |
+
+So this is a rule-based last-touch model with channel priority: more favourable to ads than the
+product analytics tools, in the same family as Adobe's and the MMPs' rules. Two consequences to
+expect: a platform's own dashboard will report more conversions than this model credits it with
+(it counts view-through, and every platform claims a shared conversion), and the sum of the
+platforms' own figures exceeds the real total.
+
+### Other models
+
+The touchpoint layer keeps every touch, so other models can be added next to this one as views,
+without changing it:
+
+- **Multi-touch (rule-based)**: the credit of one conversion is split across the touches on its
+  path, by a fixed rule — linear (equal shares), time decay (more to the recent ones), position
+  based (40% first, 40% last, 20% spread over the middle). Useful to see which channels open a
+  journey and which close it; the shares are a convention, not a measurement.
+- **Data-driven (algorithmic)**: a model learns from converting and non-converting paths how much
+  each touch raises the chance of converting (Shapley values or Markov chains), and splits the
+  credit by that. GA4's and Google Ads' default; it needs a large volume of conversions to be
+  stable, and it is still a model of correlation, not of causation.
+- **Incrementality**: only a holdout experiment (a conversion lift study, a geo split) measures
+  what an ad caused. It answers a different question from every model above, and is the one to
+  run when the spend on a channel is large enough to matter.
 
 What the SDK guarantees for this to hold:
 

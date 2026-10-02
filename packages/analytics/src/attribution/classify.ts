@@ -54,6 +54,21 @@ export interface ClassifyOptions {
 }
 
 const metaPlacements = new Set<string>(META_PLACEMENTS);
+/** The groups no one paid for: a campaign rule landing in one of them ranks with a referrer. */
+const ORGANIC_GROUPS = new Set<ChannelGroup>([
+  'organic_search',
+  'organic_social',
+  'organic_video',
+  'organic_ai',
+  'referral',
+]);
+/**
+ * The groups a campaign rule ranks with a referrer in: the organic ones, and email. Email reaches
+ * people we already know — often because an ad brought them — and its links (a welcome mail, a
+ * trial reminder) come between that ad and the purchase, so it must not take the ad's credit.
+ * With no ad in the window it still wins as the latest touch.
+ */
+const REFERRER_TIER_GROUPS = new Set<ChannelGroup>([...ORGANIC_GROUPS, 'email']);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
 const channelsBy = (medium: string) =>
   new Set<string>(REFERRER_SITES.filter(([, m]) => m === medium).map(([channel]) => channel));
@@ -75,10 +90,12 @@ function text(tags: TrackTags, key: string): string | null {
 
 /**
  * 1. What the campaign said: `utm_source`, with the aliases folded. It comes before the click
- * ids, as in GA4: a utm is written for this link by whoever placed it, while a click id can be
- * added by someone else — Meta puts `fbclid` on organic links too, and a shared or forwarded ad
- * link keeps the click id of the ad. When the two disagree, the utm is the one that was right:
- * an Instagram profile link carrying `fbclid`, a newsletter link copied from an ad.
+ * ids — unlike GA4, where a `gclid` wins over the utm unless the property sets "manual tagging
+ * overrides auto-tagging": a utm is written for this link by whoever placed it, while a click id
+ * can be added by someone else — Meta puts `fbclid` on organic links too, and a shared or
+ * forwarded ad link keeps the click id of the ad. When the two disagree, the utm is the one that
+ * was right: an Instagram profile link carrying `fbclid`, a newsletter link copied from an ad.
+ * The one exception is an ad-only click id of the utm's own channel, see `classifyTouch`.
  */
 function utmChannel(tags: TrackTags): string | null {
   // A source with the rest of the query glued on (`email&utm_medium=promo`, `toolify/`,
@@ -170,13 +187,19 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * The rules, in order, the first that says something naming the channel: an explicit
  * `utm_source`, a click id, an ad landing page, the product's own rules, the referrer's host;
  * `(direct)` when none does. `medium` is `utm_medium` as declared (lower-cased), else what that
- * rule implies: `(not set)` for a utm_source alone — but `cpc` when an ad-only click id of the
- * same channel came with it (`'ads'` in `CLICK_ID_CHANNELS`) — `cpc` for a bare click id or ad landing page,
+ * rule implies: `(not set)` for a utm_source alone, `cpc` for a bare click id or ad landing page,
  * the product rule's own, `organic` / `social` / `video` / `referral` for a referrer, `(none)`
- * for direct. `campaign` is `utm_campaign`, else what a product rule captured — even when the
- * utm named the channel, so a tagged referral link keeps its code. `priority` is the tier of
- * the rule that named the channel (`TOUCH_PRIORITY`): campaign touches, then the product's own
- * as they declare, then the referrer.
+ * for direct. An ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`) or its ad
+ * landing page makes it `cpc` when the medium was left out or puts the touch in an organic group:
+ * the click was paid whatever the tag said — a Reddit ad tagged `utm_medium=social`, a ChatGPT ad
+ * keeping the `utm_source=chatgpt.com` of its organic links. `campaign` is `utm_campaign`, else what a
+ * product rule captured — even when the utm named the channel, so a tagged referral link keeps
+ * its code. `priority` is the tier of the rule that named the channel (`TOUCH_PRIORITY`):
+ * campaign touches, then the product's own as they declare, then the referrer — except that a
+ * campaign rule whose touch lands in an organic group, referral (`utm_source=chatgpt.com`,
+ * `utm_medium=organic`) or email ranks with a referrer: nobody paid for that click, and it should
+ * not take the credit from an ad clicked earlier in the attribution window. When a product rule
+ * matched too, the stronger of the two tiers holds.
  */
 export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): Touch {
   const utm = utmChannel(tags);
@@ -188,24 +211,35 @@ export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): T
   const channel =
     utm ?? click ?? landing ?? product?.channel ?? referred?.channel ?? DIRECT_CHANNEL;
   const declaredMedium = text(tags, 'utm_medium')?.toLowerCase() ?? null;
-  const medium =
+  const namedMedium =
     declaredMedium ??
     (utm
-      ? adClickChannel(tags) === utm
-        ? 'cpc'
-        : MEDIUM_NOT_SET
+      ? MEDIUM_NOT_SET
       : click || landing
         ? 'cpc'
         : (product?.medium ?? referred?.medium ?? NO_MEDIUM));
+  // What proves a paid click on this channel: an ad-only click id of it, or its ad landing page.
+  // Another channel's says nothing about this one (an ad link copied and shared under a utm of
+  // its own), and `fbclid` is on organic Meta links too, so neither counts here.
+  const paid = adClickChannel(tags) === channel || landing === channel;
+  const medium =
+    paid &&
+    (namedMedium === MEDIUM_NOT_SET || ORGANIC_GROUPS.has(channelGroupOf(channel, namedMedium)))
+      ? 'cpc'
+      : namedMedium;
+  const channelGroup = channelGroupOf(channel, medium);
   const campaign = text(tags, 'utm_campaign') ?? product?.campaign ?? null;
-  const priority =
+  const campaignTier =
     utm || click || landing
-      ? TOUCH_PRIORITY.campaign
-      : product
-        ? product.priority
-        : referred
-          ? TOUCH_PRIORITY.referrer
-          : null;
+      ? REFERRER_TIER_GROUPS.has(channelGroup)
+        ? TOUCH_PRIORITY.referrer
+        : TOUCH_PRIORITY.campaign
+      : null;
+  // The stronger of the campaign rule's tier and the product rule's own: a referral link shared
+  // under `utm_source=whatsapp` is named by the utm, and still ranks as the programme declares.
+  const ranked = [campaignTier, product?.priority ?? null].filter((tier) => tier !== null);
+  const priority =
+    ranked.length > 0 ? Math.min(...ranked) : referred ? TOUCH_PRIORITY.referrer : null;
 
-  return { channel, medium, channel_group: channelGroupOf(channel, medium), campaign, priority };
+  return { channel, medium, channel_group: channelGroup, campaign, priority };
 }
