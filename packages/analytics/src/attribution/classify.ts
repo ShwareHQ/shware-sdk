@@ -189,16 +189,17 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * `(direct)` when none does. `medium` is `utm_medium` as declared (lower-cased), else what that
  * rule implies: `(not set)` for a utm_source alone, `cpc` for a bare click id or ad landing page,
  * the product rule's own, `organic` / `social` / `video` / `referral` for a referrer, `(none)`
- * for direct. An ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`) makes it
- * `cpc` when the medium was left out or puts the touch in an organic group: the click was paid
- * whatever the tag said — a Reddit ad tagged `utm_medium=social`, a ChatGPT ad keeping the
- * `utm_source=chatgpt.com` of its organic links. `campaign` is `utm_campaign`, else what a
+ * for direct. An ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`) or its ad
+ * landing page makes it `cpc` when the medium was left out or puts the touch in an organic group:
+ * the click was paid whatever the tag said — a Reddit ad tagged `utm_medium=social`, a ChatGPT ad
+ * keeping the `utm_source=chatgpt.com` of its organic links. `campaign` is `utm_campaign`, else what a
  * product rule captured — even when the utm named the channel, so a tagged referral link keeps
  * its code. `priority` is the tier of the rule that named the channel (`TOUCH_PRIORITY`):
  * campaign touches, then the product's own as they declare, then the referrer — except that a
  * campaign rule whose touch lands in an organic group, referral (`utm_source=chatgpt.com`,
  * `utm_medium=organic`) or email ranks with a referrer: nobody paid for that click, and it should
- * not take the credit from an ad clicked earlier in the attribution window.
+ * not take the credit from an ad clicked earlier in the attribution window. When a product rule
+ * matched too, the stronger of the two tiers holds.
  */
 export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): Touch {
   const utm = utmChannel(tags);
@@ -217,25 +218,28 @@ export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): T
       : click || landing
         ? 'cpc'
         : (product?.medium ?? referred?.medium ?? NO_MEDIUM));
-  // Another channel's click id says nothing about this one (an ad link copied and shared under a
-  // utm of its own), and `fbclid` is on organic Meta links too, so neither counts here.
+  // What proves a paid click on this channel: an ad-only click id of it, or its ad landing page.
+  // Another channel's says nothing about this one (an ad link copied and shared under a utm of
+  // its own), and `fbclid` is on organic Meta links too, so neither counts here.
+  const paid = adClickChannel(tags) === channel || landing === channel;
   const medium =
-    adClickChannel(tags) === channel &&
+    paid &&
     (namedMedium === MEDIUM_NOT_SET || ORGANIC_GROUPS.has(channelGroupOf(channel, namedMedium)))
       ? 'cpc'
       : namedMedium;
   const channelGroup = channelGroupOf(channel, medium);
   const campaign = text(tags, 'utm_campaign') ?? product?.campaign ?? null;
-  const priority =
+  const campaignTier =
     utm || click || landing
       ? REFERRER_TIER_GROUPS.has(channelGroup)
         ? TOUCH_PRIORITY.referrer
         : TOUCH_PRIORITY.campaign
-      : product
-        ? product.priority
-        : referred
-          ? TOUCH_PRIORITY.referrer
-          : null;
+      : null;
+  // The stronger of the campaign rule's tier and the product rule's own: a referral link shared
+  // under `utm_source=whatsapp` is named by the utm, and still ranks as the programme declares.
+  const ranked = [campaignTier, product?.priority ?? null].filter((tier) => tier !== null);
+  const priority =
+    ranked.length > 0 ? Math.min(...ranked) : referred ? TOUCH_PRIORITY.referrer : null;
 
   return { channel, medium, channel_group: channelGroup, campaign, priority };
 }

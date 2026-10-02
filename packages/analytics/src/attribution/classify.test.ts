@@ -414,6 +414,126 @@ describe('classifyTouch', () => {
   });
 });
 
+describe('classifyTouch: what proves a paid click, and which tier a touch ranks in', () => {
+  const campaign = { priority: TOUCH_PRIORITY.campaign };
+  const referrer = { priority: TOUCH_PRIORITY.referrer };
+
+  it('keeps a declared paid medium, never rewriting it to cpc', () => {
+    expect(
+      classifyTouch({ utm_source: 'reddit', utm_medium: 'paid_social', rdt_cid: 'x' })
+    ).toMatchObject({ medium: 'paid_social', channel_group: 'paid_social', ...campaign });
+  });
+
+  it('takes the ad landing page of the channel as proof, like its ad-only click id', () => {
+    expect(
+      classifyTouch(at('/lp/reddit', { utm_source: 'reddit', utm_medium: 'social' }))
+    ).toMatchObject({
+      channel: 'reddit',
+      medium: 'cpc',
+      channel_group: 'paid_social',
+      ...campaign,
+    });
+    expect(classifyTouch(at('/lp/google', { utm_source: 'google' }))).toMatchObject({
+      medium: 'cpc',
+      channel_group: 'paid_search',
+      ...campaign,
+    });
+    // Another channel's landing page proves nothing about this one.
+    expect(classifyTouch(at('/lp/meta', { utm_source: 'reddit' }))).toMatchObject({
+      channel: 'reddit',
+      medium: '(not set)',
+      ...referrer,
+    });
+  });
+
+  it('does not take an id that is on organic links too as proof', () => {
+    expect(classifyTouch({ utm_source: 'x', utm_medium: 'social', twclid: 'x' })).toMatchObject({
+      channel: 'x',
+      medium: 'social',
+      ...referrer,
+    });
+  });
+
+  it('proves a click named by its click id when only utm_medium was tagged', () => {
+    expect(classifyTouch({ utm_medium: 'organic', gclid: 'x' })).toMatchObject({
+      channel: 'google',
+      medium: 'cpc',
+      channel_group: 'paid_search',
+      ...campaign,
+    });
+  });
+
+  it('names a session with two click ids by the first in the list, as paid', () => {
+    expect(classifyTouch({ fbclid: 'x', gclid: 'y' })).toMatchObject({
+      channel: 'meta',
+      medium: 'cpc',
+      ...campaign,
+    });
+  });
+
+  it('falls through an empty utm_source to the click id', () => {
+    expect(classifyTouch({ utm_source: '', gclid: 'x' })).toMatchObject({
+      channel: 'google',
+      medium: 'cpc',
+      ...campaign,
+    });
+  });
+
+  it.each([
+    ['paid_other', { utm_source: 'newsletter', utm_medium: 'cpc' }, campaign],
+    ['display', { utm_source: 'google', utm_medium: 'display' }, campaign],
+    ['affiliate', { utm_source: 'partner-x', utm_medium: 'affiliate' }, campaign],
+    ['unassigned', { utm_source: 'producthunt', utm_medium: 'launch' }, campaign],
+    ['a Meta placement', { utm_source: 'fb', utm_medium: 'facebook_mobile_feed' }, campaign],
+    ['organic_search', { utm_source: 'google', utm_medium: 'organic' }, referrer],
+    ['organic_social', { utm_source: 'linkedin' }, referrer],
+    ['organic_video', { utm_source: 'youtube' }, referrer],
+    ['organic_ai', { utm_source: 'chatgpt.com' }, referrer],
+    ['referral', { utm_source: 'partner.com', utm_medium: 'referral' }, referrer],
+    ['email', { utm_source: 'newsletter', utm_medium: 'email' }, referrer],
+  ] as const)('ranks a utm in %s in its tier', (_, tags, tier) => {
+    expect(classifyTouch(tags)).toMatchObject(tier);
+  });
+
+  it('keeps the tier a product rule declares when a demoted utm names the channel', () => {
+    const options = { rules: [referralLink] };
+    // Shared on Facebook with a utm: the utm names it, the programme still ranks it.
+    expect(
+      classifyTouch(at('https://app.shware.net/refer/AB12cd', { utm_source: 'facebook' }), options)
+    ).toMatchObject({
+      channel: 'meta',
+      channel_group: 'organic_social',
+      campaign: 'AB12cd',
+      ...campaign,
+    });
+    // A product rule that ranks itself low does not weaken a paid utm.
+    const weak: TouchRule = (tags) =>
+      tags.page_location?.includes('/promo')
+        ? { channel: 'promo', medium: 'referral', campaign: null, priority: TOUCH_PRIORITY.claimed }
+        : null;
+    expect(
+      classifyTouch(at('/promo', { utm_source: 'google', utm_medium: 'cpc' }), { rules: [weak] })
+    ).toMatchObject({ channel: 'google', ...campaign });
+    expect(
+      classifyTouch(at('/promo', { utm_source: 'google', utm_medium: 'organic' }), {
+        rules: [weak],
+      })
+    ).toMatchObject(referrer);
+    // Alone, it ranks as it declares.
+    expect(classifyTouch(at('/promo'), { rules: [weak] })).toMatchObject({
+      channel: 'promo',
+      priority: TOUCH_PRIORITY.claimed,
+    });
+  });
+
+  it('ranks a touch read from the referrer as a referrer, and direct as nothing', () => {
+    expect(classifyTouch({ page_referrer: 'https://news.ycombinator.com/' })).toMatchObject(
+      referrer
+    );
+    expect(classifyTouch({})).toMatchObject({ priority: null });
+  });
+});
+
 describe('channelGroupOf', () => {
   it.each([
     ['(direct)', '(none)', 'direct'],
