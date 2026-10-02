@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 10.1.0
+
+### Minor Changes
+
+- d39a91c: Add a `uetConsent` prop to the `Analytics` components that pushes the UET consent mode default inside the tag snippet, ahead of bat.js. It defaults to `{ ad_storage: 'granted' }`; pass `{ ad_storage: 'denied' }` behind a consent banner, or `false` to push no default.
+
 ## 10.0.1
 
 ### Patch Changes
