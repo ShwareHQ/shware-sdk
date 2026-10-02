@@ -110,7 +110,8 @@ describe('classifyTouch', () => {
       medium,
       channel_group: group,
       campaign,
-      priority: TOUCH_PRIORITY.campaign,
+      // A utm that comes out organic was placed by no one who paid; it ranks with a referrer.
+      priority: group.startsWith('organic_') ? TOUCH_PRIORITY.referrer : TOUCH_PRIORITY.campaign,
     });
   });
 
@@ -170,20 +171,81 @@ describe('classifyTouch', () => {
       medium: '(not set)',
       channel_group: 'organic_social',
     });
-    // A declared medium stands; another channel's click id says nothing about this one.
-    expect(
-      classifyTouch({ utm_source: 'google', utm_medium: 'organic', gclid: 'x' })
-    ).toMatchObject({
-      medium: 'organic',
-    });
+    // Another channel's click id says nothing about this one.
     expect(classifyTouch({ utm_source: 'reddit', gclid: 'x' })).toMatchObject({
       medium: '(not set)',
+      channel_group: 'organic_social',
     });
     // fbclid is on organic Meta links too, so it proves nothing.
     expect(classifyTouch({ utm_source: 'ig', fbclid: 'x' })).toMatchObject({
       channel: 'meta',
       medium: '(not set)',
     });
+  });
+
+  it('calls a declared organic medium paid when an ad-only click id of its channel proves the click', () => {
+    // A Reddit ad tagged by hand as social, a Google ad tagged organic.
+    expect(
+      classifyTouch({ utm_source: 'reddit', utm_medium: 'social', rdt_cid: 'x' })
+    ).toMatchObject({
+      channel: 'reddit',
+      medium: 'cpc',
+      channel_group: 'paid_social',
+      priority: TOUCH_PRIORITY.campaign,
+    });
+    expect(
+      classifyTouch({ utm_source: 'google', utm_medium: 'organic', gclid: 'x' })
+    ).toMatchObject({ channel: 'google', medium: 'cpc', channel_group: 'paid_search' });
+    // A ChatGPT ad keeps the utm_source of ChatGPT's organic links.
+    expect(classifyTouch({ utm_source: 'chatgpt.com', oppref: 'x' })).toMatchObject({
+      channel: 'chatgpt',
+      medium: 'cpc',
+      priority: TOUCH_PRIORITY.campaign,
+    });
+    // A medium that is neither organic nor missing stands: the utm placed it.
+    expect(classifyTouch({ utm_source: 'dv360', utm_medium: 'email', dclid: 'x' })).toMatchObject({
+      medium: 'email',
+      channel_group: 'email',
+    });
+    // fbclid is on organic Meta links too.
+    expect(classifyTouch({ utm_source: 'ig', utm_medium: 'social', fbclid: 'x' })).toMatchObject({
+      medium: 'social',
+      channel_group: 'organic_social',
+    });
+  });
+
+  it('ranks a campaign tag that calls itself organic or a referral with the referrer', () => {
+    const referrer = { priority: TOUCH_PRIORITY.referrer };
+    // ChatGPT's organic citations, tagged by ChatGPT.
+    expect(classifyTouch({ utm_source: 'chatgpt.com' })).toMatchObject({
+      channel: 'chatgpt',
+      channel_group: 'organic_ai',
+      ...referrer,
+    });
+    expect(classifyTouch({ utm_source: 'google', utm_medium: 'organic' })).toMatchObject(referrer);
+    expect(classifyTouch({ utm_source: 'reddit' })).toMatchObject(referrer);
+    expect(classifyTouch({ utm_source: 'partner.com', utm_medium: 'referral' })).toMatchObject(
+      referrer
+    );
+    expect(classifyTouch({ utm_medium: 'social', fbclid: 'x' })).toMatchObject({
+      channel: 'meta',
+      ...referrer,
+    });
+    // Tags someone placed keep the campaign tier: paid, email, affiliate, and the unknown.
+    const campaign = { priority: TOUCH_PRIORITY.campaign };
+    expect(classifyTouch({ utm_source: 'meta', utm_medium: 'paid_social' })).toMatchObject(
+      campaign
+    );
+    expect(classifyTouch({ utm_source: 'newsletter', utm_medium: 'email' })).toMatchObject(
+      campaign
+    );
+    expect(classifyTouch({ utm_source: 'blog', utm_medium: 'affiliate' })).toMatchObject(campaign);
+    expect(classifyTouch({ utm_source: 'newsletter' })).toMatchObject(campaign);
+    expect(classifyTouch({ fbclid: 'x' })).toMatchObject(campaign);
+    // A product rule ranks as it declares, even as a referral.
+    expect(
+      classifyTouch(at('https://www.shware.net/refer/ABC'), { rules: [referralLink] })
+    ).toMatchObject({ channel_group: 'referral', ...campaign });
   });
 
   it("reads ChatGPT's and Pinterest's ad click ids as paid clicks on their channels", () => {
