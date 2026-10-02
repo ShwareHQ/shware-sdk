@@ -27,10 +27,13 @@ interface Props {
   uetCustomerId?: `${number}`;
   /**
    * UET consent mode default, pushed inside the tag snippet so bat.js reads it before the first
-   * page load. Send `update` later with `setUETConsent` when the visitor decides.
+   * page load. Defaults to `ad_storage: granted`, which is how the tag behaves without a signal,
+   * so Microsoft stops flagging EEA/UK/CH events as missing consent. Sites with a consent banner
+   * pass `{ ad_storage: 'denied' }` and send `update` with `setUETConsent` when the visitor
+   * decides; `false` pushes no default.
    * https://help.ads.microsoft.com/#apex/ads/en/60119/1
    */
-  uetConsent?: UETConsent;
+  uetConsent?: UETConsent | false;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
@@ -60,7 +63,7 @@ export function Analytics({
   linkedInPartnerId,
   uetTagId,
   uetCustomerId,
-  uetConsent,
+  uetConsent = { ad_storage: 'granted' },
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
