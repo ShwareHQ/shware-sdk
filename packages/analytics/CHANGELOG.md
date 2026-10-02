@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 10.2.0
+
+### Minor Changes
+
+- 8586454: `classifyTouch`: an ad-only click id or the ad landing page of the utm's own channel now makes the medium `cpc` when the declared `utm_medium` puts the touch in an organic group (a Reddit ad tagged `utm_medium=social` with `rdt_cid`), not only when the medium is missing. Click ids of another channel and `fbclid` still never override the utm.
+- 8586454: `classifyTouch`: a utm, click id or ad landing page whose touch lands in an organic channel group, referral or email (`utm_source=chatgpt.com`, `utm_medium=organic`, a newsletter) now ranks with the referrer (`TOUCH_PRIORITY.referrer`) instead of as a campaign, so it no longer takes the credit from an ad clicked earlier in the attribution window. When a product rule matched too, the stronger of the two tiers holds (a referral link shared under a social utm keeps the programme's tier). Reclassify stored sessions after upgrading.
+
 ## 10.1.1
 
 ### Patch Changes
