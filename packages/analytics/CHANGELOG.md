@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 10.1.1
+
+### Patch Changes
+
+- 9b6693b: Google Data Manager: `normalizeEmail` removes all whitespace, including intermediate spaces, before hashing.
+- 9b6693b: Google Data Manager: send the gbraid alongside the gclid when both are present, as Google recommends, instead of dropping it.
+- 9b6693b: LinkedIn Conversions API: add the IPv4 address (`PLAINTEXT_IP_ADDRESS`) and, for Android events, the advertising id (`GOOGLE_AID`) to the user ids.
+- 8216958: LinkedIn Conversions API: detect IPv4 addresses with `node:net`'s `isIPv4` instead of a regular expression.
+- 9b6693b: Meta Conversions API: send app events with `action_source: 'app'` only when the package name and an iOS/Android OS are known (`extinfo` version `i2`/`a2`), otherwise `other`; always set the required `advertiser_tracking_enabled`.
+- 9b6693b: Meta Conversions API: warn when website events are sent without `client_user_agent`, which Meta requires for them.
+
 ## 10.1.0
 
 ### Minor Changes
