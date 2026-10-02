@@ -56,10 +56,23 @@ export interface GoogleAdsConsent {
   adPersonalization?: 'CONSENT_GRANTED' | 'CONSENT_DENIED' | 'CONSENT_STATUS_UNSPECIFIED';
 }
 
+/**
+ * The kind of conversion action the events go to, which decides `eventSource`:
+ * - `webpage` (default): the action the gtag tag reports to, as in the hybrid deployment this
+ *   module is built for. Its `eventSource` is optional and, when set, "must be WEB" — any other
+ *   value fails the request, and the request with it. Web events say `WEB`, others say nothing.
+ * - `offline`: an action created for uploads (`UPLOAD_CLICKS`), where `eventSource` is required
+ *   and any value goes: `WEB`, `APP` or `OTHER` from the event's platform.
+ * https://developers.google.com/data-manager/api/devguides/events/google-ads/online/send-events
+ */
+export type GoogleAdsActionType = 'webpage' | 'offline';
+
 export interface GoogleAdsConversionsOptions {
   /** Validates the payload server-side without recording conversions. */
   validateOnly?: boolean;
   consent?: GoogleAdsConsent;
+  /** The kind of conversion action `config` points at; `webpage` by default. */
+  actionType?: GoogleAdsActionType;
 }
 
 /**
@@ -115,7 +128,8 @@ export interface DataManagerEvent {
   transactionId: string;
   /** RFC 3339 — `created_at` as stored, unlike the legacy API's bespoke format. */
   eventTimestamp: string;
-  eventSource: 'WEB' | 'APP' | 'OTHER';
+  /** Absent for a non-web event sent to a `webpage` action, which accepts `WEB` only. */
+  eventSource?: 'WEB' | 'APP' | 'OTHER';
   conversionValue: number;
   currency: string;
   adIdentifiers?: { gclid?: string; gbraid?: string; wbraid?: string };
@@ -133,7 +147,8 @@ export function getDataManagerEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   config: GoogleAdsConversionConfig,
-  data: UserProvidedData = {}
+  data: UserProvidedData = {},
+  actionType: GoogleAdsActionType = 'webpage'
 ): DataManagerEvent | undefined {
   const action = config[event.name as Lowercase<string>];
   if (!action) return undefined;
@@ -152,7 +167,14 @@ export function getDataManagerEvent(
         ? event.properties.transaction_id
         : event.id,
     eventTimestamp: new Date(event.created_at).toISOString(),
-    eventSource: source === 'app' ? 'APP' : source === 'web' ? 'WEB' : 'OTHER',
+    eventSource:
+      source === 'web'
+        ? 'WEB'
+        : actionType === 'webpage'
+          ? undefined
+          : source === 'app'
+            ? 'APP'
+            : 'OTHER',
     // Both mandatory, like the LinkedIn sender's defaults: 0 USD is Google's own convention
     // for value-less goals. The API has no partial-failure mode, so a malformed currency would
     // cost the whole batch — anything that isn't a 3-letter code falls back instead.
@@ -198,7 +220,7 @@ export async function sendEvents(
 ): Promise<DataManagerResponse | undefined> {
   const dmEvents = events
     .filter((event) => !IGNORED_EVENTS.includes(event.name))
-    .map((event) => getDataManagerEvent(event, config, data))
+    .map((event) => getDataManagerEvent(event, config, data, options.actionType))
     .filter((dmEvent): dmEvent is DataManagerEvent => dmEvent !== undefined);
   if (dmEvents.length === 0) return undefined;
 

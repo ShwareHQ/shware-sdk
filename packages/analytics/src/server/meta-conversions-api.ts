@@ -311,6 +311,9 @@ export async function sendEvent(
   }
 }
 
+/** An `event_time` over 7 days old fails the whole request; see `meta-capi.ts`. */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
@@ -322,6 +325,7 @@ export async function sendEvents(
 ) {
   const fbEvents = events
     .filter((event) => !IGNORED_EVENTS.includes(event.name))
+    .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getServerEvent(event, data, appPackageName, actionSource));
   if (fbEvents.length === 0) return undefined;
   const request = new EventRequest(accessToken, pixelId);

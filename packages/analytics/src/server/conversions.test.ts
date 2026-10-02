@@ -121,6 +121,11 @@ describe('OpenAI', () => {
     expect(openaiServerEvent(event(), {}, 'offline').action_source).toBe('offline');
   });
 
+  it('names a custom event as the API allows, as the pixel names it', () => {
+    const out = openaiServerEvent(event({ name: 'Sign Up.Clicked' as never, properties: {} }), {});
+    expect(out.custom_event_name).toBe('sign_up_clicked');
+  });
+
   it('keeps the original name on a custom event so it deduplicates with the pixel', () => {
     const out = openaiServerEvent(event({ name: 'my_custom_thing', properties: {} }), {});
     expect(out.type).toBe('custom');
@@ -133,11 +138,20 @@ describe('Reddit', () => {
     expect(redditServerEvent(event(), {}).event_at).toBe(CREATED_MS);
   });
 
-  it('maps platform to action_source, with UNKNOWN as the fallback', () => {
+  it('maps platform to action_source, with OTHER as the fallback: UNKNOWN is not one', () => {
     expect(redditServerEvent(event(), {}).action_source).toBe('WEBSITE');
     expect(redditServerEvent(event({ platform: 'android' }), {}).action_source).toBe('APP');
-    expect(redditServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('UNKNOWN');
-    expect(redditServerEvent(event(), {}, 'offline').action_source).toBe('UNKNOWN');
+    expect(redditServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('OTHER');
+    expect(redditServerEvent(event(), {}, 'offline').action_source).toBe('OTHER');
+  });
+
+  it('sends the page of a website event as event_source_url, for the domain and the click id', () => {
+    const page = 'https://x.test/landing?rdt_cid=R1';
+    expect(redditServerEvent(event({ tags: { page_location: page } }), {}).event_source_url).toBe(
+      page
+    );
+    const app = event({ platform: 'ios', tags: { page_location: page } });
+    expect(redditServerEvent(app, {}).event_source_url).toBeUndefined();
   });
 
   it('routes the advertising id by platform', () => {

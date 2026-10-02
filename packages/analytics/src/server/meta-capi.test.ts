@@ -13,7 +13,8 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getCapiEvent, sendEvents } from './meta-capi';
 import { getServerEvent } from './meta-conversions-api';
 
-const CREATED_AT = '2026-01-10T12:00:00.000Z';
+// A minute ago: the senders leave out events older than their API accepts.
+const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any

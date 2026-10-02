@@ -257,6 +257,9 @@ function compact<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** `eventTime` must be "within the last 7 days"; a minute's margin for the trip. */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 /**
  * Send events to `POST /v1/{tagId}/events`. Batches above the API's 1,000-event limit are split
  * into consecutive requests; one response is returned per request made. Never throws: an HTTP
@@ -276,6 +279,7 @@ export async function sendEvents(
     .filter(
       (event) => (pageLoads && event.name === 'page_view') || !IGNORED_EVENTS.includes(event.name)
     )
+    .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getServerEvent(event, data, { consent, pageLoads }))
     // A pageLoad without a URL is rejected by the API, and a page-less event has nothing to say.
     .filter((event) => event.eventType !== 'pageLoad' || event.eventSourceUrl);

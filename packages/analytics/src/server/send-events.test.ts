@@ -11,7 +11,8 @@ import { sendEvent as sendMetaEvent, sendEvents as sendMetaEvents } from './meta
 import { sendEvents as sendOpenAIEvents } from './openai-conversions-api';
 import { sendEvents as sendRedditEvents } from './reddit-conversions-api';
 
-const CREATED_AT = '2026-01-10T12:00:00.000Z';
+// A minute ago: the senders leave out events older than their API accepts.
+const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any
 function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {
@@ -209,5 +210,51 @@ describe('LinkedIn sendEvents failure paths', () => {
     await expect(pending).resolves.toBeUndefined();
     expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
     vi.useRealTimers();
+  });
+});
+
+describe('events outside the API time window', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+  it('Meta, Reddit and OpenAI leave out what is over 7 days old, and send the rest', async () => {
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
+    const execute = vi.spyOn(EventRequest.prototype, 'execute').mockResolvedValue({} as never);
+    const events = [event({ id: 'fresh' }), event({ id: 'stale', created_at: ago(7 * DAY) })];
+
+    await sendMetaEvents('token', 'pixel', events);
+    expect(execute).toHaveBeenCalledTimes(1);
+    const sent = (execute.mock.contexts[0] as EventRequest).events.map((e) => e.event_id);
+    expect(sent).toEqual(['fresh']);
+
+    await sendRedditEvents('token', 'pixel', events);
+    await sendOpenAIEvents('key', 'pixel', events);
+    const bodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse((init as RequestInit).body as string)
+    );
+    expect(
+      bodies[0].data.events.map(
+        (e: { metadata: { conversion_id: string } }) => e.metadata.conversion_id
+      )
+    ).toEqual(['fresh']);
+    expect(bodies[1].events.map((e: { id: string }) => e.id)).toEqual(['fresh']);
+  });
+
+  it('OpenAI also leaves out what is over 10 minutes ahead', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    const ahead = new Date(Date.now() + 11 * 60 * 1000).toISOString();
+    await sendOpenAIEvents('key', 'pixel', [event({ created_at: ahead })]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('LinkedIn keeps 90 days', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 201 }));
+    const events = [
+      event({ id: 'month', created_at: ago(30 * DAY) }),
+      event({ id: 'quarter', created_at: ago(91 * DAY) }),
+    ];
+    await sendLinkedinEvents('token', { purchase: 1 }, events, { user_id: 'u1' });
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.elements.map((e: { eventId: string }) => e.eventId)).toEqual(['month']);
   });
 });
