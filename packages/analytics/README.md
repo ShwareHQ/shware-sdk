@@ -63,22 +63,89 @@ changes. The framework `Analytics` components wire this up.
 ## Sessions and attribution
 
 How the events this SDK sends are meant to be read on the server side, for attribution. Three
-layers, each derived from the one below it, none needing a table of its own:
+layers, each derived from the one below it:
 
-- **Session** — `event where name = 'session_start'`. The SDK opens a session after 30 minutes
-  without an event and sends exactly one `session_start` at the head of the batch that opened it,
-  carrying the tags of the event that opened it: the landing page's URL, utm parameters and click
-  ids, captured when that event happened rather than when the batch went out. A partial unique
-  index on `event (session_id) where name = 'session_start'` makes that row the session's one
-  record on the server; there is no session table.
-- **Touchpoint** — a view over those rows that reads each session's tags as `channel`, `medium`
-  and `campaign`. An explicit `utm_source` wins; then a click id in the landing URL (`fbclid`,
-  `gclid`, … — never the cookie an earlier click left); then a landing page reserved for one
-  channel's ads. The rules for what counts as which channel live here and nowhere else.
-- **Attribution** — a view over touchpoints that credits a session with no touch of its own to
-  the same person's most recent paid touch, across devices (visitors sharing a `user_id`), within a
-  window. Last paid touch, first touch and multi-touch are alternative models at this layer over
-  the same touchpoints.
+- **Session** — one row per `session_start`. The SDK opens a session after 30 minutes without an
+  event and sends exactly one `session_start` at the head of the batch that opened it, carrying
+  the tags of the event that opened it: the landing page's URL, utm parameters and click ids,
+  captured when that event happened rather than when the batch went out. A partial unique index on
+  `event (session_id) where name = 'session_start'` makes that row the session's one record. The
+  server reads its tags once, when it writes the session, with `classifyTouch`
+  (`@shware/analytics/attribution`) and stores the touch on the session row; a rule change is
+  applied to history by reclassifying.
+- **Touchpoint** — one row per touch: every session with its stored touch, plus the touches people
+  report (a survey answer, a call on a channel's number). Nothing is derived at query time.
+- **Attribution** — one row per session, credited to the strongest touch of the same person
+  (across devices) within a window, the session's own touch included. See the rules below.
+
+### How a session is read as a touch (`classifyTouch`)
+
+The channel and medium come from the first rule that says something:
+
+| Order | Signal                                                                                          | `channel`                                                                                                          | `medium`                                           |
+| ----- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| 1     | `utm_source` in the URL                                                                         | the source, aliases folded (`fb`, `ig` → `meta`)                                                                   | `utm_medium`, or `(not set)`                       |
+| 2     | A click id in the URL (`gclid`, `fbclid`, `rdt_cid`, …; never the cookie an earlier click left) | the id's platform                                                                                                  | `cpc`                                              |
+| 3     | An ad landing page, `/lp/<channel>`                                                             | that channel                                                                                                       | `cpc`                                              |
+| 4     | The product's own rules (`TouchRule`, e.g. a referral link)                                     | as the rule says                                                                                                   | as the rule says                                   |
+| 5     | The referrer's host                                                                             | a known search engine, social network, video site or AI assistant folded to its channel; any other host kept as is | `organic` / `social` / `video` / `ai` / `referral` |
+| 6     | Nothing                                                                                         | `(direct)`                                                                                                         | `(none)`                                           |
+
+One exception: an ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`) proves
+the click was paid, so the medium becomes `cpc` when it was left out or puts the touch in an
+organic group — a Reddit ad tagged `utm_source=reddit&utm_medium=social` that carries `rdt_cid`.
+`fbclid` never does: Meta puts it on organic links too.
+
+`channel_group` is GA4's default channel grouping of the two (`channelGroupOf`): `paid_search`,
+`organic_search`, `paid_social`, `email`, ….
+
+The touch's `priority` (`TOUCH_PRIORITY`, lower is stronger) decides which touch wins in the
+attribution layer:
+
+| Priority         | Touches                                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **1 — campaign** | A utm, click id or ad landing page whose group is paid, display, email, affiliate or unassigned; a product rule that says so (a referral link); a reported touch staff stand behind (`phone`, `manual`)                                          |
+| **2 — referrer** | A touch read from the referrer (organic search, social, other sites); **and** a utm, click id or ad landing page whose group comes out `organic_*` or `referral` (`utm_source=chatgpt.com` on ChatGPT's organic citations, `utm_medium=organic`) |
+| **3 — claimed**  | A reported touch that is the user's claim (`survey`, `promo_code`)                                                                                                                                                                               |
+| none             | Direct: no touch                                                                                                                                                                                                                                 |
+
+In short: a link someone placed and paid for or sent is 1, what the browser brought or a tag that
+calls itself organic is 2, what the user says is 3.
+
+### How a session is credited (the attribution view)
+
+For every session, among the same person's touches within the window (30 days in the reference
+views), **the session's own touch included**:
+
+1. the lowest `priority` wins;
+2. among equals, the latest wins;
+3. on a full tie, the session's own touch wins.
+
+| `touch_kind` | Meaning                                                              |
+| ------------ | -------------------------------------------------------------------- |
+| `own`        | The session's own touch won                                          |
+| `inherited`  | A direct session, credited to an earlier touch                       |
+| `overridden` | The session had a touch of its own, but an earlier, stronger one won |
+| `none`       | A direct session with no touch in the window                         |
+
+| #   | What happened                                                                      | The current session is credited to | `touch_kind` | Why                                 |
+| --- | ---------------------------------------------------------------------------------- | ---------------------------------- | ------------ | ----------------------------------- |
+| 1   | Day 1 a Meta ad click, day 2 a branded Google search                               | **Meta**                           | `overridden` | 1 beats 2                           |
+| 2   | Day 1 a Meta ad click, day 2 typed in                                              | **Meta**                           | `inherited`  | direct inherits                     |
+| 3   | Day 1 an organic search, day 2 a Meta ad click                                     | **Meta**                           | `own`        | its own touch is stronger           |
+| 4   | Day 1 a Meta ad click, day 3 a Google ad click                                     | **Google**                         | `own`        | both 1, the latest wins             |
+| 5   | Day 1 a Meta ad click, day 2 a ChatGPT citation with its utm                       | **Meta**                           | `overridden` | ChatGPT's organic utm ranks 2       |
+| 6   | Day 1 an organic search, day 5 a ChatGPT citation                                  | **ChatGPT**                        | `own`        | both 2, the latest wins             |
+| 7   | An ad click 45 days ago, an organic search today                                   | **Organic search**                 | `own`        | the ad is out of the window         |
+| 8   | A Reddit ad tagged `utm_medium=social` with `rdt_cid`                              | **reddit / cpc**                   | `own`        | the click id proves a paid click    |
+| 9   | Day 1 a Meta ad click, day 2 a newsletter link (`utm_medium=email`)                | **Email**                          | `own`        | both 1, the latest wins             |
+| 10  | A survey answer "a podcast" (backdated to the first visit), then an organic search | **Organic search**                 | `own`        | 2 beats 3; a claim only fills a gap |
+
+**How this differs from GA4.** GA4's last non-direct click credits the latest touch that is not
+direct, whatever it was: cases 1 and 5 go to the search and to ChatGPT. Here an ad click is not
+overwritten by the organic visit that follows it within the window, which is what a paid ROAS
+panel expects. The touchpoint layer still has every session's own touch, so the GA4-style figure
+is one query away, and `overridden` measures the difference.
 
 What the SDK guarantees for this to hold:
 
