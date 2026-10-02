@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 10.0.0
+
+### Major Changes
+
+- 5e33cae: `createClickIdMiddleware` / `resolveClickIdCookies` now keep more of the ad platforms' cookies past Safari's limits, each as its own pixel keeps it (read from their current client code): `_rdt_cid` is re-issued for 90 days on every document response instead of only being written from the URL, and `_rdt_uuid` and `_fbp` are re-issued as they are for 90 days; OpenAI's `__oppref` is captured from the `oppref` URL parameter for 30 days and re-issued, and `__obref` re-issued for 365 days. Browser ids are never created, only re-issued, and no OpenAI cookie is written once the visitor has opted out of oaiq (`__oaiq_consent=false`). **Breaking:** `domain` is now required — the site's registrable domain in production, `null` for a host-only cookie on `localhost` — because a host-only cookie sits next to the pixel's of the same name, and Reddit's pixel deletes it; and the default `clickIdMiddleware` export, which had no domain, is removed: call `createClickIdMiddleware({ domain })`.
+
 ## 9.1.0
 
 ### Minor Changes
