@@ -7,6 +7,7 @@ import type { PixelId as MetaPixelId } from '../track/fbq';
 import type { GaId, GtmId } from '../track/gtag';
 import { track } from '../track/index';
 import type { PixelId as RedditPixelId } from '../track/rdt';
+import type { UETConsent } from '../track/uetq';
 
 interface Props {
   gaId?: GaId;
@@ -20,6 +21,12 @@ interface Props {
   uetTagId?: `${number}`;
   /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the Conversions API's ID Sync pixel. */
   uetCustomerId?: `${number}`;
+  /**
+   * UET consent mode default, pushed inside the tag snippet so bat.js reads it before the first
+   * page load. Send `update` later with `setUETConsent` when the visitor decides.
+   * https://help.ads.microsoft.com/#apex/ads/en/60119/1
+   */
+  uetConsent?: UETConsent;
   hotjarId?: `${number}`;
   facebookAppId?: string;
   nonce?: string;
@@ -38,6 +45,7 @@ export function Analytics({
   linkedInPartnerId,
   uetTagId,
   uetCustomerId,
+  uetConsent,
   hotjarId,
   facebookAppId,
   reportWebVitals = true,
@@ -199,6 +207,7 @@ export function Analytics({
             __html: `
               (function (w, d, t, u, o) {
                 w[u] = w[u] || [], o.ts = (new Date).getTime();
+                ${uetConsent ? `w[u].push("consent", "default", ${JSON.stringify(uetConsent)});` : ''}
                 var n = d.createElement(t);
                 n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
                 n.async = 1, n.onload = n.onreadystatechange = function() {
