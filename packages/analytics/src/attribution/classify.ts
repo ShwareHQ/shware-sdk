@@ -62,6 +62,13 @@ const ORGANIC_GROUPS = new Set<ChannelGroup>([
   'organic_ai',
   'referral',
 ]);
+/**
+ * The groups a campaign rule ranks with a referrer in: the organic ones, and email. Email reaches
+ * people we already know — often because an ad brought them — and its links (a welcome mail, a
+ * trial reminder) come between that ad and the purchase, so it must not take the ad's credit.
+ * With no ad in the window it still wins as the latest touch.
+ */
+const REFERRER_TIER_GROUPS = new Set<ChannelGroup>([...ORGANIC_GROUPS, 'email']);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
 const channelsBy = (medium: string) =>
   new Set<string>(REFERRER_SITES.filter(([, m]) => m === medium).map(([channel]) => channel));
@@ -189,9 +196,9 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * product rule captured — even when the utm named the channel, so a tagged referral link keeps
  * its code. `priority` is the tier of the rule that named the channel (`TOUCH_PRIORITY`):
  * campaign touches, then the product's own as they declare, then the referrer — except that a
- * campaign rule whose touch lands in an organic group or referral (`utm_source=chatgpt.com`,
- * `utm_medium=organic`) ranks with a referrer: nobody paid for that click, and it should not take
- * the credit from an ad clicked earlier in the attribution window.
+ * campaign rule whose touch lands in an organic group, referral (`utm_source=chatgpt.com`,
+ * `utm_medium=organic`) or email ranks with a referrer: nobody paid for that click, and it should
+ * not take the credit from an ad clicked earlier in the attribution window.
  */
 export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): Touch {
   const utm = utmChannel(tags);
@@ -221,7 +228,7 @@ export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): T
   const campaign = text(tags, 'utm_campaign') ?? product?.campaign ?? null;
   const priority =
     utm || click || landing
-      ? ORGANIC_GROUPS.has(channelGroup)
+      ? REFERRER_TIER_GROUPS.has(channelGroup)
         ? TOUCH_PRIORITY.referrer
         : TOUCH_PRIORITY.campaign
       : product

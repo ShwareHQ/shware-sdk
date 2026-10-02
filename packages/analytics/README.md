@@ -102,15 +102,18 @@ organic group — a Reddit ad tagged `utm_source=reddit&utm_medium=social` that 
 The touch's `priority` (`TOUCH_PRIORITY`, lower is stronger) decides which touch wins in the
 attribution layer:
 
-| Priority         | Touches                                                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **1 — campaign** | A utm, click id or ad landing page whose group is paid, display, email, affiliate or unassigned; a product rule that says so (a referral link); a reported touch staff stand behind (`phone`, `manual`)                                          |
-| **2 — referrer** | A touch read from the referrer (organic search, social, other sites); **and** a utm, click id or ad landing page whose group comes out `organic_*` or `referral` (`utm_source=chatgpt.com` on ChatGPT's organic citations, `utm_medium=organic`) |
-| **3 — claimed**  | A reported touch that is the user's claim (`survey`, `promo_code`)                                                                                                                                                                               |
-| none             | Direct: no touch                                                                                                                                                                                                                                 |
+| Priority         | Touches                                                                                                                                                                                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — campaign** | A utm, click id or ad landing page whose group is paid, display, affiliate or unassigned; a product rule that says so (a referral link); a reported touch staff stand behind (`phone`, `manual`)                                                                        |
+| **2 — referrer** | A touch read from the referrer (organic search, social, other sites); **and** a utm, click id or ad landing page whose group comes out `organic_*`, `referral` or `email` (`utm_source=chatgpt.com` on ChatGPT's organic citations, `utm_medium=organic`, a newsletter) |
+| **3 — claimed**  | A reported touch that is the user's claim (`survey`, `promo_code`)                                                                                                                                                                                                      |
+| none             | Direct: no touch                                                                                                                                                                                                                                                        |
 
-In short: a link someone placed and paid for or sent is 1, what the browser brought or a tag that
-calls itself organic is 2, what the user says is 3.
+In short: a link someone paid for is 1; what the browser brought, a tag that calls itself organic,
+and our own emails are 2; what the user says is 3. Email is 2 because it reaches people we already
+know, often because an ad brought them, and its links (a welcome mail, a trial reminder) come
+between that ad and the purchase: it must not take the ad's credit, and with no ad in the window
+it still wins as the latest touch.
 
 ### How a session is credited (the attribution view)
 
@@ -138,11 +141,12 @@ views), **the session's own touch included**:
 | 6   | Day 1 an organic search, day 5 a ChatGPT citation                                  | **ChatGPT**                        | `own`        | both 2, the latest wins             |
 | 7   | An ad click 45 days ago, an organic search today                                   | **Organic search**                 | `own`        | the ad is out of the window         |
 | 8   | A Reddit ad tagged `utm_medium=social` with `rdt_cid`                              | **reddit / cpc**                   | `own`        | the click id proves a paid click    |
-| 9   | Day 1 a Meta ad click, day 2 a newsletter link (`utm_medium=email`)                | **Email**                          | `own`        | both 1, the latest wins             |
-| 10  | A survey answer "a podcast" (backdated to the first visit), then an organic search | **Organic search**                 | `own`        | 2 beats 3; a claim only fills a gap |
+| 9   | Day 1 a Meta ad click, day 2 a newsletter link (`utm_medium=email`)                | **Meta**                           | `overridden` | email ranks 2                       |
+| 10  | Day 1 an organic search, day 2 a newsletter link, no ad in the window              | **Email**                          | `own`        | both 2, the latest wins             |
+| 11  | A survey answer "a podcast" (backdated to the first visit), then an organic search | **Organic search**                 | `own`        | 2 beats 3; a claim only fills a gap |
 
 **How this differs from GA4.** GA4's last non-direct click credits the latest touch that is not
-direct, whatever it was: cases 1 and 5 go to the search and to ChatGPT. Here an ad click is not
+direct, whatever it was: cases 1, 5 and 9 go to the search, ChatGPT and the email. Here an ad click is not
 overwritten by the organic visit that follows it within the window, which is what a paid ROAS
 panel expects. The touchpoint layer still has every session's own touch, so the GA4-style figure
 is one query away, and `overridden` measures the difference.

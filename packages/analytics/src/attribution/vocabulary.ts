@@ -324,7 +324,7 @@ export type ReportedTouchKind = (typeof REPORTED_TOUCH_KINDS)[number];
 export const TOUCH_PRIORITY = {
   /**
    * utm, click id, ad landing page: someone tagged that link (in that order within a session) —
-   * unless the tag itself calls the touch organic or a referral, which then ranks as `referrer`
+   * unless the tag itself calls the touch organic, a referral or email, which then ranks as `referrer`
    */
   campaign: 1,
   /** a reported touch staff stand behind: a call on a channel's number, a recorded conversation */

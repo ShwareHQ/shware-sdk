@@ -110,8 +110,11 @@ describe('classifyTouch', () => {
       medium,
       channel_group: group,
       campaign,
-      // A utm that comes out organic was placed by no one who paid; it ranks with a referrer.
-      priority: group.startsWith('organic_') ? TOUCH_PRIORITY.referrer : TOUCH_PRIORITY.campaign,
+      // A utm that comes out organic or email was paid by no one; it ranks with a referrer.
+      priority:
+        group.startsWith('organic_') || group === 'email'
+          ? TOUCH_PRIORITY.referrer
+          : TOUCH_PRIORITY.campaign,
     });
   });
 
@@ -231,12 +234,13 @@ describe('classifyTouch', () => {
       channel: 'meta',
       ...referrer,
     });
-    // Tags someone placed keep the campaign tier: paid, email, affiliate, and the unknown.
+    // Email reaches people an ad may have brought; it does not take the ad's credit.
+    expect(classifyTouch({ utm_source: 'newsletter', utm_medium: 'email' })).toMatchObject(
+      referrer
+    );
+    // Tags someone placed and paid for keep the campaign tier: paid, affiliate, and the unknown.
     const campaign = { priority: TOUCH_PRIORITY.campaign };
     expect(classifyTouch({ utm_source: 'meta', utm_medium: 'paid_social' })).toMatchObject(
-      campaign
-    );
-    expect(classifyTouch({ utm_source: 'newsletter', utm_medium: 'email' })).toMatchObject(
       campaign
     );
     expect(classifyTouch({ utm_source: 'blog', utm_medium: 'affiliate' })).toMatchObject(campaign);
