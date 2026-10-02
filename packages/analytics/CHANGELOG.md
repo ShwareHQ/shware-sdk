@@ -1,5 +1,18 @@
 # @shware/analytics
 
+## 9.1.0
+
+### Minor Changes
+
+- 8a37b67: Google Ads (Data Manager API): new `actionType` option, `'webpage'` (default) or `'offline'`, for the kind of conversion action the events go to. A webpage action — the one the gtag tag reports to — accepts `eventSource` `WEB` or none, and fails the whole request on any other value, so non-web events are now sent there without `eventSource` instead of `APP` / `OTHER`. An offline (upload) action requires `eventSource` and keeps getting `WEB`, `APP` or `OTHER` from the platform.
+
+### Patch Changes
+
+- 8a37b67: The Conversions API senders leave out the events whose time their API rejects, instead of sending them: one out-of-range event fails the whole request on most of them, taking every valid event of the batch down with it. Meta, OpenAI, Reddit and Microsoft keep the last 7 days, LinkedIn the last 90; OpenAI also refuses more than 10 minutes ahead.
+- 8a37b67: OpenAI pixel and Conversions API: an amount is no longer sent without a currency, at the event or the item level, since OpenAI requires a `currency` with every `amount`; `toMinorUnits` returns undefined without one. A custom event's `custom_event_name` is made valid by the new `oaiCustomEventName` (1–64 letters, digits, `_` or `-`, starting and ending with a letter or digit, not a standard event name): `Sign Up.Clicked` becomes `sign_up_clicked`, and an event whose name cannot be made valid is not sent. The pixel and the server name it the same way, so the two still deduplicate.
+- 8a37b67: OpenAI pixel: `setOpenAIUser` sends the postal code as `postal_code`, the field the pixel documents, instead of `zip_code`, which it ignored. It also sends the hashed phone number, first and last name, and the region, normalized as OpenAI documents (the same `normalizeOAIPhone` / `normalizeOAIName` the Conversions API sender uses), and leaves the city's case to OpenAI.
+- 8a37b67: Reddit Conversions API: an offline or undeterminable event is sent with `action_source: 'OTHER'` instead of `'UNKNOWN'`, which is not one of Reddit's values (`WEBSITE`, `APP`, `PHYSICAL_STORE`, `OTHER`). Website events now carry `event_source_url`, from which Reddit reads the domain and, when `click_id` is missing, the click id.
+
 ## 9.0.1
 
 ### Patch Changes
