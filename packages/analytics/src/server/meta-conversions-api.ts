@@ -12,6 +12,7 @@ import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
+import { metaExtinfoVersion } from './meta-capi';
 import { pageLocation } from './page-location';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
@@ -120,15 +121,9 @@ function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: numbe
   return userData;
 }
 
-function getAppData(tags: TrackTags, appPackageName: string) {
+function getAppData(tags: TrackTags, appPackageName: string, version: 'i2' | 'a2') {
   const extinfo = new ExtendedDeviceInfo();
-  if (tags.os_name) {
-    if (tags.os_name === 'iOS' || tags.os_name === 'iPadOS') {
-      extinfo.setExtInfoVersion('i2');
-    } else if (tags.os_name === 'Android') {
-      extinfo.setExtInfoVersion('a2');
-    }
-  }
+  extinfo.setExtInfoVersion(version);
   extinfo.setAppPackageName(appPackageName);
   const shortVersion = tags.release?.split('.').at(0);
   if (shortVersion) {
@@ -158,12 +153,8 @@ function getAppData(tags: TrackTags, appPackageName: string) {
 
   const appData = new AppData();
   appData.setExtinfo(extinfo);
-  if (tags.install_referrer) {
-    appData.setInstallReferrer(tags.install_referrer);
-  }
-  if (tags.advertising_id) {
-    appData.setAdvertiserTrackingEnabled(true);
-  }
+  // Required on every app event; see `meta-capi.ts`.
+  appData.setAdvertiserTrackingEnabled(!!tags.advertising_id);
   if (tags.install_referrer) {
     appData.setInstallReferrer(tags.install_referrer);
   }
@@ -242,15 +233,18 @@ export function getServerEvent(
     .setCustomData(customData);
 
   const source = resolveActionSource(event.platform, actionSource);
-  if (source === 'app' && appPackageName) {
-    const appData = getAppData(event.tags, appPackageName);
-    serverEvent.setAppData(appData);
+  // An app event that cannot carry the required `app_data` — no package name, or a desktop OS —
+  // is sent as `other`, as in `meta-capi.ts`.
+  const version = metaExtinfoVersion(event.tags);
+  const app = source === 'app' && appPackageName && version ? version : undefined;
+  if (app && appPackageName) {
+    serverEvent.setAppData(getAppData(event.tags, appPackageName, app));
   }
   const eventSourceUrl = pageLocation(event.tags);
   if (eventSourceUrl) {
     serverEvent.setEventSourceUrl(eventSourceUrl);
   }
-  switch (source) {
+  switch (app ? 'app' : source === 'app' ? undefined : source) {
     case 'app':
       serverEvent.setActionSource('app');
       break;
@@ -328,6 +322,12 @@ export async function sendEvents(
     .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getServerEvent(event, data, appPackageName, actionSource));
   if (fbEvents.length === 0) return undefined;
+  // "The client_user_agent is required for website events"; see `meta-capi.ts`.
+  if (!data.user_agent && fbEvents.some((event) => event.action_source === 'website')) {
+    console.warn(
+      'Meta conversion: website events sent without client_user_agent (data.user_agent)'
+    );
+  }
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);
   try {

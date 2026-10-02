@@ -281,13 +281,25 @@ function getCustomData({ name, properties }: TrackEvent<any>): Record<string, un
  * decodes this into. Indexes: 0 version, 1 package, 2 short version, 3 long version, 4 OS
  * version, 5 device model, 6 locale, 9 screen width, 10 height, 11 density.
  */
-function getAppData(tags: TrackTags, appPackageName: string): Record<string, unknown> {
+/**
+ * The `extinfo` version of an app event's OS — `i2` for iOS, `a2` for Android, the only two Meta
+ * documents. Undefined for any other OS (a desktop app): such an event cannot carry the
+ * `app_data` an app event requires, and is sent as `other`.
+ * https://developers.facebook.com/docs/marketing-api/conversions-api/app-events
+ */
+export function metaExtinfoVersion(tags: TrackTags): 'i2' | 'a2' | undefined {
+  if (tags.os_name === 'iOS' || tags.os_name === 'iPadOS') return 'i2';
+  if (tags.os_name === 'Android') return 'a2';
+  return undefined;
+}
+
+function getAppData(
+  tags: TrackTags,
+  appPackageName: string,
+  version: 'i2' | 'a2'
+): Record<string, unknown> {
   const extinfo: Record<number, string | number> = {};
-  if (tags.os_name === 'iOS' || tags.os_name === 'iPadOS') {
-    extinfo[0] = 'i2';
-  } else if (tags.os_name === 'Android') {
-    extinfo[0] = 'a2';
-  }
+  extinfo[0] = version;
   extinfo[1] = appPackageName;
   const shortVersion = tags.release?.split('.').at(0);
   if (shortVersion) extinfo[2] = shortVersion;
@@ -299,8 +311,12 @@ function getAppData(tags: TrackTags, appPackageName: string): Record<string, unk
   if (tags.screen_height) extinfo[10] = tags.screen_height;
   if (tags.device_pixel_ratio) extinfo[11] = tags.device_pixel_ratio.toString();
 
-  const appData: Record<string, unknown> = { extinfo };
-  if (tags.advertising_id) appData.advertiser_tracking_enabled = true;
+  // Required on every app event. An advertising id is only readable once the user allowed
+  // tracking (ATT on iOS, the ad id setting on Android), so its presence is the answer.
+  const appData: Record<string, unknown> = {
+    extinfo,
+    advertiser_tracking_enabled: !!tags.advertising_id,
+  };
   if (tags.install_referrer) appData.install_referrer = tags.install_referrer;
   return appData;
 }
@@ -332,19 +348,25 @@ export function getCapiEvent(
   const eventTimeMs = new Date(event.created_at).getTime();
   const [_, eventName] = mapFBEvent(event.name, event.properties);
   const source = resolveActionSource(event.platform);
+  const version = metaExtinfoVersion(event.tags);
+  const app =
+    source === 'app' && appPackageName && version
+      ? { packageName: appPackageName, version }
+      : undefined;
 
   const capiEvent: CapiEvent = {
     event_name: eventName,
     event_time: Math.round(eventTimeMs / 1000),
     event_id: event.tags.idempotency_key ?? event.id,
     // `action_source` is required; an offline conversion and an undeterminable platform both
-    // land in Meta's catch-all, exactly as in the business-SDK sender.
-    action_source: source === 'app' ? 'app' : source === 'web' ? 'website' : 'other',
+    // land in Meta's catch-all, exactly as in the business-SDK sender. So does an app event that
+    // cannot carry the `app_data` Meta requires of one: no package name, or a desktop OS.
+    action_source: app ? 'app' : source === 'web' ? 'website' : 'other',
     user_data: getUserData(event.tags, data, eventTimeMs),
     custom_data: getCustomData(event),
   };
-  if (source === 'app' && appPackageName) {
-    capiEvent.app_data = getAppData(event.tags, appPackageName);
+  if (app) {
+    capiEvent.app_data = getAppData(event.tags, app.packageName, app.version);
   }
   const eventSourceUrl = pageLocation(event.tags);
   if (eventSourceUrl) {
@@ -393,6 +415,12 @@ export async function sendEvents(
     .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getCapiEvent(event, data, options.appPackageName));
   if (capiEvents.length === 0) return undefined;
+  // "The client_user_agent is required for website events" — sent from `data.user_agent`.
+  if (!data.user_agent && capiEvents.some((event) => event.action_source === 'website')) {
+    console.warn(
+      'Meta conversion: website events sent without client_user_agent (data.user_agent)'
+    );
+  }
 
   const version = options.apiVersion ?? API_VERSION;
   try {

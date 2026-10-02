@@ -78,10 +78,11 @@ export interface GoogleAdsConversionsOptions {
 /**
  * Google's email normalization is Meta's minus one wrinkle: for @gmail.com/@googlemail.com the
  * username's dots and everything from '+' on are removed; for every other domain they are kept.
- * https://developers.google.com/data-manager/api/devguides/format-data
+ * All whitespace goes — "leading, trailing and intermediate".
+ * https://developers.google.com/data-manager/api/devguides/concepts/formatting
  */
 export function normalizeEmail(input: string): string {
-  const email = input.trim().toLowerCase();
+  const email = input.replace(/\s+/g, '').toLowerCase();
   const at = email.lastIndexOf('@');
   if (at === -1) return email;
   let username = email.slice(0, at);
@@ -138,8 +139,10 @@ export interface DataManagerEvent {
 
 /**
  * Builds one Event, or undefined when no conversion action is configured for the event's name.
- * At most one click identifier is sent, gclid first: it is the deterministic per-click id,
- * where gbraid/wbraid are the aggregate iOS ones, and Google documents preferring it. Unlike
+ * The gclid goes with the gbraid when there are both — "we recommend setting both the GCLID and
+ * GBRAID" — and otherwise one click id: gclid, else gbraid, else wbraid (nothing documents a
+ * wbraid next to a gclid). https://developers.google.com/google-ads/api/docs/conversions/upload-clicks
+ * Unlike
  * the legacy upload, an event with no click id at all is still worth sending when it carries
  * user identifiers — that is the enhanced-conversions match path.
  */
@@ -183,7 +186,7 @@ export function getDataManagerEvent(
   };
 
   const { gclid, gbraid, wbraid } = googleClickIds(event.tags);
-  if (gclid) dmEvent.adIdentifiers = { gclid };
+  if (gclid) dmEvent.adIdentifiers = gbraid ? { gclid, gbraid } : { gclid };
   else if (gbraid) dmEvent.adIdentifiers = { gbraid };
   else if (wbraid) dmEvent.adIdentifiers = { wbraid };
 
