@@ -22,9 +22,11 @@ export interface ClickIdMiddlewareOptions {
    */
   refresh?: boolean;
   /**
-   * Override the `Cache-Control` of a response we attach cookies to (default `private, no-store`).
-   * A per-user `Set-Cookie` must never end up on a shared-cache entry, or one visitor's `_fbc` would
-   * be served to everyone. Only set this false if you guarantee these responses are never cached.
+   * The `Cache-Control` for a response we attach cookies to when it could otherwise be stored by a
+   * shared cache (default `private, no-store`): a per-user `Set-Cookie` must never end up on a
+   * shared-cache entry, or one visitor's `_fbc` would be served to everyone. A response already
+   * `private` or `no-store` keeps its own. Only set this false if you guarantee these responses
+   * are never cached.
    */
   cacheControl?: string | false;
   /**
@@ -32,6 +34,26 @@ export interface ClickIdMiddlewareOptions {
    * granted consent where required). Runs per request with the incoming `Request`.
    */
   shouldPersist?: (request: Request) => boolean;
+}
+
+/**
+ * Whether a response could be stored by a shared cache (a CDN) under its `Cache-Control`. One
+ * that is `private` or `no-store` already cannot, so a per-user `Set-Cookie` on it is safe as it
+ * is, and its own caching is kept — the gtag.js loader served through a first-party Google Tag
+ * Gateway (`private, max-age=…`) stays in the browser cache, where a browser never replays a
+ * `Set-Cookie`. Anything else — `public`, `s-maxage`, no header at all — might be shared, and is
+ * made uncacheable.
+ */
+function sharedCacheable(value: string | null): boolean {
+  if (!value) return true;
+  const directives = value
+    .toLowerCase()
+    .split(',')
+    .map((directive) => directive.trim());
+  return !directives.some(
+    (directive) =>
+      directive === 'private' || directive.startsWith('private=') || directive === 'no-store'
+  );
 }
 
 /**
@@ -83,7 +105,7 @@ export function createClickIdMiddleware(options: ClickIdMiddlewareOptions) {
       for (const header of toSetCookieHeaders(cookies)) {
         result.response.headers.append('set-cookie', header);
       }
-      if (cacheControl !== false) {
+      if (cacheControl !== false && sharedCacheable(result.response.headers.get('cache-control'))) {
         result.response.headers.set('cache-control', cacheControl);
       }
     }
