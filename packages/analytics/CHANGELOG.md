@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 10.3.0
+
+### Minor Changes
+
+- ddffc74: `classifyTouch` reads an Android app's referrer (`android-app://<package>`) as the site it stands for (`ANDROID_APP_HOSTS`): the Google app as a Google search, Gmail, LinkedIn, Reddit, Telegram and the other listed apps as their sites, an unlisted package as a referring host — before, every one of them was direct. Adds the `gmail` channel (`mail.google.com`, medium `email`, which was read as a Google search) and `telegram` (`t.me`, `telegram.org`). Reclassify stored sessions after upgrading.
+- ddffc74: `classifyTouch` counts a click id only when it has a value. Clients before mid-2025 wrote every missing URL parameter as `null` into the tags, and reading the key alone named those sessions Meta clicks — Google ad clicks among them, since `fbclid` is listed first. A null, empty, `undefined` or `null` string value is no click now. Reclassify stored sessions after upgrading.
+
 ## 10.2.1
 
 ### Patch Changes
