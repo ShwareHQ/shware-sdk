@@ -265,7 +265,6 @@ export const createVisitorSchema = object({
   platform: _enum(ALL_PLATFORMS),
   environment: _enum(ALL_ENVIRONMENTS),
   tags: tagsSchema,
-  properties: visitorPropertiesSchema,
 });
 
 const emailValue = pipe(string().check(trim(), toLowerCase(), maxLength(320)), email());

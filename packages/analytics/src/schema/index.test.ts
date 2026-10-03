@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createLinkSchema,
   createTrackEventSchema,
+  createVisitorSchema,
   propertiesSchema,
   tagsSchema,
   updateVisitorSchema,
@@ -183,5 +184,19 @@ describe('updateVisitorSchema', () => {
     expect(updateVisitorSchema.parse({ tags: { language: 'en' } })).toMatchObject({
       tags: { language: 'en' },
     });
+  });
+});
+
+describe('createVisitorSchema', () => {
+  it('drops the properties older clients still send, a copy of their tags', () => {
+    const parsed = createVisitorSchema.parse({
+      device_id: 'd',
+      platform: 'web',
+      environment: 'production',
+      tags: { language: 'en' },
+      properties: { language: 'en' },
+    });
+    expect(parsed).not.toHaveProperty('properties');
+    expect(parsed.tags).toEqual({ language: 'en' });
   });
 });
