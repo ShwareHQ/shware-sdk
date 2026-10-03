@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 11.1.0
+
+### Minor Changes
+
+- d616c6b: Drop visitor `properties` entirely: `updateVisitorSchema` no longer takes them, `setVisitor` no longer accepts them, and the GA user setter no longer forwards them as `user_properties`. No server has stored them since visitors keep tags only, and no host passes them. A body that still carries `properties` validates as before, the field left out. The `VisitorProperties` type stays: it types a visitor's tags.
+- d616c6b: `setVisitor` no longer sends the current page's tags: at sign-in the page is the login page, not where the visit came in, and the server already refreshes `visitor.tags` from each `session_start`. `updateVisitorSchema` takes `tags` as optional, so servers on this version accept a sign-in without them and still merge the tags of clients before 11.1. Upgrade the server before the clients.
+
+### Patch Changes
+
+- d616c6b: `createVisitorSchema` drops `properties`: clients before 11 sent a copy of their tags under it, which servers have ignored since they keep tags only. A body that still carries it validates as before, the field left out.
+
 ## 11.0.1
 
 ### Patch Changes
