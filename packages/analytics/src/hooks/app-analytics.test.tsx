@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
 vi.mock('../track/index', () => ({ track, sendBeacon: vi.fn() }));
-const syncVisitor = vi.fn(async () => {});
-vi.mock('../visitor/index', () => ({ syncVisitor }));
 
 const { appState } = vi.hoisted(() => ({
   appState: {
@@ -57,14 +55,6 @@ afterEach(() => {
 });
 
 describe('useAppAnalytics', () => {
-  it('syncs the visitor once per launch, not per screen', async () => {
-    const { Screen } = await mount();
-    const { rerender } = render(<Screen pathname="/home" />);
-    rerender(<Screen pathname="/settings" />);
-
-    expect(syncVisitor).toHaveBeenCalledTimes(1);
-  });
-
   it('sends first_open once ever, and screen_view per screen', async () => {
     const { Screen, storage } = await mount();
     const { rerender } = render(<Screen pathname="/home" />);

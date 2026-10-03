@@ -123,15 +123,15 @@ describe('a first visit', () => {
     expect(storage.map.get('session')).toContain([...sessionIds][0] as string);
   });
 
-  it('syncs the visitor with the backend exactly once, with a PATCH', async () => {
+  it('makes no visitor request: the events are all a visit sends', async () => {
     const { Page } = await launch();
     render(<Page pathname="/" />);
     present();
     await vi.advanceTimersByTimeAsync(2000);
 
-    const visitorCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/visitors'));
-    expect(visitorCalls).toHaveLength(1);
-    expect((visitorCalls[0][1] as RequestInit).method).toBe('PATCH');
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.some((url) => url.includes('/visitors'))).toBe(false);
+    expect(urls.some((url) => url.endsWith('/events'))).toBe(true);
   });
 });
 

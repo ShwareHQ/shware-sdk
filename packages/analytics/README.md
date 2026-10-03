@@ -69,20 +69,24 @@ for a round trip; before, a new visitor's events waited for `POST /visitors`, an
 before it returned lost them all, `session_start` included. An id a server issued to an older
 client is kept as it is, so the visitor continues.
 
-The server creates the visitor from whichever request names it first:
+A visit sends no visitor request: as in PostHog, where person properties ride on the events,
+the events are the visitor's record. The server:
 
-- **`POST /events`**: read the batch's visitors once — the query that also tells which of them
-  are bots — and create the missing ones before inserting the events, with
-  `insert ... on conflict (id) do nothing`. The conflict clause only settles two requests creating
-  the same new visitor at once: the second waits on the primary key until the first commits and
-  then does nothing, so the events' foreign key to the visitor holds. Build the row only for the
-  missing ids, from that visitor's first event in the batch: `device_id` from its tags (else the
-  visitor id), `platform` and `environment` from the event, its tags (with the request's
+- **creates the visitor from `POST /events`**: read the batch's visitors once — the query that also
+  tells which of them are bots — and create the missing ones before inserting the events, with
+  `insert ... on conflict (id) do nothing`. The conflict clause only settles two batches of the
+  same new visitor arriving at once: the second waits on the primary key until the first commits
+  and then does nothing, so the events' foreign key to the visitor holds. Build the row only for
+  the missing ids, from that visitor's first event in the batch: `device_id` from its tags (else
+  the visitor id), `platform` and `environment` from the event, its tags (with the request's
   geolocation and user agent) as both `tags` and `initial_tags`, and the bot verdict from them.
-- **`PATCH /visitors/:id`** (`getVisitor`, `setVisitor`): the same, when it lands first — the body
-  carries `device_id`, `platform` and `environment` for it (`updateVisitorSchema`).
-- **`POST /visitors`** (`createVisitorSchema`) is what clients before 11.0 call; keep it while
-  they are in use, and remove it once none are.
+- **refreshes `visitor.tags` from each `session_start`**: `tags` is the last-touch counterpart to
+  `initial_tags` (browser, release, landing), so once per session is enough, and the events route
+  already writes the session row there.
+- **creates it on `PATCH /visitors/:id` too** (`setVisitor`, a sign-in) should that land before
+  any event — the body carries `device_id`, `platform` and `environment` for it
+  (`updateVisitorSchema`); a body without them is an older client updating a visitor it has.
+- **keeps `POST /visitors`** (`createVisitorSchema`) while clients before 11.0 are in use.
 
 Deploy the server first: a server that only creates visitors on `POST /visitors` rejects the
 events of a new visitor from an 11.0 client (the foreign key fails).

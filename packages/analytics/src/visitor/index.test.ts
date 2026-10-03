@@ -60,43 +60,23 @@ describe('visitorId', () => {
   });
 });
 
-describe('syncVisitor', () => {
-  it('PATCHes the local id with the tags and what the server creates a new visitor with', async () => {
-    const { syncVisitor, visitorId, jsonResponse } = await load();
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'x', distinct_id: 'x' }));
-
-    await syncVisitor();
-
-    expect(calls()).toEqual([{ url: `https://api.test/visitors/${visitorId()}`, method: 'PATCH' }]);
-    expect(body()).toMatchObject({
-      device_id: expect.any(String),
-      platform: 'web',
-      environment: 'production',
-      tags: expect.any(Object),
-    });
-  });
-
-  it('never posts to create a visitor, and keeps the id when the PATCH fails', async () => {
-    const { syncVisitor, jsonResponse } = await load();
-    fetchMock.mockImplementation(async () => jsonResponse({ error: 'bad request' }, 400));
-
-    await expect(syncVisitor()).rejects.toThrow('Failed to sync visitor');
-    await expect(syncVisitor()).rejects.toThrow('Failed to sync visitor');
-    expect(calls().map((c) => c.method)).toEqual(['PATCH', 'PATCH']);
-    expect(calls()[0].url).toBe(calls()[1].url);
-  });
-});
-
 describe('setVisitor', () => {
   it('PATCHes the visitor and notifies the third-party setters', async () => {
     const setter = vi.fn();
-    const { setVisitor, config, jsonResponse } = await load();
+    const { setVisitor, visitorId, config, jsonResponse } = await load();
     config.thirdPartyUserSetters = [setter];
     fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1', distinct_id: 'u1' }));
 
     await setVisitor({ user_id: 'u1' });
 
-    expect(body()).toMatchObject({ user_id: 'u1', platform: 'web', device_id: expect.any(String) });
+    // Under the local id, with what the server creates the visitor with should it be the first.
+    expect(calls()).toEqual([{ url: `https://api.test/visitors/${visitorId()}`, method: 'PATCH' }]);
+    expect(body()).toMatchObject({
+      user_id: 'u1',
+      device_id: expect.any(String),
+      platform: 'web',
+      environment: 'production',
+    });
     // The setter is told the server's distinct_id, not anything the client sent.
     expect(setter).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'u1', distinct_id: 'u1' })
