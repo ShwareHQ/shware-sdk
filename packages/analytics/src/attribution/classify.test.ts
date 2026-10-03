@@ -534,6 +534,52 @@ describe('classifyTouch: what proves a paid click, and which tier a touch ranks 
   });
 });
 
+describe('classifyTouch: AI assistants (GEO) rank with organic search (SEO)', () => {
+  const seo = classifyTouch({ page_referrer: 'https://www.google.com/' });
+
+  it.each([
+    ['a referrer', { page_referrer: 'https://chatgpt.com/' }, 'chatgpt'],
+    ["ChatGPT's own utm", { utm_source: 'chatgpt.com' }, 'chatgpt'],
+    [
+      'a utm and its referrer',
+      { utm_source: 'chatgpt.com', page_referrer: 'https://chatgpt.com/' },
+      'chatgpt',
+    ],
+    ['Perplexity', { page_referrer: 'https://www.perplexity.ai/search?q=x' }, 'perplexity'],
+    ['a declared ai medium', { utm_source: 'newsletter-ai', utm_medium: 'ai' }, 'newsletter-ai'],
+  ] as const)(
+    'reads %s as organic_ai, in the same tier as an organic search',
+    (_, tags, channel) => {
+      expect(classifyTouch(tags)).toMatchObject({
+        channel,
+        channel_group: 'organic_ai',
+        priority: seo.priority,
+      });
+      expect(seo).toMatchObject({
+        channel_group: 'organic_search',
+        priority: TOUCH_PRIORITY.referrer,
+      });
+    }
+  );
+
+  it('keeps a ChatGPT ad apart: paid, ranked with the campaigns', () => {
+    expect(classifyTouch({ utm_source: 'chatgpt.com', oppref: 'O1' })).toMatchObject({
+      channel: 'chatgpt',
+      medium: 'cpc',
+      channel_group: 'paid_other',
+      priority: TOUCH_PRIORITY.campaign,
+    });
+  });
+
+  it('cannot see an AI visit that arrives with neither referrer nor utm', () => {
+    // The ChatGPT app, a link copied into the browser.
+    expect(classifyTouch(at('https://app.shware.net/pricing'))).toMatchObject({
+      channel: '(direct)',
+      priority: null,
+    });
+  });
+});
+
 describe('channelGroupOf', () => {
   it.each([
     ['(direct)', '(none)', 'direct'],
