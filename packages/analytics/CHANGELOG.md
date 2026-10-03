@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.3.2
+
+### Patch Changes
+
+- 919878d: Report the previous page as `page_referrer` after an in-app navigation, as GA4 does, instead of `document.referrer`, which a single page app never updates: a session opened later in the visit no longer counts the site the visit came from a second time.
+
 ## 11.3.1
 
 ### Patch Changes
