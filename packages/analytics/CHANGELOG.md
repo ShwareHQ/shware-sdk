@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 10.2.1
+
+### Patch Changes
+
+- b1c850f: Document how AI assistant visits (GEO) are classified and ranked with organic search, with worked cases, and test that they share its tier while ChatGPT's ad clicks stay paid.
+
 ## 10.2.0
 
 ### Minor Changes
