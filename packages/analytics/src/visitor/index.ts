@@ -24,7 +24,9 @@ export function visitorId(): string {
 
 export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
   const id = visitorId();
-  const body: UpdateVisitorDTO = { ...dto, tags: await config.getTags() };
+  // No tags: the server refreshes them from each session_start, where the visit came in. At
+  // sign-in the page is the login page, not the touch, and its tags would overwrite the landing's.
+  const body: UpdateVisitorDTO = { ...dto };
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
     method: 'PATCH',
     credentials: 'include',

@@ -81,8 +81,10 @@ the events are the visitor's record. The server:
   the visitor id), `platform` and `environment` from the event, its tags (with the request's
   geolocation and user agent) as both `tags` and `initial_tags`, and the bot verdict from them.
 - **refreshes `visitor.tags` from each `session_start`**: `tags` is the last-touch counterpart to
-  `initial_tags` (browser, release, landing), so once per session is enough, and the events route
-  already writes the session row there.
+  `initial_tags` (browser, release, landing), and a session's opening is where a visit came in, so
+  once per session is both enough and the right moment. `setVisitor` sends no tags (11.1): at
+  sign-in the page is the login page, and its tags would overwrite the landing's. Clients before
+  11.1 still send tags on their PATCH; merge them when present.
 - **does not create it on `PATCH /visitors/:id`** (`setVisitor`): that is a sign-in handing the
   user to the ad platforms' pixels and gtag, and by then the visitor's events have created it. On
   the rare page where a signed-in user's sign-in lands before the first batch of a new visitor id

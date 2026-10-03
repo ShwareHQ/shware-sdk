@@ -304,7 +304,12 @@ export const userProvidedDataSchema = object({
 export const updateVisitorSchema = object({
   user_id: optional(uuid()),
   user_data: optional(userProvidedDataSchema),
-  tags: tagsSchema,
+  /**
+   * Sent by clients before 11.1, which PATCHed their tags on every page load. From 11.1 the
+   * server refreshes `visitor.tags` from each `session_start` — the moment the visit arrives —
+   * and `setVisitor` sends none: at sign-in the page is no longer where the visit came in.
+   */
+  tags: optional(tagsSchema),
   properties: visitorPropertiesSchema,
 });
 
