@@ -24,20 +24,6 @@ export function visitorId(): string {
 }
 
 /**
- * What the server needs to create the visitor when this request is the first to name it; a
- * visitor it already has keeps its own. Optional in the schema, so an older server ignores them.
- */
-async function creationFields(): Promise<
-  Pick<UpdateVisitorDTO, 'device_id' | 'platform' | 'environment'>
-> {
-  return {
-    device_id: await config.getDeviceId(),
-    platform: config.platform,
-    environment: config.environment,
-  };
-}
-
-/**
  * PATCH, not GET: `tags` is the last-touch counterpart to `initial_tags`, and the only thing that
  * ever refreshed it was `setVisitor`, which hosts call when they identify a user. A visitor who
  * never signs in therefore kept the browser, screen, and release captured on their first ever page
@@ -46,7 +32,14 @@ async function creationFields(): Promise<
  */
 async function syncVisitor(): Promise<Visitor> {
   const id = visitorId();
-  const body: UpdateVisitorDTO = { ...(await creationFields()), tags: await config.getTags() };
+  // device_id, platform and environment are what the server creates the visitor with when this
+  // PATCH is the first request to name it; a visitor it already has keeps its own.
+  const body: UpdateVisitorDTO = {
+    device_id: await config.getDeviceId(),
+    platform: config.platform,
+    environment: config.environment,
+    tags: await config.getTags(),
+  };
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
     method: 'PATCH',
     credentials: 'include',
@@ -86,7 +79,9 @@ export async function setVisitor(
   const id = visitorId();
   const body: UpdateVisitorDTO = {
     ...dto,
-    ...(await creationFields()),
+    device_id: await config.getDeviceId(),
+    platform: config.platform,
+    environment: config.environment,
     tags: await config.getTags(),
   };
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
