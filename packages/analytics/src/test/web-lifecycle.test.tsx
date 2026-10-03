@@ -85,9 +85,7 @@ beforeEach(() => {
       });
     }
     // POST /visitors and PATCH /visitors/:id both answer the visitor.
-    return new Response(JSON.stringify({ id: '0199e7a0-0000-7000-8000-000000000001' }), {
-      status: 200,
-    });
+    return new Response(JSON.stringify({ id: 'visitor-1' }), { status: 200 });
   });
   vi.stubGlobal('fetch', fetchMock);
   Object.defineProperty(window.navigator, 'sendBeacon', { value: beaconMock, configurable: true });
@@ -152,10 +150,8 @@ describe('leaving before the first batch', () => {
 
   it('a returning visitor: the landing events and their session_start go by beacon, then the engagement', async () => {
     const { memoryStorage, jsonResponse } = await import('../test/setup');
-    fetchMock.mockResolvedValue(jsonResponse({ id: '0199e7a0-0000-7000-8000-000000000001' }));
-    const { Page } = await launch(
-      memoryStorage({ visitor_id: '0199e7a0-0000-7000-8000-000000000001' })
-    );
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'visitor-1' }));
+    const { Page } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
     render(<Page pathname="/" />);
     present();
     await hideEarly();
@@ -199,9 +195,7 @@ describe('leaving before the first batch', () => {
 describe('leaving through an outbound link', () => {
   it('the click tracked as the page goes is delivered by beacon, in the live session', async () => {
     const { memoryStorage } = await import('../test/setup');
-    const { Page, track } = await launch(
-      memoryStorage({ visitor_id: '0199e7a0-0000-7000-8000-000000000001' })
-    );
+    const { Page, track } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
     render(<Page pathname="/" />);
     present();
     await vi.advanceTimersByTimeAsync(2000); // the landing batch went out

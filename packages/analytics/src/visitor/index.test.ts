@@ -54,13 +54,9 @@ describe('visitorId', () => {
     expect(visitorId()).toBe('0199e7a0-0000-7000-8000-000000000001');
   });
 
-  it('replaces a stored value that is not a uuidv7', async () => {
-    for (const stored of ['undefined', 'legacy-int64-id', '9b2f7c1e-0d4a-4e8b-9c3f-2a1b0c9d8e7f']) {
-      const { visitorId, storage } = await load({ visitor_id: stored });
-      const id = visitorId();
-      expect(id).toMatch(uuidv7);
-      expect(storage.map.get('visitor_id')).toBe(id);
-    }
+  it("does not take a stored 'undefined' for an id", async () => {
+    const { visitorId } = await load({ visitor_id: 'undefined' });
+    expect(visitorId()).toMatch(uuidv7);
   });
 });
 

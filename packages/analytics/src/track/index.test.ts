@@ -11,7 +11,7 @@ const fetchMock = vi.fn();
 async function load(overrides: Partial<Options> = {}) {
   vi.stubGlobal('fetch', fetchMock);
   const { baseOptions, memoryStorage, jsonResponse } = await import('../test/setup');
-  const storage = memoryStorage({ visitor_id: '0199e7a0-0000-7000-8000-000000000001' });
+  const storage = memoryStorage({ visitor_id: 'visitor-1' });
   const setup = await import('../setup/index');
   setup.setupAnalytics(baseOptions({ storage, ...overrides }));
   const track = await import('./index');
@@ -92,7 +92,7 @@ describe('batching', () => {
     const [batch] = sentBatches();
     for (const event of batch.body) {
       expect(event).toMatchObject({
-        visitor_id: '0199e7a0-0000-7000-8000-000000000001',
+        visitor_id: 'visitor-1',
         platform: 'web',
         environment: 'production',
       });
@@ -481,10 +481,7 @@ describe('sendPendingEvents', () => {
 
     const sent = await beaconed(0);
     expect(sent.map((e) => e.name)).toEqual(['session_start', 'page_view']);
-    expect(sent[0]).toMatchObject({
-      tags: { utm_source: 'google' },
-      visitor_id: '0199e7a0-0000-7000-8000-000000000001',
-    });
+    expect(sent[0]).toMatchObject({ tags: { utm_source: 'google' }, visitor_id: 'visitor-1' });
     expect(onSucceed).toHaveBeenCalledWith(undefined);
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -561,7 +558,7 @@ describe('sendBeacon', () => {
 
   it('falls back to the stored visitor id before the first batch has returned', async () => {
     const { sendBeacon, storage } = await load();
-    storage.map.set('visitor_id', '0199e7a0-0000-7000-8000-000000000002');
+    storage.map.set('visitor_id', 'stored-visitor');
     storage.map.set('session', `1.live-session.${Date.now()}`);
 
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
@@ -569,7 +566,7 @@ describe('sendBeacon', () => {
     expect(beacon).toHaveBeenCalledTimes(1);
     const [, blob] = beacon.mock.calls[0] as unknown as [string, Blob];
     const [event] = JSON.parse(await blob.text());
-    expect(event.visitor_id).toBe('0199e7a0-0000-7000-8000-000000000002');
+    expect(event.visitor_id).toBe('stored-visitor');
     expect(event.tags).toEqual({});
     // A CORS simple request: no preflight for a closing page to wait on.
     expect(blob.type).toBe('text/plain;charset=utf-8');

@@ -58,9 +58,7 @@ beforeEach(() => {
         { status: 200 }
       );
     }
-    return new Response(JSON.stringify({ id: '0199e7a0-0000-7000-8000-000000000001' }), {
-      status: 200,
-    });
+    return new Response(JSON.stringify({ id: 'visitor-1' }), { status: 200 });
   });
 });
 
