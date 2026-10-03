@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.3.1
+
+### Patch Changes
+
+- acf0fcf: `useAppAnalytics` sends the queue as soon as the app goes to the background, after its engagement event, instead of after the batch delay: the app may be suspended or killed before that, losing the queue — a new session's `session_start` among it.
+
 ## 11.3.0
 
 ### Minor Changes
