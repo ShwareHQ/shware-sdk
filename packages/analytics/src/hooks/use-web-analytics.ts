@@ -4,6 +4,7 @@ import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { sendBeacon, sendPendingEvents, track } from '../track/index';
+import { getVisitor } from '../visitor/index';
 import { getPageKey } from '../web/page-key';
 import { usePrevious } from './use-previous';
 
@@ -58,7 +59,7 @@ function onVisibilityChange() {
 }
 
 /**
- * 1. send session_start event when the page is loaded
+ * 1. sync the visitor (`getVisitor`) once per page load
  * 2. send scroll event when the user scrolls more than 90% of the page
  * 3. send user_engagement event when the page is hidden or the user is not focused
  * 4. send page_view when the page changes — path or query, see `getPageKey`; `search` is the
@@ -81,6 +82,9 @@ export function useWebAnalytics(pathname: string, search: string) {
     // `removeEventListener` have to be handed the very same function.
     const session = getSession();
 
+    // Refresh the visitor's tags once per page load. Events do not wait for it: they carry the
+    // local `visitorId()`, and the server creates the visitor from whichever request lands first.
+    void getVisitor().catch(() => undefined);
     sendFirstVisit(pathname);
 
     const onScroll = throttle(() => {

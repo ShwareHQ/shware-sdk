@@ -119,44 +119,16 @@ describe('the visitor', () => {
     expect(batch?.body.every((e) => e.visitor_id === id)).toBe(true);
   });
 
-  it('events do not wait for the visitor sync, which runs alongside once', async () => {
+  it('sending never touches the visitor endpoint: the id is all an event needs', async () => {
     const { track, cache } = await load();
     cache.visitor = null;
-    // The PATCH never answers.
-    fetchMock.mockImplementation(async (url: string, init: RequestInit) =>
-      url.includes('/visitors/')
-        ? new Promise<Response>(() => {})
-        : new Response(
-            JSON.stringify((JSON.parse(init.body as string) as unknown[]).map(() => ({})))
-          )
-    );
+    respondWithIds();
 
     track('custom_action', { i: 0 });
     await vi.advanceTimersByTimeAsync(2000);
-    track('custom_action', { i: 1 });
-    await vi.advanceTimersByTimeAsync(2000);
 
     const urls = fetchMock.mock.calls.map(([url]) => url as string);
-    expect(urls.filter((url) => url.endsWith('/events'))).toHaveLength(2);
-    expect(urls.filter((url) => url.includes('/visitors/visitor-1'))).toHaveLength(1);
-  });
-
-  it('a failed visitor sync costs no event', async () => {
-    const { track, cache, jsonResponse } = await load();
-    cache.visitor = null;
-    const onSucceed = vi.fn();
-    fetchMock.mockImplementation(async (url: string, init: RequestInit) =>
-      url.includes('/visitors/')
-        ? jsonResponse('bad request', 400)
-        : new Response(
-            JSON.stringify((JSON.parse(init.body as string) as unknown[]).map(() => ({})))
-          )
-    );
-
-    track('custom_action', { a: 1 }, { onSucceed });
-    await vi.advanceTimersByTimeAsync(2000);
-
-    expect(onSucceed).toHaveBeenCalledTimes(1);
+    expect(urls).toEqual(['https://api.test/events']);
   });
 });
 

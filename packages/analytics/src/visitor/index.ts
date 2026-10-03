@@ -62,8 +62,9 @@ async function syncVisitor(): Promise<Visitor> {
 let visitorFetcher: Promise<Visitor> | null = null;
 
 /**
- * The server's view of this visitor, synced once per page. Events do not wait for it — they only
- * need `visitorId()` — so a slow or failed request costs no event.
+ * The server's view of this visitor, synced once per page load: `useWebAnalytics` and
+ * `useAppAnalytics` call it on mount, and later callers get the cached copy. Sending events never
+ * calls it — they only need `visitorId()` — so a slow or failed request costs no event.
  */
 export async function getVisitor(): Promise<Visitor> {
   if (cache.visitor) return cache.visitor;

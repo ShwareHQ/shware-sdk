@@ -3,7 +3,7 @@ import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { getVisitor, visitorId } from '../visitor/index';
+import { visitorId } from '../visitor/index';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
 
 export interface TrackOptions {
@@ -112,8 +112,6 @@ async function flush() {
   try {
     await getTokenBucket().removeTokens();
     const visitor_id = visitorId();
-    // The server's view of the visitor, synced once per page alongside: no event waits for it.
-    void getVisitor().catch(() => undefined);
     const headers = await config.getHeaders();
     // Settled before the events leave the queue; those queued meanwhile are a microtask away.
     await Promise.all(list.map((event) => event.tags));
