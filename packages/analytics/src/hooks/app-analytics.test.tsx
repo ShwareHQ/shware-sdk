@@ -3,7 +3,8 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
-vi.mock('../track/index', () => ({ track, sendBeacon: vi.fn() }));
+const sendPendingEvents = vi.fn();
+vi.mock('../track/index', () => ({ track, sendBeacon: vi.fn(), sendPendingEvents }));
 
 const { appState } = vi.hoisted(() => ({
   appState: {
@@ -124,6 +125,22 @@ describe('useAppAnalytics', () => {
     // A second background transition without foreground activity adds nothing.
     setAppState('inactive');
     expect(track.mock.calls.filter(([name]) => name === 'user_engagement')).toHaveLength(1);
+  });
+
+  it('sends the queue as the app goes to background, after the engagement', async () => {
+    const { Screen, session } = await mount();
+    render(<Screen pathname="/home" />);
+    setAppState('active'); // the session is shared: a test before may have left it backgrounded
+    session.flush();
+
+    setAppState('background');
+
+    expect(sendPendingEvents).toHaveBeenCalledTimes(1);
+    const engagement = track.mock.invocationCallOrder.at(-1) ?? 0;
+    expect(sendPendingEvents.mock.invocationCallOrder[0]).toBeGreaterThan(engagement);
+    // Not again while it stays in the background.
+    setAppState('inactive');
+    expect(sendPendingEvents).toHaveBeenCalledTimes(1);
   });
 
   it('backgrounded time is not engagement; returning to foreground resumes the clock', async () => {

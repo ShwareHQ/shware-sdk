@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
-import { track } from '../track/index';
+import { sendPendingEvents, track } from '../track/index';
 import { usePrevious } from './use-previous';
 
 function sendFirstOpen(pathname: string) {
@@ -36,6 +36,10 @@ export function useAppAnalytics(pathname: string) {
       else if (state !== 'active' && session.isActive()) {
         session.updateActive(false);
         sendUserEngagement();
+        // The app may be suspended or killed soon after going to the background: send the queue
+        // now rather than after the batch delay — a new session's session_start may be in it.
+        // React Native has no beacon, so this is the usual send, started at once.
+        sendPendingEvents();
       }
     });
 
