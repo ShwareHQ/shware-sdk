@@ -30,12 +30,34 @@ export function getDeviceId() {
  * `useWebAnalytics`): the id exists to link an event to the `page_view` of the page it happened
  * on, so it must rotate exactly when a `page_view` is sent — path or query change, yes; hash
  * change or tracking-parameter cleanup, no.
+ *
+ * `referrer` is the page's referrer as GA4 reports it in a single page app: `document.referrer`
+ * for the document's first page, and the previous page's URL after an in-app navigation. The
+ * browser never updates `document.referrer` on a `pushState`, so read alone it would name the
+ * site the visit came from on every later page — and a session opened there, after 30 minutes
+ * idle, would count that site as a second visit from it. With the previous page as its referrer,
+ * that session's referrer is the product's own host: no touch, a direct session, which the
+ * attribution view then credits to the touch before it.
  */
-let pageLoad: { page: string; id: string } | undefined;
+let pageLoad: { page: string; id: string; href: string; referrer: string | undefined } | undefined;
 
-function getPageLoadId(page: string): string {
-  if (pageLoad?.page !== page) pageLoad = { page, id: randomUUID() };
-  return pageLoad.id;
+function currentPage() {
+  const href = window.location.href;
+  const page = getPageKey(window.location.pathname, window.location.search);
+  if (pageLoad?.page === page) {
+    // The same page, its URL maybe cleaned of tracking parameters since: the next page's
+    // referrer is the URL as it last was, as the browser's own would be.
+    pageLoad.href = href;
+    return pageLoad;
+  }
+  const referrer = pageLoad ? pageLoad.href : document.referrer || undefined;
+  pageLoad = { page, id: randomUUID(), href, referrer };
+  return pageLoad;
+}
+
+/** The current page's referrer: see `pageLoad`. */
+export function getPageReferrer(): string | undefined {
+  return currentPage().referrer;
 }
 
 const links = new Map<string, Promise<Link | null>>();
@@ -66,8 +88,7 @@ export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
   // page app can navigate while the link lookup below is still in flight.
   const page_location = window.location.href;
-  const page_load_id = getPageLoadId(getPageKey(window.location.pathname, window.location.search));
-  const page_referrer = document.referrer || undefined;
+  const { id: page_load_id, referrer: page_referrer } = currentPage();
   const page_title = document.title;
 
   parser ??= Bowser.getParser(window.navigator.userAgent);
