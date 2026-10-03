@@ -83,9 +83,11 @@ the events are the visitor's record. The server:
 - **refreshes `visitor.tags` from each `session_start`**: `tags` is the last-touch counterpart to
   `initial_tags` (browser, release, landing), so once per session is enough, and the events route
   already writes the session row there.
-- **creates it on `PATCH /visitors/:id` too** (`setVisitor`, a sign-in) should that land before
-  any event — the body carries `device_id`, `platform` and `environment` for it
-  (`updateVisitorSchema`); a body without them is an older client updating a visitor it has.
+- **does not create it on `PATCH /visitors/:id`** (`setVisitor`): that is a sign-in handing the
+  user to the ad platforms' pixels and gtag, and by then the visitor's events have created it. On
+  the rare page where a signed-in user's sign-in lands before the first batch of a new visitor id
+  (storage cleared, the session kept), answer 404: `setVisitor` rejects, and the next page load
+  sets the user.
 - **keeps `POST /visitors`** (`createVisitorSchema`) while clients before 11.0 are in use.
 
 Deploy the server first: a server that only creates visitors on `POST /visitors` rejects the

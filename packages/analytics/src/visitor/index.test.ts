@@ -69,14 +69,9 @@ describe('setVisitor', () => {
 
     await setVisitor({ user_id: 'u1' });
 
-    // Under the local id, with what the server creates the visitor with should it be the first.
+    // Under the local id.
     expect(calls()).toEqual([{ url: `https://api.test/visitors/${visitorId()}`, method: 'PATCH' }]);
-    expect(body()).toMatchObject({
-      user_id: 'u1',
-      device_id: expect.any(String),
-      platform: 'web',
-      environment: 'production',
-    });
+    expect(body()).toMatchObject({ user_id: 'u1', tags: expect.any(Object) });
     // The setter is told the server's distinct_id, not anything the client sent.
     expect(setter).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'u1', distinct_id: 'u1' })

@@ -8,12 +8,11 @@ import type { Visitor } from './types';
 /**
  * This visitor's id: generated here on the first visit (uuidv7) and kept in `config.storage`, so
  * it exists the moment the page loads. The first events, and the beacon of a visit left within a
- * second, go out without waiting for a round trip; the server creates the visitor from whichever
- * request naming it lands first — an events batch, or the PATCH of `setVisitor`. An id a server
- * issued to an older client is kept as it is: the visitor continues.
+ * second, go out without waiting for a round trip; the server creates the visitor from its first
+ * events. An id a server issued to an older client is kept as it is: the visitor continues.
  *
- * Needs a server that creates visitors from those requests (see the README, "Visitors"); one that
- * still only creates them on `POST /visitors` rejects the events of a new visitor.
+ * Needs a server that creates visitors from events (see the README, "Visitors"); one that still
+ * only creates them on `POST /visitors` rejects the events of a new visitor.
  */
 export function visitorId(): string {
   const stored = config.storage.getItem(keys.visitor_id);
@@ -23,20 +22,9 @@ export function visitorId(): string {
   return id;
 }
 
-export async function setVisitor(
-  dto: Omit<UpdateVisitorDTO, 'tags' | 'device_id' | 'platform' | 'environment'>
-) {
+export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
   const id = visitorId();
-  // device_id, platform and environment are what the server creates the visitor with should this
-  // PATCH be the first request to name it (a sign-in before any event has landed); a visitor it
-  // already has keeps its own.
-  const body: UpdateVisitorDTO = {
-    ...dto,
-    device_id: await config.getDeviceId(),
-    platform: config.platform,
-    environment: config.environment,
-    tags: await config.getTags(),
-  };
+  const body: UpdateVisitorDTO = { ...dto, tags: await config.getTags() };
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
     method: 'PATCH',
     credentials: 'include',
