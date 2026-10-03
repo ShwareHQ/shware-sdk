@@ -28,8 +28,6 @@ export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
     method: 'PATCH',
     credentials: 'include',
     headers: await config.getHeaders(),
-    // No tags: the server refreshes them from each session_start, where the visit came in. At
-    // sign-in the page is the login page, not the touch, and its tags would overwrite the landing's.
     body: JSON.stringify(dto),
   });
 
