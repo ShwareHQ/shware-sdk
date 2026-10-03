@@ -20,12 +20,11 @@ export function sendGAEvent<T extends EventName>(
   window.gtag('event', name, properties);
 }
 
-export function setGAUser({ user_id, user_data, properties }: UpdateVisitorDTO) {
+export function setGAUser({ user_id, user_data }: UpdateVisitorDTO) {
   if (typeof window === 'undefined' || !window.gtag) {
     console.warn('GA has not been initialized');
     return;
   }
   if (user_id) window.gtag('set', 'user_id', user_id);
   if (user_data) window.gtag('set', 'user_data', user_data);
-  if (properties) window.gtag('set', 'user_properties', properties as never);
 }

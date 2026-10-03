@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createLinkSchema,
   createTrackEventSchema,
+  createVisitorSchema,
   propertiesSchema,
   tagsSchema,
+  updateVisitorSchema,
   userProvidedDataSchema,
 } from './index';
 
@@ -172,5 +174,29 @@ describe('createLinkSchema', () => {
 
   it('requires source, medium and campaign', () => {
     expect(() => createLinkSchema.parse({ url: 'https://x.test', utm_source: 'a' })).toThrow();
+  });
+});
+
+describe('updateVisitorSchema', () => {
+  it('takes a sign-in without tags, and an older client that still sends them', () => {
+    const user_id = '0199e7a0-0000-7000-8000-000000000001';
+    expect(updateVisitorSchema.parse({ user_id })).toEqual({ user_id });
+    expect(updateVisitorSchema.parse({ tags: { language: 'en' } })).toMatchObject({
+      tags: { language: 'en' },
+    });
+  });
+});
+
+describe('createVisitorSchema', () => {
+  it('drops the properties older clients still send, a copy of their tags', () => {
+    const parsed = createVisitorSchema.parse({
+      device_id: 'd',
+      platform: 'web',
+      environment: 'production',
+      tags: { language: 'en' },
+      properties: { language: 'en' },
+    });
+    expect(parsed).not.toHaveProperty('properties');
+    expect(parsed.tags).toEqual({ language: 'en' });
   });
 });

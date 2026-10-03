@@ -202,14 +202,6 @@ export const propertiesSchema = optional(
   )
 );
 
-/** Visitor properties differ from event properties only in taking no nested item lists. */
-const visitorPropertiesSchema = optional(
-  pipe(
-    record(string(), union([propertyText, number(), boolean(), _null()])),
-    transform(takeProperties)
-  )
-);
-
 /**
  * How far an event's time may be from the server's before the client clock it was stamped with is
  * taken as wrong. A batch legitimately arrives late — a tab frozen in the background, a
@@ -265,7 +257,6 @@ export const createVisitorSchema = object({
   platform: _enum(ALL_PLATFORMS),
   environment: _enum(ALL_ENVIRONMENTS),
   tags: tagsSchema,
-  properties: visitorPropertiesSchema,
 });
 
 const emailValue = pipe(string().check(trim(), toLowerCase(), maxLength(320)), email());
@@ -304,8 +295,12 @@ export const userProvidedDataSchema = object({
 export const updateVisitorSchema = object({
   user_id: optional(uuid()),
   user_data: optional(userProvidedDataSchema),
-  tags: tagsSchema,
-  properties: visitorPropertiesSchema,
+  /**
+   * Sent by clients before 11.1, which PATCHed their tags on every page load. From 11.1 the
+   * server refreshes `visitor.tags` from each `session_start` — the moment the visit arrives —
+   * and `setVisitor` sends none: at sign-in the page is no longer where the visit came in.
+   */
+  tags: optional(tagsSchema),
 });
 
 export const createFeedbackSchema = object({
