@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.3.0
+
+### Minor Changes
+
+- 08ed82c: OpenAI Conversions API: send the app events — `first_open` as `app_installed` and `app_open` as `app_opened` (`customer_action`) — for events from an app only, with `action_source` `mobile_app`, as OpenAI takes them through the Conversions API alone; the pixel never sends them.
+
 ## 11.2.0
 
 ### Minor Changes
