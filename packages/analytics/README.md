@@ -85,11 +85,15 @@ the events are the visitor's record. The server:
   once per session is both enough and the right moment. `setVisitor` sends no tags (11.1): at
   sign-in the page is the login page, and its tags would overwrite the landing's. Clients before
   11.1 still send tags on their PATCH; merge them when present.
-- **does not create it on `PATCH /visitors/:id`** (`setVisitor`): that is a sign-in handing the
-  user to the ad platforms' pixels and gtag, and by then the visitor's events have created it. On
-  the rare page where a signed-in user's sign-in lands before the first batch of a new visitor id
-  (storage cleared, the session kept), answer 404: `setVisitor` rejects, and the next page load
-  sets the user.
+- **binds it to the user from an `identify` event** (`IDENTIFY_EVENT`): `setVisitor` (11.2) sends no
+  request of its own — it hands the user to gtag and the pixels at once, and queues
+  `identify` with `{ user_id }` when the user differs from the one the page last identified. In
+  the batch's transaction, after creating the visitor, set its `user_id` and `distinct_id` to that
+  user (taking only a valid uuid, so a host's own event of that name binds nothing). Creation and
+  binding then travel in one request, in order: the binding can never arrive before the visitor.
+  `identify` is the SDK's: never forward it to the ad platforms or a CRM.
+- **keeps `PATCH /visitors/:id`** for clients before 11.2, which bind the user there — answer 404
+  for a visitor no event has created, and merge the `tags` of clients before 11.1 when present.
 - **keeps `POST /visitors`** (`createVisitorSchema`) while clients before 11.0 are in use.
 
 Deploy the server first: a server that only creates visitors on `POST /visitors` rejects the

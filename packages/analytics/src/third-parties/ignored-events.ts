@@ -45,4 +45,7 @@ const AUTOMATICALLY_COLLECTED_EVENTS = [
   'user_engagement',
 ];
 
-export const IGNORED_EVENTS = [...METRICS_EVENTS, ...AUTOMATICALLY_COLLECTED_EVENTS];
+/** The SDK's own: the server binds the visitor to the user from it; no third party has a use for it. */
+const SDK_EVENTS = ['identify'];
+
+export const IGNORED_EVENTS = [...METRICS_EVENTS, ...AUTOMATICALLY_COLLECTED_EVENTS, ...SDK_EVENTS];
