@@ -347,7 +347,7 @@ describe('sendUETEvent', () => {
         }
       }
     );
-    const visitor = await import('../visitor/index');
+    const visitor = await import('../visitor/id');
     vi.spyOn(visitor, 'visitorId').mockReturnValue('vid-9');
 
     // Unconfigured: nothing goes out, and the visitor is not even fetched.

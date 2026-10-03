@@ -1,50 +1,43 @@
-import { fetch } from '@shware/utils';
-import { v7 as uuidv7 } from 'uuid';
-import { keys } from '../constants/storage';
 import type { UpdateVisitorDTO } from '../schema/index';
 import { config } from '../setup/index';
-import type { Visitor } from './types';
+import { track } from '../track/index';
+
+export { visitorId } from './id';
 
 /**
- * This visitor's id: generated here on the first visit (uuidv7) and kept in `config.storage`, so
- * it exists the moment the page loads. The first events, and the beacon of a visit left within a
- * second, go out without waiting for a round trip; the server creates the visitor from its first
- * events. An id a server issued to an older client is kept as it is: the visitor continues.
- *
- * Needs a server that creates visitors from events (see the README, "Visitors"); one that still
- * only creates them on `POST /visitors` rejects the events of a new visitor.
+ * The event that binds the visitor to the user who signed in on it: the server sets the visitor's
+ * `user_id` and `distinct_id` from its `user_id` property, in the transaction that stores the
+ * batch — which also creates the visitor when it is new, so the binding can never arrive before it.
  */
-export function visitorId(): string {
-  const stored = config.storage.getItem(keys.visitor_id);
-  if (stored && stored !== 'undefined') return stored;
-  const id = uuidv7();
-  config.storage.setItem(keys.visitor_id, id);
-  return id;
-}
+export const IDENTIFY_EVENT = 'identify';
 
-export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
-  const id = visitorId();
-  const response = await fetch(`${config.endpoint}/visitors/${id}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: await config.getHeaders(),
-    body: JSON.stringify(dto),
-  });
+/** The user this page has identified the visitor as: identify once per user, not per call. */
+let identified: string | undefined;
 
-  if (!response.ok) throw new Error('Failed to set visitor');
-  const data = (await response.json()) as Visitor;
+/**
+ * Hands the signed-in user to the analytics: the third-party user setters (gtag, the pixels) now,
+ * and the server through an `identify` event, sent when the user differs from the one this page
+ * last identified — a host calls this on every page load once someone is signed in. Like any
+ * event it goes with the next batch or the page-hide beacon; `user_data` is handed to the setters
+ * only, never stored with the event.
+ *
+ * Synchronous and never throws: sign-in must not fail on analytics.
+ */
+export function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
+  if (dto.user_id && dto.user_id !== identified) {
+    identified = dto.user_id;
+    track(IDENTIFY_EVENT, { user_id: dto.user_id }, { enableThirdPartyTracking: false });
+  }
 
-  // Setters get the server's distinct_id — the person the visitor now belongs to — not anything
-  // the client could have said about it.
-  const identity = { ...dto, distinct_id: data.distinct_id ?? null };
+  // Once bound, the server's person key for the visitor is the user's id, so the setters are told
+  // that rather than waiting for the server to say it.
+  const identity = { ...dto, distinct_id: dto.user_id ?? null };
   config.thirdPartyUserSetters.forEach((setter) => {
     try {
       setter(identity);
     } catch (e: unknown) {
-      // The visitor was updated before this ran, so a third-party setter throwing must not reject
-      // a call that already succeeded.
+      // One third-party script does not get to stop the others.
       if (e instanceof Error) console.log(e.message);
     }
   });
-  return data;
 }

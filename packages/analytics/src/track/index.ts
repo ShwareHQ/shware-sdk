@@ -3,7 +3,7 @@ import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { visitorId } from '../visitor/index';
+import { visitorId } from '../visitor/id';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
 
 export interface TrackOptions {

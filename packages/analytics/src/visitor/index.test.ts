@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchMock = vi.fn();
+const track = vi.fn();
+vi.mock('../track/index', () => ({ track }));
 
 async function load(seed: Record<string, string> = {}) {
   vi.stubGlobal('fetch', fetchMock);
@@ -12,16 +14,10 @@ async function load(seed: Record<string, string> = {}) {
   return { storage, cache: setup.cache, config: setup.config, jsonResponse, ...visitor };
 }
 
-function calls() {
-  return fetchMock.mock.calls.map((call) => {
-    const [url, init] = call as [string, RequestInit];
-    return { url, method: init.method };
-  });
-}
-
 beforeEach(() => {
   vi.resetModules();
   fetchMock.mockReset();
+  track.mockReset();
 });
 
 afterEach(() => {
@@ -29,13 +25,6 @@ afterEach(() => {
 });
 
 const uuidv7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-function body(call = 0) {
-  return JSON.parse((fetchMock.mock.calls[call][1] as RequestInit).body as string) as Record<
-    string,
-    unknown
-  >;
-}
 
 describe('visitorId', () => {
   it('generates a uuidv7 on the first visit and keeps it, without a request', async () => {
@@ -61,40 +50,62 @@ describe('visitorId', () => {
 });
 
 describe('setVisitor', () => {
-  it('PATCHes the visitor and notifies the third-party setters', async () => {
-    const setter = vi.fn();
-    const { setVisitor, visitorId, config, jsonResponse } = await load();
-    config.thirdPartyUserSetters = [setter];
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1', distinct_id: 'u1' }));
+  it('identifies the user once per page, and again only for another user', async () => {
+    const { setVisitor, IDENTIFY_EVENT } = await load();
 
-    await setVisitor({ user_id: 'u1' });
-
-    // Under the local id.
-    expect(calls()).toEqual([{ url: `https://api.test/visitors/${visitorId()}`, method: 'PATCH' }]);
-    expect(body()).toEqual({ user_id: 'u1' });
-    // The setter is told the server's distinct_id, not anything the client sent.
-    expect(setter).toHaveBeenCalledWith(
-      expect.objectContaining({ user_id: 'u1', distinct_id: 'u1' })
+    setVisitor({ user_id: 'u1' });
+    setVisitor({ user_id: 'u1' }); // the host calls it on every page load and auth event
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'u1' },
+      { enableThirdPartyTracking: false }
     );
+
+    setVisitor({ user_id: 'u2' });
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenLastCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'u2' },
+      { enableThirdPartyTracking: false }
+    );
+    // No request of its own: the binding rides on the events.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('a throwing setter does not reject a PATCH that already succeeded', async () => {
+  it('tells the third-party setters at once, with the user as the distinct id', async () => {
+    const setter = vi.fn();
+    const { setVisitor, config } = await load();
+    config.thirdPartyUserSetters = [setter];
+    const user_data = { email: 'a@b.co' };
+
+    setVisitor({ user_id: 'u1', user_data });
+
+    expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data, distinct_id: 'u1' });
+  });
+
+  it('identifies nobody without a user id, and still hands user_data to the setters', async () => {
+    const setter = vi.fn();
+    const { setVisitor, config } = await load();
+    config.thirdPartyUserSetters = [setter];
+
+    setVisitor({ user_data: { email: 'a@b.co' } });
+
+    expect(track).not.toHaveBeenCalled();
+    expect(setter).toHaveBeenCalledWith({ user_data: { email: 'a@b.co' }, distinct_id: null });
+  });
+
+  it('never throws: a setter that throws does not stop the others', async () => {
     const bad = vi.fn(() => {
       throw new Error('pixel not loaded');
     });
     const good = vi.fn();
-    const { setVisitor, config, jsonResponse } = await load();
+    const { setVisitor, config } = await load();
     config.thirdPartyUserSetters = [bad, good];
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1' }));
+    vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await expect(setVisitor({ user_id: 'u1' })).resolves.toBeDefined();
+    expect(() => setVisitor({ user_id: 'u1' })).not.toThrow();
     expect(good).toHaveBeenCalled();
-  });
-
-  it('throws when the PATCH fails', async () => {
-    const { setVisitor, jsonResponse } = await load();
-    fetchMock.mockResolvedValue(jsonResponse('nope', 400));
-
-    await expect(setVisitor({ user_id: 'u1' })).rejects.toThrow('Failed to set visitor');
+    expect(track).toHaveBeenCalledTimes(1);
   });
 });

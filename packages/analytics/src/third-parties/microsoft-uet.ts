@@ -3,7 +3,7 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { type UETConsent, type UETQ, mapUETEvent } from '../track/uetq';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
-import { visitorId } from '../visitor/index';
+import { visitorId } from '../visitor/id';
 
 declare global {
   interface Window {
