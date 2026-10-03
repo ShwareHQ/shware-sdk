@@ -60,12 +60,12 @@ describe('visitorId', () => {
   });
 });
 
-describe('getVisitor', () => {
+describe('syncVisitor', () => {
   it('PATCHes the local id with the tags and what the server creates a new visitor with', async () => {
-    const { getVisitor, visitorId, jsonResponse } = await load();
+    const { syncVisitor, visitorId, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse({ id: 'x', distinct_id: 'x' }));
 
-    await getVisitor();
+    await syncVisitor();
 
     expect(calls()).toEqual([{ url: `https://api.test/visitors/${visitorId()}`, method: 'PATCH' }]);
     expect(body()).toMatchObject({
@@ -76,48 +76,27 @@ describe('getVisitor', () => {
     });
   });
 
-  it('never posts to create a visitor', async () => {
-    const { getVisitor, jsonResponse } = await load();
-    fetchMock.mockResolvedValue(jsonResponse({ error: 'bad request' }, 400));
+  it('never posts to create a visitor, and keeps the id when the PATCH fails', async () => {
+    const { syncVisitor, jsonResponse } = await load();
+    fetchMock.mockImplementation(async () => jsonResponse({ error: 'bad request' }, 400));
 
-    await expect(getVisitor()).rejects.toThrow('Failed to sync visitor');
-    expect(calls().map((c) => c.method)).toEqual(['PATCH']);
-  });
-
-  it('caches after the first resolution and coalesces concurrent callers', async () => {
-    const { getVisitor, jsonResponse } = await load();
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'v' }));
-
-    await Promise.all([getVisitor(), getVisitor()]);
-    await getVisitor();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('a failed request is retried by the next caller, under the same id', async () => {
-    const { getVisitor, jsonResponse } = await load();
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse('bad request', 400))
-      .mockResolvedValueOnce(jsonResponse({ id: 'v' }));
-
-    await expect(getVisitor()).rejects.toThrow('Failed to sync visitor');
-    await expect(getVisitor()).resolves.toMatchObject({ id: 'v' });
+    await expect(syncVisitor()).rejects.toThrow('Failed to sync visitor');
+    await expect(syncVisitor()).rejects.toThrow('Failed to sync visitor');
+    expect(calls().map((c) => c.method)).toEqual(['PATCH', 'PATCH']);
     expect(calls()[0].url).toBe(calls()[1].url);
   });
 });
 
 describe('setVisitor', () => {
-  it('PATCHes the visitor, caches the response, and notifies the third-party setters', async () => {
+  it('PATCHes the visitor and notifies the third-party setters', async () => {
     const setter = vi.fn();
-    const { setVisitor, cache, config, jsonResponse } = await load();
+    const { setVisitor, config, jsonResponse } = await load();
     config.thirdPartyUserSetters = [setter];
-    cache.visitor = { id: 'v1' } as never;
     fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1', distinct_id: 'u1' }));
 
     await setVisitor({ user_id: 'u1' });
 
     expect(body()).toMatchObject({ user_id: 'u1', platform: 'web', device_id: expect.any(String) });
-    expect(cache.visitor).toMatchObject({ user_id: 'u1' });
     // The setter is told the server's distinct_id, not anything the client sent.
     expect(setter).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'u1', distinct_id: 'u1' })
@@ -129,19 +108,16 @@ describe('setVisitor', () => {
       throw new Error('pixel not loaded');
     });
     const good = vi.fn();
-    const { setVisitor, cache, config, jsonResponse } = await load();
+    const { setVisitor, config, jsonResponse } = await load();
     config.thirdPartyUserSetters = [bad, good];
-    cache.visitor = { id: 'v1' } as never;
     fetchMock.mockResolvedValue(jsonResponse({ id: 'v1', user_id: 'u1' }));
 
     await expect(setVisitor({ user_id: 'u1' })).resolves.toBeDefined();
     expect(good).toHaveBeenCalled();
-    expect(cache.visitor).toMatchObject({ user_id: 'u1' });
   });
 
   it('throws when the PATCH fails', async () => {
-    const { setVisitor, cache, jsonResponse } = await load();
-    cache.visitor = { id: 'v1' } as never;
+    const { setVisitor, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse('nope', 400));
 
     await expect(setVisitor({ user_id: 'u1' })).rejects.toThrow('Failed to set visitor');

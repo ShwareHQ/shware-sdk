@@ -2,14 +2,14 @@ import { fetch } from '@shware/utils';
 import { v7 as uuidv7 } from 'uuid';
 import { keys } from '../constants/storage';
 import type { UpdateVisitorDTO } from '../schema/index';
-import { cache, config } from '../setup/index';
+import { config } from '../setup/index';
 import type { Visitor } from './types';
 
 /**
  * This visitor's id: generated here on the first visit (uuidv7) and kept in `config.storage`, so
  * it exists the moment the page loads. The first events, and the beacon of a visit left within a
  * second, go out without waiting for a round trip; the server creates the visitor from whichever
- * request naming it lands first — an events batch or the PATCH of `getVisitor`. An id a server
+ * request naming it lands first — an events batch or the PATCH of `syncVisitor`. An id a server
  * issued to an older client is kept as it is: the visitor continues.
  *
  * Needs a server that creates visitors from those requests (see the README, "Visitors"); one that
@@ -24,13 +24,13 @@ export function visitorId(): string {
 }
 
 /**
- * PATCH, not GET: `tags` is the last-touch counterpart to `initial_tags`, and the only thing that
- * ever refreshed it was `setVisitor`, which hosts call when they identify a user. A visitor who
- * never signs in therefore kept the browser, screen, and release captured on their first ever page
- * load — for the rest of their life — leaving `tags` permanently equal to `initial_tags`. The
- * response is the server's view of the visitor, its `distinct_id` above all.
+ * Refreshes the visitor's `tags` — the last-touch counterpart to `initial_tags` — once per page
+ * load: `useWebAnalytics` and `useAppAnalytics` call it on mount. Without it a visitor who never
+ * signs in would keep the browser, screen and release of their first ever page load for the rest
+ * of their life. Sending events never calls it — they only need `visitorId()` — so a slow or
+ * failed request costs no event.
  */
-async function syncVisitor(): Promise<Visitor> {
+export async function syncVisitor(): Promise<void> {
   const id = visitorId();
   // device_id, platform and environment are what the server creates the visitor with when this
   // PATCH is the first request to name it; a visitor it already has keeps its own.
@@ -48,28 +48,6 @@ async function syncVisitor(): Promise<Visitor> {
   });
   if (!response.ok) {
     throw new Error(`Failed to sync visitor: ${response.status} ${await response.text()}`);
-  }
-  return (await response.json()) as Visitor;
-}
-
-let visitorFetcher: Promise<Visitor> | null = null;
-
-/**
- * The server's view of this visitor, synced once per page load: `useWebAnalytics` and
- * `useAppAnalytics` call it on mount, and later callers get the cached copy. Sending events never
- * calls it — they only need `visitorId()` — so a slow or failed request costs no event.
- */
-export async function getVisitor(): Promise<Visitor> {
-  if (cache.visitor) return cache.visitor;
-  if (visitorFetcher) return visitorFetcher;
-  visitorFetcher = syncVisitor();
-  try {
-    cache.visitor = await visitorFetcher;
-    return cache.visitor;
-  } finally {
-    // In a `finally`, so a rejected attempt is not left in `visitorFetcher` for every later
-    // caller to await again.
-    visitorFetcher = null;
   }
 }
 
@@ -101,11 +79,10 @@ export async function setVisitor(
     try {
       setter(identity);
     } catch (e: unknown) {
-      // The visitor was updated before this ran, so a third-party setter throwing must not skip
-      // the cache write below or reject a call that already succeeded.
+      // The visitor was updated before this ran, so a third-party setter throwing must not reject
+      // a call that already succeeded.
       if (e instanceof Error) console.log(e.message);
     }
   });
-  cache.visitor = data;
   return data;
 }

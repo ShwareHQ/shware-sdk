@@ -4,7 +4,7 @@ import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { track } from '../track/index';
-import { getVisitor } from '../visitor/index';
+import { syncVisitor } from '../visitor/index';
 import { usePrevious } from './use-previous';
 
 function sendFirstOpen(pathname: string) {
@@ -27,7 +27,7 @@ export function useAppAnalytics(pathname: string) {
 
     // Refresh the visitor's tags once per launch. Events do not wait for it: they carry the local
     // `visitorId()`, and the server creates the visitor from whichever request lands first.
-    void getVisitor().catch(() => undefined);
+    void syncVisitor().catch(() => undefined);
     sendFirstOpen(pathname);
 
     const subscription = AppState.addEventListener('change', (state) => {

@@ -5,8 +5,8 @@ import type { TrackTags } from './types';
 const fetchMock = vi.fn();
 
 /**
- * Loads a fresh module graph with a configured SDK, a stored visitor id and the server's view of
- * it already synced, so `sendEvents` never needs the network for anything but the events request.
+ * Loads a fresh module graph with a configured SDK and a stored visitor id, so `sendEvents` never
+ * needs the network for anything but the events request.
  */
 async function load(overrides: Partial<Options> = {}) {
   vi.stubGlobal('fetch', fetchMock);
@@ -14,7 +14,6 @@ async function load(overrides: Partial<Options> = {}) {
   const storage = memoryStorage({ visitor_id: 'visitor-1' });
   const setup = await import('../setup/index');
   setup.setupAnalytics(baseOptions({ storage, ...overrides }));
-  setup.cache.visitor = { id: 'visitor-1' } as never;
   const track = await import('./index');
   return { storage, cache: setup.cache, config: setup.config, jsonResponse, ...track };
 }
@@ -120,8 +119,7 @@ describe('the visitor', () => {
   });
 
   it('sending never touches the visitor endpoint: the id is all an event needs', async () => {
-    const { track, cache } = await load();
-    cache.visitor = null;
+    const { track } = await load();
     respondWithIds();
 
     track('custom_action', { i: 0 });
@@ -490,8 +488,7 @@ describe('sendPendingEvents', () => {
   });
 
   it('beacons a first visit left before any request returned: the id is local', async () => {
-    const { track, sendPendingEvents, cache, storage } = await load();
-    cache.visitor = null;
+    const { track, sendPendingEvents, storage } = await load();
     storage.map.delete('visitor_id');
 
     track('page_view', undefined);
@@ -560,8 +557,7 @@ describe('sendBeacon', () => {
   });
 
   it('falls back to the stored visitor id before the first batch has returned', async () => {
-    const { sendBeacon, cache, storage } = await load();
-    cache.visitor = null; // the page's own round trip has not finished
+    const { sendBeacon, storage } = await load();
     storage.map.set('visitor_id', 'stored-visitor');
     storage.map.set('session', `1.live-session.${Date.now()}`);
 
@@ -577,16 +573,14 @@ describe('sendBeacon', () => {
   });
 
   it('skips a visitor the server has never seen', async () => {
-    const { sendBeacon, cache } = await load();
-    cache.visitor = null;
+    const { sendBeacon } = await load();
 
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
     expect(beacon).not.toHaveBeenCalled();
   });
 
   it('does not start a session for the event it reports', async () => {
-    const { sendBeacon, cache, storage } = await load();
-    cache.visitor = { id: 'visitor-1' } as never;
+    const { sendBeacon, storage } = await load();
     const stale = Date.now() - 45 * 60 * 1000;
     storage.map.set('session', `1.old-session.${stale}`);
 
@@ -601,8 +595,7 @@ describe('sendBeacon', () => {
   it('warns instead of throwing when the browser refuses the beacon', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     beacon.mockReturnValueOnce(false);
-    const { sendBeacon, cache, storage } = await load();
-    cache.visitor = { id: 'visitor-1' } as never;
+    const { sendBeacon, storage } = await load();
     storage.map.set('session', `1.live-session.${Date.now()}`);
 
     expect(() =>
