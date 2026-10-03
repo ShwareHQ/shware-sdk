@@ -11,6 +11,9 @@ export {
   updateVisitorSchema,
   createFeedbackSchema,
   createLinkSchema,
+  type CreateTrackEventDTO,
+  type CreateVisitorDTO,
+  type UpdateVisitorDTO,
   type CreateFeedbackDTO,
   type CreateLinkDTO,
 } from './schema/index';
