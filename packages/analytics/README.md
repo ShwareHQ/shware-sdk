@@ -72,14 +72,16 @@ client is kept as it is, so the visitor continues.
 A visit sends no visitor request: as in PostHog, where person properties ride on the events,
 the events are the visitor's record. The server:
 
-- **creates the visitor from `POST /events`**: read the batch's visitors once — the query that also
-  tells which of them are bots — and create the missing ones before inserting the events, with
-  `insert ... on conflict (id) do nothing`. The conflict clause only settles two batches of the
-  same new visitor arriving at once: the second waits on the primary key until the first commits
-  and then does nothing, so the events' foreign key to the visitor holds. Build the row only for
-  the missing ids, from that visitor's first event in the batch: `device_id` from its tags (else
-  the visitor id), `platform` and `environment` from the event, its tags (with the request's
-  geolocation and user agent) as both `tags` and `initial_tags`, and the bot verdict from them.
+- **creates the visitor from `POST /events`**: a batch is one visitor's events — the SDK sends a
+  batch under the one id it has, so one naming several is refused. Read that visitor once (the
+  query can also give the bot verdict the downstream senders need) and, if it is missing, create
+  it from the batch's first event before inserting the events, with
+  `insert ... on conflict (id) do nothing`: the conflict clause settles two first batches of the
+  same visitor arriving at once — the second waits on the primary key until the first commits and
+  then does nothing — so the events' foreign key to the visitor holds. The row: `device_id` from
+  the event's tags (else the visitor id), `platform` and `environment` from the event, its tags
+  (with the request's geolocation and user agent) as both `tags` and `initial_tags`, and the bot
+  verdict from them.
 - **refreshes `visitor.tags` from each `session_start`**: `tags` is the last-touch counterpart to
   `initial_tags` (browser, release, landing), so once per session is enough, and the events route
   already writes the session row there.
