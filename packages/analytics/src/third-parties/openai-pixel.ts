@@ -1,5 +1,6 @@
 import type { UpdateVisitorDTO } from '../schema/index';
 import {
+  APP_EVENTS,
   NON_AD_EVENTS,
   type OAIQ,
   type OAIQUser,
@@ -44,6 +45,8 @@ export function sendOpenAIEvent<T extends EventName>(
   if (window.location.host.includes('localhost')) return;
 
   const { type, data } = mapOAIEvent(name, properties);
+  // OpenAI takes the app events from the Conversions API only.
+  if (APP_EVENTS.includes(type as never)) return;
   if (type === 'custom') {
     // Named as the Conversions API names it, so the two deduplicate; skipped when it cannot be.
     const custom_event_name = oaiCustomEventName(name);

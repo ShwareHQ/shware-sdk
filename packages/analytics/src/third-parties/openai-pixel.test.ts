@@ -64,6 +64,16 @@ describe('sendOpenAIEvent', () => {
     expect(oaiq).not.toHaveBeenCalled();
   });
 
+  it('leaves the app events to the Conversions API', () => {
+    const oaiq = vi.fn();
+    vendor.oaiq = oaiq;
+
+    sendOpenAIEvent('app_open');
+    sendOpenAIEvent('first_open', {} as never);
+
+    expect(oaiq).not.toHaveBeenCalled();
+  });
+
   it('drops web vitals and promotion events', () => {
     const oaiq = vi.fn();
     vendor.oaiq = oaiq;
