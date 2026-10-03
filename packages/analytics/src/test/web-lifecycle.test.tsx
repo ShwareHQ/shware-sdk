@@ -110,8 +110,11 @@ describe('a first visit', () => {
 
     const sessionIds = new Set(batch.body.map((e) => e.session_id));
     expect(sessionIds.size).toBe(1);
+    // The visitor id is generated on the device and kept, not handed out by the server.
+    const visitorId = storage.map.get('visitor_id');
+    expect(visitorId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/);
     for (const event of batch.body) {
-      expect(event).toMatchObject({ visitor_id: 'visitor-1', platform: 'web' });
+      expect(event).toMatchObject({ visitor_id: visitorId, platform: 'web' });
     }
 
     // session_start is stamped with the moment the visit began, not the flush.
@@ -120,7 +123,7 @@ describe('a first visit', () => {
     expect(storage.map.get('session')).toContain([...sessionIds][0] as string);
   });
 
-  it('asks the backend for a visitor exactly once, before the first batch', async () => {
+  it('syncs the visitor with the backend exactly once, with a PATCH', async () => {
     const { Page } = await launch();
     render(<Page pathname="/" />);
     present();
@@ -128,6 +131,7 @@ describe('a first visit', () => {
 
     const visitorCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/visitors'));
     expect(visitorCalls).toHaveLength(1);
+    expect((visitorCalls[0][1] as RequestInit).method).toBe('PATCH');
   });
 });
 
@@ -168,18 +172,23 @@ describe('leaving before the first batch', () => {
     expect(eventRequests()).toHaveLength(0);
   });
 
-  it('a first visit: no beacon can carry it yet, so the usual send does, and no engagement goes alone', async () => {
-    const { Page } = await launch();
+  it('a first visit goes by beacon too: its id is local, no request has to return first', async () => {
+    const { Page, storage } = await launch();
     render(<Page pathname="/" />);
     present();
     await hideEarly();
 
-    // The server has never seen this visitor: neither the queue nor the engagement can go by
-    // beacon. The queue is sent the usual way, which creates the visitor first.
-    expect(beaconMock).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(0);
-    const [batch] = eventRequests();
-    expect(batch.body[0].name).toBe('session_start');
+    const [landing, engagement] = await Promise.all(
+      beaconMock.mock.calls.map(async (call) => {
+        const [, blob] = call as unknown as [string, Blob];
+        return JSON.parse(await blob.text()) as Record<string, unknown>[];
+      })
+    );
+    expect(landing.map((e) => e.name)).toEqual(['session_start', 'first_visit', 'page_view']);
+    expect(landing.every((e) => e.visitor_id === storage.map.get('visitor_id'))).toBe(true);
+    expect(engagement.map((e) => e.name)).toEqual(['user_engagement']);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(eventRequests()).toHaveLength(0);
   });
 });
 

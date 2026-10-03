@@ -28,28 +28,60 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('getVisitor', () => {
-  it('creates a visitor when nothing is stored, and persists the id', async () => {
-    const { getVisitor, storage, jsonResponse } = await load();
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'new-visitor' }));
+const uuidv7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-    const visitor = await getVisitor();
+function body(call = 0) {
+  return JSON.parse((fetchMock.mock.calls[call][1] as RequestInit).body as string) as Record<
+    string,
+    unknown
+  >;
+}
 
-    expect(visitor.id).toBe('new-visitor');
-    expect(storage.map.get('visitor_id')).toBe('new-visitor');
-    expect(calls()[0]).toMatchObject({ url: 'https://api.test/visitors', method: 'POST' });
+describe('visitorId', () => {
+  it('generates a uuidv7 on the first visit and keeps it, without a request', async () => {
+    const { visitorId, storage } = await load();
+
+    const id = visitorId();
+
+    expect(id).toMatch(uuidv7);
+    expect(storage.map.get('visitor_id')).toBe(id);
+    expect(visitorId()).toBe(id);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('refreshes a stored visitor with a PATCH carrying the current tags', async () => {
-    const { getVisitor, jsonResponse } = await load({ visitor_id: 'stored-visitor' });
-    fetchMock.mockResolvedValue(jsonResponse({ id: 'stored-visitor' }));
+  it('keeps an id a server issued to an older client', async () => {
+    const { visitorId } = await load({ visitor_id: '0199e7a0-0000-7000-8000-000000000001' });
+    expect(visitorId()).toBe('0199e7a0-0000-7000-8000-000000000001');
+  });
+
+  it("does not take a stored 'undefined' for an id", async () => {
+    const { visitorId } = await load({ visitor_id: 'undefined' });
+    expect(visitorId()).toMatch(uuidv7);
+  });
+});
+
+describe('getVisitor', () => {
+  it('PATCHes the local id with the tags and what the server creates a new visitor with', async () => {
+    const { getVisitor, visitorId, jsonResponse } = await load();
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'x', distinct_id: 'x' }));
 
     await getVisitor();
 
-    expect(calls()[0]).toMatchObject({
-      url: 'https://api.test/visitors/stored-visitor',
-      method: 'PATCH',
+    expect(calls()).toEqual([{ url: `https://api.test/visitors/${visitorId()}`, method: 'PATCH' }]);
+    expect(body()).toMatchObject({
+      device_id: expect.any(String),
+      platform: 'web',
+      environment: 'production',
+      tags: expect.any(Object),
     });
+  });
+
+  it('never posts to create a visitor', async () => {
+    const { getVisitor, jsonResponse } = await load();
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'bad request' }, 400));
+
+    await expect(getVisitor()).rejects.toThrow('Failed to sync visitor');
+    expect(calls().map((c) => c.method)).toEqual(['PATCH']);
   });
 
   it('caches after the first resolution and coalesces concurrent callers', async () => {
@@ -62,28 +94,15 @@ describe('getVisitor', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('recreates the visitor when the PATCH is rejected', async () => {
-    const { getVisitor, jsonResponse } = await load({ visitor_id: 'legacy-int64-id' });
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ error: 'bad id' }, 400))
-      .mockResolvedValueOnce(jsonResponse({ id: 'replacement' }));
-
-    const visitor = await getVisitor();
-
-    expect(visitor.id).toBe('replacement');
-    expect(calls().map((c) => c.method)).toEqual(['PATCH', 'POST']);
-  });
-
-  it('a failed request does not disable tracking for the page', async () => {
+  it('a failed request is retried by the next caller, under the same id', async () => {
     const { getVisitor, jsonResponse } = await load();
     fetchMock
-      .mockResolvedValueOnce(jsonResponse('down', 400))
-      .mockResolvedValueOnce(jsonResponse({ id: 'second-try' }));
+      .mockResolvedValueOnce(jsonResponse('bad request', 400))
+      .mockResolvedValueOnce(jsonResponse({ id: 'v' }));
 
-    // First attempt fails loudly…
-    await expect(getVisitor()).rejects.toThrow('Failed to create visitor');
-    // …and the next caller gets a fresh attempt, not the cached rejection.
-    await expect(getVisitor()).resolves.toMatchObject({ id: 'second-try' });
+    await expect(getVisitor()).rejects.toThrow('Failed to sync visitor');
+    await expect(getVisitor()).resolves.toMatchObject({ id: 'v' });
+    expect(calls()[0].url).toBe(calls()[1].url);
   });
 });
 
@@ -97,6 +116,7 @@ describe('setVisitor', () => {
 
     await setVisitor({ user_id: 'u1' });
 
+    expect(body()).toMatchObject({ user_id: 'u1', platform: 'web', device_id: expect.any(String) });
     expect(cache.visitor).toMatchObject({ user_id: 'u1' });
     // The setter is told the server's distinct_id, not anything the client sent.
     expect(setter).toHaveBeenCalledWith(

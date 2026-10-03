@@ -255,6 +255,11 @@ export const createTrackEventSchema = pipe(
   transform((events) => alignClock(events))
 );
 
+/**
+ * `POST /visitors`, what clients before 11.0 create their visitor with; 11.0 generates the id
+ * itself and the server creates the visitor from its first events or PATCH (README, "Visitors").
+ * Kept for servers that still serve older clients.
+ */
 export const createVisitorSchema = object({
   device_id: string().check(trim(), minLength(1), maxLength(36)),
   platform: _enum(ALL_PLATFORMS),
@@ -297,6 +302,14 @@ export const userProvidedDataSchema = object({
 });
 
 export const updateVisitorSchema = object({
+  /**
+   * What the server creates the visitor with when this PATCH is the first request to name it —
+   * the SDK generates the id (`visitorId`), and its first events may still be on the way. A
+   * visitor the server already has keeps its own; older clients do not send them.
+   */
+  device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
+  platform: optional(_enum(ALL_PLATFORMS)),
+  environment: optional(_enum(ALL_ENVIRONMENTS)),
   user_id: optional(uuid()),
   user_data: optional(userProvidedDataSchema),
   tags: tagsSchema,
