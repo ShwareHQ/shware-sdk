@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.0.1
+
+### Patch Changes
+
+- f9b5320: Export the `CreateTrackEventDTO`, `CreateVisitorDTO` and `UpdateVisitorDTO` types next to their schemas, for servers that type their handlers by what the SDK sends.
+
 ## 11.0.0
 
 ### Major Changes
