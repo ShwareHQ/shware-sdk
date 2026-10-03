@@ -118,14 +118,14 @@ describe('classifyTouch', () => {
     });
   });
 
-  it('takes a click id as a paid click on its channel, by the key alone', () => {
+  it('takes a click id as a paid click on its channel', () => {
     expect(classifyTouch({ gclid: 'abc' })).toMatchObject({
       channel: 'google',
       medium: 'cpc',
       channel_group: 'paid_search',
       priority: 1,
     });
-    expect(classifyTouch({ fbclid: '' })).toMatchObject({
+    expect(classifyTouch({ fbclid: 'x' })).toMatchObject({
       channel: 'meta',
       medium: 'cpc',
       channel_group: 'paid_social',
@@ -133,6 +133,29 @@ describe('classifyTouch', () => {
     expect(classifyTouch({ ttclid: 'x', utm_medium: 'cpm' })).toMatchObject({
       channel: 'tiktok',
       medium: 'cpm',
+    });
+  });
+
+  it('takes no click from a click id without a value', () => {
+    // Clients before mid-2025 wrote every missing parameter as null.
+    const old = { fbclid: null, gclid: null, gad_source: null } as unknown as TrackTags;
+    expect(classifyTouch(old)).toMatchObject({ channel: '(direct)', priority: null });
+    expect(classifyTouch({ ...old, page_referrer: 'https://www.google.com/' })).toMatchObject({
+      channel: 'google',
+      medium: 'organic',
+    });
+    // A Google ad click is not Meta's for the null fbclid listed before gclid.
+    expect(classifyTouch({ ...old, gclid: 'G1', gad_source: '1' })).toMatchObject({
+      channel: 'google',
+      medium: 'cpc',
+      channel_group: 'paid_search',
+    });
+    expect(classifyTouch({ fbclid: '', gclid: 'undefined' })).toMatchObject({
+      channel: '(direct)',
+    });
+    // Nor does it prove a utm's click paid.
+    expect(classifyTouch({ utm_source: 'google', gclid: '' })).toMatchObject({
+      medium: '(not set)',
     });
   });
 

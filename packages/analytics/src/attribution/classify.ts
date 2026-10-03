@@ -109,16 +109,20 @@ function utmChannel(tags: TrackTags): string | null {
 
 /**
  * 2. A click id in this page's URL — the tags never fill one from the cookie an earlier click
- * left (that is `_gcl_aw`, `_fbc`, …). Presence of the key is the signal, as it is for the pixel
- * that reads it.
+ * left (that is `_gcl_aw`, `_fbc`, …). Only a value counts, not the key: clients before mid-2025
+ * wrote `fbclid: null` (`URLSearchParams.get` of a missing parameter) into every page's tags, and
+ * reading the key alone named those sessions Meta clicks — Google ad clicks among them, as `fbclid`
+ * is listed first. A platform always puts a value on its click.
  */
 function clickChannel(tags: TrackTags): string | null {
-  return CLICK_ID_CHANNELS.find(([key]) => key in tags)?.[1] ?? null;
+  return CLICK_ID_CHANNELS.find(([key]) => text(tags, key) !== null)?.[1] ?? null;
 }
 
 /** The channel of the first click id in the tags that its platform puts on ad clicks only. */
 function adClickChannel(tags: TrackTags): string | null {
-  return CLICK_ID_CHANNELS.find(([key, , on]) => on === 'ads' && key in tags)?.[1] ?? null;
+  return (
+    CLICK_ID_CHANNELS.find(([key, , on]) => on === 'ads' && text(tags, key) !== null)?.[1] ?? null
+  );
 }
 
 /** 3. A landing page reserved for one channel's ads. */
