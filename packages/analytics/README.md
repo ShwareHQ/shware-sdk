@@ -137,19 +137,23 @@ views), **the session's own touch included**:
 | `overridden` | The session had a touch of its own, but an earlier, stronger one won |
 | `none`       | A direct session with no touch in the window                         |
 
-| #   | What happened                                                                      | The current session is credited to | `touch_kind` | Why                                 |
-| --- | ---------------------------------------------------------------------------------- | ---------------------------------- | ------------ | ----------------------------------- |
-| 1   | Day 1 a Meta ad click, day 2 a branded Google search                               | **Meta**                           | `overridden` | 1 beats 2                           |
-| 2   | Day 1 a Meta ad click, day 2 typed in                                              | **Meta**                           | `inherited`  | direct inherits                     |
-| 3   | Day 1 an organic search, day 2 a Meta ad click                                     | **Meta**                           | `own`        | its own touch is stronger           |
-| 4   | Day 1 a Meta ad click, day 3 a Google ad click                                     | **Google**                         | `own`        | both 1, the latest wins             |
-| 5   | Day 1 a Meta ad click, day 2 a ChatGPT citation with its utm                       | **Meta**                           | `overridden` | ChatGPT's organic utm ranks 2       |
-| 6   | Day 1 an organic search, day 5 a ChatGPT citation                                  | **ChatGPT**                        | `own`        | both 2, the latest wins             |
-| 7   | An ad click 45 days ago, an organic search today                                   | **Organic search**                 | `own`        | the ad is out of the window         |
-| 8   | A Reddit ad tagged `utm_medium=social` with `rdt_cid`                              | **reddit / cpc**                   | `own`        | the click id proves a paid click    |
-| 9   | Day 1 a Meta ad click, day 2 a newsletter link (`utm_medium=email`)                | **Meta**                           | `overridden` | email ranks 2                       |
-| 10  | Day 1 an organic search, day 2 a newsletter link, no ad in the window              | **Email**                          | `own`        | both 2, the latest wins             |
-| 11  | A survey answer "a podcast" (backdated to the first visit), then an organic search | **Organic search**                 | `own`        | 2 beats 3; a claim only fills a gap |
+| #   | What happened                                                                      | The current session is credited to | `touch_kind`         | Why                                 |
+| --- | ---------------------------------------------------------------------------------- | ---------------------------------- | -------------------- | ----------------------------------- |
+| 1   | Day 1 a Meta ad click, day 2 a branded Google search                               | **Meta**                           | `overridden`         | 1 beats 2                           |
+| 2   | Day 1 a Meta ad click, day 2 typed in                                              | **Meta**                           | `inherited`          | direct inherits                     |
+| 3   | Day 1 an organic search, day 2 a Meta ad click                                     | **Meta**                           | `own`                | its own touch is stronger           |
+| 4   | Day 1 a Meta ad click, day 3 a Google ad click                                     | **Google**                         | `own`                | both 1, the latest wins             |
+| 5   | Day 1 a Meta ad click, day 2 a ChatGPT citation with its utm                       | **Meta**                           | `overridden`         | ChatGPT's organic utm ranks 2       |
+| 6   | Day 1 an organic search, day 5 a ChatGPT citation                                  | **ChatGPT**                        | `own`                | both 2, the latest wins             |
+| 7   | An ad click 45 days ago, an organic search today                                   | **Organic search**                 | `own`                | the ad is out of the window         |
+| 8   | A Reddit ad tagged `utm_medium=social` with `rdt_cid`                              | **reddit / cpc**                   | `own`                | the click id proves a paid click    |
+| 9   | Day 1 a Meta ad click, day 2 a newsletter link (`utm_medium=email`)                | **Meta**                           | `overridden`         | email ranks 2                       |
+| 10  | Day 1 an organic search, day 2 a newsletter link, no ad in the window              | **Email**                          | `own`                | both 2, the latest wins             |
+| 11  | A survey answer "a podcast" (backdated to the first visit), then an organic search | **Organic search**                 | `own`                | 2 beats 3; a claim only fills a gap |
+| 12  | Day 1 a ChatGPT citation, day 2 a branded Google search                            | **Organic search**                 | `own`                | both 2, the latest wins             |
+| 13  | Day 1 a ChatGPT citation, day 2 a ChatGPT ad click (`oppref`)                      | **chatgpt / cpc**                  | `own`                | the ad is 1                         |
+| 14  | Day 1 a Meta ad click, day 2 a ChatGPT citation, day 3 typed in                    | **Meta**                           | `inherited`          | 1 beats the citation's 2            |
+| 15  | The ChatGPT app opens a link with neither referrer nor utm                         | **Direct**, or what came before    | `none` / `inherited` | nothing to read                     |
 
 **How this differs from GA4.** GA4's last non-direct click credits the latest touch that is not
 direct, whatever it was: cases 1, 5 and 9 go to the search, ChatGPT and the email. Here an ad click is not
@@ -184,6 +188,36 @@ report instead of the model:
 
 Special cases in the model ("an ad clicked by a paying customer does not override") are not
 worth it: the rules get harder to explain, and the first two rows remain.
+
+### AI assistants (GEO)
+
+Visits an AI assistant sends — a citation in ChatGPT, Perplexity, Gemini, Claude, Copilot,
+DeepSeek and the others in `REFERRER_SITES` — are `organic_ai`, read from the referrer or from the
+assistant's own utm (`utm_source=chatgpt.com`). They rank with organic search, priority 2, on
+purpose: both are earned, not bought, and come from a question the user asked.
+
+- **Not above SEO**: a citation would otherwise take the credit from the ad clicked before it, and
+  from the search that followed it.
+- **Not below SEO**: "ask ChatGPT, then search the brand" would then always go to the search, and
+  GEO would read lower than it is.
+- **Apart from ChatGPT's ads**: a click on a ChatGPT ad carries `oppref` and is paid, priority 1
+  (`paid_other`); the citations next to it stay `organic_ai`.
+
+GA4's default grouping has no AI group and files these visits under Referral; `organic_ai` is an
+addition so GEO and SEO can be compared side by side.
+
+What the data cannot show, and how to read around it:
+
+1. **Dark AI traffic.** The assistants' desktop and mobile apps, and links copied into a browser,
+   often arrive with neither referrer nor utm, and are counted as direct (case 15). GEO is always
+   undercounted.
+2. **Discovery credited to search.** Someone who learns the brand from an assistant and searches
+   it the next day is credited to the search (case 12), as in every last-touch model.
+3. **Read GEO by first touch** (`user_attribution` in the reference views), where the assistant
+   that introduced the brand keeps the credit, and **ask**: a sign-up survey ("where did you hear
+   about us?" with the assistants as options) stored as a reported touch (`survey`, priority 3)
+   never overrides a tracked touch, but measures how much of the direct traffic the assistants
+   brought.
 
 ### Compared with other tools
 
