@@ -5,16 +5,15 @@ import type { TrackTags } from './types';
 const fetchMock = vi.fn();
 
 /**
- * Loads a fresh module graph with a configured SDK and a cached visitor, so `sendEvents` never
- * needs the network for anything but the events request itself.
+ * Loads a fresh module graph with a configured SDK and a stored visitor id, so `sendEvents` never
+ * needs the network for anything but the events request.
  */
 async function load(overrides: Partial<Options> = {}) {
   vi.stubGlobal('fetch', fetchMock);
   const { baseOptions, memoryStorage, jsonResponse } = await import('../test/setup');
-  const storage = memoryStorage();
+  const storage = memoryStorage({ visitor_id: 'visitor-1' });
   const setup = await import('../setup/index');
   setup.setupAnalytics(baseOptions({ storage, ...overrides }));
-  setup.cache.visitor = { id: 'visitor-1' } as never;
   const track = await import('./index');
   return { storage, cache: setup.cache, config: setup.config, jsonResponse, ...track };
 }
@@ -102,29 +101,32 @@ describe('batching', () => {
   });
 });
 
-describe('concurrent sends', () => {
-  it("a full batch while the timer's send waits for the visitor sends every event once", async () => {
-    const { track, cache, jsonResponse } = await load();
-    cache.visitor = null;
-    let created!: (response: Response) => void;
-    fetchMock.mockReturnValueOnce(
-      new Promise<Response>((resolve) => {
-        created = resolve;
-      })
-    );
-    respondWithIds(); // for the calls after the held visitor request
+describe('the visitor', () => {
+  const uuidv7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+  it('a first visit sends at once under an id generated and kept here', async () => {
+    const { track, storage } = await load();
+    storage.map.delete('visitor_id');
+    respondWithIds();
+
+    track('page_view', undefined);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const batch = sentBatches().find((b) => b.url.endsWith('/events'));
+    const id = storage.map.get('visitor_id');
+    expect(id).toMatch(uuidv7);
+    expect(batch?.body.every((e) => e.visitor_id === id)).toBe(true);
+  });
+
+  it('sending never touches the visitor endpoint: the id is all an event needs', async () => {
+    const { track } = await load();
+    respondWithIds();
 
     track('custom_action', { i: 0 });
-    await vi.advanceTimersByTimeAsync(2000); // the timer's send now waits for the visitor
-    for (let i = 1; i < 12; i++) track('custom_action', { i }); // fills a batch: a second send
-    created(jsonResponse({ id: 'visitor-1' }));
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2000);
 
-    const events = sentBatches().filter((b) => b.url.endsWith('/events'));
-    const sent = events.flatMap((b) => b.body.filter((e) => e.name === 'custom_action'));
-    expect(sent.map((e) => (e.properties as { i: number }).i).sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 12 }, (_, i) => i)
-    );
+    const urls = fetchMock.mock.calls.map(([url]) => url as string);
+    expect(urls).toEqual(['https://api.test/events']);
   });
 });
 
@@ -369,39 +371,6 @@ describe('callbacks and third parties', () => {
   });
 });
 
-describe('when the visitor request fails', () => {
-  it('the events stay queued, and the next send delivers them', async () => {
-    const { track, cache, jsonResponse } = await load();
-    cache.visitor = null; // the id has to come from the network
-    const onError = vi.fn();
-    const onSucceed = vi.fn();
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-
-    // The visitor POST fails outright: nothing can be sent without an id, so nothing leaves the
-    // queue — the events are not lost, they wait.
-    fetchMock.mockResolvedValueOnce(jsonResponse('down', 400));
-    track('custom_action', { a: 1 }, { onError, onSucceed });
-    await vi.advanceTimersByTimeAsync(2000);
-
-    expect(onError).not.toHaveBeenCalled();
-    expect(onSucceed).not.toHaveBeenCalled();
-    // Only the visitor request went out — the events request never had an id to send with.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    // The network recovers: the failed visitor attempt was not cached, so the next send creates
-    // the visitor and delivers both events — one bad request must not kill tracking for the page.
-    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'visitor-2' }));
-    respondWithIds();
-    track('custom_action', { a: 2 }, { onError, onSucceed });
-    await vi.advanceTimersByTimeAsync(2000);
-
-    expect(onSucceed).toHaveBeenCalledTimes(2);
-    const events = sentBatches().at(-1)?.body;
-    expect(events?.map((e) => e.name)).toEqual(['session_start', 'custom_action', 'custom_action']);
-    expect(events?.every((e) => e.visitor_id === 'visitor-2')).toBe(true);
-  });
-});
-
 describe('trackAsync', () => {
   it('sends without waiting for the batch window, and resolves once it is sent', async () => {
     const { trackAsync } = await load();
@@ -434,18 +403,23 @@ describe('trackAsync', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('resolves when no visitor could be created, the event left queued for the next send', async () => {
-    const { trackAsync, track, cache, jsonResponse } = await load();
-    cache.visitor = null;
+  it('resolves when the send cannot start, the event left queued for the next send', async () => {
+    let failing = true;
+    const { trackAsync, track } = await load({
+      getHeaders: () => {
+        if (failing) throw new Error('no token');
+        return {};
+      },
+    });
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const onSucceed = vi.fn();
-    fetchMock.mockResolvedValueOnce(jsonResponse('down', 400));
 
     // Resolves without any fake time passing: it is not waiting on a send that may never come.
     await trackAsync('custom_action', { a: 9 }, { onSucceed });
     expect(onSucceed).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
 
-    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'visitor-2' }));
+    failing = false;
     respondWithIds();
     track('custom_action', { a: 10 });
     await vi.advanceTimersByTimeAsync(2000);
@@ -513,26 +487,17 @@ describe('sendPendingEvents', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('reaches a batch still waiting for its visitor: it has not left the queue', async () => {
-    const { track, sendPendingEvents, cache, storage } = await load();
-    cache.visitor = null;
-    storage.map.set('visitor_id', 'stored-visitor');
-    let created!: (response: Response) => void;
-    fetchMock.mockReturnValueOnce(
-      new Promise<Response>((resolve) => {
-        created = resolve;
-      })
-    );
+  it('beacons a first visit left before any request returned: the id is local', async () => {
+    const { track, sendPendingEvents, storage } = await load();
+    storage.map.delete('visitor_id');
 
     track('page_view', undefined);
-    await vi.advanceTimersByTimeAsync(2000); // the send is awaiting the visitor request
-    sendPendingEvents();
+    sendPendingEvents(); // left at once: no batch, no visitor request has been sent
 
-    expect((await beaconed(0)).map((e) => e.name)).toEqual(['session_start', 'page_view']);
-    created(new Response(JSON.stringify({ id: 'stored-visitor' }), { status: 200 }));
-    await vi.advanceTimersByTimeAsync(0);
-    // Only the visitor request: the events went by beacon, the send found the queue empty.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sent = await beaconed(0);
+    expect(sent.map((e) => e.name)).toEqual(['session_start', 'page_view']);
+    expect(sent.every((e) => e.visitor_id === storage.map.get('visitor_id'))).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('leaves the queue to the usual send when no beacon can take it', async () => {
@@ -592,8 +557,7 @@ describe('sendBeacon', () => {
   });
 
   it('falls back to the stored visitor id before the first batch has returned', async () => {
-    const { sendBeacon, cache, storage } = await load();
-    cache.visitor = null; // the page's own round trip has not finished
+    const { sendBeacon, storage } = await load();
     storage.map.set('visitor_id', 'stored-visitor');
     storage.map.set('session', `1.live-session.${Date.now()}`);
 
@@ -609,16 +573,14 @@ describe('sendBeacon', () => {
   });
 
   it('skips a visitor the server has never seen', async () => {
-    const { sendBeacon, cache } = await load();
-    cache.visitor = null;
+    const { sendBeacon } = await load();
 
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
     expect(beacon).not.toHaveBeenCalled();
   });
 
   it('does not start a session for the event it reports', async () => {
-    const { sendBeacon, cache, storage } = await load();
-    cache.visitor = { id: 'visitor-1' } as never;
+    const { sendBeacon, storage } = await load();
     const stale = Date.now() - 45 * 60 * 1000;
     storage.map.set('session', `1.old-session.${stale}`);
 
@@ -633,8 +595,7 @@ describe('sendBeacon', () => {
   it('warns instead of throwing when the browser refuses the beacon', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     beacon.mockReturnValueOnce(false);
-    const { sendBeacon, cache, storage } = await load();
-    cache.visitor = { id: 'visitor-1' } as never;
+    const { sendBeacon, storage } = await load();
     storage.map.set('session', `1.live-session.${Date.now()}`);
 
     expect(() =>

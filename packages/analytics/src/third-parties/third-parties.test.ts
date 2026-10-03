@@ -349,7 +349,7 @@ describe('sendUETEvent', () => {
       }
     );
     const visitor = await import('../visitor/index');
-    vi.spyOn(visitor, 'getVisitor').mockResolvedValue({ id: 'vid-9' } as never);
+    vi.spyOn(visitor, 'visitorId').mockReturnValue('vid-9');
 
     // Unconfigured: nothing goes out, and the visitor is not even fetched.
     await syncUETVisitor();

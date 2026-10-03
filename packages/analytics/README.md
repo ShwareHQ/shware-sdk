@@ -60,6 +60,39 @@ changes. The framework `Analytics` components wire this up.
 - /analytics/tracks: track events
 - /analytics/visitor: app visitors
 
+## Visitors
+
+Since 11.0 the SDK generates the visitor id itself — a uuidv7, kept in `config.storage` under
+`visitor_id` (`visitorId()`) — as GA4 does its client id and PostHog its anonymous distinct id. The
+first events of a visit, and the beacon of a visit left within a second, go out without waiting
+for a round trip; before, a new visitor's events waited for `POST /visitors`, and a page left
+before it returned lost them all, `session_start` included. An id a server issued to an older
+client is kept as it is, so the visitor continues.
+
+A visit sends no visitor request: as in PostHog, where person properties ride on the events,
+the events are the visitor's record. The server:
+
+- **creates the visitor from `POST /events`**: read the batch's visitors once — the query that also
+  tells which of them are bots — and create the missing ones before inserting the events, with
+  `insert ... on conflict (id) do nothing`. The conflict clause only settles two batches of the
+  same new visitor arriving at once: the second waits on the primary key until the first commits
+  and then does nothing, so the events' foreign key to the visitor holds. Build the row only for
+  the missing ids, from that visitor's first event in the batch: `device_id` from its tags (else
+  the visitor id), `platform` and `environment` from the event, its tags (with the request's
+  geolocation and user agent) as both `tags` and `initial_tags`, and the bot verdict from them.
+- **refreshes `visitor.tags` from each `session_start`**: `tags` is the last-touch counterpart to
+  `initial_tags` (browser, release, landing), so once per session is enough, and the events route
+  already writes the session row there.
+- **does not create it on `PATCH /visitors/:id`** (`setVisitor`): that is a sign-in handing the
+  user to the ad platforms' pixels and gtag, and by then the visitor's events have created it. On
+  the rare page where a signed-in user's sign-in lands before the first batch of a new visitor id
+  (storage cleared, the session kept), answer 404: `setVisitor` rejects, and the next page load
+  sets the user.
+- **keeps `POST /visitors`** (`createVisitorSchema`) while clients before 11.0 are in use.
+
+Deploy the server first: a server that only creates visitors on `POST /visitors` rejects the
+events of a new visitor from an 11.0 client (the foreign key fails).
+
 ## Sessions and attribution
 
 How the events this SDK sends are meant to be read on the server side, for attribution. Three

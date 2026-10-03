@@ -1,5 +1,5 @@
 import type { Environment, Platform, ThirdPartyTracker, TrackTags } from '../track/types';
-import type { ThirdPartyUserSetter, Visitor } from '../visitor/types';
+import type { ThirdPartyUserSetter } from '../visitor/types';
 
 export interface Storage {
   getItem: (key: string) => string | null;
@@ -34,12 +34,10 @@ interface Config {
 
 interface Cache {
   tags: TrackTags | null;
-  visitor: Visitor | null;
 }
 
 export const cache: Cache = {
   tags: null,
-  visitor: null,
 };
 
 // oxlint-disable typescript/no-non-null-assertion

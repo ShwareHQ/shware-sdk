@@ -3,7 +3,7 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { type UETConsent, type UETQ, mapUETEvent } from '../track/uetq';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
-import { getVisitor } from '../visitor/index';
+import { visitorId } from '../visitor/index';
 
 declare global {
   interface Window {
@@ -103,7 +103,7 @@ export function setUETConsent(mode: 'default' | 'update', consent: UETConsent) {
  * browser context of the sync, which a server-side call cannot carry.
  *
  * `customerId` is the Microsoft Advertising customer id (`cid` in the UI's URLs) — not the UET
- * tag id. `visitorId` is the SDK visitor id (`getVisitor().id`), which is what
+ * tag id. `visitorId` is the SDK visitor id (`visitorId()`), which is what
  * `sendMicrosoftEvents` sends as `anonymousId`; Microsoft requires the two to be equal.
  * `userId` is the raw signed-in user id: it is SHA-256 hashed here, exactly as the server sender
  * hashes it into `externalId`, so the pair matches as well. Hashing is asynchronous, so the
@@ -129,12 +129,7 @@ export function configureUET(options: { customerId?: string | number }) {
  */
 export async function syncUETVisitor(userId?: string): Promise<void> {
   if (!uetCustomerId) return;
-  try {
-    const { id } = await getVisitor();
-    sendUETIdSync({ customerId: uetCustomerId, visitorId: id, userId });
-  } catch {
-    // The visitor request failed; the next page load tries again.
-  }
+  sendUETIdSync({ customerId: uetCustomerId, visitorId: visitorId(), userId });
 }
 
 export function sendUETIdSync(options: {

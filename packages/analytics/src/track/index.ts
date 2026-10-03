@@ -1,10 +1,9 @@
 import { TokenBucket, fetch } from '@shware/utils';
-import { keys } from '../constants/storage';
 import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { getVisitor } from '../visitor/index';
+import { visitorId } from '../visitor/index';
 import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
 
 export interface TrackOptions {
@@ -112,7 +111,7 @@ async function flush() {
   let events: Item[] = [];
   try {
     await getTokenBucket().removeTokens();
-    const visitor_id = (await getVisitor()).id;
+    const visitor_id = visitorId();
     const headers = await config.getHeaders();
     // Settled before the events leave the queue; those queued meanwhile are a microtask away.
     await Promise.all(list.map((event) => event.tags));
@@ -199,8 +198,8 @@ export function track<T extends EventName = EventName>(
 
 /**
  * Sends the event now, with whatever is queued, and resolves once it has been sent or lost — or,
- * when no visitor could be created to send it with, at once, the event left queued for the next
- * send. It never rejects: tracking must not fail the step that awaits it.
+ * when the send could not start (its headers or rate limit threw), at once, the event left queued
+ * for the next send. It never rejects: tracking must not fail the step that awaits it.
  */
 export async function trackAsync<T extends EventName = EventName>(
   name: TrackName<T>,
@@ -223,22 +222,10 @@ export async function trackAsync<T extends EventName = EventName>(
     },
   });
   await flush();
-  // Still queued: this send could not take it — no visitor id to send it with yet. It waits for
-  // the next send, but the caller, who may be holding a navigation on this, does not.
+  // Still queued: this send failed before taking it. It waits for the next send, but the caller,
+  // who may be holding a navigation on this, does not.
   if (list.includes(event)) return;
   await settled;
-}
-
-/**
- * The visitor id a beacon can carry. It is persisted, so a returning visitor already has one
- * before `getVisitor` has finished its round trip for this page. Requiring the in-memory copy
- * threw away exactly the events a beacon exists for: everything a visit accrues before its first
- * batch comes back, which for a short visit is the whole of it. A visitor the server has never
- * seen has none: the server would reject its events.
- */
-function beaconVisitorId(): string | undefined {
-  const stored = config.storage.getItem(keys.visitor_id);
-  return cache.visitor?.id ?? (stored && stored !== 'undefined' ? stored : undefined);
 }
 
 function beacon(dto: CreateTrackEventDTO): boolean {
@@ -258,24 +245,24 @@ function beacon(dto: CreateTrackEventDTO): boolean {
  *
  * Nothing can be awaited here, so the events go with the tags they have settled on (the last
  * built ones otherwise), and without the server's ids: their third-party trackers are not fired,
- * as an id-less browser event could not be deduplicated against the server's. When no beacon can
- * take them — a visitor the server does not know yet, no `sendBeacon`, a refused body — they stay
- * queued for the usual send, which also creates the visitor.
+ * as an id-less browser event could not be deduplicated against the server's. The visitor id is
+ * local (`visitorId`), so a first visit left within a second is sent like any other; when no
+ * beacon can take them — no `sendBeacon`, a refused body — they stay queued for the usual send.
  */
 export function sendPendingEvents() {
   if (list.length === 0) return;
-  const visitor_id = beaconVisitorId();
+  const visitor_id = visitorId();
   const dto: CreateTrackEventDTO = list.map((event) => ({
     name: event.name,
     properties: event.properties,
     tags: event.settled ?? cache.tags ?? {},
-    visitor_id: visitor_id ?? '',
+    visitor_id,
     session_id: event.session_id,
     platform: config.platform,
     environment: config.environment,
     timestamp: event.timestamp,
   }));
-  if (!visitor_id || !beacon(dto)) {
+  if (!beacon(dto)) {
     void flush();
     return;
   }
@@ -290,8 +277,7 @@ export function sendBeacon<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  const visitor_id = beaconVisitorId();
-  if (!visitor_id) return;
+  const visitor_id = visitorId();
   // No stored session means no event was ever queued from this storage, so there is no session
   // to report for — and one started here could never be announced. See `Session.extend`.
   const session_id = getSession().extend();

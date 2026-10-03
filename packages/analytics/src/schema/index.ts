@@ -255,6 +255,11 @@ export const createTrackEventSchema = pipe(
   transform((events) => alignClock(events))
 );
 
+/**
+ * `POST /visitors`, what clients before 11.0 create their visitor with; 11.0 generates the id
+ * itself and the server creates the visitor from its first events (README, "Visitors").
+ * Kept for servers that still serve older clients.
+ */
 export const createVisitorSchema = object({
   device_id: string().check(trim(), minLength(1), maxLength(36)),
   platform: _enum(ALL_PLATFORMS),
