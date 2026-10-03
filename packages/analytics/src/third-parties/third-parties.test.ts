@@ -51,19 +51,18 @@ describe('sendGAEvent', () => {
     const gtag = vi.fn();
     vendor.gtag = gtag;
 
-    setGAUser({ user_id: 'u1', tags: {} });
+    setGAUser({ user_id: 'u1' });
     expect(gtag).toHaveBeenCalledWith('set', 'user_id', 'u1');
     expect(gtag).not.toHaveBeenCalledWith('set', 'user_data', expect.anything());
   });
 
-  it('setGAUser forwards user_data and user_properties when present', () => {
+  it('setGAUser forwards user_data when present', () => {
     const gtag = vi.fn();
     vendor.gtag = gtag;
 
     const user_data = { email: 'a@b.co' };
-    setGAUser({ user_data, properties: { plan: 'pro' }, tags: {} });
+    setGAUser({ user_data });
     expect(gtag).toHaveBeenCalledWith('set', 'user_data', user_data);
-    expect(gtag).toHaveBeenCalledWith('set', 'user_properties', { plan: 'pro' });
   });
 });
 
@@ -231,7 +230,7 @@ describe('user setters before the vendor script loads', () => {
     expect(() => setFBUser('123')({ user_id: 'u1', tags: {} })).not.toThrow();
     expect(() => setRedditUser('a2_p')({ user_id: 'u1', tags: {} })).not.toThrow();
     expect(() => setLinkedinUser({ user_data: { email: 'a@b.co' }, tags: {} })).not.toThrow();
-    expect(() => setGAUser({ user_id: 'u1', tags: {} })).not.toThrow();
+    expect(() => setGAUser({ user_id: 'u1' })).not.toThrow();
   });
 });
 
@@ -263,7 +262,7 @@ describe('server rendering', () => {
       expect(() =>
         sendGAEvent('purchase', { value: 1, currency: 'USD', transaction_id: 't1', items: [] })
       ).not.toThrow();
-      expect(() => setGAUser({ user_id: 'u', tags: {} })).not.toThrow();
+      expect(() => setGAUser({ user_id: 'u' })).not.toThrow();
       expect(() =>
         sendFBEvent('purchase', { value: 1, currency: 'USD', transaction_id: 't1', items: [] })
       ).not.toThrow();
