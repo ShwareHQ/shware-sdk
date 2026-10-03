@@ -24,14 +24,13 @@ export function visitorId(): string {
 
 export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
   const id = visitorId();
-  // No tags: the server refreshes them from each session_start, where the visit came in. At
-  // sign-in the page is the login page, not the touch, and its tags would overwrite the landing's.
-  const body: UpdateVisitorDTO = { ...dto };
   const response = await fetch(`${config.endpoint}/visitors/${id}`, {
     method: 'PATCH',
     credentials: 'include',
     headers: await config.getHeaders(),
-    body: JSON.stringify(body),
+    // No tags: the server refreshes them from each session_start, where the visit came in. At
+    // sign-in the page is the login page, not the touch, and its tags would overwrite the landing's.
+    body: JSON.stringify(dto),
   });
 
   if (!response.ok) throw new Error('Failed to set visitor');
@@ -39,7 +38,7 @@ export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
 
   // Setters get the server's distinct_id — the person the visitor now belongs to — not anything
   // the client could have said about it.
-  const identity = { ...body, distinct_id: data.distinct_id ?? null };
+  const identity = { ...dto, distinct_id: data.distinct_id ?? null };
   config.thirdPartyUserSetters.forEach((setter) => {
     try {
       setter(identity);
