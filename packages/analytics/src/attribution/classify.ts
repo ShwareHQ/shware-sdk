@@ -1,6 +1,7 @@
 import type { TrackTags } from '../track/types';
 import {
   AD_LANDING_PAGE,
+  ANDROID_APP_HOSTS,
   CLICK_ID_CHANNELS,
   type ChannelGroup,
   DIRECT_CHANNEL,
@@ -70,6 +71,7 @@ const ORGANIC_GROUPS = new Set<ChannelGroup>([
  */
 const REFERRER_TIER_GROUPS = new Set<ChannelGroup>([...ORGANIC_GROUPS, 'email']);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
+const androidAppOf = /^android-app:\/\/([^/?#]+)/i;
 const channelsBy = (medium: string) =>
   new Set<string>(REFERRER_SITES.filter(([, m]) => m === medium).map(([channel]) => channel));
 const searchChannels = channelsBy('organic');
@@ -107,16 +109,20 @@ function utmChannel(tags: TrackTags): string | null {
 
 /**
  * 2. A click id in this page's URL — the tags never fill one from the cookie an earlier click
- * left (that is `_gcl_aw`, `_fbc`, …). Presence of the key is the signal, as it is for the pixel
- * that reads it.
+ * left (that is `_gcl_aw`, `_fbc`, …). Only a value counts, not the key: clients before mid-2025
+ * wrote `fbclid: null` (`URLSearchParams.get` of a missing parameter) into every page's tags, and
+ * reading the key alone named those sessions Meta clicks — Google ad clicks among them, as `fbclid`
+ * is listed first. A platform always puts a value on its click.
  */
 function clickChannel(tags: TrackTags): string | null {
-  return CLICK_ID_CHANNELS.find(([key]) => key in tags)?.[1] ?? null;
+  return CLICK_ID_CHANNELS.find(([key]) => text(tags, key) !== null)?.[1] ?? null;
 }
 
 /** The channel of the first click id in the tags that its platform puts on ad clicks only. */
 function adClickChannel(tags: TrackTags): string | null {
-  return CLICK_ID_CHANNELS.find(([key, , on]) => on === 'ads' && key in tags)?.[1] ?? null;
+  return (
+    CLICK_ID_CHANNELS.find(([key, , on]) => on === 'ads' && text(tags, key) !== null)?.[1] ?? null
+  );
 }
 
 /** 3. A landing page reserved for one channel's ads. */
@@ -136,14 +142,20 @@ function productTouch(tags: TrackTags, rules: readonly TouchRule[]): ProductTouc
 
 /**
  * 5. The referrer's host: a known search engine or social network folded to its channel, any
- * other site kept as its host, and null for no referrer or one that is no touch.
+ * other site kept as its host, and null for no referrer or one that is no touch. An Android app's
+ * referrer (`android-app://<package>`) is read as the site it stands for (`ANDROID_APP_HOSTS`).
  */
 function referrer(
   tags: TrackTags,
   ownHosts: readonly RegExp[]
 ): { channel: string; medium: string } | null {
   const url = text(tags, 'page_referrer');
-  const host = url ? referrerHostOf.exec(url)?.[1]?.toLowerCase() : undefined;
+  const app = url ? androidAppOf.exec(url)?.[1]?.toLowerCase() : undefined;
+  const host = app
+    ? (ANDROID_APP_HOSTS[app] ?? app)
+    : url
+      ? referrerHostOf.exec(url)?.[1]?.toLowerCase()
+      : undefined;
   if (!host) return null;
   if (REFERRERS_NOT_A_TOUCH.some((pattern) => pattern.test(host))) return null;
   if (ownHosts.some((pattern) => pattern.test(host))) return null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ANDROID_APP_HOSTS,
   CHANNELS,
   CLICK_ID_CHANNELS,
   REFERRERS_NOT_A_TOUCH,
@@ -29,6 +30,9 @@ describe('referrer sites', () => {
     ['copilot.microsoft.com', 'copilot', 'ai'],
     ['yiyan.baidu.com', 'ernie', 'ai'],
     ['www.baidu.com', 'baidu', 'organic'],
+    ['mail.google.com', 'gmail', 'email'],
+    ['t.me', 'telegram', 'social'],
+    ['web.telegram.org', 'telegram', 'social'],
   ])('%s → %s / %s', (host, channel, medium) => {
     const hit = REFERRER_SITES.find(([, , pattern]) => matches(pattern, host));
     expect(hit?.[0]).toBe(channel);
@@ -43,6 +47,12 @@ describe('referrer sites', () => {
 
   it('names only known channels', () => {
     for (const [channel] of REFERRER_SITES) expect(CHANNELS).toContain(channel);
+  });
+
+  it('reads every Android app it lists as a known site', () => {
+    for (const host of Object.values(ANDROID_APP_HOSTS)) {
+      expect(REFERRER_SITES.some(([, , pattern]) => matches(pattern, host))).toBe(true);
+    }
   });
 });
 
