@@ -34,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('getTags', () => {
@@ -77,6 +78,29 @@ describe('getTags', () => {
     expect(third.page_load_id).not.toBe(withQuery.page_load_id);
     window.history.replaceState(null, '', '/pricing');
     expect((await getTags()).page_load_id).not.toBe(first.page_load_id);
+  });
+
+  it("takes document.referrer for the document's first page and the previous page after", async () => {
+    vi.spyOn(document, 'referrer', 'get').mockReturnValue('https://www.google.com/');
+    const { getTags, getPageReferrer } = await load();
+    window.history.replaceState(null, '', '/?utm_source=bing');
+
+    expect((await getTags()).page_referrer).toBe('https://www.google.com/');
+    // A tracking-parameter cleanup or a hash change is the same page: its referrer stays.
+    window.history.replaceState(null, '', '/#faq');
+    expect((await getTags()).page_referrer).toBe('https://www.google.com/');
+
+    // An in-app navigation: the previous page, as its URL last was, not the site the visit came from.
+    window.history.replaceState(null, '', '/pricing');
+    expect((await getTags()).page_referrer).toBe('http://localhost:3000/#faq');
+    expect(getPageReferrer()).toBe('http://localhost:3000/#faq');
+    window.history.replaceState(null, '', '/pricing?plan=pro');
+    expect(getPageReferrer()).toBe('http://localhost:3000/pricing');
+  });
+
+  it('reports no referrer for a first page opened directly', async () => {
+    const { getTags } = await load();
+    expect((await getTags()).page_referrer).toBeUndefined();
   });
 
   it('reads ad click ids from the query string', async () => {
