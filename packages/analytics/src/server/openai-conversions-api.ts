@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import {
+  APP_EVENTS,
   type EventData,
   NON_AD_EVENTS,
   mapOAIEvent,
@@ -184,7 +185,8 @@ export async function sendEvents(
   const dto: CreateOpenAIEventsDTO = {
     validate_only: validateOnly,
     events: events
-      .filter((event) => !IGNORED_EVENTS.includes(event.name))
+      // `first_open` is the install: left out of what GA collects itself, not of what OpenAI takes.
+      .filter((event) => event.name === 'first_open' || !IGNORED_EVENTS.includes(event.name))
       .filter((event) => !NON_AD_EVENTS.includes(event.name))
       .filter((event) => {
         const age = Date.now() - Date.parse(event.created_at);
@@ -192,7 +194,11 @@ export async function sendEvents(
       })
       .map((event) => getServerEvent(event, data, actionSource))
       // A custom event whose name cannot be made valid would fail the whole request.
-      .filter((event) => event.type !== 'custom' || event.custom_event_name !== undefined),
+      .filter((event) => event.type !== 'custom' || event.custom_event_name !== undefined)
+      // The app events count only from an app: OpenAI takes them with `mobile_app` alone.
+      .filter(
+        (event) => !APP_EVENTS.includes(event.type as never) || event.action_source === 'mobile_app'
+      ),
   };
 
   if (dto.events.length === 0) return;

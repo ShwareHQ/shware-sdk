@@ -64,6 +64,8 @@ export type EventData = ContentsData | CustomerActionData | PlanEnrollmentData |
  * https://developers.openai.com/ads/supported-events
  */
 export type StandardEvents = {
+  app_installed: CustomerActionData;
+  app_opened: CustomerActionData;
   appointment_scheduled: CustomerActionData;
   checkout_started: ContentsData;
   contents_viewed: ContentsData;
@@ -78,7 +80,16 @@ export type StandardEvents = {
 
 export type StandardEvent = keyof StandardEvents;
 
+/**
+ * The app events, which OpenAI takes "through the Conversions API only", with `action_source`
+ * `mobile_app`: the pixel never sends them, and the server only for an app's events.
+ * https://developers.openai.com/ads/supported-events
+ */
+export const APP_EVENTS: readonly StandardEvent[] = ['app_installed', 'app_opened'];
+
 const STANDARD_EVENTS: readonly string[] = [
+  'app_installed',
+  'app_opened',
   'appointment_scheduled',
   'checkout_started',
   'contents_viewed',
@@ -309,6 +320,11 @@ export function mapOAIEvent<T extends EventName>(
   properties?: TrackProperties<T>
 ): MappedOAIEvent {
   switch (name) {
+    // The app's first launch, recorded once by the app hook: the closest thing to an install.
+    case 'first_open':
+      return { type: 'app_installed', data: customerActionData(properties) };
+    case 'app_open':
+      return { type: 'app_opened', data: customerActionData(properties) };
     case 'page_view':
       return { type: 'page_viewed', data: contentsData(properties) };
     case 'view_item':

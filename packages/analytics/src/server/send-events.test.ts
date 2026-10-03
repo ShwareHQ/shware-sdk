@@ -163,6 +163,29 @@ describe('OpenAI sendEvents', () => {
     expect(body.events[0]).toMatchObject({ id: 'event-3', type: 'order_created' });
   });
 
+  it('sends the app install and app open from an app only, as OpenAI takes them', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await sendOpenAIEvents('key', 'pixel-1', [
+      // first_open is left out of what GA collects itself, not of what OpenAI takes.
+      event({ id: 'install', name: 'first_open', platform: 'ios', properties: {} }),
+      event({ id: 'open', name: 'app_open', platform: 'android', properties: {} }),
+      event({ id: 'web-open', name: 'app_open', platform: 'web', properties: {} }),
+    ]);
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.events).toMatchObject([
+      {
+        id: 'install',
+        type: 'app_installed',
+        action_source: 'mobile_app',
+        data: { type: 'customer_action' },
+      },
+      { id: 'open', type: 'app_opened', action_source: 'mobile_app' },
+    ]);
+    expect(body.events).toHaveLength(2);
+  });
+
   it('marks a validation run and hashes the user identity', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
 
