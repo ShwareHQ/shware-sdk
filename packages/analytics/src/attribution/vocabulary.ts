@@ -35,6 +35,9 @@ export const CHANNELS = [
   'brave',
   'pinterest',
   'youtube',
+  'telegram',
+  /** Gmail's web and Android app: a link in a mail that carried no utm. */
+  'gmail',
   /** AI assistants that send people to sites: ChatGPT tags its links `utm_source=chatgpt.com`, the
    * others show as a referrer. Their own channel group, `organic_ai`, since GA4's default groups
    * would file them under Referral / Unassigned and the question "how much does AI bring" comes up. */
@@ -148,7 +151,7 @@ export const CLICK_ID_CHANNELS = [
  */
 export const AD_LANDING_PAGE = /^(?:https?:\/\/[^/]+)?\/lp\/([a-z]+)(?:[/?#]|$)/;
 
-export type ReferrerMedium = 'organic' | 'social' | 'video' | 'ai';
+export type ReferrerMedium = 'organic' | 'social' | 'video' | 'ai' | 'email';
 
 /**
  * Referrer hosts that name a channel, as regular expressions over the lower-cased host,
@@ -172,6 +175,8 @@ export const REFERRER_SITES = [
   ['yuanbao', 'ai', /^yuanbao\.tencent\.com$/],
   ['ernie', 'ai', /^yiyan\.baidu\.com$|(^|\.)ernie\.baidu\.com$/],
   ['zhipu', 'ai', /(^|\.)(chatglm\.cn|zhipuai\.cn|bigmodel\.cn)$/],
+  // Before google, whose pattern it would match.
+  ['gmail', 'email', /^mail\.google\.com$/],
   ['google', 'organic', /(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$/],
   ['microsoft', 'organic', /(^|\.)bing\.com$/],
   ['yahoo', 'organic', /(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$/],
@@ -188,8 +193,32 @@ export const REFERRER_SITES = [
   ['tiktok', 'social', /(^|\.)tiktok\.com$/],
   ['pinterest', 'social', /(^|\.)pinterest\.[a-z]{2,}(\.[a-z]{2,3})?$/],
   ['snapchat', 'social', /(^|\.)snapchat\.com$/],
+  ['telegram', 'social', /^(t\.me|telegram\.me|(web\.)?telegram\.org)$/],
   ['youtube', 'video', /(^|\.)(youtube\.com|youtu\.be)$/],
 ] as const satisfies readonly (readonly [Channel, ReferrerMedium, RegExp])[];
+
+/**
+ * The site an Android app's referrer stands for. A link opened from an app on Android arrives with
+ * `android-app://<package>/` as its referrer rather than the site's URL; the apps below are read as
+ * their sites, so the Google app is a Google search and the LinkedIn app is LinkedIn. A package
+ * not listed is kept as the referring host, as GA4 shows it; Meta's apps send their mobile host
+ * (`android-app://m.facebook.com`), which needs no entry.
+ */
+export const ANDROID_APP_HOSTS: Readonly<Record<string, string>> = {
+  'com.google.android.googlequicksearchbox': 'www.google.com',
+  'com.google.android.gm': 'mail.google.com',
+  'com.google.android.youtube': 'www.youtube.com',
+  'com.facebook.katana': 'www.facebook.com',
+  'com.instagram.android': 'www.instagram.com',
+  'com.linkedin.android': 'www.linkedin.com',
+  'com.reddit.frontpage': 'www.reddit.com',
+  'com.twitter.android': 'x.com',
+  'com.zhiliaoapp.musically': 'www.tiktok.com',
+  'com.ss.android.ugc.trill': 'www.tiktok.com',
+  'com.pinterest': 'www.pinterest.com',
+  'com.snapchat.android': 'www.snapchat.com',
+  'org.telegram.messenger': 't.me',
+};
 
 /**
  * Referrer hosts that are navigation, not acquisition, when a session happens to start on the way

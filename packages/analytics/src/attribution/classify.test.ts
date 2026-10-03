@@ -318,6 +318,21 @@ describe('classifyTouch', () => {
     ['https://www.baidu.com/s?wd=x', 'baidu', 'organic', 'organic_search'],
     ['https://blog.example.com/post', 'blog.example.com', 'referral', 'referral'],
     ['https://Blog.Example.com:8443/post', 'blog.example.com', 'referral', 'referral'],
+    ['https://mail.google.com/', 'gmail', 'email', 'email'],
+    ['https://t.me/somechannel', 'telegram', 'social', 'organic_social'],
+    // Android apps send their package as the referrer.
+    [
+      'android-app://com.google.android.googlequicksearchbox/',
+      'google',
+      'organic',
+      'organic_search',
+    ],
+    ['android-app://com.google.android.gm/', 'gmail', 'email', 'email'],
+    ['android-app://m.facebook.com', 'meta', 'social', 'organic_social'],
+    ['android-app://com.linkedin.android/', 'linkedin', 'social', 'organic_social'],
+    ['android-app://com.reddit.frontpage/', 'reddit', 'social', 'organic_social'],
+    ['android-app://org.telegram.messenger', 'telegram', 'social', 'organic_social'],
+    ['android-app://com.Example.App/path', 'com.example.app', 'referral', 'referral'],
   ])('referrer %s → %s / %s', (page_referrer, channel, medium, group) => {
     expect(classifyTouch(at('https://app.shware.net/', { page_referrer }))).toEqual({
       channel,
