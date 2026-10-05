@@ -211,12 +211,17 @@ utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm
 Ad level URL parameters (or Auto-attach, edited to these values).
 
 ```
-utm_source=tiktok&utm_medium=cpc&utm_campaign=__CAMPAIGN_ID__&utm_id=__CAMPAIGN_ID__&utm_term=__AID__&utm_content=__CID__
+utm_source=tiktok&utm_medium=cpc&utm_campaign=__CAMPAIGN_ID__&utm_id=__CAMPAIGN_ID__&utm_term=__AID__&utm_content=__CID__&placement=__PLACEMENT__
 ```
 
 - `__AID__` is the **ad group** id, `__CID__` the **creative** id; upgraded Smart+ campaigns have
   the ad id as `__ADID_V2__`.
-- Never `utm_medium=__PLACEMENT__`: it expands to `TikTok` or `Pangle`, an organic medium.
+- The placement goes in its own `placement` parameter, the tag Meta's placement fills too: TikTok
+  itself or Pangle, TikTok's network of other apps, whose clicks are worth comparing apart. TikTok
+  gives `TikTok` and `TikTok Pangle` as examples, not a full list: check a live click.
+- Never `utm_medium=__PLACEMENT__`: its values are no paid medium, so the ad reads as organic.
+- Auto-attach fills source `TikTok` and medium `Paid`, capitalized, which GA4 keeps apart from
+  `tiktok` / `paid`: edit them to the values above, or tag by hand.
 - Values are case-sensitive, everything after `#` is dropped, a repeated key keeps the last value.
 
 ### Reddit
