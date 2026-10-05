@@ -304,6 +304,34 @@ describe('classifyTouch', () => {
     });
   });
 
+  it('reads a Meta ad tagged cpc with the placement in its own parameter as paid', () => {
+    expect(
+      classifyTouch({
+        utm_source: 'meta',
+        utm_medium: 'cpc',
+        utm_campaign: 'Test_Sales_ABO',
+        placement: 'Facebook_Mobile_Feed',
+        fbclid: 'x',
+      })
+    ).toMatchObject({ channel: 'meta', medium: 'cpc', channel_group: 'paid_social', priority: 1 });
+  });
+
+  it('keeps a macro the ad platform did not expand, so the broken template shows', () => {
+    // Meta's macros are dotted: `{{campaign_name}}` is sent as written.
+    expect(
+      classifyTouch({
+        utm_source: 'fb',
+        utm_medium: 'paid',
+        utm_campaign: '{{campaign_name}}',
+        fbclid: 'x',
+      })
+    ).toMatchObject({
+      channel: 'meta',
+      channel_group: 'paid_social',
+      campaign: '{{campaign_name}}',
+    });
+  });
+
   it('reads an ad landing page as that channel', () => {
     expect(classifyTouch(at('https://app.shware.net/lp/meta?fbclid=1'))).toMatchObject({
       channel: 'meta',
@@ -642,6 +670,10 @@ describe('channelGroupOf', () => {
     ['meta', 'instagram_bio', 'organic_social'],
     ['meta', 'whatsapp_status', 'paid_social'],
     ['meta', 'threads_feed', 'paid_social'],
+    // Meta's current documented placements
+    ['meta', 'facebook_feed', 'paid_social'],
+    ['meta', 'facebook_instream', 'paid_social'],
+    ['meta', 'threads_stream', 'paid_social'],
     ['meta', '{{placement}}', 'paid_social'],
     ['meta', '(not set)', 'organic_social'],
     ['meta-websitekeyinfo', 'facebook_mobile_feed', 'paid_social'],

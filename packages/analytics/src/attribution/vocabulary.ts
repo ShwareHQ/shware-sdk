@@ -271,11 +271,19 @@ export const PAID_MEDIUM = /^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max
  * at all — so a medium in this list is a paid Meta click whatever the source says (a template with
  * `utm_source=meta-websitekeyinfo` was seen). Listed one by one rather than matched by prefix, so
  * that a hand-tagged `instagram_stories` post cannot be mistaken for an ad only because of how it
- * is spelled … which means a placement Meta adds later shows up as unassigned until it is added
- * here. Meta's documented values plus the ones seen in the wild (`facebook_mobile_reels`,
- * `facebook_notification`, `an`), and the literal macro for a template that did not expand it.
+ * is spelled … which means a placement Meta adds later shows up as organic social (or unassigned,
+ * under a source that is no social site) until it is added here. Meta's documented values plus the
+ * ones seen in the wild (`facebook_mobile_reels`, `facebook_notification`, `an`), and the literal
+ * macro for a template that did not expand it.
+ *
+ * Accepted for the ads already running with that template; new ads should rather send
+ * `utm_medium=cpc` and the placement in a `placement` parameter of its own (collected as the
+ * `placement` tag): GA4 matches its paid rule on the medium alone, and files a placement medium
+ * under Organic Social.
  */
 export const META_PLACEMENTS = [
+  'facebook_feed',
+  'facebook_instream',
   'facebook_desktop_feed',
   'facebook_mobile_feed',
   'facebook_mobile_reels',
@@ -308,6 +316,7 @@ export const META_PLACEMENTS = [
   'messenger_stories',
   'messenger_sponsored_messages',
   'threads_feed',
+  'threads_stream',
   'whatsapp_status',
   'audience_network_classic',
   'audience_network_rewarded_video',
