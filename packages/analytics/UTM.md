@@ -190,20 +190,38 @@ utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm
 - `{OrderItemId}` is the keyword id; `{Network}` is `o` (Bing, AOL, Yahoo), `s` (syndicated
   partners) or `a` (audience network), the same `network` tag; `{MatchType}` is `e`, `p` or `b`
   (an expanded match shows as `b`). Macros are case-insensitive.
-- Performance Max has no asset group macro: `{AdGroupId}` returns the asset group.
 - The lowest level's suffix wins and levels are not merged; a suffix cannot start with `?` or `&`.
+
+### Microsoft Advertising Performance Max
+
+The campaign's own Final URL suffix, so it does not inherit the account's search template.
+
+```
+utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm_content={AdGroupId}&network={Network}
+```
+
+- Microsoft has no asset group macro: in Performance Max `{AdGroupId}` returns the asset group id,
+  which stands in for the ad (Microsoft does not say what `{AdId}` returns there).
+- No `utm_term` or `match_type`: no keyword serves a Performance Max click.
+- Microsoft documents a campaign and asset group level tracking template for Performance Max, not
+  where its suffix can be set: check a live click.
 
 ### TikTok
 
 Ad level URL parameters (or Auto-attach, edited to these values).
 
 ```
-utm_source=tiktok&utm_medium=cpc&utm_campaign=__CAMPAIGN_ID__&utm_id=__CAMPAIGN_ID__&utm_term=__AID__&utm_content=__CID__
+utm_source=tiktok&utm_medium=cpc&utm_campaign=__CAMPAIGN_ID__&utm_id=__CAMPAIGN_ID__&utm_term=__AID__&utm_content=__CID__&placement=__PLACEMENT__
 ```
 
 - `__AID__` is the **ad group** id, `__CID__` the **creative** id; upgraded Smart+ campaigns have
   the ad id as `__ADID_V2__`.
-- Never `utm_medium=__PLACEMENT__`: it expands to `TikTok` or `Pangle`, an organic medium.
+- The placement goes in its own `placement` parameter, the tag Meta's placement fills too: TikTok
+  itself or Pangle, TikTok's network of other apps, whose clicks are worth comparing apart. TikTok
+  gives `TikTok` and `TikTok Pangle` as examples, not a full list: check a live click.
+- Never `utm_medium=__PLACEMENT__`: its values are no paid medium, so the ad reads as organic.
+- Auto-attach fills source `TikTok` and medium `Paid`, capitalized, which GA4 keeps apart from
+  `tiktok` / `paid`: edit them to the values above, or tag by hand.
 - Values are case-sensitive, everything after `#` is dropped, a repeated key keeps the last value.
 
 ### Reddit
@@ -270,7 +288,8 @@ utm_source=snapchat&utm_medium=cpc&utm_campaign={{campaign.id}}&utm_id={{campaig
 
 ### ChatGPT (OpenAI Ads)
 
-The ad account's or campaign's `query_string_template`.
+Ads Manager, **Landing page query parameters** in Edit campaign (or ad group, or ad); through the
+API, `landing_page_configuration.query_string_template`.
 
 ```
 utm_source=chatgpt&utm_medium=cpc&utm_campaign={campaign_id}&utm_id={campaign_id}&utm_term={ad_group_id}&utm_content={ad_id}
@@ -279,10 +298,13 @@ utm_source=chatgpt&utm_medium=cpc&utm_campaign={campaign_id}&utm_id={campaign_id
 - ChatGPT's organic links carry `utm_source=chatgpt.com` and no medium (`organic_ai`), so an ad
   must state its medium.
 - `utm_source=openai`, OpenAI's own example, folds into `chatgpt` too.
-- `{campaign_id}` and `{ad_id}` are documented; `{ad_group_id}` was only seen in OpenAI's help
-  center: check a live click.
-- OpenAI appends `oppref` itself, an ad-only click id here. Parameters from several levels are
-  merged; a parameter already in the URL wins.
+- The macros are `{campaign_id}`, `{ad_group_id}`, `{ad_id}` and `{ad_account_id}`, filled at
+  delivery time.
+- Parameters from several levels are merged, the most specific winning: the ad's URL, then the ad,
+  the ad group, the campaign. A parameter already in the ad's URL is never overwritten.
+- OpenAI appends `oppref` to the landing page URL itself (`?oppref=gAAAAA…`), an ad-only click id
+  here; don't add `click_id={oppref}`. Keep it through redirects: the pixel stores it in
+  `__oppref`, and the Conversions API wants it on server-side events.
 
 ## Other channels
 
@@ -339,5 +361,7 @@ cost per click and return on ad spend.
   [Dynamic UTM tracking](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/dynamic-utm-tracking)
 - Pinterest: [Dynamic tracking](https://help.pinterest.com/en/business/article/third-party-and-dynamic-tracking)
 - Snapchat: [URL macros](https://businesshelp.snapchat.com/s/article/add-url-macros?language=en_US)
-- OpenAI: [Campaign management](https://developers.openai.com/ads/campaign-management)
+- OpenAI: [Campaign management](https://developers.openai.com/ads/campaign-management),
+  [Measure results](https://help.openai.com/en/articles/20001214-measure-results),
+  [Conversion measurement](https://help.openai.com/en/articles/20001409-conversion-measurement)
 - X: [Web conversions](https://docs.x.com/x-ads-api/measurement/web-conversions)
