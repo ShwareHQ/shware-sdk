@@ -191,7 +191,7 @@ export interface AdvertisingInfo {
   /**
    * Where the click was served, from the final URL suffix `network={network}` (Google Ads: `g`
    * Google search, `s` search partners, `d` Display, `ytv` YouTube, `vp` video partners, `gtv`
-   * Google TV, `x` Performance Max) or `network={Network}` (Microsoft Advertising: `o` owned and
+   * Google TV, `x` Performance Max, `e` App campaigns for engagement) or `network={Network}` (Microsoft Advertising: `o` owned and
    * operated, `s` syndicated, `a` audience). Per click, where the campaign only has a type.
    */
   network?: string;

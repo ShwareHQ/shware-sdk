@@ -147,15 +147,17 @@ utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&u
 - Keep auto-tagging (`gclid`, `gbraid`, `wbraid`, `gad_*`) on: Google's own conversions need it,
   and GA4 recommends both.
 - `network` is where this click was served: `g` Google search, `s` search partners, `d` Display,
-  `ytv` YouTube, `vp` video partners, `gtv` Google TV, `x` Performance Max. The campaign has one
-  type, its clicks several networks (a Search campaign with partners or the Display expansion on),
-  so only the click says whether it came from Google search or a partner site; the SDK collects it
-  as the `network` tag, and the Google Ads API reports spend per network too.
+  `ytv` YouTube, `vp` video partners, `gtv` Google TV, `x` Performance Max, `e` App campaigns for
+  engagement. The campaign has one type, its clicks several networks (a Search campaign with
+  partners or the Display expansion on), so only the click says whether it came from Google search
+  or a partner site; the SDK collects it as the `network` tag, and the Google Ads API reports spend
+  per network too.
 - `matchtype` is how the keyword matched: `e` exact, `p` phrase, `b` broad, and `a` for a click
   AI Max for Search served without any of the keywords bought, which compares the clicks AI Max
-  added with the keywords' own. Blank where no keyword served the click (Display, Performance Max).
-- Demand Gen does not support `{keyword}`, `{network}`, `{targetid}` or `{placement}`: its clicks
-  arrive without a network.
+  added with the keywords' own. Google does not say what it returns where no keyword served the
+  click (Display, Video, Performance Max): check a live click.
+- Demand Gen does not support `{keyword}`, `{matchtype}`, `{network}`, `{targetid}` or
+  `{placement}`.
 
 ### Google Ads Performance Max
 
