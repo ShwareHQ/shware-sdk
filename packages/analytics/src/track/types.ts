@@ -188,6 +188,20 @@ export interface AdvertisingInfo {
   gclsrc?: string;
   gad_source?: string;
   gad_campaignid?: string;
+  /**
+   * Where the click was served, from the final URL suffix `network={network}` (Google Ads: `g`
+   * Google search, `s` search partners, `d` Display, `ytv` YouTube, `vp` video partners, `gtv`
+   * Google TV, `x` Performance Max, `e` App campaigns for engagement) or `network={Network}`
+   * (Microsoft Advertising: `o` owned and operated, `s` syndicated, `a` audience). Per click, where
+   * the campaign only has a type.
+   */
+  network?: string;
+  /**
+   * How the keyword matched the search, from `match_type={matchtype}` (Google Ads: `e` exact, `p`
+   * phrase, `b` broad, `a` AI Max without a keyword) or `match_type={MatchType}` (Microsoft
+   * Advertising: `e`, `p`, `b`).
+   */
+  match_type?: string;
   wbraid?: string; // web-to-app (iOS, post-ATT)
   gbraid?: string; // app-to-web (iOS, post-ATT)
   dclid?: string; // Display & Video 360
