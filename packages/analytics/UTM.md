@@ -190,8 +190,21 @@ utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm
 - `{OrderItemId}` is the keyword id; `{Network}` is `o` (Bing, AOL, Yahoo), `s` (syndicated
   partners) or `a` (audience network), the same `network` tag; `{MatchType}` is `e`, `p` or `b`
   (an expanded match shows as `b`). Macros are case-insensitive.
-- Performance Max has no asset group macro: `{AdGroupId}` returns the asset group.
 - The lowest level's suffix wins and levels are not merged; a suffix cannot start with `?` or `&`.
+
+### Microsoft Advertising Performance Max
+
+The campaign's own Final URL suffix, so it does not inherit the account's search template.
+
+```
+utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm_content={AdGroupId}&network={Network}
+```
+
+- Microsoft has no asset group macro: in Performance Max `{AdGroupId}` returns the asset group id,
+  which stands in for the ad (Microsoft does not say what `{AdId}` returns there).
+- No `utm_term` or `match_type`: no keyword serves a Performance Max click.
+- Microsoft documents a campaign and asset group level tracking template for Performance Max, not
+  where its suffix can be set: check a live click.
 
 ### TikTok
 
