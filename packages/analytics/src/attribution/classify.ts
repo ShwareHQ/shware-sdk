@@ -80,20 +80,31 @@ const videoChannels = channelsBy('video');
 const aiChannels = channelsBy('ai');
 
 /**
+ * A value made only of ad platform macros the platform did not expand, and the separators between
+ * them: `{{campaign_name}}`, `{{ad_name}}_{{ad_id}}`, `{campaignid}`, `__CAMPAIGN_ID__`. Each
+ * platform has its own brace style (Meta and Snapchat `{{a.b}}`, Reddit and LinkedIn `{{A_B}}`,
+ * TikTok `__A_B__`, Google, Microsoft, Pinterest and OpenAI `{a}`), and a misspelt macro or an ad
+ * format that does not expand them sends the macro itself.
+ */
+const UNEXPANDED_MACRO = /^(?:\{\{[^{}]*\}\}|\{[^{}]*\}|__[A-Z0-9_]+__|[\s_|:/.-])+$/;
+
+/**
  * A tag as text; absent when missing, empty, or the strings a broken template writes
- * (`undefined`, `null`, an unexpanded `{{macro}}` other than Meta's placement, read elsewhere).
+ * (`undefined`, `null`, an unexpanded macro). Meta's `{{placement}}` is kept: as a medium it still
+ * says the click was a Meta ad (`META_PLACEMENTS`).
  */
 function text(tags: TrackTags, key: string): string | null {
   const value = tags[key];
   if (value === undefined || value === null) return null;
   const s = String(value);
-  return s === '' || s === 'undefined' || s === 'null' ? null : s;
+  if (s === '' || s === 'undefined' || s === 'null') return null;
+  return UNEXPANDED_MACRO.test(s) && !metaPlacements.has(s.toLowerCase()) ? null : s;
 }
 
 /**
  * 1. What the campaign said: `utm_source`, with the aliases folded. It comes before the click
- * ids — unlike GA4, where a `gclid` wins over the utm unless the property sets "manual tagging
- * overrides auto-tagging": a utm is written for this link by whoever placed it, while a click id
+ * ids — unlike GA4, where a usable `gclid` always wins over the utm (Universal Analytics' "manual
+ * tagging overrides auto-tagging" has no GA4 counterpart): a utm is written for this link by whoever placed it, while a click id
  * can be added by someone else — Meta puts `fbclid` on organic links too, and a shared or
  * forwarded ad link keeps the click id of the ad. When the two disagree, the utm is the one that
  * was right: an Instagram profile link carrying `fbclid`, a newsletter link copied from an ad.

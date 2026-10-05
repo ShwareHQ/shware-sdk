@@ -304,6 +304,45 @@ describe('classifyTouch', () => {
     });
   });
 
+  it('reads a Meta ad tagged cpc with the placement in its own parameter as paid', () => {
+    expect(
+      classifyTouch({
+        utm_source: 'meta',
+        utm_medium: 'cpc',
+        utm_campaign: 'Test_Sales_ABO',
+        placement: 'Facebook_Mobile_Feed',
+        fbclid: 'x',
+      })
+    ).toMatchObject({ channel: 'meta', medium: 'cpc', channel_group: 'paid_social', priority: 1 });
+  });
+
+  it('reads a macro the ad platform did not expand as no value', () => {
+    // Meta's macros are dotted: `{{campaign_name}}` is sent as written.
+    expect(
+      classifyTouch({
+        utm_source: 'fb',
+        utm_medium: 'paid',
+        utm_campaign: '{{campaign_name}}',
+        utm_content: '{{ad_name}}_{{ad_id}}',
+        fbclid: 'x',
+      })
+    ).toMatchObject({ channel: 'meta', channel_group: 'paid_social', campaign: null });
+    expect(
+      classifyTouch({ utm_source: 'tiktok', utm_medium: 'cpc', utm_campaign: '__CAMPAIGN_NAME__' })
+    ).toMatchObject({ channel: 'tiktok', campaign: null });
+    expect(
+      classifyTouch({ utm_source: 'google', utm_medium: 'cpc', utm_campaign: '{campaignid}' })
+    ).toMatchObject({ channel: 'google', campaign: null });
+    // an unexpanded source leaves the click id to name the channel
+    expect(
+      classifyTouch({ utm_source: '{{site_source_name}}', utm_medium: 'cpc', fbclid: 'x' })
+    ).toMatchObject({ channel: 'meta', medium: 'cpc', channel_group: 'paid_social' });
+    // a value that only contains a macro next to real text is kept
+    expect(
+      classifyTouch({ utm_source: 'meta', utm_medium: 'cpc', utm_campaign: 'spring_{{ad.id}}' })
+    ).toMatchObject({ campaign: 'spring_{{ad.id}}' });
+  });
+
   it('reads an ad landing page as that channel', () => {
     expect(classifyTouch(at('https://app.shware.net/lp/meta?fbclid=1'))).toMatchObject({
       channel: 'meta',
@@ -642,6 +681,10 @@ describe('channelGroupOf', () => {
     ['meta', 'instagram_bio', 'organic_social'],
     ['meta', 'whatsapp_status', 'paid_social'],
     ['meta', 'threads_feed', 'paid_social'],
+    // Meta's current documented placements
+    ['meta', 'facebook_feed', 'paid_social'],
+    ['meta', 'facebook_instream', 'paid_social'],
+    ['meta', 'threads_stream', 'paid_social'],
     ['meta', '{{placement}}', 'paid_social'],
     ['meta', '(not set)', 'organic_social'],
     ['meta-websitekeyinfo', 'facebook_mobile_feed', 'paid_social'],
