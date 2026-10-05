@@ -324,52 +324,24 @@ What the SDK guarantees for this to hold:
 
 Typed as `UTMParams` (exported from `@shware/analytics`). Value unions follow the
 [GA4 default channel group definitions](https://support.google.com/analytics/answer/9756891).
+How to tag each ad platform and channel, and how `classifyTouch` and GA4 read the result:
+[UTM.md](./UTM.md).
 
-| Param                | Meaning                                                            | Examples                       |
-| -------------------- | ------------------------------------------------------------------ | ------------------------------ |
-| utm_source           | Traffic source (platform/site)                                     | `google`, `meta`, `newsletter` |
-| utm_medium           | Marketing medium, **the key input for GA4 channel classification** | `cpc`, `paid_social`, `email`  |
-| utm_campaign         | Campaign name                                                      | `summer_promo_2026`            |
-| utm_id               | Campaign ID                                                        | `abc123`                       |
-| utm_term             | Paid keyword                                                       | `virtual+staging`              |
-| utm_content          | Differentiates creatives pointing to the same URL                  | `banner_a` / `banner_b`        |
-| utm_source_platform  | Platform managing the buy                                          | `Google Ads`, `Manual`         |
-| utm_creative_format  | Creative type                                                      | `display`, `video`             |
-| utm_marketing_tactic | Targeting tactic                                                   | `remarketing`, `prospecting`   |
+| Param                | Meaning                                                        | Examples                     |
+| -------------------- | -------------------------------------------------------------- | ---------------------------- |
+| utm_source           | Traffic source (platform/site)                                 | `google`, `meta`, `bing`     |
+| utm_medium           | Marketing medium, **the key input for channel classification** | `cpc`, `email`, `referral`   |
+| utm_campaign         | Campaign; ads carry the campaign id, never its name            | `120201234567890123`         |
+| utm_id               | Campaign ID, the key of GA4's cost data import                 | `120201234567890123`         |
+| utm_term             | Ad set / ad group id; for search, the keyword id               | `120201234567890456`         |
+| utm_content          | The ad id; outside ads, what tells apart links to the same URL | `120201234567890789`         |
+| utm_source_platform  | Platform managing the buy                                      | `Google Ads`, `Manual`       |
+| utm_creative_format  | Creative type                                                  | `display`, `video`           |
+| utm_marketing_tactic | Targeting tactic                                               | `remarketing`, `prospecting` |
 
-### Why Google Ads uses `medium=cpc`
-
-GA4 assigns traffic to default channel groups by matching source/medium against
-regex rules. All paid channels require the medium to match:
-
-```
-^(.*cp.*|ppc|retargeting|paid.*)$
-```
-
-`cpc` (cost-per-click) is the standard medium Google Ads applies with
-auto-tagging (gclid), so manual tagging keeps the same value:
-`source=google` + `medium=cpc` → search site list + paid regex → **Paid Search**.
-An arbitrary medium like `ads` or `google` matches no rule and the traffic
-falls into **Unassigned/Referral**, breaking channel reports.
-
-### Recommended combinations
-
-| Placement           | utm_source               | utm_medium    | GA4 channel    |
-| ------------------- | ------------------------ | ------------- | -------------- |
-| Google Ads search   | `google`                 | `cpc`         | Paid Search    |
-| Meta paid ads       | `meta`                   | `paid_social` | Paid Social    |
-| FB/IG organic posts | `facebook` / `instagram` | `social`      | Organic Social |
-| Email marketing     | `newsletter`             | `email`       | Email          |
-| Affiliate           | partner name             | `affiliate`   | Affiliates     |
-| SMS                 | `sms`                    | `sms`         | SMS            |
-
-### Gotchas
-
-- Lowercase everything, no spaces (use `_` or `-`): `Google` and `google` are
-  two different sources in reports.
-- With Google Ads auto-tagging (gclid) enabled, manual UTMs are unnecessary;
-  when both are present the manual UTM wins for display — keep the values
-  consistent (`google`/`cpc`) to avoid splitting data.
+Every paid click is `utm_medium=cpc`: GA4 and `classifyTouch` both decide paid by matching the
+medium against `^(.*cp.*|ppc|retargeting|paid.*)$`, and a medium that misses it (`ads`, a Meta
+placement) files the ad as organic or unassigned.
 
 ## GAD params
 
