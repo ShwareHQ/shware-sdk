@@ -316,31 +316,20 @@ describe('classifyTouch', () => {
     ).toMatchObject({ channel: 'meta', medium: 'cpc', channel_group: 'paid_social', priority: 1 });
   });
 
-  it('reads a macro the ad platform did not expand as no value', () => {
+  it('keeps a macro the ad platform did not expand, so the broken template shows', () => {
     // Meta's macros are dotted: `{{campaign_name}}` is sent as written.
     expect(
       classifyTouch({
         utm_source: 'fb',
         utm_medium: 'paid',
         utm_campaign: '{{campaign_name}}',
-        utm_content: '{{ad_name}}_{{ad_id}}',
         fbclid: 'x',
       })
-    ).toMatchObject({ channel: 'meta', channel_group: 'paid_social', campaign: null });
-    expect(
-      classifyTouch({ utm_source: 'tiktok', utm_medium: 'cpc', utm_campaign: '__CAMPAIGN_NAME__' })
-    ).toMatchObject({ channel: 'tiktok', campaign: null });
-    expect(
-      classifyTouch({ utm_source: 'google', utm_medium: 'cpc', utm_campaign: '{campaignid}' })
-    ).toMatchObject({ channel: 'google', campaign: null });
-    // an unexpanded source leaves the click id to name the channel
-    expect(
-      classifyTouch({ utm_source: '{{site_source_name}}', utm_medium: 'cpc', fbclid: 'x' })
-    ).toMatchObject({ channel: 'meta', medium: 'cpc', channel_group: 'paid_social' });
-    // a value that only contains a macro next to real text is kept
-    expect(
-      classifyTouch({ utm_source: 'meta', utm_medium: 'cpc', utm_campaign: 'spring_{{ad.id}}' })
-    ).toMatchObject({ campaign: 'spring_{{ad.id}}' });
+    ).toMatchObject({
+      channel: 'meta',
+      channel_group: 'paid_social',
+      campaign: '{{campaign_name}}',
+    });
   });
 
   it('reads an ad landing page as that channel', () => {

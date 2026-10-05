@@ -80,25 +80,15 @@ const videoChannels = channelsBy('video');
 const aiChannels = channelsBy('ai');
 
 /**
- * A value made only of ad platform macros the platform did not expand, and the separators between
- * them: `{{campaign_name}}`, `{{ad_name}}_{{ad_id}}`, `{campaignid}`, `__CAMPAIGN_ID__`. Each
- * platform has its own brace style (Meta and Snapchat `{{a.b}}`, Reddit and LinkedIn `{{A_B}}`,
- * TikTok `__A_B__`, Google, Microsoft, Pinterest and OpenAI `{a}`), and a misspelt macro or an ad
- * format that does not expand them sends the macro itself.
- */
-const UNEXPANDED_MACRO = /^(?:\{\{[^{}]*\}\}|\{[^{}]*\}|__[A-Z0-9_]+__|[\s_|:/.-])+$/;
-
-/**
- * A tag as text; absent when missing, empty, or the strings a broken template writes
- * (`undefined`, `null`, an unexpanded macro). Meta's `{{placement}}` is kept: as a medium it still
- * says the click was a Meta ad (`META_PLACEMENTS`).
+ * A tag as text; absent when missing, empty, or the strings a broken template writes (`undefined`,
+ * `null`). A macro the ad platform did not expand (`{{campaign_name}}`, `__CAMPAIGN_NAME__`) is
+ * kept as written, so the misspelt template shows in the reports and gets fixed.
  */
 function text(tags: TrackTags, key: string): string | null {
   const value = tags[key];
   if (value === undefined || value === null) return null;
   const s = String(value);
-  if (s === '' || s === 'undefined' || s === 'null') return null;
-  return UNEXPANDED_MACRO.test(s) && !metaPlacements.has(s.toLowerCase()) ? null : s;
+  return s === '' || s === 'undefined' || s === 'null' ? null : s;
 }
 
 /**
