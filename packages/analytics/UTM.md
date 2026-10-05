@@ -133,7 +133,7 @@ utm_source=meta&utm_medium=cpc&utm_campaign={{campaign.id}}&utm_id={{campaign.id
 Account level **Final URL suffix**, with auto-tagging on.
 
 ```
-utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&utm_term={targetid}&utm_content={creative}
+utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&utm_term={targetid}&utm_content={creative}&network={network}&matchtype={matchtype}
 ```
 
 - The suffix, not the tracking template: parallel tracking runs the template in the background and
@@ -146,18 +146,28 @@ utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&u
 - `{creative}` is the ad id; its ad group comes back from the Google Ads API.
 - Keep auto-tagging (`gclid`, `gbraid`, `wbraid`, `gad_*`) on: Google's own conversions need it,
   and GA4 recommends both.
-- Demand Gen does not support `{keyword}`, `{network}`, `{targetid}` or `{placement}`.
+- `network` is where this click was served: `g` Google search, `s` search partners, `d` Display,
+  `ytv` YouTube, `vp` video partners, `gtv` Google TV, `x` Performance Max. The campaign has one
+  type, its clicks several networks (a Search campaign with partners or the Display expansion on),
+  so only the click says whether it came from Google search or a partner site; the SDK collects it
+  as the `network` tag, and the Google Ads API reports spend per network too.
+- `matchtype` is how the keyword matched: `e` exact, `p` phrase, `b` broad, and `a` for a click
+  AI Max for Search served without any of the keywords bought, which compares the clicks AI Max
+  added with the keywords' own. Blank where no keyword served the click (Display, Performance Max).
+- Demand Gen does not support `{keyword}`, `{network}`, `{targetid}` or `{placement}`: its clicks
+  arrive without a network.
 
 ### Google Ads Performance Max
 
 Campaign or asset group level suffix.
 
 ```
-utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&utm_content={assetgroupid}
+utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&utm_content={assetgroupid}&network={network}
 ```
 
 - `{keyword}` is blank and `{adgroupid}` unsupported in Performance Max; `{assetgroupid}` stands in
   for the ad.
+- `network` is always `x` here; it is there so every Google click carries one.
 - `cpc`, not `pmax`. With a usable `gclid`, GA4 takes the click from Google Ads and files it under
   Cross-network whatever the medium says; when it cannot use the `gclid`, it reads the utm alone,
   and `pmax` misses GA4's paid rule, so `google / pmax` is Organic Search. `classifyTouch` still
@@ -170,12 +180,14 @@ Account level **Final URL suffix**. Turn **off** "Add UTM tags to my destination
 MSCLKID auto-tagging on.
 
 ```
-utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm_term={OrderItemId}&utm_content={AdId}
+utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm_term={OrderItemId}&utm_content={AdId}&network={Network}&matchtype={MatchType}
 ```
 
 - Microsoft's UTM auto-tagging writes the campaign and ad group **names**, and only checks the
   tracking template for existing UTMs, so together with a suffix it duplicates them.
-- `{OrderItemId}` is the keyword id. Macros are case-insensitive.
+- `{OrderItemId}` is the keyword id; `{Network}` is `o` (Bing, AOL, Yahoo), `s` (syndicated
+  partners) or `a` (audience network), the same `network` tag; `{MatchType}` is `e`, `p` or `b`
+  (an expanded match shows as `b`). Macros are case-insensitive.
 - Performance Max has no asset group macro: `{AdGroupId}` returns the asset group.
 - The lowest level's suffix wins and levels are not merged; a suffix cannot start with `?` or `&`.
 

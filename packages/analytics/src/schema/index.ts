@@ -157,6 +157,8 @@ export const tagsSchema = object({
   gclsrc: optional(string()),
   gad_source: optional(string()),
   gad_campaignid: optional(string()),
+  network: optional(string()),
+  matchtype: optional(string()),
   wbraid: optional(string()),
   gbraid: optional(string()),
   dclid: optional(string()),
