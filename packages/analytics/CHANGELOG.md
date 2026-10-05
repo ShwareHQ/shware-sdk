@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.4.0
+
+### Minor Changes
+
+- e12ad99: `META_PLACEMENTS` adds Meta's current `facebook_feed`, `facebook_instream` and `threads_stream`, which `classifyTouch` read as organic social under `utm_source=meta`. Reclassify stored sessions after upgrading.
+
 ## 11.3.2
 
 ### Patch Changes
