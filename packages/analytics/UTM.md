@@ -133,7 +133,7 @@ utm_source=meta&utm_medium=cpc&utm_campaign={{campaign.id}}&utm_id={{campaign.id
 Account level **Final URL suffix**, with auto-tagging on.
 
 ```
-utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&utm_term={targetid}&utm_content={creative}&network={network}&matchtype={matchtype}
+utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&utm_term={targetid}&utm_content={creative}&network={network}&match_type={matchtype}
 ```
 
 - The suffix, not the tracking template: parallel tracking runs the template in the background and
@@ -152,7 +152,7 @@ utm_source=google&utm_medium=cpc&utm_campaign={campaignid}&utm_id={campaignid}&u
   partners or the Display expansion on), so only the click says whether it came from Google search
   or a partner site; the SDK collects it as the `network` tag, and the Google Ads API reports spend
   per network too.
-- `matchtype` is how the keyword matched: `e` exact, `p` phrase, `b` broad, and `a` for a click
+- `match_type` is how the keyword matched: `e` exact, `p` phrase, `b` broad, and `a` for a click
   AI Max for Search served without any of the keywords bought, which compares the clicks AI Max
   added with the keywords' own. Google does not say what it returns where no keyword served the
   click (Display, Video, Performance Max): check a live click.
@@ -182,7 +182,7 @@ Account level **Final URL suffix**. Turn **off** "Add UTM tags to my destination
 MSCLKID auto-tagging on.
 
 ```
-utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm_term={OrderItemId}&utm_content={AdId}&network={Network}&matchtype={MatchType}
+utm_source=bing&utm_medium=cpc&utm_campaign={CampaignId}&utm_id={CampaignId}&utm_term={OrderItemId}&utm_content={AdId}&network={Network}&match_type={MatchType}
 ```
 
 - Microsoft's UTM auto-tagging writes the campaign and ad group **names**, and only checks the

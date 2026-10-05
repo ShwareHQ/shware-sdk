@@ -140,7 +140,7 @@ export async function getTags() {
     gad_source: params.get('gad_source') ?? undefined,
     gad_campaignid: params.get('gad_campaignid') ?? undefined,
     network: params.get('network') ?? undefined,
-    matchtype: params.get('matchtype') ?? undefined,
+    match_type: params.get('match_type') ?? undefined,
     wbraid: params.get('wbraid') ?? undefined,
     gbraid: params.get('gbraid') ?? undefined,
     dclid: params.get('dclid') ?? undefined,

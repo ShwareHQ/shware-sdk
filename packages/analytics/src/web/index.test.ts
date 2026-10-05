@@ -131,9 +131,9 @@ describe('getTags', () => {
 
   it("reads the search ads' network and match type from the final URL suffix", async () => {
     const { getTags } = await load();
-    window.history.replaceState(null, '', '/?gclid=G1&utm_medium=cpc&network=s&matchtype=a');
+    window.history.replaceState(null, '', '/?gclid=G1&utm_medium=cpc&network=s&match_type=a');
 
-    expect(await getTags()).toMatchObject({ gclid: 'G1', network: 's', matchtype: 'a' });
+    expect(await getTags()).toMatchObject({ gclid: 'G1', network: 's', match_type: 'a' });
   });
 
   it('keeps the ad cookies under their own names, apart from the URL click ids', async () => {
