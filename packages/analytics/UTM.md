@@ -313,6 +313,8 @@ utm_source=chatgpt&utm_medium=cpc&utm_campaign={campaign_id}&utm_id={campaign_id
 | An email the product sends on its own | `utm_source=lifecycle&utm_medium=email&utm_campaign=<message slug>`                | `email`          |
 | Our own newsletter                    | `utm_source=newsletter&utm_medium=email&utm_campaign=<issue>`                      | `email`          |
 | Sales or partnership outreach         | `utm_source=outreach&utm_medium=email&utm_campaign=<sequence slug>`                | `email`          |
+| A text message we send                | `utm_source=<kind, e.g. lifecycle>&utm_medium=sms&utm_campaign=<message slug>`     | `sms`            |
+| A push notification we send           | `utm_source=<kind, e.g. lifecycle>&utm_medium=push&utm_campaign=<message slug>`    | `mobile_push`    |
 | Our own post (Discord, Reddit, X…)    | `utm_source=<platform>&utm_medium=social&utm_campaign=<post slug>`                 | `organic_social` |
 | A profile's bio link                  | `utm_source=<platform>&utm_medium=social&utm_campaign=bio&utm_content=link_in_bio` | `organic_social` |
 | Our own video's description           | `utm_source=youtube&utm_medium=video&utm_campaign=<video slug>`                    | `organic_video`  |
