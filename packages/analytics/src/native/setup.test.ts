@@ -6,6 +6,15 @@ const getInstallReferrerAsync = vi.fn(
   async () => 'utm_source=google-play&utm_medium=organic&gclid=G1'
 );
 
+// The link that launched the process, and the listeners the module registers for the rest.
+const linking = {
+  initialUrl: null as string | null,
+  onUrl: [] as ((event: { url: string }) => void)[],
+  onAppState: [] as ((state: string) => void)[],
+};
+const openWith = (url: string) => linking.onUrl.forEach((listener) => listener({ url }));
+const appGoes = (state: string) => linking.onAppState.forEach((listener) => listener(state));
+
 vi.mock('expo-sqlite/localStorage/install', () => ({}));
 vi.mock('expo-application', () => ({
   getAndroidId: () => 'android-id',
@@ -31,6 +40,19 @@ vi.mock('react-native', () => ({
   Platform: { OS: 'android' },
   Dimensions: { get: () => ({ width: 390.5, height: 844.4 }) },
   PixelRatio: { get: () => 3 },
+  Linking: {
+    getInitialURL: async () => linking.initialUrl,
+    addEventListener: (_: string, listener: (event: { url: string }) => void) => {
+      linking.onUrl.push(listener);
+      return { remove() {} };
+    },
+  },
+  AppState: {
+    addEventListener: (_: string, listener: (state: string) => void) => {
+      linking.onAppState.push(listener);
+      return { remove() {} };
+    },
+  },
 }));
 vi.mock('react-native-url-polyfill', () => ({ URLSearchParams }));
 
@@ -51,6 +73,9 @@ async function load() {
 beforeEach(() => {
   vi.clearAllMocks();
   store.clear();
+  linking.initialUrl = null;
+  linking.onUrl.length = 0;
+  linking.onAppState.length = 0;
 });
 
 afterEach(() => {
@@ -159,6 +184,71 @@ describe('install referrer utm', () => {
     vi.resetModules();
     const reinstall = await loadWith(memoryStorage());
     await expect(reinstall()).resolves.toMatchObject({ utm_source: 'google-play' });
+  });
+});
+
+describe('the link that opened the app', () => {
+  const EMAIL =
+    'https://example.com/pricing?utm_source=lifecycle&utm_medium=email&utm_campaign=day3&gclid=G2';
+
+  it('lands the visit on the link that launched the app, its utm over the install referrer', async () => {
+    linking.initialUrl = EMAIL;
+    const { getTags } = await load();
+
+    await expect(getTags()).resolves.toMatchObject({
+      page_location: EMAIL,
+      utm_source: 'lifecycle',
+      utm_medium: 'email',
+      utm_campaign: 'day3',
+      gclid: 'G2',
+    });
+  });
+
+  it('takes a link that brings the running app to the front', async () => {
+    const { getTags } = await load();
+    const before = await getTags();
+    expect(before.page_location).toBeUndefined();
+
+    openWith('myapp://pricing?utm_source=onesignal&utm_medium=push&utm_campaign=winback');
+    await expect(getTags()).resolves.toMatchObject({
+      page_location: 'myapp://pricing?utm_source=onesignal&utm_medium=push&utm_campaign=winback',
+      utm_source: 'onesignal',
+      utm_medium: 'push',
+    });
+  });
+
+  it('ends the visit when the app goes to the background, not when it is only inactive', async () => {
+    linking.initialUrl = EMAIL;
+    const { getTags } = await load();
+    await getTags();
+
+    appGoes('inactive');
+    await expect(getTags()).resolves.toMatchObject({ page_location: EMAIL, gclid: 'G2' });
+
+    appGoes('background');
+    const tags = await getTags();
+    expect(tags.page_location).toBeUndefined();
+    expect(tags.gclid).toBeUndefined();
+    // The install launch keeps its claimed referrer utm for the rest of the process.
+    expect(tags.utm_source).toBe('google-play');
+  });
+
+  it('takes a link handed over by hand, as from a push notification', async () => {
+    const { getTags, openedWith } = await load();
+    await getTags();
+
+    openedWith('https://example.com/?utm_source=lifecycle&utm_medium=push');
+    await expect(getTags()).resolves.toMatchObject({ utm_medium: 'push' });
+  });
+
+  it('keeps a link without parameters as the landing page and nothing else', async () => {
+    linking.initialUrl = 'https://example.com/refer/abc123';
+    const { getTags } = await load();
+
+    await expect(getTags()).resolves.toMatchObject({
+      page_location: 'https://example.com/refer/abc123',
+      utm_source: 'google-play',
+    });
   });
 });
 

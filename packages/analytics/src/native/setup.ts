@@ -12,11 +12,12 @@ import {
 } from 'expo-device';
 import { getCalendars, getLocales } from 'expo-localization';
 import { getAdvertisingId } from 'expo-tracking-transparency';
-import { Dimensions, PixelRatio, Platform } from 'react-native';
+import { AppState, Dimensions, Linking, PixelRatio, Platform } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
 import { keys } from '../constants/storage';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
+import { type UrlTags, urlTags } from '../track/url-tags';
 
 const map = new Map<string, string>();
 
@@ -123,6 +124,61 @@ function claimInstallReferrer(): boolean {
   return true;
 }
 
+/**
+ * The link that opened the app for this visit, the app's landing page: its URL stands in for
+ * `page_location`, and its utm and click ids name the session it starts, exactly as a web page's
+ * query does. A universal link or an app link from an email or an ad opens the app rather than
+ * the site, and without this every one of those sessions was direct.
+ *
+ * The visit lasts from the open to the app going to the background, so every event in between
+ * carries the link, as every event of a web page carries that page's query; the next open, with a
+ * link or without, starts from nothing. Only the event that starts a session gets it classified:
+ * a link tapped while the session is still running joins it, as GA4 keeps one session across a
+ * change of campaign.
+ *
+ * Read from React Native's `Linking`: the URL that launched the process, and each one that brings
+ * the running app to the front. An entry the system does not route through `Linking` — a tap on
+ * a push notification — hands its URL over with `openedWith`.
+ */
+let openUrl: string | undefined;
+let initialUrlPromise: Promise<void> | undefined;
+let listening = false;
+
+/** The link this visit opened with, for an entry `Linking` does not see, such as a push notification. */
+export function openedWith(url: string | null | undefined): void {
+  openUrl = url || undefined;
+}
+
+function listenForOpenUrls(): void {
+  if (listening) return;
+  listening = true;
+  Linking.addEventListener('url', ({ url }) => openedWith(url));
+  // `background`, not `inactive`: iOS goes inactive for a system sheet or the control center,
+  // with the visit still on.
+  AppState.addEventListener('change', (state) => {
+    if (state === 'background') openUrl = undefined;
+  });
+}
+
+/** The URL that launched the process, read once; a link that arrived since has the last word. */
+function resolveInitialUrl(): Promise<void> {
+  initialUrlPromise ??= Linking.getInitialURL().then(
+    (url) => {
+      if (url && openUrl === undefined) openUrl = url;
+    },
+    () => undefined
+  );
+  return initialUrlPromise;
+}
+
+/** The URL parameters of a link that opened the app. */
+function linkTags(url: string | undefined): UrlTags {
+  if (!url) return {};
+  const at = url.indexOf('?');
+  const query = at === -1 ? '' : url.slice(at + 1).split('#')[0];
+  return urlTags(new URLSearchParams(query));
+}
+
 export async function getTags(): Promise<TrackTags> {
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);
@@ -133,6 +189,8 @@ export async function getTags(): Promise<TrackTags> {
   // for as long as the app stayed installed, and a report reading a session's tags could not tell
   // the install from the thousandth open. The campaign is the install's touch, not every
   // session's.
+  listenForOpenUrls();
+  await resolveInitialUrl();
   const install_referrer = await getInstallReferrer();
   if (install_referrer && installLaunch === undefined) installLaunch = claimInstallReferrer();
   const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
@@ -166,6 +224,9 @@ export async function getTags(): Promise<TrackTags> {
     utm_source_platform: params.get('utm_source_platform') ?? undefined,
     utm_creative_format: params.get('utm_creative_format') ?? undefined,
     utm_marketing_tactic: params.get('utm_marketing_tactic') ?? undefined,
+    // the link that opened the app: its URL, and its utm and click ids, over the install referrer's
+    page_location: openUrl,
+    ...linkTags(openUrl),
   };
 
   cache.tags = tags;

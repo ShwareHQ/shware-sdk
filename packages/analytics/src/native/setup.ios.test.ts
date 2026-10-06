@@ -44,6 +44,8 @@ vi.mock('react-native', () => ({
   },
   Dimensions: { get: () => ({ width: 1024, height: 1366 }) },
   PixelRatio: { get: () => 2 },
+  Linking: { getInitialURL: async () => null, addEventListener: () => ({ remove() {} }) },
+  AppState: { addEventListener: () => ({ remove() {} }) },
 }));
 vi.mock('react-native-url-polyfill', () => ({ URLSearchParams }));
 

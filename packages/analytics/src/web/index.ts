@@ -5,6 +5,7 @@ import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
+import { urlTags } from '../track/url-tags';
 import { getPageKey } from './page-key';
 
 // lib.dom types `crypto.randomUUID` as always present, but it is missing in insecure contexts
@@ -124,37 +125,10 @@ export async function getTags() {
     page_referrer,
     page_title,
     page_load_id,
-    // Ad click ids from the URL, each under its parameter's name: this page's click, which
-    // names the visit's channel (`CLICK_ID_CHANNELS`). Never filled from a cookie — a cookie
-    // outlives the click; the cookies go below under their own names.
-    fbclid: params.get('fbclid') ?? undefined,
-    ad_id: params.get('ad_id') ?? undefined,
-    ad_name: params.get('ad_name') ?? undefined,
-    adset_id: params.get('adset_id') ?? undefined,
-    adset_name: params.get('adset_name') ?? undefined,
-    campaign_id: params.get('campaign_id') ?? undefined,
-    campaign_name: params.get('campaign_name') ?? undefined,
-    placement: params.get('placement') ?? undefined,
-    gclid: params.get('gclid') ?? undefined,
-    gclsrc: params.get('gclsrc') ?? undefined,
-    gad_source: params.get('gad_source') ?? undefined,
-    gad_campaignid: params.get('gad_campaignid') ?? undefined,
-    network: params.get('network') ?? undefined,
-    match_type: params.get('match_type') ?? undefined,
-    wbraid: params.get('wbraid') ?? undefined,
-    gbraid: params.get('gbraid') ?? undefined,
-    dclid: params.get('dclid') ?? undefined,
-    msclkid: params.get('msclkid') ?? undefined,
-    rdt_cid: params.get('rdt_cid') ?? undefined,
-    li_fat_id: params.get('li_fat_id') ?? undefined,
-    oppref: params.get('oppref') ?? undefined,
-    ko_click_id: params.get('ko_click_id') ?? undefined,
-    // Snapchat appends `ScCid`, and URL parameters are case-sensitive.
-    ScCid: params.get('ScCid') ?? undefined,
-    ttclid: params.get('ttclid') ?? undefined,
-    twclid: params.get('twclid') ?? undefined,
-    yclid: params.get('yclid') ?? undefined,
-    epik: params.get('epik') ?? undefined,
+    // Ad click ids, ad ids and utm from the URL, each under its parameter's name: this page's
+    // click, which names the visit's channel (`CLICK_ID_CHANNELS`). Never filled from a cookie — a
+    // cookie outlives the click; the cookies go below under their own names.
+    ...urlTags(params),
     // The ad platforms' first-party cookies, raw and under the cookie's own name, for the
     // conversion senders only: they carry the click to the later pages and visits where the
     // URL no longer does. `_fbc`, `_rdt_cid`, `_gcl_*` and `_uetmsclkid` are kept alive
@@ -171,7 +145,7 @@ export async function getTags() {
     _li_fat_id: parsed.li_fat_id || undefined,
     __oppref: parsed.__oppref || undefined,
     __obref: parsed.__obref || undefined,
-    // utm params
+    // utm params: a short link's (`?s=`) win over the URL's
     utm_source: link?.utm_source ?? params.get('utm_source') ?? undefined,
     utm_medium: link?.utm_medium ?? params.get('utm_medium') ?? undefined,
     utm_campaign: link?.utm_campaign ?? params.get('utm_campaign') ?? undefined,
