@@ -79,6 +79,10 @@ export const CHANNEL_GROUPS = [
   'referral',
   'email',
   'affiliate',
+  /** GA4's SMS: `sms` as the source or the medium */
+  'sms',
+  /** GA4's Mobile Push Notifications: a medium ending in `push` or naming mobile or a notification, or `firebase` as the source */
+  'mobile_push',
   'unassigned',
 ] as const;
 
@@ -330,6 +334,8 @@ export const META_PLACEMENTS = [
 export const DISPLAY_MEDIUMS = ['display', 'banner', 'expandable', 'interstitial'] as const;
 /** GA4's email spellings, as a source or a medium. */
 export const EMAIL_MEDIUMS = ['email', 'e-mail', 'e_mail', 'e mail'] as const;
+/** GA4's Mobile Push Notifications medium: ending in `push`, or containing `mobile` or `notification`. */
+export const PUSH_MEDIUM = /(push$|mobile|notification)/;
 /** A medium that says email or newsletter anywhere in it: `outbound email`, `cold_email`, `newsletter`, and GA4's four. */
 export const EMAIL_MEDIUM = /(^|[^a-z])(e[-_ ]?mail|newsletter)([^a-z]|$)/;
 

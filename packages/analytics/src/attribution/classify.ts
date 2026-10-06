@@ -12,6 +12,7 @@ import {
   META_PLACEMENTS,
   NO_MEDIUM,
   PAID_MEDIUM,
+  PUSH_MEDIUM,
   REFERRERS_NOT_A_TOUCH,
   REFERRER_SITES,
   SOURCE_ALIASES,
@@ -64,12 +65,17 @@ const ORGANIC_GROUPS = new Set<ChannelGroup>([
   'referral',
 ]);
 /**
- * The groups a campaign rule ranks with a referrer in: the organic ones, and email. Email reaches
- * people we already know — often because an ad brought them — and its links (a welcome mail, a
- * trial reminder) come between that ad and the purchase, so it must not take the ad's credit.
- * With no ad in the window it still wins as the latest touch.
+ * The groups a campaign rule ranks with a referrer in: the organic ones, and the messages we send
+ * — email, SMS, push. They reach people we already know — often because an ad brought them — and
+ * their links (a welcome mail, a trial reminder) come between that ad and the purchase, so they
+ * must not take the ad's credit. With no ad in the window they still win as the latest touch.
  */
-const REFERRER_TIER_GROUPS = new Set<ChannelGroup>([...ORGANIC_GROUPS, 'email']);
+const REFERRER_TIER_GROUPS = new Set<ChannelGroup>([
+  ...ORGANIC_GROUPS,
+  'email',
+  'sms',
+  'mobile_push',
+]);
 const referrerHostOf = /^https?:\/\/([^/:?#]+)/i;
 const androidAppOf = /^android-app:\/\/([^/?#]+)/i;
 const channelsBy = (medium: string) =>
@@ -170,7 +176,7 @@ function referrer(
  * GA4 matches its site lists on the source, not only the medium. Two additions to GA4: Meta's
  * placement names as a medium are a paid Meta click (see `META_PLACEMENTS`), and the AI
  * assistants have `organic_ai`. Checked in GA4's order — paid before organic, the organic groups before
- * email, referral last — so a pair that fits two rules lands where GA4 would put it.
+ * email, then referral, SMS and push — so a pair that fits two rules lands where GA4 would put it.
  */
 export function channelGroupOf(channel: string, medium: string): ChannelGroup {
   if (channel === DIRECT_CHANNEL) return 'direct';
@@ -190,6 +196,8 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
     return 'email';
   if (medium === 'affiliate') return 'affiliate';
   if (medium === 'referral') return 'referral';
+  if (medium === 'sms' || channel === 'sms') return 'sms';
+  if (PUSH_MEDIUM.test(medium) || channel === 'firebase') return 'mobile_push';
   return 'unassigned';
 }
 
