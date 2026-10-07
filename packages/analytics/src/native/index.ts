@@ -1,4 +1,5 @@
-export { getDeviceId, getDeviceType, getTags, openedWith, storage } from './setup';
+export { getDeviceId, getDeviceType, getTags, storage } from './setup';
+export { openedWith } from './link';
 export { useAppAnalytics } from '../hooks/use-app-analytics';
 export { getDeterministicFingerprint, getProbabilisticFingerprint } from './fingerprint';
 

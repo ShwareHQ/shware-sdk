@@ -241,7 +241,8 @@ describe('the link that opened the app', () => {
   });
 
   it('takes a link handed over by hand, as from a push notification', async () => {
-    const { getTags, openedWith } = await load();
+    const { getTags } = await load();
+    const { openedWith } = await import('./link');
     await getTags();
 
     openedWith('https://example.com/?utm_source=lifecycle&utm_medium=push');
