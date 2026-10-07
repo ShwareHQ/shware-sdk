@@ -332,6 +332,17 @@ describe('classifyTouch', () => {
     });
   });
 
+  it('ranks an SMS or a push with a referrer, like an email, so it never takes an ad its credit', () => {
+    expect(classifyTouch({ utm_source: 'lifecycle', utm_medium: 'sms' })).toMatchObject({
+      channel_group: 'sms',
+      priority: TOUCH_PRIORITY.referrer,
+    });
+    expect(classifyTouch({ utm_source: 'onesignal', utm_medium: 'push' })).toMatchObject({
+      channel_group: 'mobile_push',
+      priority: TOUCH_PRIORITY.referrer,
+    });
+  });
+
   it('reads an ad landing page as that channel', () => {
     expect(classifyTouch(at('https://app.shware.net/lp/meta?fbclid=1'))).toMatchObject({
       channel: 'meta',
@@ -685,6 +696,15 @@ describe('channelGroupOf', () => {
     ['newsletter', 'email_promo', 'email'],
     ['inman', 'articles', 'unassigned'],
     ['th', 'qr', 'unassigned'],
+    // GA4's SMS and Mobile Push Notifications
+    ['sms', '(not set)', 'sms'],
+    ['twilio', 'sms', 'sms'],
+    ['onesignal', 'push', 'mobile_push'],
+    ['app', 'web_push', 'mobile_push'],
+    ['app', 'in_app_notification', 'mobile_push'],
+    ['firebase', '(not set)', 'mobile_push'],
+    // a social source wins over the push medium, as in GA4
+    ['x', 'push', 'organic_social'],
   ] as const)('%s / %s → %s', (channel, medium, group) => {
     expect(channelGroupOf(channel, medium)).toBe(group);
   });

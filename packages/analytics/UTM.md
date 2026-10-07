@@ -72,6 +72,8 @@ PAID_MEDIUM = /^(.*cp.*|ppc|retargeting|paid.*|pmax|performance_max)$/
 | `email`, `newsletter`, `e-mail`…                                 | `email`                                                                              |
 | `referral`                                                       | `referral`                                                                           |
 | `affiliate`                                                      | `affiliate`                                                                          |
+| `sms`                                                            | `sms`                                                                                |
+| `push`, `…push`, `…mobile…`, `…notification…`                    | `mobile_push`                                                                        |
 | anything else, or none                                           | by the source's site list, else `unassigned`                                         |
 
 A social or search source with a medium that is not paid is organic: `meta / social` is an
@@ -89,9 +91,11 @@ Where `classifyTouch` differs from GA4, on purpose:
 | `cpm`                                               | listed under Display | paid, by the source |
 | utm and click id disagree                           | click id wins        | utm wins            |
 
+Email, SMS and push rank with a referrer, not an ad: they reach people we already know, often after
+an ad brought them, and must not take its credit.
+
 GA4 groups the SDK has no counterpart for: `social-network`, `social-media`, `sm` (Organic
-Social), `*video*` (Organic Video), `app` and `link` (Referral), SMS, Audio and Mobile Push. Don't
-use those mediums.
+Social), `*video*` (Organic Video), `app` and `link` (Referral), and Audio. Don't use those mediums.
 
 A macro the platform did not expand (`{{campaign_name}}`, `__CAMPAIGN_NAME__`, `{campaignid}`) is
 kept as written, so the broken template shows in the reports and gets fixed.
