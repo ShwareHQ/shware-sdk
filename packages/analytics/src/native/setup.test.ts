@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Options } from '../setup/index';
 import type { memoryStorage } from '../test/setup';
 
 const getIosIdForVendorAsync = vi.fn(async () => 'ios-vendor-id');
@@ -41,10 +42,10 @@ vi.stubGlobal('localStorage', {
   setItem: (k: string, v: string) => void store.set(k, v),
 });
 
-async function load() {
+async function load(overrides: Partial<Options> = {}) {
   const { baseOptions } = await import('../test/setup');
   const { setupAnalytics } = await import('../setup/index');
-  setupAnalytics(baseOptions({ platform: 'android' }));
+  setupAnalytics(baseOptions({ platform: 'android', ...overrides }));
   return import('./setup');
 }
 
@@ -159,6 +160,24 @@ describe('install referrer utm', () => {
     vi.resetModules();
     const reinstall = await loadWith(memoryStorage());
     await expect(reinstall()).resolves.toMatchObject({ utm_source: 'google-play' });
+  });
+});
+
+describe('deepLink', () => {
+  it("merges the app's opening link over the install referrer's utm", async () => {
+    const { getTags } = await load({
+      deepLink: {
+        listen: () => undefined,
+        getTags: () => ({ page_location: 'myapp://pricing', utm_source: 'lifecycle' }),
+      },
+    });
+
+    await expect(getTags()).resolves.toMatchObject({
+      page_location: 'myapp://pricing',
+      utm_source: 'lifecycle', // over the referrer's google-play
+      utm_medium: 'organic', // the referrer's, the link carrying none
+      os: 'iOS 19.0',
+    });
   });
 });
 

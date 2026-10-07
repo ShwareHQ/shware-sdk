@@ -6,6 +6,18 @@ export interface Storage {
   setItem: (key: string, value: string) => void;
 }
 
+/**
+ * The link that opened the current visit of an app — a universal link, an app link, a custom
+ * scheme — whose URL, utm and click ids land the visit as a web page's URL does.
+ * `@shware/analytics/native` provides one (`deepLink`).
+ */
+export interface DeepLink {
+  /** Starts following the links that open the app; `setupAnalytics` calls it once. */
+  listen: () => void;
+  /** The opening link's tags (`page_location`, utm, click ids); empty without one. */
+  getTags: () => TrackTags | Promise<TrackTags>;
+}
+
 export interface Options {
   release: string;
   storage: Storage;
@@ -17,6 +29,8 @@ export interface Options {
   getHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
   thirdPartyTrackers?: ThirdPartyTracker[];
   thirdPartyUserSetters?: ThirdPartyUserSetter[];
+  /** An app's opening link, which native's `getTags` merges into every event's tags. */
+  deepLink?: DeepLink;
 }
 
 interface Config {
@@ -30,6 +44,7 @@ interface Config {
   getHeaders: () => Record<string, string> | Promise<Record<string, string>>;
   thirdPartyTrackers: ThirdPartyTracker[];
   thirdPartyUserSetters: ThirdPartyUserSetter[];
+  deepLink: DeepLink | undefined;
 }
 
 interface Cache {
@@ -52,6 +67,7 @@ export const config: Config = {
   getHeaders: null!,
   thirdPartyTrackers: [],
   thirdPartyUserSetters: [],
+  deepLink: undefined,
 };
 // oxlint-enable typescript/no-non-null-assertion
 
@@ -69,4 +85,11 @@ export function setupAnalytics(init: Options) {
   });
   config.thirdPartyTrackers = init.thirdPartyTrackers ?? [];
   config.thirdPartyUserSetters = init.thirdPartyUserSetters ?? [];
+  config.deepLink = init.deepLink;
+  // Logged, not thrown: the links are worth less than the setup they would break.
+  try {
+    init.deepLink?.listen();
+  } catch (error) {
+    console.error('analytics deepLink.listen failed', error);
+  }
 }
