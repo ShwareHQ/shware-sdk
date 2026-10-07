@@ -5,7 +5,7 @@ import type { TrackTags } from '../track/types';
 import { urlTags } from '../track/url-tags';
 
 /**
- * The link that opened the app for this visit, the app's landing page: the SDK merges its URL
+ * The link that opened the app for this visit, the app's landing page: `getTags` merges its URL
  * (as `page_location`), utm and click ids into every event's tags, so the session it starts is
  * classified as a web page's URL would be. A universal link or an app link from an email or an ad
  * opens the app rather than the site, and without this every one of those sessions was direct.

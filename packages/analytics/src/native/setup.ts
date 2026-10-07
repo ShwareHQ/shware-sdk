@@ -136,6 +136,7 @@ export async function getTags(): Promise<TrackTags> {
   const install_referrer = await getInstallReferrer();
   if (install_referrer && installLaunch === undefined) installLaunch = claimInstallReferrer();
   const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
+  const opening = await config.deepLink?.getTags();
 
   const tags: TrackTags = {
     os: `${osName} ${osVersion}`,
@@ -166,6 +167,9 @@ export async function getTags(): Promise<TrackTags> {
     utm_source_platform: params.get('utm_source_platform') ?? undefined,
     utm_creative_format: params.get('utm_creative_format') ?? undefined,
     utm_marketing_tactic: params.get('utm_marketing_tactic') ?? undefined,
+    // the link that opened the app (`setupAnalytics({ deepLink })`): its URL, utm and click ids,
+    // over the install referrer's
+    ...opening,
   };
 
   cache.tags = tags;

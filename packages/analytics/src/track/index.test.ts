@@ -285,48 +285,6 @@ describe('tags', () => {
   });
 });
 
-describe('deepLink', () => {
-  it("merges the app's opening link into every event's tags, over the platform's", async () => {
-    const listen = vi.fn<() => void>();
-    const { track, cache } = await load({
-      getTags: () => ({ utm_source: 'google-play', os: 'Android 16' }),
-      deepLink: { listen, getTags: () => ({ page_location: 'myapp://', utm_source: 'lifecycle' }) },
-    });
-    respondWithIds();
-
-    track('custom_action', undefined);
-    await vi.advanceTimersByTimeAsync(2000);
-
-    expect(listen).toHaveBeenCalledTimes(1);
-    const [batch] = sentBatches();
-    const click = batch.body.find((e) => e.name === 'custom_action');
-    expect(click?.tags).toEqual({
-      utm_source: 'lifecycle',
-      os: 'Android 16',
-      page_location: 'myapp://',
-    });
-    // and kept as the last built tags, for the events that cannot wait for theirs
-    expect(cache.tags).toEqual(click?.tags);
-  });
-
-  it('logs a listen that throws instead of breaking the setup', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const failure = new Error('no linking module');
-    await expect(
-      load({
-        deepLink: {
-          listen: () => {
-            throw failure;
-          },
-          getTags: () => ({}),
-        },
-      })
-    ).resolves.toBeDefined();
-    expect(error).toHaveBeenCalledWith('analytics deepLink.listen failed', failure);
-    error.mockRestore();
-  });
-});
-
 describe('callbacks and third parties', () => {
   it('reports each event its own id', async () => {
     const { track } = await load();

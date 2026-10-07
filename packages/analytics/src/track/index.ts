@@ -51,13 +51,7 @@ type Item = {
  */
 async function captureTags(): Promise<TrackTags> {
   try {
-    const tags = await config.getTags();
-    if (!config.deepLink) return tags;
-    // An app's opening link over the platform's tags (an Android install referrer's utm), and
-    // kept as the last built tags for the events that cannot wait for theirs.
-    const landed = { ...tags, ...(await config.deepLink.getTags()) };
-    cache.tags = landed;
-    return landed;
+    return await config.getTags();
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
     return cache.tags ?? {};

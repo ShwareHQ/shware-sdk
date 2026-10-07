@@ -29,7 +29,7 @@ export interface Options {
   getHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
   thirdPartyTrackers?: ThirdPartyTracker[];
   thirdPartyUserSetters?: ThirdPartyUserSetter[];
-  /** An app's opening link, its tags merged into every event's over `getTags`'s. */
+  /** An app's opening link, which native's `getTags` merges into every event's tags. */
   deepLink?: DeepLink;
 }
 
