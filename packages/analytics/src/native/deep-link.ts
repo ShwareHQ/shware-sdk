@@ -1,12 +1,11 @@
 import { AppState, Linking } from 'react-native';
 import { URLSearchParams } from 'react-native-url-polyfill';
 import type { DeepLink } from '../setup/index';
-import type { TrackTags } from '../track/types';
-import { urlTags } from '../track/url-tags';
+import type { TrackTags, UTMParams } from '../track/types';
 
 /**
  * The link that opened the app for this visit, the app's landing page: `getTags` merges its URL
- * (as `page_location`), utm and click ids into every event's tags, so the session it starts is
+ * (as `page_location`) and utm into every event's tags, so the session it starts is
  * classified as a web page's URL would be. A universal link or an app link from an email or an ad
  * opens the app rather than the site, and without this every one of those sessions was direct.
  *
@@ -21,6 +20,22 @@ import { urlTags } from '../track/url-tags';
  * listening; nothing happens at import.
  */
 let openUrl: string | undefined;
+
+/**
+ * The parameters a deep link carries: the utm its sender tagged it with. An ad platform's click id
+ * rides on the web landing page, not on a link into the app.
+ */
+const UTM_KEYS = [
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content',
+  'utm_id',
+  'utm_source_platform',
+  'utm_creative_format',
+  'utm_marketing_tactic',
+] as const satisfies readonly (keyof UTMParams)[];
 let initialUrlPromise: Promise<void> | undefined;
 let listening = false;
 
@@ -54,8 +69,13 @@ export const deepLink: DeepLink & {
     await resolveInitialUrl();
     if (!openUrl) return {};
     const at = openUrl.indexOf('?');
-    const query = at === -1 ? '' : openUrl.slice(at + 1).split('#')[0];
-    return { page_location: openUrl, ...urlTags(new URLSearchParams(query)) };
+    const params = new URLSearchParams(at === -1 ? '' : openUrl.slice(at + 1).split('#')[0]);
+    const tags: TrackTags = { page_location: openUrl };
+    for (const key of UTM_KEYS) {
+      const value = params.get(key);
+      if (value !== null) tags[key] = value;
+    }
+    return tags;
   },
   open(url) {
     openUrl = url || undefined;

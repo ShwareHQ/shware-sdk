@@ -43,7 +43,7 @@ setupAnalytics({
   getTags,
   getDeviceId,
   // The link that opened the app — a universal link, an app link, a custom scheme — lands the
-  // visit as a web page's URL does: its URL, utm and click ids go into every event's tags until
+  // visit as a web page's URL does: its URL and utm go into every event's tags until
   // the app goes to the background. `setupAnalytics` starts its listeners; nothing runs at import.
   deepLink,
   endpoint: 'https://api.example.com/v1/analytics',

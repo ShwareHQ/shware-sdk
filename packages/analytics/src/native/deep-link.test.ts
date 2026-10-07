@@ -27,7 +27,7 @@ vi.mock('react-native', () => ({
 vi.mock('react-native-url-polyfill', () => ({ URLSearchParams }));
 
 const EMAIL =
-  'https://example.com/pricing?utm_source=lifecycle&utm_medium=email&utm_campaign=day3&gclid=G2';
+  'https://example.com/pricing?utm_source=lifecycle&utm_medium=email&utm_campaign=day3&fbclid=F1';
 
 async function load() {
   const { deepLink } = await import('./deep-link');
@@ -52,7 +52,7 @@ describe('deepLink', () => {
     expect(linking.onAppState).toHaveLength(1);
   });
 
-  it('tags the link that launched the app: its URL, utm and click ids', async () => {
+  it('tags the link that launched the app: its URL and utm, no other parameter', async () => {
     linking.initialUrl = EMAIL;
     const deepLink = await load();
 
@@ -61,7 +61,6 @@ describe('deepLink', () => {
       utm_source: 'lifecycle',
       utm_medium: 'email',
       utm_campaign: 'day3',
-      gclid: 'G2',
     });
   });
 
