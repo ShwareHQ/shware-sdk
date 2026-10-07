@@ -217,6 +217,13 @@ describe('the link that opened the app', () => {
     });
   });
 
+  it('keeps a link that arrives before the first event, listening from the import', async () => {
+    const { getTags } = await load();
+
+    openWith('myapp://?utm_source=lifecycle&utm_medium=sms');
+    await expect(getTags()).resolves.toMatchObject({ utm_medium: 'sms' });
+  });
+
   it('ends the visit when the app goes to the background, not when it is only inactive', async () => {
     linking.initialUrl = EMAIL;
     const { getTags } = await load();

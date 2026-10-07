@@ -142,23 +142,21 @@ function claimInstallReferrer(): boolean {
  */
 let openUrl: string | undefined;
 let initialUrlPromise: Promise<void> | undefined;
-let listening = false;
 
 /** The link this visit opened with, for an entry `Linking` does not see, such as a push notification. */
 export function openedWith(url: string | null | undefined): void {
   openUrl = url || undefined;
 }
 
-function listenForOpenUrls(): void {
-  if (listening) return;
-  listening = true;
-  Linking.addEventListener('url', ({ url }) => openedWith(url));
-  // `background`, not `inactive`: iOS goes inactive for a system sheet or the control center,
-  // with the visit still on.
-  AppState.addEventListener('change', (state) => {
-    if (state === 'background') openUrl = undefined;
-  });
-}
+// Listening from the moment the module is imported, before any event: a link that brings the app
+// to the front between the import and the first `getTags` is not lost, and the app has nothing to
+// call. Neither listener touches storage, which may not exist yet at import.
+Linking.addEventListener('url', ({ url }) => openedWith(url));
+// `background`, not `inactive`: iOS goes inactive for a system sheet or the control center, with
+// the visit still on.
+AppState.addEventListener('change', (state) => {
+  if (state === 'background') openUrl = undefined;
+});
 
 /** The URL that launched the process, read once; a link that arrived since has the last word. */
 function resolveInitialUrl(): Promise<void> {
@@ -189,7 +187,6 @@ export async function getTags(): Promise<TrackTags> {
   // for as long as the app stayed installed, and a report reading a session's tags could not tell
   // the install from the thousandth open. The campaign is the install's touch, not every
   // session's.
-  listenForOpenUrls();
   await resolveInitialUrl();
   const install_referrer = await getInstallReferrer();
   if (install_referrer && installLaunch === undefined) installLaunch = claimInstallReferrer();
