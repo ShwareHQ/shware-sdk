@@ -17,7 +17,6 @@ import { URLSearchParams } from 'react-native-url-polyfill';
 import { keys } from '../constants/storage';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
-import { getOpenUrlTags } from './link';
 
 const map = new Map<string, string>();
 
@@ -137,7 +136,6 @@ export async function getTags(): Promise<TrackTags> {
   const install_referrer = await getInstallReferrer();
   if (install_referrer && installLaunch === undefined) installLaunch = claimInstallReferrer();
   const params = new URLSearchParams(installLaunch ? install_referrer : undefined);
-  const openUrlTags = await getOpenUrlTags();
 
   const tags: TrackTags = {
     os: `${osName} ${osVersion}`,
@@ -168,8 +166,6 @@ export async function getTags(): Promise<TrackTags> {
     utm_source_platform: params.get('utm_source_platform') ?? undefined,
     utm_creative_format: params.get('utm_creative_format') ?? undefined,
     utm_marketing_tactic: params.get('utm_marketing_tactic') ?? undefined,
-    // the link that opened the app: its URL, and its utm and click ids, over the install referrer's
-    ...openUrlTags,
   };
 
   cache.tags = tags;
