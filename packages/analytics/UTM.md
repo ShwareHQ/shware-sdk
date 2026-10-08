@@ -312,19 +312,72 @@ utm_source=chatgpt&utm_medium=cpc&utm_campaign={campaign_id}&utm_id={campaign_id
 
 ## Other channels
 
-| Link                                | Tagging                                                          | `channel_group`  |
-| ----------------------------------- | ---------------------------------------------------------------- | ---------------- |
-| Product email                       | `utm_source=<sender>&utm_medium=email&utm_campaign=<message id>` | `email`          |
-| A sponsored slot in a newsletter    | `utm_source=<newsletter>&utm_medium=paid_newsletter`             | `paid_other`     |
-| A sponsored article                 | `utm_source=<publisher>&utm_medium=paid_article`                 | `paid_other`     |
-| A banner on a publisher's site      | `utm_source=<publisher>&utm_medium=banner`                       | `display`        |
-| Press coverage, a directory listing | `utm_source=<site>&utm_medium=referral`                          | `referral`       |
-| A paid directory listing            | `utm_source=<site>&utm_medium=paid_listing`                      | `paid_other`     |
-| Affiliates                          | `utm_source=<partner>&utm_medium=affiliate`                      | `affiliate`      |
-| Own posts, profile and bio links    | `utm_source=ig&utm_medium=social&utm_content=link_in_bio`        | `organic_social` |
-| A referral programme                | No utm: a `/refer/<code>` link the product's rule reads          | `referral`       |
+| Link                                  | Tagging                                                                            | `channel_group`  |
+| ------------------------------------- | ---------------------------------------------------------------------------------- | ---------------- |
+| An email the product sends on its own | `utm_source=lifecycle&utm_medium=email&utm_campaign=<message slug>`                | `email`          |
+| Our own newsletter                    | `utm_source=newsletter&utm_medium=email&utm_campaign=<issue>`                      | `email`          |
+| Sales or partnership outreach         | `utm_source=outreach&utm_medium=email&utm_campaign=<sequence slug>`                | `email`          |
+| A text message we send                | `utm_source=<kind, e.g. lifecycle>&utm_medium=sms&utm_campaign=<message slug>`     | `sms`            |
+| A push notification we send           | `utm_source=<kind, e.g. lifecycle>&utm_medium=push&utm_campaign=<message slug>`    | `mobile_push`    |
+| Our own post (Discord, Reddit, X…)    | `utm_source=<platform>&utm_medium=social&utm_campaign=<post slug>`                 | `organic_social` |
+| A profile's bio link                  | `utm_source=<platform>&utm_medium=social&utm_campaign=bio&utm_content=link_in_bio` | `organic_social` |
+| Our own video's description           | `utm_source=youtube&utm_medium=video&utm_campaign=<video slug>`                    | `organic_video`  |
+| A sponsored slot in a newsletter      | `utm_source=<newsletter>&utm_medium=paid_newsletter`                               | `paid_other`     |
+| A sponsored article                   | `utm_source=<publisher>&utm_medium=paid_article`                                   | `paid_other`     |
+| A creator's paid post                 | `utm_source=<platform>&utm_medium=paid_influencer`                                 | `paid_social`    |
+| A podcast sponsorship                 | `utm_source=<podcast>&utm_medium=paid_podcast`                                     | `paid_other`     |
+| A banner on a publisher's site        | `utm_source=<publisher>&utm_medium=banner`                                         | `display`        |
+| Press coverage, a directory listing   | `utm_source=<site>&utm_medium=referral`                                            | `referral`       |
+| A paid directory listing              | `utm_source=<site>&utm_medium=paid_listing`                                        | `paid_other`     |
+| Affiliates                            | `utm_source=<partner>&utm_medium=affiliate`                                        | `affiliate`      |
+| A referral programme                  | No utm: a `/refer/<code>` link the product's rule reads                            | `referral`       |
 
 A medium outside these (`articles`, `post`, `ads`) is `unassigned` in both the SDK and GA4.
+
+### Email
+
+- `utm_medium=email`, always: GA4's Email group takes `email`, `e-mail`, `e_mail` and `e mail` only.
+  `newsletter` is email to the SDK but unassigned in GA4.
+- `utm_source` is the kind of email (`lifecycle`, `newsletter`, `outreach`), not the service
+  sending it: a new provider then changes no link, and the reports read as what the email was.
+- `utm_campaign` is the message or the issue (`onboarding_day3`, `2026_10`); `utm_content` tells
+  apart the links of one message (`header_cta`, `footer`).
+- A provider's own UTM tagging writes its values over these: Klaviyo's sets `utm_source=klaviyo`
+  and `utm_campaign` to `campaign` or `flow`. Turn it off, or set it to the values above.
+
+## App stores
+
+A link to the app's store page cannot carry the UTM parameters the way a web page does, and the
+short link redirect would put them on the store page itself, which ignores them: share the store
+link as it is.
+
+### Google Play
+
+```
+https://play.google.com/store/apps/details?id=<package name>&referrer=<UTM parameters, URL-encoded>
+```
+
+e.g. `…?id=com.example.app&referrer=utm_source%3Dig%26utm_medium%3Dsocial%26utm_campaign%3Dlaunch`
+
+- Play hands the `referrer` string to the installed app through the Install Referrer API; the
+  native SDK reads its `utm_*` on the launch that first claims it, so the install is the touch, not
+  every later session. 512 characters at most, URL-encoded.
+- The same tagging as a web link: the source and medium of where the store link was placed.
+
+### App Store
+
+```
+https://apps.apple.com/app/id<Apple ID>?pt=<provider token>&ct=<campaign token>&mt=8
+```
+
+- Nothing reaches the app: the campaign shows up in App Store Connect's App Analytics only, as
+  first-time downloads within 24 hours of the click, and only once a campaign has at least five.
+- `pt` identifies the developer account, not an ad network. It is generated with the first
+  campaign link in App Store Connect and is the same for every campaign after.
+- `ct` names the campaign, one per campaign: at most 30 characters (letters, digits, spaces and
+  most punctuation, no space first or last). App Store Connect groups by it alone, so put the
+  source in it: `<utm_source>.<utm_campaign>`, e.g. `ig.launch`.
+- `mt=8`, as in all of Apple's examples; Apple does not document the parameter.
 
 ## GA4 cost data import
 
@@ -369,3 +422,7 @@ cost per click and return on ad spend.
   [Measure results](https://help.openai.com/en/articles/20001214-measure-results),
   [Conversion measurement](https://help.openai.com/en/articles/20001409-conversion-measurement)
 - X: [Web conversions](https://docs.x.com/x-ads-api/measurement/web-conversions)
+- Email: [Klaviyo UTM tracking](https://help.klaviyo.com/hc/en-us/articles/115005247808)
+- App stores: [Google Play Install Referrer](https://developer.android.com/google/play/installreferrer),
+  [GA4 Play URL builder](https://ga-dev-tools.google/ga4/campaign-url-builder/play/),
+  [App Store Connect campaign links](https://developer.apple.com/help/app-store-connect-analytics/acquisition/campaign-links/)
