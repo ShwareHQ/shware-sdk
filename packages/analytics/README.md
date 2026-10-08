@@ -380,6 +380,11 @@ const rows = await fetchMetaAdPerformance({
 - **Retention.** Meta keeps the hourly breakdown for 13 months; `since` earlier than that throws
   rather than returning the empty answer Meta gives. Long ranges are fetched in 7-day windows, as a
   single request over months times out on Meta's side.
+- **Older history.** `fetchMetaAdPerformanceHistory` reads the days before the hourly 13 months
+  (Meta keeps 37) and spreads each day evenly over its hours, so the table stays hourly: whole-day
+  sums are Meta's exactly, the hours inside such a day are an even split. Run it once, up to the
+  day before the first hourly day stored — a day must never hold both spread and real hourly rows,
+  as an hour without delivery is absent from the hourly data and its spread share would remain.
 
 ## UTM params
 

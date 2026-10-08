@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MetaAdsApiError, fetchMetaAdPerformance } from './meta';
+import {
+  MetaAdsApiError,
+  fetchMetaAdPerformance,
+  fetchMetaAdPerformanceHistory,
+  spread,
+} from './meta';
 
 const options = {
   accessToken: 'token-1',
@@ -288,5 +293,98 @@ describe('fetchMetaAdPerformance', () => {
     mockGraph(account(), json({ data: [{ ad_id: 'ad-1' }] }));
 
     await expect(fetchMetaAdPerformance(options)).rejects.toThrow(/Unexpected Meta insights/);
+  });
+});
+
+describe('spread', () => {
+  it('splits evenly and adds back to the value exactly', () => {
+    const shares = spread(10, 24);
+    expect(shares).toHaveLength(24);
+    expect(shares[0]).toBe(0.416667);
+    expect(Math.round(shares.reduce((a, b) => a + b, 0) * 1e6) / 1e6).toBe(10);
+  });
+
+  it('keeps whole numbers whole when they divide', () => {
+    expect(spread(48, 24)).toEqual(Array.from({ length: 24 }, () => 2));
+  });
+});
+
+describe('fetchMetaAdPerformanceHistory', () => {
+  const history = { ...options, since: '2025-06-01', until: '2025-06-01' } as const;
+  const day = () => {
+    const { hourly_stats_aggregated_by_advertiser_time_zone: _, ...rest } = insight({
+      date_start: '2025-06-01',
+      spend: '24.48',
+      impressions: '240',
+      inline_link_clicks: '7',
+      actions: [{ action_type: 'purchase', value: '1', '7d_click': '1' }],
+    });
+    return rest;
+  };
+
+  it('asks for daily ad rows, no hourly breakdown', async () => {
+    const fetchMock = mockGraph(account(), json({ data: [] }));
+
+    await fetchMetaAdPerformanceHistory(history);
+
+    const { url } = request(fetchMock, 1);
+    expect(url.searchParams.get('time_increment')).toBe('1');
+    expect(url.searchParams.has('breakdowns')).toBe(false);
+  });
+
+  it('spreads a day over its 24 UTC hours, the sums Meta reported', async () => {
+    mockGraph(account(), json({ data: [day()] }));
+
+    const rows = await fetchMetaAdPerformanceHistory(history);
+
+    expect(rows).toHaveLength(24);
+    expect(rows[0]?.hour_start).toBe('2025-06-01T00:00:00.000Z');
+    expect(rows[23]?.hour_start).toBe('2025-06-01T23:00:00.000Z');
+    const sum = (field: 'spend' | 'impressions' | 'clicks' | 'conversions') =>
+      Math.round(rows.reduce((a, r) => a + (r[field] ?? 0), 0) * 1e6) / 1e6;
+    expect([sum('spend'), sum('impressions'), sum('clicks'), sum('conversions')]).toEqual([
+      24.48, 240, 7, 1,
+    ]);
+    expect(rows.every((r) => r.ad_id === 'ad-1' && r.conversion_value === null)).toBe(true);
+  });
+
+  it('spreads a daylight-saving day over its 23 hours in the account time zone', async () => {
+    mockGraph(
+      account('America/Los_Angeles'),
+      json({ data: [{ ...day(), date_start: '2025-03-09' }] })
+    );
+
+    const rows = await fetchMetaAdPerformanceHistory({
+      ...options,
+      since: '2025-03-09',
+      until: '2025-03-09',
+    });
+
+    expect(rows).toHaveLength(23);
+    expect(rows[0]?.hour_start).toBe('2025-03-09T08:00:00.000Z');
+    expect(rows[22]?.hour_start).toBe('2025-03-10T06:00:00.000Z');
+  });
+
+  it('refuses days Meta still has hourly, and days past its 37 months', async () => {
+    const fetchMock = mockGraph(account());
+    await expect(
+      fetchMetaAdPerformanceHistory({ ...options, since: '2025-09-01', until: '2025-09-08' })
+    ).rejects.toThrow(/until 2025-09-08 must be before it/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    mockGraph(account());
+    await expect(
+      fetchMetaAdPerformanceHistory({ ...options, since: '2023-09-07', until: '2023-09-30' })
+    ).rejects.toThrow(/37 months/);
+
+    for (const [since, until] of [
+      ['2023-09-08', '2023-09-08'],
+      ['2025-09-07', '2025-09-07'],
+    ] as const) {
+      mockGraph(account(), json({ data: [] }));
+      await expect(fetchMetaAdPerformanceHistory({ ...options, since, until })).resolves.toEqual(
+        []
+      );
+    }
   });
 });
