@@ -21,6 +21,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./ads": {
+      "import": {
+        "types": "./dist/ads/index.d.mts",
+        "default": "./dist/ads/index.mjs"
+      },
+      "require": {
+        "types": "./dist/ads/index.d.cts",
+        "default": "./dist/ads/index.cjs"
+      }
+    },
     "./attribution": {
       "import": {
         "types": "./dist/attribution/index.d.mts",

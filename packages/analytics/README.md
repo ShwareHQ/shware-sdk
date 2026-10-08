@@ -341,6 +341,46 @@ What the SDK guarantees for this to hold:
   `setVisitor` hands the server's value to the third-party user setters, and PostHog is identified
   by it once a user is known.
 
+## Ad performance (`@shware/analytics/ads`)
+
+Spend, impressions, clicks and the platforms' own conversions, read from the ad platforms'
+reporting APIs as typed `AdPerformanceRow`s — one per ad and hour — for a host to store next to its
+sessions and compute ROAS, cost per session and the click → session landing rate.
+
+```ts
+import { fetchMetaAdPerformance } from '@shware/analytics/ads';
+
+const rows = await fetchMetaAdPerformance({
+  accessToken: env.META_ADS_ACCESS_TOKEN, // a system user token with ads_read
+  accountId: '1234567890', // with or without act_
+  since: '2026-10-01', // days in the ad account's time zone
+  until: '2026-10-07',
+});
+```
+
+- **Hourly rows only.** `hour_start` is a UTC instant, so a sum over any span in any time zone is
+  a sum of whole rows and lines up with the sessions grouped the same way, whatever time zone each
+  ad account reports in. A table never mixes a day row with the hours inside it: an upsert would
+  overwrite one with the other on their shared start, and the rest would count twice. A platform
+  that reports only days spreads each day evenly over its hours.
+- **The attribution vocabulary.** `channel`, `medium` and `channel_group` are the values
+  `classifyTouch` gives the platform's ad clicks (`meta / cpc / paid_social`), so rows join
+  sessions and attribution with no mapping. Join on `channel` and `channel_group` together: the
+  same channel also brings organic traffic (Google search, ChatGPT answers).
+- **Clicks are link clicks** to the site (Meta's `inline_link_clicks`), the number to compare
+  with sessions; Meta's `clicks` also counts likes and expands.
+- **Two conversion counts.** `conversions` / `conversion_value` are the platform's under each ad's
+  attribution setting, view-through included — what its own dashboard shows.
+  `click_conversions` / `click_conversion_value` are the click-through part (Meta's 7-day click),
+  the one to set against a click-based attribution.
+- **Re-fetch and upsert.** Platforms restate the past: a purchase is credited to the hour of the
+  click up to 7 days later, and spend is corrected for invalid traffic. Re-fetch today and
+  yesterday hourly, the last 8 days daily (the 7-day window plus a day of time zone slack) and the
+  last 30 weekly, upserting on (`platform`, `account_id`, `ad_id`, `hour_start`).
+- **Retention.** Meta keeps the hourly breakdown for 13 months; `since` earlier than that throws
+  rather than returning the empty answer Meta gives. Long ranges are fetched in 7-day windows, as a
+  single request over months times out on Meta's side.
+
 ## UTM params
 
 Typed as `UTMParams` (exported from `@shware/analytics`). Value unions follow the
