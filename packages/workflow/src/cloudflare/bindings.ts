@@ -1,3 +1,5 @@
+import type { EmailAddress } from '../config';
+
 /**
  * A minimal structural interface over the Cloudflare bindings.
  *
@@ -40,6 +42,28 @@ export interface WorkflowBindingLike {
   get(id: string): Promise<WorkflowInstanceLike>;
 }
 
+/**
+ * Cloudflare Email Service's send_email binding (structural subset).
+ *
+ * `idempotencyKey` is part of the call because the send happens inside a
+ * `step.do`: a step body re-runs after its fn resolved but before the
+ * checkpoint committed, so a binding that drops the key mails the user twice.
+ * The binding is app-supplied glue (nothing here can de-duplicate — there is
+ * no state between two runs of the same step), which is why the port makes the
+ * key impossible to miss rather than merely available.
+ */
+export interface EmailBindingLike {
+  send(message: {
+    from: EmailAddress;
+    to: EmailAddress;
+    replyTo?: EmailAddress;
+    subject: string;
+    html: string;
+    /** `${instanceId}:${nodeId}`: stable across replays and retries — drop a send whose key was already delivered. */
+    idempotencyKey: string;
+  }): Promise<unknown>;
+}
+
 /** Every binding the journey engine needs (names match the wrangler config). */
 export interface JourneyEnv {
   /**
@@ -59,6 +83,16 @@ export interface JourneyEnv {
    * particular rewrites the whole routing table, so production must set this.
    */
   API_TOKEN?: string;
+  /** Which `workflow.config.ts` entry applies (`development`, `production`, …); production when unset. */
+  ENVIRONMENT?: string;
+  /** Cloudflare Email Sending, when the config has `emails`. */
+  EMAIL?: EmailBindingLike;
+  /** The APNs auth key (`.p8`, base64) named by the config's `apns.keyId`. */
+  APNS_PRIVATE_KEY_BASE64?: string;
+  /** The Firebase service account (base64 JSON) the config's `fcm` sends with. */
+  GOOGLE_APPLICATION_CREDENTIALS_BASE64?: string;
+  /** Development only: the HTTP/2 relay `wrangler dev` sends APNs requests through (see `@shware/workflow/apns-relay`). */
+  APNS_RELAY_ORIGIN?: string;
 }
 
 /** The event type the router uses to wake waiting instances (sendEvent's `type`). */

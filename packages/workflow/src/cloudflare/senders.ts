@@ -1,33 +1,13 @@
+import type { EmailAddress } from '../config';
 import type { MessageSender, OutboundMessage } from '../engine/ports';
 import { fillSubject } from '../engine/subject';
 import type { ScalarIR } from '../ir';
 import { JourneyFactSource } from '../store/facts';
 import type { JourneyStore } from '../store/index';
+import type { EmailBindingLike } from './bindings';
 
-/** An address as Cloudflare Email Sending takes it: bare, or with a display name. */
-export type EmailAddress = string | { email: string; name?: string };
-
-/**
- * Cloudflare Email Service's send_email binding (structural subset).
- *
- * `idempotencyKey` is part of the call because the send happens inside a
- * `step.do`: a step body re-runs after its fn resolved but before the
- * checkpoint committed, so a binding that drops the key mails the user twice.
- * The binding is app-supplied glue (nothing here can de-duplicate — there is
- * no state between two runs of the same step), which is why the port makes the
- * key impossible to miss rather than merely available.
- */
-export interface EmailBindingLike {
-  send(message: {
-    from: EmailAddress;
-    to: EmailAddress;
-    replyTo?: EmailAddress;
-    subject: string;
-    html: string;
-    /** `${instanceId}:${nodeId}`: stable across replays and retries — drop a send whose key was already delivered. */
-    idempotencyKey: string;
-  }): Promise<unknown>;
-}
+export type { EmailAddress } from '../config';
+export type { EmailBindingLike } from './bindings';
 
 /**
  * Template renderer, injected by the app — this package's core stays free of

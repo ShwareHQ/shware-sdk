@@ -1,5 +1,6 @@
 export type {
   D1DatabaseLike,
+  EmailBindingLike,
   JourneyEnv,
   JourneyParams,
   KVNamespaceLike,
@@ -24,13 +25,9 @@ export {
   routeByChannel,
   routeByPlatform,
 } from './senders';
-export type {
-  CfEmailOptions,
-  EmailAddress,
-  EmailBindingLike,
-  EmailRenderer,
-  ProfileLookup,
-} from './senders';
+export type { CfEmailOptions, EmailAddress, EmailRenderer, ProfileLookup } from './senders';
+export { channelsFromConfig, journeyMode, runtimeFromConfig } from './channels';
+export type { ChannelRegistries } from './channels';
 export { journeyWorker } from './worker';
 export type { ExecutionContextLike, JourneyWorker, JourneyWorkerOptions } from './worker';
 // The data plane lives in ../store; re-exported here so a Cloudflare host imports one path.

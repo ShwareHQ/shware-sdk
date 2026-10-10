@@ -1,9 +1,12 @@
+import type { JourneyConfig } from '../config';
 import type { RegisteredAction } from '../engine/actions';
 import type { MessageSender } from '../engine/ports';
 import type { BundleIR } from '../ir';
+import { registryRenderer } from '../react-email';
 import type { JourneyRuntimeOptions } from '../runtime';
 import type { JourneyStore, StoreLease } from '../store/index';
 import type { JourneyEnv, JourneyParams } from './bindings';
+import { type ChannelRegistries, channelsFromConfig, runtimeFromConfig } from './channels';
 import { d1Store } from './d1-env';
 import { deployBundle, handleRequest } from './router';
 import { JourneyRunner } from './runner';
@@ -14,14 +17,21 @@ export interface ExecutionContextLike {
   waitUntil(promise: Promise<unknown>): void;
 }
 
-export interface JourneyWorkerOptions<Env extends JourneyEnv> {
+export interface JourneyWorkerOptions<Env extends JourneyEnv> extends ChannelRegistries {
+  /**
+   * The project's `workflow.config.ts`: runtime options per mode, and the
+   * channels (`emails`, `apns`, `fcm`). With it, and the registries below,
+   * the senders, the renderers, the runtime and the preview are assembled
+   * here; secrets come from the env under the names `JourneyEnv` documents.
+   */
+  config?: JourneyConfig;
   /**
    * The data plane, opened per request and per workflow run. Return a
    * `StoreLease` when the client must be released afterwards (a Postgres
    * connection); defaults to D1 + KV from the env's bindings.
    */
   store?: (env: Env) => JourneyStore | StoreLease;
-  /** Message outlet, e.g. `new CfEmailSender({...})`; defaults to logging (or the webhook sender when MESSAGE_WEBHOOK_URL is set). */
+  /** Message outlet override, e.g. `new CfEmailSender({...})`; without it and without `config`, logging (or the webhook sender when MESSAGE_WEBHOOK_URL is set). */
   messages?: (env: Env, store: JourneyStore) => MessageSender;
   /**
    * The bundle this Worker deploys, compiled from its own code. Enables
@@ -29,11 +39,11 @@ export interface JourneyWorkerOptions<Env extends JourneyEnv> {
    * deploying becomes a call after `wrangler deploy`, not an upload.
    */
   bundle?: () => BundleIR;
-  /** Per-instance runtime options (time scale, logging); see `resolveRuntime`. Defaults to real time, quiet. */
+  /** Per-instance runtime options override; without it, `config.runtime` resolved by `ENVIRONMENT` (real time, quiet when neither). */
   runtime?: (env: Env, params: JourneyParams) => JourneyRuntimeOptions;
   /** Custom actions the workflows reference (`run(action, args)`). */
   actions?: readonly RegisteredAction[];
-  /** Enables `GET /preview/<template>?prop=value` — the template rendered to HTML. Bearer-protected like everything else when API_TOKEN is set. */
+  /** `GET /preview/<template>?prop=value` — the template rendered to HTML; defaults to the `emails` registry. Bearer-protected like everything else when API_TOKEN is set. */
   preview?: EmailRenderer;
 }
 
@@ -50,9 +60,10 @@ export interface JourneyWorker<Env extends JourneyEnv> {
  * API around them.
  *
  *   const journeys = journeyWorker<Env>({
+ *     config,   // workflow.config.ts: runtime per mode, emails / apns / fcm
  *     store: (env) => postgresJsStore(env.HYPERDRIVE.connectionString, { schema: 'application' }),
- *     messages: (env, store) => new CfEmailSender({ binding: env.EMAIL, from, render, profile: store }),
- *     runtime: (env) => resolveRuntime(config.runtime, env.ENVIRONMENT),
+ *     emails,   // the react-email registry
+ *     pushes,   // the push registry
  *     bundle,
  *   });
  *   export const MyRunner = journeys.Runner;
@@ -85,16 +96,18 @@ export function journeyWorker<Env extends JourneyEnv>(
     }
 
     protected override createMessageSender(): MessageSender {
-      if (options.messages === undefined || this.current === undefined) {
-        return super.createMessageSender();
+      if (this.current === undefined) return super.createMessageSender();
+      if (options.messages !== undefined) return options.messages(this.env as Env, this.current);
+      if (options.config !== undefined) {
+        return channelsFromConfig(options.config, this.env, this.current, options);
       }
-      return options.messages(this.env as Env, this.current);
+      return super.createMessageSender();
     }
 
     protected override runtime(params: JourneyParams): JourneyRuntimeOptions {
-      return options.runtime === undefined
-        ? super.runtime(params)
-        : options.runtime(this.env as Env, params);
+      if (options.runtime !== undefined) return options.runtime(this.env as Env, params);
+      if (options.config !== undefined) return runtimeFromConfig(options.config, this.env);
+      return super.runtime(params);
     }
 
     protected override actions(): readonly RegisteredAction[] {
@@ -112,6 +125,10 @@ export function journeyWorker<Env extends JourneyEnv>(
     env.API_TOKEN === undefined ||
     request.headers.get('authorization') === `Bearer ${env.API_TOKEN}`;
 
+  const preview =
+    options.preview ??
+    (options.emails === undefined ? undefined : registryRenderer(options.emails));
+
   const fetch = async (request: Request, env: Env, ctx?: ExecutionContextLike) => {
     const url = new URL(request.url);
     const { store, close } = lease(env);
@@ -126,11 +143,11 @@ export function journeyWorker<Env extends JourneyEnv>(
         if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
         return json(await deployBundle(env, options.bundle(), store));
       }
-      if (options.preview !== undefined && url.pathname.startsWith('/preview/')) {
+      if (preview !== undefined && url.pathname.startsWith('/preview/')) {
         if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
         const key = url.pathname.slice('/preview/'.length);
-        const { subject, html } = await options.preview(key, Object.fromEntries(url.searchParams));
+        const { subject, html } = await preview(key, Object.fromEntries(url.searchParams));
         return new Response(html, {
           headers: { 'content-type': 'text/html; charset=utf-8', 'x-subject': subject },
         });

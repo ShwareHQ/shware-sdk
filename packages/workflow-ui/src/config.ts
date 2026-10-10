@@ -1,4 +1,4 @@
-import type { JourneyRuntimeConfig, SegmentRef, WorkflowBuilder } from '@shware/workflow';
+import type { EmailConfig, JourneyConfig, SegmentRef, WorkflowBuilder } from '@shware/workflow';
 import type { ReactElement } from 'react';
 
 /**
@@ -354,13 +354,12 @@ export interface SendTestArgs {
 }
 
 /**
- * Email-sending settings for the project. This is data the code cannot derive:
- * which sender identities exist. The studio's from / reply-to pickers list
- * them, and "add address" in the UI writes back into this file.
+ * Email settings for the project: the sender envelope the engine uses
+ * (`from`, `replyTo`) and the address book the studio's from / reply-to
+ * pickers list — derived from the envelope unless `addresses` is set, which is
+ * where "add address" in the UI writes back.
  */
-export interface EmailSettings {
-  /** Sender identities, e.g. 'Acme <hello@acme.io>'. */
-  addresses?: string[];
+export interface EmailSettings extends EmailConfig {
   /**
    * Deliver a rendered template to a real inbox — the "send test" button on
    * the preview page, like react-email's. The studio renders and collects the
@@ -370,23 +369,22 @@ export interface EmailSettings {
   sendTest?: (args: SendTestArgs) => Promise<void>;
 }
 
-export interface WorkflowUIConfig {
+/**
+ * The whole `workflow.config.ts`: the engine's `JourneyConfig` (runtime per
+ * mode, `emails`, `apns`, `fcm` — what the host Worker assembles its channels
+ * from) plus the studio's own settings. Flat on purpose: one field per
+ * transport, no nesting to navigate.
+ */
+export interface WorkflowUIConfig extends JourneyConfig {
   /**
    * Browser tab title. The sidebar always reads "Workflow Studio" — this names
    * the project, which matters when several studios are open at once.
    */
   title?: string;
-  /** Email settings: the sender address book, and whatever joins it later. */
+  /** Email envelope and address book; the test-send hook. */
   emails?: EmailSettings;
   /** Optional runtime data source for the reports view and canvas badges. */
   stats?: StatsSource;
-  /**
-   * How the engine behaves per environment (`development`, `production`, …): the debug time
-   * scale, message logging. Typed here instead of environment variables so the values live in
-   * code; the host Worker picks the entry for its mode with `resolveRuntime` from
-   * `@shware/workflow`. The studio does not read it.
-   */
-  runtime?: JourneyRuntimeConfig;
 }
 
 /** Identity helper that gives the config file full type checking. */
