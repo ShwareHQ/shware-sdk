@@ -344,7 +344,8 @@ What the SDK guarantees for this to hold:
 ## Ad performance (`@shware/analytics/ads`)
 
 Spend, impressions, clicks and the platforms' own conversions, read from the ad platforms'
-reporting APIs as typed `AdPerformanceRow`s — one per ad and hour — for a host to store next to its
+reporting APIs as typed `AdPerformanceRow`s — one per ad (or the finest level a platform reports
+hours at) and hour — for a host to store next to its
 sessions and compute ROAS, cost per session and the click → session landing rate.
 
 ```ts
@@ -385,6 +386,131 @@ const rows = await fetchMetaAdPerformance({
   sums are Meta's exactly, the hours inside such a day are an even split. Run it once, up to the
   day before the first hourly day stored — a day must never hold both spread and real hourly rows,
   as an hour without delivery is absent from the hourly data and its spread share would remain.
+
+### Google Ads, pushed by a script
+
+Google's reporting API needs a developer token, which needs a manager account. A
+[Google Ads script](https://developers.google.com/google-ads/scripts) needs neither: it runs inside
+the ad account (Tools → Bulk actions → Scripts) as the account's own user, reads the report and
+posts it to the host, which turns the body into rows with `parseGoogleAdsScriptReport` and upserts
+them.
+
+```ts
+import { GoogleAdsReportError, parseGoogleAdsScriptReport } from '@shware/analytics/ads';
+
+// POST, behind a bearer key only the script knows
+try {
+  await upsert(parseGoogleAdsScriptReport(await request.json()));
+} catch (error) {
+  if (error instanceof GoogleAdsReportError) return new Response(error.message, { status: 400 });
+  throw error;
+}
+```
+
+- **Ad groups, not ads.** Google reports hours down to the ad group (`segments.hour` is not
+  available per ad), and a Performance Max campaign has no ad group: `ad_id` is the ad group id, or
+  the campaign id for Performance Max. The script reads both, and logs a warning when they do not
+  add up to the account's spend.
+- **Conversions** are Google's primary conversion actions, click-based (view-through ones are
+  counted apart and have no value), so they fill the total and the click-through columns alike.
+- **Restatement.** A conversion is credited to its click's hour up to the conversion window later
+  (30 days by default). The script re-reads the last 3 days every hour and the last 30 once a day.
+- **History.** Set `SINCE` to the first day with spend, run the script once by hand, then clear
+  it; it posts 7 days per request. Hourly data reaches back at least months — compare each day's
+  sum of hours with the day in the Google Ads UI before relying on older days.
+
+Schedule it hourly. Google Ads emails the account owner when a run throws, as on a non-2xx answer.
+
+```js
+const ENDPOINT = 'https://api.example.com/ads/google';
+const KEY = '…'; // the bearer key the endpoint checks
+const DAYS = 3; // re-read every hour
+const RESTATE_DAYS = 30; // re-read once a day, at RESTATE_HOUR in the account's time zone
+const RESTATE_HOUR = 5;
+const CHUNK_DAYS = 7; // days per request
+const SINCE = ''; // a backfill's first day, 'YYYY-MM-DD'; empty for the schedule
+
+function main() {
+  const account = AdsApp.currentAccount();
+  const timeZone = account.getTimeZone();
+  const now = new Date();
+  const today = Utilities.formatDate(now, timeZone, 'yyyy-MM-dd');
+  const hour = Number(Utilities.formatDate(now, timeZone, 'H'));
+  const since = SINCE || addDays(today, 1 - (hour === RESTATE_HOUR ? RESTATE_DAYS : DAYS));
+
+  for (let from = since; from <= today; from = addDays(from, CHUNK_DAYS)) {
+    const last = addDays(from, CHUNK_DAYS - 1);
+    const until = last < today ? last : today;
+    const range = `segments.date BETWEEN '${from}' AND '${until}'`;
+    const metrics = `segments.date, segments.hour, metrics.cost_micros, metrics.impressions,
+      metrics.clicks, metrics.conversions, metrics.conversions_value`;
+    const rows = [
+      ...read(`SELECT campaign.id, campaign.name, ad_group.id, ad_group.name, ${metrics}
+        FROM ad_group WHERE ${range} AND metrics.impressions > 0`),
+      ...read(`SELECT campaign.id, campaign.name, ${metrics} FROM campaign
+        WHERE ${range} AND metrics.impressions > 0
+          AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'`),
+    ];
+    check(rows, range, from, until);
+    post({
+      account_id: account.getCustomerId(),
+      currency: account.getCurrencyCode(),
+      time_zone: timeZone,
+      rows,
+    });
+    Logger.log('%s → %s: %s rows', from, until, rows.length);
+  }
+}
+
+function read(query) {
+  const rows = [];
+  const results = AdsApp.search(query);
+  while (results.hasNext()) {
+    const r = results.next();
+    rows.push({
+      campaign_id: r.campaign.id,
+      campaign_name: r.campaign.name,
+      ad_group_id: r.adGroup ? r.adGroup.id : null,
+      ad_group_name: r.adGroup ? r.adGroup.name : null,
+      date: r.segments.date,
+      hour: r.segments.hour,
+      cost_micros: r.metrics.costMicros,
+      impressions: r.metrics.impressions,
+      clicks: r.metrics.clicks,
+      conversions: r.metrics.conversions,
+      conversion_value: r.metrics.conversionsValue,
+    });
+  }
+  return rows;
+}
+
+/** Warns when the rows miss spend: a campaign type with neither ad groups nor Performance Max. */
+function check(rows, range, from, until) {
+  let total = 0;
+  const results = AdsApp.search(`SELECT metrics.cost_micros FROM customer WHERE ${range}`);
+  while (results.hasNext()) total += Number(results.next().metrics.costMicros);
+  const got = rows.reduce((sum, row) => sum + Number(row.cost_micros), 0);
+  if (got !== total) Logger.log('WARNING %s → %s: read %s of %s micros', from, until, got, total);
+}
+
+function post(report) {
+  const response = UrlFetchApp.fetch(ENDPOINT, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: `Bearer ${KEY}` },
+    payload: JSON.stringify(report),
+    muteHttpExceptions: true,
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) throw new Error(`${code}: ${response.getContentText()}`);
+}
+
+function addDays(date, days) {
+  const moved = new Date(`${date}T00:00:00Z`);
+  moved.setUTCDate(moved.getUTCDate() + days);
+  return moved.toISOString().slice(0, 10);
+}
+```
 
 ## UTM params
 
