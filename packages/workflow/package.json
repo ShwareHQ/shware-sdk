@@ -95,6 +95,26 @@
         "default": "./dist/push.cjs"
       }
     },
+    "./apns": {
+      "import": {
+        "types": "./dist/apns.d.mts",
+        "default": "./dist/apns.mjs"
+      },
+      "require": {
+        "types": "./dist/apns.d.cts",
+        "default": "./dist/apns.cjs"
+      }
+    },
+    "./apns-relay": {
+      "import": {
+        "types": "./dist/apns-relay.d.mts",
+        "default": "./dist/apns-relay.mjs"
+      },
+      "require": {
+        "types": "./dist/apns-relay.d.cts",
+        "default": "./dist/apns-relay.cjs"
+      }
+    },
     "./fcm": {
       "import": {
         "types": "./dist/fcm.d.mts",

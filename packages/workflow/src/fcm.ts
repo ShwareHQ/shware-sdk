@@ -1,4 +1,5 @@
 import type { MessageSender, OutboundMessage } from './engine/ports';
+import { base64url, pemToDer } from './jwt';
 import type { PushRenderer } from './push';
 
 /**
@@ -127,11 +128,6 @@ export function fcmErrorCode(body: string): string {
   }
 }
 
-const base64url = (bytes: Uint8Array | string): string => {
-  const raw = typeof bytes === 'string' ? bytes : String.fromCharCode(...bytes);
-  return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
-
 /** RS256-sign the OAuth2 JWT assertion for a service account. */
 export async function signJwt(
   account: FcmServiceAccount,
@@ -157,14 +153,6 @@ export async function signJwt(
     new TextEncoder().encode(`${header}.${claims}`)
   );
   return `${header}.${claims}.${base64url(new Uint8Array(signature))}`;
-}
-
-function pemToDer(pem: string): ArrayBuffer {
-  const body = pem.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
-  const binary = atob(body);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
 }
 
 /** Parse the service-account JSON as it is usually shipped: base64 of the file, in one secret. */

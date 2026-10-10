@@ -43,6 +43,13 @@ export type EmailRenderer = (
 /** Profile access for personalization, keyed by user. */
 export type ProfileLookup = (userId: string, path: string) => Promise<ScalarIR | undefined>;
 
+/** A store or a custom lookup, as one lookup. */
+function profileLookup(profile: JourneyStore | ProfileLookup): ProfileLookup {
+  return typeof profile === 'function'
+    ? profile
+    : (userId, path) => new JourneyFactSource(profile, userId).getProperty(path);
+}
+
 export interface CfEmailOptions {
   /** The Worker's `send_email` binding. */
   binding: EmailBindingLike;
@@ -66,13 +73,7 @@ export class CfEmailSender implements MessageSender {
   private readonly profile: ProfileLookup | undefined;
 
   constructor(private readonly options: CfEmailOptions) {
-    const { profile } = options;
-    this.profile =
-      profile === undefined
-        ? undefined
-        : typeof profile === 'function'
-          ? profile
-          : (userId, path) => new JourneyFactSource(profile, userId).getProperty(path);
+    this.profile = options.profile === undefined ? undefined : profileLookup(options.profile);
   }
 
   async send(message: OutboundMessage): Promise<void> {
@@ -141,6 +142,33 @@ export function routeByChannel(
         throw new Error(`no sender configured for channel '${message.channel}'`);
       }
       await sender.send(message);
+    },
+  };
+}
+
+/**
+ * One push outlet per platform, chosen by the user's `push_platform` property
+ * (the producer identifies it next to `push_token`): `ios` straight to APNs,
+ * `android` through FCM, say. A user with a token but no platform, or a
+ * platform with no sender, fails the step rather than guessing.
+ */
+export function routeByPlatform(
+  senders: Record<string, MessageSender>,
+  profile: JourneyStore | ProfileLookup,
+  property = 'push_platform'
+): MessageSender {
+  const lookup = profileLookup(profile);
+  return {
+    async send(message) {
+      const platform = await lookup(message.userId, property);
+      if (platform === undefined) {
+        throw new Error(`no ${property} identified for user '${message.userId}'`);
+      }
+      const key = String(platform);
+      if (!Object.hasOwn(senders, key)) {
+        throw new Error(`no push sender configured for platform '${key}'`);
+      }
+      await senders[key].send(message);
     },
   };
 }

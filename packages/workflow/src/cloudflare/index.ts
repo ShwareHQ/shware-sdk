@@ -17,7 +17,13 @@ export {
 } from './router';
 export type { DeployResult, IdentifyResult, IngestInput, IngestResult } from './router';
 export { JourneyRunner } from './runner';
-export { CfEmailSender, LogMessageSender, WebhookMessageSender, routeByChannel } from './senders';
+export {
+  CfEmailSender,
+  LogMessageSender,
+  WebhookMessageSender,
+  routeByChannel,
+  routeByPlatform,
+} from './senders';
 export type {
   CfEmailOptions,
   EmailAddress,
