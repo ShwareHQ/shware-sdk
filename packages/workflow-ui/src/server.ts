@@ -225,7 +225,11 @@ export default {
   slack: ${slackIndex !== undefined ? 'slackRegistry' : '{}'},
   discord: ${discordIndex !== undefined ? 'discordRegistry' : '{}'},
   segments,
-  addresses: config.emails?.addresses ?? [],
+  addresses:
+    config.emails?.addresses ??
+    [config.emails?.from, config.emails?.replyTo]
+      .filter((a) => a !== undefined)
+      .map((a) => (typeof a === 'string' ? a : a.name === undefined ? a.email : a.name + ' <' + a.email + '>')),
   ...(config.emails?.sendTest !== undefined ? { sendTest: config.emails.sendTest } : {}),
   ...(config.stats !== undefined ? { stats: config.stats } : {}),
 };

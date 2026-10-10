@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { D1FactSource } from '../src/cloudflare/facts';
 import { evaluateCondition } from '../src/engine/condition';
 import { fillSubject } from '../src/engine/subject';
 import type { ConditionIR } from '../src/ir';
-import { FakeD1 } from './fake-cloudflare';
+import { D1JourneyStore, JourneyFactSource } from '../src/store/index';
+import { FakeD1, FakeKV } from './fake-cloudflare';
 
 /**
  * The profile read is the last boundary between stored JSON and every
@@ -11,11 +11,11 @@ import { FakeD1 } from './fake-cloudflare';
  * message props. /identify checks only that `props` is an object, so anything
  * json_patch accepts can be sitting in that column.
  */
-describe('D1FactSource.getProperty: the scalar boundary', () => {
+describe('JourneyFactSource.getProperty: the scalar boundary', () => {
   function factsFor(props: Record<string, unknown>) {
     const db = new FakeD1();
     db.profiles.set('u_1', JSON.stringify(props));
-    return new D1FactSource(db, 'u_1');
+    return new JourneyFactSource(new D1JourneyStore(db, new FakeKV()), 'u_1');
   }
 
   const prop = (path: string, op: 'gt' | 'eq' | 'exists', value?: number): ConditionIR =>
@@ -71,7 +71,10 @@ describe('D1FactSource.getProperty: the scalar boundary', () => {
   });
 
   test('a user with no profile row at all has no properties', async () => {
-    const facts = new D1FactSource(new FakeD1(), 'u_missing');
+    const facts = new JourneyFactSource(
+      new D1JourneyStore(new FakeD1(), new FakeKV()),
+      'u_missing'
+    );
 
     await expect(facts.getProperty('tier')).resolves.toBeUndefined();
     await expect(evaluateCondition(prop('toString', 'exists'), facts, 0)).resolves.toBe(false);

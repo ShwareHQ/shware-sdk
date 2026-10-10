@@ -7,7 +7,10 @@
     "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
   },
   "files": [
-    "dist"
+    "dist",
+    "src/cloudflare/schema.sql",
+    "src/cloudflare/workers.d.ts",
+    "src/store/postgres-schema.sql"
   ],
   "type": "module",
   "exports": {
@@ -41,6 +44,86 @@
         "types": "./dist/cloudflare/index.d.cts",
         "default": "./dist/cloudflare/index.cjs"
       }
+    },
+    "./store": {
+      "import": {
+        "types": "./dist/store/index.d.mts",
+        "default": "./dist/store/index.mjs"
+      },
+      "require": {
+        "types": "./dist/store/index.d.cts",
+        "default": "./dist/store/index.cjs"
+      }
+    },
+    "./client": {
+      "import": {
+        "types": "./dist/client.d.mts",
+        "default": "./dist/client.mjs"
+      },
+      "require": {
+        "types": "./dist/client.d.cts",
+        "default": "./dist/client.cjs"
+      }
+    },
+    "./postgres-js": {
+      "import": {
+        "types": "./dist/postgres-js.d.mts",
+        "default": "./dist/postgres-js.mjs"
+      },
+      "require": {
+        "types": "./dist/postgres-js.d.cts",
+        "default": "./dist/postgres-js.cjs"
+      }
+    },
+    "./react-email": {
+      "import": {
+        "types": "./dist/react-email.d.mts",
+        "default": "./dist/react-email.mjs"
+      },
+      "require": {
+        "types": "./dist/react-email.d.cts",
+        "default": "./dist/react-email.cjs"
+      }
+    },
+    "./push": {
+      "import": {
+        "types": "./dist/push.d.mts",
+        "default": "./dist/push.mjs"
+      },
+      "require": {
+        "types": "./dist/push.d.cts",
+        "default": "./dist/push.cjs"
+      }
+    },
+    "./apns": {
+      "import": {
+        "types": "./dist/apns.d.mts",
+        "default": "./dist/apns.mjs"
+      },
+      "require": {
+        "types": "./dist/apns.d.cts",
+        "default": "./dist/apns.cjs"
+      }
+    },
+    "./apns-relay": {
+      "import": {
+        "types": "./dist/apns-relay.d.mts",
+        "default": "./dist/apns-relay.mjs"
+      },
+      "require": {
+        "types": "./dist/apns-relay.d.cts",
+        "default": "./dist/apns-relay.cjs"
+      }
+    },
+    "./fcm": {
+      "import": {
+        "types": "./dist/fcm.d.mts",
+        "default": "./dist/fcm.mjs"
+      },
+      "require": {
+        "types": "./dist/fcm.d.cts",
+        "default": "./dist/fcm.cjs"
+      }
     }
   },
   "scripts": {
@@ -56,9 +139,31 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^26.6.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "postgres": "^3.4.9",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2"
+  },
+  "peerDependencies": {
+    "postgres": ">=3.4.0",
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "postgres": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   }
 }
