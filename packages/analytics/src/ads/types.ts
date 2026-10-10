@@ -1,7 +1,7 @@
 import type { ChannelGroup } from '../attribution';
 
 /** The ad platforms whose reporting APIs this module reads. */
-export type AdPlatform = 'meta';
+export type AdPlatform = 'meta' | 'google';
 
 /**
  * One row of ad delivery: one ad over one hour. The row a host stores in its `ad_performance`
@@ -19,13 +19,17 @@ export type AdPlatform = 'meta';
 export interface AdPerformanceRow {
   /** The reporting API the row came from; `channel` is what it joins attribution on. */
   platform: AdPlatform;
-  /** The platform's account id, without a prefix (Meta's `act_` is stripped). */
+  /** The platform's account id, without a prefix or dashes (Meta's `act_`, Google's `123-`). */
   account_id: string;
   campaign_id: string;
   campaign_name: string | null;
-  /** The level between campaign and ad: Meta's ad set. */
+  /** The level between campaign and ad: Meta's ad set, Google's ad group. */
   ad_group_id: string | null;
   ad_group_name: string | null;
+  /**
+   * The finest level the platform reports hours at: the ad on Meta; on Google the ad group, or the
+   * campaign for Performance Max, which has none.
+   */
   ad_id: string;
   ad_name: string | null;
   channel: string;
