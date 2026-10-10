@@ -193,6 +193,51 @@ describe('plan', () => {
   });
 });
 
+describe('provenance never reaches plan', () => {
+  /*
+   * A recorded loc is a source map, not content: it moves with the machine and
+   * with the directory the compile ran from ('packages/workflow/src/wf.ts' from
+   * the workspace root, 'src/wf.ts' from the package). Comparing it made CI
+   * report every workflow as metadata_only against a locally compiled deploy —
+   * noise on a diff whose whole job is to be trusted.
+   */
+  const movedLocs = (bundle: ReturnType<typeof compileBundle>) => {
+    const moved = structuredClone(bundle);
+    for (const wf of moved.workflows) {
+      if (wf.meta?.loc) wf.meta.loc = { file: 'elsewhere/wf.ts', line: 1, column: 1 };
+      for (const node of wf.flow) {
+        if (node.meta?.loc) node.meta.loc = { file: 'elsewhere/wf.ts', line: 2, column: 3 };
+      }
+    }
+    for (const seg of moved.segments) {
+      if (seg.meta?.loc) seg.meta.loc = { file: 'elsewhere/segments.ts', line: 4, column: 5 };
+    }
+    return moved;
+  };
+
+  test('a deploy compiled from another directory reports unchanged', () => {
+    const local = bundleOf(base());
+    const result = plan(local, movedLocs(local));
+
+    expect(result.workflows[0]?.status).toBe('unchanged');
+    expect(result.segments.map((s) => s.status)).toEqual(['unchanged', 'unchanged']);
+    expect(result.hasChanges).toBe(false);
+  });
+
+  test('a description edit is still visible through a moved loc', () => {
+    const deployed = movedLocs(bundleOf(base()));
+    const edited = workflow('checkout_recovery', {
+      trigger: trigger.event(e.begin_checkout),
+      goal: purchaser,
+      description: 'Reworded for the growth review',
+    })
+      .delay('1 hour')
+      .branch([activeSubscriber, (w) => w.email(proTips)], (w) => w.email(gettingStarted));
+
+    expect(plan(bundleOf(edited), deployed).workflows[0]?.status).toBe('metadata_only');
+  });
+});
+
 describe('plan smoke test across a realistic bundle', () => {
   test('reports added / removed / unchanged', () => {
     const segments = [purchaser, activeSubscriber, inactive30d];

@@ -40,13 +40,34 @@ export type BranchCase = readonly [condition: Condition, flow: SubFlow];
  */
 export type BranchArm = BranchCase | SubFlow;
 
+/**
+ * A cohort arm name has two jobs, and both constrain its spelling:
+ * - it is interpolated into the node ids of the arm's flow ('{id}.{name}.{j}'),
+ *   and an id is a durable step name — a dot would fake a nesting level and can
+ *   collide with a real one, an empty name gives '{id}..{j}';
+ * - it is an object key, and JavaScript lists integer-like keys first in
+ *   ascending numeric order however the author wrote them. The arms array is
+ *   documented (and interpreted) as authoring order, and the bucketing walk
+ *   accumulates weights along it, so an arm named '0' added to a live
+ *   experiment would prepend itself and re-bucket everyone already in it.
+ */
+const ARM_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
 function resolveSubFlow(sub: SubFlow): NodeIR[] {
   if (typeof sub === 'function') {
     const builder = new FlowBuilderImpl();
     sub(builder);
     return builder.nodes;
   }
-  return (sub as FlowInternal).nodes;
+  /*
+   * A named fragment is a value, and the convention is to reuse it — two branch
+   * arms may hold the same one. Handing out its own nodes aliases them into
+   * both places, and assignIds writes ids *in place*: the second prefix
+   * overwrites the first, so the two placements end up as one object under one
+   * id — one durable step name, one message idempotency key, one bucket seed.
+   * A copy per placement is what makes a fragment behave like a value.
+   */
+  return structuredClone((sub as FlowInternal).nodes);
 }
 
 export interface FlowBuilder {
@@ -107,6 +128,8 @@ export interface FlowBuilder {
    * Gate: exit unless the condition holds, otherwise continue. A first-class
    * node rather than sugar over branch — same semantics as Zapier's "only
    * continue if" / Iterable's Filter tile, and rendered on its own in the UI.
+   * `reason` is the audit-log line — metadata, so rewording it is free
+   * (excluded from contentHash, see hash.ts).
    */
   filter(condition: Condition, opts?: { reason?: string }): this;
 
@@ -116,13 +139,18 @@ export interface FlowBuilder {
    * structural node id, so assignments survive node insertion/moves and the
    * experiment keeps one identity across workflow versions — set it for any
    * A/B whose results you intend to read.
+   *
+   * Arm names become node id segments and are read back in authoring order, so
+   * they are restricted to letters, digits, '_' and '-', never starting with a
+   * digit (checked at runtime).
    */
   cohort(arms: Record<string, { weight: number; flow?: SubFlow }>, opts?: { key?: string }): this;
 
   /**
    * Exit: end the whole workflow immediately (the UI's Exit node); `reason`
-   * goes into the audit log. Inside a branch arm this means "terminate, do not
-   * rejoin" — the arm stops here instead of falling through to the main line,
+   * goes into the audit log and is metadata, so rewording it neither repins
+   * in-flight journeys nor shows up in plan. Inside a branch arm this means
+   * "terminate, do not rejoin" — it stops here instead of falling through,
    * while an arm without exit rejoins naturally.
    */
   exit(reason?: string): this;
@@ -217,15 +245,19 @@ export class FlowBuilderImpl implements FlowBuilder {
     if (typeof d === 'string') {
       return this.pushNode({ id: '', type: 'delay', duration: durationIR(d) }, loc);
     }
-    return this.pushNode(
-      {
-        id: '',
-        type: 'random_delay',
-        min: durationIR(d.min),
-        max: durationIR(d.max),
-      },
-      loc
-    );
+    const min = durationIR(d.min);
+    const max = durationIR(d.max);
+    /*
+     * The interpreter draws `min + random(max - min)` with the span clamped at
+     * zero, so a backwards range does not fail — it quietly collapses into a
+     * fixed `min` sleep. Reject it here, where the author can still see it.
+     */
+    if (max.ms < min.ms) {
+      throw new Error(
+        `delay(): 'max' must not be shorter than 'min', got { min: '${d.min}', max: '${d.max}' }`
+      );
+    }
+    return this.pushNode({ id: '', type: 'random_delay', min, max }, loc);
   }
 
   timeWindow(opts: {
@@ -333,11 +365,25 @@ export class FlowBuilderImpl implements FlowBuilder {
      * sum check exact; no epsilon needed.
      */
     const basisPoints = entries.map(([name, a]) => {
+      if (!ARM_NAME.test(name)) {
+        throw new Error(
+          `cohort(): arm name '${name}' must start with a letter or '_' and contain only letters, digits, '_' or '-' — arm names become node id segments, and integer-like names would silently reorder the arms`
+        );
+      }
       const bp = a.weight * 100;
       if (Math.abs(bp - Math.round(bp)) > 1e-6) {
         throw new Error(
           `cohort(): arm '${name}' weight ${a.weight} is finer than the 0.01% bucketing grid — use at most two decimal places`
         );
+      }
+      /*
+       * The sum check alone accepts -50 / 150: the runtime walks the arms
+       * accumulating basis points and takes the first whose cumulative total
+       * clears the bucket, so a negative weight hands 100% of users to its
+       * neighbour instead of splitting anything.
+       */
+      if (bp < 0) {
+        throw new Error(`cohort(): arm '${name}' weight ${a.weight} must not be negative`);
       }
       return Math.round(bp);
     });

@@ -18,7 +18,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-01-01T00:00:00Z').getTime();
 
 function fbcCookie(url: string, cookieHeader = '', now = NOW, extra = {}) {
-  const { cookies, fbc } = resolveClickIdCookies({ url, cookieHeader, now, ...extra });
+  const { cookies, fbc } = resolveClickIdCookies({
+    domain: null,
+    url,
+    cookieHeader,
+    now,
+    ...extra,
+  });
   return { cookie: cookies.find((c) => c.name === FBC_COOKIE), fbc, cookies };
 }
 
@@ -31,8 +37,12 @@ describe('parseFbc', () => {
     });
   });
 
-  it('keeps a fbclid that contains dots', () => {
-    expect(parseFbc(`fb.1.${NOW}.A.B.C`, NOW)?.fbclid).toBe('A.B.C');
+  it("reads the fbclid apart from Meta's appendix and keeps the value whole", () => {
+    expect(parseFbc(`fb.1.${NOW}.ABC123.AQAAAAAA`, NOW)).toEqual({
+      raw: `fb.1.${NOW}.ABC123.AQAAAAAA`,
+      creationTime: NOW,
+      fbclid: 'ABC123',
+    });
   });
 
   it.each([
@@ -40,6 +50,8 @@ describe('parseFbc', () => {
     ['garbage', 'not-an-fbc'],
     ['wrong prefix', `xx.1.${NOW}.ABC`],
     ['missing fbclid', `fb.1.${NOW}.`],
+    ['empty appendix', `fb.1.${NOW}.ABC.`],
+    ['too many segments', `fb.1.${NOW}.A.B.C`],
     ['seconds-precision creationTime', 'fb.1.1767225600.ABC'],
     ['non-numeric creationTime', 'fb.1.nope.ABC'],
     ['future creationTime', `fb.1.${NOW + 2 * DAY_MS}.ABC`],
@@ -94,6 +106,17 @@ describe('resolveClickIdCookies — _fbc', () => {
     expect(fbc).toBe(existing);
   });
 
+  it('treats a cookie with an appendix as the same click, and re-issues it byte-identical', () => {
+    const existing = `fb.1.${NOW}.ABC123.AQAAAAAA`;
+    const { cookie, fbc } = fbcCookie(
+      'https://shware.io/?fbclid=ABC123',
+      `_fbc=${existing}`,
+      NOW + DAY_MS
+    );
+    expect(cookie).toMatchObject({ value: existing, maxAge: (89 * DAY_MS) / 1000 });
+    expect(fbc).toBe(existing);
+  });
+
   it('leaves a valid same-fbclid cookie untouched with refresh: false (strict Meta conditional-write), but exposes fbc', () => {
     const existing = `fb.1.${NOW}.ABC123`;
     const later = NOW + 10 * DAY_MS;
@@ -129,7 +152,11 @@ describe('resolveClickIdCookies — _fbc', () => {
   });
 
   it('is a no-op with no fbclid and no cookie', () => {
-    const { cookies } = resolveClickIdCookies({ url: 'https://shware.io/', now: NOW });
+    const { cookies } = resolveClickIdCookies({
+      domain: null,
+      url: 'https://shware.io/',
+      now: NOW,
+    });
     expect(cookies).toEqual([]);
   });
 
@@ -158,6 +185,7 @@ describe('resolveClickIdCookies — _fbc', () => {
 describe('resolveClickIdCookies — _rdt_cid', () => {
   it('sets rdt_cid from the URL on first capture', () => {
     const { cookies, rdt_cid } = resolveClickIdCookies({
+      domain: null,
       url: 'https://shware.io/?rdt_cid=RDT1',
       now: NOW,
     });
@@ -168,18 +196,34 @@ describe('resolveClickIdCookies — _rdt_cid', () => {
     expect(rdt_cid).toBe('RDT1');
   });
 
-  it('does not re-issue an existing rdt_cid (no embedded timestamp to anchor)', () => {
+  it('re-issues an existing rdt_cid for a fresh 90 days, as pixel.js does on every page', () => {
     const { cookies, rdt_cid } = resolveClickIdCookies({
+      domain: null,
       url: 'https://shware.io/',
       cookieHeader: '_rdt_cid=RDT1',
       now: NOW,
     });
-    expect(cookies.find((c) => c.name === RDT_CID_COOKIE)).toBeUndefined();
+    expect(cookies.find((c) => c.name === RDT_CID_COOKIE)).toMatchObject({
+      value: 'RDT1',
+      maxAge: (90 * DAY_MS) / 1000,
+    });
     expect(rdt_cid).toBe('RDT1');
+  });
+
+  it('leaves an existing rdt_cid alone with refresh: false', () => {
+    const { cookies } = resolveClickIdCookies({
+      domain: null,
+      url: 'https://shware.io/',
+      cookieHeader: '_rdt_cid=RDT1',
+      now: NOW,
+      refresh: false,
+    });
+    expect(cookies.find((c) => c.name === RDT_CID_COOKIE)).toBeUndefined();
   });
 
   it('replaces the cookie when a different rdt_cid arrives in the URL', () => {
     const { cookies, rdt_cid } = resolveClickIdCookies({
+      domain: null,
       url: 'https://shware.io/?rdt_cid=RDT2',
       cookieHeader: '_rdt_cid=RDT1',
       now: NOW,
@@ -189,14 +233,63 @@ describe('resolveClickIdCookies — _rdt_cid', () => {
   });
 });
 
+describe('resolveClickIdCookies — browser ids and OpenAI', () => {
+  const resolve = (url: string, cookieHeader: string, extra = {}) =>
+    resolveClickIdCookies({ domain: '.shware.io', url, cookieHeader, now: NOW, ...extra }).cookies;
+  const cookie = (cookies: ReturnType<typeof resolve>, name: string) =>
+    cookies.find((c) => c.name === name);
+
+  it('re-issues _rdt_uuid and _fbp as they are, for the 90 days their pixels give them', () => {
+    const cookies = resolve('https://shware.io/', '_rdt_uuid=1700000000000.u-1; _fbp=fb.1.1.42');
+    expect(cookie(cookies, '_rdt_uuid')).toMatchObject({
+      value: '1700000000000.u-1',
+      maxAge: 90 * 86400,
+    });
+    expect(cookie(cookies, '_fbp')).toMatchObject({ value: 'fb.1.1.42', maxAge: 90 * 86400 });
+  });
+
+  it("never creates a browser id: that is the pixel's", () => {
+    const cookies = resolve('https://shware.io/', '');
+    expect(cookie(cookies, '_fbp')).toBeUndefined();
+    expect(cookie(cookies, '_rdt_uuid')).toBeUndefined();
+    expect(cookie(cookies, '__obref')).toBeUndefined();
+  });
+
+  it('captures oppref from the URL for 30 days, and re-issues __oppref and __obref after', () => {
+    expect(cookie(resolve('https://shware.io/?oppref=OP1', ''), '__oppref')).toMatchObject({
+      value: 'OP1',
+      maxAge: 30 * 86400,
+      domain: '.shware.io',
+    });
+    const later = resolve('https://shware.io/pricing', '__oppref=OP1; __obref=ob-1');
+    expect(cookie(later, '__oppref')).toMatchObject({ value: 'OP1', maxAge: 30 * 86400 });
+    expect(cookie(later, '__obref')).toMatchObject({ value: 'ob-1', maxAge: 365 * 86400 });
+  });
+
+  it('writes no OpenAI cookie once the visitor has opted out of oaiq', () => {
+    const cookies = resolve('https://shware.io/?oppref=OP1', '__oaiq_consent=false; __obref=ob-1');
+    expect(cookie(cookies, '__oppref')).toBeUndefined();
+    expect(cookie(cookies, '__obref')).toBeUndefined();
+  });
+
+  it('leaves them all alone with refresh: false, but still captures a new oppref', () => {
+    const cookies = resolve('https://shware.io/?oppref=OP2', '_fbp=fb.1.1.42; __obref=ob-1', {
+      refresh: false,
+    });
+    expect(cookie(cookies, '_fbp')).toBeUndefined();
+    expect(cookie(cookies, '__obref')).toBeUndefined();
+    expect(cookie(cookies, '__oppref')).toMatchObject({ value: 'OP2' });
+  });
+});
+
 describe('resolveClickIdCookies — URL parsing', () => {
   it('still reads the query from a relative URL (framework middlewares pass pathname+search)', () => {
-    const { fbc } = resolveClickIdCookies({ url: '/landing?fbclid=REL1', now: NOW });
+    const { fbc } = resolveClickIdCookies({ domain: null, url: '/landing?fbclid=REL1', now: NOW });
     expect(fbc).toBe(`fb.1.${NOW}.REL1`);
   });
 
   it('a relative URL without a query resolves nothing and emits nothing', () => {
-    const { cookies } = resolveClickIdCookies({ url: '/landing', now: NOW });
+    const { cookies } = resolveClickIdCookies({ domain: null, url: '/landing', now: NOW });
     expect(cookies).toEqual([]);
   });
 });
@@ -233,7 +326,7 @@ describe('parseGcl', () => {
 
 describe('resolveClickIdCookies — _gcl_aw / _gcl_gb', () => {
   function gclCookies(url: string, cookieHeader = '', now = NOW, extra = {}) {
-    const result = resolveClickIdCookies({ url, cookieHeader, now, ...extra });
+    const result = resolveClickIdCookies({ domain: null, url, cookieHeader, now, ...extra });
     return {
       aw: result.cookies.find((c) => c.name === GCL_AW_COOKIE),
       gb: result.cookies.find((c) => c.name === GCL_GB_COOKIE),
@@ -342,7 +435,7 @@ describe('parseUetMsclkid / formatUetMsclkid / formatMsclkid', () => {
 
 describe('resolveClickIdCookies — _uetmsclkid', () => {
   function uet(url: string, cookieHeader = '', now = NOW) {
-    const result = resolveClickIdCookies({ url, cookieHeader, now });
+    const result = resolveClickIdCookies({ domain: null, url, cookieHeader, now });
     return { cookie: result.cookies.find((c) => c.name === UET_MSCLKID_COOKIE), result };
   }
 
@@ -360,6 +453,7 @@ describe('resolveClickIdCookies — _uetmsclkid', () => {
 
   it('refresh: false skips the re-issue but still resolves the click id', () => {
     const result = resolveClickIdCookies({
+      domain: null,
       url: 'https://x.test/',
       cookieHeader: `_uetmsclkid=_uet${MSCLKID}`,
       now: NOW,

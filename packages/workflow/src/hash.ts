@@ -19,13 +19,26 @@
  * - meta: metadata at any level — workflow (description / tags / owner) and
  *   node/segment provenance (`loc`, the callsite source map)
  * - label: node and branch-arm names (UI titles / observability, never routing)
+ * - reason: the exit / filter audit string. It is written into the audit log
+ *   and shown in the studio, but no user takes a different path because of it —
+ *   the same test as a description, so rewording one must not repin in-flight
+ *   journeys or report as a semantic change in plan.
  * - contentHash: the hash itself
  *
  * Note that a cohort arm's `name` IS hashed: it becomes part of the node id
  * (`{id}.{armName}.{j}`), and node ids are durable step names — renaming an arm
  * changes execution identity.
  */
-const UNHASHED_KEYS = new Set(['meta', 'label', 'contentHash']);
+const UNHASHED_KEYS = new Set(['meta', 'label', 'reason', 'contentHash']);
+
+/**
+ * Provenance only. `loc` is a source map, not content: it moves with the
+ * machine and with the directory the compile ran from, so plan compares full
+ * content with it removed (see plan.ts) — otherwise CI, compiling from the
+ * workspace root, reports every definition as metadata_only against a deploy
+ * compiled from a package directory.
+ */
+const PROVENANCE_KEYS = new Set(['loc']);
 
 /**
  * Fields whose values are maps the *author* keys, not the IR: message props,
@@ -41,22 +54,36 @@ const UNHASHED_KEYS = new Set(['meta', 'label', 'contentHash']);
  *
  * These three are the only `z.record` fields in the IR (see ir.ts). A new one
  * has to be added here, or its contents become strippable by name again.
+ *
+ * It matters for every key above: a send_event payload may well carry a field
+ * called `reason` (subscription_cancelled does), and dropping it would hash two
+ * different sends the same.
  */
 const AUTHOR_KEYED_FIELDS = new Set(['props', 'payload', 'args']);
 
-/** Drop metadata at the positions the IR defines it, leaving execution semantics. */
-export function stripMeta(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripMeta);
+/** Drop `keys` at the positions the IR defines them, never inside an author-keyed map. */
+function stripKeys(value: unknown, keys: ReadonlySet<string>): unknown {
+  if (Array.isArray(value)) return value.map((item) => stripKeys(item, keys));
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      if (UNHASHED_KEYS.has(key)) continue;
+      if (keys.has(key)) continue;
       // Author-keyed: hashed verbatim, never walked into
-      out[key] = AUTHOR_KEYED_FIELDS.has(key) ? item : stripMeta(item);
+      out[key] = AUTHOR_KEYED_FIELDS.has(key) ? item : stripKeys(item, keys);
     }
     return out;
   }
   return value;
+}
+
+/** Drop metadata at the positions the IR defines it, leaving execution semantics. */
+export function stripMeta(value: unknown): unknown {
+  return stripKeys(value, UNHASHED_KEYS);
+}
+
+/** Drop provenance, keeping the rest of the metadata — what plan compares. */
+export function stripProvenance(value: unknown): unknown {
+  return stripKeys(value, PROVENANCE_KEYS);
 }
 
 /** Canonical JSON: sorted keys, no whitespace — a stable hash input. */

@@ -1,6 +1,6 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import tailwindcss from '@tailwindcss/vite';
@@ -135,18 +135,59 @@ const VIRTUAL_ID = 'virtual:workflow-config';
 const RESOLVED_ID = `\0${VIRTUAL_ID}`;
 
 /**
+ * The generated module's merge step. It has to run in the browser, beside the
+ * user's own modules, because only there do the imported values exist to be
+ * duck-typed — so it lives here as source text. Exported so the suite runs the
+ * exact text that ships rather than a copy of it.
+ */
+export const MERGE_SOURCE = `function collectDefinitions(modules) {
+  const workflows = {};
+  const segments = [];
+  const sources = {};
+  for (const [file, mod] of modules) {
+    for (const [key, value] of Object.entries(mod)) {
+      if (value === null || typeof value !== 'object' && typeof value !== 'function') continue;
+      if (typeof value.toIR === 'function') {
+        /*
+         * An export name is a workflow's identity — its studio URL, its reports
+         * row, its key in IR — so two modules claiming one name is an ambiguity
+         * only the developer can settle. Assigning over it (two files that both
+         * 'export default workflow(...)' are both keyed 'default') dropped one
+         * of them with nothing logged anywhere. The same value under the same
+         * key is a re-export through a barrel, which is not a collision.
+         */
+        if (sources[key] !== undefined && workflows[key] !== value) {
+          throw new Error(
+            'workflow-ui: two workflow modules export "' + key + '" — ' + sources[key] +
+              ' and ' + file + '. Rename one of them: the export name is how the ' +
+              'studio, its URLs and your reports identify a workflow.'
+          );
+        }
+        workflows[key] = value;
+        sources[key] = file;
+      } else if (value.__segment === true && !segments.includes(value)) {
+        segments.push(value);
+      }
+    }
+  }
+  return { workflows, segments };
+}`;
+
+/**
  * Generate the virtual config module: import everything discovery found plus
  * the optional user config, and assemble the ResolvedStudioConfig at runtime.
  * Detection is duck-typed on values, so how users organise files (barrels,
  * subdirectories, re-exports) never matters — same key + same value collapses.
+ *
+ * `configPath` is resolved once by the caller, so `--config` reaches the module
+ * it names instead of whatever `workflow.config.ts` happens to sit in cwd.
  */
-function discoveryModule(cwd: string): string {
+export function discoveryModule(cwd: string, configPath: string | undefined): string {
   const workflowsDir = findWorkflowsDir(cwd);
   const emailsIndex = findEmailsIndex(cwd);
   const pushesIndex = findPushesIndex(cwd);
   const slackIndex = findChatIndex(cwd, 'slack');
   const discordIndex = findChatIndex(cwd, 'discord');
-  const configPath = findConfig(cwd);
   const moduleFiles = workflowsDir === undefined ? [] : listWorkflowModules(workflowsDir);
 
   const imports: string[] = [];
@@ -170,16 +211,11 @@ function discoveryModule(cwd: string): string {
   }
 
   return `${imports.join('\n')}
-const modules = [${moduleFiles.map((_, index) => `m${index}`).join(', ')}];
-const workflows = {};
-const segments = [];
-for (const mod of modules) {
-  for (const [key, value] of Object.entries(mod)) {
-    if (value === null || typeof value !== 'object' && typeof value !== 'function') continue;
-    if (typeof value.toIR === 'function') workflows[key] = value;
-    else if (value.__segment === true && !segments.includes(value)) segments.push(value);
-  }
-}
+${MERGE_SOURCE}
+const modules = [${moduleFiles
+    .map((file, index) => `[${JSON.stringify(file)}, m${index}]`)
+    .join(', ')}];
+const { workflows, segments } = collectDefinitions(modules);
 const config = ${configPath !== undefined ? 'userConfig' : '{}'};
 export default {
   ...(config.title !== undefined ? { title: config.title } : {}),
@@ -197,11 +233,11 @@ export default {
 }
 
 /** Serve the assembled module under a stable id, and refresh it when discovery inputs change. */
-function discoveryPlugin(cwd: string): Plugin {
+function discoveryPlugin(cwd: string, configPath: string | undefined): Plugin {
   return {
     name: 'workflow-ui:config',
     resolveId: (id) => (id === VIRTUAL_ID ? RESOLVED_ID : null),
-    load: (id) => (id === RESOLVED_ID ? discoveryModule(cwd) : null),
+    load: (id) => (id === RESOLVED_ID ? discoveryModule(cwd, configPath) : null),
     configureServer(server) {
       const workflowsDir = findWorkflowsDir(cwd);
       if (workflowsDir !== undefined) server.watcher.add(workflowsDir);
@@ -221,6 +257,68 @@ function discoveryPlugin(cwd: string): Plugin {
 }
 
 /* ------------------------------ Studio write-back ----------------------------- */
+
+/** `Sec-Fetch-Site` values no other site can produce: our own page, or a direct navigation. */
+const OWN_FETCH_SITES = new Set(['same-origin', 'none']);
+
+function headerValue(raw: string | string[] | undefined): string | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value === undefined || value === '' ? undefined : value;
+}
+
+/**
+ * Refuse any request another website could have caused, and say why.
+ *
+ * These endpoints rewrite files on the developer's disk, so a page they merely
+ * *visit* reaching one of them is a stranger editing their source — and every
+ * layer that looks like it covers this does not. Vite's CORS handling only
+ * decides who may read the response, which is decided long after the patch is
+ * written; its host check reads `Host`, and the browser sends our own.
+ *
+ * Three checks, each closing a different door:
+ *   - `Sec-Fetch-Site` is attached by the browser and cannot be set from
+ *     script, so anything but `same-origin` (our page) or `none` (the address
+ *     bar) is a request some other page caused — including `same-site`, which
+ *     covers another port on localhost.
+ *   - `Origin` covers clients that send no fetch metadata: present and not our
+ *     own host means cross-origin. Absent is allowed on purpose — a same-origin
+ *     GET and a terminal `curl` both have no Origin at all, and a cross-origin
+ *     browser request always has one.
+ *   - A JSON content type on writes: a cross-site form or `<img>` can only send
+ *     the CORS-safelisted types (text/plain, form-urlencoded, multipart), so
+ *     demanding application/json forces a preflight that the two checks above
+ *     then refuse. A backstop, never the gate on its own — a non-browser client
+ *     sets any header it likes.
+ */
+export function studioRequestRejection(
+  req: Pick<IncomingMessage, 'method' | 'headers'>
+): string | undefined {
+  const site = headerValue(req.headers['sec-fetch-site']);
+  if (site !== undefined && !OWN_FETCH_SITES.has(site)) {
+    return `refused: sec-fetch-site is '${site}', so another site caused this request`;
+  }
+  const origin = headerValue(req.headers.origin);
+  if (origin !== undefined) {
+    const host = headerValue(req.headers.host);
+    let originHost: string | undefined;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      /* Opaque origins ('null' from a sandboxed frame or file://) never match. */
+      originHost = undefined;
+    }
+    if (host === undefined || originHost?.toLowerCase() !== host.toLowerCase()) {
+      return `refused: cross-origin request from ${origin}`;
+    }
+  }
+  if (req.method === 'POST') {
+    const type = (headerValue(req.headers['content-type']) ?? '').split(';')[0].trim();
+    if (type.toLowerCase() !== 'application/json') {
+      return 'refused: expected content-type application/json';
+    }
+  }
+  return undefined;
+}
 
 function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolvePromise, reject) => {
@@ -244,17 +342,26 @@ function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
  * server/patch.ts); the response is JSON and the real feedback is the file
  * change itself — Vite HMR refreshes the preview the moment the patch lands.
  */
-function studioApiPlugin(cwd: string): Plugin {
+export function studioApiPlugin(cwd: string, configPath: string | undefined): Plugin {
   const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
     res.statusCode = status;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(body));
   };
 
+  /** Answer and stop, or let the handler run. Every endpoint below writes files. */
+  const refused = (req: IncomingMessage, res: ServerResponse): boolean => {
+    const rejection = studioRequestRejection(req);
+    if (rejection === undefined) return false;
+    sendJson(res, 403, { error: rejection });
+    return true;
+  };
+
   return {
     name: 'workflow-ui:studio-api',
     configureServer(server) {
       server.middlewares.use('/__studio/envelope', (req, res) => {
+        if (refused(req, res)) return;
         void (async () => {
           /* Every content registry, paired with the export name it must carry. */
           const registries: [path: string | undefined, exportName: string][] = [
@@ -328,6 +435,7 @@ function studioApiPlugin(cwd: string): Plugin {
        * position back into the original one, and only then is it safe to patch.
        */
       server.middlewares.use('/__studio/node', (req, res) => {
+        if (refused(req, res)) return;
         void (async () => {
           const positionFrom = (params: URLSearchParams) => ({
             file: params.get('file') ?? '',
@@ -411,12 +519,12 @@ function studioApiPlugin(cwd: string): Plugin {
       });
 
       server.middlewares.use('/__studio/addresses', (req, res) => {
+        if (refused(req, res)) return;
         void (async () => {
           if (req.method !== 'POST') {
             sendJson(res, 405, { error: 'POST only' });
             return;
           }
-          const configPath = findConfig(cwd);
           if (configPath === undefined) {
             sendJson(res, 404, { error: 'no workflow.config.ts to store addresses in' });
             return;
@@ -459,6 +567,55 @@ function studioApiPlugin(cwd: string): Plugin {
 
 type Located = { file: string; line: number; column: number } | { error: string };
 
+/** The two `node:path` functions containment needs, so the suite can hand in `path.win32`. */
+interface PathOps {
+  isAbsolute: (path: string) => boolean;
+  relative: (from: string, to: string) => string;
+}
+
+/**
+ * Is `candidate` `root` itself or something below it?
+ *
+ * Asked through `relative`, never a string prefix. A prefix test needs a
+ * trailing separator (or `/proj-evil` passes for `/proj`), and the separator it
+ * appends is the wrong one on Windows, where `resolve()` returns `C:\proj\…`:
+ * that mismatch failed every path on Windows, which is how the whole
+ * /__studio/node surface came to answer "outside the project" there.
+ */
+export function isInsideDir(
+  root: string,
+  candidate: string,
+  ops: PathOps = { isAbsolute, relative }
+): boolean {
+  const rel = ops.relative(root, candidate);
+  if (rel === '') return true;
+  /* An absolute answer means there is no way down from root — another drive. */
+  if (ops.isAbsolute(rel)) return false;
+  /* Segment-wise, so a file legitimately named '..rc' is not read as an escape. */
+  return rel.split(/[/\\]/)[0] !== '..';
+}
+
+/**
+ * Keep a path that arrived from the browser inside the project.
+ *
+ * The scope is `cwd` — the project the studio was started in — and not the
+ * workspace root `searchForWorkspaceRoot` walks up to: in a monorepo that root
+ * is the whole repo, so a studio started in `apps/marketing` accepted
+ * `file=../../packages/billing/src/rates.ts` and patched it.
+ */
+export function isInsideProject(cwd: string, candidate: string): boolean {
+  const root = resolve(cwd);
+  const path = resolve(candidate);
+  if (!isInsideDir(root, path)) return false;
+  /*
+   * Then again on the real paths: a symlink inside the project may point
+   * anywhere, and the check above only ever sees the link's own path. A path
+   * that does not exist has nothing to resolve — the caller reports that.
+   */
+  if (!existsSync(path)) return true;
+  return isInsideDir(realpathSync(root), realpathSync(path));
+}
+
 /**
  * Turn a served position into a position on disk.
  *
@@ -479,8 +636,7 @@ async function originalSourcePosition(
   if (path.startsWith(fsPrefix)) path = path.slice(fsPrefix.length);
   path = resolve(cwd, decodeURIComponent(path));
 
-  const root = searchForWorkspaceRoot(cwd);
-  if (!path.startsWith(`${root}/`)) return { error: 'source file is outside the project' };
+  if (!isInsideProject(cwd, path)) return { error: 'source file is outside the project' };
   if (!existsSync(path)) return { error: `no such source file: ${path}` };
 
   const transformed = await server.transformRequest(`${fsPrefix}${path}`);
@@ -511,8 +667,10 @@ export interface StartOptions {
 
 export async function startStudio(options: StartOptions = {}): Promise<ViteDevServer> {
   const cwd = options.cwd ?? process.cwd();
-  // Explicit --config must exist (findConfig throws); otherwise everything is optional
-  if (options.config !== undefined) findConfig(cwd, options.config);
+  // Explicit --config must exist (findConfig throws); otherwise everything is
+  // optional. The resolved path is what the plugins use — resolving again from
+  // cwd inside them is what made --config point at the file it does not name.
+  const configPath = findConfig(cwd, options.config);
   if (findWorkflowsDir(cwd) === undefined) {
     throw new Error(
       `workflow-ui: no workflows directory in ${cwd}.\n` +
@@ -525,7 +683,13 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
     root: appRoot,
     configFile: false,
     envFile: false,
-    plugins: [react(), svgr(), tailwindcss(), discoveryPlugin(cwd), studioApiPlugin(cwd)],
+    plugins: [
+      react(),
+      svgr(),
+      tailwindcss(),
+      discoveryPlugin(cwd, configPath),
+      studioApiPlugin(cwd, configPath),
+    ],
     server: {
       port: options.port ?? 4321,
       open: options.open ?? false,

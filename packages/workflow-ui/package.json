@@ -11,7 +11,7 @@
   },
   "files": [
     "dist",
-    "src/app"
+    "src"
   ],
   "type": "module",
   "exports": {
@@ -42,44 +42,44 @@
     "@react-email/render": "^2.1.0",
     "@shware/workflow": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "@tanstack/react-query": "^5.102.4",
-    "@tanstack/react-router": "^1.170.32",
-    "@vitejs/plugin-react": "^6.1.0",
-    "@xyflow/react": "^12.11.5",
+    "@tanstack/react-query": "^5.104.0",
+    "@tanstack/react-router": "^1.170.39",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@xyflow/react": "^12.12.0",
     "clsx": "^2.1.1",
-    "i18next": "^26.4.0",
+    "i18next": "^26.4.2",
     "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^1.34.0",
-    "react-hook-form": "^7.86.0",
-    "react-i18next": "^17.0.12",
+    "lucide-react": "^1.48.0",
+    "react-hook-form": "^7.89.0",
+    "react-i18next": "^17.0.15",
     "sonner": "^2.0.8",
-    "tailwind-merge": "^3.6.0",
+    "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
     "typescript-5": "npm:typescript@^5.9.3",
-    "vite": "^8.2.2",
+    "vite": "^8.3.1",
     "vite-plugin-svgr": "^5.2.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@repo/typescript-config": "workspace:*",
-    "@tanstack/react-devtools": "^0.10.12",
-    "@tanstack/react-query-devtools": "^5.102.4",
-    "@tanstack/react-router-devtools": "^1.167.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.6",
-    "@types/node": "^26.3.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@tanstack/react-devtools": "^0.10.13",
+    "@tanstack/react-query-devtools": "^5.104.0",
+    "@tanstack/react-router-devtools": "^1.167.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "country-flag-icons": "^1.6.20",
-    "jsdom": "^30.0.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "jsdom": "^30.1.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.2"
   },
   "peerDependencies": {
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   }
 }

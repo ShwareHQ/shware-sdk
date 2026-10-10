@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'react';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
-import { sendBeacon, track } from '../track/index';
+import { sendBeacon, sendPendingEvents, track } from '../track/index';
+import { getPageReferrer } from '../web/index';
 import { getPageKey } from '../web/page-key';
 import { usePrevious } from './use-previous';
 
@@ -12,7 +13,7 @@ function sendFirstVisit(pathname: string) {
   track('first_visit', {
     page_path: pathname,
     page_title: document.title,
-    page_referrer: document.referrer,
+    page_referrer: getPageReferrer(),
     page_location: window.location.href,
   });
   config.storage.setItem(keys.first_visit_time, new Date().toISOString());
@@ -40,14 +41,19 @@ function getScrollPercent() {
   return ((scrollTop + windowHeight) * 100) / docHeight;
 }
 
+// The queue goes first: a new session's `session_start` is in it, ahead of the engagement that
+// reports for that session. On `hidden` as well as on `pagehide`, as GA4 does: a mobile browser
+// often discards a hidden page without firing `pagehide`.
 function onPageHide() {
   getSession().pagehide();
+  sendPendingEvents();
   sendUserEngagement('pagehide');
 }
 
 function onVisibilityChange() {
   getSession().visibilitychange(document.visibilityState);
   if (document.visibilityState === 'hidden') {
+    sendPendingEvents();
     sendUserEngagement('visibilitychange');
   }
 }
@@ -123,7 +129,7 @@ export function useWebAnalytics(pathname: string, search: string) {
     track('page_view', {
       page_path: pathname,
       page_title: document.title,
-      page_referrer: document.referrer,
+      page_referrer: getPageReferrer(),
       page_location: window.location.href,
       previous_page_path: prevPage === undefined ? undefined : prevPathname,
       engagement_time_msec: prevPage === undefined ? undefined : getSession().flush(),

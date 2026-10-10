@@ -7,11 +7,12 @@ import {
   ServerEvent,
   UserData,
 } from 'facebook-nodejs-business-sdk';
-import { formatFbc } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
+import { metaFbc, metaFbp } from './click-ids';
+import { metaExtinfoVersion } from './meta-capi';
 import { pageLocation } from './page-location';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];
@@ -102,24 +103,13 @@ function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: numbe
   }
 
   // set tags info
-  if (tags.fbc) {
-    userData.setFbc(tags.fbc);
-  } else if (tags.fbclid) {
-    // ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc#2--format-clickid
-    // The formatted ClickID value must be of the form `version.subdomainIndex.creationTime.<fbclid>`, where:
-    // - version is always this prefix: fb
-    // - subdomainIndex is which domain the cookie is defined on ('com' = 0, 'example.com' = 1, 'www.example.com' = 2)
-    // - creationTime is the UNIX time since epoch in milliseconds when the _fbc was stored. If you don't save the _fbc cookie, use the timestamp when you first observed or received this fbclid value
-    // - <fbclid> is the value for the fbclid query parameter in the page URL.
-
-    // "the timestamp when you first observed or received this fbclid value" — the event's own
-    // time is the closest thing the server has to that, and it does not move when a queued or
-    // retried batch finally goes out.
-    userData.setFbc(formatFbc(tags.fbclid, eventTimeMs));
+  const fbc = metaFbc(tags, eventTimeMs);
+  if (fbc) {
+    userData.setFbc(fbc);
   }
-
-  if (tags.fbp) {
-    userData.setFbp(tags.fbp);
+  const fbp = metaFbp(tags);
+  if (fbp) {
+    userData.setFbp(fbp);
   }
   if (tags.advertising_id) {
     userData.setMadid(tags.advertising_id);
@@ -131,15 +121,9 @@ function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: numbe
   return userData;
 }
 
-function getAppData(tags: TrackTags, appPackageName: string) {
+function getAppData(tags: TrackTags, appPackageName: string, version: 'i2' | 'a2') {
   const extinfo = new ExtendedDeviceInfo();
-  if (tags.os_name) {
-    if (tags.os_name === 'iOS' || tags.os_name === 'iPadOS') {
-      extinfo.setExtInfoVersion('i2');
-    } else if (tags.os_name === 'Android') {
-      extinfo.setExtInfoVersion('a2');
-    }
-  }
+  extinfo.setExtInfoVersion(version);
   extinfo.setAppPackageName(appPackageName);
   const shortVersion = tags.release?.split('.').at(0);
   if (shortVersion) {
@@ -169,12 +153,8 @@ function getAppData(tags: TrackTags, appPackageName: string) {
 
   const appData = new AppData();
   appData.setExtinfo(extinfo);
-  if (tags.install_referrer) {
-    appData.setInstallReferrer(tags.install_referrer);
-  }
-  if (tags.advertising_id) {
-    appData.setAdvertiserTrackingEnabled(true);
-  }
+  // Required on every app event; see `meta-capi.ts`.
+  appData.setAdvertiserTrackingEnabled(!!tags.advertising_id);
   if (tags.install_referrer) {
     appData.setInstallReferrer(tags.install_referrer);
   }
@@ -253,15 +233,18 @@ export function getServerEvent(
     .setCustomData(customData);
 
   const source = resolveActionSource(event.platform, actionSource);
-  if (source === 'app' && appPackageName) {
-    const appData = getAppData(event.tags, appPackageName);
-    serverEvent.setAppData(appData);
+  // An app event that cannot carry the required `app_data` — no package name, or a desktop OS —
+  // is sent as `other`, as in `meta-capi.ts`.
+  const version = metaExtinfoVersion(event.tags);
+  const app = source === 'app' && appPackageName && version ? version : undefined;
+  if (app && appPackageName) {
+    serverEvent.setAppData(getAppData(event.tags, appPackageName, app));
   }
   const eventSourceUrl = pageLocation(event.tags);
   if (eventSourceUrl) {
     serverEvent.setEventSourceUrl(eventSourceUrl);
   }
-  switch (source) {
+  switch (app ? 'app' : source === 'app' ? undefined : source) {
     case 'app':
       serverEvent.setActionSource('app');
       break;
@@ -322,6 +305,9 @@ export async function sendEvent(
   }
 }
 
+/** An `event_time` over 7 days old fails the whole request; see `meta-capi.ts`. */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 export async function sendEvents(
   accessToken: string,
   pixelId: string,
@@ -333,8 +319,15 @@ export async function sendEvents(
 ) {
   const fbEvents = events
     .filter((event) => !IGNORED_EVENTS.includes(event.name))
+    .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getServerEvent(event, data, appPackageName, actionSource));
   if (fbEvents.length === 0) return undefined;
+  // "The client_user_agent is required for website events"; see `meta-capi.ts`.
+  if (!data.user_agent && fbEvents.some((event) => event.action_source === 'website')) {
+    console.warn(
+      'Meta conversion: website events sent without client_user_agent (data.user_agent)'
+    );
+  }
   const request = new EventRequest(accessToken, pixelId);
   request.setEvents(fbEvents);
   try {

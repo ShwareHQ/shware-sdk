@@ -14,6 +14,7 @@ export {
   normalizeEmail,
   type DataManagerEvent,
   type DataManagerResponse,
+  type GoogleAdsActionType,
   type GoogleAdsAuth,
   type GoogleAdsConsent,
   type GoogleAdsConversionConfig,

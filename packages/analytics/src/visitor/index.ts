@@ -1,107 +1,43 @@
-import { fetch } from '@shware/utils';
-import { keys } from '../constants/storage';
-import type { CreateVisitorDTO, UpdateVisitorDTO } from '../schema/index';
-import { cache, config } from '../setup/index';
-import type { Visitor, VisitorProperties } from './types';
+import type { UpdateVisitorDTO } from '../schema/index';
+import { config } from '../setup/index';
+import { track } from '../track/index';
 
-async function createVisitor(): Promise<Visitor> {
-  const tags = await config.getTags();
-  const dto: CreateVisitorDTO = {
-    device_id: await config.getDeviceId(),
-    platform: config.platform,
-    environment: config.environment,
-    tags,
-    properties: tags as VisitorProperties,
-  };
+export { visitorId } from './id';
 
-  const response = await fetch(`${config.endpoint}/visitors`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: await config.getHeaders(),
-    body: JSON.stringify(dto),
-  });
+/**
+ * The event that binds the visitor to the user who signed in on it: the server sets the visitor's
+ * `user_id` and `distinct_id` from its `user_id` property, in the transaction that stores the
+ * batch — which also creates the visitor when it is new, so the binding can never arrive before it.
+ */
+export const IDENTIFY_EVENT = 'identify';
 
-  if (!response.ok) {
-    throw new Error(`Failed to create visitor: ${response.status} ${await response.text()}`);
+/** The user this page has identified the visitor as: identify once per user, not per call. */
+let identified: string | undefined;
+
+/**
+ * Hands the signed-in user to the analytics: the third-party user setters (gtag, the pixels) now,
+ * and the server through an `identify` event, sent when the user differs from the one this page
+ * last identified — a host calls this on every page load once someone is signed in. Like any
+ * event it goes with the next batch or the page-hide beacon; `user_data` is handed to the setters
+ * only, never stored with the event.
+ *
+ * Synchronous and never throws: sign-in must not fail on analytics.
+ */
+export function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
+  if (dto.user_id && dto.user_id !== identified) {
+    identified = dto.user_id;
+    track(IDENTIFY_EVENT, { user_id: dto.user_id }, { enableThirdPartyTracking: false });
   }
-  const data = (await response.json()) as Visitor;
-  if (data.id) {
-    config.storage.setItem(keys.visitor_id, data.id);
-  }
-  return data;
-}
 
-async function getOrCreateVisitor(): Promise<Visitor> {
-  const visitorId = config.storage.getItem(keys.visitor_id);
-  if (visitorId && visitorId !== 'undefined') {
-    // PATCH, not GET: `tags` is the last-touch counterpart to `initial_tags`,
-    // and the only thing that ever refreshed it was `setVisitor`, which hosts
-    // call when they identify a user. A visitor who never signs in therefore
-    // kept the browser, screen, and release captured on their first ever page
-    // load — for the rest of their life — leaving `tags` permanently equal to
-    // `initial_tags` and the two columns pointless.
-    //
-    // Costs nothing extra: this replaces the request that was already here.
-    const tags = await config.getTags();
-    const response = await fetch(`${config.endpoint}/visitors/${visitorId}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: await config.getHeaders(),
-      body: JSON.stringify({ tags } satisfies UpdateVisitorDTO),
-    });
-
-    if (!response.ok) return createVisitor();
-    const data = (await response.json()) as Visitor;
-
-    if (data.id) {
-      config.storage.setItem(keys.visitor_id, data.id);
-    }
-    return data;
-  } else {
-    return createVisitor();
-  }
-}
-
-let visitorFetcher: Promise<Visitor> | null = null;
-
-export async function getVisitor(): Promise<Visitor> {
-  if (cache.visitor) return cache.visitor;
-  if (visitorFetcher) return visitorFetcher;
-  visitorFetcher = getOrCreateVisitor();
-  try {
-    cache.visitor = await visitorFetcher;
-    return cache.visitor;
-  } finally {
-    // In a `finally`, so a rejected attempt is not left in `visitorFetcher` for every later
-    // caller to await again: `sendEvents` needs a visitor for every batch, and one failed
-    // request would otherwise stop the page from reporting anything until it is reloaded.
-    visitorFetcher = null;
-  }
-}
-
-export async function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
-  const { id } = await getVisitor();
-  const tags = await config.getTags();
-  const body: UpdateVisitorDTO = { ...dto, tags };
-  const response = await fetch(`${config.endpoint}/visitors/${id}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: await config.getHeaders(),
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) throw new Error('Failed to set visitor');
-  const data = (await response.json()) as Visitor;
-
+  // Once bound, the server's person key for the visitor is the user's id, so the setters are told
+  // that rather than waiting for the server to say it.
+  const identity = { ...dto, distinct_id: dto.user_id ?? null };
   config.thirdPartyUserSetters.forEach((setter) => {
     try {
-      setter(body);
+      setter(identity);
     } catch (e: unknown) {
-      // The visitor was updated before this ran, so a third-party setter throwing must not skip
-      // the cache write below or reject a call that already succeeded.
+      // One third-party script does not get to stop the others.
       if (e instanceof Error) console.log(e.message);
     }
   });
-  cache.visitor = data;
-  return data;
 }

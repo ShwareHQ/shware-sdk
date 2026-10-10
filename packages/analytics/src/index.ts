@@ -1,6 +1,6 @@
 export { setupAnalytics } from './setup/index';
-export { track, trackAsync, sendBeacon } from './track/index';
-export { getVisitor, setVisitor } from './visitor/index';
+export { track, trackAsync, sendBeacon, sendPendingEvents } from './track/index';
+export { IDENTIFY_EVENT, setVisitor, visitorId } from './visitor/index';
 export { sendFeedback } from './feedback/index';
 export { createLink, getLink, type Link } from './link/index';
 export {
@@ -11,9 +11,13 @@ export {
   updateVisitorSchema,
   createFeedbackSchema,
   createLinkSchema,
+  type CreateTrackEventDTO,
+  type CreateVisitorDTO,
+  type UpdateVisitorDTO,
   type CreateFeedbackDTO,
   type CreateLinkDTO,
 } from './schema/index';
+export { BOT_CATEGORIES, NOT_A_BOT, botOf, type Bot, type BotCategory } from './bot/index';
 export { stripeMinorUnits } from './utils/stripe';
 export { useTrackImpression } from './hooks/use-track-impression';
 

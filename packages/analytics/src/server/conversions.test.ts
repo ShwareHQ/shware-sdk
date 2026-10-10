@@ -55,10 +55,75 @@ describe('OpenAI', () => {
     });
   });
 
+  it('passes the oppref of the landing URL, else the one the pixel kept', () => {
+    const oppref = (tags: TrackEvent['tags']) => openaiServerEvent(event({ tags }), {}).oppref;
+    expect(oppref({ oppref: 'opp-1', __oppref: 'opp-0' })).toBe('opp-1');
+    expect(oppref({ __oppref: 'opp-0' })).toBe('opp-0');
+    expect(oppref({})).toBeUndefined();
+  });
+
+  it('sends the pixel browser reference unhashed in user', () => {
+    const out = openaiServerEvent(event({ tags: { __obref: 'ob-1' } }), {});
+    expect(out.user?.obref).toBe('ob-1');
+  });
+
+  it('normalizes identifiers as the documentation examples do', () => {
+    const out = openaiServerEvent(event(), {
+      phone_number: '+1 (415) 555-2671',
+      address: [{ first_name: 'Mary Jane', last_name: "O'Connor" }, { first_name: 'José' }],
+    });
+    // The normalization table of https://developers.openai.com/ads/conversions-api; the phone
+    // digest is the one its user object example carries.
+    const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+    expect(out.user?.phone_numbers_sha256).toEqual([
+      '758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0',
+    ]);
+    expect(out.user?.first_names_sha256).toEqual([sha('maryjane'), sha('josé')]);
+    expect(out.user?.last_names_sha256).toEqual([sha('oconnor')]);
+  });
+
+  it('sends every email, address and the GAID as the plural fields', () => {
+    const out = openaiServerEvent(event({ platform: 'android', tags: { advertising_id: 'g-1' } }), {
+      email: [' Ada@Example.COM ', 'ada@example.com', 'b@example.com'],
+      phone_number: '12345',
+      user_id: ' u1 ',
+      address: {
+        city: ' San Francisco ',
+        region: 'California',
+        postal_code: '94107',
+        country: 'us',
+      },
+    });
+    const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+    expect(out.user).toEqual({
+      emails_sha256: [sha('ada@example.com'), sha('b@example.com')],
+      // too short to be a phone number with its country code
+      phone_numbers_sha256: undefined,
+      external_ids_sha256: [sha('u1')],
+      first_names_sha256: undefined,
+      last_names_sha256: undefined,
+      regions: ['California'],
+      postal_codes: ['94107'],
+      cities: ['San Francisco'],
+      countries: ['US'],
+      android_advertising_id: 'g-1',
+      obref: undefined,
+      ip_address: undefined,
+      user_agent: undefined,
+    });
+    const ios = openaiServerEvent(event({ platform: 'ios', tags: { advertising_id: 'idfa' } }), {});
+    expect(ios.user).toBeUndefined();
+  });
+
   it('derives the action source from the platform and lets an override win', () => {
     expect(openaiServerEvent(event({ platform: 'ios' }), {}).action_source).toBe('mobile_app');
     expect(openaiServerEvent(event({ platform: 'unknown' }), {}).action_source).toBeUndefined();
     expect(openaiServerEvent(event(), {}, 'offline').action_source).toBe('offline');
+  });
+
+  it('names a custom event as the API allows, as the pixel names it', () => {
+    const out = openaiServerEvent(event({ name: 'Sign Up.Clicked' as never, properties: {} }), {});
+    expect(out.custom_event_name).toBe('sign_up_clicked');
   });
 
   it('keeps the original name on a custom event so it deduplicates with the pixel', () => {
@@ -73,11 +138,20 @@ describe('Reddit', () => {
     expect(redditServerEvent(event(), {}).event_at).toBe(CREATED_MS);
   });
 
-  it('maps platform to action_source, with UNKNOWN as the fallback', () => {
+  it('maps platform to action_source, with OTHER as the fallback: UNKNOWN is not one', () => {
     expect(redditServerEvent(event(), {}).action_source).toBe('WEBSITE');
     expect(redditServerEvent(event({ platform: 'android' }), {}).action_source).toBe('APP');
-    expect(redditServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('UNKNOWN');
-    expect(redditServerEvent(event(), {}, 'offline').action_source).toBe('UNKNOWN');
+    expect(redditServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('OTHER');
+    expect(redditServerEvent(event(), {}, 'offline').action_source).toBe('OTHER');
+  });
+
+  it('sends the page of a website event as event_source_url, for the domain and the click id', () => {
+    const page = 'https://x.test/landing?rdt_cid=R1';
+    expect(redditServerEvent(event({ tags: { page_location: page } }), {}).event_source_url).toBe(
+      page
+    );
+    const app = event({ platform: 'ios', tags: { page_location: page } });
+    expect(redditServerEvent(app, {}).event_source_url).toBeUndefined();
   });
 
   it('routes the advertising id by platform', () => {
@@ -110,23 +184,67 @@ describe('Meta', () => {
     expect(out.user_data.fbc).toBe(`fb.1.${CREATED_MS}.CLICK123`);
   });
 
-  it('prefers a real _fbc cookie over synthesis', () => {
-    const out = metaServerEvent(event({ tags: { fbc: 'fb.1.111.REAL', fbclid: 'IGNORED' } }), {});
-    expect(out.user_data.fbc).toBe('fb.1.111.REAL');
+  it('keeps the _fbc cookie opened by the same click, for its creationTime', () => {
+    const cookie = 'fb.1.1768046000000.CLICK123';
+    const out = metaServerEvent(event({ tags: { _fbc: cookie, fbclid: 'CLICK123' } }), {});
+    expect(out.user_data.fbc).toBe(cookie);
+  });
+
+  it("keeps a same-click _fbc carrying Meta's appendix", () => {
+    const cookie = 'fb.1.1768046000000.CLICK123.AQAAAAAA';
+    const out = metaServerEvent(event({ tags: { _fbc: cookie, fbclid: 'CLICK123' } }), {});
+    expect(out.user_data.fbc).toBe(cookie);
+  });
+
+  it("lets this page's fbclid win over the cookie of an earlier click", () => {
+    const tags = { _fbc: 'fb.1.1767000000000.OLD', fbclid: 'NEW' };
+    expect(metaServerEvent(event({ tags }), {}).user_data.fbc).toBe(`fb.1.${CREATED_MS}.NEW`);
+  });
+
+  it('falls back to the cookies on a page without a click id', () => {
+    const tags = { _fbc: 'fb.1.1767000000000.OLD', _fbp: 'fb.1.1767000000000.42' };
+    const out = metaServerEvent(event({ tags }), {});
+    expect(out.user_data.fbc).toBe('fb.1.1767000000000.OLD');
+    expect(out.user_data.fbp).toBe('fb.1.1767000000000.42');
+  });
+
+  it('still reads fbc / fbp from clients older than 9.0.0', () => {
+    const tags = { fbc: 'fb.1.1767000000000.OLD', fbp: 'fb.1.1767000000000.42' };
+    const out = metaServerEvent(event({ tags }), {});
+    expect(out.user_data.fbc).toBe('fb.1.1767000000000.OLD');
+    expect(out.user_data.fbp).toBe('fb.1.1767000000000.42');
   });
 
   it('always sends an action_source, falling back to other', () => {
+    const ios = { platform: 'ios' as const, tags: { os_name: 'iOS' } };
     expect(metaServerEvent(event(), {}).action_source).toBe('website');
-    expect(metaServerEvent(event({ platform: 'ios' }), {}).action_source).toBe('app');
+    expect(metaServerEvent(event(ios), {}, 'com.example.app').action_source).toBe('app');
     expect(metaServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('other');
     expect(metaServerEvent(event(), {}, undefined, 'offline').action_source).toBe('other');
   });
 
-  it('attaches app data only for an app event with a package name', () => {
-    const web = metaServerEvent(event(), {}, 'com.example.app');
-    expect(web.app_data).toBeUndefined();
-    const app = metaServerEvent(event({ platform: 'ios' }), {}, 'com.example.app');
-    expect(app.app_data).toBeDefined();
+  it('sends an app event only with the app_data Meta requires of one, else as other', () => {
+    const ios = { platform: 'ios' as const, tags: { os_name: 'iOS' } };
+    expect(metaServerEvent(event(), {}, 'com.example.app').app_data).toBeUndefined();
+    const app = metaServerEvent(event(ios), {}, 'com.example.app').normalize();
+    expect(app.app_data).toMatchObject({ advertiser_tracking_enabled: false });
+    expect(app.app_data.extinfo).toMatchObject({ 0: 'i2', 1: 'com.example.app' });
+    // No package name, or a desktop OS Meta has no extinfo version for: not an app event.
+    expect(metaServerEvent(event(ios), {}).action_source).toBe('other');
+    const mac = { platform: 'macos' as const, tags: { os_name: 'macOS' } };
+    expect(metaServerEvent(event(mac), {}, 'com.example.app')).toMatchObject({
+      action_source: 'other',
+      app_data: undefined,
+    });
+  });
+
+  it('says whether the user allowed tracking: an advertising id is only readable then', () => {
+    const tags = { os_name: 'Android', advertising_id: 'gaid-1' };
+    const out = metaServerEvent(event({ platform: 'android', tags }), {}, 'com.example.app');
+    expect(out.normalize().app_data).toMatchObject({
+      advertiser_tracking_enabled: true,
+      extinfo: { 0: 'a2' },
+    });
   });
 
   it('dedupes on the idempotency key when present', () => {
@@ -277,6 +395,34 @@ describe('LinkedIn', () => {
       conversionHappenedAt: CREATED_MS,
       conversionValue: { currencyCode: 'USD', amount: '42' },
     });
+  });
+
+  it('adds the IPv4 address and the Android advertising id to the user ids', async () => {
+    await sendLinkedinEvents(
+      'token',
+      { purchase: 123 },
+      [
+        event({ platform: 'android', tags: { advertising_id: 'gaid-1' } }),
+        event({ id: 'event-2' }),
+      ],
+      { ip_address: '203.0.113.7' }
+    );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.elements[0].user.userIds).toEqual([
+      { idType: 'GOOGLE_AID', idValue: 'gaid-1' },
+      { idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' },
+    ]);
+    expect(body.elements[1].user.userIds).toEqual([
+      { idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' },
+    ]);
+
+    fetchMock.mockClear();
+    await sendLinkedinEvents('token', { purchase: 123 }, [event()], {
+      ip_address: '2001:db8::1', // IPv6 is not taken
+      user_id: 'u1',
+    });
+    const v6 = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(v6.elements[0].user.userIds).toEqual([]);
   });
 
   it('puts the first-party click id first among the user ids', async () => {

@@ -1,78 +1,85 @@
 -- CLS (Bar chart)
 select 
-  count(distinct e.properties ->> 'id') as total,
-  e.properties ->> 'rating' as rating
+  count(distinct e.properties ->> 'metric_id') as total,
+  e.properties ->> 'metric_rating' as rating
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'CLS'
+  -- Crawlers render in data centres, not on anyone's device.
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by rating
 limit 10;
 
 -- FCP (Bar chart)
 select 
-  count(distinct e.properties ->> 'id') as total,
-  e.properties ->> 'rating' as rating
+  count(distinct e.properties ->> 'metric_id') as total,
+  e.properties ->> 'metric_rating' as rating
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'FCP'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by rating
 limit 10;
 
 -- LCP (Bar chart)
 select 
-  count(distinct e.properties ->> 'id') as total,
-  e.properties ->> 'rating' as rating
+  count(distinct e.properties ->> 'metric_id') as total,
+  e.properties ->> 'metric_rating' as rating
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'LCP'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by rating
 limit 10;
 
 -- TTFB (Bar chart)
 select 
-  count(distinct e.properties ->> 'id') as total,
-  e.properties ->> 'rating' as rating
+  count(distinct e.properties ->> 'metric_id') as total,
+  e.properties ->> 'metric_rating' as rating
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'TTFB'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by rating
 limit 10;
 
 -- FID (Bar chart)
 select 
-  count(distinct e.properties ->> 'id') as total,
-  e.properties ->> 'rating' as rating
+  count(distinct e.properties ->> 'metric_id') as total,
+  e.properties ->> 'metric_rating' as rating
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'FID'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by rating
 limit 10;
 
 -- INP (Bar chart)
 select 
-  count(distinct e.properties ->> 'id') as total,
-  e.properties ->> 'rating' as rating
+  count(distinct e.properties ->> 'metric_id') as total,
+  e.properties ->> 'metric_rating' as rating
 from application.event e
 where
   e.created_at between $__timeFrom() and $__timeTo()
   and e.environment = '$environment'
   and e.platform in (${platform:sqlstring})
   and e.name = 'INP'
+  and not exists (select 1 from application.visitor b where b.id = e.visitor_id and b.is_bot)
 group by rating
 limit 10;
 

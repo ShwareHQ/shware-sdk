@@ -1,5 +1,13 @@
 # @shware/purchase
 
+## 5.1.1
+
+### Patch Changes
+
+- 0d439e3: Upgrade dependencies and peer dependencies to their latest versions.
+- Updated dependencies [0d439e3]
+  - @shware/utils@1.6.2
+
 ## 5.1.0
 
 ### Minor Changes

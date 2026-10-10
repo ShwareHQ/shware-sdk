@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.6.2
+
+### Patch Changes
+
+- 0d439e3: Upgrade dependencies and peer dependencies to their latest versions.
+
 ## 1.6.1
 
 ### Patch Changes

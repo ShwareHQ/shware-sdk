@@ -76,6 +76,7 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     window.history.replaceState(null, '', '/landing?fbclid=CLK99');
     const { resolveClickIdCookies } = await import('../click-id/index');
     const resolved = resolveClickIdCookies({
+      domain: null,
       url: window.location.href,
       cookieHeader: document.cookie || null,
     });
@@ -99,7 +100,7 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     const purchase = eventsBody().find((e) => e.name === 'purchase');
     if (!purchase) throw new Error('purchase never reached the wire');
     const tags = purchase.tags as Record<string, unknown>;
-    expect(tags.fbc).toBe(resolved.fbc);
+    expect(tags._fbc).toBe(resolved.fbc);
     expect(tags.fbclid).toBe('CLK99');
     expect(tags.page_location).toContain('/landing?fbclid=CLK99');
 

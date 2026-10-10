@@ -1,4 +1,4 @@
-import { fullHash, stripMeta } from './hash';
+import { fullHash, stripMeta, stripProvenance } from './hash';
 import type { BundleIR, NodeIR, SegmentIR, WorkflowIR } from './ir';
 
 /**
@@ -142,7 +142,17 @@ function diffFields(local: WorkflowIR, deployed: WorkflowIR): WorkflowChange['fi
 
 function statusOf(local: { contentHash: string }, deployed: { contentHash: string }): ChangeStatus {
   if (local.contentHash !== deployed.contentHash) return 'changed';
-  return fullHash(local) === fullHash(deployed) ? 'unchanged' : 'metadata_only';
+  /*
+   * Provenance is deliberately not part of the comparison: a recorded loc is a
+   * source map, and its path depends on the machine and the directory the
+   * compile ran from ('packages/workflow/src/wf.ts' from the workspace root,
+   * 'src/wf.ts' from the package). Comparing it turned every CI run into a
+   * wall of metadata_only against a locally compiled deploy. Descriptions,
+   * labels and reasons still count — those are edits somebody made.
+   */
+  return fullHash(stripProvenance(local)) === fullHash(stripProvenance(deployed))
+    ? 'unchanged'
+    : 'metadata_only';
 }
 
 function diffWorkflows(

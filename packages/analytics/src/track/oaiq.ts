@@ -64,6 +64,8 @@ export type EventData = ContentsData | CustomerActionData | PlanEnrollmentData |
  * https://developers.openai.com/ads/supported-events
  */
 export type StandardEvents = {
+  app_installed: CustomerActionData;
+  app_opened: CustomerActionData;
   appointment_scheduled: CustomerActionData;
   checkout_started: ContentsData;
   contents_viewed: ContentsData;
@@ -79,20 +81,83 @@ export type StandardEvents = {
 export type StandardEvent = keyof StandardEvents;
 
 /**
- * Identity fields passed to `oaiq("init", ...)` for conversion matching. Email and external id
- * must be pre-hashed as lowercase 64-char SHA-256 hex strings; the rest are sent as raw values.
- * https://developers.openai.com/ads/measurement-pixel
+ * The app events, which OpenAI takes "through the Conversions API only", with `action_source`
+ * `mobile_app`: the pixel never sends them, and the server only for an app's events.
+ * https://developers.openai.com/ads/supported-events
+ */
+export const APP_EVENTS: readonly StandardEvent[] = ['app_installed', 'app_opened'];
+
+const STANDARD_EVENTS: readonly string[] = [
+  'app_installed',
+  'app_opened',
+  'appointment_scheduled',
+  'checkout_started',
+  'contents_viewed',
+  'items_added',
+  'lead_created',
+  'order_created',
+  'page_viewed',
+  'registration_completed',
+  'subscription_created',
+  'trial_started',
+] satisfies StandardEvent[];
+
+/**
+ * A track name as an OpenAI `custom_event_name`: 1–64 letters, digits, underscores or hyphens,
+ * starting and ending with a letter or digit, not a standard event name; the API lowercases it.
+ * Anything else becomes an underscore, so `Sign Up.Clicked` is `sign_up_clicked`. Undefined when
+ * nothing usable is left — the event is then not sent at all. The pixel and the server both name
+ * a custom event through this, so the two still deduplicate.
+ * https://developers.openai.com/ads/supported-events
+ */
+export function oaiCustomEventName(name: string): string | undefined {
+  const sanitized = name
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .slice(0, 64)
+    .replace(/^[_-]+|[_-]+$/g, '');
+  if (!sanitized || STANDARD_EVENTS.includes(sanitized)) return undefined;
+  return sanitized;
+}
+
+/**
+ * Identity fields passed to `oaiq("init", ...)` for conversion matching. Identifiers are
+ * normalized, then sent as lowercase 64-char SHA-256 hex strings; geographic values are raw.
+ * https://developers.openai.com/ads/measurement-pixel#send-user-data
  */
 export type OAIQUser = {
   email_sha256?: string;
+  /** 8–15 digits with the country code, no leading `+` or zeroes (`normalizeOAIPhone`). */
+  phone_number_sha256?: string;
   external_id_sha256?: string;
+  /** Lowercase, without whitespace or ASCII punctuation (`normalizeOAIName`). */
+  first_name_sha256?: string;
+  last_name_sha256?: string;
   /** Two-letter ISO 3166-1 country code (e.g. "US"). */
   country?: string;
-  /** Lowercased, max 128 characters. */
+  /** Max 128 characters; OpenAI trims and lowercases it. */
   city?: string;
-  /** Max 32 characters. */
-  zip_code?: string;
+  /** State, province or region, max 128 characters. */
+  region?: string;
+  postal_code?: string;
 };
+
+/**
+ * A phone number as OpenAI hashes it: whitespace, parentheses, periods and hyphens removed, then
+ * the leading `+` and zeroes; 8–15 digits with the country code, else not a usable number.
+ */
+export function normalizeOAIPhone(phone: string): string | undefined {
+  const digits = phone
+    .replace(/[\s().-]/g, '')
+    .replace(/^\+/, '')
+    .replace(/^0+/, '');
+  return /^\d{8,15}$/.test(digits) ? digits : undefined;
+}
+
+/** A name as OpenAI hashes it: lowercase, no whitespace or ASCII punctuation, accents kept. */
+export function normalizeOAIName(name: string | undefined): string | undefined {
+  return name?.toLowerCase().replace(/[\s!-/:-@[-`{-~]/g, '') || undefined;
+}
 
 export type InitConfig = {
   pixelId: string;
@@ -157,10 +222,15 @@ const ZERO_DECIMAL_CURRENCIES = new Set([
 ]);
 const THREE_DECIMAL_CURRENCIES = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 
-/** Convert a major-unit amount (e.g., 129.99) into ISO 4217 minor units (e.g., 12,999). */
+/**
+ * Convert a major-unit amount (e.g., 129.99) into ISO 4217 minor units (e.g., 12,999). None
+ * without a currency: the minor unit depends on it, and OpenAI requires a `currency` with every
+ * `amount` — an amount alone would be invalid, not just imprecise.
+ */
 export function toMinorUnits(value?: number | null, currency?: string): number | undefined {
   if (value === undefined || value === null || Number.isNaN(value)) return undefined;
   const code = currency?.toUpperCase();
+  if (!code) return undefined;
   const exponent =
     code && ZERO_DECIMAL_CURRENCIES.has(code)
       ? 0
@@ -173,14 +243,17 @@ export function toMinorUnits(value?: number | null, currency?: string): number |
 export function mapContents(items?: Item[], currency?: string): ContentItem[] | undefined {
   if (!items || items.length === 0) return undefined;
   const code = currency?.toUpperCase();
-  return items.map((item) => ({
-    id: item.item_id,
-    name: item.item_name,
-    content_type: item.item_category,
-    quantity: item.quantity,
-    amount: toMinorUnits(item.price, currency),
-    currency: item.price !== undefined ? code : undefined,
-  }));
+  return items.map((item) => {
+    const amount = toMinorUnits(item.price, currency);
+    return {
+      id: item.item_id,
+      name: item.item_name,
+      content_type: item.item_category,
+      quantity: item.quantity,
+      amount,
+      currency: amount !== undefined ? code : undefined,
+    };
+  });
 }
 
 /** Safely read a property off loosely typed track properties without widening to `any`. */
@@ -247,6 +320,11 @@ export function mapOAIEvent<T extends EventName>(
   properties?: TrackProperties<T>
 ): MappedOAIEvent {
   switch (name) {
+    // The app's first launch, recorded once by the app hook: the closest thing to an install.
+    case 'first_open':
+      return { type: 'app_installed', data: customerActionData(properties) };
+    case 'app_open':
+      return { type: 'app_opened', data: customerActionData(properties) };
     case 'page_view':
       return { type: 'page_viewed', data: contentsData(properties) };
     case 'view_item':

@@ -20,13 +20,20 @@ import { sha256Hex } from '../hash';
 /** Runtime context handed to the handler; deliberately small — facts and messaging have their own nodes. */
 export interface ActionContext {
   userId: string;
+  /**
+   * `${instanceId}:${nodeId}` — stable across replays and retries of this one
+   * action node. A handler with an external side effect (charging, issuing,
+   * POSTing) must pass it along so the far side collapses the duplicate: the
+   * step body can re-run after the handler already resolved.
+   */
+  idempotencyKey: string;
 }
 
 /**
  * The handler: plain code, executed inside a durable step (`step.do`), so a
  * throw is retried by the runtime and a success is checkpointed — it should be
- * idempotent under retry. Args arrive with user_property references already
- * resolved to values.
+ * idempotent under retry, which is what `ctx.idempotencyKey` is for. Args
+ * arrive with user_property references already resolved to values.
  */
 export type ActionHandler<A extends object> = (args: A, ctx: ActionContext) => Promise<void> | void;
 

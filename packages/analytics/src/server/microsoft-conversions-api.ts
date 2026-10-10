@@ -21,6 +21,7 @@ import { formatMsclkid } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
+import { microsoftMsclkid } from './click-ids';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://capi.uet.microsoft.com/v1';
@@ -173,9 +174,10 @@ function getUserData(
   const { tags, platform, visitor_id } = event;
   const email = Array.isArray(data.email) ? data.email[0] : data.email;
   const phone = Array.isArray(data.phone_number) ? data.phone_number[0] : data.phone_number;
+  const msclkid = microsoftMsclkid(tags);
 
   return {
-    msclkid: tags.msclkid ? formatMsclkid(tags.msclkid) : undefined,
+    msclkid: msclkid ? formatMsclkid(msclkid) : undefined,
     em: hashEmail(email),
     ph: hashPhone(phone),
     // Microsoft requires this to equal the `VID` of the client-side ID Sync pixel; both sides use
@@ -255,6 +257,9 @@ function compact<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** `eventTime` must be "within the last 7 days"; a minute's margin for the trip. */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 /**
  * Send events to `POST /v1/{tagId}/events`. Batches above the API's 1,000-event limit are split
  * into consecutive requests; one response is returned per request made. Never throws: an HTTP
@@ -274,6 +279,7 @@ export async function sendEvents(
     .filter(
       (event) => (pageLoads && event.name === 'page_view') || !IGNORED_EVENTS.includes(event.name)
     )
+    .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getServerEvent(event, data, { consent, pageLoads }))
     // A pageLoad without a URL is rejected by the API, and a page-less event has nothing to say.
     .filter((event) => event.eventType !== 'pageLoad' || event.eventSourceUrl);

@@ -16,6 +16,10 @@ from
 where 
   name in ('view_promotion', 'select_promotion')
   and created_at between $__timeFrom() and $__timeTo()
+  and environment = '$environment'
+  and platform in (${platform:sqlstring})
+  -- Bots load landing pages and count as impressions (ad review crawlers follow every ad).
+  and not exists (select 1 from application.visitor b where b.id = event.visitor_id and b.is_bot)
 group by
   properties ->> 'promotion_id'
 order by
@@ -38,6 +42,8 @@ with prepared_events as (
   where
     name in ('select_promotion', 'begin_checkout')
     and created_at between $__timeFrom() and $__timeTo()
+    and environment = '$environment'
+    and platform in (${platform:sqlstring})
 )
 select
   last_promotion_id as promotion_id,
@@ -69,6 +75,8 @@ with prepared_events as (
   where
     name in ('select_promotion', 'purchase')
     and created_at between $__timeFrom() and $__timeTo()
+    and environment = '$environment'
+    and platform in (${platform:sqlstring})
 )
 select
   last_promotion_id as promotion_id,

@@ -61,6 +61,11 @@ Nothing in the adapter creates these tables at runtime, so this step is not
 optional. The same file lives at `src/cloudflare/schema.sql` in this repo and is
 the single source for both.
 
+There are no migrations, and re-applying the file is not one: every statement is
+`CREATE TABLE IF NOT EXISTS`, so an existing database keeps its old tables and
+the first insert needing a new column fails. Recreate it instead. The demo has
+`pnpm db:reset`.
+
 ## HTTP surface
 
 `handleRequest` serves four endpoints.

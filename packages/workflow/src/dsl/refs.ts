@@ -72,15 +72,26 @@ export type MessageArgs<P> =
 /* ------------------------------ payload references ----------------------------- */
 
 /**
- * Event-payload reference: what a `where` callback's parameter hands out.
- * `path` is dotted for nested fields ('tags.utm_source'). Predicates accept it
- * alongside UserPropertyRef and compile to a `payload` condition — which is
- * only valid inside `performed({ where })` / the event trigger's `where`
- * (compileBundle enforces the placement).
+ * Where a payload ref keeps its own state. A payload ref doubles as the table
+ * of its sub-fields, so every *string* key it answered for itself shadowed an
+ * author's field of that name: with a payload field called `path`,
+ * `performed(e.page_view, (p) => eq(p.path, '/pricing'))` type-checked, handed
+ * `prop()` the ref's own prefix instead of a sub-ref, and compiled to a
+ * *profile* predicate on a property named 'path' — a mistake that only
+ * surfaced later, as a zod error nowhere near the line that caused it. A symbol
+ * key cannot be reached by `p.<field>`, so no field name can collide with it.
+ */
+export const PAYLOAD_PATH: unique symbol = Symbol('workflow.payloadPath');
+
+/**
+ * Event-payload reference: what a `where` callback's parameter hands out. The
+ * path it carries is dotted for nested fields ('tags.utm_source'). Predicates
+ * accept it alongside UserPropertyRef and compile to a `payload` condition —
+ * which is only valid inside `performed({ where })` / the event trigger's
+ * `where` (compileBundle enforces the placement).
  */
 export interface PayloadRef<T> {
-  readonly type: 'payload_ref';
-  readonly path: string;
+  readonly [PAYLOAD_PATH]: string;
   readonly __t?: T;
 }
 
@@ -97,18 +108,18 @@ export type PayloadRefs<P> = [P] extends [object]
   : Record<string, PayloadRef<unknown>>;
 
 /**
- * Nested Proxy: property access extends the dotted path; `type`/`path` read as
- * plain values so predicates can unwrap any depth uniformly.
+ * Nested Proxy: every string key extends the dotted path, so an author's field
+ * may be named anything — including `path` or `type`. The ref's own path reads
+ * off PAYLOAD_PATH, the one key a field name cannot spell.
  * @internal used by performed() and trigger.event() to hand `p` to a where callback
  */
 export function payloadRefs<P>(prefix = ''): PayloadRefs<P> {
   return new Proxy({} as PayloadRefs<P>, {
     get: (_target, prop) => {
-      if (prop === 'type') return 'payload_ref';
-      if (prop === 'path') return prefix;
-      if (prop === '__t' || typeof prop === 'symbol') return undefined;
-      const path = prefix === '' ? prop : `${prefix}.${prop}`;
-      return payloadRefs(path);
+      if (prop === PAYLOAD_PATH) return prefix;
+      // Other symbols are the runtime's own probes (inspection, iteration, thenable checks), never fields
+      if (typeof prop === 'symbol') return undefined;
+      return payloadRefs(prefix === '' ? prop : `${prefix}.${prop}`);
     },
   });
 }

@@ -105,14 +105,15 @@ class Session {
   };
 
   /**
-   * The id for an event that must not start a session — the `pagehide` beacon, which reports what
-   * the session now ending accrued. A live session is extended, as any event extends it; one
-   * already past its timeout still owns that engagement, so its id comes back without being
-   * revived into a session no `session_start` ever announced.
+   * The id for an event that must not start a session — the engagement beacon, which reports what
+   * the session accrued. A live session is extended, as any event extends it; one already past its
+   * timeout still owns that engagement, so its id comes back without being revived into a session
+   * no `session_start` ever announced. With nothing stored, no event was ever queued here, so
+   * there is no session to report for, and none is started: it would never be announced.
    */
-  extend = (): string => {
+  extend = (): string | undefined => {
     const stored = readSession();
-    if (!stored) return this.touch(Date.now()).id;
+    if (!stored) return undefined;
 
     const now = Date.now();
     if (now - stored.lastEventTime <= SESSION_TIMEOUT) {

@@ -27,6 +27,7 @@ import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
+import { googleClickIds } from './click-ids';
 
 const ENDPOINT = 'https://datamanager.googleapis.com/v1/events:ingest';
 
@@ -55,19 +56,33 @@ export interface GoogleAdsConsent {
   adPersonalization?: 'CONSENT_GRANTED' | 'CONSENT_DENIED' | 'CONSENT_STATUS_UNSPECIFIED';
 }
 
+/**
+ * The kind of conversion action the events go to, which decides `eventSource`:
+ * - `webpage` (default): the action the gtag tag reports to, as in the hybrid deployment this
+ *   module is built for. Its `eventSource` is optional and, when set, "must be WEB" — any other
+ *   value fails the request, and the request with it. Web events say `WEB`, others say nothing.
+ * - `offline`: an action created for uploads (`UPLOAD_CLICKS`), where `eventSource` is required
+ *   and any value goes: `WEB`, `APP` or `OTHER` from the event's platform.
+ * https://developers.google.com/data-manager/api/devguides/events/google-ads/online/send-events
+ */
+export type GoogleAdsActionType = 'webpage' | 'offline';
+
 export interface GoogleAdsConversionsOptions {
   /** Validates the payload server-side without recording conversions. */
   validateOnly?: boolean;
   consent?: GoogleAdsConsent;
+  /** The kind of conversion action `config` points at; `webpage` by default. */
+  actionType?: GoogleAdsActionType;
 }
 
 /**
  * Google's email normalization is Meta's minus one wrinkle: for @gmail.com/@googlemail.com the
  * username's dots and everything from '+' on are removed; for every other domain they are kept.
- * https://developers.google.com/data-manager/api/devguides/format-data
+ * All whitespace goes — "leading, trailing and intermediate".
+ * https://developers.google.com/data-manager/api/devguides/concepts/formatting
  */
 export function normalizeEmail(input: string): string {
-  const email = input.trim().toLowerCase();
+  const email = input.replace(/\s+/g, '').toLowerCase();
   const at = email.lastIndexOf('@');
   if (at === -1) return email;
   let username = email.slice(0, at);
@@ -114,7 +129,8 @@ export interface DataManagerEvent {
   transactionId: string;
   /** RFC 3339 — `created_at` as stored, unlike the legacy API's bespoke format. */
   eventTimestamp: string;
-  eventSource: 'WEB' | 'APP' | 'OTHER';
+  /** Absent for a non-web event sent to a `webpage` action, which accepts `WEB` only. */
+  eventSource?: 'WEB' | 'APP' | 'OTHER';
   conversionValue: number;
   currency: string;
   adIdentifiers?: { gclid?: string; gbraid?: string; wbraid?: string };
@@ -123,8 +139,10 @@ export interface DataManagerEvent {
 
 /**
  * Builds one Event, or undefined when no conversion action is configured for the event's name.
- * At most one click identifier is sent, gclid first: it is the deterministic per-click id,
- * where gbraid/wbraid are the aggregate iOS ones, and Google documents preferring it. Unlike
+ * The gclid goes with the gbraid when there are both — "we recommend setting both the GCLID and
+ * GBRAID" — and otherwise one click id: gclid, else gbraid, else wbraid (nothing documents a
+ * wbraid next to a gclid). https://developers.google.com/google-ads/api/docs/conversions/upload-clicks
+ * Unlike
  * the legacy upload, an event with no click id at all is still worth sending when it carries
  * user identifiers — that is the enhanced-conversions match path.
  */
@@ -132,7 +150,8 @@ export function getDataManagerEvent(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   event: TrackEvent<any>,
   config: GoogleAdsConversionConfig,
-  data: UserProvidedData = {}
+  data: UserProvidedData = {},
+  actionType: GoogleAdsActionType = 'webpage'
 ): DataManagerEvent | undefined {
   const action = config[event.name as Lowercase<string>];
   if (!action) return undefined;
@@ -151,7 +170,14 @@ export function getDataManagerEvent(
         ? event.properties.transaction_id
         : event.id,
     eventTimestamp: new Date(event.created_at).toISOString(),
-    eventSource: source === 'app' ? 'APP' : source === 'web' ? 'WEB' : 'OTHER',
+    eventSource:
+      source === 'web'
+        ? 'WEB'
+        : actionType === 'webpage'
+          ? undefined
+          : source === 'app'
+            ? 'APP'
+            : 'OTHER',
     // Both mandatory, like the LinkedIn sender's defaults: 0 USD is Google's own convention
     // for value-less goals. The API has no partial-failure mode, so a malformed currency would
     // cost the whole batch — anything that isn't a 3-letter code falls back instead.
@@ -159,8 +185,8 @@ export function getDataManagerEvent(
     currency: normalizeCurrency(event.properties?.currency),
   };
 
-  const { gclid, gbraid, wbraid } = event.tags;
-  if (gclid) dmEvent.adIdentifiers = { gclid };
+  const { gclid, gbraid, wbraid } = googleClickIds(event.tags);
+  if (gclid) dmEvent.adIdentifiers = gbraid ? { gclid, gbraid } : { gclid };
   else if (gbraid) dmEvent.adIdentifiers = { gbraid };
   else if (wbraid) dmEvent.adIdentifiers = { wbraid };
 
@@ -197,7 +223,7 @@ export async function sendEvents(
 ): Promise<DataManagerResponse | undefined> {
   const dmEvents = events
     .filter((event) => !IGNORED_EVENTS.includes(event.name))
-    .map((event) => getDataManagerEvent(event, config, data))
+    .map((event) => getDataManagerEvent(event, config, data, options.actionType))
     .filter((dmEvent): dmEvent is DataManagerEvent => dmEvent !== undefined);
   if (dmEvents.length === 0) return undefined;
 

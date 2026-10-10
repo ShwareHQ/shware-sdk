@@ -113,6 +113,7 @@ export const tagsSchema = object({
       transform((v) => v as `${number}x${number}`)
     )
   ),
+  webdriver: optional(boolean()),
   release: optional(string()),
   language: optional(string()),
   time_zone: optional(string()),
@@ -130,9 +131,8 @@ export const tagsSchema = object({
   // app info
   advertising_id: optional(string()),
   install_referrer: optional(string()),
+  // Ad click ids (URL parameters) and ad platform cookies (underscore names); see AdvertisingInfo.
   // Meta Ads
-  fbc: optional(string()),
-  fbp: optional(string()),
   fbclid: optional(string()),
   ad_id: optional(string()),
   ad_name: optional(string()),
@@ -141,26 +141,50 @@ export const tagsSchema = object({
   campaign_id: optional(string()),
   campaign_name: optional(string()),
   placement: optional(string()),
-  site_source_name: optional(string()),
+  _fbc: optional(string()),
+  _fbp: optional(string()),
+  /**
+   * @deprecated `fbc` / `fbp` / `rdt_uuid` were renamed to `_fbc` / `_fbp` / `_rdt_uuid` in 9.0.0.
+   * Accepted so that conversions from clients still on an older SDK keep their match keys; the
+   * senders read them only as a fallback (`server/click-ids.ts`). Remove once those clients are
+   * gone.
+   */
+  fbc: optional(string()),
+  fbp: optional(string()),
+  rdt_uuid: optional(string()),
   // Google Ads
   gclid: optional(string()),
   gclsrc: optional(string()),
   gad_source: optional(string()),
   gad_campaignid: optional(string()),
-  // Reddit ads
-  rdt_cid: optional(string()),
-  rdt_uuid: optional(string()),
-  // click ids
-  dclid: optional(string()),
-  ko_click_id: optional(string()),
-  li_fat_id: optional(string()),
-  msclkid: optional(string()),
-  sccid: optional(string()),
-  ttclid: optional(string()),
-  twclid: optional(string()),
+  network: optional(string()),
+  match_type: optional(string()),
   wbraid: optional(string()),
   gbraid: optional(string()),
+  dclid: optional(string()),
+  _gcl_aw: optional(string()),
+  _gcl_gb: optional(string()),
+  // Microsoft Ads
+  msclkid: optional(string()),
+  _uetmsclkid: optional(string()),
+  // Reddit Ads
+  rdt_cid: optional(string()),
+  _rdt_cid: optional(string()),
+  _rdt_uuid: optional(string()),
+  // LinkedIn Ads
+  li_fat_id: optional(string()),
+  _li_fat_id: optional(string()),
+  // OpenAI Ads
+  oppref: optional(string()),
+  __oppref: optional(string()),
+  __obref: optional(string()),
+  // other click ids
+  ko_click_id: optional(string()),
+  ScCid: optional(string()),
+  ttclid: optional(string()),
+  twclid: optional(string()),
   yclid: optional(string()),
+  epik: optional(string()),
   // utm params
   utm_source: optional(string()),
   utm_medium: optional(string()),
@@ -180,33 +204,61 @@ export const propertiesSchema = optional(
   )
 );
 
-/** Visitor properties differ from event properties only in taking no nested item lists. */
-const visitorPropertiesSchema = optional(
-  pipe(
-    record(string(), union([propertyText, number(), boolean(), _null()])),
-    transform(takeProperties)
-  )
+/**
+ * How far an event's time may be from the server's before the client clock it was stamped with is
+ * taken as wrong. A batch legitimately arrives late — a tab frozen in the background, a
+ * session_start held back after a failed batch — by hours, not days; a phone set to another year
+ * writes its sessions into that year.
+ */
+const MAX_CLOCK_SKEW = 24 * 60 * 60 * 1000;
+
+/**
+ * Puts the events stamped by a wrong client clock onto the server's, where they are parsed. Only
+ * the events outside `MAX_CLOCK_SKEW` move, so one bad event cannot drag the rest of its batch
+ * along: they move together by their own latest one — the wrong clock at sending — keeping their
+ * order and spacing, and one still out after that (a batch mixing two wrong clocks) is on no clock
+ * at all and takes the server's time. Corrected rather than rejected, for the same reason values
+ * are truncated: a wrong clock should cost the event its time, not the batch its events.
+ */
+function alignClock<T extends { timestamp: string }>(events: T[], now = Date.now()): T[] {
+  const within = (time: number) => Math.abs(now - time) <= MAX_CLOCK_SKEW;
+  const times = events.map((event) => Date.parse(event.timestamp));
+  const wrong = times.filter((time) => !within(time));
+  if (wrong.length === 0) return events;
+  const offset = now - Math.max(...wrong);
+  return events.map((event, i) => {
+    if (within(times[i])) return event;
+    const shifted = times[i] + offset;
+    return { ...event, timestamp: new Date(within(shifted) ? shifted : now).toISOString() };
+  });
+}
+
+export const createTrackEventSchema = pipe(
+  array(
+    object({
+      name: string().check(trim(), minLength(1), maxLength(64)),
+      visitor_id: uuid(),
+      session_id: uuid(),
+      platform: _enum(ALL_PLATFORMS),
+      environment: _enum(ALL_ENVIRONMENTS),
+      timestamp: iso.datetime(),
+      tags: tagsSchema,
+      properties: propertiesSchema,
+    })
+  ).check(minLength(1), maxLength(100)),
+  transform((events) => alignClock(events))
 );
 
-export const createTrackEventSchema = array(
-  object({
-    name: string().check(trim(), minLength(1), maxLength(64)),
-    visitor_id: uuid(),
-    session_id: uuid(),
-    platform: _enum(ALL_PLATFORMS),
-    environment: _enum(ALL_ENVIRONMENTS),
-    timestamp: iso.datetime(),
-    tags: tagsSchema,
-    properties: propertiesSchema,
-  })
-).check(minLength(1), maxLength(100));
-
+/**
+ * `POST /visitors`, what clients before 11.0 create their visitor with; 11.0 generates the id
+ * itself and the server creates the visitor from its first events (README, "Visitors").
+ * Kept for servers that still serve older clients.
+ */
 export const createVisitorSchema = object({
   device_id: string().check(trim(), minLength(1), maxLength(36)),
   platform: _enum(ALL_PLATFORMS),
   environment: _enum(ALL_ENVIRONMENTS),
   tags: tagsSchema,
-  properties: visitorPropertiesSchema,
 });
 
 const emailValue = pipe(string().check(trim(), toLowerCase(), maxLength(320)), email());
@@ -245,9 +297,12 @@ export const userProvidedDataSchema = object({
 export const updateVisitorSchema = object({
   user_id: optional(uuid()),
   user_data: optional(userProvidedDataSchema),
-  distinct_id: optional(string().check(trim(), minLength(1), maxLength(36))),
-  tags: tagsSchema,
-  properties: visitorPropertiesSchema,
+  /**
+   * Sent by clients before 11.1, which PATCHed their tags on every page load. From 11.1 the
+   * server refreshes `visitor.tags` from each `session_start` — the moment the visit arrives —
+   * and `setVisitor` sends none: at sign-in the page is no longer where the visit came in.
+   */
+  tags: optional(tagsSchema),
 });
 
 export const createFeedbackSchema = object({

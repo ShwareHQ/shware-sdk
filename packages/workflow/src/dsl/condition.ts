@@ -3,6 +3,7 @@ import { captureLoc } from '../provenance';
 import { type Duration, durationIR } from './base';
 import {
   type EventRef,
+  PAYLOAD_PATH,
   type PayloadRef,
   type PayloadRefs,
   type UserPropertyRef,
@@ -64,6 +65,15 @@ type Scalar = string | number | boolean;
  */
 type CondRef<T> = UserPropertyRef<T> | PayloadRef<T>;
 
+/**
+ * A payload ref identifies itself by a symbol key, and a user-property ref by
+ * the absence of one. Nothing here reads a *string* key off the reference: a
+ * payload ref hands out sub-refs for every string key, so a field named `type`
+ * or `path` would otherwise answer in place of the ref itself.
+ */
+const payloadPathOf = (ref: CondRef<unknown>): string | undefined =>
+  (ref as Partial<PayloadRef<unknown>>)[PAYLOAD_PATH];
+
 function prop(
   ref: CondRef<unknown>,
   op:
@@ -85,10 +95,11 @@ function prop(
   values?: readonly Scalar[],
   loc?: SourceLocIR
 ): Condition {
+  const payloadPath = payloadPathOf(ref);
   return cond(
     {
-      type: ref.type === 'payload_ref' ? 'payload' : 'property',
-      path: ref.path,
+      type: payloadPath !== undefined ? 'payload' : 'property',
+      path: payloadPath ?? (ref as UserPropertyRef<unknown>).path,
       op,
       ...(value !== undefined ? { value } : {}),
       ...(values !== undefined ? { values: [...values] } : {}),

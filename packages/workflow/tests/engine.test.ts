@@ -11,6 +11,7 @@ import {
   evaluateCondition,
   fillSubject,
   matchesWhere,
+  relevantEvents,
   runJourney,
 } from '../src/engine/index';
 import { nextWindowStart } from '../src/engine/time-window';
@@ -322,7 +323,31 @@ describe('RegistryActionInvoker', () => {
       },
     ]);
     await invoker.invoke({ ...base, action: 'sync_crm', codeHash: 'h1', args: { plan: 'pro' } });
-    expect(calls).toEqual([[{ plan: 'pro' }, { userId: 'u_1' }]]);
+    expect(calls).toEqual([[{ plan: 'pro' }, { userId: 'u_1', idempotencyKey: 'inst_1:0' }]]);
+  });
+
+  test('the handler sees one idempotency key across a replayed step, so it can de-duplicate', async () => {
+    // The registry holds no state of its own: only the handler can collapse
+    // the second call a replayed step body makes, and only if it is given the key.
+    const seen: string[] = [];
+    const delivered = new Set<string>();
+    const invoker = new RegistryActionInvoker([
+      {
+        name: 'grant_coupon',
+        codeHash: 'h1',
+        handler: async (_args, ctx) => {
+          seen.push(ctx.idempotencyKey);
+          delivered.add(ctx.idempotencyKey);
+        },
+      },
+    ]);
+    const invocation = { ...base, action: 'grant_coupon', codeHash: 'h1' };
+
+    await invoker.invoke(invocation);
+    await invoker.invoke(invocation); // the replay
+
+    expect(seen).toEqual(['inst_1:0', 'inst_1:0']);
+    expect(delivered.size).toBe(1);
   });
 
   test('an unregistered action fails the step', async () => {
@@ -670,6 +695,45 @@ describe('nextWindowStart: time windows honor end times and timezones', () => {
   });
 });
 
+describe('nextWindowStart: daylight-saving transitions', () => {
+  /*
+   * America/New_York springs forward on Sunday 2026-03-08: 02:00 EST becomes
+   * 03:00 EDT, so that local day is 23 hours long and 02:00–02:59 never
+   * happens. UTC and Asia/Shanghai cannot exercise either edge.
+   */
+  const NY = 'America/New_York';
+
+  test('the scan visits a 23-hour local day instead of stepping over it', () => {
+    // Saturday 2026-03-07 23:30 EST, waiting for Sunday's window
+    const eve = Date.UTC(2026, 2, 8, 4, 30);
+
+    const next = nextWindowStart(eve, ['sun'], ['09:00', '17:00'], NY);
+
+    // Sunday 2026-03-08 09:00 EDT — stepping the absolute clock by 24h landed
+    // on Monday and held the send for the following Sunday instead
+    expect(next).toBe(Date.UTC(2026, 2, 8, 13, 0));
+  });
+
+  test('a start inside the spring-forward gap opens at the first instant that exists', () => {
+    // Sunday 2026-03-08 00:45 EST; 02:30 local is skipped by the transition
+    const beforeGap = Date.UTC(2026, 2, 8, 5, 45);
+
+    const next = nextWindowStart(beforeGap, ['sun'], ['02:30', '17:00'], NY);
+
+    // 03:00 EDT, not 01:30 EST: a window may open late, never before its start
+    expect(next).toBe(Date.UTC(2026, 2, 8, 7, 0));
+  });
+
+  test('a start repeated by the fall-back opens at its first occurrence', () => {
+    // Sunday 2026-11-01 00:30 EDT; 01:30 local happens twice that morning
+    const beforeFallBack = Date.UTC(2026, 10, 1, 4, 30);
+
+    const next = nextWindowStart(beforeFallBack, ['sun'], ['01:30', '03:00'], NY);
+
+    expect(next).toBe(Date.UTC(2026, 10, 1, 5, 30)); // 01:30 EDT, the earlier one
+  });
+});
+
 describe('murmur3 bucketing', () => {
   /*
    * Known-answer vectors for MurmurHash3 x86 32-bit, seed 0 — shared across
@@ -806,5 +870,75 @@ describe('evaluateCondition: comparison operators', () => {
     await expect(evalWith(cond, { docs_count: 9 })).resolves.toBe(false);
     await expect(evalWith(cond, { docs_count: 10 })).resolves.toBe(true);
     await expect(evalWith(cond, {})).resolves.toBe(true);
+  });
+});
+
+describe('segment cycles in hand-built IR', () => {
+  /*
+   * `segment(...)` is an eager constructor, so a cycle cannot be written in the
+   * DSL — but IR is read back from KV and segment definitions from D1, where a
+   * self-reference is just a row. Unbounded recursion is the worst failure
+   * shape available here: it blows the stack inside a durable step, the step
+   * throws, Workflows retries it, and the instance is wedged for good — after
+   * one D1 round trip per level of recursion.
+   */
+  const definitions: Record<string, ConditionIR> = {
+    loops: { type: 'segment', segment: 'loops' },
+    ping: {
+      type: 'and',
+      conditions: [
+        { type: 'performed', event: 'login' },
+        { type: 'segment', segment: 'pong' },
+      ],
+    },
+    pong: { type: 'segment', segment: 'ping' },
+    active: { type: 'performed', event: 'login' },
+  };
+
+  /** Records every definition read, so "bounded" can be asserted and not just assumed. */
+  function trackingFacts() {
+    const lookups: string[] = [];
+    const facts: FactSource = {
+      countEvents: async () => 1,
+      getProperty: async () => undefined,
+      getSegmentCondition: async (name) => {
+        lookups.push(name);
+        return definitions[name];
+      },
+    };
+    return { facts, lookups };
+  }
+
+  const ref = (segment: string): ConditionIR => ({ type: 'segment', segment });
+
+  test('a self-referencing segment reports the cycle instead of exhausting the stack', async () => {
+    const { facts, lookups } = trackingFacts();
+
+    await expect(evaluateCondition(ref('loops'), facts, 0)).rejects.toThrow(
+      "segment 'loops' references itself: loops -> loops"
+    );
+    expect(lookups).toEqual(['loops']); // one read, not one per level of recursion
+  });
+
+  test('a cycle closed through a second segment is caught on the same path', async () => {
+    const { facts } = trackingFacts();
+
+    await expect(evaluateCondition(ref('ping'), facts, 0)).rejects.toThrow(
+      "segment 'ping' references itself: ping -> pong -> ping"
+    );
+  });
+
+  test('the same segment reached down two branches is a diamond, not a cycle', async () => {
+    const { facts } = trackingFacts();
+    const diamond: ConditionIR = { type: 'and', conditions: [ref('active'), ref('active')] };
+
+    await expect(evaluateCondition(diamond, facts, 0)).resolves.toBe(true);
+  });
+
+  test('relevantEvents expands each segment once, so a cycle terminates', async () => {
+    const { facts, lookups } = trackingFacts();
+
+    await expect(relevantEvents(ref('ping'), facts)).resolves.toEqual(['login']);
+    expect(lookups).toEqual(['ping', 'pong']);
   });
 });

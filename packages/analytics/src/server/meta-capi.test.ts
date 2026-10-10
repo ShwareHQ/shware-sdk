@@ -13,7 +13,8 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getCapiEvent, sendEvents } from './meta-capi';
 import { getServerEvent } from './meta-conversions-api';
 
-const CREATED_AT = '2026-01-10T12:00:00.000Z';
+// A minute ago: the senders leave out events older than their API accepts.
+const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any
@@ -363,8 +364,11 @@ describe('differential fuzz: seeded random inputs through both builders', () => 
         },
         tags: {
           fbclid: maybe(`CLK${i}`),
-          fbc: maybe('fb.1.1700000000000.COOKIE'),
-          fbp: maybe('fb.1.1700000000000.987654'),
+          _fbc: maybe(`fb.1.1700000000000.${pick(['COOKIE', `CLK${i}`])}`),
+          _fbp: maybe('fb.1.1700000000000.987654'),
+          // clients older than 9.0.0
+          fbc: maybe('fb.1.1700000000000.LEGACY'),
+          fbp: maybe('fb.1.1700000000000.123456'),
           advertising_id: maybe('IDFA-1'),
           ip_address: maybe('198.51.100.7'),
           page_location: maybe('https://shop.example/p'),

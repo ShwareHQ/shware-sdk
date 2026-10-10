@@ -35,7 +35,7 @@ type RunInput = {
 };
 
 async function run(
-  options: Parameters<typeof createClickIdMiddleware>[0],
+  options: Partial<Parameters<typeof createClickIdMiddleware>[0]>,
   {
     url = 'https://shware.io/?fbclid=CLK1',
     cookieHeader,
@@ -43,7 +43,7 @@ async function run(
     response = new Response('<html></html>', { status: 200 }),
   }: RunInput = {}
 ) {
-  createClickIdMiddleware(options);
+  createClickIdMiddleware({ domain: null, ...options });
   const server = captured.server;
   if (!server) throw new Error('middleware never registered its server fn');
 
@@ -113,6 +113,29 @@ describe('clickIdMiddleware', () => {
 
     const fresh = await run({ domain: '.shware.io' });
     expect(fresh.headers.get('set-cookie')).toContain('Domain=.shware.io');
+  });
+
+  it('keeps a private response cacheable as it was: no shared cache can store it anyway', async () => {
+    const response = await run(
+      {},
+      {
+        response: new Response('/* gtag */', {
+          headers: { 'cache-control': 'private, max-age=900' },
+        }),
+      }
+    );
+    expect(response.headers.get('set-cookie')).toContain('_fbc=');
+    expect(response.headers.get('cache-control')).toBe('private, max-age=900');
+  });
+
+  it('still makes a shared-cacheable response uncacheable', async () => {
+    for (const value of ['public, max-age=60', 'max-age=60, s-maxage=600']) {
+      const response = await run(
+        {},
+        { response: new Response('x', { headers: { 'cache-control': value } }) }
+      );
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+    }
   });
 
   it('cacheControl: false skips the cache-control override', async () => {

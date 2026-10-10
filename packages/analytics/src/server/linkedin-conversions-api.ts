@@ -3,10 +3,12 @@
  * https://learn.microsoft.com/en-us/linkedin/marketing/conversions/conversions-overview?view=li-lms-2026-09
  */
 import { createHash } from 'node:crypto';
+import { isIPv4 } from 'node:net';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
+import { linkedinFatId } from './click-ids';
 
 /**
  * The identifier types LinkedIn matches on, as of version 202609. `ORACLE_MOAT_ID` used to be
@@ -101,6 +103,12 @@ const hashName = (name: string) => sha256(name.toLowerCase().replace(/[\s\p{P}]/
 
 export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
 
+/**
+ * `conversionHappenedAt` must be "within the past 90 days", and one invalid record makes "all
+ * records fail"; such an event is left out, with a minute's margin for the trip.
+ */
+const MAX_EVENT_AGE_MS = 90 * 24 * 60 * 60 * 1000 - 60 * 1000;
+
 export async function sendEvents(
   accessToken: string,
   config: LinkedinConversionConfig,
@@ -126,9 +134,28 @@ export async function sendEvents(
     if (email) userIds.push({ idType: 'SHA256_EMAIL', idValue: hashEmail(email) });
   }
 
+  // LinkedIn takes the IP as is (it salts and hashes it itself), IPv4 only.
+  // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api
+  if (data.ip_address && isIPv4(data.ip_address)) {
+    userIds.push({ idType: 'PLAINTEXT_IP_ADDRESS', idValue: data.ip_address });
+  }
+
+  // The identifiers each event carries itself: the click id, and the Android advertising id.
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+  const eventIds = (event: TrackEvent<any>): { idType: UserIdType; idValue: string }[] => {
+    const ids: { idType: UserIdType; idValue: string }[] = [];
+    const fatId = linkedinFatId(event.tags);
+    if (fatId) ids.push({ idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID', idValue: fatId });
+    if (event.platform === 'android' && event.tags.advertising_id) {
+      ids.push({ idType: 'GOOGLE_AID', idValue: event.tags.advertising_id });
+    }
+    return ids;
+  };
+
   const dto: CreateMultipleLinkedinEventsDTO = {
     elements: events
       .filter((event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name))
+      .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
       .map((event): CreateLinkedinEventDTO => ({
         eventId: event.id,
         conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,
@@ -138,15 +165,7 @@ export async function sendEvents(
           amount: event.properties?.value?.toString() ?? '0',
         },
         user: {
-          userIds: event.tags.li_fat_id
-            ? [
-                {
-                  idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID',
-                  idValue: event.tags.li_fat_id,
-                },
-                ...userIds,
-              ]
-            : userIds,
+          userIds: [...eventIds(event), ...userIds],
           userInfo,
           externalIds,
         },

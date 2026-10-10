@@ -12,9 +12,15 @@ select
     ) as activation_rate_pct,
   count(distinct v.id) as total_visitors
 from application.visitor v
-left join application.event e on v.id = e.visitor_id
+-- Only the events counted, from the window: a visitor's events all come after it was created.
+left join (
+  select visitor_id, name from application.event
+  where name in ('image_task_completed') and environment = '$environment' and created_at >= $__timeFrom()
+) e on e.visitor_id = v.id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.tags ->> 'environment' = '$environment'
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
+  and v.is_bot = false
 group by 1
 order by activation_rate_pct desc limit 10;
 
@@ -32,9 +38,15 @@ select
   ) as registration_rate_pct,
   count(distinct v.id) as total_visitors
 from application.visitor v
-left join application.event e on v.id = e.visitor_id
+-- Only the events counted, from the window: a visitor's events all come after it was created.
+left join (
+  select visitor_id, name from application.event
+  where name in ('login') and environment = '$environment' and created_at >= $__timeFrom()
+) e on e.visitor_id = v.id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.tags ->> 'environment' = '$environment'
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
+  and v.is_bot = false
 group by 1
 order by registration_rate_pct desc limit 10;
 
@@ -55,8 +67,14 @@ select
   ) as purchase_rate_pct,
   count(distinct case when e.name = 'login' then v.id end) as total_login_visitors
 from application.visitor v
-left join application.event e on v.id = e.visitor_id
+-- Only the events counted, from the window: a visitor's events all come after it was created.
+left join (
+  select visitor_id, name from application.event
+  where name in ('purchase', 'login') and environment = '$environment' and created_at >= $__timeFrom()
+) e on e.visitor_id = v.id
 where v.created_at between $__timeFrom() and $__timeTo()
-  and v.tags ->> 'environment' = '$environment'
+  and v.environment = '$environment'
+  and v.platform in (${platform:sqlstring})
+  and v.is_bot = false
 group by 1
 order by purchase_rate_pct desc limit 10;

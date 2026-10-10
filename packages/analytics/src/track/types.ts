@@ -107,6 +107,8 @@ export interface DeviceInfo {
   screen_width?: number;
   screen_height?: number;
   screen_resolution?: `${number}x${number}`;
+  /** Web only, and only when true: `navigator.webdriver`, set by a browser under automation. */
+  webdriver?: boolean;
 }
 
 export interface AppInfo {
@@ -148,15 +150,19 @@ export interface PageInfo {
   source_url?: string;
 }
 
+/**
+ * Ad click ids and the ad platforms' first-party cookies, each under the name of where it was
+ * read: a URL parameter keeps the parameter's own name (`fbclid`, `gclid`, `ScCid` — jsonb keys
+ * are case-sensitive, so in SQL that is `tags->>'ScCid'`), a cookie keeps the cookie's name and
+ * so starts with an underscore (`_fbc`, `_gcl_aw`, `__oppref`). One source per key, never a
+ * fallback from one to the other, so a value always says where it came from.
+ *
+ * The URL parameters are this page's click and name the visit's channel (`CLICK_ID_CHANNELS`);
+ * the cookies outlive the click and only ever feed the conversion senders, which take the URL
+ * parameter first and the cookie when the page carries none (`server/click-ids`).
+ */
 export interface AdvertisingInfo {
-  /**
-   * Meta pixel fields
-   * ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters#fbc
-   * Stored in the _fbc/_fbp browser cookie under your domain
-   * ref: https://www.facebook.com/business/help/2360940870872492?checkpoint_src=any
-   */
-  fbc?: string;
-  fbp?: string;
+  // Meta Ads. `ad_id` … `placement` come from the ad's URL parameters template.
   fbclid?: string;
   ad_id?: string;
   ad_name?: string;
@@ -165,27 +171,76 @@ export interface AdvertisingInfo {
   campaign_id?: string;
   campaign_name?: string;
   placement?: string;
-  site_source_name?: string;
-  /** Google Analytics fields */
+  /**
+   * Meta click id cookie, `fb.<subdomainIndex>.<creationTime>.<fbclid>`, set server-side by
+   * `resolveClickIdCookies`.
+   * ref: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/fbp-and-fbc
+   */
+  _fbc?: string;
+  /** Meta browser id cookie, `fb.<subdomainIndex>.<creationTime>.<random>`, set by the pixel. */
+  _fbp?: string;
+  /** @deprecated Renamed to `_fbc` in 9.0.0; still read from clients on an older version. */
+  fbc?: string;
+  /** @deprecated Renamed to `_fbp` in 9.0.0; still read from clients on an older version. */
+  fbp?: string;
+  // Google Ads
   gclid?: string;
   gclsrc?: string;
   gad_source?: string;
   gad_campaignid?: string;
-  /** Reddit Ads fields */
+  /**
+   * Where the click was served, from the final URL suffix `network={network}` (Google Ads: `g`
+   * Google search, `s` search partners, `d` Display, `ytv` YouTube, `vp` video partners, `gtv`
+   * Google TV, `x` Performance Max, `e` App campaigns for engagement) or `network={Network}`
+   * (Microsoft Advertising: `o` owned and operated, `s` syndicated, `a` audience). Per click, where
+   * the campaign only has a type.
+   */
+  network?: string;
+  /**
+   * How the keyword matched the search, from `match_type={matchtype}` (Google Ads: `e` exact, `p`
+   * phrase, `b` broad, `a` AI Max without a keyword) or `match_type={MatchType}` (Microsoft
+   * Advertising: `e`, `p`, `b`).
+   */
+  match_type?: string;
+  wbraid?: string; // web-to-app (iOS, post-ATT)
+  gbraid?: string; // app-to-web (iOS, post-ATT)
+  dclid?: string; // Display & Video 360
+  /** gtag's click cookie, `GCL.<seconds>.<gclid>`; see `parseGcl`. */
+  _gcl_aw?: string;
+  /** gtag's web-to-app click cookie, `GCL.<seconds>.<wbraid>`; see `parseGcl`. */
+  _gcl_gb?: string;
+  // Microsoft Ads
+  msclkid?: string;
+  /** The UET tag's click cookie, `_uet<msclkid>`; see `parseUetMsclkid`. */
+  _uetmsclkid?: string;
+  // Reddit Ads
   rdt_cid?: string;
+  /** Reddit click id cookie, set server-side by `resolveClickIdCookies`. */
+  _rdt_cid?: string;
+  /** The Reddit pixel's browser id cookie, `<timestamp>.<uuid>`. */
+  _rdt_uuid?: string;
+  /** @deprecated Renamed to `_rdt_uuid` in 9.0.0; still read from clients on an older version. */
   rdt_uuid?: string;
-  /** LinkedIn Ads fields: get click id from url params or first-party cookie */
+  // LinkedIn Ads
   li_fat_id?: string;
-  // click ids
-  dclid?: string; // Google Display Network
+  /**
+   * The Insight Tag's click cookie. The cookie itself is named `li_fat_id`, like the URL
+   * parameter; the underscore is ours, to keep the two apart.
+   */
+  _li_fat_id?: string;
+  // OpenAI (ChatGPT) Ads
+  oppref?: string;
+  /** The pixel's copy of the last `oppref`, kept 30 days. */
+  __oppref?: string;
+  /** The pixel's browser reference, a random id kept 365 days. */
+  __obref?: string;
+  // Other ad platforms
   ko_click_id?: string; // Kakao Ads
-  msclkid?: string; // Microsoft Ads (Bing Ads)
-  sccid?: string; // Snapchat Ads
+  ScCid?: string; // Snapchat Ads, spelled as Snapchat appends it
   ttclid?: string; // TikTok Ads
   twclid?: string; // Twitter Ads (X Ads)
-  wbraid?: string; // Google Ads web-to-app (iOS, post-ATT)
-  gbraid?: string; // Google Ads app-to-web (iOS, post-ATT)
   yclid?: string; // Yandex Ads
+  epik?: string; // Pinterest Ads
 }
 
 /**

@@ -47,17 +47,18 @@ describe('sendPosthogEvent', () => {
 });
 
 describe('setPosthogUser', () => {
-  it('identifies by distinct_id first, falling back to user_id', () => {
+  it("identifies as the server's distinct_id once a user is known, falling back to user_id", () => {
     setPosthogUser({ distinct_id: 'd1', user_id: 'u1', user_data: { email: 'a@b.co' }, tags: {} });
     expect(identify).toHaveBeenCalledWith('d1', { email: 'a@b.co' });
 
-    setPosthogUser({ user_id: 'u1', tags: {} });
+    // A server from before distinct_id answers null.
+    setPosthogUser({ distinct_id: null, user_id: 'u1', tags: {} });
     expect(identify).toHaveBeenLastCalledWith('u1', { email: undefined });
   });
 
-  it('does nothing without an identity to set', () => {
+  it('does not identify an anonymous visitor, even though it has a distinct_id', () => {
     identify.mockClear();
-    setPosthogUser({ tags: {} });
+    setPosthogUser({ distinct_id: 'v1', tags: {} });
     expect(identify).not.toHaveBeenCalled();
   });
 });

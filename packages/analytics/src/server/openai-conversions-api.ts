@@ -6,10 +6,18 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { type EventData, NON_AD_EVENTS, mapOAIEvent } from '../track/oaiq';
+import {
+  APP_EVENTS,
+  type EventData,
+  NON_AD_EVENTS,
+  mapOAIEvent,
+  normalizeOAIName,
+  normalizeOAIPhone,
+  oaiCustomEventName,
+} from '../track/oaiq';
 import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
-import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
+import { openaiOppref } from './click-ids';
 import { pageLocation } from './page-location';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
@@ -24,16 +32,27 @@ type ActionSource =
   | 'other';
 
 /**
- * User/identity fields. Email and external id must be sent as lowercase 64-char SHA-256 hex
- * strings; geographic, IP, and user-agent fields are sent as raw values.
+ * Conversion-matching fields, all optional. Identifiers are normalized, then sent as lowercase
+ * 64-char SHA-256 hex strings; geographic values are raw. Of each list the API uses the first
+ * three valid, unique values.
+ * ref: https://developers.openai.com/ads/conversions-api#send-user-data
  */
 export interface OpenAIUser {
-  email_sha256?: string;
-  external_id_sha256?: string;
-  /** Two-letter ISO 3166-1 country code (e.g. "US"). */
-  country?: string;
-  city?: string;
-  zip_code?: string;
+  /** The pixel's `__obref` cookie, unhashed; ties the server event to the pixel's browser. */
+  obref?: string;
+  emails_sha256?: string[];
+  /** 8–15 digits with the country code, no leading `+` or zeroes. */
+  phone_numbers_sha256?: string[];
+  external_ids_sha256?: string[];
+  first_names_sha256?: string[];
+  last_names_sha256?: string[];
+  regions?: string[];
+  postal_codes?: string[];
+  cities?: string[];
+  /** Two-letter ISO 3166-1 country codes (e.g. "US"). */
+  countries?: string[];
+  /** Android GAID only; IDFA is not supported. */
+  android_advertising_id?: string;
   ip_address?: string;
   user_agent?: string;
 }
@@ -84,16 +103,38 @@ function mapActionSource(
   }
 }
 
-function getUser(data: UserProvidedData): OpenAIUser | undefined {
-  const email = getFirst(data.email)?.trim().toLowerCase();
-  const address = getFirst(data.address);
+function list<T>(field: T | T[] | undefined): T[] {
+  if (!field) return [];
+  return Array.isArray(field) ? field : [field];
+}
+
+/** The distinct non-empty values, or undefined when there are none. */
+function values(items: (string | undefined)[]): string[] | undefined {
+  const result = [...new Set(items.filter((item): item is string => !!item))];
+  return result.length > 0 ? result : undefined;
+}
+
+function getUser(
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+  event: TrackEvent<any>,
+  data: UserProvidedData
+): OpenAIUser | undefined {
+  const hashed = (items: (string | undefined)[]) => values(items)?.map(sha256);
+  const addresses = list(data.address);
 
   const user: OpenAIUser = {
-    email_sha256: email ? sha256(email) : undefined,
-    external_id_sha256: data.user_id ? sha256(data.user_id) : undefined,
-    country: address?.country?.trim().toUpperCase(),
-    city: address?.city?.trim().toLowerCase(),
-    zip_code: address?.postal_code,
+    obref: event.tags.__obref,
+    emails_sha256: hashed(list(data.email).map((email) => email.trim().toLowerCase())),
+    phone_numbers_sha256: hashed(list(data.phone_number).map(normalizeOAIPhone)),
+    external_ids_sha256: hashed([data.user_id?.trim()]),
+    first_names_sha256: hashed(addresses.map((a) => normalizeOAIName(a.first_name))),
+    last_names_sha256: hashed(addresses.map((a) => normalizeOAIName(a.last_name))),
+    regions: values(addresses.map((a) => a.region?.trim())),
+    postal_codes: values(addresses.map((a) => a.postal_code?.trim())),
+    cities: values(addresses.map((a) => a.city?.trim())),
+    countries: values(addresses.map((a) => a.country?.trim().toUpperCase())),
+    android_advertising_id:
+      event.platform === 'android' ? event.tags.advertising_id || undefined : undefined,
     ip_address: data.ip_address,
     user_agent: data.user_agent,
   };
@@ -112,16 +153,25 @@ export function getServerEvent(
   return {
     id: event.tags.idempotency_key ?? event.id,
     type,
-    // For custom events the original track name is the OpenAI custom_event_name; this matches
-    // the browser pixel so the two deduplicate. Standard events omit it.
-    custom_event_name: type === 'custom' ? event.name : undefined,
+    // For custom events the track name, made valid (`oaiCustomEventName`); the browser pixel
+    // names it the same way, so the two deduplicate. Standard events omit it.
+    custom_event_name: type === 'custom' ? oaiCustomEventName(event.name) : undefined,
     timestamp_ms: new Date(event.created_at).getTime(),
     source_url: pageLocation(event.tags),
+    // The click id OpenAI appends to an ad's landing URL; what ties the conversion to the click.
+    oppref: openaiOppref(event.tags),
     action_source: mapActionSource(event.platform, actionSource),
-    user: getUser(data),
+    user: getUser(event, data),
     data: eventData,
   };
 }
+
+/**
+ * `timestamp_ms` "must be within the last 7 days and no more than 10 minutes in the future", or
+ * the request fails; such an event is left out, with a minute's margin for the trip.
+ */
+const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
+const MAX_EVENT_AHEAD_MS = 10 * 60 * 1000;
 
 export async function sendEvents(
   apiKey: string,
@@ -135,9 +185,20 @@ export async function sendEvents(
   const dto: CreateOpenAIEventsDTO = {
     validate_only: validateOnly,
     events: events
-      .filter((event) => !IGNORED_EVENTS.includes(event.name))
+      // `first_open` is the install: left out of what GA collects itself, not of what OpenAI takes.
+      .filter((event) => event.name === 'first_open' || !IGNORED_EVENTS.includes(event.name))
       .filter((event) => !NON_AD_EVENTS.includes(event.name))
-      .map((event) => getServerEvent(event, data, actionSource)),
+      .filter((event) => {
+        const age = Date.now() - Date.parse(event.created_at);
+        return age <= MAX_EVENT_AGE_MS && age >= -MAX_EVENT_AHEAD_MS;
+      })
+      .map((event) => getServerEvent(event, data, actionSource))
+      // A custom event whose name cannot be made valid would fail the whole request.
+      .filter((event) => event.type !== 'custom' || event.custom_event_name !== undefined)
+      // The app events count only from an app: OpenAI takes them with `mobile_app` alone.
+      .filter(
+        (event) => !APP_EVENTS.includes(event.type as never) || event.action_source === 'mobile_app'
+      ),
   };
 
   if (dto.events.length === 0) return;

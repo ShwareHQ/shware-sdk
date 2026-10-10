@@ -110,8 +110,11 @@ describe('a first visit', () => {
 
     const sessionIds = new Set(batch.body.map((e) => e.session_id));
     expect(sessionIds.size).toBe(1);
+    // The visitor id is generated on the device and kept, not handed out by the server.
+    const visitorId = storage.map.get('visitor_id');
+    expect(visitorId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/);
     for (const event of batch.body) {
-      expect(event).toMatchObject({ visitor_id: 'visitor-1', platform: 'web' });
+      expect(event).toMatchObject({ visitor_id: visitorId, platform: 'web' });
     }
 
     // session_start is stamped with the moment the visit began, not the flush.
@@ -120,14 +123,99 @@ describe('a first visit', () => {
     expect(storage.map.get('session')).toContain([...sessionIds][0] as string);
   });
 
-  it('asks the backend for a visitor exactly once, before the first batch', async () => {
+  it('makes no visitor request: the events are all a visit sends', async () => {
     const { Page } = await launch();
     render(<Page pathname="/" />);
     present();
     await vi.advanceTimersByTimeAsync(2000);
 
-    const visitorCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/visitors'));
-    expect(visitorCalls).toHaveLength(1);
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.some((url) => url.includes('/visitors'))).toBe(false);
+    expect(urls.some((url) => url.endsWith('/events'))).toBe(true);
+  });
+});
+
+describe('leaving before the first batch', () => {
+  /** Hides the page half a second after landing, while the landing events are still queued. */
+  async function hideEarly() {
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  it('a returning visitor: the landing events and their session_start go by beacon, then the engagement', async () => {
+    const { memoryStorage, jsonResponse } = await import('../test/setup');
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'visitor-1' }));
+    const { Page } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
+    render(<Page pathname="/" />);
+    present();
+    await hideEarly();
+
+    const [landing, engagement] = await Promise.all(
+      beaconMock.mock.calls.map(async (call) => {
+        const [, blob] = call as unknown as [string, Blob];
+        return JSON.parse(await blob.text()) as Record<string, unknown>[];
+      })
+    );
+    expect(landing[0].name).toBe('session_start');
+    expect(landing.map((e) => e.name)).toContain('page_view');
+    expect(engagement.map((e) => e.name)).toEqual(['user_engagement']);
+    expect(engagement[0].session_id).toBe(landing[0].session_id);
+
+    // Nothing is left to go out a second time.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(eventRequests()).toHaveLength(0);
+  });
+
+  it('a first visit goes by beacon too: its id is local, no request has to return first', async () => {
+    const { Page, storage } = await launch();
+    render(<Page pathname="/" />);
+    present();
+    await hideEarly();
+
+    const [landing, engagement] = await Promise.all(
+      beaconMock.mock.calls.map(async (call) => {
+        const [, blob] = call as unknown as [string, Blob];
+        return JSON.parse(await blob.text()) as Record<string, unknown>[];
+      })
+    );
+    expect(landing.map((e) => e.name)).toEqual(['session_start', 'first_visit', 'page_view']);
+    expect(landing.every((e) => e.visitor_id === storage.map.get('visitor_id'))).toBe(true);
+    expect(engagement.map((e) => e.name)).toEqual(['user_engagement']);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(eventRequests()).toHaveLength(0);
+  });
+});
+
+describe('leaving through an outbound link', () => {
+  it('the click tracked as the page goes is delivered by beacon, in the live session', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    const { Page, track } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
+    render(<Page pathname="/" />);
+    present();
+    await vi.advanceTimersByTimeAsync(2000); // the landing batch went out
+    const [landing] = eventRequests();
+
+    track('click', {
+      link_id: '',
+      link_url: 'https://example.com/',
+      link_text: 'example',
+      link_domain: 'example.com',
+      link_classes: '',
+      outbound: true,
+    });
+    window.dispatchEvent(new Event('pagehide')); // the browser leaves for the link
+
+    const sent = await beaconEvents();
+    const click = sent.find((e) => e.name === 'click');
+    expect(click?.session_id).toBe(landing.body[0].session_id);
+    expect(sent.some((e) => e.name === 'session_start')).toBe(false); // already announced
+    window.dispatchEvent(new Event('pageshow'));
   });
 });
 
@@ -136,9 +224,9 @@ describe('engagement accounting', () => {
     const { Page } = await launch();
     render(<Page pathname="/" />);
     present();
-    // The first batch starts the session, which re-anchors the engagement clock at this moment —
-    // a new session never inherits time accrued before it began.
-    await vi.advanceTimersByTimeAsync(2000);
+    // The page's first event starts the session, which re-anchors the engagement clock at that
+    // moment — a new session never inherits time accrued before it began.
+    await vi.advanceTimersByTimeAsync(2000); // 2 visible seconds while the first batch waits
 
     vi.advanceTimersByTime(8000); // 8 visible seconds
     window.dispatchEvent(new Event('blur'));
@@ -152,7 +240,7 @@ describe('engagement accounting', () => {
     const [engagement] = await beaconEvents();
     expect(engagement.name).toBe('user_engagement');
     expect(engagement.properties).toEqual({
-      engagement_time_msec: 13_000,
+      engagement_time_msec: 15_000,
       trigger: 'visibilitychange',
     });
 
@@ -183,9 +271,9 @@ describe('SPA navigation', () => {
     const { Page } = await launch();
     const { rerender } = render(<Page pathname="/pricing" />);
     present();
-    await vi.advanceTimersByTimeAsync(2000); // first batch: session starts, engagement re-anchors
+    await vi.advanceTimersByTimeAsync(2000); // the session started with the page; 2 seconds in
 
-    vi.advanceTimersByTime(3000); // 3 engaged seconds on /pricing since the session began
+    vi.advanceTimersByTime(3000); // 5 engaged seconds on /pricing since the session began
     rerender(<Page pathname="/checkout" />);
     await vi.advanceTimersByTimeAsync(2000);
 
@@ -196,7 +284,7 @@ describe('SPA navigation', () => {
     expect(pageView.properties).toMatchObject({
       page_path: '/checkout',
       previous_page_path: '/pricing',
-      engagement_time_msec: 3000,
+      engagement_time_msec: 5000,
     });
 
     // Same visit, same session — no second session_start.
@@ -293,9 +381,9 @@ describe('across page loads', () => {
     const { Page } = await launch();
     render(<Page pathname="/" />);
     present();
-    await vi.advanceTimersByTimeAsync(2000); // first batch: session starts, engagement re-anchors
+    await vi.advanceTimersByTimeAsync(2000); // the session started with the page; 2 seconds in
 
-    // First departure: 3 engaged seconds, reported as the tab hides.
+    // First departure: 5 engaged seconds, reported as the tab hides.
     vi.advanceTimersByTime(3000);
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -316,9 +404,9 @@ describe('across page loads', () => {
     const times = engagements.map(
       (e) => (e.properties as { engagement_time_msec: number }).engagement_time_msec
     );
-    expect(times).toContain(3000);
+    expect(times).toContain(5000);
     expect(times).toContain(4000);
-    expect(times.reduce((a, b) => a + b, 0)).toBe(7000); // the hidden minute never counted twice
+    expect(times.reduce((a, b) => a + b, 0)).toBe(9000); // the hidden minute never counted twice
 
     // Both beacons belong to the same session — the visit continued, it did not restart.
     const sessions = new Set(engagements.map((e) => e.session_id));
@@ -331,7 +419,6 @@ describe('across page loads', () => {
     present();
     await vi.advanceTimersByTimeAsync(2000);
     const first = eventRequests()[0].body[0].session_id as string;
-    const stored = storage.map.get('session');
 
     // The tab sat hidden for 40 minutes, then the user closed it: the closing beacon still
     // belongs to the session that accrued it, but must not restart it.
@@ -339,6 +426,7 @@ describe('across page loads', () => {
     document.dispatchEvent(new Event('visibilitychange'));
     await beaconEvents(); // drain the hide beacon
     beaconMock.mockClear();
+    const stored = storage.map.get('session'); // as the hide beacon last extended it
 
     await vi.advanceTimersByTimeAsync(40 * MINUTE);
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });

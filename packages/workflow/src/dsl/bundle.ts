@@ -188,30 +188,42 @@ function assertActionRefsResolve(
 ): void {
   const defined = new Map(actions.map((a) => [a.name, a.codeHash]));
   for (const workflow of workflows) {
-    const used = new Map<string, string | undefined>();
+    const used = new Map<string, Set<string | undefined>>();
     collectActionRefs(workflow.flow, used);
-    for (const [name, codeHash] of used) {
+    for (const [name, codeHashes] of used) {
       const manifestHash = defined.get(name);
       if (manifestHash === undefined) {
         throw new Error(
           `compileBundle: workflow '${workflow.name}' runs action '${name}' that is not in the bundle — pass it in 'actions'`
         );
       }
-      if (codeHash !== undefined && codeHash !== manifestHash) {
-        throw new Error(
-          `compileBundle: workflow '${workflow.name}' runs action '${name}' whose code differs from the one in 'actions' — two definitions are sharing that name`
-        );
+      // Every node's hash is checked, not just one per name: with two
+      // definitions under one name, whichever the manifest holds, the *other*
+      // node is the one that would meet a mismatched implementation at run time.
+      for (const codeHash of codeHashes) {
+        if (codeHash !== undefined && codeHash !== manifestHash) {
+          throw new Error(
+            `compileBundle: workflow '${workflow.name}' runs action '${name}' whose code differs from the one in 'actions' — two definitions are sharing that name`
+          );
+        }
       }
     }
   }
 }
 
-function collectActionRefs(nodes: readonly NodeIR[], into: Map<string, string | undefined>): void {
+/** name → every codeHash seen under it; a name with two is exactly the case worth failing on. */
+function collectActionRefs(
+  nodes: readonly NodeIR[],
+  into: Map<string, Set<string | undefined>>
+): void {
   for (const node of nodes) {
     switch (node.type) {
-      case 'action':
-        into.set(node.action, node.codeHash);
+      case 'action': {
+        const seen = into.get(node.action) ?? new Set<string | undefined>();
+        seen.add(node.codeHash);
+        into.set(node.action, seen);
         break;
+      }
       case 'wait_until':
         if (Array.isArray(node.onTimeout)) collectActionRefs(node.onTimeout, into);
         break;

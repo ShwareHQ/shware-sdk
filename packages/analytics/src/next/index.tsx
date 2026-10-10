@@ -11,6 +11,7 @@ import type { PixelId as MetaPixelId } from '../track/fbq';
 import type { GaId, GtmId } from '../track/gtag';
 import { track } from '../track/index';
 import type { PixelId as RedditPixelId } from '../track/rdt';
+import type { UETConsent } from '../track/uetq';
 
 interface Props {
   gaId?: GaId;
@@ -24,6 +25,15 @@ interface Props {
   uetTagId?: `${number}`;
   /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the Conversions API's ID Sync pixel. */
   uetCustomerId?: `${number}`;
+  /**
+   * UET consent mode default, pushed inside the tag snippet so bat.js reads it before the first
+   * page load. Defaults to `ad_storage: granted`, which is how the tag behaves without a signal,
+   * so Microsoft stops flagging EEA/UK/CH events as missing consent. Sites with a consent banner
+   * pass `{ ad_storage: 'denied' }` and send `update` with `setUETConsent` when the visitor
+   * decides; `false` pushes no default.
+   * https://help.ads.microsoft.com/#apex/ads/en/60119/1
+   */
+  uetConsent?: UETConsent | false;
   facebookAppId?: string;
   nonce?: string;
   debugMode?: boolean;
@@ -53,6 +63,7 @@ export function Analytics({
   linkedInPartnerId,
   uetTagId,
   uetCustomerId,
+  uetConsent = { ad_storage: 'granted' },
   facebookAppId,
   reportWebVitals = true,
 }: Props) {
@@ -186,6 +197,7 @@ export function Analytics({
             __html: `
               (function (w, d, t, u, o) {
                 w[u] = w[u] || [], o.ts = (new Date).getTime();
+                ${uetConsent ? `w[u].push("consent", "default", ${JSON.stringify(uetConsent)});` : ''}
                 var n = d.createElement(t);
                 n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
                 n.async = 1, n.onload = n.onreadystatechange = function() {

@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
 const sendBeacon = vi.fn();
-vi.mock('../track/index', () => ({ track, sendBeacon }));
+const sendPendingEvents = vi.fn();
+vi.mock('../track/index', () => ({ track, sendBeacon, sendPendingEvents }));
 
 async function load() {
   const { baseOptions, memoryStorage } = await import('../test/setup');
@@ -237,6 +238,10 @@ describe('useWebAnalytics', () => {
       'user_engagement',
       expect.objectContaining({ trigger: 'visibilitychange' })
     );
+    // The queue first: a new session's session_start is in it.
+    expect(sendPendingEvents.mock.invocationCallOrder[0]).toBeLessThan(
+      sendBeacon.mock.invocationCallOrder[0]
+    );
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
 
@@ -360,6 +365,10 @@ describe('useWebAnalytics', () => {
     expect(sendBeacon).toHaveBeenCalledWith(
       'user_engagement',
       expect.objectContaining({ trigger: 'pagehide' })
+    );
+    // The queue first, here as on hidden.
+    expect(sendPendingEvents.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      sendBeacon.mock.invocationCallOrder.at(-1) ?? 0
     );
     const [, props] = sendBeacon.mock.calls.at(-1) as [string, { engagement_time_msec: number }];
     expect(props.engagement_time_msec).toBeGreaterThanOrEqual(2000);

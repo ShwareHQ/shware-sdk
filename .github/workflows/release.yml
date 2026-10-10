@@ -1,7 +1,19 @@
 # Release via changesets + npm trusted publishing (OIDC).
 #
-# Push a changeset to main and this workflow opens (or updates) a "Version Packages" PR;
-# merging that PR versions the packages and publishes them to npm. There is no NPM_TOKEN
+# Push a changeset to main and this workflow opens (or updates) a "Version Packages" PR and
+# sets it to auto-merge; once its CI passes it merges itself, and the run that merge triggers
+# publishes the new versions to npm. So a merged changeset ships with no second click, while
+# the PR keeps the versioning reviewable and gives a place to hold a release: label it
+# `hold-release` (the run then leaves auto-merge off) or disable auto-merge on the PR.
+#
+# The PR is opened as the shware-release GitHub App, not as GITHUB_TOKEN: GitHub runs no
+# workflows for anything GITHUB_TOKEN creates, so a PR it opened would never get the CI check
+# that main's ruleset requires and could only be merged by bypassing it. The run mints a
+# short-lived token from RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY (repository secrets; the app
+# is installed on this repository with contents and pull-requests read/write) and hands it to
+# changesets/action; with the secrets unset it falls back to GITHUB_TOKEN and the old
+# behaviour. The app needs no ruleset bypass: it pushes changeset-release/main and opens the
+# PR, and a person merges it. There is no NPM_TOKEN
 # anywhere: npm authenticates the workflow itself through OIDC (trusted publishing), which
 # also attaches provenance attestations to every published package. Publishing with a token
 # is disabled on npmjs.com for all @shware packages, so this workflow is the only publish
@@ -29,9 +41,22 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # push version commits, tags, and GitHub releases
-      pull-requests: write # open and update the Version Packages PR
+      pull-requests: write # open and update the Version Packages PR (the GITHUB_TOKEN fallback)
       id-token: write # mint the OIDC token npm exchanges for publish access
+    # A step's `if` cannot read the secrets context; it can read env, so the id is copied here.
+    env:
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
     steps:
+      # Skipped when the secrets are unset; its outputs are then empty and the action below
+      # falls back to GITHUB_TOKEN.
+      - name: Mint a release token
+        id: app
+        if: ${{ env.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
+        with:
+          app-id: ${{ env.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,10 +89,27 @@ jobs:
         run: pnpm run build
 
       - name: Version or publish
+        id: changesets
         uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
           publish-script: pnpm changeset publish
           pr-title: 'chore: release packages'
           commit-message: 'chore: release packages'
+          # The action refuses a GITHUB_TOKEN env var that differs from this input, so the
+          # app token goes in here and nowhere else.
+          github-token: ${{ steps.app.outputs.token || github.token }}
+
+      # Auto-merge waits for main's ruleset (the CI check) and merges as the app. Only the app
+      # can get there: a PR GITHUB_TOKEN opened never receives the check.
+      - name: Auto-merge the Version Packages PR
+        if: steps.changesets.outputs.pr-number != ''
+        run: |
+          pr="${{ steps.changesets.outputs.pr-number }}"
+          if gh pr view "$pr" --json labels -q '.labels[].name' | grep -qx 'hold-release'; then
+            echo "#$pr is labelled hold-release; leaving it for a person to merge"
+            exit 0
+          fi
+          gh pr merge "$pr" --auto --squash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_REPO: ${{ github.repository }}

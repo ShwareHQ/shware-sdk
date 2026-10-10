@@ -10,12 +10,13 @@
 
 const DAY_MS = 86_400_000;
 
+/** Indexed by Date#getUTCDay, matching WeekdayIR's lowercase three-letter form. */
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
 interface LocalParts {
   year: number;
   month: number;
   day: number;
-  /** Lowercase three-letter weekday ('mon' … 'sun'), matching WeekdayIR. */
-  weekday: string;
   hour: number;
   minute: number;
 }
@@ -29,7 +30,6 @@ function formatterFor(tz: string): Intl.DateTimeFormat {
     dtf = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hourCycle: 'h23',
-      weekday: 'short',
       year: 'numeric',
       month: 'numeric',
       day: 'numeric',
@@ -60,16 +60,51 @@ function localParts(ms: number, tz: string): LocalParts {
     year: Number(parts.year),
     month: Number(parts.month),
     day: Number(parts.day),
-    weekday: (parts.weekday ?? '').toLowerCase().slice(0, 3),
     hour: Number(parts.hour),
     minute: Number(parts.minute),
   };
 }
 
+/** The zone's UTC offset at an instant, as (wall clock read as if it were UTC) − instant. */
+function offsetMsAt(ts: number, tz: string): number {
+  const p = localParts(ts, tz);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - ts;
+}
+
 /**
- * The UTC instant at which the wall clock in `tz` reads y-m-d hh:mm. Guess the
- * UTC value, read it back through the timezone, and correct by the difference;
- * two passes settle even across a DST transition.
+ * The first instant at or after `before` whose offset differs from the one
+ * there — i.e. the DST transition separating the two bounds. Bisects on the
+ * minute grid, the finest granularity any tz rule uses, so the loop lands on
+ * the transition itself rather than merely near it.
+ */
+function transitionBetween(before: number, after: number, tz: string): number {
+  const startOffset = offsetMsAt(before, tz);
+  let lo = before;
+  let hi = after;
+  while (hi - lo > 60_000) {
+    // Halve on whole minutes: both bounds stay minute-aligned, so mid is
+    // strictly inside (lo, hi) and the loop cannot stall.
+    const mid = lo + Math.floor((hi - lo) / 120_000) * 60_000;
+    if (offsetMsAt(mid, tz) === startOffset) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+}
+
+/**
+ * The UTC instant at which the wall clock in `tz` reads y-m-d hh:mm.
+ *
+ * Guess the UTC value from the offset at the guess, read it back through the
+ * timezone and correct by the difference; a second pass settles every wall
+ * time that exists, and picks the earlier of the two when a fall-back repeats
+ * an hour.
+ *
+ * A wall time inside a spring-forward gap exists on no clock, so the two
+ * corrections straddle the transition and neither reads back as asked. The
+ * convention here is the usual one: move forward to the first instant that
+ * does exist, i.e. the transition itself — 02:30 on a US spring-forward day
+ * resolves to 03:00. Without that branch the correction bottoms out on the low
+ * side and the window opens an hour *before* its configured start.
  */
 function zonedInstant(
   year: number,
@@ -80,14 +115,11 @@ function zonedInstant(
   tz: string
 ): number {
   const target = Date.UTC(year, month - 1, day, hour, minute);
-  let ts = target;
-  for (let pass = 0; pass < 2; pass++) {
-    const p = localParts(ts, tz);
-    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
-    if (asUtc === target) break;
-    ts += target - asUtc;
-  }
-  return ts;
+  const first = target - offsetMsAt(target, tz);
+  if (offsetMsAt(first, tz) === target - first) return first;
+  const second = target - offsetMsAt(first, tz);
+  if (offsetMsAt(second, tz) === target - second) return second;
+  return transitionBetween(Math.min(first, second), Math.max(first, second), tz);
 }
 
 const TIME = /^(\d{1,2}):(\d{2})$/;
@@ -103,10 +135,10 @@ function parseTime(value: string): { hh: number; mm: number } | null {
 
 /**
  * The instant the next [start, end) window opens in `tz`, or null when nowMs
- * is already inside a window. Scans nine calendar days so a DST-stretched day
- * cannot skip a weekday. Malformed times (the DSL validates its own input, but
- * IR may come from elsewhere) disable the window — better to send now than to
- * hold a user forever on a config typo.
+ * is already inside a window. Scans nine calendar days so every weekday is
+ * reachable. Malformed times (the DSL validates its own input, but IR may come
+ * from elsewhere) disable the window — better to send now than to hold a user
+ * forever on a config typo.
  */
 export function nextWindowStart(
   nowMs: number,
@@ -119,11 +151,22 @@ export function nextWindowStart(
   if (start === null || end === null) return null;
   const zone = resolveTimeZone(tz);
 
+  // Step the local *calendar*, not the absolute clock: a spring-forward day is
+  // 23 hours long, so nowMs + n·24h crosses two local midnights and skips that
+  // date entirely — the send would be held until the weekday came round again.
+  // Date.UTC arithmetic over the civil date has no DST to trip on, and
+  // getUTCDay names the same weekday the zone does.
+  const today = localParts(nowMs, zone);
+  const firstDay = Date.UTC(today.year, today.month - 1, today.day);
+
   for (let offset = 0; offset < 9; offset++) {
-    const day = localParts(nowMs + offset * DAY_MS, zone);
-    if (!days.includes(day.weekday)) continue;
-    const opensAt = zonedInstant(day.year, day.month, day.day, start.hh, start.mm, zone);
-    const closesAt = zonedInstant(day.year, day.month, day.day, end.hh, end.mm, zone);
+    const date = new Date(firstDay + offset * DAY_MS);
+    if (!days.includes(WEEKDAYS[date.getUTCDay()])) continue;
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+    const day = date.getUTCDate();
+    const opensAt = zonedInstant(year, month, day, start.hh, start.mm, zone);
+    const closesAt = zonedInstant(year, month, day, end.hh, end.mm, zone);
     if (nowMs < opensAt) return opensAt;
     if (nowMs < closesAt) return null;
     // Past this day's window (e.g. 23:00 against 09:00–17:00) → keep scanning forward

@@ -28,9 +28,11 @@ const TRACKING_PARAMS = new Set([
   'li_fat_id',
   'ttclid',
   'twclid',
-  'sccid',
+  'ScCid',
   'ko_click_id',
   'yclid',
+  'oppref',
+  'epik',
 ]);
 
 function isTrackingParam(name: string): boolean {

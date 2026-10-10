@@ -25,9 +25,11 @@ function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {
 }
 
 beforeEach(() => {
-  // Senders must not read the clock: everything they stamp comes from the event.
+  // Senders stamp nothing from the clock: everything comes from the event. A clock a day past
+  // created_at turns any Date.now() regression into a visible failure, while keeping the event
+  // inside the API's 7-day window the sender filters on.
   vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-03-01T00:00:00Z'));
+  vi.setSystemTime(new Date('2026-01-11T12:00:00Z'));
 });
 
 afterEach(() => {
@@ -213,6 +215,20 @@ describe('getServerEvent', () => {
 });
 
 describe('sendEvents', () => {
+  it('leaves out an event over 7 days old, which the API would not take', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const stale = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    await sendEvents('token', 1, [
+      event({ id: 'fresh' }),
+      event({ id: 'stale', created_at: stale }),
+    ]);
+
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.data.map((e: { eventId: string }) => e.eventId)).toEqual(['fresh']);
+  });
+
   it('POSTs a compact batch to the tag endpoint with the token in the Authorization header', async () => {
     const fetchMock = vi
       .fn()

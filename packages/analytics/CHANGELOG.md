@@ -1,5 +1,251 @@
 # @shware/analytics
 
+## 11.9.0
+
+### Minor Changes
+
+- e46a46d: Add `fetchMetaAdPerformanceHistory` to `@shware/analytics/ads`: Meta's daily ad rows for the days before its 13 months of hourly data (up to its 37 months), each spread evenly over the hours of the account's day so a table stays hourly — whole-day sums exactly Meta's. It refuses days that still have hourly data. Also exports `spread`.
+
+## 11.8.0
+
+### Minor Changes
+
+- c990163: Add `@shware/analytics/ads`: `fetchMetaAdPerformance` reads Meta ad delivery from the Insights API over `fetch` — one typed `AdPerformanceRow` per ad and hour, `hour_start` in UTC, spend, impressions, link clicks, and the platform's conversions with their click-through part — with `channel` / `medium` / `channel_group` from the attribution vocabulary, so the rows join sessions and attribution as they are. Ranges are fetched in 7-day windows; a `since` past Meta's 13 months of hourly data throws instead of returning nothing.
+
+## 11.7.0
+
+### Minor Changes
+
+- 7f4e6ee: On native, the link that opened the app — at launch, or bringing it back to the front — lands the visit as a web page's URL does: pass `deepLink` from `@shware/analytics/native` to `setupAnalytics({ deepLink })`, and its URL (as `page_location`) and utm go into the tags of every event until the app goes to the background, over the install referrer's utm. A session a universal link from an email or an ad starts is no longer direct. `setupAnalytics` starts its listeners (nothing runs at import); `deepLink.open(url)` hands over a link `Linking` does not see, such as a push notification's.
+
+## 11.6.0
+
+### Minor Changes
+
+- 4dd9877: `classifyTouch` files SMS and push notifications as GA4 does, in the new `sms` and `mobile_push` channel groups (`sms` as the source or the medium; a medium ending in `push` or naming mobile or a notification, or `firebase` as the source) instead of `unassigned`, and ranks them with a referrer like email, so they never take an ad's credit. Reclassify stored sessions after upgrading.
+
+## 11.5.0
+
+### Minor Changes
+
+- 56f334d: Collect the `network` and `match_type` URL parameters as tags: where a Google Ads or Microsoft Advertising click was served and how its keyword matched (`a`: AI Max without a keyword), which a campaign's type alone does not say. See `UTM.md` for the final URL suffix templates.
+
+## 11.4.0
+
+### Minor Changes
+
+- e12ad99: `META_PLACEMENTS` adds Meta's current `facebook_feed`, `facebook_instream` and `threads_stream`, which `classifyTouch` read as organic social under `utm_source=meta`. Reclassify stored sessions after upgrading.
+
+## 11.3.2
+
+### Patch Changes
+
+- 919878d: Report the previous page as `page_referrer` after an in-app navigation, as GA4 does, instead of `document.referrer`, which a single page app never updates: a session opened later in the visit no longer counts the site the visit came from a second time.
+
+## 11.3.1
+
+### Patch Changes
+
+- acf0fcf: `useAppAnalytics` sends the queue as soon as the app goes to the background, after its engagement event, instead of after the batch delay: the app may be suspended or killed before that, losing the queue — a new session's `session_start` among it.
+
+## 11.3.0
+
+### Minor Changes
+
+- 08ed82c: OpenAI Conversions API: send the app events — `first_open` as `app_installed` and `app_open` as `app_opened` (`customer_action`) — for events from an app only, with `action_source` `mobile_app`, as OpenAI takes them through the Conversions API alone; the pixel never sends them.
+
+## 11.2.0
+
+### Minor Changes
+
+- fe333af: `setVisitor` binds the user through an `identify` event instead of a `PATCH /visitors/:id`: it hands the user to the third-party setters at once (the user's id as the distinct id) and queues `identify` with `{ user_id }` when the user differs from the one the page last identified, so the binding travels with the events that create the visitor and can never arrive before it. It is now synchronous, returns nothing and never throws. `IDENTIFY_EVENT` is exported for servers, which must bind the visitor from it (README, "Visitors") before clients upgrade; `identify` is never forwarded to third parties.
+
+## 11.1.0
+
+### Minor Changes
+
+- d616c6b: Drop visitor `properties` entirely: `updateVisitorSchema` no longer takes them, `setVisitor` no longer accepts them, and the GA user setter no longer forwards them as `user_properties`. No server has stored them since visitors keep tags only, and no host passes them. A body that still carries `properties` validates as before, the field left out. The `VisitorProperties` type stays: it types a visitor's tags.
+- d616c6b: `setVisitor` no longer sends the current page's tags: at sign-in the page is the login page, not where the visit came in, and the server already refreshes `visitor.tags` from each `session_start`. `updateVisitorSchema` takes `tags` as optional, so servers on this version accept a sign-in without them and still merge the tags of clients before 11.1. Upgrade the server before the clients.
+
+### Patch Changes
+
+- d616c6b: `createVisitorSchema` drops `properties`: clients before 11 sent a copy of their tags under it, which servers have ignored since they keep tags only. A body that still carries it validates as before, the field left out.
+
+## 11.0.1
+
+### Patch Changes
+
+- f9b5320: Export the `CreateTrackEventDTO`, `CreateVisitorDTO` and `UpdateVisitorDTO` types next to their schemas, for servers that type their handlers by what the SDK sends.
+
+## 11.0.0
+
+### Major Changes
+
+- 00ce319: The visitor id is generated by the SDK (a uuidv7 kept in `config.storage`, `visitorId()`) instead of by `POST /visitors`, so a new visitor's first events — and the beacon of a visit left within a second, `session_start` included — no longer wait for a round trip and are no longer lost when the page goes first. A visit makes no visitor request at all: the server creates the visitor from its first events and refreshes `visitor.tags` from each `session_start`, as person properties ride on events in PostHog. `getVisitor` and `cache.visitor` are removed (nothing read them); `setVisitor` (sign-in) still PATCHes, under the local id. An id a server issued to an older client is kept. **Breaking: the server must create visitors from `POST /events`** (README, "Visitors"); deploy it before upgrading clients. `POST /visitors` is no longer called.
+
+## 10.3.0
+
+### Minor Changes
+
+- ddffc74: `classifyTouch` reads an Android app's referrer (`android-app://<package>`) as the site it stands for (`ANDROID_APP_HOSTS`): the Google app as a Google search, Gmail, LinkedIn, Reddit, Telegram and the other listed apps as their sites, an unlisted package as a referring host — before, every one of them was direct. Adds the `gmail` channel (`mail.google.com`, medium `email`, which was read as a Google search) and `telegram` (`t.me`, `telegram.org`). Reclassify stored sessions after upgrading.
+- ddffc74: `classifyTouch` counts a click id only when it has a value. Clients before mid-2025 wrote every missing URL parameter as `null` into the tags, and reading the key alone named those sessions Meta clicks — Google ad clicks among them, since `fbclid` is listed first. A null, empty, `undefined` or `null` string value is no click now. Reclassify stored sessions after upgrading.
+
+## 10.2.1
+
+### Patch Changes
+
+- b1c850f: Document how AI assistant visits (GEO) are classified and ranked with organic search, with worked cases, and test that they share its tier while ChatGPT's ad clicks stay paid.
+
+## 10.2.0
+
+### Minor Changes
+
+- 8586454: `classifyTouch`: an ad-only click id or the ad landing page of the utm's own channel now makes the medium `cpc` when the declared `utm_medium` puts the touch in an organic group (a Reddit ad tagged `utm_medium=social` with `rdt_cid`), not only when the medium is missing. Click ids of another channel and `fbclid` still never override the utm.
+- 8586454: `classifyTouch`: a utm, click id or ad landing page whose touch lands in an organic channel group, referral or email (`utm_source=chatgpt.com`, `utm_medium=organic`, a newsletter) now ranks with the referrer (`TOUCH_PRIORITY.referrer`) instead of as a campaign, so it no longer takes the credit from an ad clicked earlier in the attribution window. When a product rule matched too, the stronger of the two tiers holds (a referral link shared under a social utm keeps the programme's tier). Reclassify stored sessions after upgrading.
+
+## 10.1.1
+
+### Patch Changes
+
+- 9b6693b: Google Data Manager: `normalizeEmail` removes all whitespace, including intermediate spaces, before hashing.
+- 9b6693b: Google Data Manager: send the gbraid alongside the gclid when both are present, as Google recommends, instead of dropping it.
+- 9b6693b: LinkedIn Conversions API: add the IPv4 address (`PLAINTEXT_IP_ADDRESS`) and, for Android events, the advertising id (`GOOGLE_AID`) to the user ids.
+- 8216958: LinkedIn Conversions API: detect IPv4 addresses with `node:net`'s `isIPv4` instead of a regular expression.
+- 9b6693b: Meta Conversions API: send app events with `action_source: 'app'` only when the package name and an iOS/Android OS are known (`extinfo` version `i2`/`a2`), otherwise `other`; always set the required `advertiser_tracking_enabled`.
+- 9b6693b: Meta Conversions API: warn when website events are sent without `client_user_agent`, which Meta requires for them.
+
+## 10.1.0
+
+### Minor Changes
+
+- d39a91c: Add a `uetConsent` prop to the `Analytics` components that pushes the UET consent mode default inside the tag snippet, ahead of bat.js. It defaults to `{ ad_storage: 'granted' }`; pass `{ ad_storage: 'denied' }` behind a consent banner, or `false` to push no default.
+
+## 10.0.1
+
+### Patch Changes
+
+- 4a178bf: `createClickIdMiddleware` no longer overrides the `Cache-Control` of a response that is already `private` or `no-store` when it attaches cookies: no shared cache can store such a response, so its per-user `Set-Cookie` is safe as it is, and a browser never replays a `Set-Cookie` from its own cache. The gtag.js loader served through a first-party Google Tag Gateway (`private, max-age=900`) keeps its browser caching while its requests still re-issue the cookies, where it used to become `no-store` for every visitor carrying one. Responses that could be shared (`public`, `s-maxage`, or no `Cache-Control`) are made uncacheable as before.
+
+## 10.0.0
+
+### Major Changes
+
+- 5e33cae: `createClickIdMiddleware` / `resolveClickIdCookies` now keep more of the ad platforms' cookies past Safari's limits, each as its own pixel keeps it (read from their current client code): `_rdt_cid` is re-issued for 90 days on every document response instead of only being written from the URL, and `_rdt_uuid` and `_fbp` are re-issued as they are for 90 days; OpenAI's `__oppref` is captured from the `oppref` URL parameter for 30 days and re-issued, and `__obref` re-issued for 365 days. Browser ids are never created, only re-issued, and no OpenAI cookie is written once the visitor has opted out of oaiq (`__oaiq_consent=false`). **Breaking:** `domain` is now required — the site's registrable domain in production, `null` for a host-only cookie on `localhost` — because a host-only cookie sits next to the pixel's of the same name, and Reddit's pixel deletes it; and the default `clickIdMiddleware` export, which had no domain, is removed: call `createClickIdMiddleware({ domain })`.
+
+## 9.1.0
+
+### Minor Changes
+
+- 8a37b67: Google Ads (Data Manager API): new `actionType` option, `'webpage'` (default) or `'offline'`, for the kind of conversion action the events go to. A webpage action — the one the gtag tag reports to — accepts `eventSource` `WEB` or none, and fails the whole request on any other value, so non-web events are now sent there without `eventSource` instead of `APP` / `OTHER`. An offline (upload) action requires `eventSource` and keeps getting `WEB`, `APP` or `OTHER` from the platform.
+
+### Patch Changes
+
+- 8a37b67: The Conversions API senders leave out the events whose time their API rejects, instead of sending them: one out-of-range event fails the whole request on most of them, taking every valid event of the batch down with it. Meta, OpenAI, Reddit and Microsoft keep the last 7 days, LinkedIn the last 90; OpenAI also refuses more than 10 minutes ahead.
+- 8a37b67: OpenAI pixel and Conversions API: an amount is no longer sent without a currency, at the event or the item level, since OpenAI requires a `currency` with every `amount`; `toMinorUnits` returns undefined without one. A custom event's `custom_event_name` is made valid by the new `oaiCustomEventName` (1–64 letters, digits, `_` or `-`, starting and ending with a letter or digit, not a standard event name): `Sign Up.Clicked` becomes `sign_up_clicked`, and an event whose name cannot be made valid is not sent. The pixel and the server name it the same way, so the two still deduplicate.
+- 8a37b67: OpenAI pixel: `setOpenAIUser` sends the postal code as `postal_code`, the field the pixel documents, instead of `zip_code`, which it ignored. It also sends the hashed phone number, first and last name, and the region, normalized as OpenAI documents (the same `normalizeOAIPhone` / `normalizeOAIName` the Conversions API sender uses), and leaves the city's case to OpenAI.
+- 8a37b67: Reddit Conversions API: an offline or undeterminable event is sent with `action_source: 'OTHER'` instead of `'UNKNOWN'`, which is not one of Reddit's values (`WEBSITE`, `APP`, `PHYSICAL_STORE`, `OTHER`). Website events now carry `event_source_url`, from which Reddit reads the domain and, when `click_id` is missing, the click id.
+
+## 9.0.1
+
+### Patch Changes
+
+- ee39d8b: Stop losing the events a page holds when it is hidden or left, as GA4 and PostHog do. The session is now decided when an event is tracked, not when its batch is sent, and a `session_start` is queued right before the event that opened it. Events stay on the queue until the moment they are handed to `fetch`, so a send still waiting for the visitor or the rate limiter no longer holds them anywhere else. The new `sendPendingEvents` (exported, called by the web analytics hook on `visibilitychange` to hidden and on `pagehide`, before the engagement beacon) sends what is queued by `navigator.sendBeacon`, with the tags each event has settled on and no third-party trackers (no server ids to deduplicate them with); when no beacon can take the queue (a visitor the server does not know yet, no `sendBeacon`, a refused body) it is sent the usual way. Previously a page hidden within the 2-second batch delay lost its landing events and `session_start` while the engagement beacon still arrived. `Session.extend` no longer starts a session when none is stored, and `sendBeacon` sends nothing then. A failed batch puts its `session_start` back on the queue under its own session; a failed visitor request leaves the events queued instead of reporting them lost, and `trackAsync` then resolves at once rather than waiting for the next send (it still never rejects). A batch whose body would not fit keepalive's 64KB in-flight budget is sent without `keepalive` instead of failing outright. Engagement now counts from the session's first event rather than from its first batch.
+
+  Beacons are now sent as `text/plain;charset=UTF-8` instead of `application/json`, so a cross-origin beacon is a CORS simple request with no preflight, which a page being closed often could not complete. **The events endpoint must accept `text/plain` before this version is deployed** — with `@shware/http`, use `zBeaconJson(createTrackEventSchema)` in place of `zValidator('json', …)`.
+
+## 9.0.0
+
+### Major Changes
+
+- d2ecdbd: Name every ad click id and ad cookie tag after where it was read, and never fill one from the other. URL parameters keep their own names (`fbclid`, `gclid`, `wbraid`, `msclkid`, `rdt_cid`, `li_fat_id`, `oppref`, …) and are now read from the URL only: `gclid`, `wbraid`, `msclkid`, `rdt_cid` and `li_fat_id` no longer fall back to a cookie, so channel classification only ever sees this visit's click. The ad platforms' first-party cookies are kept raw under the cookie's name: `_fbc`, `_fbp`, `_gcl_aw`, `_gcl_gb`, `_uetmsclkid`, `_rdt_cid`, `_rdt_uuid`, `__oppref`, `__obref`, and `_li_fat_id` for LinkedIn's `li_fat_id` cookie. Breaking: the `fbc`, `fbp` and `rdt_uuid` tags are renamed to `_fbc`, `_fbp` and `_rdt_uuid`; queries reading `tags->>'fbc'` and the like need the new names. The Conversions API senders take the URL click id first and the cookie on a page without one — for Google all of `gclid` / `gbraid` / `wbraid` from the URL when it carries any, so a fresh click never goes out as an earlier one — and Meta keeps the `_fbc` cookie over a rebuilt `fbc` only when it was opened by the same `fbclid`. The old `fbc`, `fbp` and `rdt_uuid` are deprecated but still accepted by `tagsSchema` and read by the senders, for clients not yet upgraded.
+
+### Patch Changes
+
+- d2ecdbd: Tighten which click ids the Conversions API senders pass on. A `gclid` whose `gclsrc` marks it as Search Ads 360's (`ds`, `3p.ds`) is no longer sent to Google Ads, the same gating gtag applies to `_gcl_aw` (now shared as `isGoogleAdsGclid`), so it no longer hides a valid `_gcl_aw` click either. A URL `msclkid` not in the 32-hex shape of one is ignored in favour of the `_uetmsclkid` cookie. `parseFbc` reads `fb.<index>.<time>.<fbclid>.<appendix>`, the format Meta's Parameter Builder writes, with the fbclid as the fourth segment alone, so such a cookie is recognised as the same click instead of being rewritten with a new creationTime.
+- d2ecdbd: Send the OpenAI Conversions API `user` object in the fields the API documents: the plural, hashed lists `emails_sha256`, `phone_numbers_sha256`, `external_ids_sha256`, `first_names_sha256`, `last_names_sha256` and the raw `regions`, `postal_codes`, `cities`, `countries`, from every email, phone number and address given rather than the first, normalized as documented. The singular `email_sha256`, `external_id_sha256`, `country`, `city` and `zip_code` it sent before are not in the API. Also sends the pixel's `__obref` cookie as `user.obref`, the GAID of Android events as `android_advertising_id`, and the pixel's `__oppref` cookie as `oppref` when the page URL carries none.
+
+## 8.16.0
+
+### Minor Changes
+
+- 3e60fc5: Collect two more ad click ids from the landing URL: `oppref` (OpenAI's ChatGPT Ads) and `epik` (Pinterest Ads). Both name their channel in `classifyTouch` (`chatgpt`, `pinterest`), so an ad click without utm tags is a paid touch and not organic AI or a referral, and the OpenAI Conversions API events now carry `oppref`, which OpenAI matches conversions to clicks with. Snapchat's click id is read as `ScCid`, the case Snapchat appends it in (it was never captured before), and the tag is renamed from `sccid` to `ScCid` so that every click id tag is named after its URL parameter. `li_fat_id`, `ScCid`, `yclid`, `oppref` and `epik` are marked `'ads'` in `CLICK_ID_CHANNELS`. The pixels' `__oppref` / `_epik` cookies are not read: a click id names the visit's channel, and a cookie outlives the visit.
+- 3e60fc5: `classifyTouch` no longer counts the `_fbc` cookie as a Meta click: it outlives the visit by 90 days, so it named later direct, search and email visits Meta. `fbclid`, read from the landing URL, still counts. A `utm_source` without a `utm_medium` is `cpc` when a click id of the same channel that its platform puts on ad clicks only came with it: `CLICK_ID_CHANNELS` entries gain a third element, `'ads'` or `'any'` (`fbclid` is `'any'`: Meta puts it on organic links too). Code destructuring `[key, channel]` is unaffected. `utm_source=th` (Meta's Threads placement) folds into `meta`. The comments record why a `utm_source` outranks a click id. Reclassify stored sessions after upgrading.
+
+## 8.15.1
+
+### Patch Changes
+
+- 8315ea3: `botOf` no longer takes a page opened in Facebook's or Instagram's in-app browser for a bot when the app sends its requests with its own user agent (`[FBAN/…]`, `Instagram 445.0.0.34.44 (iPhone…) AppleWebKit/420+`); PostHog, GA4 and Matomo count these as people. Names ShapBot (Parallel, `ai_search`), Shap-User and QuillBot (`ai_assistant`), PromptingBot and Reflectionbot (`ai_crawler`), which were filed as `other`.
+
+## 8.15.0
+
+### Minor Changes
+
+- 4f67386: Export a zero-dependency `botOf(tags)` from `@shware/analytics` that names and categorizes bot visitors from the request user agent, and send `tags.webdriver` from the web SDK when `navigator.webdriver` is true.
+
+## 8.14.0
+
+### Minor Changes
+
+- 3410c8a: `createTrackEventSchema` corrects events stamped by a wrong client clock: an event more than a day from the server's time is moved onto it, together with the other wrong events of its batch by their latest one, keeping their order and spacing; the events on the right clock are left alone. A phone set to another year no longer writes its sessions into that year.
+
+## 8.13.1
+
+### Patch Changes
+
+- 0d439e3: Upgrade dependencies and peer dependencies to their latest versions.
+- Updated dependencies [0d439e3]
+  - @shware/utils@1.6.2
+
+## 8.13.0
+
+### Minor Changes
+
+- 5c91276: `@shware/analytics/attribution`: the channel rules learn what a year of production sessions left unassigned. `channelGroupOf` now applies GA4's source rules as well as its medium rules — `linkedin / (not set)` is `organic_social`, `google / (not set)` is `organic_search`, `email / promo` is `email` — and any medium that says email or newsletter (`outbound email`, `cold_email`) is email. A `utm_source` with the rest of the query glued on (`email&utm_medium=…`, `toolify/`) is read up to the junk, and `undefined` / `null` tag values count as absent. Meta's `{{placement}}` values as a medium (`META_PLACEMENTS`, Meta's documented list plus the ones seen: `facebook_mobile_feed`, `instagram_reels`, `whatsapp_status`, `an`, `others`, the unexpanded `{{placement}}`; listed one by one so a hand-tagged `instagram_stories` post is not an ad) are a paid Meta click whatever the source, and `pmax` is paid. `google ads` / `googleads` / `adwords` fold to `google`. The AI assistants get a channel group of their own, `organic_ai`: `chatgpt` (also `openai`), `perplexity`, `gemini`, `claude`, `copilot` (`copilot.com` too), `grok`, and the Chinese assistants `deepseek`, `doubao`, `kimi`, `qwen`, `yuanbao`, `ernie`, `zhipu`, by referrer or by ChatGPT's own `utm_source=chatgpt.com`, with `gemini.google.com`, `copilot.microsoft.com` and `yiyan.baidu.com` no longer read as Google, Microsoft and Baidu search. Products re-run their reclassification to apply this to history. The patterns themselves — `AD_LANDING_PAGE`, `PAID_MEDIUM`, `EMAIL_MEDIUM`, `REFERRERS_NOT_A_TOUCH`, the third column of `REFERRER_SITES`, and `ClassifyOptions.ownHosts` — are `RegExp` values now, not POSIX strings: since 8.12 they are read only by `classifyTouch`, no product generates SQL from them any more, and a regex literal needs no escaping convention. `.source` gives the text back if anything ever does. `REFERRERS_NOT_A_TOUCH` grows from the payment and Google / Apple / Microsoft sign-in hosts to the sign-in providers with a login host of their own (WeChat, Kakao, LINE, Naver, Yahoo, Twitch, X's OAuth 1.0a, Microsoft's login.live.com), the hosted auth services (Auth0, Okta, Supabase, Firebase, Clerk) and more payment hosts (PayPal, Alipay, Paddle, Lemon Squeezy), so a session that starts on the way back from a sign-in is not credited to it — and `nid.naver.com` / `login.yahoo.com` are no longer read as a search.
+
+## 8.12.0
+
+### Minor Changes
+
+- d00dfa5: `@shware/analytics/attribution`: `classifyTouch(tags, options)` reads the tags a session arrived with as one touch — `channel`, `medium`, `channel_group`, `campaign`, `priority` — by the rules the vocabulary describes: an explicit `utm_source` (aliases folded), a click id, an ad landing page, the product's own rules (`options.rules`, e.g. a referral landing page), the referrer's host (search engines and social networks folded, payment / sign-in providers and `options.ownHosts` ignored), `(direct)` otherwise. `channelGroupOf(channel, medium)` is GA4's default channel grouping on its own. Products run this once when a session is written and store the result, instead of re-deriving it in a view per query.
+
+## 8.11.0
+
+### Minor Changes
+
+- 4d342cc: `@shware/analytics/attribution`: `referral_program` joins `CHANNELS`, the channel of a product's own referral programme — a session that came through a member's link or code. How a product recognises one (a `/refer/<code>` path, a code entered at sign-up) differs too much between products to be a shared rule, so that stays with the product's `touchpoint`; the name is shared so dashboards agree. It is deliberately not `referral`, which is the channel group of any outside site.
+
+## 8.10.0
+
+### Minor Changes
+
+- 2f8e209: `@shware/analytics/attribution`: the vocabulary attribution is built from, as data — `CHANNELS` and `CHANNEL_GROUPS` (GA4's default channel groups as identifiers), `SOURCE_ALIASES`, `CLICK_ID_CHANNELS` (every click id this SDK collects, mapped to its channel and checked against `AdvertisingInfo`), `REFERRER_SITES` (search engines and social networks by host pattern, with the medium GA4 gives them), `REFERRERS_NOT_A_TOUCH` (payment and sign-in hosts), `AD_LANDING_PAGE`, the paid / display / email medium rules, `TOUCH_SOURCES`, `REPORTED_TOUCH_KINDS` and `TOUCH_PRIORITY`. No SQL and no runtime code: a product's `touchpoint` view is generated from these, so a channel added here reaches every product on upgrade, and dashboards share the same names.
+
+## 8.9.0
+
+### Minor Changes
+
+- e52ef6c: `distinct_id` is the server's: dropped from `updateVisitorSchema`, so the client no longer sends it, and added to `Visitor` as the person the visitor belongs to — its own id until someone signs in on it, the user's id from then on. Third-party user setters now receive `VisitorIdentity`, the PATCH payload plus the server's `distinct_id`; `setPosthogUser` identifies by it once a `user_id` is known and no longer identifies an anonymous visitor, since PostHog will not merge one identified person into another at sign-in. Pairs with the api release that maintains the column.
+
+## 8.8.0
+
+### Minor Changes
+
+- 1301a5a: Drop `site_source_name` from `TrackTags`, the tag schema and the web tag capture. It was read from a URL parameter of that exact name, which Meta only sets when an ad's URL parameters spell out `site_source_name={{site_source_name}}`; the working convention is `utm_source={{site_source_name}}`, which lands the same value in `utm_source`, so the separate field was never populated. The server strips the key from a payload an older client still sends.
+
+## 8.7.2
+
+### Patch Changes
+
+- 3097cde: On native, the install referrer's `utm_*` parameters are attached only on the install launch: the first launch that resolves the referrer claims them, with a marker of its own in storage, and every later launch sends the raw `install_referrer` without the utm fields. A launch that cannot reach the Play Store service, which is common right after an install, does not spend the claim, so a later launch still attributes the install. The referrer never changes, and it was spread into the tags of every launch, so every session of an Android install reported the install campaign as its own acquisition for as long as the app stayed installed; a report reading a session's tags could not tell the install from the thousandth open. iOS, which has no install referrer, is unchanged.
+
+## 8.7.1
+
+### Patch Changes
+
+- 7a695e5: A `session_start` whose batch the server rejected goes out again with the session's next batch, under the same session id and with its original tags and timestamp. `fetch` already retries transient failures; this covers a batch rejected outright — one invalid event fails the whole batch, and the session's only attribution record with it — after which every later event of the session had no `session_start` to be attributed through. A session that has timed out in the meantime is not announced late: the carried-over start is dropped when the next batch opens a new session.
+- 7a695e5: `session_start` carries the tags of the event that opened the session, captured when that event happened, instead of capturing its own at flush time. A batch is flushed up to two seconds after the landing, and a landing page that redirects inside that window — an ad landing page that sends the visitor on to sign-in, a router that strips the query string — stamped the session's one attribution record with the URL the utm parameters and click ids had already been stripped from, so the session looked like direct traffic.
+
 ## 8.7.0
 
 ### Minor Changes

@@ -28,6 +28,8 @@ const config = { purchase: 111, sign_up: '222' } as const;
 describe('normalizeEmail', () => {
   it('strips dots and plus suffixes for gmail only', () => {
     expect(normalizeEmail(' First.Last+tag@Gmail.com ')).toBe('firstlast@gmail.com');
+    // Intermediate whitespace goes too.
+    expect(normalizeEmail('ada lovelace@example.com')).toBe('adalovelace@example.com');
     expect(normalizeEmail('first.last@googlemail.com')).toBe('firstlast@googlemail.com');
     expect(normalizeEmail('First.Last+tag@company.com')).toBe('first.last+tag@company.com');
   });
@@ -46,12 +48,14 @@ describe('getDataManagerEvent', () => {
     });
   });
 
-  it('sends at most one click id, preferring gclid, then gbraid', () => {
+  it('sends the gclid with the gbraid, as Google recommends, and never a wbraid beside them', () => {
     const both = getDataManagerEvent(
       event({ tags: { gclid: 'G', gbraid: 'B', wbraid: 'W' } }),
       config
     );
-    expect(both?.adIdentifiers).toEqual({ gclid: 'G' });
+    expect(both?.adIdentifiers).toEqual({ gclid: 'G', gbraid: 'B' });
+    const web = getDataManagerEvent(event({ tags: { gclid: 'G', wbraid: 'W' } }), config);
+    expect(web?.adIdentifiers).toEqual({ gclid: 'G' });
 
     const ios = getDataManagerEvent(event({ tags: { gbraid: 'B', wbraid: 'W' } }), config);
     expect(ios?.adIdentifiers).toEqual({ gbraid: 'B' });
@@ -87,8 +91,17 @@ describe('getDataManagerEvent', () => {
   });
 
   it('maps platform to eventSource', () => {
-    expect(getDataManagerEvent(event({ platform: 'ios' }), config)?.eventSource).toBe('APP');
-    expect(getDataManagerEvent(event({ platform: 'unknown' }), config)?.eventSource).toBe('OTHER');
+    // A webpage action (the default) takes WEB or nothing: anything else fails the request.
+    expect(getDataManagerEvent(event({ platform: 'ios' }), config)?.eventSource).toBeUndefined();
+    expect(
+      getDataManagerEvent(event({ platform: 'unknown' }), config)?.eventSource
+    ).toBeUndefined();
+    // An offline (upload) action requires it, and takes any value.
+    const offline = (platform: TrackEvent['platform']) =>
+      getDataManagerEvent(event({ platform }), config, {}, 'offline')?.eventSource;
+    expect(offline('web')).toBe('WEB');
+    expect(offline('ios')).toBe('APP');
+    expect(offline('unknown')).toBe('OTHER');
   });
 
   it('hashes identifiers with Google email normalization, capped at ten', () => {
