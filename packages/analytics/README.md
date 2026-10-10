@@ -419,11 +419,21 @@ try {
   it; it posts 7 days per request. Hourly data reaches back at least months — compare each day's
   sum of hours with the day in the Google Ads UI before relying on older days.
 
-Schedule it hourly. Google Ads emails the account owner when a run throws, as on a non-2xx answer.
+Setting it up:
+
+1. Tools → Bulk actions → Scripts → **+**, paste the script, set `ENDPOINT` and `KEY`.
+2. **Authorize** it before the first run: posting to a URL needs the "connect to an external
+   service" scope, and a run without it ends at once with "Failed due to authentication errors".
+3. Backfill (`SINCE`, above), then clear `SINCE` and save.
+4. Back in the scripts list, set the **Frequency** column to Hourly — the editor has no schedule.
+   The results column reads "no changes" on every run: it counts changes to the account, and the
+   script makes none.
+
+Google Ads emails the account owner when a run throws, as on a non-2xx answer.
 
 ```js
-const ENDPOINT = 'https://api.example.com/ads/google';
-const KEY = '…'; // the bearer key the endpoint checks
+const ENDPOINT = 'https://example.com/v1/adPerformance/google';
+const KEY = '<my_bearer_token>'; // the bearer key the endpoint checks
 const DAYS = 3; // re-read every hour
 const RESTATE_DAYS = 30; // re-read once a day, at RESTATE_HOUR in the account's time zone
 const RESTATE_HOUR = 5;
