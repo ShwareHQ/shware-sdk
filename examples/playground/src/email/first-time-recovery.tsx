@@ -1,0 +1,20 @@
+import { emailTemplate } from '@shware/workflow';
+import * as z from 'zod/mini';
+import { Cta, Heading, Paragraph, Shell } from './layout';
+
+export default emailTemplate({
+  title: 'Cart Recovery · First touch',
+  props: z.strictObject({}),
+  subject: 'Your workspace is waiting',
+  preview: {},
+  component: () => (
+    <Shell preheader="Pick up where you left off">
+      <Heading>Pick up where you left off</Heading>
+      <Paragraph>
+        Your checkout is still open. Plans are month-to-month, cancel anytime, and payment is
+        handled by Stripe.
+      </Paragraph>
+      <Cta href="https://example.com/checkout">Resume checkout</Cta>
+    </Shell>
+  ),
+});

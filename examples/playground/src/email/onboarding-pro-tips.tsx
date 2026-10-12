@@ -1,17 +1,14 @@
+import { emailTemplate } from '@shware/workflow';
+import * as z from 'zod/mini';
 import { Message } from './layout';
 
-export const from = 'Acme <hello@acme.io>';
-export const to = '{{ user.email }}';
-export const replyTo = 'Acme Support <support@acme.io>';
-
-export const name = 'Onboarding · Pro tips';
-export const description =
-  'For users already active: the shortcuts that separate daily drivers from visitors.';
-
-export const subject = 'Four shortcuts our heaviest users live in';
-
-export default function OnboardingProTips() {
-  return (
+export default emailTemplate({
+  title: 'Onboarding · Pro tips',
+  description: 'For users already active: the shortcuts that separate daily drivers from visitors.',
+  props: z.strictObject({}),
+  subject: 'Four shortcuts our heaviest users live in',
+  preview: {},
+  component: () => (
     <Message
       preheader="Command palette, backlinks, snippets, offline"
       heading="Four shortcuts worth learning"
@@ -20,5 +17,5 @@ export default function OnboardingProTips() {
       }
       cta={{ label: 'See all shortcuts', href: 'https://example.com/docs/shortcuts' }}
     />
-  );
-}
+  ),
+});
