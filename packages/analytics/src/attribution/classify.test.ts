@@ -582,6 +582,18 @@ describe('classifyTouch', () => {
     });
   });
 
+  it('keeps the site of a ?ref= with the rest of a query, a port or a path glued on', () => {
+    // As `utm_source` does: a link built by hand or double-encoded.
+    expect(classifyTouch(at('/?ref=producthunt?utm_source=x'))).toMatchObject({
+      channel: 'producthunt',
+    });
+    expect(classifyTouch(at('/?ref=toolify.ai?x=1'))).toMatchObject({ channel: 'toolify.ai' });
+    expect(classifyTouch(at('/?ref=example.com:8080/tools'))).toMatchObject({
+      channel: 'example.com',
+    });
+    expect(classifyTouch(at('/?ref=?x=1'))).toMatchObject({ channel: '(direct)' });
+  });
+
   it('ignores a ref that is not a query parameter, and a page_location it cannot parse', () => {
     expect(classifyTouch(at('/blog/ref=x#ref=y'))).toMatchObject({ channel: '(direct)' });
     expect(classifyTouch(at('http://[bad'))).toMatchObject({ channel: '(direct)' });

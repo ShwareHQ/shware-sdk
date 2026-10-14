@@ -199,9 +199,12 @@ function refParam(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | nul
   } catch {
     return null;
   }
-  const ref = value?.trim().toLowerCase().replace(/\/+$/, '');
+  // A value with the rest of the query glued on (`producthunt?utm_source=x`), as `utmChannel`
+  // keeps the source of one; a bare host loses its port and path, as the referrer's does.
+  const ref = value?.trim().toLowerCase().split(/[?&#]/)[0]?.replace(/\/+$/, '');
   if (!ref) return null;
-  const host = referrerHostOf.exec(ref)?.[1] ?? (ref.includes('.') ? ref.split('/')[0] : null);
+  const host =
+    referrerHostOf.exec(ref)?.[1] ?? (ref.includes('.') ? ref.split(/[/:]/)[0] : undefined);
   if (host) return siteTouch(host, ownHosts);
   return {
     channel: (SOURCE_ALIASES as Record<string, string>)[ref] ?? ref,
@@ -244,23 +247,23 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * Reads the tags a session arrived with (its `session_start` tags) as one touch. Run once, when
  * the session is written; the result is stored, and the views only read it.
  *
- * The rules, in order, the first that says something naming the channel: an explicit
- * `utm_source`, a click id, an ad landing page, the product's own rules, the referrer's host,
- * the landing page's `?ref=` when there is no referrer; `(direct)` when none does. `medium` is `utm_medium` as declared
- * (lower-cased), else what that rule implies: `(not set)` for a utm_source alone, `cpc` for a
- * bare click id or ad landing page, the product rule's own, `referral` for a `?ref=` site name,
- * `organic` / `social` / `video` / `referral` for a referrer (or a host in `?ref=`), `(none)`
+ * The rules, in order, the first that says something naming the channel: an explicit `utm_source`,
+ * a click id, an ad landing page, the product's own rules, the referrer's host, the landing page's
+ * `?ref=` when there is no referrer; `(direct)` when none does. `medium` is `utm_medium` as
+ * declared (lower-cased), else what that rule implies: `(not set)` for a utm_source alone, `cpc`
+ * for a bare click id or ad landing page, the product rule's own, `referral` for a `?ref=` site
+ * name, `organic` / `social` / `video` / `referral` for a referrer (or a host in `?ref=`), `(none)`
  * for direct. An ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`) or its ad
  * landing page makes it `cpc` when the medium was left out or puts the touch in an organic group:
  * the click was paid whatever the tag said — a Reddit ad tagged `utm_medium=social`, a ChatGPT ad
- * keeping the `utm_source=chatgpt.com` of its organic links. `campaign` is `utm_campaign`, else what a
- * product rule captured — even when the utm named the channel, so a tagged referral link keeps
- * its code. `priority` is the tier of the rule that named the channel (`TOUCH_PRIORITY`):
- * campaign touches, then the product's own as they declare, then the referrer and `?ref=` —
- * except that a campaign rule whose touch lands in an organic group, referral
- * (`utm_source=chatgpt.com`, `utm_medium=organic`) or email ranks with a referrer: nobody paid
- * for that click, and it should not take the credit from an ad clicked earlier in the attribution
- * window. When a product rule matched too, the stronger of the two tiers holds.
+ * keeping the `utm_source=chatgpt.com` of its organic links. `campaign` is `utm_campaign`, else
+ * what a product rule captured — even when the utm named the channel, so a tagged referral link
+ * keeps its code. `priority` is the tier of the rule that named the channel (`TOUCH_PRIORITY`):
+ * campaign touches, then the product's own as they declare, then the referrer and `?ref=` — except
+ * that a campaign rule whose touch lands in an organic group, referral (`utm_source=chatgpt.com`,
+ * `utm_medium=organic`) or email ranks with a referrer: nobody paid for that click, and it should
+ * not take the credit from an ad clicked earlier in the attribution window. When a product rule
+ * matched too, the stronger of the two tiers holds.
  */
 export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): Touch {
   const utm = utmChannel(tags);
