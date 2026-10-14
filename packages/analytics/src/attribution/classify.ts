@@ -38,8 +38,9 @@ export type ProductTouch = Omit<Touch, 'channel_group'>;
 
 /**
  * A product's own rule: a landing page convention, a code in the URL. Tried after the campaign
- * rules (utm, click id, ad landing page) and before the referrer, so a link shared on Facebook
- * or WhatsApp is credited to what the product recognises, not to the site it was shared on.
+ * rules (utm, click id, ad landing page) and before the referrer and `?ref=`, so a link shared on
+ * Facebook or WhatsApp is credited to what the product recognises, not to the site it was shared
+ * on — and a product whose `?ref=` carries a referral code, not a site, claims it here first.
  * Returns null when the session is not one of its.
  */
 export type TouchRule = (tags: TrackTags) => ProductTouch | null;
@@ -54,6 +55,9 @@ export interface ClassifyOptions {
   /** The product's rules, in order; the first that names the session wins. */
   rules?: readonly TouchRule[];
 }
+
+/** What a site names, from the referrer or `?ref=`: no campaign, and the referrer's tier. */
+type SiteTouch = Pick<Touch, 'channel' | 'medium'>;
 
 const metaPlacements = new Set<string>(META_PLACEMENTS);
 /** The groups no one paid for: a campaign rule landing in one of them ranks with a referrer. */
@@ -148,14 +152,21 @@ function productTouch(tags: TrackTags, rules: readonly TouchRule[]): ProductTouc
 }
 
 /**
- * 5. The referrer's host: a known search engine or social network folded to its channel, any
- * other site kept as its host, and null for no referrer or one that is no touch. An Android app's
- * referrer (`android-app://<package>`) is read as the site it stands for (`ANDROID_APP_HOSTS`).
+ * A referring site's host as a touch: a known search engine or social network folded to its
+ * channel, any other site kept as its host, and null for a host that is no touch.
  */
-function referrer(
-  tags: TrackTags,
-  ownHosts: readonly RegExp[]
-): { channel: string; medium: string } | null {
+function siteTouch(host: string, ownHosts: readonly RegExp[]): SiteTouch | null {
+  if (REFERRERS_NOT_A_TOUCH.some((pattern) => pattern.test(host))) return null;
+  if (ownHosts.some((pattern) => pattern.test(host))) return null;
+  const site = REFERRER_SITES.find(([, , pattern]) => pattern.test(host));
+  return site ? { channel: site[0], medium: site[1] } : { channel: host, medium: 'referral' };
+}
+
+/**
+ * 5. The referrer's host, read as `siteTouch`; null for no referrer. An Android app's referrer
+ * (`android-app://<package>`) is read as the site it stands for (`ANDROID_APP_HOSTS`).
+ */
+function referrer(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | null {
   const url = text(tags, 'page_referrer');
   const app = url ? androidAppOf.exec(url)?.[1]?.toLowerCase() : undefined;
   const host = app
@@ -163,11 +174,39 @@ function referrer(
     : url
       ? referrerHostOf.exec(url)?.[1]?.toLowerCase()
       : undefined;
-  if (!host) return null;
-  if (REFERRERS_NOT_A_TOUCH.some((pattern) => pattern.test(host))) return null;
-  if (ownHosts.some((pattern) => pattern.test(host))) return null;
-  const site = REFERRER_SITES.find(([, , pattern]) => pattern.test(host));
-  return site ? { channel: site[0], medium: site[1] } : { channel: host, medium: 'referral' };
+  return host ? siteTouch(host, ownHosts) : null;
+}
+
+/**
+ * 6. The `ref` parameter of the landing page, when the session has no referrer at all: the
+ * convention of sites that link out — Product Hunt's `?ref=producthunt`, newsletters,
+ * directories, "built with" badges. It names the site when the browser does not: a click from a
+ * mail client, an in-app browser or a page under `no-referrer`. With a referrer it is not read —
+ * the referrer is where the click happened, and the `ref` only where the link was first written:
+ * a search engine indexes the URL with its `?ref=`, another directory copies the link, and the
+ * `ref` would credit the first site with the visit the second one sent; an internal link's
+ * `?ref=header` would credit the page's own nav. A site's name (`producthunt`) is kept as the
+ * channel, with the `utm_source` aliases folded; a host or URL (`producthunt.com`,
+ * `https://news.ycombinator.com/`) is read as a referrer's host, so the same site lands on the
+ * same channel either way. Ranks with the referrer: nobody paid for that link.
+ */
+function refParam(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | null {
+  const location = text(tags, 'page_location');
+  if (!location || text(tags, 'page_referrer')) return null;
+  let value: string | null;
+  try {
+    value = new URL(location, 'https://localhost').searchParams.get('ref');
+  } catch {
+    return null;
+  }
+  const ref = value?.trim().toLowerCase().replace(/\/+$/, '');
+  if (!ref) return null;
+  const host = referrerHostOf.exec(ref)?.[1] ?? (ref.includes('.') ? ref.split('/')[0] : null);
+  if (host) return siteTouch(host, ownHosts);
+  return {
+    channel: (SOURCE_ALIASES as Record<string, string>)[ref] ?? ref,
+    medium: 'referral',
+  };
 }
 
 /**
@@ -206,28 +245,30 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  * the session is written; the result is stored, and the views only read it.
  *
  * The rules, in order, the first that says something naming the channel: an explicit
- * `utm_source`, a click id, an ad landing page, the product's own rules, the referrer's host;
- * `(direct)` when none does. `medium` is `utm_medium` as declared (lower-cased), else what that
- * rule implies: `(not set)` for a utm_source alone, `cpc` for a bare click id or ad landing page,
- * the product rule's own, `organic` / `social` / `video` / `referral` for a referrer, `(none)`
+ * `utm_source`, a click id, an ad landing page, the product's own rules, the referrer's host,
+ * the landing page's `?ref=` when there is no referrer; `(direct)` when none does. `medium` is `utm_medium` as declared
+ * (lower-cased), else what that rule implies: `(not set)` for a utm_source alone, `cpc` for a
+ * bare click id or ad landing page, the product rule's own, `referral` for a `?ref=` site name,
+ * `organic` / `social` / `video` / `referral` for a referrer (or a host in `?ref=`), `(none)`
  * for direct. An ad-only click id of the channel itself (`'ads'` in `CLICK_ID_CHANNELS`) or its ad
  * landing page makes it `cpc` when the medium was left out or puts the touch in an organic group:
  * the click was paid whatever the tag said — a Reddit ad tagged `utm_medium=social`, a ChatGPT ad
  * keeping the `utm_source=chatgpt.com` of its organic links. `campaign` is `utm_campaign`, else what a
  * product rule captured — even when the utm named the channel, so a tagged referral link keeps
  * its code. `priority` is the tier of the rule that named the channel (`TOUCH_PRIORITY`):
- * campaign touches, then the product's own as they declare, then the referrer — except that a
- * campaign rule whose touch lands in an organic group, referral (`utm_source=chatgpt.com`,
- * `utm_medium=organic`) or email ranks with a referrer: nobody paid for that click, and it should
- * not take the credit from an ad clicked earlier in the attribution window. When a product rule
- * matched too, the stronger of the two tiers holds.
+ * campaign touches, then the product's own as they declare, then the referrer and `?ref=` —
+ * except that a campaign rule whose touch lands in an organic group, referral
+ * (`utm_source=chatgpt.com`, `utm_medium=organic`) or email ranks with a referrer: nobody paid
+ * for that click, and it should not take the credit from an ad clicked earlier in the attribution
+ * window. When a product rule matched too, the stronger of the two tiers holds.
  */
 export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): Touch {
   const utm = utmChannel(tags);
   const click = clickChannel(tags);
   const landing = landingChannel(tags);
   const product = productTouch(tags, options.rules ?? []);
-  const referred = referrer(tags, options.ownHosts ?? []);
+  const ownHosts = options.ownHosts ?? [];
+  const referred = referrer(tags, ownHosts) ?? refParam(tags, ownHosts);
 
   const channel =
     utm ?? click ?? landing ?? product?.channel ?? referred?.channel ?? DIRECT_CHANNEL;
