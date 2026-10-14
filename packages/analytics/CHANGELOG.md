@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.11.0
+
+### Minor Changes
+
+- 268c482: `classifyTouch` reads the landing page's `?ref=` (Product Hunt's `?ref=producthunt`, directories, newsletters) as a referral when the session has no referrer; a referrer, a product rule, a utm or a click id still wins.
+
 ## 11.10.0
 
 ### Minor Changes
