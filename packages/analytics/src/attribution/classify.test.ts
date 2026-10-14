@@ -489,6 +489,115 @@ describe('classifyTouch', () => {
       )
     ).toMatchObject({ channel: 'google', medium: 'organic' });
   });
+
+  it('reads a ?ref= site name as a referral, ranked with the referrer', () => {
+    expect(classifyTouch(at('https://shware.net/?ref=producthunt'))).toEqual({
+      channel: 'producthunt',
+      medium: 'referral',
+      channel_group: 'referral',
+      campaign: null,
+      priority: TOUCH_PRIORITY.referrer,
+    });
+    expect(classifyTouch(at('/pricing?ref=%20ProductHunt/%20'))).toMatchObject({
+      channel: 'producthunt',
+    });
+    // The utm_source aliases fold, and a known social site keeps its group.
+    expect(classifyTouch(at('/?ref=twitter'))).toMatchObject({
+      channel: 'x',
+      medium: 'referral',
+      channel_group: 'organic_social',
+    });
+  });
+
+  it('reads a host or URL in ?ref= as the referrer would, so one site is one channel', () => {
+    expect(classifyTouch(at('/?ref=news.ycombinator.com'))).toMatchObject({
+      channel: 'news.ycombinator.com',
+      medium: 'referral',
+    });
+    expect(classifyTouch(at('/?ref=https://www.google.com/search'))).toMatchObject({
+      channel: 'google',
+      medium: 'organic',
+      channel_group: 'organic_search',
+    });
+    expect(classifyTouch(at('/?ref=chatgpt.com'))).toMatchObject({
+      channel: 'chatgpt',
+      channel_group: 'organic_ai',
+    });
+  });
+
+  it('reads ?ref= only when the session has no referrer: the referrer is where the click was', () => {
+    // A search engine indexed the URL with its ?ref=: the visit came from the search.
+    expect(
+      classifyTouch(at('/?ref=toolhunt.io', { page_referrer: 'https://yandex.ru/' }))
+    ).toMatchObject({ channel: 'yandex', medium: 'organic' });
+    // Another directory copied the link: it sent the visit, not the site the ref names.
+    expect(
+      classifyTouch(at('/?ref=openi.cn', { page_referrer: 'https://aijuh.com/' }))
+    ).toMatchObject({ channel: 'aijuh.com', medium: 'referral' });
+    // A referrer that is no touch — our own nav, a payment — still keeps the ref out.
+    expect(
+      classifyTouch(
+        at('https://app.shware.net/?ref=header', { page_referrer: 'https://app.shware.net/' }),
+        own
+      )
+    ).toMatchObject({ channel: '(direct)', priority: null });
+    expect(
+      classifyTouch(at('/?ref=producthunt', { page_referrer: 'https://checkout.stripe.com/' }))
+    ).toMatchObject({ channel: '(direct)' });
+    // With no referrer, a ref that is empty or no touch is direct.
+    expect(classifyTouch(at('/?ref='))).toMatchObject({ channel: '(direct)' });
+    expect(classifyTouch(at('/?ref=app.shware.net'), own)).toMatchObject({
+      channel: '(direct)',
+      priority: null,
+    });
+  });
+
+  it('lets a utm, a click id and a product rule win over ?ref=', () => {
+    expect(classifyTouch(at('/?ref=producthunt', { utm_source: 'newsletter' }))).toMatchObject({
+      channel: 'newsletter',
+    });
+    expect(classifyTouch(at('/?ref=producthunt', { gclid: 'x' }))).toMatchObject({
+      channel: 'google',
+      medium: 'cpc',
+    });
+    // A product whose ?ref= carries a referral code claims it with a rule of its own.
+    const codeRule: TouchRule = (tags) => {
+      const code = new URL(tags.page_location ?? '', 'https://shware.net').searchParams.get('ref');
+      return code?.startsWith('u_')
+        ? {
+            channel: 'referral_program',
+            medium: 'referral',
+            campaign: code,
+            priority: TOUCH_PRIORITY.claimed,
+          }
+        : null;
+    };
+    expect(classifyTouch(at('/?ref=u_42'), { rules: [codeRule] })).toMatchObject({
+      channel: 'referral_program',
+      campaign: 'u_42',
+      priority: TOUCH_PRIORITY.claimed,
+    });
+    expect(classifyTouch(at('/?ref=producthunt'), { rules: [codeRule] })).toMatchObject({
+      channel: 'producthunt',
+    });
+  });
+
+  it('keeps the site of a ?ref= with the rest of a query, a port or a path glued on', () => {
+    // As `utm_source` does: a link built by hand or double-encoded.
+    expect(classifyTouch(at('/?ref=producthunt?utm_source=x'))).toMatchObject({
+      channel: 'producthunt',
+    });
+    expect(classifyTouch(at('/?ref=toolify.ai?x=1'))).toMatchObject({ channel: 'toolify.ai' });
+    expect(classifyTouch(at('/?ref=example.com:8080/tools'))).toMatchObject({
+      channel: 'example.com',
+    });
+    expect(classifyTouch(at('/?ref=?x=1'))).toMatchObject({ channel: '(direct)' });
+  });
+
+  it('ignores a ref that is not a query parameter, and a page_location it cannot parse', () => {
+    expect(classifyTouch(at('/blog/ref=x#ref=y'))).toMatchObject({ channel: '(direct)' });
+    expect(classifyTouch(at('http://[bad'))).toMatchObject({ channel: '(direct)' });
+  });
 });
 
 describe('classifyTouch: what proves a paid click, and which tier a touch ranks in', () => {
