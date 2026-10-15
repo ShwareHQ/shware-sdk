@@ -1,136 +1,26 @@
-import type { EmailConfig, JourneyConfig, SegmentRef, WorkflowBuilder } from '@shware/workflow';
-import type { ReactElement } from 'react';
+import type {
+  DiscordTemplate,
+  EmailTemplate,
+  PushTemplate,
+  SegmentIR,
+  SlackTemplate,
+  WorkflowIR,
+} from '@shware/workflow';
 
 /**
- * `workflow.config.ts` — optional project configuration.
- *
- * Definitions are NOT listed here: the CLI discovers them by convention,
- * next.js-style —
- *   - `src/workflows/` (or `workflows/`): every exported workflow and segment
- *     in the directory shows up in the studio, keyed by its export name;
- *   - `src/emails/index.ts` (or `emails/index.ts`): the email registry
- *     (`export const emails = { ... }`), which stays an explicit object
- *     because it is what types `templates<Emails>()` keys at compile time;
- *   - `src/pushes/index.ts` (or `pushes/index.ts`): the push-notification
- *     registry (`export const pushes = { ... }`), same shape and same reason;
- *   - `src/slack/index.ts` and `src/discord/index.ts`: the chat-message
- *     registries (`export const slack` / `export const discord`), again the
- *     same contract — one registry per channel, because a key's content shape
- *     is the channel's, and a single merged map would have to guess.
- *
- * The config carries what conventions cannot: project settings (title, email
- * addresses) and runtime wiring (the stats source).
+ * The studio's own types: the stats source it reads numbers from
+ * (`workflow.stats.ts`, `defineStats`) and the shape the app receives from the
+ * dev server. The project itself is `@shware/workflow`'s `defineConfig({...})`
+ * in workflow.config.ts — the studio reads it, it defines nothing of its own.
  */
-
-/**
- * The envelope: everything about an email except its body. Values are plain
- * strings so they stay serializable, and may carry `{{ path }}` placeholders
- * the engine fills at send time — the same data-reference rule the DSL follows,
- * since a closure here could not survive the trip to the runtime.
- *
- * Every field is optional; the studio only shows what you set.
- */
-export interface EmailEnvelope {
-  from?: string;
-  to?: string;
-  replyTo?: string;
-  /** Preview text after the subject in most inboxes. */
-  preheader?: string;
-  cc?: string[];
-  bcc?: string[];
-  /** Extra SMTP headers, e.g. `{ 'X-Campaign': 'onboarding' }`. */
-  headers?: Record<string, string>;
-}
-
-/** One email module: a default-exported component plus its envelope and preview props. */
-export interface EmailModule extends EmailEnvelope {
-  /**
-   * Human label for the studio. The registry key is the template's identity —
-   * referenced by `t.xxx` and carried in IR — so it is not something to rename
-   * for readability; this is. Excluded from every hash by construction: nothing
-   * but the UI ever reads it.
-   */
-  name?: string;
-  /** What this message is for, in a sentence. Same rules as `name`. */
-  description?: string;
-  default: (props: never) => ReactElement;
-  /**
-   * A string template — a plain literal, or `emailSubject(u, '... {prop} ...')`
-   * when it personalizes. Data, never a closure: the studio edits it in place
-   * and the engine fills `{prop}` placeholders from the profile at send time.
-   */
-  subject?: string;
-  /** Sample props used when previewing this template. */
-  preview?: object;
-}
-
-/**
- * One push-notification module: content plus labels and preview props.
- *
- * Unlike an email, a push has no document to render — its content is two short
- * strings, so they follow the subject's rule: plain string templates carrying
- * `{prop}` placeholders the engine fills at send time. Data, never a closure —
- * which is also what lets the studio edit them in place.
- */
-export interface PushModule {
-  /** Human label for the studio; same rules as EmailModule.name. */
-  name?: string;
-  /** What this message is for, in a sentence. */
-  description?: string;
-  /** Notification title — a string template, `{prop}` placeholders allowed. */
-  title?: string;
-  /** Notification body — same rules as `title`. */
-  body?: string;
-  /**
-   * Optional rich image URL (iOS attachment / Android BigPicture). Delivered
-   * with the push at send time; the studio's collapsed-banner preview does
-   * not render it.
-   */
-  image?: string;
-  /** Sample props used when previewing this template. */
-  preview?: object;
-}
-
-/**
- * One chat-message module (Slack, Discord) — content plus labels.
- *
- * Same reasoning as PushModule: a chat message has no document to render, so
- * its content is a couple of short string templates carrying `{prop}`
- * placeholders the engine fills at send time. Data, never a closure — which is
- * what lets the studio edit it in place.
- *
- * One interface for both platforms because the payload genuinely is the same
- * shape: who it appears to come from, where it lands, a bold first line and a
- * body. Their chrome differs, and that difference belongs in the preview, not
- * in two identical types.
- */
-export interface ChatModule {
-  /** Human label for the studio; same rules as EmailModule.name. */
-  name?: string;
-  /** What this message is for, in a sentence. */
-  description?: string;
-  /**
-   * Display name of the bot posting it. Absent falls back to the project
-   * title, the same way a push banner falls back for its app name.
-   */
-  sender?: string;
-  /** Destination, e.g. `#customer-success` — shown in the preview's header. */
-  to?: string;
-  /** First line, rendered bold — a string template, `{prop}` allowed. */
-  title?: string;
-  /** Message body — same rules as `title`. */
-  body?: string;
-  /** Sample props used when previewing this template. */
-  preview?: object;
-}
 
 /** Node id → how many users currently sit on that node. */
 export type NodeStats = Record<string, number>;
 
 /** Per-workflow totals for the list and metrics views. */
 export interface WorkflowReport {
-  /** Workflow name, matching the IR. */
-  name: string;
+  /** The workflow's id, matching `WorkflowIR.id`. */
+  id: string;
   entered: number;
   completed: number;
   /** Reached the goal (a conversion). */
@@ -172,6 +62,7 @@ export type MetricChannel =
   | 'email'
   | 'push_ios'
   | 'push_android'
+  | 'push_web'
   | 'slack'
   | 'discord'
   | 'sms'
@@ -182,6 +73,7 @@ export const METRIC_CHANNELS = [
   'email',
   'push_ios',
   'push_android',
+  'push_web',
   'slack',
   'discord',
   'sms',
@@ -245,6 +137,13 @@ export interface MetricPoint {
   clickedHuman?: number;
   /** Clicks attributed to a link prefetcher or a security scanner following links. */
   clickedMachine?: number;
+  /** Users who entered the workflow in this bucket: the conversion rate's denominator. */
+  entered: number;
+  /**
+   * Of the users who entered in this bucket, those who reached the goal — counted against their
+   * entry, not the day they converted, so `converted / entered` is a share of one cohort and
+   * never passes 100%.
+   */
   converted: number;
 }
 
@@ -287,8 +186,8 @@ export interface MessageStat {
  * whether a condition matches the population you meant.
  */
 export interface SegmentReport {
-  /** Segment name, matching the one the DSL declares. */
-  name: string;
+  /** The segment's id, matching `SegmentIR.id`. */
+  id: string;
   /** Users in the segment right now. */
   size: number;
   /** Recent daily sizes, oldest first — drives the sparkline in the list. */
@@ -342,79 +241,48 @@ export interface StatsSource {
   messages?: (workflowName: string, query: StatsRange) => Promise<MessageStat[]> | MessageStat[];
 }
 
-/** What the studio hands to `sendTest`: the rendered template plus the target inbox. */
-export interface SendTestArgs {
-  /** Template key, for logging / subject prefixes. */
-  key: string;
-  /** Recipient typed into the test dialog. */
-  to: string;
-  subject?: string;
-  /** Fully rendered HTML, exactly what the preview iframe shows. */
-  html: string;
-}
-
 /**
- * Email settings for the project: the sender envelope the engine uses
- * (`from`, `replyTo`) and the address book the studio's from / reply-to
- * pickers list — derived from the envelope unless `addresses` is set, which is
- * where "add address" in the UI writes back.
+ * Identity helper for `workflow.stats.ts` — the studio's optional runtime
+ * data source, kept apart from the project: the project describes what is
+ * deployed, this is how the studio reads numbers about it. It runs on the
+ * studio's dev server (Node), so it can query the project's database or API
+ * with credentials from the environment; the page calls it over HTTP, and
+ * every answer must be JSON.
  */
-export interface EmailSettings extends EmailConfig {
-  /**
-   * Deliver a rendered template to a real inbox — the "send test" button on
-   * the preview page, like react-email's. The studio renders and collects the
-   * recipient; transport is the project's business (Resend, SES, an API
-   * route…), so it stays a hook. The button only appears when this is set.
-   */
-  sendTest?: (args: SendTestArgs) => Promise<void>;
+export function defineStats(stats: StatsSource): StatsSource {
+  return stats;
+}
+
+/** Why the studio has nothing to show: the project failed to load, or to compile. */
+export interface StudioError {
+  /** `compile`: compileConfig refused it (the message names the workflow and node). */
+  kind: 'load' | 'compile';
+  message: string;
 }
 
 /**
- * The whole `workflow.config.ts`: the engine's `JourneyConfig` (runtime per
- * mode, `emails`, `apns`, `fcm` — what the host Worker assembles its channels
- * from) plus the studio's own settings. Flat on purpose: one field per
- * transport, no nesting to navigate.
- */
-export interface WorkflowUIConfig extends JourneyConfig {
-  /**
-   * Browser tab title. The sidebar always reads "Workflow Studio" — this names
-   * the project, which matters when several studios are open at once.
-   */
-  title?: string;
-  /** Email envelope and address book; the test-send hook. */
-  emails?: EmailSettings;
-  /** Optional runtime data source for the reports view and canvas badges. */
-  stats?: StatsSource;
-}
-
-/** Identity helper that gives the config file full type checking. */
-export function defineConfig(config: WorkflowUIConfig): WorkflowUIConfig {
-  return config;
-}
-
-/**
- * What the app actually receives from the virtual config module: the
- * discovered definitions merged with the user's (optional) config.
+ * What the app actually receives from the virtual config module. Everything
+ * here is either compiled output (workflow and segment IR, from the same
+ * `compileConfig` the Worker deploys) or preview-safe template data — the
+ * project object itself never reaches the browser.
  */
 export interface ResolvedStudioConfig {
   title?: string;
-  /** Discovered workflows, keyed by export name. */
-  workflows: Record<string, WorkflowBuilder>;
-  /** The email registry from the conventional emails/index.ts (empty if none). */
-  emails: Record<string, EmailModule>;
-  /** The push registry from the conventional pushes/index.ts (empty if none). */
-  pushes: Record<string, PushModule>;
-  /** The Slack registry from the conventional slack/index.ts (empty if none). */
-  slack: Record<string, ChatModule>;
-  /** The Discord registry from the conventional discord/index.ts (empty if none). */
-  discord: Record<string, ChatModule>;
-  /** Discovered named segments. */
-  segments: SegmentRef[];
-  /** Sender address book from the config (empty if none). */
-  addresses: string[];
-  /** Test-send hook from the config (absent if none). */
-  sendTest?: (args: SendTestArgs) => Promise<void>;
+  /** Compiled workflows, keyed by workflow name (empty when `error` is set). */
+  workflows: Record<string, WorkflowIR>;
+  /** The project's email registry (empty if none). */
+  emails: Record<string, EmailTemplate>;
+  /** The project's push registry (empty if none). */
+  pushes: Record<string, PushTemplate>;
+  /** The project's Discord webhook registry (empty if none). */
+  discords: Record<string, DiscordTemplate>;
+  /** The project's Slack webhook registry (empty if none). */
+  slacks: Record<string, SlackTemplate>;
+  /** Compiled named segments. */
+  segments: SegmentIR[];
+  /** The project's envelope (`emails.from` / `replyTo`), formatted as `Name <email>`. */
+  emailDefaults: { from?: string; replyTo?: string };
+  /** Set when the project failed to load or compile; the shell shows it instead of the views. */
+  error?: StudioError;
   stats?: StatsSource;
 }
-
-export type { JourneyMode, JourneyRuntimeConfig, JourneyRuntimeOptions } from '@shware/workflow';

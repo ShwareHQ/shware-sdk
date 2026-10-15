@@ -19,12 +19,14 @@ const router = getRouter(config);
 createRoot(rootElement).render(<RouterProvider router={router} />);
 
 /*
- * Write-back HMR boundary. Saving an edit patches a source file, and every
- * project source the studio shows is imported by `virtual:workflow-config` —
- * without an accept the update would bubble past the entry and Vite would
- * full-reload the page on each save. Accepting the config module here swaps
+ * HMR boundary for the project's source. The studio is read-only: you edit in
+ * your editor, and every project source the studio shows is imported by
+ * `virtual:workflow-config` — without an accept the update would bubble past
+ * the entry and Vite would full-reload the page on each save. Accepting the config module here swaps
  * the fresh config into the router's context and invalidates the active
- * matches instead, so views re-render in place.
+ * matches instead, so views re-render in place. The stats are cached queries,
+ * not loader data: they are invalidated too, or a changed workflow.stats.ts
+ * (or data source) would keep showing the old numbers.
  */
 if (import.meta.hot) {
   import.meta.hot.accept('virtual:workflow-config', (mod) => {
@@ -33,5 +35,6 @@ if (import.meta.hot) {
     if (next.title !== undefined) document.title = next.title;
     router.update({ ...router.options, context: { ...router.options.context, config: next } });
     void router.invalidate();
+    void router.options.context.queryClient.invalidateQueries();
   });
 }

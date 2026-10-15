@@ -1,53 +1,73 @@
-import { ChevronDown, Minus, Monitor, Moon, Plus, Smartphone, Sun } from 'lucide-react';
+import type { DiscordTemplate, EmailTemplate, PushTemplate, SlackTemplate } from '@shware/workflow';
+import { Minus, Monitor, Moon, Plus, Smartphone, Sun } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ChatModule, EmailModule, PushModule } from '../config';
 import { cn } from '../utils/cn';
-import { DiscordPreview, SlackPreview } from './chat-preview';
+import {
+  type Props,
+  type TemplateFailure,
+  previewPropsOf,
+  resolveDiscord,
+  resolvePush,
+  resolveSlack,
+} from '../utils/template-content';
 import { superellipse } from './corner-shape';
+import { DiscordPreview } from './discord-preview';
 import { DARK_SIMULATION } from './email-thumbnail';
 import { PushPreview } from './push-preview';
+import { SlackPreview } from './slack-preview';
 import type { TemplateRefInfo } from './template-refs';
+import { Textarea } from './textarea';
 
-/** Template preview page: the list on the left comes from IR, the react-email component renders on the right. */
+/**
+ * Template preview page: the list on the left comes from IR, the react-email
+ * component renders on the right. The email render is the caller's (it owns
+ * the query); exactly one of `html` and `failure` describes this render.
+ */
 export interface TemplatePreview {
   html?: string;
   subject?: string;
+  /** The template refused its props, or failed to render — field paths included. */
+  failure?: TemplateFailure;
+  /** Anything else that stopped the render. */
   error?: string;
   loading: boolean;
 }
 
-/** Mirrors the server's EnvelopeField; `name` / `description` are labels, the rest is envelope. */
-export type EnvelopeField =
-  | 'from'
-  | 'replyTo'
-  | 'subject'
-  | 'name'
-  | 'description'
-  | 'title'
-  | 'body';
+export type { TemplateFailure } from '../utils/template-content';
 
 export interface TemplatesPageProps {
   refs: TemplateRefInfo[];
-  /** Email registry from the user's config; keys match the DSL's template keys. */
-  emails: Record<string, EmailModule | undefined>;
-  /** Push registry, same contract as `emails` for the push channel. */
-  pushes?: Record<string, PushModule | undefined>;
-  /** Slack registry; chat channels keep one registry each (see config.ts). */
-  slack?: Record<string, ChatModule | undefined>;
-  /** Discord registry, same contract as `slack`. */
-  discord?: Record<string, ChatModule | undefined>;
+  /** The project's email registry; keys match the DSL's template keys. */
+  emails: Record<string, EmailTemplate | undefined>;
+  /** The project's push registry, same contract as `emails` for the push channel. */
+  pushes?: Record<string, PushTemplate | undefined>;
+  /** The project's Discord and Slack webhook registries. */
+  discords?: Record<string, DiscordTemplate | undefined>;
+  slacks?: Record<string, SlackTemplate | undefined>;
   /** App identity on the push mockups; defaults to the project title upstream. */
   appName?: string;
   selected: string | undefined;
+  /**
+   * Channel of the selected template. One key can be registered in more than
+   * one registry (an email and a push both called `checkout_reminder`), so the
+   * key alone does not say which one is meant; absent picks the first match.
+   */
+  selectedChannel?: string | undefined;
   /** Rendered output for the selected template, produced by the caller. */
   preview: TemplatePreview;
-  /** Sender address book (config's emails.addresses) — drives the from / reply-to pickers. */
-  addresses?: string[];
-  /** Write an envelope field back to source. Editing UI only appears when provided. */
-  onSaveEnvelope?: (key: string, field: EnvelopeField, value: string) => Promise<void>;
-  /** Open the address book manager (the Settings page) — the pickers' tail item. */
-  onManageAddresses?: () => void;
+  /** The project's envelope (`emails.from` / `replyTo`): every email is sent with it. */
+  emailDefaults?: { from?: string; replyTo?: string };
+  /**
+   * In-memory props override for the selected template's preview; absent
+   * renders the template's own `preview`. Never written anywhere.
+   */
+  previewProps?: Props | undefined;
+  /**
+   * Called as the props editor changes (undefined: back to the template's
+   * `preview`). The editor only appears when this is provided.
+   */
+  onPreviewPropsChange?: (props: Props | undefined) => void;
   /**
    * The preview stage's starting light/dark, normally the studio's own theme.
    * The toolbar toggle overrides it for this visit only — leaving the page
@@ -71,8 +91,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const MANAGE_SENTINEL = '__manage_addresses__';
-
 /*
  * The frame is sized to its document and never scrolls itself — the page is
  * the one scroller. Without this a document whose real height has a
@@ -93,6 +111,98 @@ const NO_SCROLL = '<style>html,body{overflow:hidden}</style>';
  * and the white behind them is the iframe element's own — outside the
  * document, where the filter cannot reach. Painting it inside makes it flip.
  */
+/** A refused render: which phase, then every failing field path with its message. */
+export function TemplateFailurePanel({ failure }: { failure: TemplateFailure }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="alert"
+      className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300"
+      style={superellipse}
+    >
+      <p className="font-medium">{t(`emails.failure.${failure.phase}`)}</p>
+      <ul className="mt-2 flex flex-col gap-1">
+        {failure.issues.map((issue, index) => (
+          <li key={`${issue.path}:${index}`}>
+            {issue.path !== '' && <code className="mr-2 font-mono">{issue.path}</code>}
+            {issue.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The preview props as JSON, editable in memory. Text that is not a JSON
+ * object is reported here and handed up as a failure, so the preview never
+ * goes on showing the last good render as if it were this one.
+ */
+function PreviewPropsEditor({
+  initial,
+  onChange,
+  onInvalid,
+  onReset,
+}: {
+  initial: Props;
+  onChange: (props: Props) => void;
+  onInvalid: (message: string) => void;
+  onReset: () => void;
+}) {
+  const { t } = useTranslation();
+  /*
+   * The text is the user's once they type, and derived from `initial` until
+   * then — so an HMR change to the template's `preview` still shows here, and
+   * the component never remounts mid-edit (a remount loses the caret).
+   */
+  const [draft, setDraft] = useState<string | undefined>(undefined);
+  const text = draft ?? JSON.stringify(initial, null, 2);
+  return (
+    <div className="border-border bg-card border-b px-6 py-4">
+      <div className="flex items-center justify-between">
+        <label htmlFor="preview-props" className="text-muted text-sm">
+          {t('emails.previewProps')}
+        </label>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(undefined);
+            onReset();
+          }}
+          className="text-muted hover:text-primary text-xs transition-colors"
+        >
+          {t('emails.previewPropsReset')}
+        </button>
+      </div>
+      <Textarea
+        id="preview-props"
+        size="sm"
+        rows={Math.min(8, Math.max(2, text.split('\n').length))}
+        spellCheck={false}
+        className="mt-2 w-full font-mono text-xs"
+        value={text}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(next);
+          } catch (error) {
+            onInvalid(error instanceof Error ? error.message : String(error));
+            return;
+          }
+          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            onInvalid(t('emails.previewPropsNotObject'));
+            return;
+          }
+          onChange(parsed as Props);
+        }}
+      />
+      <p className="text-muted mt-1.5 text-xs">{t('emails.previewPropsHint')}</p>
+    </div>
+  );
+}
+
 /** One control on the floating preview toolbar: a round 32px icon button. */
 function ToolButton({
   active = false,
@@ -122,114 +232,19 @@ function ToolButton({
   );
 }
 
-/**
- * from / reply-to picker: current value plus the address book, with a
- * "manage addresses" tail that jumps to the Settings page where the book is
- * edited. Styled as quiet text until hovered, so a read pass over the
- * envelope table does not look like a form.
- */
-function AddressSelect({
-  value,
-  addresses,
-  noneLabel,
-  onSave,
-  onManage,
-}: {
-  value: string | undefined;
-  addresses: string[];
-  noneLabel: string;
-  onSave: (value: string) => Promise<void>;
-  onManage?: (() => void) | undefined;
-}) {
-  const { t } = useTranslation();
-  const options =
-    value !== undefined && !addresses.includes(value) ? [value, ...addresses] : addresses;
-  return (
-    <select
-      value={value ?? ''}
-      onChange={(event) => {
-        const next = event.target.value;
-        if (next === MANAGE_SENTINEL) {
-          onManage?.();
-          return;
-        }
-        if (next !== '' && next !== value) void onSave(next);
-      }}
-      className="hover:bg-hover -mx-1.5 -my-0.5 w-full min-w-0 cursor-pointer appearance-none truncate rounded px-1.5 py-0.5"
-    >
-      {value === undefined && <option value="">{noneLabel}</option>}
-      {options.map((address) => (
-        <option key={address} value={address}>
-          {address}
-        </option>
-      ))}
-      {onManage !== undefined && (
-        <option value={MANAGE_SENTINEL}>{t('emails.manageAddresses')}</option>
-      )}
-    </select>
-  );
-}
-
-/**
- * Click-to-edit for one source literal. Reads as text until clicked, so a panel
- * of these still reads as a summary — which matters because most of what the
- * studio shows is not editable, and the few things that are should not shout.
- */
-export function EditableText({
-  value,
-  noneLabel,
-  onSave,
-}: {
-  value: string | undefined;
-  noneLabel: string;
-  onSave: (value: string) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState<string | undefined>(undefined);
-  if (draft === undefined) {
-    return (
-      <button
-        type="button"
-        onClick={() => setDraft(value ?? '')}
-        /* Transparent border, same 1px as the input state — swapping must not shift layout. */
-        className="hover:bg-hover -mx-1.5 -my-0.5 w-full cursor-text truncate rounded border border-transparent px-1.5 py-0.5 text-left"
-      >
-        {value ?? noneLabel}
-      </button>
-    );
-  }
-  const commit = () => {
-    const next = draft.trim();
-    setDraft(undefined);
-    if (next !== '' && next !== value) void onSave(next);
-  };
-  return (
-    <input
-      autoFocus
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') commit();
-        if (event.key === 'Escape') setDraft(undefined);
-      }}
-      /* The field colour marks the switch: what looked like text is now clearly an input. */
-      className="border-border bg-textfield -mx-1.5 -my-0.5 w-full rounded border px-1.5 py-0.5 outline-none"
-    />
-  );
-}
-
 export function TemplatesPage({
   refs,
   emails,
   pushes = {},
-  slack = {},
-  discord = {},
+  discords = {},
+  slacks = {},
   appName,
   selected,
+  selectedChannel,
   preview,
-  addresses = [],
-  onSaveEnvelope,
-  onManageAddresses,
+  emailDefaults,
+  previewProps,
+  onPreviewPropsChange,
   defaultScheme,
 }: TemplatesPageProps) {
   const { t } = useTranslation();
@@ -244,51 +259,68 @@ export function TemplatesPage({
   const setScheme = setSchemeOverride;
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [zoom, setZoom] = useState(1);
-  /* From and Subject by default; the full envelope behind the chevron. */
-  const [envelopeOpen, setEnvelopeOpen] = useState(false);
-  // at(0) rather than [0]: its return type includes undefined, so the empty-list branch is a real branch
-  const active = refs.find((ref) => ref.key === selected) ?? refs.at(0);
-  /*
-   * Each channel reads its own registry, so a push key never shadows an email
-   * one. Slack and Discord differ only in which map they read and which
-   * surface draws them, so they travel together as one `chat` kind.
-   */
+  /* Exactly the template asked for: an unknown key says so rather than showing another's content. */
+  const active = refs.find(
+    (ref) =>
+      ref.key === selected && (selectedChannel === undefined || ref.channel === selectedChannel)
+  );
+  /* Editor text that is not a JSON object: shown in place of any render. */
+  const [jsonError, setJsonError] = useState<{ for: string; message: string } | undefined>();
+  /* Each channel reads its own registry, so a push key never shadows an email one. */
   const isPush = active?.channel === 'push';
-  const isSlack = active?.channel === 'slack';
-  const isDiscord = active?.channel === 'discord';
-  const isChat = isSlack || isDiscord;
-  const activeModule = active !== undefined && !isPush && !isChat ? emails[active.key] : undefined;
-  const activePush = active !== undefined && isPush ? pushes[active.key] : undefined;
-  const activeChat =
-    active === undefined
-      ? undefined
-      : isSlack
-        ? slack[active.key]
-        : isDiscord
-          ? discord[active.key]
-          : undefined;
-  const { html, subject, error, loading } = preview;
-
-  // Write-back needs a module file to patch, so editing waits for registration
-  const saveField =
-    onSaveEnvelope !== undefined &&
-    active !== undefined &&
-    (activeModule !== undefined || activePush !== undefined || activeChat !== undefined)
-      ? (field: EnvelopeField) => (value: string) => onSaveEnvelope(active.key, field, value)
-      : undefined;
-  // From / subject / reply-to are email semantics; other channels skip the envelope rows
   const isEmail = active?.channel === 'email';
-  /* Whether anything hides behind the chevron; a push shows its two rows outright. */
-  const hasCollapsible =
-    isEmail ||
-    activeModule?.to !== undefined ||
-    activeModule?.preheader !== undefined ||
-    activeModule?.cc !== undefined ||
-    activeModule?.bcc !== undefined ||
-    activeModule?.headers !== undefined;
-  /* Nothing to show at all (non-email, no envelope data) — hide the whole panel. */
-  const hasEnvelope =
-    hasCollapsible || (isPush && activePush !== undefined) || (isChat && activeChat !== undefined);
+  const activeEmail = active !== undefined && isEmail ? emails[active.key] : undefined;
+  const activePush = active !== undefined && isPush ? pushes[active.key] : undefined;
+  const isDiscord = active?.channel === 'discord';
+  const isSlack = active?.channel === 'slack';
+  const isChat = isDiscord || isSlack;
+  const activeDiscord = active !== undefined && isDiscord ? discords[active.key] : undefined;
+  const activeSlack = active !== undefined && isSlack ? slacks[active.key] : undefined;
+  const { html, subject, error, loading } = preview;
+  const activeId = active === undefined ? '' : `${active.channel}:${active.key}`;
+  /* Leaving a template drops its JSON error: coming back remounts the editor with fresh text. */
+  if (jsonError !== undefined && jsonError.for !== activeId) setJsonError(undefined);
+  const propsFailure: TemplateFailure | undefined =
+    jsonError?.for === activeId
+      ? { phase: 'json', issues: [{ path: '', message: jsonError.message }] }
+      : undefined;
+  /* Exactly one of these describes this render; a failure is never shown beside a success. */
+  const failure = propsFailure ?? preview.failure;
+
+  /*
+   * The notification, from the same validated content a send uses — the props
+   * override when there is one, the template's `preview` otherwise.
+   */
+  const pushResolution =
+    active !== undefined && activePush !== undefined
+      ? resolvePush(activePush, active.key, previewProps)
+      : undefined;
+  const push =
+    propsFailure === undefined && pushResolution?.ok === true ? pushResolution.push : undefined;
+  const pushFailure =
+    propsFailure ?? (pushResolution?.ok === false ? pushResolution.failure : undefined);
+
+  /* A chat message, from the same checked content a send posts. */
+  const discordResolution =
+    active !== undefined && activeDiscord !== undefined
+      ? resolveDiscord(activeDiscord, active.key, previewProps)
+      : undefined;
+  const slackResolution =
+    active !== undefined && activeSlack !== undefined
+      ? resolveSlack(activeSlack, active.key, previewProps)
+      : undefined;
+  const chatResolution = discordResolution ?? slackResolution;
+  const chatFailure =
+    propsFailure ?? (chatResolution?.ok === false ? chatResolution.failure : undefined);
+  const chatReady = propsFailure === undefined && chatResolution?.ok === true;
+
+  const editedEntry = isPush
+    ? activePush
+    : isDiscord
+      ? activeDiscord
+      : isSlack
+        ? activeSlack
+        : activeEmail;
 
   return (
     <div className="flex flex-1">
@@ -296,169 +328,58 @@ export function TemplatesPage({
       <section className="bg-page flex min-w-0 flex-1 flex-col">
         {active === undefined ? (
           <div className="text-muted flex flex-1 items-center justify-center text-sm">
-            {t('emails.empty')}
+            {selected === undefined ? t('emails.empty') : t('emails.notFound', { key: selected })}
           </div>
         ) : (
           <>
             {/*
-              The envelope, hidden entirely when there is nothing to put in it
-              — one face, one size, roomy rows: an editing surface reads better
-              as a calm table than as a teaser that unfolds.
+              The envelope: one face, one size, roomy rows — a read-only
+              summary reads better as a calm table. Every email goes out with
+              the project's envelope; a push's "envelope" is its content.
             */}
-            {hasEnvelope && (
-              <div className="border-border bg-card relative border-b px-6 py-4">
-                {/* Collapsed by default: From and Subject carry the message; the rest on demand. */}
-                {hasCollapsible && (
-                  <button
-                    type="button"
-                    aria-expanded={envelopeOpen}
-                    aria-label={
-                      envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')
-                    }
-                    title={envelopeOpen ? t('emails.envelopeCollapse') : t('emails.envelopeExpand')}
-                    onClick={() => setEnvelopeOpen((open) => !open)}
-                    className="text-muted hover:bg-hover hover:text-primary absolute top-3 right-4 flex size-7 items-center justify-center rounded-lg transition-colors"
-                    style={superellipse}
-                  >
-                    <ChevronDown
-                      size={16}
-                      strokeWidth={2}
-                      aria-hidden
-                      className={cn('transition-transform', envelopeOpen && 'rotate-180')}
-                    />
-                  </button>
-                )}
-                <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 pr-10 text-sm">
-                  {isEmail && (
+            {((isEmail && activeEmail !== undefined) || push !== undefined) && (
+              <div className="border-border bg-card border-b px-6 py-4">
+                <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 text-sm">
+                  {isEmail && activeEmail !== undefined && (
                     <>
                       <Field label={t('emails.from')}>
-                        {saveField ? (
-                          <AddressSelect
-                            value={activeModule?.from}
-                            addresses={addresses}
-                            noneLabel={t('common.none')}
-                            onSave={saveField('from')}
-                            onManage={onManageAddresses}
-                          />
-                        ) : (
-                          (activeModule?.from ?? t('common.none'))
-                        )}
+                        {emailDefaults?.from ?? t('common.none')}
                       </Field>
-                      <Field label={t('emails.subject')}>
-                        {saveField ? (
-                          <EditableText
-                            value={activeModule?.subject}
-                            noneLabel={t('common.none')}
-                            onSave={saveField('subject')}
-                          />
-                        ) : (
-                          (subject ?? t('common.none'))
-                        )}
-                      </Field>
+                      {emailDefaults?.replyTo !== undefined && (
+                        <Field label={t('emails.replyTo')}>{emailDefaults.replyTo}</Field>
+                      )}
+                      <Field label={t('emails.subject')}>{subject ?? activeEmail.subject}</Field>
                     </>
                   )}
-
-                  {/* The push "envelope" is the content itself: title and body, edited here, shown below. */}
-                  {isPush && activePush !== undefined && (
+                  {push !== undefined && (
                     <>
-                      <Field label={t('emails.contentTitle')}>
-                        {saveField ? (
-                          <EditableText
-                            value={activePush.title}
-                            noneLabel={t('common.none')}
-                            onSave={saveField('title')}
-                          />
-                        ) : (
-                          (activePush.title ?? t('common.none'))
-                        )}
-                      </Field>
-                      <Field label={t('emails.contentBody')}>
-                        {saveField ? (
-                          <EditableText
-                            value={activePush.body}
-                            noneLabel={t('common.none')}
-                            onSave={saveField('body')}
-                          />
-                        ) : (
-                          (activePush.body ?? t('common.none'))
-                        )}
-                      </Field>
-                    </>
-                  )}
-
-                  {/* A chat message's "envelope" is its destination and the two strings that carry it. */}
-                  {isChat && activeChat !== undefined && (
-                    <>
-                      {activeChat.to !== undefined && (
-                        <Field label={t('emails.channel')}>{activeChat.to}</Field>
-                      )}
-                      <Field label={t('emails.contentTitle')}>
-                        {saveField ? (
-                          <EditableText
-                            value={activeChat.title}
-                            noneLabel={t('common.none')}
-                            onSave={saveField('title')}
-                          />
-                        ) : (
-                          (activeChat.title ?? t('common.none'))
-                        )}
-                      </Field>
-                      <Field label={t('emails.contentBody')}>
-                        {saveField ? (
-                          <EditableText
-                            value={activeChat.body}
-                            noneLabel={t('common.none')}
-                            onSave={saveField('body')}
-                          />
-                        ) : (
-                          (activeChat.body ?? t('common.none'))
-                        )}
-                      </Field>
-                    </>
-                  )}
-
-                  {/* Name / description are labels, not envelope — edited from the list page. */}
-                  {envelopeOpen && (
-                    <>
-                      {activeModule?.to !== undefined && (
-                        <Field label={t('emails.to')}>{activeModule.to}</Field>
-                      )}
-                      {isEmail &&
-                        (activeModule?.replyTo !== undefined || saveField !== undefined) && (
-                          <Field label={t('emails.replyTo')}>
-                            {saveField ? (
-                              <AddressSelect
-                                value={activeModule?.replyTo}
-                                addresses={addresses}
-                                noneLabel={t('common.none')}
-                                onSave={saveField('replyTo')}
-                                onManage={onManageAddresses}
-                              />
-                            ) : (
-                              activeModule?.replyTo
-                            )}
-                          </Field>
-                        )}
-                      {activeModule?.preheader !== undefined && (
-                        <Field label={t('emails.preheader')}>{activeModule.preheader}</Field>
-                      )}
-                      {activeModule?.cc !== undefined && (
-                        <Field label={t('emails.cc')}>{activeModule.cc.join(', ')}</Field>
-                      )}
-                      {activeModule?.bcc !== undefined && (
-                        <Field label={t('emails.bcc')}>{activeModule.bcc.join(', ')}</Field>
+                      <Field label={t('emails.contentTitle')}>{push.title}</Field>
+                      <Field label={t('emails.contentBody')}>{push.body}</Field>
+                      {push.image !== undefined && (
+                        <Field label={t('emails.contentImage')}>{push.image}</Field>
                       )}
                     </>
                   )}
-                  {envelopeOpen &&
-                    activeModule?.headers !== undefined &&
-                    Object.entries(activeModule.headers).map(([name, value]) => (
-                      <Field key={name} label={name}>
-                        {value}
-                      </Field>
-                    ))}
                 </dl>
               </div>
+            )}
+
+            {onPreviewPropsChange !== undefined && editedEntry !== undefined && (
+              <PreviewPropsEditor
+                /* A fresh editor per template only: the key must not change while someone types. */
+                key={activeId}
+                /* What the preview renders: the props handed in, else the template's own `preview`. */
+                initial={previewProps ?? previewPropsOf(editedEntry)}
+                onChange={(next) => {
+                  setJsonError(undefined);
+                  onPreviewPropsChange(next);
+                }}
+                onInvalid={(message) => setJsonError({ for: activeId, message })}
+                onReset={() => {
+                  setJsonError(undefined);
+                  onPreviewPropsChange(undefined);
+                }}
+              />
             )}
 
             {/*
@@ -483,7 +404,7 @@ export function TemplatesPage({
                   __root); the toolbar below rides along as `sticky`. */}
               <div className="flex-1 p-6 pb-4">
                 {isChat ? (
-                  activeChat === undefined ? (
+                  (isDiscord ? activeDiscord : activeSlack) === undefined ? (
                     <div
                       className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
                       style={superellipse}
@@ -494,29 +415,27 @@ export function TemplatesPage({
                       <p className="text-muted mt-2 text-sm">
                         {t('emails.chatNotRegisteredHint', {
                           key: active.key,
-                          registry: active.channel,
+                          channel: isDiscord ? 'discord' : 'slack',
                         })}
                       </p>
                     </div>
-                  ) : isSlack ? (
-                    <SlackPreview
-                      sender={activeChat.sender ?? appName ?? 'App'}
-                      to={activeChat.to}
-                      title={activeChat.title}
-                      body={activeChat.body ?? ''}
-                      scheme={scheme}
-                      zoom={zoom}
-                    />
-                  ) : (
+                  ) : chatFailure !== undefined ? (
+                    <TemplateFailurePanel failure={chatFailure} />
+                  ) : discordResolution?.ok === true ? (
                     <DiscordPreview
-                      sender={activeChat.sender ?? appName ?? 'App'}
-                      to={activeChat.to}
-                      title={activeChat.title}
-                      body={activeChat.body ?? ''}
+                      message={discordResolution.message}
+                      appName={appName ?? 'App'}
                       scheme={scheme}
                       zoom={zoom}
                     />
-                  )
+                  ) : slackResolution?.ok === true ? (
+                    <SlackPreview
+                      message={slackResolution.message}
+                      appName={appName ?? 'App'}
+                      scheme={scheme}
+                      zoom={zoom}
+                    />
+                  ) : null
                 ) : isPush ? (
                   activePush === undefined ? (
                     <div
@@ -530,16 +449,18 @@ export function TemplatesPage({
                         {t('emails.pushNotRegisteredHint', { key: active.key })}
                       </p>
                     </div>
+                  ) : pushFailure !== undefined ? (
+                    <TemplateFailurePanel failure={pushFailure} />
                   ) : (
                     <PushPreview
                       appName={appName ?? 'App'}
-                      title={activePush.title ?? activePush.name ?? active.key}
-                      body={activePush.body ?? ''}
+                      title={push?.title ?? ''}
+                      body={push?.body ?? ''}
                       scheme={scheme}
                       zoom={zoom}
                     />
                   )
-                ) : activeModule === undefined ? (
+                ) : activeEmail === undefined ? (
                   <div
                     className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
                     style={superellipse}
@@ -549,6 +470,8 @@ export function TemplatesPage({
                       {t('emails.notRegisteredHint', { key: active.key })}
                     </p>
                   </div>
+                ) : failure !== undefined ? (
+                  <TemplateFailurePanel failure={failure} />
                 ) : loading ? (
                   <div className="text-muted text-center text-sm">{t('emails.rendering')}</div>
                 ) : error !== undefined ? (
@@ -602,10 +525,13 @@ export function TemplatesPage({
                 spans the stage and must not swallow clicks meant for it.
               */}
               {(isChat
-                ? activeChat !== undefined
+                ? chatReady
                 : isPush
-                  ? activePush !== undefined
-                  : activeModule !== undefined && !loading && error === undefined) && (
+                  ? push !== undefined
+                  : activeEmail !== undefined &&
+                    !loading &&
+                    error === undefined &&
+                    failure === undefined) && (
                 <div className="pointer-events-none sticky bottom-0 z-10 flex justify-center pt-2 pb-4">
                   <div className="border-border bg-card pointer-events-auto flex items-center gap-0.5 rounded-full border p-1 shadow-lg">
                     <ToolButton
@@ -623,7 +549,7 @@ export function TemplatesPage({
                       <Moon size={16} strokeWidth={2} aria-hidden />
                     </ToolButton>
                     {/* Device widths are an email concern; a push shows both platforms, a chat message its client. */}
-                    {!isPush && !isChat && (
+                    {isEmail && (
                       <>
                         <div className="bg-border mx-1 h-4 w-px" />
                         <ToolButton

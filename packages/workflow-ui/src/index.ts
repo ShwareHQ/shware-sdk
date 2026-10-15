@@ -23,7 +23,7 @@ export { Avatar } from './components/avatar';
 export type { AvatarProps } from './components/avatar';
 export { Sparkline } from './components/sparkline';
 export type { SparklineProps } from './components/sparkline';
-export { collectTemplateRefs } from './components/template-refs';
+export { collectTemplateRefs, collectTemplates } from './components/template-refs';
 export type { TemplateRefInfo, TemplateUsage } from './components/template-refs';
 export { layout, CARD_SIZE, ICON_SIZE } from './components/layout';
 export type {

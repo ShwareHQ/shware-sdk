@@ -1,55 +1,36 @@
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, createRoute, useLocation, useNavigate } from '@tanstack/react-router';
 import { clsx } from 'clsx';
-import { Rocket } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
-import { Button } from '../../components/button';
 import { EmailThumbnail } from '../../components/email-thumbnail';
-import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
-import { Modal, ModalTitle } from '../../components/modal';
-import {
-  type EditableField,
-  NodeInspector,
-  type NodeSource,
-  fieldsOf,
-} from '../../components/node-inspector';
+import { NodeInspector, type NodeSource } from '../../components/node-inspector';
 import { PushThumbnail } from '../../components/push-thumbnail';
 import { Tabs } from '../../components/tabs';
-import { findNode, nodesPerSourcePosition } from '../../components/template-refs';
-import { Textarea } from '../../components/textarea';
+import { findNode } from '../../components/template-refs';
 import { WorkflowCanvas } from '../../components/workflow-canvas';
 import { WorkflowList } from '../../components/workflow-list';
 import { displayName } from '../../utils/label';
 import { lookup } from '../../utils/lookup';
+import { formatIssues, resolvePush } from '../../utils/template-content';
 import { useEmailPreview } from '../email-preview';
 import { useTheme } from '../integrations/theme/root-provider';
 import { PageChrome } from '../page-chrome';
-import { reportSave, studioGet, studioPost } from '../studio';
+import { studioGet } from '../studio';
 import { Route as rootRoute } from './__root';
 
 /* ---------------------------------- List ---------------------------------- */
-
-/** Draft for the edit dialog; `original` decides which fields actually changed on save. */
-interface EditDraft {
-  key: string;
-  loc: Record<string, unknown> | undefined;
-  name: string;
-  description: string;
-  original: { name: string; description: string };
-}
 
 function WorkflowsIndex() {
   const { config } = workflowsIndexRoute.useRouteContext();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const [editing, setEditing] = useState<EditDraft | undefined>(undefined);
 
   const items = useMemo(
-    () => Object.entries(config.workflows).map(([key, builder]) => ({ key, ir: builder.toIR() })),
+    () => Object.entries(config.workflows).map(([key, ir]) => ({ key, ir })),
     [config]
   );
 
@@ -69,30 +50,6 @@ function WorkflowsIndex() {
     queryFn: async () => (await config.stats?.reports?.()) ?? [],
     enabled: config.stats?.reports !== undefined,
   });
-
-  const openEdit = (key: string) => {
-    const found = items.find((item) => item.key === key);
-    if (found === undefined) return;
-    const meta = found.ir.meta;
-    const original = { name: meta?.name ?? '', description: meta?.description ?? '' };
-    setEditing({ key, loc: meta?.loc, ...original, original });
-  };
-
-  /* Only the fields that changed are written back, one write-back call each. */
-  const saveEdit = () => {
-    if (editing?.loc === undefined) return;
-    const { loc, name, description, original } = editing;
-    const run = async () => {
-      if (name !== original.name) {
-        await studioPost('/__studio/node', { ...loc, path: '1.name', value: name });
-      }
-      if (description !== original.description) {
-        await studioPost('/__studio/node', { ...loc, path: '1.description', value: description });
-      }
-    };
-    void reportSave(run(), { saved: t('inspector.saved'), failed: t('inspector.saveFailed') });
-    setEditing(undefined);
-  };
 
   if (items.length === 0) {
     return (
@@ -128,53 +85,10 @@ function WorkflowsIndex() {
           <WorkflowList
             items={filtered}
             {...(reports !== undefined ? { reports } : {})}
-            onOpen={(key) => void navigate({ to: '/workflows/$name', params: { name: key } })}
-            onEdit={openEdit}
+            onOpen={(key) => void navigate({ to: '/workflows/$id', params: { id: key } })}
           />
         )}
       </div>
-
-      <Modal
-        visible={editing !== undefined}
-        onCancel={() => setEditing(undefined)}
-        className="w-100 p-6"
-      >
-        <ModalTitle>{t('workflows.editTitle')}</ModalTitle>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            saveEdit();
-          }}
-        >
-          <label className="mt-5 block">
-            <span className="text-secondary mb-1.5 block text-sm">{t('common.name')}</span>
-            <Input
-              className="w-full"
-              value={editing?.name ?? ''}
-              onChange={(e) => setEditing((draft) => draft && { ...draft, name: e.target.value })}
-            />
-          </label>
-          <label className="mt-4 block">
-            <span className="text-secondary mb-1.5 block text-sm">{t('common.description')}</span>
-            <Textarea
-              rows={3}
-              className="w-full"
-              value={editing?.description ?? ''}
-              onChange={(e) =>
-                setEditing((draft) => draft && { ...draft, description: e.target.value })
-              }
-            />
-          </label>
-          <div className="mt-6 flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setEditing(undefined)}>
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" type="submit" disabled={editing?.loc === undefined}>
-              {t('common.save')}
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
@@ -188,27 +102,27 @@ export const workflowsIndexRoute = createRoute({
 /* --------------------------- Detail (tabbed shell) -------------------------- */
 
 const TABS = [
-  { to: '/workflows/$name', label: 'workflows.tabs.overview', exact: true },
+  { to: '/workflows/$id', label: 'workflows.tabs.overview', exact: true },
   { to: '/workflows/$name/workflow', label: 'workflows.tabs.canvas', exact: true },
 ] as const;
 
 function WorkflowDetail() {
-  const { name } = workflowDetailRoute.useParams();
+  const { id } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
   const pathname = useLocation({ select: (location) => location.pathname });
   /* Both tab paths are exact, so the active one is whichever equals the URL. */
   const activeTab =
-    TABS.find((tab) => tab.to.replace('$name', name) === decodeURIComponent(pathname)) ?? TABS[0];
+    TABS.find((tab) => tab.to.replace('$id', id) === decodeURIComponent(pathname)) ?? TABS[0];
   const { t } = useTranslation();
 
-  const ir = lookup(config.workflows, name)?.toIR();
+  const ir = lookup(config.workflows, id);
 
   /* Switcher options: every workflow in the project, labelled by its meta name. */
   const options = useMemo(
     () =>
-      Object.entries(config.workflows).map(([key, builder]) => ({
+      Object.entries(config.workflows).map(([key, ir]) => ({
         value: key,
-        label: displayName(builder.toIR().meta?.name, t('common.untitled')),
+        label: displayName(ir.meta?.name, t('common.untitled')),
       })),
     [config, t]
   );
@@ -216,7 +130,7 @@ function WorkflowDetail() {
   if (ir === undefined) {
     return (
       <div className="text-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
-        <p>{t('workflows.notFound', { name })}</p>
+        <p>{t('workflows.notFound', { id })}</p>
         <Link to="/workflows" className="text-primary underline">
           {t('common.back')}
         </Link>
@@ -226,8 +140,8 @@ function WorkflowDetail() {
 
   /*
    * The header is the root's. This view contributes a breadcrumb whose leaf is
-   * the workflow switcher, and Publish on the right; the view tabs sit at the
-   * top-left of the content, where switching a view belongs.
+   * the workflow switcher; the view tabs sit at the top-left of the content,
+   * where switching a view belongs.
    */
   return (
     <div className="flex flex-1 flex-col">
@@ -237,33 +151,20 @@ function WorkflowDetail() {
             items={[
               { label: t('nav.workflows'), to: '/workflows' },
               {
-                label: options.find((option) => option.value === name)?.label ?? name,
-                to: '/workflows/$name',
-                params: { name },
+                label: options.find((option) => option.value === id)?.label ?? id,
+                to: '/workflows/$id',
+                params: { id },
               },
               { label: t(activeTab.label) },
             ]}
           />
-        }
-        actions={
-          /* A pill: full radius, and corner-shape reset to round — the studio's
-             superellipse would flatten a pill's ends. */
-          <Button
-            size="sm"
-            variant="default"
-            className="gap-1.5 rounded-full pr-4 pl-3"
-            style={{ cornerShape: 'round' } as CSSProperties}
-          >
-            <Rocket className="size-4" strokeWidth={2} aria-hidden />
-            {t('common.publish')}
-          </Button>
         }
       />
       <div className="px-6 py-3">
         <Tabs
           className="w-fit"
           items={TABS.map((tab) => ({ to: tab.to, label: t(tab.label), exact: tab.exact }))}
-          params={{ name }}
+          params={{ id }}
         />
       </div>
 
@@ -282,7 +183,7 @@ function WorkflowDetail() {
 
 export const workflowDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/workflows/$name',
+  path: '/workflows/$id',
   component: WorkflowDetail,
 });
 
@@ -291,39 +192,38 @@ export const workflowDetailRoute = createRoute({
 const SELECTION_KEY = 'workflow-ui:canvas-selection';
 
 function CanvasTab() {
-  const { name } = workflowDetailRoute.useParams();
+  const { id } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
   const navigate = useNavigate();
   const { resolved } = useTheme();
-  const { t } = useTranslation();
   /*
-   * Selection outlives the write-back reload. Saving edits a file, which
-   * full-reloads the page; without this the panel you just saved from vanishes
-   * and you lose your place. Same trick as the pending toast, same reason.
+   * Selection outlives a reload. Editing a workflow in the editor can
+   * full-reload the page; without this the panel you were reading vanishes and
+   * you lose your place.
    */
   const [selectedId, setSelectedId] = useState<string | undefined>(() =>
     typeof sessionStorage === 'undefined'
       ? undefined
-      : (sessionStorage.getItem(`${SELECTION_KEY}:${name}`) ?? undefined)
+      : (sessionStorage.getItem(`${SELECTION_KEY}:${id}`) ?? undefined)
   );
   const select = useCallback(
     (id: string | undefined) => {
       setSelectedId(id);
-      const key = `${SELECTION_KEY}:${name}`;
+      const key = `${SELECTION_KEY}:${id}`;
       if (id === undefined) sessionStorage.removeItem(key);
       else sessionStorage.setItem(key, id);
     },
-    [name]
+    [id]
   );
 
-  const ir = lookup(config.workflows, name)?.toIR();
+  const ir = lookup(config.workflows, id);
   const selected =
     ir !== undefined && selectedId !== undefined ? findNode(ir, selectedId) : undefined;
   const loc = selected?.meta?.loc;
 
   const { data: stats } = useQuery({
-    queryKey: ['node-stats', ir?.name],
-    queryFn: async () => (await config.stats?.nodeStats?.(ir?.name ?? '')) ?? {},
+    queryKey: ['node-stats', ir?.id],
+    queryFn: async () => (await config.stats?.nodeStats?.(ir?.id ?? '')) ?? {},
     enabled: ir !== undefined && config.stats?.nodeStats !== undefined,
   });
 
@@ -331,62 +231,56 @@ function CanvasTab() {
    * The DSL records where each node was built, but in the position of the
    * module Vite served — the dev server owns the source map that turns that
    * back into a line on disk, so resolving it is a round trip, not a lookup.
-   * One probe per field: whether a literal backs the value is a fact about that
-   * exact slot, and only the server can see it.
+   * Navigation only: a failed lookup leaves the source row out and nothing
+   * else waits on it.
    */
-  /* A condition's fields carry their own call site; a node's default to the node's. */
-  const fields = selected === undefined ? [] : fieldsOf(selected);
-  const locOf = (field: EditableField) => field.loc ?? loc;
-  const slotOf = (field: EditableField) => `${field.scope ?? ''}:${field.path.join('.')}`;
-  /* One call site can build many nodes; the panel says so before you edit it. */
-  const sharedBy =
-    ir !== undefined && loc !== undefined
-      ? nodesPerSourcePosition(ir).get(`${loc.file}:${loc.line}:${loc.column}`)
-      : undefined;
-  const probes = useQueries({
-    queries: fields.map((field) => ({
-      queryKey: ['node-source', locOf(field), field.path.join('.')],
-      queryFn: () =>
-        studioGet<NodeSource>('/__studio/node', {
-          ...locOf(field),
-          path: field.path.join('.'),
-        }),
-      enabled: locOf(field) !== undefined,
-    })),
-  });
-
-  const sources: Record<string, NodeSource> = {};
-  fields.forEach((field, index) => {
-    const data = probes[index]?.data;
-    if (data !== undefined) sources[slotOf(field)] = data;
+  const { data: source } = useQuery({
+    queryKey: ['node-source', loc],
+    queryFn: () => studioGet<NodeSource>('/__studio/node', { ...loc }),
+    enabled: loc !== undefined,
+    retry: false,
   });
 
   /*
-   * A message node shows what it sends. Email is the one channel with a
-   * document to render; the query is keyed like the templates page's, so a
-   * template seen there (or here) is already rendered for the other.
+   * A message node shows what it sends, rendered from the template's own
+   * validated `preview` — the same props, the same render and the same
+   * failure the templates page shows. Email is the one channel with a
+   * document; the query is keyed like the templates page's, so a template
+   * seen there (or here) is already rendered for the other.
    */
   const message = selected?.type === 'message' ? selected : undefined;
   const emailModule =
     message?.channel === 'email' ? lookup(config.emails, message.template) : undefined;
   const emailPreview = useEmailPreview(emailModule, message?.template ?? '');
-  /* A push has no document: its two strings are drawn into the OS banner. */
+  /* A push has no document: its notification is drawn into the OS banner. */
   const pushModule =
     message?.channel === 'push' ? lookup(config.pushes, message.template) : undefined;
+  const push =
+    message !== undefined && pushModule !== undefined
+      ? resolvePush(pushModule, message.template)
+      : undefined;
 
   if (ir === undefined) return null;
 
   const openTemplate = () => {
     if (message !== undefined)
-      void navigate({ to: '/templates/$key', params: { key: message.template } });
+      void navigate({
+        to: '/templates/$key',
+        params: { key: message.template },
+        search: { channel: message.channel },
+      });
   };
   let preview: ReactNode;
   if (message?.channel === 'email') {
     preview = (
       <EmailThumbnail
-        html={emailPreview.data?.html}
+        html={emailPreview.data?.status === 'ok' ? emailPreview.data.html : undefined}
         loading={emailModule !== undefined && emailPreview.isPending}
-        error={emailPreview.error?.message}
+        error={
+          emailPreview.data?.status === 'invalid'
+            ? formatIssues(emailPreview.data.failure)
+            : emailPreview.error?.message
+        }
         registered={emailModule !== undefined}
         scheme={resolved}
         onOpen={openTemplate}
@@ -396,8 +290,9 @@ function CanvasTab() {
     preview = (
       <PushThumbnail
         appName={config.title ?? 'App'}
-        title={pushModule?.title ?? pushModule?.name ?? message.template}
-        body={pushModule?.body ?? ''}
+        title={push?.ok === true ? (push.push.title ?? message.template) : message.template}
+        body={push?.ok === true ? push.push.body : ''}
+        {...(push?.ok === false ? { error: formatIssues(push.failure) } : {})}
         registered={pushModule !== undefined}
         scheme={resolved}
         onOpen={openTemplate}
@@ -417,7 +312,7 @@ function CanvasTab() {
       */}
       <div className="absolute inset-0">
         <WorkflowCanvas
-          key={name}
+          key={id}
           ir={ir}
           colorMode={resolved}
           {...(stats !== undefined ? { stats } : {})}
@@ -436,23 +331,9 @@ function CanvasTab() {
         <div className="absolute top-4 right-4 z-10 flex max-h-[calc(100%-2rem)]">
           <NodeInspector
             node={selected}
-            sources={sources}
-            {...(sharedBy !== undefined ? { sharedBy } : {})}
+            {...(source !== undefined ? { source } : {})}
             {...(preview !== undefined ? { preview } : {})}
             onClose={() => select(undefined)}
-            onSave={(field: EditableField, value: string) =>
-              reportSave(
-                studioPost('/__studio/node', {
-                  ...locOf(field),
-                  path: field.path.join('.'),
-                  value,
-                }),
-                {
-                  saved: t('inspector.saved'),
-                  failed: t('inspector.saveFailed'),
-                }
-              )
-            }
           />
         </div>
       )}

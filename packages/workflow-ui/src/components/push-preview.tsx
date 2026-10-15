@@ -36,7 +36,7 @@ import pixelMaskUrl from '../app/assets/devices/pixel-10-pro-mask.webp';
 export interface PushPreviewProps {
   /** App identity on the banner; falls back to the project title upstream. */
   appName: string;
-  /** Shown verbatim, `{prop}` placeholders included — same rule as subjects. */
+  /** The notification title, as `content` returned it. */
   title: string;
   body: string;
   scheme: 'light' | 'dark';

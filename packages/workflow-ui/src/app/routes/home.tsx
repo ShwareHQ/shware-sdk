@@ -5,10 +5,10 @@ import { useTranslation } from 'react-i18next';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { superellipse } from '../../components/corner-shape';
 import { collectTemplateRefs } from '../../components/template-refs';
-import { lookup } from '../../utils/lookup';
+import { lookupTemplate } from '../../utils/template-content';
 import { PageChrome } from '../page-chrome';
 import { Route as rootRoute } from './__root';
-import { collectSegmentRefs } from './segments';
+import { collectSegments } from './segments';
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -24,28 +24,13 @@ function Home() {
   const { config } = homeRoute.useRouteContext();
   const { t } = useTranslation();
 
-  const irs = useMemo(
-    () => Object.values(config.workflows).map((builder) => builder.toIR()),
-    [config]
-  );
+  const irs = useMemo(() => Object.values(config.workflows), [config]);
   const templateRefs = useMemo(() => collectTemplateRefs(irs), [irs]);
-  /* Counted from the IR, not from config.segments, so this agrees with the Segments page. */
-  const segmentRefs = useMemo(() => collectSegmentRefs(irs), [irs]);
+  /* The same list the Segments page shows: every deployed segment plus any referenced but undeployed. */
+  const segmentRefs = useMemo(() => collectSegments(irs, config.segments), [irs, config]);
   /* Each channel reads its own registry, matching the Templates list's badge. */
-  const registryFor = (channel: string): Record<string, unknown> => {
-    switch (channel) {
-      case 'push':
-        return config.pushes;
-      case 'slack':
-        return config.slack;
-      case 'discord':
-        return config.discord;
-      default:
-        return config.emails;
-    }
-  };
   const missing = templateRefs.filter(
-    (ref) => lookup(registryFor(ref.channel), ref.key) === undefined
+    (ref) => lookupTemplate(config, ref.channel, ref.key) === undefined
   ).length;
 
   const { data: reports } = useQuery({

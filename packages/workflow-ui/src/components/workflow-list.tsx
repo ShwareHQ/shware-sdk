@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import type { WorkflowReport } from '../config';
 import { displayName } from '../utils/label';
 import { superellipse } from './corner-shape';
-import { Menu } from './menu';
 import { Sparkline } from './sparkline';
 
 /**
@@ -19,12 +18,10 @@ import { Sparkline } from './sparkline';
  * so a row folds into title-then-stats instead.
  */
 export interface WorkflowListProps {
-  /** Local definitions, keyed by the name used in the URL. */
+  /** Local definitions, keyed by the id used in the URL. */
   items: { key: string; ir: WorkflowIR }[];
   reports?: WorkflowReport[];
   onOpen: (key: string) => void;
-  /** Open the edit dialog for a workflow; the row menu only appears when provided. */
-  onEdit?: (key: string) => void;
 }
 
 /** Count message and delay nodes across the whole tree, arms included. */
@@ -77,9 +74,9 @@ const CELL = 'border-border border-b py-4 max-md:border-b-0 max-md:px-3';
  * draft is state, so it keeps green and grey.
  */
 
-export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListProps) {
+export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
   const { t } = useTranslation();
-  const byName = new Map((reports ?? []).map((report) => [report.name, report]));
+  const byId = new Map((reports ?? []).map((report) => [report.id, report]));
 
   return (
     /*
@@ -103,15 +100,12 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                 {t(`workflows.columns.${column}`)}
               </th>
             ))}
-            {onEdit !== undefined && (
-              <th className={clsx(HEAD_CELL, 'w-14 px-3')} style={superellipse} />
-            )}
           </tr>
         </thead>
         <tbody className="max-md:block">
           {items.map(({ key, ir }) => {
             const shape = countNodes(ir.flow);
-            const report = byName.get(ir.name);
+            const report = byId.get(ir.id);
             const values: Record<(typeof COLUMNS)[number], string> = {
               delivered: report?.delivered === undefined ? '—' : compact(report.delivered),
               opened: rate(report?.opened, report?.delivered),
@@ -134,7 +128,7 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                    */
                   'md:hover:[&>td]:bg-hover md:last:[&>td]:border-b-0',
                   'md:last:[&>td:first-child]:rounded-bl-2xl md:last:[&>td:last-child]:rounded-br-2xl',
-                  /* Stacked: title (+ menu) / status / the metrics two by two
+                  /* Stacked: title / status / the metrics two by two
                      — four across a phone leaves no room for a label, let
                      alone the sparkline under it. */
                   'border-border max-md:hover:bg-hover max-md:grid max-md:grid-cols-6',
@@ -144,11 +138,7 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                 style={superellipse}
               >
                 <td
-                  className={clsx(
-                    CELL,
-                    'px-6 max-md:order-1 max-md:pb-2',
-                    onEdit === undefined ? 'max-md:col-span-6' : 'max-md:col-span-5'
-                  )}
+                  className={clsx(CELL, 'px-6 max-md:order-1 max-md:col-span-6 max-md:pb-2')}
                   style={superellipse}
                 >
                   <div className="flex items-start gap-3">
@@ -231,22 +221,6 @@ export function WorkflowList({ items, reports, onOpen, onEdit }: WorkflowListPro
                     <Sparkline values={report?.series?.[column] ?? []} className="mt-1" />
                   </td>
                 ))}
-
-                {onEdit !== undefined && (
-                  <td
-                    className={clsx(CELL, 'px-3 max-md:order-2 max-md:col-span-1 max-md:pb-2')}
-                    style={superellipse}
-                  >
-                    <div className="flex justify-end">
-                      <Menu
-                        aria-label={t('common.more')}
-                        items={[
-                          { key: 'edit', label: t('common.edit'), onSelect: () => onEdit(key) },
-                        ]}
-                      />
-                    </div>
-                  </td>
-                )}
               </tr>
             );
           })}

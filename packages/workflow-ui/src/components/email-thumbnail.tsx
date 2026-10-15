@@ -21,7 +21,7 @@ export interface EmailThumbnailProps {
   html?: string | undefined;
   loading: boolean;
   error?: string | undefined;
-  /** False when the IR references a template the emails index does not register. */
+  /** False when the IR references a template the email registry does not register. */
   registered: boolean;
   scheme: 'light' | 'dark';
   /** Open the full preview — the button under the window. */
@@ -87,7 +87,9 @@ export function EmailThumbnail({
       onOpen={registered ? onOpen : undefined}
     >
       {status !== undefined ? (
-        <ThumbnailStatus tone={error !== undefined ? 'error' : 'muted'}>{status}</ThumbnailStatus>
+        <ThumbnailStatus tone={error !== undefined ? 'error' : 'muted'}>
+          <span className="whitespace-pre-line">{status}</span>
+        </ThumbnailStatus>
       ) : (
         scale !== undefined && (
           /* Sized to the scaled document, so the window scrolls the whole email. */

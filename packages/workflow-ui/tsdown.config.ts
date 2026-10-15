@@ -6,7 +6,7 @@ import { defineConfig } from 'tsdown';
  * definitions and email components.
  */
 export default defineConfig({
-  entry: ['src/index.ts', 'src/config.ts', 'src/cli.ts'],
+  entry: ['src/index.ts', 'src/config.ts', 'src/postgres.ts', 'src/cli.ts'],
   format: ['esm'],
   sourcemap: true,
   dts: true,

@@ -1,9 +1,9 @@
 import { createRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { AddressBook } from '../../components/address-book';
 import { Breadcrumb } from '../../components/breadcrumb';
 import { Button } from '../../components/button';
 import { superellipse } from '../../components/corner-shape';
+import { EmailDefaults } from '../../components/email-defaults';
 import {
   type SupportedLng,
   languageNames,
@@ -11,7 +11,6 @@ import {
 } from '../integrations/i18n/root-provider';
 import { type Theme, themes, useTheme } from '../integrations/theme/root-provider';
 import { PageChrome } from '../page-chrome';
-import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
 function Settings() {
@@ -23,13 +22,6 @@ function Settings() {
   const sources = (['reports', 'nodeStats', 'metrics'] as const).filter(
     (key) => config.stats?.[key] !== undefined
   );
-
-  // Every address action patches workflow.config.ts; the reload brings the fresh list back
-  const save = (body: Record<string, unknown>) =>
-    void reportSave(studioPost('/__studio/addresses', body), {
-      saved: t('emails.saved'),
-      failed: t('emails.saveFailed'),
-    });
 
   return (
     /* No scroll container of its own: the shell's content column is the only one. */
@@ -76,12 +68,7 @@ function Settings() {
         </div>
       </section>
 
-      <AddressBook
-        addresses={config.addresses}
-        onAdd={(address) => save({ action: 'add', address })}
-        onUpdate={(address, newAddress) => save({ action: 'update', address, newAddress })}
-        onRemove={(address) => save({ action: 'remove', address })}
-      />
+      <EmailDefaults from={config.emailDefaults.from} replyTo={config.emailDefaults.replyTo} />
 
       <section
         className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"

@@ -31,7 +31,7 @@ function Stat({ label, value }: { label: string; value: string }) {
  * I meant"; the table is how you check that by looking at real people.
  */
 function SegmentOverview() {
-  const { name } = segmentDetailRoute.useParams();
+  const { id } = segmentDetailRoute.useParams();
   const { config } = segmentDetailRoute.useRouteContext();
   const { t } = useTranslation();
 
@@ -43,12 +43,12 @@ function SegmentOverview() {
     queryFn: async () => (await config.stats?.segments?.()) ?? [],
     enabled: config.stats?.segments !== undefined,
   });
-  const report = reports?.find((row) => row.name === name);
+  const report = reports?.find((row) => row.id === id);
 
   const { data: profilePage, isPending } = useQuery({
-    queryKey: ['segment-profiles', name, page],
+    queryKey: ['segment-profiles', id, page],
     queryFn: async () =>
-      (await config.stats?.profiles?.(name, { limit: PAGE_SIZE, offset: page * PAGE_SIZE })) ?? {
+      (await config.stats?.profiles?.(id, { limit: PAGE_SIZE, offset: page * PAGE_SIZE })) ?? {
         profiles: [],
         total: 0,
       },

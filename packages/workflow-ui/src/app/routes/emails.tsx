@@ -1,82 +1,40 @@
 import { createRoute, useNavigate } from '@tanstack/react-router';
-import { Send } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
 import { Breadcrumb } from '../../components/breadcrumb';
-import { Button } from '../../components/button';
 import { EmailList, type EmailListItem } from '../../components/email-list';
-import { Input } from '../../components/input';
 import { SearchInput } from '../../components/input/search-input';
-import { Modal, ModalTitle } from '../../components/modal';
-import { collectTemplateRefs } from '../../components/template-refs';
+import { collectTemplates } from '../../components/template-refs';
 import { TemplatesPage } from '../../components/templates-page';
-import { Textarea } from '../../components/textarea';
-import type { ResolvedStudioConfig } from '../../config';
 import { displayName } from '../../utils/label';
-import { lookup } from '../../utils/lookup';
+import { type Props, lookupTemplate } from '../../utils/template-content';
 import { useEmailPreview } from '../email-preview';
 import { useTheme } from '../integrations/theme/root-provider';
 import { PageChrome } from '../page-chrome';
-import { reportSave, studioPost } from '../studio';
 import { Route as rootRoute } from './__root';
 
 /* ---------------------------------- List ---------------------------------- */
-
-/**
- * One template's content module, whichever registry holds it. Only the labels
- * (`name` / `description`) are read through here, and every module type
- * carries those — which is why one lookup can serve all four channels.
- */
-function lookupContent(
-  config: ResolvedStudioConfig,
-  channel: string,
-  key: string
-): { name?: string; description?: string } | undefined {
-  switch (channel) {
-    case 'push':
-      return lookup(config.pushes, key);
-    case 'slack':
-      return lookup(config.slack, key);
-    case 'discord':
-      return lookup(config.discord, key);
-    default:
-      return lookup(config.emails, key);
-  }
-}
-
-/** Draft for the edit dialog; `original` decides which fields actually changed on save. */
-interface EditDraft {
-  key: string;
-  /** Labels are patched into the module file, so an unregistered key has nowhere to save. */
-  registered: boolean;
-  name: string;
-  description: string;
-  original: { name: string; description: string };
-}
 
 function EmailsIndex() {
   const { config } = emailsIndexRoute.useRouteContext();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
-  const [editing, setEditing] = useState<EditDraft | undefined>(undefined);
 
   const items = useMemo(() => {
-    const refs = collectTemplateRefs(
-      Object.values(config.workflows).map((builder) => builder.toIR())
-    );
+    const refs = collectTemplates(Object.values(config.workflows), config);
     return refs.map((ref) => {
       // Each channel reads its own registry — a push key is registered in `pushes`,
       // a chat key in the registry named after its client
-      const mod = lookupContent(config, ref.channel, ref.key);
+      const found = lookupTemplate(config, ref.channel, ref.key);
+      const labels = { name: found?.entry.title, description: found?.entry.description };
       const item: EmailListItem = {
         key: ref.key,
         channel: ref.channel,
-        registered: mod !== undefined,
+        registered: found !== undefined,
       };
-      if (mod?.name !== undefined) item.name = mod.name;
-      if (mod?.description !== undefined) item.description = mod.description;
+      if (labels.name !== undefined) item.name = labels.name;
+      if (labels.description !== undefined) item.description = labels.description;
       return item;
     });
   }, [config]);
@@ -91,29 +49,6 @@ function EmailsIndex() {
       )
     );
   }, [items, query]);
-
-  const openEdit = (key: string) => {
-    const found = items.find((item) => item.key === key);
-    if (found === undefined) return;
-    const original = { name: found.name ?? '', description: found.description ?? '' };
-    setEditing({ key, registered: found.registered, ...original, original });
-  };
-
-  /* Only the fields that changed are written back, one envelope call each. */
-  const saveEdit = () => {
-    if (editing === undefined || !editing.registered) return;
-    const { key, name, description, original } = editing;
-    const run = async () => {
-      if (name !== original.name) {
-        await studioPost('/__studio/envelope', { key, field: 'name', value: name });
-      }
-      if (description !== original.description) {
-        await studioPost('/__studio/envelope', { key, field: 'description', value: description });
-      }
-    };
-    void reportSave(run(), { saved: t('emails.saved'), failed: t('emails.saveFailed') });
-    setEditing(undefined);
-  };
 
   if (items.length === 0) {
     return (
@@ -148,53 +83,12 @@ function EmailsIndex() {
         ) : (
           <EmailList
             items={filtered}
-            onOpen={(key) => void navigate({ to: '/templates/$key', params: { key } })}
-            onEdit={openEdit}
+            onOpen={(key, channel) =>
+              void navigate({ to: '/templates/$key', params: { key }, search: { channel } })
+            }
           />
         )}
       </div>
-
-      <Modal
-        visible={editing !== undefined}
-        onCancel={() => setEditing(undefined)}
-        className="w-100 p-6"
-      >
-        <ModalTitle>{t('emails.editTitle')}</ModalTitle>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            saveEdit();
-          }}
-        >
-          <label className="mt-5 block">
-            <span className="text-secondary mb-1.5 block text-sm">{t('common.name')}</span>
-            <Input
-              className="w-full"
-              value={editing?.name ?? ''}
-              onChange={(e) => setEditing((draft) => draft && { ...draft, name: e.target.value })}
-            />
-          </label>
-          <label className="mt-4 block">
-            <span className="text-secondary mb-1.5 block text-sm">{t('common.description')}</span>
-            <Textarea
-              rows={3}
-              className="w-full"
-              value={editing?.description ?? ''}
-              onChange={(e) =>
-                setEditing((draft) => draft && { ...draft, description: e.target.value })
-              }
-            />
-          </label>
-          <div className="mt-6 flex justify-end gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setEditing(undefined)}>
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" type="submit" disabled={editing !== undefined && !editing.registered}>
-              {t('common.save')}
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
@@ -207,79 +101,51 @@ export const emailsIndexRoute = createRoute({
 
 function EmailView() {
   const { key } = emailRoute.useParams();
+  const { channel } = emailRoute.useSearch();
   const { config } = emailRoute.useRouteContext();
-  const navigate = useNavigate();
   const { t } = useTranslation();
   const { resolved: studioScheme } = useTheme();
-  const [testOpen, setTestOpen] = useState(false);
-  const [testTo, setTestTo] = useState('');
-  const [sending, setSending] = useState(false);
 
-  const refs = useMemo(
-    () => collectTemplateRefs(Object.values(config.workflows).map((builder) => builder.toIR())),
-    [config]
-  );
-  const emails = config.emails;
-  const pushes = config.pushes;
+  const refs = useMemo(() => collectTemplates(Object.values(config.workflows), config), [config]);
+  /*
+   * The key plus the channel the link carried: one key may be registered as
+   * an email and as a push, and those are two templates. Without a channel the
+   * first reference wins, as before.
+   */
+  const ref =
+    refs.find(
+      (candidate) => candidate.key === key && (channel ?? candidate.channel) === candidate.channel
+    ) ?? refs.find((candidate) => candidate.key === key);
+  const activeChannel = ref?.channel ?? channel ?? 'email';
+
+  /*
+   * In-memory props for the preview, tied to the template they were typed
+   * for: switching template drops them, an HMR edit keeps them and validates
+   * them again against the new schema.
+   */
+  const [override, setOverride] = useState<{ id: string; props: Props } | undefined>();
+  const id = `${activeChannel}:${key}`;
+  const previewProps = override?.id === id ? override.props : undefined;
+
   /* Only email renders a document; every other channel's content is data. */
-  const isEmail = (refs.find((ref) => ref.key === key)?.channel ?? 'email') === 'email';
-  const selected = isEmail ? lookup(emails, key) : undefined;
-  const { data, error, isPending } = useEmailPreview(selected, key);
-
-  /* Switcher options: every referenced template, labelled by its module name. */
-  const options = useMemo(
-    () =>
-      refs.map((ref) => ({
-        value: ref.key,
-        label: displayName(lookupContent(config, ref.channel, ref.key)?.name, ref.key),
-      })),
-    [refs, config]
-  );
-
-  const report = (promise: Promise<void>): Promise<void> =>
-    reportSave(promise, { saved: t('emails.saved'), failed: t('emails.saveFailed') });
-
-  /* Test sends need the hook and a rendered preview; without both the button stays off. */
-  const canTest = config.sendTest !== undefined && data?.html !== undefined;
-  const sendTest = async () => {
-    const to = testTo.trim();
-    if (config.sendTest === undefined || data?.html === undefined || to === '') return;
-    setSending(true);
-    try {
-      await config.sendTest({
-        key,
-        to,
-        ...(data.subject !== undefined ? { subject: data.subject } : {}),
-        html: data.html,
-      });
-      toast.success(t('emails.testSent', { to }));
-      setTestOpen(false);
-    } catch (cause) {
-      toast.error(
-        `${t('emails.testFailed')}: ${cause instanceof Error ? cause.message : String(cause)}`
-      );
-    } finally {
-      setSending(false);
-    }
-  };
+  const found = lookupTemplate(config, activeChannel, key);
+  const selected = found?.channel === 'email' ? found.entry : undefined;
+  const { data, error, isPending } = useEmailPreview(selected, key, previewProps);
 
   return (
     <div className="flex flex-1 flex-col">
-      {/*
-        The header is the root's: breadcrumb with the template switcher as its
-        leaf, the test-send button on the right. Test sends deliver rendered HTML
-        to an inbox — an email-only affordance, so no other channel gets the
-        button.
-      */}
+      {/* The header is the root's: breadcrumb with the template switcher as its leaf. */}
       <PageChrome
         breadcrumb={
           <Breadcrumb
             items={[
               { label: t('nav.templates'), to: '/templates' },
               {
-                label: options.find((option) => option.value === key)?.label ?? key,
+                /* The display name of exactly this template: its channel's registry, not the first key match. */
+                label: displayName(found?.entry.title, key),
                 to: '/templates/$key',
                 params: { key },
+                search: { channel: activeChannel },
               },
               /*
                 The leaf is the page name, still "Preview" now that the
@@ -291,85 +157,34 @@ function EmailView() {
             ]}
           />
         }
-        actions={
-          !isEmail ? undefined : (
-            <Button
-              size="sm"
-              className="gap-1.5"
-              disabled={!canTest}
-              title={config.sendTest === undefined ? t('emails.testUnavailable') : undefined}
-              onClick={() => setTestOpen(true)}
-            >
-              <Send size={16} strokeWidth={2} aria-hidden />
-              {t('emails.test')}
-            </Button>
-          )
-        }
       />
       <div className="flex flex-1 flex-col">
         <TemplatesPage
           refs={refs}
-          emails={emails}
-          pushes={pushes}
-          slack={config.slack}
-          discord={config.discord}
+          emails={config.emails}
+          pushes={config.pushes}
+          discords={config.discords}
+          slacks={config.slacks}
           {...(config.title !== undefined ? { appName: config.title } : {})}
           defaultScheme={studioScheme}
           selected={key}
+          selectedChannel={activeChannel}
+          emailDefaults={config.emailDefaults}
+          previewProps={previewProps}
+          onPreviewPropsChange={(props) =>
+            setOverride(props === undefined ? undefined : { id, props })
+          }
           preview={{
-            ...(data?.html !== undefined ? { html: data.html } : {}),
-            ...(data?.subject !== undefined ? { subject: data.subject } : {}),
+            ...(data?.status === 'ok' ? { html: data.html } : {}),
+            ...(data?.status === 'ok' && data.subject !== undefined
+              ? { subject: data.subject }
+              : {}),
+            ...(data?.status === 'invalid' ? { failure: data.failure } : {}),
             ...(error ? { error: error.message } : {}),
             loading: isPending && selected !== undefined,
           }}
-          addresses={config.addresses}
-          onSaveEnvelope={(templateKey, field, value) =>
-            report(studioPost('/__studio/envelope', { key: templateKey, field, value }))
-          }
-          onManageAddresses={() => void navigate({ to: '/settings' })}
         />
       </div>
-
-      <Modal
-        visible={testOpen}
-        disabled={sending}
-        onCancel={() => setTestOpen(false)}
-        className="w-100 p-6"
-      >
-        <ModalTitle>{t('emails.testTitle')}</ModalTitle>
-        <p className="text-secondary mt-2 text-sm">{t('emails.testHint')}</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void sendTest();
-          }}
-        >
-          <label className="mt-4 block">
-            <span className="text-secondary mb-1.5 block text-sm">{t('emails.to')}</span>
-            <Input
-              type="email"
-              required
-              className="w-full"
-              placeholder="you@example.com"
-              value={testTo}
-              onChange={(e) => setTestTo(e.target.value)}
-            />
-          </label>
-          <div className="mt-6 flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={sending}
-              onClick={() => setTestOpen(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" type="submit" disabled={sending || testTo.trim() === ''}>
-              {sending ? t('emails.sending') : t('emails.send')}
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
@@ -377,5 +192,8 @@ function EmailView() {
 export const emailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/templates/$key',
+  /* `?channel=push` picks the push when one key is registered in several registries. */
+  validateSearch: (search: Record<string, unknown>): { channel?: string } =>
+    typeof search.channel === 'string' ? { channel: search.channel } : {},
   component: EmailView,
 });
