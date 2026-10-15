@@ -9,6 +9,9 @@ export default defineConfig({
       'cloudflare:workers': fileURLToPath(
         new URL('./tests/stubs/cloudflare-workers.ts', import.meta.url)
       ),
+      'cloudflare:workflows': fileURLToPath(
+        new URL('./tests/stubs/cloudflare-workflows.ts', import.meta.url)
+      ),
     },
   },
 });

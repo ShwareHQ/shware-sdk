@@ -1,0 +1,5 @@
+---
+'@shware/workflow-ui': minor
+---
+
+The studio reads schema-driven templates: registry entries made with `emailTemplate({...})` / `pushTemplate({...})` are listed by their `title` and `description`, and previewed from props validated with the SDK's own `parseTemplateProps` / `renderPushContent` — the parsed value is what the component or `content` receives, a push's notification comes from `content()` with no `{prop}` filling, and every email shows the project's `emails.from` / `replyTo`. A preview-props editor on the template page tries other props in memory only; the first load, every edit and every HMR change of a component, `content` or schema validate again, and a refusal shows the failing field paths instead of the last good render. Thumbnails in the workflow inspector use the same validated content. Template references are now kept per channel and key, so an email and a push sharing a key no longer merge usages, and template links carry `?channel=`. `TemplatesPage` takes `EmailTemplate` / `PushTemplate` registries and gains `selectedChannel`, `emailDefaults`, `previewProps`, `onPreviewPropsChange` and a structured `preview.failure`.

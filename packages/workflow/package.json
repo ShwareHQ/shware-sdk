@@ -1,7 +1,6 @@
 {
   "name": "@shware/workflow",
   "version": "0.0.0",
-  "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
@@ -9,8 +8,7 @@
   "files": [
     "dist",
     "src/cloudflare/schema.sql",
-    "src/cloudflare/workers.d.ts",
-    "src/store/postgres-schema.sql"
+    "src/cloudflare/workers.d.ts"
   ],
   "type": "module",
   "exports": {
@@ -124,7 +122,30 @@
         "types": "./dist/fcm.d.cts",
         "default": "./dist/fcm.cjs"
       }
+    },
+    "./webpush": {
+      "import": {
+        "types": "./dist/webpush.d.mts",
+        "default": "./dist/webpush.mjs"
+      },
+      "require": {
+        "types": "./dist/webpush.d.cts",
+        "default": "./dist/webpush.cjs"
+      }
+    },
+    "./webhooks": {
+      "import": {
+        "types": "./dist/webhooks.d.mts",
+        "default": "./dist/webhooks.mjs"
+      },
+      "require": {
+        "types": "./dist/webhooks.d.cts",
+        "default": "./dist/webhooks.cjs"
+      }
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "dev": "tsc --watch",
@@ -134,7 +155,9 @@
     "lint": "oxlint --type-aware src tests --fix"
   },
   "dependencies": {
+    "@slack/types": "^3.2.0",
     "@types/ms": "^2.1.0",
+    "discord-api-types": "^0.38.56",
     "ms": "^2.1.3",
     "zod": "^4.6.5"
   },

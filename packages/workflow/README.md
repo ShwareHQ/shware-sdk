@@ -5,7 +5,7 @@ versioned IR, and executed by a single generic runner: the IR is data, so one
 deployed Worker runs every journey.
 
 ```ts
-const welcome = workflow('welcome', { trigger: trigger.event(e.sign_up) })
+const welcome = workflow({ id: 'welcome', trigger: trigger.event(e.sign_up) })
   .email(gettingStarted)
   .delay('3 days')
   .waitUntil(performed(e.activated), {
@@ -65,6 +65,46 @@ There are no migrations, and re-applying the file is not one: every statement is
 `CREATE TABLE IF NOT EXISTS`, so an existing database keeps its old tables and
 the first insert needing a new column fails. Recreate it instead. The demo has
 `pnpm db:reset`.
+
+## Postgres
+
+A host on Postgres (through Hyperdrive, say) keeps Cloudflare Workflows for
+execution and the data in its own database:
+
+```ts
+const journeys = journeyWorker<Env>({
+  config,
+  store: (env, database) => postgresJsStore(env.HYPERDRIVE.connectionString, database),
+});
+export default { fetch: journeys.fetch, scheduled: journeys.scheduled };
+```
+
+The engine's tables live in one Postgres schema, `workflow` unless the config
+says `database: { schema }`, so their short names never meet the app's. The
+host owns the migrations. `npx workflow-ui generate --out <file>` (from
+`@shware/workflow-ui`) writes the tables as one drizzle file on that schema;
+re-export it from your drizzle schema and let drizzle-kit write the migration.
+Run `--check` in CI to catch an SDK upgrade that changed them. Without drizzle,
+`renderPostgresDdl()` returns the same tables as plain DDL. Nothing creates or
+alters them at runtime: `POST /bundle/deploy` checks the live database first
+and answers 503 with every missing table or column.
+
+On Postgres the engine also keeps:
+
+- **Push devices.** The app registers each token with
+  `JourneyClient.registerDevice(userId, { token, platform })` and forgets one
+  with `removeDevice(token)`. Tokens APNs / FCM report as gone are dropped.
+- **Reporting.** Instances, every message copy, opens and clicks, recorded
+  by the default observer. With `WORKFLOW_ORIGIN` set, email links and an open
+  pixel are tracked through the Worker's `/t/...` routes. Each open and click
+  is classified as a person's or a machine's (Apple Mail Privacy Protection,
+  link scanners, prefetches). `emails.unsubscribe` gets a confirmation page.
+  A push carries `message_id`; report the tap with `messageOpened`.
+- **Segments.** The cron trigger runs `sweepSegments`, which keeps every
+  segment's membership and size and starts the journeys of segments entered by
+  the clock alone. `POST /segments/sweep` runs it on demand.
+
+`@shware/workflow-ui/postgres` reads all of it for the studio.
 
 ## HTTP surface
 
