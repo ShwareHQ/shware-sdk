@@ -35,6 +35,10 @@ export interface D1DatabaseLike {
 export interface WorkflowInstanceLike {
   id: string;
   sendEvent(event: { type: string; payload?: unknown }): Promise<void>;
+  /** Stop the instance for good (Cloudflare Workflows' `terminate`). */
+  terminate?(): Promise<void>;
+  /** Where it stands (`complete`, `errored`, `terminated`, `running`, …). */
+  status?(): Promise<{ status: string }>;
 }
 
 export interface WorkflowBindingLike {
@@ -83,6 +87,11 @@ export interface JourneyEnv {
    * particular rewrites the whole routing table, so production must set this.
    */
   API_TOKEN?: string;
+  /**
+   * This Worker's public origin. With a store that keeps reporting (Postgres), journey emails'
+   * links and open pixel point at its `/t/...` routes; without it emails go out untracked.
+   */
+  WORKFLOW_ORIGIN?: string;
   /** Which `workflow.config.ts` entry applies (`development`, `production`, …); production when unset. */
   ENVIRONMENT?: string;
   /** Cloudflare Email Sending, when the config has `emails`. */
@@ -91,6 +100,9 @@ export interface JourneyEnv {
   APNS_PRIVATE_KEY_BASE64?: string;
   /** The Firebase service account (base64 JSON) the config's `fcm` sends with. */
   GOOGLE_APPLICATION_CREDENTIALS_BASE64?: string;
+  /** The VAPID key pair web pushes are signed with (`generateVapidKeys`); the config's `webPush` turns the channel on. */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
   /** Development only: the HTTP/2 relay `wrangler dev` sends APNs requests through (see `@shware/workflow/apns-relay`). */
   APNS_RELAY_ORIGIN?: string;
 }
@@ -100,7 +112,7 @@ export const WAKE_EVENT_TYPE = 'wake';
 
 /** Journey instance parameters, passed by the ingest router when it creates one. */
 export interface JourneyParams {
-  workflowName: string;
+  workflowId: string;
   /** The IR version pinned at entry. */
   contentHash: string;
   userId: string;

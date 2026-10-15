@@ -1,10 +1,22 @@
 import * as z from 'zod/mini';
+import { type Contract, type ContractResult, checkEvent } from '../contract';
 import { murmur3 } from '../engine/bucket';
-import { PROFILE_UPDATED_EVENT, evaluateCondition, matchesWhere } from '../engine/condition';
+import {
+  DEVICES_UPDATED_EVENT,
+  PROFILE_UPDATED_EVENT,
+  evaluateCondition,
+  matchesWhere,
+} from '../engine/condition';
 import { semanticHash } from '../hash';
-import { BundleIR, type TriggerIR } from '../ir';
+import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
+import { recordPushOpen } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
-import type { JourneyStore, ProfileProps } from '../store/index';
+import {
+  type JourneyStore,
+  type ProfileProps,
+  SchemaMismatchError,
+  type SegmentTriggerRoute,
+} from '../store/index';
 import {
   type JourneyEnv,
   type JourneyParams,
@@ -159,49 +171,143 @@ async function startTriggeredJourneys(
  * user, re-evaluate every trigger-routed segment for that user and act on the
  * membership transition (enter → start journeys, leave → drop membership so a
  * later re-entry is observable). Purely time-driven drift (an inactivity
- * segment turning true by clock alone) is only seen on the user's next
- * activity — TODO: a cron sweep for time-driven segments.
+ * segment turning true by clock alone) has no event to ride on: the scheduled
+ * sweep catches it (`sweepSegments`).
  */
-async function refreshSegmentTriggers(
+export async function refreshSegmentTriggers(
   env: JourneyEnv,
   store: JourneyStore,
   userId: string,
   ts: number
 ): Promise<string[]> {
-  const routes = await store.listSegmentTriggers();
-  if (routes.length === 0) return [];
+  return refreshSegments(env, store, userId, ts, await store.listSegmentTriggers());
+}
 
-  const facts = new JourneyFactSource(store, userId);
-  const bySegment = new Map<string, { workflow: string; hash: string }[]>();
+/**
+ * Re-evaluate segments for one user — the routed ones only, or with `segments` every one named —
+ * and act on each membership transition: entering records the membership and starts the
+ * segment's routed workflows, leaving drops it. A segment trigger therefore starts journeys for
+ * users who enter after it is deployed; a user already a member is not entered again.
+ */
+async function refreshSegments(
+  env: JourneyEnv,
+  store: JourneyStore,
+  userId: string,
+  ts: number,
+  routes: readonly SegmentTriggerRoute[],
+  segments: readonly string[] = [],
+  // A sweep loads each definition once for all its users, not once per user
+  definitions = new Map<string, ConditionIR | undefined>()
+): Promise<string[]> {
+  const bySegment = new Map<string, { workflow: string; hash: string }[]>(
+    segments.map((name) => [name, []])
+  );
   for (const route of routes) {
     const list = bySegment.get(route.segment) ?? [];
     list.push({ workflow: route.workflow, hash: route.hash });
     bySegment.set(route.segment, list);
   }
+  if (bySegment.size === 0) return [];
 
+  const facts = new JourneyFactSource(store, userId);
   const started: string[] = [];
-  for (const [segmentName, segmentRoutes] of bySegment) {
-    const definition = await store.getSegmentCondition(segmentName);
+  const failures: unknown[] = [];
+  for (const [segmentId, segmentRoutes] of bySegment) {
+    if (!definitions.has(segmentId)) {
+      definitions.set(segmentId, await store.getSegmentCondition(segmentId));
+    }
+    const definition = definitions.get(segmentId);
     if (definition === undefined) continue; // route without a definition: broken deploy, skip
 
     const matches = await evaluateCondition(definition, facts, ts);
-    const member = await store.isSegmentMember(segmentName, userId);
+    const member = await store.isSegmentMember(segmentId, userId);
 
     if (matches && !member) {
-      // Entry transition: record membership, then start the routed workflows
-      await store.addSegmentMember(segmentName, userId, ts);
-      for (const route of segmentRoutes) {
+      // Entry transition: the membership and the starts it owes, recorded together
+      await store.addSegmentMember(
+        segmentId,
+        userId,
+        ts,
+        segmentRoutes.map((route) => route.workflow)
+      );
+    } else if (!matches && member) {
+      await store.removeSegmentMember(segmentId, userId);
+      continue;
+    }
+    if (!matches) continue;
+
+    // Every start the entry still owes — a fresh entry's, or one an earlier evaluation failed on.
+    // Each is crossed off once its instance exists, so one workflow failing neither blocks the
+    // others nor gets lost: the next evaluation (the sweep, the user's next event) retries it.
+    const pending = new Set(await store.pendingSegmentStarts(segmentId, userId));
+    for (const route of segmentRoutes) {
+      if (!pending.has(route.workflow)) continue;
+      try {
         const instanceId = await startJourney(env, store, route.workflow, route.hash, userId, ts, {
           event: '$segment_entry',
-          payload: { segment: segmentName },
+          payload: { segment: segmentId },
         });
         if (instanceId !== null) started.push(instanceId);
+        await store.completeSegmentStart(segmentId, userId, route.workflow);
+      } catch (error) {
+        failures.push(error);
       }
-    } else if (!matches && member) {
-      await store.removeSegmentMember(segmentName, userId);
     }
   }
+  // Surface a failure to the caller (an ingest answers 500) once every start had its chance
+  if (failures.length > 0) throw failures[0];
   return started;
+}
+
+export interface SweepResult {
+  users: number;
+  /** Journeys the segments' entries started. */
+  started: string[];
+  /** Each deployed segment's size after the sweep (empty when the store keeps no reporting). */
+  sizes: { segment: string; size: number }[];
+}
+
+/**
+ * The scheduled sweep: every deployed segment evaluated for every known user — the evaluator a
+ * journey's conditions run on, so a member is exactly who a journey would see in it. Membership
+ * follows (joiners keep the time they joined, leavers are removed), segment triggers start the
+ * journeys of whoever entered by the clock alone, and the store records each segment's size.
+ * It walks users one by one: fine for thousands, a large audience wants SQL-side evaluation.
+ */
+export async function sweepSegments(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now = Date.now()
+): Promise<SweepResult> {
+  // Erasures left unfinished (an instance would not stop) first: their users are not evaluated
+  const erasing = new Set<string>();
+  for (const userId of await store.pendingErasures()) {
+    try {
+      const { erased } = await eraseUser(env, userId, store);
+      if (!erased) erasing.add(userId);
+    } catch (error) {
+      // Still pending: the next sweep tries again, and the rest of this one goes on
+      erasing.add(userId);
+      console.error(`[workflow] erasure of ${userId} failed`, error);
+    }
+  }
+  const segments = (await store.listSegments()).map((segment) => segment.id);
+  const routes = await store.listSegmentTriggers();
+  const users = (await store.listUserIds()).filter((userId) => !erasing.has(userId));
+  const started: string[] = [];
+  const definitions = new Map<string, ConditionIR | undefined>();
+  for (const userId of users) {
+    try {
+      started.push(
+        ...(await refreshSegments(env, store, userId, now, routes, segments, definitions))
+      );
+    } catch (error) {
+      // One user's failed start is kept for the next sweep; it must not stop everyone else's
+      console.error(`[workflow] segment refresh for ${userId} failed`, error);
+    }
+  }
+  const sizes = (await store.reporting?.snapshotSegments(now)) ?? [];
+  return { users: users.length, started, sizes };
 }
 
 /**
@@ -220,7 +326,7 @@ async function startJourney(
   trigger: { event: string; payload: Record<string, unknown> }
 ): Promise<string | null> {
   const instanceId = buildInstanceId(workflow, hash, userId, ts);
-  const params: JourneyParams = { workflowName: workflow, contentHash: hash, userId, trigger };
+  const params: JourneyParams = { workflowId: workflow, contentHash: hash, userId, trigger };
 
   const outcome = await store.enterJourney({ workflow, userId, instanceId, hash, ts });
   if (outcome === null) return null; // already entered, and still alive
@@ -284,6 +390,128 @@ export async function identifyUser(
   return { ok: true, props: merged, woke, started };
 }
 
+export interface DeviceRegistration {
+  userId: string;
+  token: string;
+  platform: string;
+  ts?: number;
+}
+
+/**
+ * A push token registered for the user (or moved to them from another account: a token belongs
+ * to one user at a time). Wakes the waits that read devices (`reachable('push')` inside
+ * `waitUntil`), for the new owner and the previous one.
+ */
+export async function registerDevice(
+  env: JourneyEnv,
+  device: DeviceRegistration,
+  store: JourneyStore = d1Store(env)
+): Promise<{ ok: true; woke: number }> {
+  const previous = await store.removeDevice(device.token);
+  await store.upsertDevice({ ...device, ts: device.ts ?? Date.now() });
+  let woke = await wakeSubscribers(env, store, device.userId, DEVICES_UPDATED_EVENT);
+  if (previous !== undefined && previous !== device.userId) {
+    woke += await wakeSubscribers(env, store, previous, DEVICES_UPDATED_EVENT);
+  }
+  return { ok: true, woke };
+}
+
+/**
+ * A deleted account: everything the engine keeps about the user is erased and the journeys still
+ * running for them are terminated, so nothing more is sent. Idempotent.
+ */
+/** Workflow instance states that will never run another step. */
+const STOPPED_STATUSES = new Set(['complete', 'errored', 'terminated']);
+
+/**
+ * Stop one instance for good; true once it is known not to run again. An instance the platform
+ * no longer knows, or one already finished (terminate refuses those), counts as stopped. Any other
+ * failure is not taken for "already gone": it answers false, and the erasure waits for a retry.
+ */
+async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolean> {
+  let instance: WorkflowInstanceLike;
+  try {
+    instance = await env.JOURNEY.get(instanceId);
+  } catch (error) {
+    if (/not[_ ]found/i.test(String(error))) return true;
+    console.warn(`[workflow] looking up ${instanceId} to stop it failed`, error);
+    return false;
+  }
+  if (instance.terminate === undefined) return false;
+  try {
+    await instance.terminate();
+    return true;
+  } catch (error) {
+    const status = await instance.status?.().catch(() => undefined);
+    if (status !== undefined && STOPPED_STATUSES.has(status.status)) return true;
+    console.warn(`[workflow] terminating ${instanceId} failed`, error);
+    return false;
+  }
+}
+
+/**
+ * Carry out a recorded erasure: stop every running instance of the user, and only once all have
+ * stopped erase their data (the request with it). Stopping first means no step can write rows
+ * back after the erase; erasing nothing until then keeps the entries that name the instances
+ * still to stop, so a retry can finish the job.
+ */
+async function eraseUser(
+  env: JourneyEnv,
+  userId: string,
+  store: JourneyStore
+): Promise<{ erased: boolean; pending: string[] }> {
+  const pending: string[] = [];
+  for (const instanceId of await store.runningInstances(userId)) {
+    if (!(await stopInstance(env, instanceId))) pending.push(instanceId);
+  }
+  if (pending.length > 0) return { erased: false, pending };
+  await store.forgetUser(userId);
+  return { erased: true, pending };
+}
+
+/**
+ * Forget a user (a deleted account): the request is recorded first, then carried out. An
+ * instance that will not stop leaves it pending — nothing erased yet — and the scheduled sweep
+ * retries it; `erased: false` says so.
+ */
+export async function forgetUser(
+  env: JourneyEnv,
+  userId: string,
+  store: JourneyStore = d1Store(env),
+  now = Date.now()
+): Promise<{ ok: true; erased: boolean; pending: string[] }> {
+  await store.requestErasure(userId, now);
+  return { ok: true, ...(await eraseUser(env, userId, store)) };
+}
+
+/**
+ * The user signed out on the device: the token stays registered, bound to nobody, so the next
+ * sign-in only has to bind it again. Wakes the former owner's device waits (`reachable('push')`
+ * may no longer hold).
+ */
+export async function unbindDevice(
+  env: JourneyEnv,
+  token: string,
+  store: JourneyStore = d1Store(env)
+): Promise<{ ok: true; woke: number }> {
+  const owner = await store.unbindDevice(token);
+  const woke =
+    owner === undefined ? 0 : await wakeSubscribers(env, store, owner, DEVICES_UPDATED_EVENT);
+  return { ok: true, woke };
+}
+
+/** A push token forgotten for good (the push service reports it gone); wakes its owner's device waits. */
+export async function removeDevice(
+  env: JourneyEnv,
+  token: string,
+  store: JourneyStore = d1Store(env)
+): Promise<{ ok: true; woke: number }> {
+  const owner = await store.removeDevice(token);
+  const woke =
+    owner === undefined ? 0 : await wakeSubscribers(env, store, owner, DEVICES_UPDATED_EVENT);
+  return { ok: true, woke };
+}
+
 /* ---------------------------------- deploy ---------------------------------- */
 
 export interface DeployResult {
@@ -325,12 +553,12 @@ function verifyBundleHashes(parsed: BundleIR): void {
   const mismatched: string[] = [];
   for (const workflow of parsed.workflows) {
     if (semanticHash(workflow) !== workflow.contentHash) {
-      mismatched.push(`workflow '${workflow.name}'`);
+      mismatched.push(`workflow '${workflow.id}'`);
     }
   }
   for (const segment of parsed.segments) {
     if (semanticHash(segment.condition) !== segment.contentHash) {
-      mismatched.push(`segment '${segment.name}'`);
+      mismatched.push(`segment '${segment.id}'`);
     }
   }
   if (mismatched.length > 0) {
@@ -349,16 +577,19 @@ export async function deployBundle(
   const parsed = BundleIR.parse(bundle);
   // Before any write: a bad hash must not reach the store, where it would address content it does not describe
   verifyBundleHashes(parsed);
+  // Nor a bundle the database cannot hold: the host migrates, the engine only checks
+  const problems = (await store.checkSchema?.()) ?? [];
+  if (problems.length > 0) throw new SchemaMismatchError(problems);
 
   for (const workflow of parsed.workflows) await store.putWorkflowIR(workflow);
   await store.replaceRoutes(parsed);
 
   const unrouted = parsed.workflows
     .filter((workflow) => workflow.trigger.type === 'date' || workflow.trigger.type === 'webhook')
-    .map((workflow) => ({ workflow: workflow.name, trigger: workflow.trigger.type }));
+    .map((workflow) => ({ workflow: workflow.id, trigger: workflow.trigger.type }));
 
   return {
-    workflows: parsed.workflows.map((w) => `${w.name}@${w.contentHash.slice(0, 8)}`),
+    workflows: parsed.workflows.map((w) => `${w.id}@${w.contentHash.slice(0, 8)}`),
     unrouted,
   };
 }
@@ -383,10 +614,22 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
+/**
+ * How the ingest API applies a contract: 'enforce' refuses an invalid event or
+ * patch with a 400 before anything is stored, woken or started; 'report' logs
+ * the issues (event id, name, field paths — never the payload) and accepts it,
+ * for checking real producers before turning enforcement on.
+ */
+export interface IngestValidation {
+  contract?: Contract | undefined;
+  mode?: 'enforce' | 'report' | undefined;
+}
+
 export async function handleRequest(
   request: Request,
   env: JourneyEnv,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore = d1Store(env),
+  validation: IngestValidation = {}
 ): Promise<Response> {
   const url = new URL(request.url);
   const json = (body: unknown, status = 200): Response =>
@@ -394,6 +637,24 @@ export async function handleRequest(
       status,
       headers: { 'content-type': 'application/json' },
     });
+  const { contract } = validation;
+  const enforce = validation.mode !== 'report';
+  /** The contract's verdict: the value to use, or the response refusing the request. */
+  const checked = <T>(
+    result: ContractResult<T>,
+    original: T,
+    what: string
+  ): { value: T } | { refused: Response } => {
+    if (result.ok) return { value: result.data };
+    const issues = result.issues.map((i) => `${i.path || '(root)'}: ${i.message}`);
+    if (!enforce) {
+      console.warn(`[workflow router] contract would refuse ${what}: ${issues.join('; ')}`);
+      return { value: original };
+    }
+    return {
+      refused: json({ error: `${what} refused by the contract`, issues: result.issues }, 400),
+    };
+  };
 
   if (request.method === 'GET' && url.pathname === '/health') {
     return json({ ok: true });
@@ -428,14 +689,75 @@ export async function handleRequest(
       if (payload !== undefined && !isPlainObject(payload)) {
         return json({ error: 'payload must be an object' }, 400);
       }
-      return json(await ingestEvent(env, { id, userId, event, payload, ts }, store));
+      let accepted = payload;
+      if (contract !== undefined) {
+        const verdict = checked(
+          checkEvent(contract, event, payload ?? {}),
+          accepted ?? {},
+          `event '${event}'${typeof id === 'string' ? ` (${id})` : ''}`
+        );
+        if ('refused' in verdict) return verdict.refused;
+        accepted = verdict.value;
+      }
+      return json(await ingestEvent(env, { id, userId, event, payload: accepted, ts }, store));
     }
 
     if (request.method === 'POST' && url.pathname === '/identify') {
       const { userId, props } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
       if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
-      return json(await identifyUser(env, userId, props as ProfileProps, store));
+      let patch = props as ProfileProps;
+      if (contract !== undefined) {
+        const verdict = checked(contract.parseProfilePatch(props), patch, 'identify');
+        if ('refused' in verdict) return verdict.refused;
+        patch = verdict.value as ProfileProps;
+      }
+      return json(await identifyUser(env, userId, patch, store));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/devices') {
+      const { userId, token, platform, ts } = await readBody(request);
+      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
+      if (platform !== 'ios' && platform !== 'android' && platform !== 'web') {
+        return json({ error: "platform must be 'ios', 'android' or 'web'" }, 400);
+      }
+      if (ts !== undefined && typeof ts !== 'number')
+        return json({ error: 'ts must be a number' }, 400);
+      return json(
+        await registerDevice(
+          env,
+          { userId, token, platform, ...(ts === undefined ? {} : { ts }) },
+          store
+        )
+      );
+    }
+
+    if (request.method === 'POST' && url.pathname === '/messages/opened') {
+      const { userId, messageId } = await readBody(request);
+      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      if (!isNonEmptyString(messageId)) return json({ error: 'messageId required' }, 400);
+      const recorded =
+        store.reporting !== undefined && (await recordPushOpen(store.reporting, userId, messageId));
+      return json({ ok: true, recorded });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/users/forget') {
+      const { userId } = await readBody(request);
+      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      return json(await forgetUser(env, userId, store));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/devices/unbind') {
+      const { token } = await readBody(request);
+      if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
+      return json(await unbindDevice(env, token, store));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/devices/remove') {
+      const { token } = await readBody(request);
+      if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
+      return json(await removeDevice(env, token, store));
     }
 
     if (request.method === 'POST' && url.pathname === '/deploy') {
@@ -452,6 +774,10 @@ export async function handleRequest(
     // The caller sent a self-inconsistent bundle: their problem to fix, so say what is wrong
     if (error instanceof BundleIntegrityError) {
       return json({ error: error.message }, 400);
+    }
+    // The operator's to fix (run the migrations), so the response says what is missing
+    if (error instanceof SchemaMismatchError) {
+      return json({ error: error.message, problems: error.problems }, 503);
     }
     console.error('[workflow router]', error);
     return json({ error: 'internal error' }, 500);

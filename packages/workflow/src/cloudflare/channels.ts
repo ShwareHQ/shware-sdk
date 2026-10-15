@@ -1,12 +1,21 @@
 import { ApnsPushSender, apnsKeyFromBase64 } from '../apns';
 import { type JourneyConfig, apnsEnvironment } from '../config';
-import type { MessageSender } from '../engine/ports';
+import type { MessageSender, OutboundMessage } from '../engine/ports';
 import { FcmPushSender, serviceAccountFromBase64 } from '../fcm';
-import { type PushRegistryModule, registryPushRenderer } from '../push';
-import { type EmailRegistryModule, registryRenderer } from '../react-email';
+import { registryPushRenderer } from '../push';
+import { registryRenderer } from '../react-email';
 import { type JourneyMode, type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import type { JourneyStore } from '../store/index';
+import {
+  type DiscordTemplate,
+  type SlackTemplate,
+  renderDiscordContent,
+  renderSlackContent,
+} from '../templates';
+import { DiscordWebhookSender, SlackWebhookSender } from '../webhooks';
+import { WebPushSender } from '../webpush';
 import type { JourneyEnv } from './bindings';
+import { removeDevice } from './router';
 import { CfEmailSender, routeByChannel, routeByPlatform } from './senders';
 
 /**
@@ -20,13 +29,6 @@ import { CfEmailSender, routeByChannel, routeByPlatform } from './senders';
  * sender by hand.
  */
 
-export interface ChannelRegistries {
-  /** The email registry (`src/emails/index.ts`): react-email components keyed by template. */
-  emails?: Record<string, EmailRegistryModule>;
-  /** The push registry (`src/pushes/index.ts`). */
-  pushes?: Record<string, PushRegistryModule>;
-}
-
 /** Which config entry applies: wrangler's `ENVIRONMENT` var, production when unset. */
 export function journeyMode(env: JourneyEnv): JourneyMode {
   return env.ENVIRONMENT ?? 'production';
@@ -34,7 +36,7 @@ export function journeyMode(env: JourneyEnv): JourneyMode {
 
 /** The runtime options for this environment's mode. */
 export function runtimeFromConfig(
-  config: JourneyConfig | undefined,
+  config: Pick<JourneyConfig, 'runtime'> | undefined,
   env: JourneyEnv
 ): Required<JourneyRuntimeOptions> {
   return resolveRuntime(config?.runtime, journeyMode(env));
@@ -51,7 +53,11 @@ function unavailable(reason: string): MessageSender {
 
 function requireSecret(
   env: JourneyEnv,
-  name: 'APNS_PRIVATE_KEY_BASE64' | 'GOOGLE_APPLICATION_CREDENTIALS_BASE64'
+  name:
+    | 'APNS_PRIVATE_KEY_BASE64'
+    | 'GOOGLE_APPLICATION_CREDENTIALS_BASE64'
+    | 'VAPID_PUBLIC_KEY'
+    | 'VAPID_PRIVATE_KEY'
 ): string {
   const value = env[name];
   if (typeof value !== 'string' || value.length === 0) {
@@ -60,60 +66,173 @@ function requireSecret(
   return value;
 }
 
+/**
+ * A sender built on its first message. A platform's secret is only required
+ * when something is actually sent there: a journey that only emails must not
+ * fail because the APNs key is missing from a local `.dev.vars`.
+ */
+function lazy(build: () => MessageSender): MessageSender {
+  let sender: MessageSender | undefined;
+  return {
+    async send(message) {
+      sender ??= build();
+      return sender.send(message);
+    },
+  };
+}
+
+/** The channels slice of the config — what `channelsFromConfig` reads. */
+export type ChannelsConfig = Pick<
+  JourneyConfig,
+  'templates' | 'emails' | 'apns' | 'fcm' | 'webPush' | 'runtime'
+>;
+
 export function channelsFromConfig(
-  config: JourneyConfig | undefined,
+  config: ChannelsConfig,
   env: JourneyEnv,
-  store: JourneyStore,
-  registries: ChannelRegistries,
-  fetchImpl?: typeof fetch
+  options: {
+    /** The store a token APNs / FCM / a push service reports as gone is removed from. */
+    store?: JourneyStore | undefined;
+    fetch?: typeof fetch;
+  } = {}
 ): MessageSender {
   const mode = journeyMode(env);
 
   const email = (): MessageSender => {
-    if (registries.emails === undefined) return unavailable('no email registry was given');
+    const registry = config.templates?.email;
+    if (registry === undefined) return unavailable('no email templates are registered');
     if (env.EMAIL === undefined) return unavailable('no EMAIL (send_email) binding');
-    if (config?.emails?.from === undefined) return unavailable('emails.from is not configured');
+    if (config.emails === undefined) return unavailable('emails.from is not configured');
     return new CfEmailSender({
       binding: env.EMAIL,
       from: config.emails.from,
       ...(config.emails.replyTo === undefined ? {} : { replyTo: config.emails.replyTo }),
-      render: registryRenderer(registries.emails),
-      profile: store,
+      render: registryRenderer(registry),
     });
   };
 
   const push = (): MessageSender => {
-    if (registries.pushes === undefined) return unavailable('no push registry was given');
-    const render = registryPushRenderer(registries.pushes);
+    const registry = config.templates?.push;
+    if (registry === undefined) return unavailable('no push templates are registered');
+    const render = registryPushRenderer(registry);
+    // A token the provider reports as gone is forgotten (nothing left to deliver to), waking the
+    // waits that read devices, as a removal through the API does
+    const onUnregistered = async (message: OutboundMessage) => {
+      if (message.device !== undefined && options.store !== undefined) {
+        await removeDevice(env, message.device.token, options.store);
+      }
+    };
     const platforms: Record<string, MessageSender> = {};
-    if (config?.apns !== undefined) {
-      platforms.ios = new ApnsPushSender({
-        keyId: config.apns.keyId,
-        teamId: config.apns.teamId,
-        privateKey: apnsKeyFromBase64(requireSecret(env, 'APNS_PRIVATE_KEY_BASE64')),
-        topic: config.apns.topic,
-        environment: apnsEnvironment(config.apns, mode),
-        render,
-        ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
-        ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }),
-      });
+    const apns = config.apns;
+    if (apns !== undefined) {
+      platforms.ios = lazy(
+        () =>
+          new ApnsPushSender({
+            keyId: apns.keyId,
+            teamId: apns.teamId,
+            privateKey: apnsKeyFromBase64(requireSecret(env, 'APNS_PRIVATE_KEY_BASE64')),
+            topic: apns.topic,
+            environment: apnsEnvironment(apns, mode),
+            render,
+            onUnregistered,
+            ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+          })
+      );
     }
-    if (config?.fcm !== undefined) {
-      platforms.android = new FcmPushSender({
-        serviceAccount: serviceAccountFromBase64(
-          requireSecret(env, 'GOOGLE_APPLICATION_CREDENTIALS_BASE64')
-        ),
-        render,
-        ...(config.fcm.androidChannelId === undefined
-          ? {}
-          : { android: { channel_id: config.fcm.androidChannelId } }),
-        ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }),
-      });
+    const fcm = config.fcm;
+    if (fcm !== undefined) {
+      platforms.android = lazy(
+        () =>
+          new FcmPushSender({
+            serviceAccount: serviceAccountFromBase64(
+              requireSecret(env, 'GOOGLE_APPLICATION_CREDENTIALS_BASE64')
+            ),
+            render,
+            onUnregistered,
+            ...(fcm.androidChannelId === undefined
+              ? {}
+              : { android: { channel_id: fcm.androidChannelId } }),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+          })
+      );
+    }
+    const webPush = config.webPush;
+    if (webPush !== undefined) {
+      platforms.web = lazy(
+        () =>
+          new WebPushSender({
+            vapid: {
+              subject: webPush.subject,
+              publicKey: requireSecret(env, 'VAPID_PUBLIC_KEY'),
+              privateKey: requireSecret(env, 'VAPID_PRIVATE_KEY'),
+            },
+            render,
+            onUnregistered,
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+          })
+      );
     }
     if (Object.keys(platforms).length === 0)
-      return unavailable('neither apns nor fcm is configured');
-    return routeByPlatform(platforms, store);
+      return unavailable('none of apns, fcm or webPush is configured');
+    return routeByPlatform(platforms);
   };
 
-  return routeByChannel({ email: email(), push: push() });
+  /**
+   * A webhook template's URL, read from the environment the Worker validated at startup (its
+   * `env` schema): a template whose variable is unset fails the step, naming the template.
+   */
+  const webhookUrl = (
+    channel: 'discord' | 'slack',
+    key: string,
+    template: DiscordTemplate | SlackTemplate
+  ) => {
+    const url = template.webhook(env as unknown as Record<string, unknown>);
+    if (typeof url !== 'string' || url === '') {
+      throw new Error(
+        `${channel} template '${key}': its webhook URL is not set in the environment`
+      );
+    }
+    return url;
+  };
+  const lookupTemplate = <T>(
+    registry: Readonly<Record<string, T>>,
+    channel: string,
+    key: string
+  ) => {
+    if (!Object.hasOwn(registry, key)) throw new Error(`unknown ${channel} template: ${key}`);
+    return registry[key];
+  };
+
+  const discord = (): MessageSender => {
+    const registry = config.templates?.discord;
+    if (registry === undefined) return unavailable('no discord templates are registered');
+    return new DiscordWebhookSender({
+      render: (key, props) => {
+        const template = lookupTemplate(registry, 'discord', key) as DiscordTemplate;
+        return {
+          url: webhookUrl('discord', key, template),
+          content: renderDiscordContent(template, key, props),
+        };
+      },
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    });
+  };
+
+  const slack = (): MessageSender => {
+    const registry = config.templates?.slack;
+    if (registry === undefined) return unavailable('no slack templates are registered');
+    return new SlackWebhookSender({
+      render: (key, props) => {
+        const template = lookupTemplate(registry, 'slack', key) as SlackTemplate;
+        return {
+          url: webhookUrl('slack', key, template),
+          content: renderSlackContent(template, key, props),
+        };
+      },
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    });
+  };
+
+  return routeByChannel({ email: email(), push: push(), discord: discord(), slack: slack() });
 }

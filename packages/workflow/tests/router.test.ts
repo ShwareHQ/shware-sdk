@@ -108,7 +108,7 @@ describe('deployBundle', () => {
 
   test('reports workflows whose trigger type has no routing yet', async () => {
     const { env } = makeEnv();
-    const holiday = workflow('holiday', { trigger: trigger.date('2026-12-25 09:00:00') }).email(
+    const holiday = workflow({ id: 'holiday', trigger: trigger.date('2026-12-25 09:00:00') }).email(
       gettingStarted
     );
 
@@ -149,7 +149,8 @@ describe('event triggers', () => {
 
   test('the where gate rejects non-matching payloads before anything else', async () => {
     const { env } = makeEnv();
-    const webOnly = workflow('web_only', {
+    const webOnly = workflow({
+      id: 'web_only',
       trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [webOnly] }));
@@ -171,7 +172,8 @@ describe('event triggers', () => {
 
   test('the profile filter gates entry until the profile matches', async () => {
     const { env, db } = makeEnv();
-    const activeOnly = workflow('active_only', {
+    const activeOnly = workflow({
+      id: 'active_only',
       trigger: trigger.event(e.sign_up, { filter: eq(u.subscription_status, 'active') }),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [activeOnly] }));
@@ -324,6 +326,32 @@ describe('segment-entry triggers', () => {
     // Entry-once still applies on any later re-entry transition
     expect(db.entries.filter((entry) => entry.workflow === 'reengagement')).toHaveLength(1);
   });
+
+  test('a start that failed is retried by the next evaluation, behind the membership', async () => {
+    const { env, db, journey } = makeEnv();
+    await deployBundle(env, bundle());
+    const create = journey.create.bind(journey);
+    // Only the segment's workflow fails to start; the event-triggered one goes out
+    journey.create = async (options) => {
+      if (options.id.startsWith('reengagement-')) throw new Error('platform unavailable');
+      return create(options);
+    };
+
+    // The entry is recorded, its start owed; the failure still reaches the caller
+    await expect(ingestEvent(env, { userId: 'u2', event: 'begin_checkout' })).rejects.toThrow(
+      'platform unavailable'
+    );
+    expect(db.segmentMembers.has('inactive_30d\nu2')).toBe(true);
+    expect([...db.segmentStarts]).toContain('inactive_30d\nreengagement\nu2');
+
+    // Next activity: already a member, but the owed start goes out now — once
+    journey.create = create;
+    const retry = await ingestEvent(env, { userId: 'u2', event: 'begin_checkout' });
+    expect(retry.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
+    expect(db.segmentStarts.size).toBe(0);
+    const again = await ingestEvent(env, { userId: 'u2', event: 'begin_checkout' });
+    expect(again.started.some((id) => id.startsWith('reengagement-'))).toBe(false);
+  });
 });
 
 describe('identify', () => {
@@ -435,8 +463,8 @@ describe('identify', () => {
 
   test('a profile change can move the user into a trigger-routed segment', async () => {
     const { env, db } = makeEnv();
-    const vip = segment('vip', eq(u.subscription_plan, 'business'));
-    const vipWelcome = workflow('vip_welcome', { trigger: trigger.segment(vip) }).email(
+    const vip = segment({ id: 'vip', condition: eq(u.subscription_plan, 'business') });
+    const vipWelcome = workflow({ id: 'vip_welcome', trigger: trigger.segment(vip) }).email(
       firstTimeRecovery
     );
     await deployBundle(env, compileBundle({ workflows: [vipWelcome], segments: [vip] }));

@@ -66,7 +66,7 @@ export interface FactSource {
     opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR }
   ): Promise<number>;
   getProperty(path: string): Promise<ScalarIR | undefined>;
-  /** Resolve a segment definition by name (stored with the bundle at deploy time). */
+  /** Resolve a segment definition by id (stored with the bundle at deploy time). */
   getSegmentCondition(name: string): Promise<ConditionIR | undefined>;
   /** The user's push devices, most recently registered first (empty when the user registered none). */
   listDevices(): Promise<PushDevice[]>;

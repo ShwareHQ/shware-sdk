@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { scaleDurations } from '../src/engine/time-scale';
+import { scaleDurations, scaleSegmentWindows } from '../src/engine/time-scale';
 import { event, not, performed, template, trigger, workflow } from '../src/index';
 
 interface Event {
@@ -9,7 +9,8 @@ interface Event {
 const e = event<Event>();
 const tpl = template.email('t');
 
-const flow = workflow('scaled', {
+const flow = workflow({
+  id: 'scaled',
   trigger: trigger.event(e.login),
   goal: { condition: performed(e.purchase), within: '30 days' },
 })
@@ -36,7 +37,7 @@ describe('scaleDurations', () => {
     expect(text).not.toContain(`"ms":${2 * DAY}`);
     // Identity and hash untouched: the pinned version still names the deployed workflow
     expect(scaled.contentHash).toBe(ir.contentHash);
-    expect(scaled.name).toBe(ir.name);
+    expect(scaled.id).toBe(ir.id);
   });
 
   test('a factor of 1 (or an invalid one) returns the IR as is', () => {
@@ -44,5 +45,37 @@ describe('scaleDurations', () => {
     expect(scaleDurations(ir, 1)).toBe(ir);
     expect(scaleDurations(ir, 0)).toBe(ir);
     expect(scaleDurations(ir, Number.NaN)).toBe(ir);
+  });
+});
+
+describe('scaleSegmentWindows', () => {
+  const condition = {
+    type: 'performed',
+    event: 'login',
+    within: { value: '7 days', ms: 604_800_000 },
+  };
+  const store = {
+    calls: 0,
+    async getSegmentCondition(name: string) {
+      this.calls += 1;
+      return name === 'inactive' ? condition : undefined;
+    },
+    other() {
+      return this.calls;
+    },
+  };
+
+  test('segment definitions come back scaled; everything else is the store itself', async () => {
+    const scaled = scaleSegmentWindows(store, 3600);
+    expect(await scaled.getSegmentCondition('inactive')).toEqual({
+      ...condition,
+      within: { value: '7 days', ms: 168_000 },
+    });
+    expect(await scaled.getSegmentCondition('missing')).toBeUndefined();
+    expect(scaled.other()).toBe(2);
+  });
+
+  test('a factor of 1 hands back the store unwrapped', () => {
+    expect(scaleSegmentWindows(store, 1)).toBe(store);
   });
 });

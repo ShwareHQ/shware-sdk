@@ -35,3 +35,10 @@ declare module 'cloudflare:workers' {
     abstract run(event: WorkflowEvent<Params>, step: WorkflowStep): Promise<unknown>;
   }
 }
+
+/** The one export of cloudflare:workflows the runner uses: an error that ends the step without retries. */
+declare module 'cloudflare:workflows' {
+  export class NonRetryableError extends Error {
+    constructor(message: string, name?: string);
+  }
+}
