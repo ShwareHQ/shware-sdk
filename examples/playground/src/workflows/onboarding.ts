@@ -1,70 +1,52 @@
-import { type SubFlow, type TemplateRef, not, template, trigger, workflow } from '@shware/workflow';
-import { e } from './schema';
-import {
-  newUsers7d,
-  usedApi,
-  usedAutomations,
-  usedCollaboration,
-  usedIntegrations,
-  usedMobile,
-  usedPublishing,
-  usedTemplates,
-  usedWhiteboards,
-} from './segments';
+import { exists, flow, gt, not, template, trigger, workflow } from '@shware/workflow';
+import { t } from '../templates';
+import { e, u } from './schema';
+import { activated, activeSubscriber } from './segments';
+
+/** The entry gate lives on the trigger (customer.io's trigger Filters): signed up *and* has an email. */
+const signedUp = trigger.event(e.sign_up, { filter: exists(u.email) });
+
+/** An anonymous reusable condition is just a const: reused in code, but absent from the segment sidebar. */
+const powerUser = gt(u.docs_count, 100);
 
 /**
- * Onboarding education series (a feature-adoption drip).
- *
- * Shape: triggered by login (new users only, first entry only) -> Welcome ->
- * one educational email a week, each sent only to people who have not used the
- * matching feature yet; everyone else skips straight past and rejoins at the
- * next module.
- * The same flow on a UI canvas runs to roughly 40 nodes: eight
- * branch + email + delay groups plus their rejoin edges.
+ * Nested branches: an arm is a full FlowBuilder, so it can .branch() again.
+ * Convention: anything deeper than one level is pulled out into a named
+ * fragment like this one, keeping every expression shallow.
  */
+const subscriberSplit = flow((w) =>
+  w.branch([powerUser, (w) => w.email(t.email.onboarding_pro_tips)], (w) =>
+    w.email(t.email.onboarding_getting_started)
+  )
+);
 
-/* --------------------------------- Trigger ---------------------------------- */
-
-/** Login puts a user in, with the filter holding back existing ones. TODO: first-entry-only, once options support a re-entry policy. */
-const login = trigger.event(e.login, { filter: newUsers7d });
-
-/* ------- Templates (a real project keeps these in templates/; inlined here) ------- */
-
-const welcome = template.email('onboarding_welcome');
-/** The series ends in the community server rather than with a ninth email. */
-const graduation = template.discord('community_series_graduation');
-
-const edu = {
-  templates: template.email('edu_templates'),
-  collaboration: template.email('edu_collaboration'),
-  whiteboards: template.email('edu_whiteboards'),
-  integrations: template.email('edu_integrations'),
-  automations: template.email('edu_automations'),
-  api: template.email('edu_api'),
-  mobile: template.email('edu_mobile'),
-  publishing: template.email('edu_publishing'),
-};
-
-/** One education module: send the email, wait a week, then rejoin for the next module. */
-const eduModule =
-  (template: TemplateRef<'email'>): SubFlow =>
-  (w) =>
-    w.email(template).delay('1 week');
-
-/* -------------------------------- workflow -------------------------------- */
-
-export const onboardingEdu = workflow('onboarding_edu', {
-  name: 'Onboarding · Education Series',
-  trigger: login,
+/**
+ * Onboarding: a tour of the remaining primitives — waitUntil / timeWindow /
+ * multi-arm branch / cohort — plus inline conditions (no need to name a
+ * segment first; write the expression at the use site).
+ */
+export const onboarding = workflow({
+  id: 'onboarding',
+  name: 'Onboarding · Core',
+  trigger: signedUp,
 })
-  .email(welcome)
-  .delay('1 week')
-  .branch([not(usedTemplates), eduModule(edu.templates)])
-  .branch([not(usedCollaboration), eduModule(edu.collaboration)])
-  .branch([not(usedWhiteboards), eduModule(edu.whiteboards)])
-  .branch([not(usedIntegrations), eduModule(edu.integrations)])
-  .branch([not(usedAutomations), eduModule(edu.automations)])
-  .branch([not(usedApi), eduModule(edu.api)])
-  .branch([not(usedMobile), eduModule(edu.mobile)])
-  .branch([not(usedPublishing), eduModule(edu.publishing)])
-  .discord(graduation);
+  // The community hears about a sign-up too: a channel post reaches people the inbox does not.
+  // Chat channels have no template registry: the app's own sender renders them, and the studio
+  // shows the node without a preview.
+  .discord(template.discord('community_welcome'))
+  .waitUntil(activated, { timeout: '3 days', onTimeout: 'continue' })
+  // Timed out without a first document: a lock-screen nudge; the activated skip straight past
+  .branch([not(activated), (w) => w.push(t.push.onboarding_first_doc_push)])
+  .timeWindow({
+    days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+    between: ['09:00', '17:00'],
+    tz: 'user',
+  })
+  .branch(
+    [activeSubscriber, subscriberSplit], // nested branch inside an arm, kept shallow as a fragment
+    (w) => w.email(t.email.onboarding_getting_started)
+  )
+  .cohort({
+    control: { weight: 50 },
+    variant: { weight: 50, flow: (w) => w.delay('3 days').email(t.email.onboarding_pro_tips) },
+  });
