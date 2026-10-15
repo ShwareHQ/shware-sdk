@@ -89,7 +89,7 @@ export const trigger: TriggerFactory = {
       ...(opts?.filter !== undefined ? { filter: condIR(opts.filter) } : {}),
     });
   },
-  segment: (seg) => makeTrigger({ type: 'segment', segment: seg.name }),
+  segment: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),
   date: (at) => makeTrigger({ type: 'date', at }),
   webhook: () => makeTrigger({ type: 'webhook' }),
 };

@@ -40,22 +40,22 @@ export {
   user,
 } from './refs';
 export {
-  type BoundTemplateFactory,
   type Channel,
   type EmptyProps,
   type PropsOf,
-  type TemplateContent,
   type TemplateFactory,
-  type TemplateModule,
   type TemplateRef,
+  type TemplateRefs,
+  type TemplateRefTable,
+  type TemplateRegistry,
   template,
   templates,
 } from './template';
-export { type SubjectPlaceholders, emailSubject } from './subject';
 export {
   type Condition,
   type PayloadWhere,
   type PerformedOptions,
+  type SegmentDefinition,
   type SegmentRef,
   and,
   between,
@@ -75,6 +75,7 @@ export {
   notInArray,
   or,
   performed,
+  reachable,
   segment,
 } from './condition';
 export {
@@ -82,6 +83,9 @@ export {
   type BranchCase,
   type Flow,
   type FlowBuilder,
+  type EmitArgs,
+  type EmitPayload,
+  type PushOptions,
   type SubFlow,
   flow,
 } from './flow';
@@ -92,5 +96,10 @@ export {
   type TriggerRef,
   trigger,
 } from './trigger';
-export { type GoalOptions, type WorkflowBuilder, type WorkflowOptions, workflow } from './workflow';
+export {
+  type GoalOptions,
+  type WorkflowBuilder,
+  type WorkflowDefinition,
+  workflow,
+} from './workflow';
 export { compileBundle } from './bundle';

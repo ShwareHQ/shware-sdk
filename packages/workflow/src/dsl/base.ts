@@ -18,10 +18,14 @@ import type { DurationIR } from '../ir';
  */
 export type EventMap = object;
 
-/** Base shape of user properties; the app extends it with concrete fields. */
+/**
+ * Base shape of user properties; the app extends it with concrete fields.
+ * `email` is optional: a profile can exist before (or without) an address,
+ * and an email step refuses to send when the recipient is missing.
+ */
 export interface UserPropertyBase {
   userId: string;
-  email: string;
+  email?: string;
 }
 
 /** Duration literal: '1 hour' / '23 hours' / '30 days' — typos fail to compile. */

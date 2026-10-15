@@ -3,7 +3,7 @@ import { captureLoc } from '../provenance';
 import type { ActionRef } from './action';
 import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
 import { type Condition, condIR } from './condition';
-import type { EventRef, MessageArgs } from './refs';
+import type { EventRef, MessageArgs, PropInput } from './refs';
 import type { Channel, TemplateRef } from './template';
 
 /**
@@ -18,6 +18,24 @@ import type { Channel, TemplateRef } from './template';
  * in the node's hash-excluded meta and is the anchor for future in-place
  * editing from the studio.
  */
+
+type Scalar = string | number | boolean;
+
+/** An emitted field: a scalar (or a profile ref to one); a nested field cannot be sent. */
+type EmitValue<T> = [NonNullable<T>] extends [Scalar] ? PropInput<T> : never;
+
+/** The payload `sendEvent` accepts for an event: its fields, scalar ones only. */
+export type EmitPayload<P> = { [K in keyof P]: EmitValue<P[K]> };
+
+/** Payload may be omitted when the event declares no required field. */
+export type EmitArgs<P> =
+  Record<never, never> extends P ? [payload?: EmitPayload<P>] : [payload: EmitPayload<P>];
+
+/** Per-node push options. */
+export interface PushOptions {
+  /** Which devices get a copy: 'all' (the default) or only the most recently registered. */
+  devices?: 'all' | 'latest';
+}
 
 /** A reusable flow fragment (what `flow(...)` returns), referenced directly by branch arms. */
 export interface Flow {
@@ -56,7 +74,13 @@ const ARM_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 function resolveSubFlow(sub: SubFlow): NodeIR[] {
   if (typeof sub === 'function') {
     const builder = new FlowBuilderImpl();
-    sub(builder);
+    const returned: unknown = sub(builder);
+    // An async callback would add its nodes after construction is over — after ids were assigned
+    if (typeof (returned as { then?: unknown } | undefined)?.then === 'function') {
+      throw new TypeError(
+        'sub-flow callbacks must be synchronous: they run once, while the workflow is defined'
+      );
+    }
     return builder.nodes;
   }
   /*
@@ -74,7 +98,15 @@ export interface FlowBuilder {
   /* ---- Messages: every channel is one message node; separate methods buy channel-level typing ---- */
   email<P extends object>(template: TemplateRef<'email', P>, ...props: MessageArgs<P>): this;
   sms<P extends object>(template: TemplateRef<'sms', P>, ...props: MessageArgs<P>): this;
-  push<P extends object>(template: TemplateRef<'push', P>, ...props: MessageArgs<P>): this;
+  /**
+   * Push to the user's devices — every device the host's directory lists, or
+   * only the most recently registered with `{ devices: 'latest' }`. A user with
+   * no device is skipped (branch on `reachable('push')` to fall back to email).
+   */
+  push<P extends object>(
+    template: TemplateRef<'push', P>,
+    ...args: [...props: MessageArgs<P>, options?: PushOptions]
+  ): this;
   inApp<P extends object>(template: TemplateRef<'in_app', P>, ...props: MessageArgs<P>): this;
   slack<P extends object>(template: TemplateRef<'slack', P>, ...props: MessageArgs<P>): this;
   discord<P extends object>(template: TemplateRef<'discord', P>, ...props: MessageArgs<P>): this;
@@ -101,6 +133,19 @@ export interface FlowBuilder {
     condition: Condition,
     opts: { timeout: Duration; onTimeout?: 'continue' | 'exit' | SubFlow }
   ): this;
+
+  /**
+   * Splice a fragment in place: a named `flow(...)` or a callback, expanded
+   * once while the workflow is defined — a composition step before compiling,
+   * not a node (the IR has no trace of it, and ids are assigned over the whole
+   * workflow as if the steps were written inline). Each use gets its own copy,
+   * so one fragment can be used in several places and workflows.
+   *
+   *   const preferPush = (push, email, props) =>
+   *     flow((w) => w.branch([reachable('push'), (b) => b.push(push, props)], (b) => b.email(email, props)));
+   *   workflow({ id: 'onboarding', ... }).use(preferPush(tipPush, tipEmail, { name: u.name }))
+   */
+  use(fragment: SubFlow): this;
 
   /* ------------------------------ Flow Control ------------------------------ */
   /**
@@ -161,7 +206,9 @@ export interface FlowBuilder {
    * e.xxx reference, so payload types flow in the same way trigger.event works.
    * This is how workflows compose: an event can trigger another workflow, and
    * the resulting call graph is statically analyzable. Payload values may
-   * reference u.xxx.
+   * reference u.xxx. Only scalar fields can be sent (IR carries literals and
+   * profile refs, not nested JSON): an event whose payload requires a nested
+   * field cannot be emitted from a journey, and the types say so.
    *
    * Note on loops: a trailing self-triggering sendEvent will become the
    * official periodic-flow shape *once a re-entry policy exists* — today the
@@ -170,7 +217,7 @@ export interface FlowBuilder {
    * TODO: the rest of the Data category — outbound webhook / profile update /
    * journey attributes.
    */
-  sendEvent<P extends object>(event: EventRef<P>, ...payload: MessageArgs<P>): this;
+  sendEvent<P extends object>(event: EventRef<P>, ...payload: EmitArgs<P>): this;
 
   /**
    * Run a custom action (see dsl/action.ts for the model). The chain records
@@ -202,7 +249,8 @@ export class FlowBuilderImpl implements FlowBuilder {
     channel: ChannelIR,
     tpl: TemplateRef<Channel, object>,
     props: object | undefined,
-    loc: SourceLocIR | undefined
+    loc: SourceLocIR | undefined,
+    devices?: 'latest'
   ): this {
     return this.pushNode(
       {
@@ -211,6 +259,8 @@ export class FlowBuilderImpl implements FlowBuilder {
         channel,
         template: tpl.key,
         props: (props ?? {}) as Record<string, PropValueIR>,
+        // Absent for 'all', so adding the option left every existing push's hash as it was
+        ...(devices !== undefined ? { devices } : {}),
       },
       loc
     );
@@ -222,8 +272,13 @@ export class FlowBuilderImpl implements FlowBuilder {
   sms<P extends object>(t: TemplateRef<'sms', P>, ...args: MessageArgs<P>): this {
     return this.message('sms', t, args[0], captureLoc(this.sms));
   }
-  push<P extends object>(t: TemplateRef<'push', P>, ...args: MessageArgs<P>): this {
-    return this.message('push', t, args[0], captureLoc(this.push));
+  push<P extends object>(
+    t: TemplateRef<'push', P>,
+    ...args: [...props: MessageArgs<P>, options?: PushOptions]
+  ): this {
+    const [props, options] = args as unknown as [object | undefined, PushOptions | undefined];
+    const devices = options?.devices === 'latest' ? 'latest' : undefined;
+    return this.message('push', t, props, captureLoc(this.push), devices);
   }
   inApp<P extends object>(t: TemplateRef<'in_app', P>, ...args: MessageArgs<P>): this {
     return this.message('in_app', t, args[0], captureLoc(this.inApp));
@@ -302,6 +357,12 @@ export class FlowBuilderImpl implements FlowBuilder {
       },
       loc
     );
+  }
+
+  use(fragment: SubFlow): this {
+    // The fragment's nodes carry their own provenance (where the fragment was written)
+    this.nodes.push(...resolveSubFlow(fragment));
+    return this;
   }
 
   branch(...arms: readonly BranchArm[]): this;
@@ -413,13 +474,25 @@ export class FlowBuilderImpl implements FlowBuilder {
     );
   }
 
-  sendEvent<P extends object>(ev: EventRef<P>, ...payload: MessageArgs<P>): this {
+  sendEvent<P extends object>(ev: EventRef<P>, ...payload: EmitArgs<P>): this {
+    const values = (payload[0] ?? {}) as Record<string, unknown>;
+    for (const [field, value] of Object.entries(values)) {
+      const ref =
+        typeof value === 'object' &&
+        value !== null &&
+        (value as { type?: unknown }).type === 'user_property';
+      if (!ref && !['string', 'number', 'boolean'].includes(typeof value)) {
+        throw new TypeError(
+          `sendEvent('${ev.name}'): '${field}' is not a scalar or a u.xxx reference — an emitted payload carries scalar fields only`
+        );
+      }
+    }
     return this.pushNode(
       {
         id: '',
         type: 'send_event',
         event: ev.name,
-        payload: (payload[0] ?? {}) as Record<string, PropValueIR>,
+        payload: values as Record<string, PropValueIR>,
       },
       captureLoc(this.sendEvent)
     );

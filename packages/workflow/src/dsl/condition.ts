@@ -9,6 +9,7 @@ import {
   type UserPropertyRef,
   payloadRefs,
 } from './refs';
+import type { Channel } from './template';
 
 /**
  * Conditions — drizzle-style predicate expressions: free functions (eq/gt/…)
@@ -213,6 +214,20 @@ export function performed<P>(
   );
 }
 
+/**
+ * The user can be reached on a channel right now. For push it asks the host's
+ * device directory (at least one device listed) — the engine keeps no device
+ * state, so this is the way to branch on "has the app on a device that allowed
+ * notifications"; for the other channels it checks the recipient property
+ * (`email`, `phone`, …). Inside `waitUntil` it wakes on device changes
+ * (`POST /devices/changed`) or profile updates respectively.
+ *
+ *   .branch([reachable('push'), (w) => w.push(tip)], (w) => w.email(tip))
+ */
+export function reachable(channel: Channel): Condition {
+  return cond({ type: 'reachable', channel }, captureLoc(reachable));
+}
+
 /** Condition combinators: nest freely. */
 export function and(...conditions: readonly Condition[]): Condition {
   return cond({ type: 'and', conditions: conditions.map(condIR) }, captureLoc(and));
@@ -235,7 +250,8 @@ export function not(condition: Condition): Condition {
  */
 export interface SegmentRef extends Condition {
   readonly __segment: true;
-  readonly name: string;
+  /** Wire identity: by-name references and the membership store are keyed on it (`SegmentIR.name`). */
+  readonly id: string;
 }
 
 /** @internal the compiled shape behind a SegmentRef — compileBundle reads definition/loc off it */
@@ -249,32 +265,45 @@ export interface SegmentInternal extends SegmentRef {
   readonly loc: SourceLocIR | undefined;
 }
 
-/**
- * Segment definition: a free function — the expression's types were already
- * checked at the predicates.
- *
- *   export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }));
- *
- * The first argument is wire identity — by-name references and the membership
- * store are keyed on it, so it is not something to rename for readability. The
- * optional third argument is: `{ name, description }` are metadata, dropped
- * before hashing, and the studio both shows and edits them.
- */
 /** Labels for a segment: what the studio shows instead of the wire key. */
 export interface SegmentMeta {
   name?: string;
   description?: string;
 }
 
-export function segment(name: string, condition: Condition, meta?: SegmentMeta): SegmentRef {
+export interface SegmentDefinition extends SegmentMeta {
+  /**
+   * Wire identity — by-name references and the membership store are keyed on
+   * it, so it is not something to rename for readability.
+   */
+  id: string;
+  /** Who is in the segment; the predicates already checked its types. */
+  condition: Condition;
+}
+
+/**
+ * Segment definition. `name` and `description` are optional labels: metadata,
+ * dropped before hashing, and what the studio shows.
+ *
+ *   export const purchaser = segment({
+ *     id: 'purchaser',
+ *     name: 'Purchased (last 30d)',
+ *     condition: performed(e.purchase, { within: '30 days' }),
+ *   });
+ */
+export function segment({ id, condition, name, description }: SegmentDefinition): SegmentRef {
+  const meta: SegmentMeta = {
+    ...(name === undefined ? {} : { name }),
+    ...(description === undefined ? {} : { description }),
+  };
   const impl: SegmentInternal = {
     __condition: true,
     __segment: true,
-    name,
-    ir: { type: 'segment', segment: name },
+    id,
+    ir: { type: 'segment', segment: id },
     definition: condIR(condition),
     loc: captureLoc(segment),
-    meta,
+    meta: Object.keys(meta).length === 0 ? undefined : meta,
   };
   return impl;
 }
