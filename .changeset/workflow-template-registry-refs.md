@@ -1,0 +1,5 @@
+---
+'@shware/workflow': minor
+---
+
+Breaking: template references are derived from the registries themselves. `templates(registry)` takes `{ email?, push? }` — the same object the config registers as `templates` — and returns plain reference tables, `t.email.<key>` / `t.push.<key>`, each typed by its own template's `props` schema; an unregistered key, a channel the registry leaves out, or a template registered under the wrong channel fails to compile, and the last one also throws a `TypeError` naming the key. References are `{ channel, key }` built from the registry's own keys: no template is rendered and the registries are not touched. One `TemplateRegistry<E, P>` type serves both the config's `templates` and `templates()` (the config's `TemplateRegistries` is gone); its channels are optional and an annotated registry keeps its exact keys. The type-only `templates<Emails, Pushes>()` with `t.email('key')` is removed; `template.email(key)` and the other low-level factories stay. The studio fixtures, the playground and the Cloudflare demo use the new shape (`src/email`, `src/push`, `src/templates.ts` exporting `registry` and `t`).

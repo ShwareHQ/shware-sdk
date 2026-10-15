@@ -8,8 +8,6 @@ import { runInNewContext } from 'node:vm';
 import type { Plugin, ViteDevServer } from 'vite';
 import { describe, expect, test } from 'vitest';
 import {
-  MERGE_SOURCE,
-  discoveryModule,
   isInsideDir,
   isInsideProject,
   studioApiPlugin,
@@ -24,17 +22,12 @@ function tempProject(): string {
 
 /* ------------------------------ Request origin ------------------------------ */
 
-const JSON_POST = { method: 'POST', headers: { 'content-type': 'application/json' } };
-
-function request(headers: Record<string, string>, method = 'POST'): IncomingMessage {
-  return {
-    method,
-    headers: { ...JSON_POST.headers, host: 'localhost:4321', ...headers },
-  } as unknown as IncomingMessage;
+function request(headers: Record<string, string>): IncomingMessage {
+  return { method: 'GET', headers: { host: 'localhost:4321', ...headers } } as IncomingMessage;
 }
 
-describe('who is allowed to reach the write-back endpoints', () => {
-  test('a same-origin write from the studio page is accepted', () => {
+describe('who is allowed to reach the node endpoint', () => {
+  test('a same-origin read from the studio page is accepted', () => {
     expect(
       studioRequestRejection(
         request({ origin: 'http://localhost:4321', 'sec-fetch-site': 'same-origin' })
@@ -44,7 +37,6 @@ describe('who is allowed to reach the write-back endpoints', () => {
 
   test('a request with no origin and no fetch metadata is accepted', () => {
     expect(studioRequestRejection(request({}))).toBeUndefined();
-    expect(studioRequestRejection(request({}, 'GET'))).toBeUndefined();
   });
 
   test('an origin on another site is refused, whatever it claims about itself', () => {
@@ -66,22 +58,6 @@ describe('who is allowed to reach the write-back endpoints', () => {
     expect(studioRequestRejection(request({ 'sec-fetch-site': 'same-site' }))).toMatch(
       /sec-fetch-site/
     );
-  });
-
-  test('a write needs a content type a cross-site form cannot send', () => {
-    const simplePost = {
-      method: 'POST',
-      headers: { host: 'localhost:4321', 'content-type': 'text/plain' },
-    };
-    expect(studioRequestRejection(simplePost)).toMatch(/content-type/);
-    /* Charset and casing are the client's business, the type is not. */
-    expect(
-      studioRequestRejection(request({ 'content-type': 'Application/JSON; charset=utf-8' }))
-    ).toBeUndefined();
-    /* Reads carry no body, so nothing to demand of them. */
-    expect(
-      studioRequestRejection({ method: 'GET', headers: { host: 'localhost:4321' } })
-    ).toBeUndefined();
   });
 });
 
@@ -139,50 +115,65 @@ interface Answer {
   body: Record<string, unknown>;
 }
 
-type Handler = (req: IncomingMessage, res: ServerResponse) => void;
+type Handler = (req: IncomingMessage, res: ServerResponse, next: () => void) => void;
 
-/** Collect the plugin's middlewares without standing up a real dev server. */
-function handlers(plugin: Plugin, server: Partial<ViteDevServer> = {}): Map<string, Handler> {
-  const collected = new Map<string, Handler>();
+/**
+ * The plugin's middlewares, dispatched the way connect does — first mount
+ * whose path is the URL or a segment-prefix of it, with the mount stripped —
+ * without standing up a real dev server.
+ */
+function dispatcher(
+  plugin: Plugin,
+  server: Partial<ViteDevServer> = {}
+): (req: {
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+}) => Promise<Answer> {
+  const mounted: [path: string, handler: Handler][] = [];
   const configureServer = plugin.configureServer;
   if (typeof configureServer !== 'function') throw new Error('expected a configureServer hook');
   void configureServer.call(
     undefined as never,
     {
       ...server,
-      middlewares: { use: (path: string, handler: Handler) => collected.set(path, handler) },
+      middlewares: { use: (path: string, handler: Handler) => mounted.push([path, handler]) },
     } as unknown as ViteDevServer
   );
-  return collected;
-}
 
-function call(
-  handler: Handler,
-  req: { method: string; url?: string; headers?: Record<string, string>; body?: unknown }
-): Promise<Answer> {
-  return new Promise((done) => {
-    const message = new EventEmitter() as IncomingMessage & { method: string };
-    message.method = req.method;
-    message.url = req.url ?? '/';
-    message.headers = {
-      host: 'localhost:4321',
-      'content-type': 'application/json',
-      ...req.headers,
-    };
-    let status = 200;
-    const res = {
-      set statusCode(value: number) {
-        status = value;
-      },
-      setHeader: () => undefined,
-      end: (payload: string) =>
-        done({ status, body: JSON.parse(payload) as Record<string, unknown> }),
-    } as unknown as ServerResponse;
+  return (req) =>
+    new Promise((done) => {
+      const [pathname, search = ''] = req.url.split('?');
+      const message = new EventEmitter() as IncomingMessage & { method: string };
+      message.method = req.method;
+      message.headers = {
+        host: 'localhost:4321',
+        'content-type': 'application/json',
+        ...req.headers,
+      };
+      let status = 200;
+      const res = {
+        set statusCode(value: number) {
+          status = value;
+        },
+        setHeader: () => undefined,
+        end: (payload: string) =>
+          done({ status, body: JSON.parse(payload) as Record<string, unknown> }),
+      } as unknown as ServerResponse;
 
-    handler(message, res);
-    if (req.body !== undefined) message.emit('data', Buffer.from(JSON.stringify(req.body)));
-    message.emit('end');
-  });
+      const match = mounted.find(([path]) => pathname === path || pathname.startsWith(`${path}/`));
+      /* Nothing of ours claimed it: Vite's own stack takes over from here. */
+      if (match === undefined) {
+        done({ status: 0, body: {} });
+        return;
+      }
+      const [path, handler] = match;
+      message.url = `${pathname.slice(path.length) || '/'}${search === '' ? '' : `?${search}`}`;
+      handler(message, res, () => done({ status: 0, body: {} }));
+      if (req.body !== undefined) message.emit('data', Buffer.from(JSON.stringify(req.body)));
+      message.emit('end');
+    });
 }
 
 const CONFIG = `import { defineConfig } from '@shware/workflow-ui/config';
@@ -190,54 +181,110 @@ const CONFIG = `import { defineConfig } from '@shware/workflow-ui/config';
 export default defineConfig({ emails: { addresses: ['Acme <hello@acme.io>'] } });
 `;
 
-describe('--config names the file the studio reads and writes', () => {
-  function projectWithTwoConfigs(): { cwd: string; named: string } {
+const EMAILS = `export const email = {
+  welcome: { subject: 'Welcome', from: 'Acme <hello@acme.io>' },
+};
+`;
+
+const WORKFLOW = `import { workflow } from '@shware/workflow';
+
+export const onboarding = workflow({ id: 'onboarding' }).delay('1 day');
+`;
+
+describe('the studio is read-only', () => {
+  /** Every route that used to write a file, with a body that used to succeed. */
+  const FORMER_WRITES = [
+    {
+      url: '/__studio/envelope',
+      body: { key: 'welcome', field: 'subject', value: 'Pwned' },
+    },
+    {
+      url: '/__studio/addresses',
+      body: { action: 'add', address: 'Attacker <evil@evil.test>' },
+    },
+    {
+      url: '/__studio/node',
+      body: { file: 'src/workflows/onboarding.ts', line: 3, column: 1, value: '9 days' },
+    },
+  ];
+
+  function project(): { cwd: string; files: string[] } {
     const cwd = tempProject();
-    mkdirSync(resolve(cwd, 'apps/marketing'), { recursive: true });
-    /* The decoy is what an unthreaded findConfig(cwd) picks up instead. */
-    writeFileSync(resolve(cwd, 'workflow.config.ts'), CONFIG);
-    const named = resolve(cwd, 'apps/marketing/workflow.config.ts');
-    writeFileSync(named, CONFIG);
-    return { cwd, named };
+    mkdirSync(resolve(cwd, 'src/email'), { recursive: true });
+    mkdirSync(resolve(cwd, 'src/workflows'), { recursive: true });
+    const files = [
+      resolve(cwd, 'workflow.config.ts'),
+      resolve(cwd, 'src/email/index.ts'),
+      resolve(cwd, 'src/workflows/onboarding.ts'),
+    ];
+    writeFileSync(files[0], CONFIG);
+    writeFileSync(files[1], EMAILS);
+    writeFileSync(files[2], WORKFLOW);
+    return { cwd, files };
   }
 
-  test('the generated module imports the named config, not the one in cwd', () => {
-    const { cwd, named } = projectWithTwoConfigs();
-    const generated = discoveryModule(cwd, named);
+  test.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
+    'a same-origin %s to every former write route is refused and no file changes',
+    async (method) => {
+      const { cwd, files } = project();
+      const before = files.map((file) => readFileSync(file, 'utf8'));
+      const send = dispatcher(studioApiPlugin(cwd), {
+        transformRequest: () => Promise.resolve(null),
+      });
 
-    expect(generated).toContain(`import userConfig from ${JSON.stringify(named)};`);
-    expect(generated).not.toContain(JSON.stringify(resolve(cwd, 'workflow.config.ts')));
+      for (const { url, body } of FORMER_WRITES) {
+        const answer = await send({
+          method,
+          url,
+          headers: { origin: 'http://localhost:4321', 'sec-fetch-site': 'same-origin' },
+          body,
+        });
+        expect([404, 405], `${method} ${url}`).toContain(answer.status);
+      }
+
+      expect(files.map((file) => readFileSync(file, 'utf8'))).toEqual(before);
+    }
+  );
+
+  test('the envelope and addresses routes are gone, not just refused', async () => {
+    const { cwd } = project();
+    const send = dispatcher(studioApiPlugin(cwd));
+
+    for (const url of ['/__studio/envelope?key=welcome', '/__studio/addresses']) {
+      expect((await send({ method: 'GET', url })).status).toBe(404);
+    }
   });
 
-  test('"add address" writes into the named config, leaving the one in cwd alone', async () => {
-    const { cwd, named } = projectWithTwoConfigs();
-    const handler = handlers(studioApiPlugin(cwd, named)).get('/__studio/addresses');
-    if (handler === undefined) throw new Error('no addresses handler');
-
-    const answer = await call(handler, {
-      method: 'POST',
-      headers: { origin: 'http://localhost:4321', 'sec-fetch-site': 'same-origin' },
-      body: { action: 'add', address: 'Growth <growth@acme.io>' },
+  test('the node endpoint still maps a node to its line on disk', async () => {
+    const { cwd } = project();
+    const send = dispatcher(studioApiPlugin(cwd), {
+      transformRequest: () => Promise.resolve(null),
     });
 
-    expect(answer.status).toBe(200);
-    expect(readFileSync(named, 'utf8')).toContain('Growth <growth@acme.io>');
-    expect(readFileSync(resolve(cwd, 'workflow.config.ts'), 'utf8')).not.toContain('growth@');
+    const answer = await send({
+      method: 'GET',
+      url: '/__studio/node?file=src/workflows/onboarding.ts&line=3&column=1',
+    });
+
+    expect(answer).toEqual({
+      status: 200,
+      body: { file: 'src/workflows/onboarding.ts', line: 3 },
+    });
   });
 
-  test('a cross-origin write never reaches the file', async () => {
-    const { cwd, named } = projectWithTwoConfigs();
-    const handler = handlers(studioApiPlugin(cwd, named)).get('/__studio/addresses');
-    if (handler === undefined) throw new Error('no addresses handler');
+  test('a cross-origin read of the node endpoint is refused', async () => {
+    const { cwd } = project();
+    const send = dispatcher(studioApiPlugin(cwd), {
+      transformRequest: () => Promise.resolve(null),
+    });
 
-    const answer = await call(handler, {
-      method: 'POST',
-      headers: { origin: 'https://evil.test', 'content-type': 'text/plain' },
-      body: { action: 'add', address: 'Attacker <evil@evil.test>' },
+    const answer = await send({
+      method: 'GET',
+      url: '/__studio/node?file=src/workflows/onboarding.ts&line=3&column=1',
+      headers: { origin: 'https://evil.test' },
     });
 
     expect(answer.status).toBe(403);
-    expect(readFileSync(named, 'utf8')).not.toContain('evil@evil.test');
   });
 });
 
@@ -249,62 +296,15 @@ describe('the node endpoint refuses a file outside the project', () => {
      * into its neighbours. transformRequest never runs: the path is refused
      * before anything is read.
      */
-    const handler = handlers(studioApiPlugin(packageRoot, undefined), {
+    const send = dispatcher(studioApiPlugin(packageRoot), {
       transformRequest: () => Promise.resolve(null),
-    }).get('/__studio/node');
-    if (handler === undefined) throw new Error('no node handler');
+    });
 
-    const answer = await call(handler, {
+    const answer = await send({
       method: 'GET',
-      url: '/?file=../workflow/package.json&line=1&column=1',
+      url: '/__studio/node?file=../workflow/package.json&line=1&column=1',
     });
 
     expect(answer).toEqual({ status: 422, body: { error: 'source file is outside the project' } });
-  });
-});
-
-/* -------------------------------- Discovery --------------------------------- */
-
-interface Collected {
-  workflows: Record<string, unknown>;
-  segments: unknown[];
-}
-
-/** Run the merge step that ships inside the generated module, exactly as it ships. */
-const collectDefinitions = runInNewContext(`${MERGE_SOURCE}; collectDefinitions;`) as (
-  modules: [string, Record<string, unknown>][]
-) => Collected;
-
-describe('two modules claiming one workflow name', () => {
-  const onboarding = { toIR: () => ({}) };
-  const winback = { toIR: () => ({}) };
-
-  test('the collision is an error naming both files, not a silent overwrite', () => {
-    expect(() =>
-      collectDefinitions([
-        ['/proj/src/workflows/a.ts', { default: onboarding }],
-        ['/proj/src/workflows/b.ts', { default: winback }],
-      ])
-    ).toThrow(/two workflow modules export "default"[\s\S]*a\.ts[\s\S]*b\.ts/);
-  });
-
-  test('the same workflow re-exported through a barrel is not a collision', () => {
-    const collected = collectDefinitions([
-      ['/proj/src/workflows/a.ts', { onboarding }],
-      ['/proj/src/workflows/index.ts', { onboarding }],
-    ]);
-
-    expect(Object.keys(collected.workflows)).toEqual(['onboarding']);
-  });
-
-  test('distinct names and segments still collect as before', () => {
-    const segment = { __segment: true };
-    const collected = collectDefinitions([
-      ['/proj/src/workflows/a.ts', { onboarding, active: segment }],
-      ['/proj/src/workflows/b.ts', { winback, activeAgain: segment, note: 'not a workflow' }],
-    ]);
-
-    expect(Object.keys(collected.workflows)).toEqual(['onboarding', 'winback']);
-    expect(collected.segments).toEqual([segment]);
   });
 });

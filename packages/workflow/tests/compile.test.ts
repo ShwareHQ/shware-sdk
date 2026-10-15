@@ -24,7 +24,7 @@ describe('compile: workflow -> IR', () => {
   test('checkoutRecovery compiles to the expected tree', () => {
     const ir = checkoutRecovery.toIR();
 
-    expect(ir.name).toBe('checkout_recovery');
+    expect(ir.id).toBe('checkout_recovery');
     expect(ir.trigger).toEqual({ type: 'event', event: 'begin_checkout' });
     expect(ir.goal).toEqual({
       condition: { type: 'segment', segment: 'purchaser' },
@@ -86,7 +86,7 @@ describe('compile: workflow -> IR', () => {
   });
 
   test('goal shorthand condition expands with exitOnMatch: true', () => {
-    const ir = workflow('g', { trigger: trigger.event(e.login), goal: purchaser }).toIR();
+    const ir = workflow({ id: 'g', trigger: trigger.event(e.login), goal: purchaser }).toIR();
     expect(ir.goal?.exitOnMatch).toBe(true);
   });
 
@@ -158,7 +158,7 @@ describe('compile: workflow -> IR', () => {
   });
 
   test('cohort arms keep the order they were written in', () => {
-    const node = workflow('ab', { trigger: trigger.event(e.login) })
+    const node = workflow({ id: 'ab', trigger: trigger.event(e.login) })
       .cohort({ zulu: { weight: 10 }, alpha: { weight: 90 } })
       .toIR().flow[0];
     if (node.type !== 'cohort') throw new Error('expected cohort');
@@ -181,14 +181,6 @@ describe('compile: workflow -> IR', () => {
     const noop = flow((w) => w);
     expect(() => flow((w) => w.branch(noop, [activeSubscriber, noop]))).toThrow(/must be the last/);
   });
-
-  test('template content component is accepted and P is inferred from it', () => {
-    const offer = template.email('offer', (_props: { coupon: string }) => null);
-    const ir = workflow('t', { trigger: trigger.event(e.login) })
-      .email(offer, { coupon: 'X' })
-      .toIR();
-    expect(ir.flow[0]).toMatchObject({ type: 'message', template: 'offer' });
-  });
 });
 
 describe('compileBundle guards', () => {
@@ -205,27 +197,39 @@ describe('compileBundle guards', () => {
     );
   });
 
-  test('duplicate template keys fail to compile', () => {
+  test('duplicate template keys within a channel fail to compile', () => {
     const a = template.email('offer');
-    const b = template.sms('offer');
+    const b = template.email('offer');
     expect(() => compileBundle({ workflows: [], templates: [a, b] })).toThrow(/duplicate template/);
+  });
+
+  test('one key in two channels is two templates (an email and a push of one nudge)', () => {
+    const bundle = compileBundle({
+      workflows: [],
+      templates: [template.email('offer'), template.push('offer')],
+    });
+    expect(bundle.templates.map((t) => `${t.channel}:${t.key}`)).toEqual([
+      'email:offer',
+      'push:offer',
+    ]);
   });
 
   test('a payload predicate outside a where clause fails to compile', () => {
     // Both ref kinds produce Condition, so this type-checks — the bundle catches it
-    const leaked = workflow('leaked', { trigger: trigger.event(e.sign_up) }).filter(
+    const leaked = workflow({ id: 'leaked', trigger: trigger.event(e.sign_up) }).filter(
       performed(e.sign_up, (p) => eq(p.method, 'google')) // fine
     );
     expect(() => compileBundle({ workflows: [leaked] })).not.toThrow();
 
-    const escaped = workflow('escaped', {
-      trigger: trigger.event(e.sign_up),
-    }).filter(payloadPredicateOutsideWhere());
+    const escaped = workflow({ id: 'escaped', trigger: trigger.event(e.sign_up) }).filter(
+      payloadPredicateOutsideWhere()
+    );
     expect(() => compileBundle({ workflows: [escaped] })).toThrow(/outside a where clause/);
   });
 
   test('a where clause may not contain profile facts', () => {
-    const wf = workflow('bad_where', {
+    const wf = workflow({
+      id: 'bad_where',
       // the callback's return type is just Condition, so a profile predicate type-checks
       trigger: trigger.event(e.sign_up, () => performed(e.purchase)),
     });

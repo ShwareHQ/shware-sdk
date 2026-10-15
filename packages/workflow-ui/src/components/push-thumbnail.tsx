@@ -12,10 +12,14 @@ const BANNER_ZOOM = 0.68;
 export interface PushThumbnailProps {
   /** App identity on the banner; the project title upstream. */
   appName: string;
-  /** Shown verbatim, `{prop}` placeholders included — same rule as subjects. */
+  /**
+   * The notification: the template's `content` over its validated preview props.
+   */
   title: string;
   body: string;
-  /** False when the IR references a template the pushes index does not register. */
+  /** Why there is no notification to draw: the template refused its preview props. */
+  error?: string | undefined;
+  /** False when the IR references a template the push registry does not register. */
   registered: boolean;
   scheme: 'light' | 'dark';
   /** Open the full preview — the button under the window. */
@@ -31,19 +35,26 @@ export function PushThumbnail({
   appName,
   title,
   body,
+  error,
   registered,
   scheme,
   onOpen,
 }: PushThumbnailProps) {
   const { t } = useTranslation();
   const dark = scheme === 'dark';
+  /* A refused template draws no banner: there is no notification to show. */
+  const drawn = registered && error === undefined;
   return (
     <ThumbnailWindow
-      className={registered ? 'relative flex items-center' : undefined}
-      style={registered ? { background: dark ? IOS_WALLPAPER.dark : IOS_WALLPAPER.light } : {}}
+      className={drawn ? 'relative flex items-center' : undefined}
+      style={drawn ? { background: dark ? IOS_WALLPAPER.dark : IOS_WALLPAPER.light } : {}}
       onOpen={registered ? onOpen : undefined}
     >
-      {registered ? (
+      {error !== undefined && registered ? (
+        <ThumbnailStatus tone="error">
+          <span className="whitespace-pre-line">{error}</span>
+        </ThumbnailStatus>
+      ) : drawn ? (
         <>
           {/* Light behind the glass, so the banner's blur has something to smear. */}
           <div

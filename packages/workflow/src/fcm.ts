@@ -1,4 +1,4 @@
-import type { MessageSender, OutboundMessage } from './engine/ports';
+import type { MessageSender, OutboundMessage, SendResult } from './engine';
 import { base64url, pemToDer } from './jwt';
 import type { PushRenderer } from './push';
 
@@ -8,9 +8,8 @@ import type { PushRenderer } from './push';
  * token is minted by signing a JWT with WebCrypto (Workers, Node 20+, Deno,
  * Bun), so this runs wherever the engine runs.
  *
- * The recipient is the FCM registration token the engine resolved from the
- * user's `push_token` property — the app registers it when the user grants
- * notification permission, the producer identifies it to the journey store.
+ * The recipient is an FCM registration token the app registered for the user
+ * (`registerDevice`); the engine sends one message per device.
  */
 
 /** The fields of a Google service-account JSON this sender needs. */
@@ -31,7 +30,7 @@ export interface FcmPushOptions {
   apns?: Record<string, unknown>;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /** Called for a token FCM reports as gone (`UNREGISTERED`); the producer should drop that subscription. */
+  /** Called for a token FCM reports as gone (`UNREGISTERED`); `channelsFromConfig` removes the device. */
   onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
 
@@ -45,14 +44,14 @@ export class FcmPushSender implements MessageSender {
 
   constructor(private readonly options: FcmPushOptions) {}
 
-  async send(message: OutboundMessage): Promise<void> {
+  async send(message: OutboundMessage): Promise<void | SendResult> {
     if (message.channel !== 'push') {
       throw new Error(`FcmPushSender: unsupported channel '${message.channel}'`);
     }
     if (message.recipient === undefined) {
       throw new Error(`FcmPushSender: no push token for user '${message.userId}'`);
     }
-    const { title, body, image } = await this.options.render(message.template, message.props);
+    const { title, body, image, url } = await this.options.render(message.template, message.props);
     const { serviceAccount, android, apns } = this.options;
     const doFetch = this.options.fetch ?? fetch;
 
@@ -70,7 +69,12 @@ export class FcmPushSender implements MessageSender {
             notification: { title, body, ...(image === undefined ? {} : { image }) },
             // The template key travels as data so the app can route a tap; the
             // idempotency key lets the app de-duplicate a redelivered push.
-            data: { template: message.template, idempotencyKey: message.idempotencyKey },
+            data: {
+              template: message.template,
+              idempotencyKey: message.idempotencyKey,
+              ...(url === undefined ? {} : { url }),
+              ...message.tracking?.data,
+            },
             ...(android === undefined ? {} : { android: { notification: android } }),
             apns: { payload: { aps: { sound: 'default', ...apns } } },
           },
@@ -85,7 +89,7 @@ export class FcmPushSender implements MessageSender {
       // report it and move on, so the step does not retry into the same wall.
       console.warn(`[fcm] token gone for user ${message.userId}: ${fcmErrorCode(text)}`);
       await this.options.onUnregistered?.(message);
-      return;
+      return { delivered: false, reason: fcmErrorCode(text) };
     }
     throw new Error(`FCM send failed: ${response.status} ${text}`);
   }

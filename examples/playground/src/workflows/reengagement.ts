@@ -1,5 +1,6 @@
-import { not, performed, segment, template, trigger, workflow } from '@shware/workflow';
-import { e } from './schema';
+import { not, performed, segment, trigger, workflow } from '@shware/workflow';
+import { t } from '../templates';
+import { e, u } from './schema';
 
 /**
  * Re-engaging dormant users.
@@ -12,31 +13,27 @@ import { e } from './schema';
 /* --------------------------- Triggers and conditions -------------------------- */
 
 /** No login for 30 days — a segment-entry trigger fires the moment a user goes from active to dormant. */
-export const inactive30d = segment('inactive_30d', not(performed(e.login, { within: '30 days' })));
+export const inactive30d = segment({
+  id: 'inactive_30d',
+  condition: not(performed(e.login, { within: '30 days' })),
+});
 
 /** Came back = logged in within the last 7 days. */
 const cameBack = performed(e.login, { within: '7 days' });
 
-/* --------------------------------- Templates -------------------------------- */
-
-/** Cheapest channel first: a push nudge before any email lands in the inbox. */
-const comeBackPush = template.push('reengage_comeback_push');
-const missYou = template.email('reengage_miss_you');
-const highlights = template.email('reengage_product_highlights');
-const incentive = template.email<{ coupon: string }>('reengage_incentive');
-
 /* -------------------------------- workflow -------------------------------- */
-
-export const reengagement = workflow('reengagement', {
+/** Cheapest channel first: a push nudge before any email lands in the inbox. */
+export const reengagement = workflow({
+  id: 'reengagement',
   name: 'Re-engagement',
   trigger: trigger.segment(inactive30d),
 })
-  .push(comeBackPush)
+  .push(t.push.reengage_comeback_push, { name: u.name })
   .delay('1 day') // give the push a day to work before falling back to email
-  .email(missYou)
+  .email(t.email.reengage_miss_you)
   .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' }) // wait a week at most
   .branch([cameBack, (w) => w.exit('reengaged')]) // back already: done. Still gone: carry on down the main line
-  .email(highlights)
+  .email(t.email.reengage_product_highlights)
   .delay('7 days')
   .branch([
     not(cameBack),
@@ -44,6 +41,9 @@ export const reengagement = workflow('reengagement', {
     (w) =>
       w.cohort({
         control: { weight: 50 },
-        coupon: { weight: 50, flow: (x) => x.email(incentive, { coupon: 'WELCOMEBACK15' }) },
+        coupon: {
+          weight: 50,
+          flow: (x) => x.email(t.email.reengage_incentive, { coupon: 'WELCOMEBACK15' }),
+        },
       }),
   ]);

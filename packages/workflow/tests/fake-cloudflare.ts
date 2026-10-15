@@ -77,6 +77,9 @@ export class FakeD1 implements D1DatabaseLike {
   triggers: TriggerRow[] = [];
   segmentTriggers: SegmentTriggerRow[] = [];
   readonly segmentMembers = new Map<string, number>(); // `${segment}\n${user}` → ts
+  readonly segmentStarts = new Set<string>(); // `${segment}\n${workflow}\n${user}`
+  readonly erasures = new Map<string, number>(); // user → ts
+  readonly devices = new Map<string, { user_id: string; platform: string; ts: number }>(); // token →
   entries: EntryRow[] = [];
   subscriptions: SubscriptionRow[] = [];
 
@@ -154,11 +157,44 @@ export class FakeD1 implements D1DatabaseLike {
         return { rows: [{ props }], changes: 1 };
       }
 
-      case 'SELECT condition FROM segments WHERE name = ?': {
+      case 'SELECT condition FROM segments WHERE id = ?': {
         const segment = this.segments.get(p[0] as string);
         return {
           rows: segment === undefined ? [] : [{ condition: segment.condition }],
           changes: 0,
+        };
+      }
+      case 'SELECT id, condition FROM segments ORDER BY id': {
+        const rows = [...this.segments]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([id, segment]) => ({ id, condition: segment.condition }));
+        return { rows, changes: 0 };
+      }
+      case 'SELECT user_id FROM profiles UNION SELECT DISTINCT user_id FROM events': {
+        const ids = new Set([...this.profiles.keys(), ...this.events.map((e) => e.user_id)]);
+        return { rows: [...ids].map((user_id) => ({ user_id })), changes: 0 };
+      }
+      case 'SELECT token, platform FROM devices WHERE user_id = ? ORDER BY ts DESC': {
+        const rows = [...this.devices]
+          .filter(([, d]) => d.user_id === p[0])
+          .sort(([, a], [, b]) => b.ts - a.ts)
+          .map(([token, d]) => ({ token, platform: d.platform }));
+        return { rows, changes: 0 };
+      }
+      case 'INSERT INTO devices (token, user_id, platform, ts) VALUES (?, ?, ?, ?) ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, ts = excluded.ts': {
+        this.devices.set(p[0] as string, {
+          user_id: p[1] as string,
+          platform: p[2] as string,
+          ts: p[3] as number,
+        });
+        return { rows: [], changes: 1 };
+      }
+      case 'DELETE FROM devices WHERE token = ? RETURNING user_id': {
+        const device = this.devices.get(p[0] as string);
+        this.devices.delete(p[0] as string);
+        return {
+          rows: device === undefined ? [] : [{ user_id: device.user_id }],
+          changes: device === undefined ? 0 : 1,
         };
       }
       case 'DELETE FROM segments': {
@@ -166,7 +202,7 @@ export class FakeD1 implements D1DatabaseLike {
         this.segments.clear();
         return { rows: [], changes };
       }
-      case 'INSERT INTO segments (name, condition, hash) VALUES (?, ?, ?)': {
+      case 'INSERT INTO segments (id, condition, hash) VALUES (?, ?, ?)': {
         this.segments.set(p[0] as string, { condition: p[1] as string, hash: p[2] as string });
         return { rows: [], changes: 1 };
       }
@@ -224,6 +260,37 @@ export class FakeD1 implements D1DatabaseLike {
         if (this.segmentMembers.has(key)) return { rows: [], changes: 0 };
         this.segmentMembers.set(key, p[2] as number);
         return { rows: [], changes: 1 };
+      }
+      case 'INSERT OR IGNORE INTO segment_starts (segment, workflow, user_id, ts) VALUES (?, ?, ?, ?)': {
+        const key = `${p[0] as string}\n${p[1] as string}\n${p[2] as string}`;
+        if (this.segmentStarts.has(key)) return { rows: [], changes: 0 };
+        this.segmentStarts.add(key);
+        return { rows: [], changes: 1 };
+      }
+      case 'SELECT workflow FROM segment_starts WHERE segment = ? AND user_id = ?': {
+        const rows = [...this.segmentStarts]
+          .map((key) => key.split('\n'))
+          .filter(([segment, , user]) => segment === p[0] && user === p[1])
+          .map(([, workflow]) => ({ workflow }));
+        return { rows, changes: 0 };
+      }
+      case 'DELETE FROM segment_starts WHERE segment = ? AND user_id = ? AND workflow = ?': {
+        const key = `${p[0] as string}\n${p[2] as string}\n${p[1] as string}`;
+        return { rows: [], changes: this.segmentStarts.delete(key) ? 1 : 0 };
+      }
+      case 'DELETE FROM segment_starts WHERE segment = ? AND user_id = ?': {
+        let changes = 0;
+        for (const key of this.segmentStarts) {
+          const [segment, , user] = key.split('\n');
+          if (segment === p[0] && user === p[1] && this.segmentStarts.delete(key)) changes++;
+        }
+        return { rows: [], changes };
+      }
+      case 'SELECT user_id FROM erasures ORDER BY ts': {
+        const rows = [...this.erasures]
+          .sort(([, a], [, b]) => a - b)
+          .map(([user_id]) => ({ user_id }));
+        return { rows, changes: 0 };
       }
       case 'DELETE FROM segment_members WHERE segment = ? AND user_id = ?': {
         const key = `${p[0] as string}\n${p[1] as string}`;

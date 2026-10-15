@@ -15,8 +15,20 @@ export {
   handleRequest,
   identifyUser,
   ingestEvent,
+  forgetUser,
+  registerDevice,
+  removeDevice,
+  unbindDevice,
+  sweepSegments,
 } from './router';
-export type { DeployResult, IdentifyResult, IngestInput, IngestResult } from './router';
+export type {
+  DeployResult,
+  DeviceRegistration,
+  SweepResult,
+  IdentifyResult,
+  IngestInput,
+  IngestResult,
+} from './router';
 export { JourneyRunner } from './runner';
 export {
   CfEmailSender,
@@ -25,14 +37,44 @@ export {
   routeByChannel,
   routeByPlatform,
 } from './senders';
-export type { CfEmailOptions, EmailAddress, EmailRenderer, ProfileLookup } from './senders';
+export type { CfEmailOptions, EmailAddress, EmailRenderer } from './senders';
+export { trackEmail } from './senders';
 export { channelsFromConfig, journeyMode, runtimeFromConfig } from './channels';
-export type { ChannelRegistries } from './channels';
-export { journeyWorker } from './worker';
+export type { ChannelsConfig } from './channels';
+// A push device as the store lists it (`registerDevice` writes them).
+export type { PushDevice } from '../engine/ports';
+// Reporting: what `journeyWorker({ observer })` hears, and the tracking it can attach to a copy.
+export type {
+  JourneyObserver,
+  MessageTracking,
+  OutboundMessage,
+  SendResult,
+} from '../engine/ports';
+// Reporting a store keeps (Postgres): what journeyWorker installs by default, for a custom host.
+export { reportingObserver } from '../reporting/observer';
+export { handleTracking, recordPushOpen } from '../reporting/tracking';
+export type { TrackingOptions } from '../reporting/tracking';
+export {
+  BURST_WINDOW_MS,
+  DEFAULT_QUICK_MS,
+  classifyClick,
+  classifyOpen,
+} from '../reporting/classify';
+export type { ClassifyOptions, ClickFacts, RequestFacts, Verdict } from '../reporting/classify';
+export { EnvValidationError, journeyWorker } from './worker';
 export type { ExecutionContextLike, JourneyWorker, JourneyWorkerOptions } from './worker';
 // The data plane lives in ../store; re-exported here so a Cloudflare host imports one path.
-export { D1JourneyStore, JourneyFactSource, PostgresJourneyStore } from '../store/index';
+export {
+  D1JourneyStore,
+  JourneyFactSource,
+  PostgresJourneyStore,
+  PostgresReporting,
+  SchemaMismatchError,
+} from '../store/index';
 export type {
+  Engagement,
+  JourneyReporting,
+  MessageRecord,
   EntryInput,
   EntryOutcome,
   EventInput,

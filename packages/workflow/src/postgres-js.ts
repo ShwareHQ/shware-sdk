@@ -30,8 +30,8 @@ export function postgresJsClient(
 export interface PostgresJsStoreOptions extends PostgresJourneyStoreOptions {
   /**
    * postgres.js options. Defaults suit a Worker with Hyperdrive: one
-   * connection per request/run, no type fetch on connect, prepared statements
-   * (Hyperdrive caches them).
+   * connection per request/run, closed after 2 s idle, no type fetch on
+   * connect, prepared statements (Hyperdrive caches them).
    */
   connection?: postgres.Options<Record<string, never>>;
 }
@@ -48,6 +48,10 @@ export function postgresJsStore(
   const { connection, ...storeOptions } = options;
   const sql = postgres(connectionString, {
     max: 1,
+    // A journey run lives for days: between steps it sleeps or waits, and a run holding its
+    // connection through that holds one per sleeping instance — hundreds of them exhaust the
+    // database. Idle connections close and the next query opens a fresh one.
+    idle_timeout: 2,
     fetch_types: false,
     prepare: true,
     ...connection,

@@ -1,6 +1,7 @@
 export { type ActionVersionPolicy, type RegisteredAction, RegistryActionInvoker } from './actions';
 export { hashToBucket, murmur3 } from './bucket';
 export {
+  DEVICES_UPDATED_EVENT,
   type EvaluateOptions,
   PROFILE_UPDATED_EVENT,
   evaluateCondition,
@@ -8,8 +9,7 @@ export {
   relevantEvents,
 } from './condition';
 export { runJourney } from './interpreter';
-export { fillSubject } from './subject';
-export { scaleDurations } from './time-scale';
+export { scaleDurations, scaleSegmentWindows } from './time-scale';
 export { nextWindowStart, resolveTimeZone } from './time-window';
 export type {
   ActionInvocation,
@@ -18,7 +18,11 @@ export type {
   EventSink,
   FactSource,
   JourneyContext,
+  JourneyObserver,
   JourneyOutcome,
   MessageSender,
+  MessageTracking,
   OutboundMessage,
+  PushDevice,
+  SendResult,
 } from './ports';

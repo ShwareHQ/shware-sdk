@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'vitest';
+import { z } from 'zod';
 import { wakeExpired } from '../src/cloudflare/bindings';
 import { JourneyRunner } from '../src/cloudflare/runner';
-import type { MessageSender } from '../src/engine/ports';
-import { compileBundle } from '../src/index';
+import type { JourneyObserver, MessageSender, MessageValidator } from '../src/engine/ports';
+import { compileBundle, defineContract, trigger, workflow } from '../src/index';
+import { TemplateValidationError } from '../src/templates';
 import { makeEnv } from './fake-cloudflare';
 import { nudge } from './fixtures';
+import { NonRetryableError } from './stubs/cloudflare-workflows';
 
 /**
  * The CF adapter's two failure paths.
@@ -71,7 +74,7 @@ describe('an instance that dies stops reading as running', () => {
     const ir = compileBundle({ workflows: [nudge] }).workflows[0];
     await kv.put(`wf:${ir.contentHash}`, JSON.stringify(ir));
     db.entries.push({
-      workflow: ir.name,
+      workflow: ir.id,
       user_id: 'u1',
       instance_id: 'inst-1',
       hash: ir.contentHash,
@@ -80,7 +83,7 @@ describe('an instance that dies stops reading as running', () => {
     });
     const event = {
       payload: {
-        workflowName: ir.name,
+        workflowId: ir.id,
         contentHash: ir.contentHash,
         userId: 'u1',
         trigger: { event: 'sign_up', payload: {} },
@@ -111,5 +114,167 @@ describe('an instance that dies stops reading as running', () => {
     });
 
     expect(db.entries[0].status).toBe('completed');
+  });
+});
+
+describe('the observer hears how each instance ended', () => {
+  const finishedOf = (Base: typeof JourneyRunner) => {
+    const finished: string[] = [];
+    class Observed extends Base {
+      protected override createObserver(): JourneyObserver {
+        return {
+          finished: async ({ workflow: name, instanceId, status }) => {
+            finished.push(`${name}/${instanceId}:${status}`);
+          },
+        };
+      }
+    }
+    return { Observed, finished };
+  };
+
+  const event = async () => {
+    const { env, db, kv } = makeEnv();
+    const ir = compileBundle({ workflows: [nudge] }).workflows[0];
+    await kv.put(`wf:${ir.contentHash}`, JSON.stringify(ir));
+    db.entries.push({
+      workflow: ir.id,
+      user_id: 'u1',
+      instance_id: 'inst-1',
+      hash: ir.contentHash,
+      status: 'running',
+      ts: Date.now(),
+    });
+    return {
+      env,
+      ir,
+      event: {
+        payload: {
+          workflowId: ir.id,
+          contentHash: ir.contentHash,
+          userId: 'u1',
+          trigger: { event: 'sign_up', payload: {} },
+        },
+        timestamp: new Date(),
+        instanceId: 'inst-1',
+      },
+    };
+  };
+
+  test('a normal ending reports its outcome', async () => {
+    const { env, ir, event: e1 } = await event();
+    const { Observed, finished } = finishedOf(JourneyRunner);
+    await new Observed({}, env).run(e1, new FakeCfStep() as never);
+    expect(finished).toEqual([`${ir.id}/inst-1:completed`]);
+  });
+
+  test('an error ending reports failed', async () => {
+    const { env, ir, event: e1 } = await event();
+    const { Observed, finished } = finishedOf(ExplodingRunner);
+    await expect(new Observed({}, env).run(e1, new FakeCfStep() as never)).rejects.toThrow(
+      'sender is down'
+    );
+    expect(finished).toEqual([`${ir.id}/inst-1:failed`]);
+  });
+});
+
+class RefusingRunner extends JourneyRunner {
+  sent = 0;
+  protected override createMessageValidator(): MessageValidator {
+    return {
+      validate: ({ template }) => {
+        throw new TemplateValidationError('email', template, 'props', [
+          { path: 'name', message: 'required' },
+        ]);
+      },
+    };
+  }
+  protected override createMessageSender(): MessageSender {
+    return { send: async () => void this.sent++ };
+  }
+}
+
+describe('a template refusing its props', () => {
+  test('ends the step as non-retryable, sends nothing, and records the failure', async () => {
+    const { env, db, kv } = makeEnv();
+    const ir = compileBundle({ workflows: [nudge] }).workflows[0];
+    await kv.put(`wf:${ir.contentHash}`, JSON.stringify(ir));
+    db.entries.push({
+      workflow: ir.id,
+      user_id: 'u1',
+      instance_id: 'inst-2',
+      hash: ir.contentHash,
+      status: 'running',
+      ts: Date.now(),
+    });
+    const event = {
+      payload: {
+        workflowId: ir.id,
+        contentHash: ir.contentHash,
+        userId: 'u1',
+        trigger: { event: 'sign_up', payload: {} },
+      },
+      timestamp: new Date(),
+      instanceId: 'inst-2',
+    };
+    const runner = new RefusingRunner({}, env);
+    const error = await runner
+      .run(event as never, new FakeCfStep() as never)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(NonRetryableError);
+    expect((error as Error).message).toMatch(
+      /\[inst-2 0\] email template .* rejected its props: name required/
+    );
+    expect(runner.sent).toBe(0);
+    expect(db.entries[0].status).toBe('failed');
+  });
+});
+
+describe('an emitted event the contract refuses', () => {
+  test('ends the step as non-retryable and stores nothing', async () => {
+    const shop = defineContract({
+      events: {
+        sign_up: z.looseObject({}),
+        purchase: z.looseObject({ transaction_id: z.string(), value: z.number().positive() }),
+      },
+      profile: z.strictObject({ name: z.string() }),
+    });
+    const emitter = workflow({
+      id: 'emitter',
+      trigger: trigger.event(shop.events.sign_up),
+    }).sendEvent(shop.events.purchase, { transaction_id: 't', value: -1 });
+    const { env, db, kv } = makeEnv();
+    const ir = compileBundle({ workflows: [emitter] }).workflows[0];
+    await kv.put(`wf:${ir.contentHash}`, JSON.stringify(ir));
+    db.entries.push({
+      workflow: ir.id,
+      user_id: 'u1',
+      instance_id: 'inst-3',
+      hash: ir.contentHash,
+      status: 'running',
+      ts: Date.now(),
+    });
+    class ContractRunner extends JourneyRunner {
+      protected override contract() {
+        return shop;
+      }
+    }
+    const event = {
+      payload: {
+        workflowId: ir.id,
+        contentHash: ir.contentHash,
+        userId: 'u1',
+        trigger: { event: 'sign_up', payload: {} },
+      },
+      timestamp: new Date(),
+      instanceId: 'inst-3',
+    };
+    const error = await new ContractRunner({}, env)
+      .run(event as never, new FakeCfStep() as never)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(NonRetryableError);
+    expect((error as Error).message).toMatch(
+      /\[inst-3 0\] event 'purchase' refused by the contract: value/
+    );
+    expect(db.events.filter((e) => e.name === 'purchase')).toEqual([]);
   });
 });

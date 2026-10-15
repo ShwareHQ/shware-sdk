@@ -121,6 +121,10 @@ function conditionLabel(c: ConditionIR, fallback: string): string {
     return value === '' ? `${c.path} ${op}` : `${c.path} ${op} ${value}`;
   }
   if (c.type === 'performed') return `did ${c.event}`;
+  if (c.type === 'reachable') return `reachable by ${c.channel}`;
+  if (c.type === 'and' || c.type === 'or') {
+    return c.conditions.map((child) => conditionLabel(child, fallback)).join(` ${c.type} `);
+  }
   return fallback;
 }
 
@@ -176,7 +180,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
     case 'message':
       return {
         title: CHANNEL_TITLE[n.channel] ?? n.channel,
-        subtitle: n.template,
+        subtitle: n.devices === 'latest' ? `${n.template} · latest device` : n.template,
         category: 'message',
         variant: 'card',
         icon: n.channel,
@@ -207,7 +211,7 @@ function nodeData(n: NodeIR): CanvasNodeData {
       };
     case 'wait_until':
       return {
-        title: 'Wait Until…',
+        title: `Wait until ${conditionLabel(n.condition, '…')}`,
         subtitle: `timeout ${n.timeout.value}`,
         category: 'delay',
         variant: 'card',

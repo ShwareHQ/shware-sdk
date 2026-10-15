@@ -13,7 +13,8 @@
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.0",
     "@shware/workflow": "workspace:*",
-    "react": "^19.3.0"
+    "react": "^19.3.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

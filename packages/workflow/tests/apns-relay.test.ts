@@ -114,6 +114,9 @@ describe('startApnsRelay', () => {
       },
     });
     await sender.send({
+      workflow: 'w',
+      instanceId: 'inst',
+      nodeId: '0',
       channel: 'push',
       template: 'x',
       props: {},

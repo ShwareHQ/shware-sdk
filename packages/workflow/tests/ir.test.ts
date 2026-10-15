@@ -4,7 +4,7 @@ import { IR_VERSION, WorkflowIR } from '../src/ir';
 /** Expected compiled shape of `checkoutRecovery` (tests/fixtures.ts). */
 const checkoutRecoveryIR = {
   irVersion: IR_VERSION,
-  name: 'checkout_recovery',
+  id: 'checkout_recovery',
   contentHash: 'a3f8c2d1e5b90776',
   trigger: { type: 'event', event: 'begin_checkout' },
   goal: {
@@ -55,7 +55,7 @@ const checkoutRecoveryIR = {
 describe('WorkflowIR schema', () => {
   test('accepts a valid workflow IR (recursive branch, condition tree, property refs)', () => {
     const parsed = WorkflowIR.parse(checkoutRecoveryIR);
-    expect(parsed.name).toBe('checkout_recovery');
+    expect(parsed.id).toBe('checkout_recovery');
     expect(parsed.flow).toHaveLength(2);
   });
 

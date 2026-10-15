@@ -12,12 +12,11 @@ import {
   Users,
   Workflow,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { superellipse } from '../../components/corner-shape';
 import { NavDrawer } from '../../components/nav-drawer';
-import type { ResolvedStudioConfig } from '../../config';
-import { raisePendingToast } from '../integrations/toast/pending';
+import type { ResolvedStudioConfig, StudioError } from '../../config';
 import { ToastProvider } from '../integrations/toast/toast-provider';
 import { PageChromeProvider, useChromeSlotRef } from '../page-chrome';
 
@@ -133,7 +132,7 @@ function Header({
       {/*
         Never hidden when empty. display:none takes the title out of the grid,
         and the actions div then auto-places into this auto-sized track instead
-        of the right-hand one — Publish ends up hugging the breadcrumb. Empty,
+        of the right-hand one — the actions end up hugging the breadcrumb. Empty,
         the auto track is 0px, which is all "hidden" would have bought.
       */}
       <div ref={titleRef} className="text-sm font-semibold" />
@@ -142,14 +141,36 @@ function Header({
   );
 }
 
+/**
+ * The project failed to load or to compile. Shown in place of every view —
+ * a list of nothing would read as "this project has no workflows". The
+ * message is compileConfig's own, which names the workflow and the node.
+ */
+function ProjectError({ error }: { error: StudioError }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-1 items-center justify-center p-8">
+      <div
+        role="alert"
+        className="max-w-2xl rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300"
+        style={superellipse}
+      >
+        <p className="font-medium">{t(`project.error.${error.kind}`)}</p>
+        <pre className="mt-3 font-mono text-xs break-words whitespace-pre-wrap">
+          {error.message}
+        </pre>
+        <p className="mt-3 text-xs opacity-80">{t('project.errorHint')}</p>
+      </div>
+    </div>
+  );
+}
+
 function Shell() {
   const { t } = useTranslation();
+  const { config } = Route.useRouteContext();
   const [collapsed, setCollapsed] = useState(readCollapsed);
   /* Narrow viewports only; never persisted — a drawer is a gesture, not a layout. */
   const [navOpen, setNavOpen] = useState(false);
-
-  // A save's confirmation survives the write-back reload (see pending.ts)
-  useEffect(raisePendingToast, []);
 
   const toggle = useCallback(() => {
     setCollapsed((open) => {
@@ -237,7 +258,7 @@ function Shell() {
           and a long page simply outgrows the minimum.
         */}
         <main className="flex min-h-[calc(100%-3.5rem)] min-w-0 flex-col">
-          <Outlet />
+          {config.error !== undefined ? <ProjectError error={config.error} /> : <Outlet />}
         </main>
       </div>
 

@@ -25,10 +25,10 @@ export function compileBundle(input: {
   actions?: readonly ActionRef<object>[];
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
-    const { name, definition, loc, meta } = segment as SegmentInternal;
+    const { id, definition, loc, meta } = segment as SegmentInternal;
     const compiled: SegmentIR = {
       irVersion: IR_VERSION,
-      name,
+      id,
       // Labels and provenance both live in meta, which stripMeta drops before hashing
       contentHash: semanticHash(definition),
       condition: definition,
@@ -60,15 +60,17 @@ export function compileBundle(input: {
   // Names are wire identity (routing tables, entry ledger, by-name refs):
   // duplicates would silently last-write-win on deploy, so fail the compile.
   assertUniqueNames(
-    workflows.map((w) => w.name),
+    workflows.map((w) => w.id),
     'workflow'
   );
   assertUniqueNames(
-    segments.map((s) => s.name),
+    segments.map((s) => s.id),
     'segment'
   );
+  // A message node names its template by channel and key, so the key is unique per channel:
+  // an email and a push of one nudge may share it
   assertUniqueNames(
-    templates.map((t) => t.key),
+    templates.map((t) => `${t.channel}:${t.key}`),
     'template'
   );
   assertUniqueNames(
@@ -106,7 +108,7 @@ function assertSegmentRefsResolve(
   workflows: readonly WorkflowIR[],
   segments: readonly SegmentIR[]
 ): void {
-  const defined = new Set(segments.map((s) => s.name));
+  const defined = new Set(segments.map((s) => s.id));
   const check = (refs: ReadonlySet<string>, owner: string): void => {
     for (const ref of refs) {
       if (!defined.has(ref)) {
@@ -117,13 +119,13 @@ function assertSegmentRefsResolve(
     }
   };
   for (const workflow of workflows) {
-    check(referencedSegments(workflow), `workflow '${workflow.name}'`);
+    check(referencedSegments(workflow), `workflow '${workflow.id}'`);
   }
   // Segments may reference other segments; those must resolve too
   for (const segment of segments) {
     const refs = new Set<string>();
     collectConditionRefs(segment.condition, refs);
-    check(refs, `segment '${segment.name}'`);
+    check(refs, `segment '${segment.id}'`);
   }
 }
 
@@ -194,7 +196,7 @@ function assertActionRefsResolve(
       const manifestHash = defined.get(name);
       if (manifestHash === undefined) {
         throw new Error(
-          `compileBundle: workflow '${workflow.name}' runs action '${name}' that is not in the bundle — pass it in 'actions'`
+          `compileBundle: workflow '${workflow.id}' runs action '${name}' that is not in the bundle — pass it in 'actions'`
         );
       }
       // Every node's hash is checked, not just one per name: with two
@@ -203,7 +205,7 @@ function assertActionRefsResolve(
       for (const codeHash of codeHashes) {
         if (codeHash !== undefined && codeHash !== manifestHash) {
           throw new Error(
-            `compileBundle: workflow '${workflow.name}' runs action '${name}' whose code differs from the one in 'actions' — two definitions are sharing that name`
+            `compileBundle: workflow '${workflow.id}' runs action '${name}' whose code differs from the one in 'actions' — two definitions are sharing that name`
           );
         }
       }
@@ -249,22 +251,22 @@ function assertConditionPlacement(
   for (const workflow of workflows) {
     if (workflow.trigger.type === 'event') {
       if (workflow.trigger.where !== undefined) {
-        assertWhereTree(workflow.trigger.where, `workflow '${workflow.name}' trigger where`);
+        assertWhereTree(workflow.trigger.where, `workflow '${workflow.id}' trigger where`);
       }
       if (workflow.trigger.filter !== undefined) {
-        assertProfileTree(workflow.trigger.filter, `workflow '${workflow.name}' trigger filter`);
+        assertProfileTree(workflow.trigger.filter, `workflow '${workflow.id}' trigger filter`);
       }
     }
     if (workflow.goal !== undefined) {
-      assertProfileTree(workflow.goal.condition, `workflow '${workflow.name}' goal`);
+      assertProfileTree(workflow.goal.condition, `workflow '${workflow.id}' goal`);
     }
     if (workflow.exitWhen !== undefined) {
-      assertProfileTree(workflow.exitWhen, `workflow '${workflow.name}' exitWhen`);
+      assertProfileTree(workflow.exitWhen, `workflow '${workflow.id}' exitWhen`);
     }
-    assertNodeTrees(workflow.flow, `workflow '${workflow.name}'`);
+    assertNodeTrees(workflow.flow, `workflow '${workflow.id}'`);
   }
   for (const segment of segments) {
-    assertProfileTree(segment.condition, `segment '${segment.name}'`);
+    assertProfileTree(segment.condition, `segment '${segment.id}'`);
   }
 }
 

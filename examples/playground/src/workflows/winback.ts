@@ -1,4 +1,5 @@
 import { eq, template, trigger, workflow } from '@shware/workflow';
+import { t } from '../templates';
 import { e, u } from './schema';
 import { purchaser } from './segments';
 
@@ -15,17 +16,16 @@ import { purchaser } from './segments';
 /** Internal Slack ping for the customer success team — message channels are not only for end users. */
 const csAlert = template.slack<{ plan: 'free' | 'pro' | 'business' }>('cs_churn_alert');
 
-const proWinback = template.email('winback_pro_offer');
-const freeWinback = template.email('winback_free_tips');
-const finalOffer = template.email<{ coupon: string; expiresIn: string }>('winback_final_offer');
+const proWinback = t.email.winback_pro_offer;
+const freeWinback = t.email.winback_free_tips;
+const finalOffer = t.email.winback_final_offer;
 /** Same last call on the lock screen — the push mirrors the email's props. */
-const finalOfferPush = template.push<{ coupon: string; expiresIn: string }>(
-  'winback_final_offer_push'
-);
+const finalOfferPush = t.push.winback_final_offer_push;
 
 /* -------------------------------- workflow -------------------------------- */
 
-export const winback = workflow('winback', {
+export const winback = workflow({
+  id: 'winback',
   name: 'Winback',
   trigger: trigger.event(e.subscription_cancelled),
   goal: purchaser, // paying again is the conversion; exits on match by default

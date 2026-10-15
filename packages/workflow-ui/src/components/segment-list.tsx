@@ -17,11 +17,13 @@ import { Sparkline } from './sparkline';
  * as a number and its trend.
  */
 export interface SegmentListItem {
-  /** Wire key: how IR and the engine refer to it. Identity, not a label. */
-  name: string;
-  /** Human label from `segment(key, cond, { name })`; the list shows this. */
+  /** Wire key: how IR and the engine refer to it (`segment({ id })`). Identity, not a label. */
+  id: string;
+  /** Human label from `segment({ id, name })`; the list shows it, else the key. */
   label?: string;
-  /** Workflows that reference it, by name. */
+  /** `segment({ description })`: the second line, when there is one. */
+  description?: string;
+  /** Workflows that reference it, by id. */
   usedBy: string[];
   /** The condition, when the segment is declared rather than merely referenced. */
   definition?: ConditionIR;
@@ -31,48 +33,7 @@ export interface SegmentListProps {
   items: SegmentListItem[];
   reports?: SegmentReport[];
   /** Open a segment's detail; the row is only clickable when this is provided. */
-  onOpen?: (name: string) => void;
-}
-
-const OPERATOR: Record<string, string> = {
-  eq: '=',
-  ne: '≠',
-  gt: '>',
-  gte: '≥',
-  lt: '<',
-  lte: '≤',
-  in: 'in',
-  contains: 'contains',
-  exists: 'is set',
-};
-
-/**
- * One readable line per condition tree. Operators render as symbols — `eq` is
- * an IR token, not something a reader should have to translate.
- */
-export function describeCondition(condition: ConditionIR): string {
-  switch (condition.type) {
-    case 'and':
-      return condition.conditions.map(describeCondition).join(' and ');
-    case 'or':
-      return condition.conditions.map(describeCondition).join(' or ');
-    case 'not':
-      return `not ${describeCondition(condition.condition)}`;
-    case 'segment':
-      return condition.segment;
-    case 'performed':
-      return `did ${condition.event}${
-        condition.where ? ` where ${describeCondition(condition.where)}` : ''
-      }${condition.within ? ` within ${condition.within.value}` : ''}`;
-    case 'property':
-      return `${condition.path} ${OPERATOR[condition.op] ?? condition.op}${
-        condition.value !== undefined ? ` ${String(condition.value)}` : ''
-      }`;
-    case 'payload':
-      return `event.${condition.path} ${OPERATOR[condition.op] ?? condition.op}${
-        condition.value !== undefined ? ` ${String(condition.value)}` : ''
-      }`;
-  }
+  onOpen?: (id: string) => void;
 }
 
 const compact = (value: number) =>
@@ -100,7 +61,7 @@ const CELL = 'border-border border-b py-4 max-md:border-b-0 max-md:px-3';
 
 export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
   const { t } = useTranslation();
-  const byName = new Map((reports ?? []).map((report) => [report.name, report]));
+  const byId = new Map((reports ?? []).map((report) => [report.id, report]));
 
   return (
     /*
@@ -126,13 +87,15 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
         </thead>
         <tbody className="max-md:block">
           {items.map((item) => {
-            const report = byName.get(item.name);
+            const report = byId.get(item.id);
+            /* A blank label counts as none, like everywhere else names are shown. */
+            const label = displayName(item.label, '');
             const movement = trend(report?.series);
 
             return (
               <tr
-                key={item.name}
-                {...(onOpen ? { onClick: () => onOpen(item.name) } : {})}
+                key={item.id}
+                {...(onOpen ? { onClick: () => onOpen(item.id) } : {})}
                 /*
                  * On desktop the hover fill lives on the cells, not the row: a
                  * row box paints its background underneath them, where no cell
@@ -160,26 +123,28 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                   <div className="flex items-start gap-3">
                     <Users className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
                     <div className="min-w-0">
-                      <div
-                        className={clsx(
-                          'flex items-center gap-2 font-medium',
-                          item.label === undefined ? 'text-muted italic' : 'text-primary'
+                      <div className="flex items-center gap-2 font-medium">
+                        {label !== '' ? (
+                          label
+                        ) : (
+                          /* No label: the id, made readable — `used_api` reads "Used api". ::first-letter needs a block box, not the flex row. */
+                          <span className="inline-block first-letter:uppercase">
+                            {item.id.replaceAll('_', ' ')}
+                          </span>
                         )}
-                      >
-                        {displayName(item.label, t('common.untitled'))}
                         {item.definition === undefined && (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-400/10 dark:text-amber-300">
                             {t('segments.notDefined')}
                           </span>
                         )}
                       </div>
-                      {item.definition !== undefined && (
-                        <p className="text-secondary mt-1 truncate font-mono text-sm">
-                          {describeCondition(item.definition)}
-                        </p>
+                      {item.description !== undefined && (
+                        <p className="text-secondary mt-1 truncate text-sm">{item.description}</p>
                       )}
                       <div className="text-muted mt-2 truncate text-xs">
-                        {t('segments.usedBy')}: {item.usedBy.join(', ')}
+                        {item.usedBy.length === 0
+                          ? t('segments.unused')
+                          : `${t('segments.usedBy')}: ${item.usedBy.join(', ')}`}
                       </div>
                     </div>
                   </div>

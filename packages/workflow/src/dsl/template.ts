@@ -4,11 +4,24 @@
  * components) lives in the app and meets the reference again in the studio and
  * at send time via the registry.
  *
- * Type technique: `templates<Emails>()` binds the registry so **the registry
- * types the key** — an unregistered key fails to compile — while `PropsOf<M>`
- * infers the props contract from the component's own signature, so it is
- * written exactly once.
+ * Type technique: `templates(registry)` derives the references from the
+ * registries so **the registries type the keys** — an unregistered key fails
+ * to compile — while `PropsOf<M>` reads the props contract off each template's
+ * Zod schema, so it is written exactly once.
  */
+
+import type * as core from 'zod/v4/core';
+import {
+  type DiscordTemplate,
+  type EmailTemplate,
+  type PropsSchema,
+  type PushTemplate,
+  type SlackTemplate,
+  isDiscordTemplate,
+  isEmailTemplate,
+  isPushTemplate,
+  isSlackTemplate,
+} from '../templates';
 
 export type Channel = 'email' | 'sms' | 'push' | 'in_app' | 'slack' | 'discord' | 'survey';
 
@@ -24,57 +37,27 @@ export interface TemplateRef<C extends Channel = Channel, P extends object = Emp
   readonly __props?: P;
 }
 
-/**
- * Template content: a component taking props (react-email and friends). Pass
- * the component, not a JSX element — that way P is inferred from the
- * component's own props signature, keeping the key, the content and every use
- * site aligned. The content system (rendering, liquid compat, i18n) is a
- * separate topic; this is a placeholder type.
- */
-export type TemplateContent<P extends object> = (props: P) => unknown;
-
 export interface TemplateFactory {
-  email<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'email', P>;
-  sms<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'sms', P>;
-  push<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'push', P>;
-  inApp<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'in_app', P>;
-  slack<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'slack', P>;
-  discord<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'discord', P>;
-  survey<P extends object = EmptyProps>(
-    key: string,
-    content?: TemplateContent<P>
-  ): TemplateRef<'survey', P>;
+  email<P extends object = EmptyProps>(key: string): TemplateRef<'email', P>;
+  sms<P extends object = EmptyProps>(key: string): TemplateRef<'sms', P>;
+  push<P extends object = EmptyProps>(key: string): TemplateRef<'push', P>;
+  inApp<P extends object = EmptyProps>(key: string): TemplateRef<'in_app', P>;
+  slack<P extends object = EmptyProps>(key: string): TemplateRef<'slack', P>;
+  discord<P extends object = EmptyProps>(key: string): TemplateRef<'discord', P>;
+  survey<P extends object = EmptyProps>(key: string): TemplateRef<'survey', P>;
 }
 
 const makeTemplate =
   <C extends Channel>(channel: C) =>
-  <P extends object = EmptyProps>(key: string, content?: TemplateContent<P>): TemplateRef<C, P> =>
-    ({ channel, key, content }) as TemplateRef<C, P>;
+  <P extends object = EmptyProps>(key: string): TemplateRef<C, P> => ({ channel, key });
 
 /**
- * Template definition: a plain object — a template's type (its props shape) is
- * self-contained at the declaration site.
+ * Unbound template references, props typed by hand. Email and push refs come
+ * from the registries (`templates<Emails, Pushes>()`), which type both key and
+ * props; this is the low-level form for channels without a registry (sms,
+ * slack, …) and for tests.
  *
- *   const welcome = template.email('onboarding_welcome');
- *   const offer = template.email('n2_offer', OfferEmail);   // P inferred from the component
+ *   const alert = template.slack<{ plan: string }>('cs_churn_alert');
  */
 export const template: TemplateFactory = {
   email: makeTemplate('email'),
@@ -88,32 +71,103 @@ export const template: TemplateFactory = {
 
 /* ----------------------------- Template registry ---------------------------- */
 
-/** One email module: a default-exported component (plus an optional subject). */
-export interface TemplateModule {
-  default: (props: never) => unknown;
-  subject?: unknown;
+/** Template props: the input type of the template's Zod `props` schema — what the DSL passes. */
+export type PropsOf<M> = M extends
+  | EmailTemplate<infer S>
+  | PushTemplate<infer S>
+  | DiscordTemplate<infer S, never>
+  | SlackTemplate<infer S, never>
+  ? core.input<S> extends object
+    ? core.input<S>
+    : EmptyProps
+  : never;
+
+/**
+ * The channel registries: what the config registers as `templates` and what
+ * `templates()` derives the references from — one type for both. Leave it
+ * inferred, or check it with `satisfies TemplateRegistry`: annotating a value
+ * as the bare type widens the keys to `string`.
+ */
+export interface TemplateRegistry<
+  E extends Readonly<Record<string, EmailTemplate>> = Readonly<Record<string, EmailTemplate>>,
+  P extends Readonly<Record<string, PushTemplate>> = Readonly<Record<string, PushTemplate>>,
+> {
+  readonly email?: E;
+  readonly push?: P;
+  /** Discord webhook templates, each typed by the host's Env its `webhook` reads. */
+  readonly discord?: Readonly<Record<string, DiscordTemplate<PropsSchema, never>>>;
+  readonly slack?: Readonly<Record<string, SlackTemplate<PropsSchema, never>>>;
 }
 
-/** Derive template props from the component's signature — the contract is written once, on the component. */
-export type PropsOf<M> = M extends { default: (props: infer P) => unknown }
-  ? P extends object
-    ? P
-    : EmptyProps
-  : EmptyProps;
+/** One channel's registry in `R`, without the `undefined` of an optional field; `never` when absent. */
+type ChannelRegistry<R, K extends 'email' | 'push' | 'discord' | 'slack'> = K extends keyof R
+  ? Exclude<R[K], undefined>
+  : never;
 
-export interface BoundTemplateFactory<R extends Record<string, TemplateModule>> {
-  email<K extends keyof R & string>(key: K): TemplateRef<'email', PropsOf<R[K]>>;
+/** One reference per registered key, each typed by its own template's `props`. */
+export type TemplateRefTable<C extends Channel, R> = {
+  readonly [K in keyof R & string]: TemplateRef<C, PropsOf<R[K]>>;
+};
+
+/** `t.email.<key>` / `t.push.<key>`; a channel the registry leaves out is an empty table. */
+export interface TemplateRefs<R extends TemplateRegistry> {
+  readonly email: [ChannelRegistry<R, 'email'>] extends [never]
+    ? EmptyProps
+    : TemplateRefTable<'email', ChannelRegistry<R, 'email'>>;
+  readonly push: [ChannelRegistry<R, 'push'>] extends [never]
+    ? EmptyProps
+    : TemplateRefTable<'push', ChannelRegistry<R, 'push'>>;
+  readonly discord: [ChannelRegistry<R, 'discord'>] extends [never]
+    ? EmptyProps
+    : TemplateRefTable<'discord', ChannelRegistry<R, 'discord'>>;
+  readonly slack: [ChannelRegistry<R, 'slack'>] extends [never]
+    ? EmptyProps
+    : TemplateRefTable<'slack', ChannelRegistry<R, 'slack'>>;
 }
 
 /**
- * Template factory bound to a registry: **the registry types the key** — so
- * referencing an unregistered template fails to compile, while props types
- * flow in from the component signature (same pattern as the u/e tables).
+ * Template references derived from the registries themselves: **the
+ * registries type the keys** — an unregistered key fails to compile, and a
+ * push template is not accepted where an email is — and each template's
+ * `props` schema types its use sites. Templates are registered once; the
+ * config takes the registries, the workflows take the references:
  *
- *   import type { Emails } from '../emails';   // type-only: no react at runtime
- *   const t = templates<Emails>();
- *   export const welcome = t.email('welcome');
+ *   export const registry = { email, push };
+ *   export const t = templates(registry);
+ *   flow.email(t.email.welcome, { name: u.name });
+ *
+ * Each reference is a plain `{ channel, key }` built from the registry's own
+ * keys; no template is rendered, and the registries are left untouched.
  */
-export function templates<R extends Record<string, TemplateModule>>(): BoundTemplateFactory<R> {
-  return { email: (key) => template.email(key) as never };
+export function templates<const R extends TemplateRegistry>(registry: R): TemplateRefs<R> {
+  return {
+    email: refTable('email', registry.email, isEmailTemplate),
+    push: refTable('push', registry.push, isPushTemplate),
+    discord: refTable('discord', registry.discord, isDiscordTemplate),
+    slack: refTable('slack', registry.slack, isSlackTemplate),
+  } as unknown as TemplateRefs<R>;
+}
+
+const ARTICLE: Record<'email' | 'push' | 'discord' | 'slack', string> = {
+  email: 'an email',
+  push: 'a push',
+  discord: 'a Discord',
+  slack: 'a Slack',
+};
+
+function refTable(
+  channel: 'email' | 'push' | 'discord' | 'slack',
+  entries: Readonly<Record<string, unknown>> | undefined,
+  is: (value: unknown) => boolean
+): Readonly<Record<string, TemplateRef>> {
+  const table: Record<string, TemplateRef> = Object.create(null);
+  for (const [key, entry] of Object.entries(entries ?? {})) {
+    if (!is(entry)) {
+      throw new TypeError(
+        `templates(): '${key}' in the ${channel} registry is not ${ARTICLE[channel]} template`
+      );
+    }
+    table[key] = template[channel](key);
+  }
+  return Object.freeze(table);
 }

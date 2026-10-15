@@ -1,5 +1,6 @@
 import {
   Bot,
+  Globe,
   type LucideIcon,
   Mail,
   MessageCircle,
@@ -17,13 +18,14 @@ import type { MetricChannel } from '../config';
  * the eye stops using the icon as an index.
  *
  * lucide dropped brand marks, so iOS and Android borrow the nearest generic
- * pair (a handset, a robot): what matters here is that the two platforms are
+ * pair (a handset, a robot) and a browser push a globe: what matters here is that the two platforms are
  * told apart at a glance, not that the logo is right.
  */
 export const CHANNEL_ICON: Record<MetricChannel, LucideIcon> = {
   email: Mail,
   push_ios: Smartphone,
   push_android: Bot,
+  push_web: Globe,
   slack: MessagesSquare,
   discord: MessageCircle,
   sms: MessageSquareText,

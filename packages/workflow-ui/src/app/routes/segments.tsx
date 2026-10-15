@@ -15,7 +15,7 @@ import { Route as rootRoute } from './__root';
  * email list is — so a segment used in a condition but never passed to the
  * config is visible rather than silently missing.
  */
-export function collectSegmentRefs(irs: WorkflowIR[]): { name: string; usedBy: string[] }[] {
+export function collectSegmentRefs(irs: WorkflowIR[]): { id: string; usedBy: string[] }[] {
   const byName = new Map<string, Set<string>>();
 
   const walkCondition = (condition: ConditionIR | undefined, workflow: string) => {
@@ -60,18 +60,34 @@ export function collectSegmentRefs(irs: WorkflowIR[]): { name: string; usedBy: s
   for (const ir of irs) {
     if (ir.trigger.type === 'segment') {
       const set = byName.get(ir.trigger.segment) ?? new Set();
-      set.add(ir.name);
+      set.add(ir.id);
       byName.set(ir.trigger.segment, set);
     }
-    if (ir.trigger.type === 'event') walkCondition(ir.trigger.filter, ir.name);
-    walkCondition(ir.goal?.condition, ir.name);
-    walkCondition(ir.exitWhen, ir.name);
-    walkNodes(ir.flow, ir.name);
+    if (ir.trigger.type === 'event') walkCondition(ir.trigger.filter, ir.id);
+    walkCondition(ir.goal?.condition, ir.id);
+    walkCondition(ir.exitWhen, ir.id);
+    walkNodes(ir.flow, ir.id);
   }
 
   return [...byName.entries()]
-    .map(([name, usedBy]) => ({ name, usedBy: [...usedBy] }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .map(([id, usedBy]) => ({ id, usedBy: [...usedBy] }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Every segment the studio shows: each deployed one — referenced by a workflow or not, since a
+ * segment is an audience worth watching on its own — plus each one a workflow references without
+ * it being deployed (shown as not defined). The IR only adds who uses it.
+ */
+export function collectSegments(
+  irs: WorkflowIR[],
+  deployed: readonly { id: string }[]
+): { id: string; usedBy: string[] }[] {
+  const byId = new Map(collectSegmentRefs(irs).map((ref) => [ref.id, ref]));
+  for (const { id } of deployed) {
+    if (!byId.has(id)) byId.set(id, { id, usedBy: [] });
+  }
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function Segments() {
@@ -81,28 +97,20 @@ function Segments() {
   const [query, setQuery] = useState('');
 
   const refs = useMemo(
-    () => collectSegmentRefs(Object.values(config.workflows).map((builder) => builder.toIR())),
+    () => collectSegments(Object.values(config.workflows), config.segments),
     [config]
   );
 
   const items = useMemo(() => {
-    /** Definitions come from the discovered segments; a reference alone gives only a name. */
-    const declared = new Map(
-      config.segments.map((segment) => [
-        segment.name,
-        segment as unknown as {
-          definition: ConditionIR;
-          meta?: { name?: string; description?: string };
-        },
-      ])
-    );
+    /** Definitions come from the compiled segments; a reference alone gives only a name. */
+    const declared = new Map(config.segments.map((segment) => [segment.id, segment]));
     return refs.map((ref) => {
-      const found = declared.get(ref.name);
+      const found = declared.get(ref.id);
       return {
         ...ref,
-        ...(found !== undefined ? { definition: found.definition } : {}),
+        ...(found !== undefined ? { definition: found.condition } : {}),
         ...(found?.meta?.name !== undefined ? { label: found.meta.name } : {}),
-        description: found?.meta?.description ?? '',
+        ...(found?.meta?.description !== undefined ? { description: found.meta.description } : {}),
       };
     });
   }, [refs, config]);
@@ -112,7 +120,7 @@ function Segments() {
     const needle = query.trim().toLowerCase();
     if (needle === '') return items;
     return items.filter((item) =>
-      [item.name, item.label ?? '', item.description].some((text) =>
+      [item.id, item.label ?? '', item.description ?? ''].some((text) =>
         text.toLowerCase().includes(needle)
       )
     );
@@ -158,7 +166,7 @@ function Segments() {
           <SegmentList
             items={filtered}
             {...(reports !== undefined ? { reports } : {})}
-            onOpen={(name) => void navigate({ to: '/segments/$name', params: { name } })}
+            onOpen={(id) => void navigate({ to: '/segments/$id', params: { id } })}
           />
         )}
       </div>
@@ -175,22 +183,17 @@ export const segmentsRoute = createRoute({
 /* ------------------------------- Detail shell ------------------------------ */
 
 function SegmentDetail() {
-  const { name } = segmentDetailRoute.useParams();
+  const { id } = segmentDetailRoute.useParams();
   const { config } = segmentDetailRoute.useRouteContext();
   const { t } = useTranslation();
 
   /* Switcher options: every segment the workflows reference, like the list page. */
   const options = useMemo(() => {
-    const declared = new Map(
-      config.segments.map((segment) => [
-        segment.name,
-        segment as unknown as { meta?: { name?: string; description?: string } },
-      ])
-    );
-    const refs = collectSegmentRefs(Object.values(config.workflows).map((b) => b.toIR()));
+    const declared = new Map(config.segments.map((segment) => [segment.id, segment]));
+    const refs = collectSegments(Object.values(config.workflows), config.segments);
     return refs.map((ref) => ({
-      value: ref.name,
-      label: displayName(declared.get(ref.name)?.meta?.name, ref.name),
+      value: ref.id,
+      label: displayName(declared.get(ref.id)?.meta?.name, ref.id),
     }));
   }, [config]);
 
@@ -209,9 +212,9 @@ function SegmentDetail() {
             items={[
               { label: t('nav.segments'), to: '/segments' },
               {
-                label: options.find((option) => option.value === name)?.label ?? name,
-                to: '/segments/$name',
-                params: { name },
+                label: options.find((option) => option.value === id)?.label ?? id,
+                to: '/segments/$id',
+                params: { id },
               },
               { label: t('segments.tabs.overview') },
             ]}
@@ -228,6 +231,6 @@ function SegmentDetail() {
 
 export const segmentDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/segments/$name',
+  path: '/segments/$id',
   component: SegmentDetail,
 });

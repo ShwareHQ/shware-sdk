@@ -63,4 +63,23 @@ describe('the published tarball', () => {
 
     expect(missing).toEqual([]);
   });
+
+  /*
+   * The studio is read-only. A write path the page can still reach is a write
+   * path, whatever the buttons say, so this reads what actually ships: no
+   * request with a body, no former write route, no call to the deprecated
+   * test-send hook (the config type still declares it, ignored).
+   */
+  test('the studio app holds no client for writing source, sending tests or publishing', () => {
+    const offenders = [...importedFiles()]
+      .filter((file) => /\.tsx?$/.test(file))
+      .filter((file) =>
+        /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]|__studio\/(?:envelope|addresses)|\.sendTest\b/.test(
+          readFileSync(file, 'utf8')
+        )
+      )
+      .map((file) => relative(packageRoot, file));
+
+    expect(offenders).toEqual([]);
+  });
 });

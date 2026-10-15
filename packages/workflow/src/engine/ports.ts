@@ -48,6 +48,12 @@ export interface EngineStep {
   waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'>;
 }
 
+/** One device a push can go to: the provider token (APNs device token, FCM registration token) and the platform that picks the provider. */
+export interface PushDevice {
+  token: string;
+  platform: string;
+}
+
 /** Facts from a single user's point of view: the read interface condition evaluation uses (D1 and in-memory share one evaluator). */
 export interface FactSource {
   /**
@@ -55,26 +61,133 @@ export interface FactSource {
    * anchoring); `where` is a payload-only condition tree — count only events
    * whose payload matches (evaluate with matchesWhere from engine/condition).
    */
-  countEvents(event: string, opts?: { sinceMs?: number; where?: ConditionIR }): Promise<number>;
+  countEvents(
+    event: string,
+    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR }
+  ): Promise<number>;
   getProperty(path: string): Promise<ScalarIR | undefined>;
-  /** Resolve a segment definition by name (stored with the bundle at deploy time). */
+  /** Resolve a segment definition by id (stored with the bundle at deploy time). */
   getSegmentCondition(name: string): Promise<ConditionIR | undefined>;
+  /** The user's push devices, most recently registered first (empty when the user registered none). */
+  listDevices(): Promise<PushDevice[]>;
+  /** The user opted out of the channel (an email unsubscribe): nothing is sent there. */
+  isSuppressed?(channel: ChannelIR): Promise<boolean>;
 }
 
 export interface OutboundMessage {
+  /** Where the copy comes from: the workflow, its instance and the message node. */
+  workflow: string;
+  instanceId: string;
+  nodeId: string;
   channel: ChannelIR;
   template: string;
   /** Already resolved: user_property references have been replaced by actual values. */
   props: Record<string, ScalarIR | undefined>;
   userId: string;
-  /** The channel's recipient address, resolved from the profile by the engine — so senders never read the database. */
+  /**
+   * The channel's recipient address, resolved by the engine — so senders never
+   * read the database: a profile property for most channels, the device token
+   * for push (one message per device).
+   */
   recipient?: string | undefined;
-  /** `${instanceId}:${nodeId}` — senders de-duplicate on it, making replays and retries safe. */
+  /** Push only: the device this copy goes to — its platform picks the provider. */
+  device?: PushDevice | undefined;
+  /**
+   * `${instanceId}:${nodeId}` (plus `:${token}` for a push copy) — one per copy. Senders
+   * de-duplicate on it, making replays and retries safe, and it is the copy's identity for
+   * tracking: a push carries it in its payload, so the app can report the tap against it.
+   */
   idempotencyKey: string;
+  /** What the host's observer asked the sender to add for measuring this copy (see `MessageTracking`). */
+  tracking?: MessageTracking | undefined;
+}
+
+/**
+ * Measuring a copy, as the built-in senders apply it: an email's links are routed through
+ * `link` and `pixel` is appended as a 1×1 image; a push carries `data` in its payload.
+ * Each is optional, and a sender ignores what its channel has no use for.
+ */
+export interface MessageTracking {
+  /** The original `http(s)` URL in, the URL that records the click and redirects out. */
+  link?: (url: string) => string;
+  /** Loaded when the email is opened. */
+  pixel?: string;
+  /** Extra string keys in the push payload. */
+  data?: Record<string, string>;
+  /**
+   * Called by the sender once the links are rewritten and before the transport takes the copy:
+   * what the tracking URLs resolve to is stored before anyone can click one. A throw stops the
+   * send, and the step retries it.
+   */
+  commit?: () => Promise<void>;
+}
+
+/**
+ * How a copy ended at the transport. A sender returns nothing when the transport accepted it;
+ * `{ delivered: false }` when it settled the copy without delivering — a dead push token, which
+ * is not retried. A transient failure throws instead, and the step retries.
+ */
+export interface SendResult {
+  delivered: false;
+  reason: string;
 }
 
 export interface MessageSender {
-  send(message: OutboundMessage): Promise<void>;
+  send(message: OutboundMessage): Promise<void | SendResult>;
+}
+
+/**
+ * What the host learns about each journey as it runs, for reporting: where every instance
+ * stands, every copy it sends and how the transport took it, and how it ended. Storage is the
+ * host's — the engine only reports. Every method is optional and must be idempotent: a step
+ * that fails after its report ran is retried and reports again (keyed by the instance and node,
+ * or the copy's idempotency key).
+ */
+export interface JourneyObserver {
+  /** The instance entered, before its entry guards: `at` is the trigger's time, the entry anchor. */
+  started?(event: {
+    workflow: string;
+    instanceId: string;
+    userId: string;
+    at: number;
+  }): Promise<void>;
+  /** The instance reached a node: it sits there until the next one (a delay, a wait), or passes through. */
+  nodeReached?(event: {
+    workflow: string;
+    instanceId: string;
+    userId: string;
+    nodeId: string;
+    at: number;
+  }): Promise<void>;
+  /** A copy is about to go out; the tracking returned travels with it to the sender. */
+  messagePrepared?(message: OutboundMessage): Promise<MessageTracking | undefined>;
+  /** The transport took the copy (`delivered: true`), or settled it undelivered; a thrown send is not reported. */
+  messageSent?(message: OutboundMessage, result: { delivered: true } | SendResult): Promise<void>;
+  /** The instance ended: its outcome (`goal` is a conversion), or `failed` when an error ended it. */
+  finished?(event: {
+    workflow: string;
+    instanceId: string;
+    userId: string;
+    status: JourneyOutcome['status'] | 'failed';
+    at: number;
+    /** When it converted, if it did — set whatever the status (see JourneyOutcome). */
+    convertedAt?: number;
+  }): Promise<void>;
+}
+
+/**
+ * Message preparation: checks a message's resolved props against its template
+ * before any sender sees it (and, for a push, before the first device), and
+ * returns the props to send — the parsed value. Throwing stops the send; the
+ * interpreter adds the instance and node to the error. The Cloudflare host
+ * assembles one from the template registries (`registryValidator`).
+ */
+export interface MessageValidator {
+  validate(message: {
+    channel: ChannelIR;
+    template: string;
+    props: Record<string, ScalarIR | undefined>;
+  }): Record<string, ScalarIR | undefined>;
 }
 
 /** send_event's outlet: feeds back into ingest (the event edge between workflows). */
@@ -128,10 +241,20 @@ export interface JourneyContext {
   events: EventSink;
   /** Optional: only journeys whose IR contains action nodes need one; running such a node without it is a runtime error. */
   actions?: ActionInvoker | undefined;
+  /** Template props validation before every send; without one, props go out as resolved. */
+  validator?: MessageValidator | undefined;
+  /** Reporting hooks (positions and copies); without one, nothing is reported. */
+  observer?: JourneyObserver | undefined;
 }
 
-export type JourneyOutcome =
+/**
+ * How an instance ended, and — apart from that — whether and when it converted: `goal` ends it
+ * at the conversion, while with `exitOnMatch: false` a converted instance ends like any other
+ * and only `convertedAt` tells.
+ */
+export type JourneyOutcome = (
   | { status: 'completed' }
   | { status: 'exited'; reason?: string }
   | { status: 'goal' }
-  | { status: 'exit_when' };
+  | { status: 'exit_when' }
+) & { convertedAt?: number };

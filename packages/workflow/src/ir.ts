@@ -24,7 +24,7 @@ import * as z from 'zod/mini';
  *    - pin a version when a user enters, so an in-flight journey runs the
  *      pinned version to completion (the default policy; compatible hot
  *      updates are a future explicit-migration topic). Known exception:
- *      segment conditions are resolved **by name at evaluation time** — a
+ *      segment conditions are resolved **by id at evaluation time** — a
  *      segment redeploy changes behaviour of in-flight journeys that
  *      reference it. Pinning covers the workflow's own structure; per-hash
  *      segment snapshots are future work;
@@ -43,7 +43,7 @@ import * as z from 'zod/mini';
  * mapping is an explicit migrator's job).
  */
 
-export const IR_VERSION = 1;
+export const IR_VERSION = 2;
 
 /* -------------------------------- Base values ------------------------------- */
 
@@ -143,7 +143,7 @@ export type ConditionIR =
   | (ConditionBaseIR & { type: 'and'; conditions: ConditionIR[] })
   | (ConditionBaseIR & { type: 'or'; conditions: ConditionIR[] })
   | (ConditionBaseIR & { type: 'not'; condition: ConditionIR })
-  /** Reference a named segment by name (defined in SegmentIR, versioned separately). */
+  /** Reference a segment by id (defined in SegmentIR, versioned separately). */
   | (ConditionBaseIR & { type: 'segment'; segment: string })
   | (ConditionBaseIR & {
       type: 'property';
@@ -167,7 +167,13 @@ export type ConditionIR =
       where?: ConditionIR | undefined;
       within?: DurationIR | undefined;
       count?: number | undefined;
-    });
+    })
+  /**
+   * The user can be reached on the channel right now: for push, the host's
+   * device directory lists at least one device; for the others, the channel's
+   * recipient property (email, phone, …) is set.
+   */
+  | (ConditionBaseIR & { type: 'reachable'; channel: ChannelIR });
 
 const conditionBase = { meta: z.optional(NodeMetaIR) };
 
@@ -201,6 +207,7 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
       within: z.optional(DurationIR),
       count: z.optional(z.number()),
     }),
+    z.object({ ...conditionBase, type: z.literal('reachable'), channel: ChannelIR }),
   ])
 );
 
@@ -241,6 +248,11 @@ export type NodeIR =
       channel: ChannelIR;
       template: string;
       props: Record<string, PropValueIR>;
+      /**
+       * Push only: which of the user's devices get a copy. Absent means every
+       * device the directory lists; 'latest' only the most recently registered.
+       */
+      devices?: 'latest' | undefined;
     })
   | (NodeBaseIR & { type: 'delay'; duration: DurationIR })
   | (NodeBaseIR & { type: 'random_delay'; min: DurationIR; max: DurationIR })
@@ -316,6 +328,7 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
       channel: ChannelIR,
       template: z.string(),
       props: z.record(z.string(), PropValueIR),
+      devices: z.optional(z.literal('latest')),
     }),
     z.object({ ...nodeBase, type: z.literal('delay'), duration: DurationIR }),
     z.object({ ...nodeBase, type: z.literal('random_delay'), min: DurationIR, max: DurationIR }),
@@ -385,27 +398,26 @@ export type GoalIR = z.infer<typeof GoalIR>;
 
 /**
  * Human-facing metadata: **excluded from contentHash** (see hash.ts).
- * Editing a description or tag does not touch execution semantics, so it never
+ * Editing a name or description does not touch execution semantics, so it never
  * invalidates the version in-flight users are pinned to, nor shows up in plan.
  */
 export const MetaIR = z.object({
   /**
-   * Human label. The asset's `name` above is its identity — a wire key that
-   * routing tables and the entry ledger are built on — so it is not something
-   * to rename for readability. This is: it is metadata, dropped before hashing,
+   * Human label. The asset's `id` is its identity — a wire key that routing
+   * tables and the entry ledger are built on — so it is not something to
+   * rename for readability. This is: it is metadata, dropped before hashing,
    * and the studio shows it in place of the key wherever it is set.
    */
   name: z.optional(z.string()),
   description: z.optional(z.string()),
-  tags: z.optional(z.array(z.string())),
-  owner: z.optional(z.string()),
   loc: z.optional(SourceLocIR),
 });
 export type MetaIR = z.infer<typeof MetaIR>;
 
 export const WorkflowIR = z.object({
   irVersion: z.literal(IR_VERSION),
-  name: z.string(),
+  /** Wire identity (`workflow({ id })`): routing tables, the entry ledger and reporting are keyed on it. */
+  id: z.string(),
   contentHash: z.string(),
   meta: z.optional(MetaIR),
   trigger: TriggerIR,
@@ -417,8 +429,8 @@ export type WorkflowIR = z.infer<typeof WorkflowIR>;
 
 export const SegmentIR = z.object({
   irVersion: z.literal(IR_VERSION),
-  /** Wire identity: by-name references and the membership store are keyed on it. */
-  name: z.string(),
+  /** Wire identity (`segment({ id })`): segment references and the membership store are keyed on it. */
+  id: z.string(),
   contentHash: z.string(),
   /** Provenance plus the human label — MetaIR, same as a workflow's. */
   meta: z.optional(MetaIR),

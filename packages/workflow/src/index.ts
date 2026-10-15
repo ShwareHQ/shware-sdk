@@ -4,3 +4,5 @@ export * from './ir';
 export * from './plan';
 export * from './runtime';
 export * from './config';
+export * from './templates';
+export * from './contract';

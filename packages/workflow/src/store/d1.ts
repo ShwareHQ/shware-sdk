@@ -1,9 +1,12 @@
 import type { D1DatabaseLike, KVNamespaceLike } from '../cloudflare/bindings';
+import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import type {
+  DeviceInput,
   EntryInput,
   EntryOutcome,
   EventInput,
+  EventWindow,
   JourneyStore,
   ProfileProps,
   SegmentTriggerRoute,
@@ -32,37 +35,40 @@ export class D1JourneyStore implements JourneyStore {
     return (written.meta?.changes ?? 1) > 0;
   }
 
-  async countEvents(userId: string, event: string, opts?: { sinceMs?: number }): Promise<number> {
-    const sinceMs = opts?.sinceMs;
-    const row =
-      sinceMs === undefined
-        ? await this.db
-            .prepare('SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND name = ?')
-            .bind(userId, event)
-            .first<{ c: number }>()
-        : await this.db
-            .prepare('SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND name = ? AND ts >= ?')
-            .bind(userId, event, sinceMs)
-            .first<{ c: number }>();
+  /** The event rows of one user and name, within the window's bounds (both inclusive). */
+  private eventWindow(userId: string, event: string, window?: EventWindow) {
+    const params: unknown[] = [userId, event];
+    let where = 'user_id = ? AND name = ?';
+    if (window?.sinceMs !== undefined) {
+      where += ' AND ts >= ?';
+      params.push(window.sinceMs);
+    }
+    if (window?.untilMs !== undefined) {
+      where += ' AND ts <= ?';
+      params.push(window.untilMs);
+    }
+    return { where, params };
+  }
+
+  async countEvents(userId: string, event: string, window?: EventWindow): Promise<number> {
+    const { where, params } = this.eventWindow(userId, event, window);
+    const row = await this.db
+      .prepare(`SELECT COUNT(*) AS c FROM events WHERE ${where}`)
+      .bind(...params)
+      .first<{ c: number }>();
     return row?.c ?? 0;
   }
 
   async listEventPayloads(
     userId: string,
     event: string,
-    opts?: { sinceMs?: number }
+    window?: EventWindow
   ): Promise<Record<string, unknown>[]> {
-    const sinceMs = opts?.sinceMs;
-    const { results } =
-      sinceMs === undefined
-        ? await this.db
-            .prepare('SELECT payload FROM events WHERE user_id = ? AND name = ?')
-            .bind(userId, event)
-            .all<{ payload: string }>()
-        : await this.db
-            .prepare('SELECT payload FROM events WHERE user_id = ? AND name = ? AND ts >= ?')
-            .bind(userId, event, sinceMs)
-            .all<{ payload: string }>();
+    const { where, params } = this.eventWindow(userId, event, window);
+    const { results } = await this.db
+      .prepare(`SELECT payload FROM events WHERE ${where}`)
+      .bind(...params)
+      .all<{ payload: string }>();
     return results.map((row) => JSON.parse(row.payload) as Record<string, unknown>);
   }
 
@@ -90,10 +96,102 @@ export class D1JourneyStore implements JourneyStore {
     return row === null ? stripNulls(props) : (JSON.parse(row.props) as ProfileProps);
   }
 
-  async getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
+  async listUserIds(): Promise<string[]> {
+    const { results } = await this.db
+      .prepare('SELECT user_id FROM profiles UNION SELECT DISTINCT user_id FROM events')
+      .bind()
+      .all<{ user_id: string }>();
+    return results.map((row) => row.user_id);
+  }
+
+  async listDevices(userId: string): Promise<PushDevice[]> {
+    const { results } = await this.db
+      .prepare('SELECT token, platform FROM devices WHERE user_id = ? ORDER BY ts DESC')
+      .bind(userId)
+      .all<PushDevice>();
+    return results;
+  }
+
+  async upsertDevice(device: DeviceInput): Promise<void> {
+    await this.db
+      .prepare(
+        'INSERT INTO devices (token, user_id, platform, ts) VALUES (?, ?, ?, ?) ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, ts = excluded.ts'
+      )
+      .bind(device.token, device.userId, device.platform, device.ts)
+      .run();
+  }
+
+  async requestErasure(userId: string, at: number): Promise<void> {
+    await this.db
+      .prepare('INSERT OR IGNORE INTO erasures (user_id, ts) VALUES (?, ?)')
+      .bind(userId, at)
+      .run();
+  }
+
+  async pendingErasures(): Promise<string[]> {
+    const { results } = await this.db
+      .prepare('SELECT user_id FROM erasures ORDER BY ts')
+      .bind()
+      .all<{ user_id: string }>();
+    return results.map((row) => row.user_id);
+  }
+
+  async runningInstances(userId: string): Promise<string[]> {
+    const { results } = await this.db
+      .prepare("SELECT instance_id FROM entries WHERE user_id = ? AND status = 'running'")
+      .bind(userId)
+      .all<{ instance_id: string }>();
+    return results.map((row) => row.instance_id);
+  }
+
+  async forgetUser(userId: string): Promise<void> {
+    // One batch: D1 runs it as a transaction; the request goes last, with the data it erases
+    await this.db.batch(
+      [
+        'entries',
+        'subscriptions',
+        'segment_starts',
+        'segment_members',
+        'devices',
+        'events',
+        'profiles',
+        'erasures',
+      ].map((table) => this.db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(userId))
+    );
+  }
+
+  async removeDevice(token: string): Promise<string | undefined> {
     const row = await this.db
-      .prepare('SELECT condition FROM segments WHERE name = ?')
-      .bind(name)
+      .prepare('DELETE FROM devices WHERE token = ? RETURNING user_id')
+      .bind(token)
+      .first<{ user_id: string | null }>();
+    return row?.user_id ?? undefined;
+  }
+
+  async unbindDevice(token: string): Promise<string | undefined> {
+    const row = await this.db
+      .prepare('SELECT user_id FROM devices WHERE token = ?')
+      .bind(token)
+      .first<{ user_id: string | null }>();
+    await this.db.prepare('UPDATE devices SET user_id = NULL WHERE token = ?').bind(token).run();
+    return row?.user_id ?? undefined;
+  }
+
+  async listSegments(): Promise<{ id: string; condition: ConditionIR }[]> {
+    const { results } = await this.db
+      .prepare('SELECT id, condition FROM segments ORDER BY id')
+      .bind()
+      .all<{ id: string; condition: string }>();
+    return results.map((row) => ({
+      id: row.id,
+      condition: ConditionIR.parse(JSON.parse(row.condition)),
+    }));
+  }
+
+  async getSegmentCondition(id: string): Promise<ConditionIR | undefined> {
+    const row = await this.db
+      .prepare('SELECT condition FROM segments WHERE id = ?')
+      .bind(id)
       .first<{ condition: string }>();
     return row ? ConditionIR.parse(JSON.parse(row.condition)) : undefined;
   }
@@ -138,8 +236,8 @@ export class D1JourneyStore implements JourneyStore {
       this.db.prepare('DELETE FROM segments'),
       ...bundle.segments.map((segment) =>
         this.db
-          .prepare('INSERT INTO segments (name, condition, hash) VALUES (?, ?, ?)')
-          .bind(segment.name, JSON.stringify(segment.condition), segment.contentHash)
+          .prepare('INSERT INTO segments (id, condition, hash) VALUES (?, ?, ?)')
+          .bind(segment.id, JSON.stringify(segment.condition), segment.contentHash)
       ),
       ...bundle.workflows.flatMap((workflow) => {
         if (workflow.trigger.type === 'event') {
@@ -149,7 +247,7 @@ export class D1JourneyStore implements JourneyStore {
                 'INSERT INTO triggers (workflow, hash, event, "where", filter) VALUES (?, ?, ?, ?, ?)'
               )
               .bind(
-                workflow.name,
+                workflow.id,
                 workflow.contentHash,
                 workflow.trigger.event,
                 workflow.trigger.where !== undefined
@@ -165,7 +263,7 @@ export class D1JourneyStore implements JourneyStore {
           return [
             this.db
               .prepare('INSERT INTO segment_triggers (workflow, hash, segment) VALUES (?, ?, ?)')
-              .bind(workflow.name, workflow.contentHash, workflow.trigger.segment),
+              .bind(workflow.id, workflow.contentHash, workflow.trigger.segment),
           ];
         }
         return [];
@@ -181,18 +279,50 @@ export class D1JourneyStore implements JourneyStore {
     return row !== null;
   }
 
-  async addSegmentMember(segment: string, userId: string, ts: number): Promise<void> {
+  async addSegmentMember(
+    segment: string,
+    userId: string,
+    ts: number,
+    workflows: readonly string[]
+  ): Promise<void> {
+    await this.db.batch([
+      this.db
+        .prepare('INSERT OR IGNORE INTO segment_members (segment, user_id, ts) VALUES (?, ?, ?)')
+        .bind(segment, userId, ts),
+      ...workflows.map((workflow) =>
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO segment_starts (segment, workflow, user_id, ts) VALUES (?, ?, ?, ?)'
+          )
+          .bind(segment, workflow, userId, ts)
+      ),
+    ]);
+  }
+
+  async pendingSegmentStarts(segment: string, userId: string): Promise<string[]> {
+    const { results } = await this.db
+      .prepare('SELECT workflow FROM segment_starts WHERE segment = ? AND user_id = ?')
+      .bind(segment, userId)
+      .all<{ workflow: string }>();
+    return results.map((row) => row.workflow);
+  }
+
+  async completeSegmentStart(segment: string, userId: string, workflow: string): Promise<void> {
     await this.db
-      .prepare('INSERT OR IGNORE INTO segment_members (segment, user_id, ts) VALUES (?, ?, ?)')
-      .bind(segment, userId, ts)
+      .prepare('DELETE FROM segment_starts WHERE segment = ? AND user_id = ? AND workflow = ?')
+      .bind(segment, userId, workflow)
       .run();
   }
 
   async removeSegmentMember(segment: string, userId: string): Promise<void> {
-    await this.db
-      .prepare('DELETE FROM segment_members WHERE segment = ? AND user_id = ?')
-      .bind(segment, userId)
-      .run();
+    await this.db.batch([
+      this.db
+        .prepare('DELETE FROM segment_starts WHERE segment = ? AND user_id = ?')
+        .bind(segment, userId),
+      this.db
+        .prepare('DELETE FROM segment_members WHERE segment = ? AND user_id = ?')
+        .bind(segment, userId),
+    ]);
   }
 
   async enterJourney(entry: EntryInput): Promise<EntryOutcome> {

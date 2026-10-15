@@ -1,52 +1,43 @@
+import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import type {
+  DeviceInput,
   EntryInput,
   EntryOutcome,
   EventInput,
+  EventWindow,
+  JourneyReporting,
   JourneyStore,
   ProfileProps,
   SegmentTriggerRoute,
   TriggerRoute,
 } from './index';
+import { PostgresReporting } from './postgres-reporting';
+import { type SqlClientLike, uuidv7 } from './sql';
+import { type ColumnType, DEFAULT_SCHEMA, TABLES, type TableKey, columnName } from './tables';
 
-/**
- * The smallest SQL client this store needs: parameterized queries (`$1`, `$2`,
- * …) and a transaction scope. It is deliberately not postgres.js, pg or
- * drizzle — the app wraps whichever it already uses in a few lines:
- *
- *   const client: SqlClientLike = {
- *     query: (text, params) => sql.unsafe(text, params),          // postgres.js
- *     transaction: (fn) => sql.begin((tx) => fn(wrap(tx))),
- *   };
- *
- * jsonb columns may come back parsed (postgres.js, pg) or as strings (some
- * drivers); both are accepted.
- */
-export interface SqlClientLike {
-  query<T = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<T[]>;
-  transaction<T>(fn: (tx: SqlClientLike) => Promise<T>): Promise<T>;
-}
+export { DEFAULT_SCHEMA } from './tables';
+export { type SqlClientLike, uuidv7 } from './sql';
 
 export interface PostgresJourneyStoreOptions {
-  /** Schema the tables live in (e.g. `application`); unqualified names otherwise. */
+  /**
+   * The Postgres schema the engine's tables live in — `workflow` by default, the config's
+   * `database.schema` under journeyWorker. A schema of its own keeps the tables apart from the
+   * app's. The host creates them with its own migrations, from the drizzle file
+   * `renderDrizzleSchema` generates (or the plain `renderPostgresDdl`).
+   */
   schema?: string;
-  /** Table name prefix, `workflow_` by default: workflow_event, workflow_profile, … */
-  tablePrefix?: string;
 }
 
-const TABLES = {
-  event: 'event',
-  profile: 'profile',
-  segment: 'segment',
-  trigger: 'trigger',
-  segmentTrigger: 'segment_trigger',
-  segmentMember: 'segment_member',
-  entry: 'entry',
-  subscription: 'subscription',
-  ir: 'ir',
-} as const;
-
-type TableKey = keyof typeof TABLES;
+/** information_schema's udt_name per column type. */
+const UDT: Record<ColumnType, string> = {
+  uuid: 'uuid',
+  text: 'text',
+  jsonb: 'jsonb',
+  timestamptz: 'timestamptz',
+  integer: 'int4',
+  boolean: 'bool',
+};
 
 /** Epoch milliseconds → timestamptz, so the tables keep the database's native type. */
 const TS = (param: string) => `to_timestamp(${param}::double precision / 1000)`;
@@ -56,46 +47,73 @@ function asJson<T>(value: unknown): T {
 }
 
 /**
- * UUID v7 (time-ordered) for event rows, generated here so the store has no
- * dependency: 48-bit ms timestamp, version 7, RFC 4122 variant, 74 random bits.
- */
-export function uuidv7(now = Date.now()): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  bytes[0] = (now / 2 ** 40) & 0xff;
-  bytes[1] = (now / 2 ** 32) & 0xff;
-  bytes[2] = (now / 2 ** 24) & 0xff;
-  bytes[3] = (now / 2 ** 16) & 0xff;
-  bytes[4] = (now / 2 ** 8) & 0xff;
-  bytes[5] = now & 0xff;
-  bytes[6] = (bytes[6] & 0x0f) | 0x70;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-/**
  * Journey data plane on Postgres. Same contract as D1JourneyStore, native
  * types where Postgres has them (jsonb, timestamptz), and the concurrency
  * guarantees come from the database: ON CONFLICT for the once policy and
  * idempotent subscriptions, a transaction for the route swap, a jsonb merge
- * for /identify. See postgres-schema.sql for the tables.
+ * for /identify. The tables are declared in tables.ts.
  */
 export class PostgresJourneyStore implements JourneyStore {
   private readonly t: Record<TableKey, string>;
+  private readonly schema: string;
+  readonly reporting: JourneyReporting;
 
   constructor(
     private readonly sql: SqlClientLike,
     options: PostgresJourneyStoreOptions = {}
   ) {
-    const prefix = options.tablePrefix ?? 'workflow_';
-    const qualify = (name: string) =>
-      options.schema === undefined
-        ? `"${prefix}${name}"`
-        : `"${options.schema}"."${prefix}${name}"`;
+    this.schema = options.schema ?? DEFAULT_SCHEMA;
+    const qualify = (name: string) => `"${this.schema}"."${name}"`;
     this.t = Object.fromEntries(
-      (Object.keys(TABLES) as TableKey[]).map((key) => [key, qualify(TABLES[key])])
+      (Object.keys(TABLES) as TableKey[]).map((key) => [key, qualify(TABLES[key].name)])
     ) as Record<TableKey, string>;
+    this.reporting = new PostgresReporting(sql, this.t);
+  }
+
+  /**
+   * What the live database lacks against tables.ts: missing tables, missing columns, a column
+   * of another type or nullability. Read-only — the engine never migrates the host's database; a
+   * deploy fails with these problems listed, and the fix is to regenerate the drizzle file and
+   * run the host's migrations.
+   */
+  async checkSchema(): Promise<string[]> {
+    // In a transaction, so Hyperdrive answers from the database, not from its read cache — a
+    // deploy right after the migration must see the new columns
+    const rows = await this.sql.transaction((tx) =>
+      tx.query<{
+        table_name: string;
+        column_name: string;
+        udt_name: string;
+        is_nullable: string;
+      }>(
+        `SELECT table_name, column_name, udt_name, is_nullable FROM information_schema.columns WHERE table_schema = $1`,
+        [this.schema]
+      )
+    );
+    const live = new Map(rows.map((row) => [`${row.table_name}.${row.column_name}`, row]));
+    const tables = new Set(rows.map((row) => row.table_name));
+    const problems: string[] = [];
+    for (const spec of Object.values(TABLES)) {
+      const where = `"${this.schema}"."${spec.name}"`;
+      if (!tables.has(spec.name)) {
+        problems.push(`table ${where} is missing`);
+        continue;
+      }
+      for (const [key, column] of Object.entries(spec.columns)) {
+        const name = columnName(key);
+        const row = live.get(`${spec.name}.${name}`);
+        if (row === undefined) problems.push(`column ${where}."${name}" is missing`);
+        else if (row.udt_name !== UDT[column.type])
+          problems.push(
+            `column ${where}."${name}" is ${row.udt_name}, expected ${UDT[column.type]}`
+          );
+        else if ((row.is_nullable === 'YES') !== (column.nullable === true))
+          problems.push(
+            `column ${where}."${name}" should be ${column.nullable ? 'nullable' : 'NOT NULL'}`
+          );
+      }
+    }
+    return problems;
   }
 
   async insertEvent(input: EventInput): Promise<boolean> {
@@ -119,35 +137,40 @@ export class PostgresJourneyStore implements JourneyStore {
     return rows.length > 0;
   }
 
-  async countEvents(userId: string, event: string, opts?: { sinceMs?: number }): Promise<number> {
-    const rows =
-      opts?.sinceMs === undefined
-        ? await this.sql.query<{ c: number | string }>(
-            `SELECT count(*)::int AS c FROM ${this.t.event} WHERE user_id = $1 AND name = $2`,
-            [userId, event]
-          )
-        : await this.sql.query<{ c: number | string }>(
-            `SELECT count(*)::int AS c FROM ${this.t.event} WHERE user_id = $1 AND name = $2 AND ts >= ${TS('$3')}`,
-            [userId, event, opts.sinceMs]
-          );
+  /** The event rows of one user and name, within the window's bounds (both inclusive). */
+  private eventWindow(userId: string, event: string, window?: EventWindow) {
+    const params: unknown[] = [userId, event];
+    let where = 'user_id = $1 AND name = $2';
+    if (window?.sinceMs !== undefined) {
+      params.push(window.sinceMs);
+      where += ` AND ts >= ${TS(`$${params.length}`)}`;
+    }
+    if (window?.untilMs !== undefined) {
+      params.push(window.untilMs);
+      where += ` AND ts <= ${TS(`$${params.length}`)}`;
+    }
+    return { where, params };
+  }
+
+  async countEvents(userId: string, event: string, window?: EventWindow): Promise<number> {
+    const { where, params } = this.eventWindow(userId, event, window);
+    const rows = await this.sql.query<{ c: number | string }>(
+      `SELECT count(*)::int AS c FROM ${this.t.event} WHERE ${where}`,
+      params
+    );
     return Number(rows.at(0)?.c ?? 0);
   }
 
   async listEventPayloads(
     userId: string,
     event: string,
-    opts?: { sinceMs?: number }
+    window?: EventWindow
   ): Promise<Record<string, unknown>[]> {
-    const rows =
-      opts?.sinceMs === undefined
-        ? await this.sql.query<{ payload: unknown }>(
-            `SELECT payload FROM ${this.t.event} WHERE user_id = $1 AND name = $2`,
-            [userId, event]
-          )
-        : await this.sql.query<{ payload: unknown }>(
-            `SELECT payload FROM ${this.t.event} WHERE user_id = $1 AND name = $2 AND ts >= ${TS('$3')}`,
-            [userId, event, opts.sinceMs]
-          );
+    const { where, params } = this.eventWindow(userId, event, window);
+    const rows = await this.sql.query<{ payload: unknown }>(
+      `SELECT payload FROM ${this.t.event} WHERE ${where}`,
+      params
+    );
     return rows.map((row) => asJson<Record<string, unknown>>(row.payload));
   }
 
@@ -175,10 +198,120 @@ export class PostgresJourneyStore implements JourneyStore {
     return asJson<ProfileProps>(rows.at(0)?.props ?? {});
   }
 
-  async getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
+  async listUserIds(): Promise<string[]> {
+    const rows = await this.sql.query<{ user_id: string }>(
+      `SELECT user_id FROM ${this.t.profile} UNION SELECT DISTINCT user_id FROM ${this.t.event}`
+    );
+    return rows.map((row) => row.user_id);
+  }
+
+  listDevices(userId: string): Promise<PushDevice[]> {
+    return this.sql.query<PushDevice>(
+      `SELECT token, platform FROM ${this.t.device} WHERE user_id = $1 ORDER BY ts DESC`,
+      [userId]
+    );
+  }
+
+  async upsertDevice(device: DeviceInput): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO ${this.t.device} (token, user_id, platform, ts) VALUES ($1, $2, $3, ${TS('$4')})
+       ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, ts = EXCLUDED.ts`,
+      [device.token, device.userId, device.platform, device.ts]
+    );
+  }
+
+  async requestErasure(userId: string, at: number): Promise<void> {
+    await this.sql.query(
+      `INSERT INTO ${this.t.erasure} (user_id, requested_at) VALUES ($1, ${TS('$2')})
+       ON CONFLICT DO NOTHING`,
+      [userId, at]
+    );
+  }
+
+  async pendingErasures(): Promise<string[]> {
+    const rows = await this.sql.query<{ user_id: string }>(
+      `SELECT user_id FROM ${this.t.erasure} ORDER BY requested_at`
+    );
+    return rows.map((row) => row.user_id);
+  }
+
+  async runningInstances(userId: string): Promise<string[]> {
+    const rows = await this.sql.query<{ instance_id: string }>(
+      `SELECT instance_id FROM ${this.t.entry} WHERE user_id = $1 AND status = 'running'`,
+      [userId]
+    );
+    return rows.map((row) => row.instance_id);
+  }
+
+  async forgetUser(userId: string): Promise<void> {
+    await this.sql.transaction(async (tx) => {
+      // Children before the copies they belong to
+      for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
+        await tx.query(
+          `DELETE FROM ${child} WHERE message_id IN (SELECT id FROM ${this.t.message} WHERE user_id = $1)`,
+          [userId]
+        );
+      }
+      for (const table of [
+        this.t.message,
+        this.t.instance,
+        this.t.entry,
+        this.t.subscription,
+        this.t.segmentStart,
+        this.t.segmentMember,
+        this.t.suppression,
+        this.t.device,
+        this.t.event,
+        this.t.profile,
+        // The request goes with the data it asked to erase
+        this.t.erasure,
+      ]) {
+        await tx.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
+      }
+    });
+  }
+
+  async isSuppressed(userId: string, channel: string): Promise<boolean> {
+    const rows = await this.sql.query(
+      `SELECT 1 AS x FROM ${this.t.suppression} WHERE user_id = $1 AND channel = $2`,
+      [userId, channel]
+    );
+    return rows.length > 0;
+  }
+
+  async removeDevice(token: string): Promise<string | undefined> {
+    const rows = await this.sql.query<{ user_id: string | null }>(
+      `DELETE FROM ${this.t.device} WHERE token = $1 RETURNING user_id`,
+      [token]
+    );
+    return rows[0]?.user_id ?? undefined;
+  }
+
+  async unbindDevice(token: string): Promise<string | undefined> {
+    // The owner as it was before the update: RETURNING alone would only show the null
+    const rows = await this.sql.query<{ user_id: string | null }>(
+      `WITH old AS (SELECT token, user_id FROM ${this.t.device} WHERE token = $1 FOR UPDATE)
+       UPDATE ${this.t.device} d SET user_id = NULL FROM old WHERE d.token = old.token
+       RETURNING old.user_id`,
+      [token]
+    );
+    return rows[0]?.user_id ?? undefined;
+  }
+
+  async listSegments(): Promise<{ id: string; condition: ConditionIR }[]> {
+    const rows = await this.sql.query<{ id: string; condition: unknown }>(
+      `SELECT id, condition FROM ${this.t.segment} ORDER BY id`
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      condition: ConditionIR.parse(asJson(row.condition)),
+    }));
+  }
+
+  async getSegmentCondition(id: string): Promise<ConditionIR | undefined> {
     const rows = await this.sql.query<{ condition: unknown }>(
-      `SELECT condition FROM ${this.t.segment} WHERE name = $1`,
-      [name]
+      `SELECT condition FROM ${this.t.segment} WHERE id = $1`,
+      [id]
     );
     const row = rows.at(0);
     return row === undefined ? undefined : ConditionIR.parse(asJson(row.condition));
@@ -232,8 +365,8 @@ export class PostgresJourneyStore implements JourneyStore {
       await tx.query(`DELETE FROM ${this.t.segment}`);
       for (const segment of bundle.segments) {
         await tx.query(
-          `INSERT INTO ${this.t.segment} (name, condition, hash) VALUES ($1, $2::text::jsonb, $3)`,
-          [segment.name, JSON.stringify(segment.condition), segment.contentHash]
+          `INSERT INTO ${this.t.segment} (id, condition, hash) VALUES ($1, $2::text::jsonb, $3)`,
+          [segment.id, JSON.stringify(segment.condition), segment.contentHash]
         );
       }
       for (const workflow of bundle.workflows) {
@@ -241,7 +374,7 @@ export class PostgresJourneyStore implements JourneyStore {
           await tx.query(
             `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb)`,
             [
-              workflow.name,
+              workflow.id,
               workflow.contentHash,
               workflow.trigger.event,
               workflow.trigger.where === undefined ? null : JSON.stringify(workflow.trigger.where),
@@ -253,7 +386,7 @@ export class PostgresJourneyStore implements JourneyStore {
         } else if (workflow.trigger.type === 'segment') {
           await tx.query(
             `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment) VALUES ($1, $2, $3)`,
-            [workflow.name, workflow.contentHash, workflow.trigger.segment]
+            [workflow.id, workflow.contentHash, workflow.trigger.segment]
           );
         }
       }
@@ -268,18 +401,53 @@ export class PostgresJourneyStore implements JourneyStore {
     return rows.length > 0;
   }
 
-  async addSegmentMember(segment: string, userId: string, ts: number): Promise<void> {
+  async addSegmentMember(
+    segment: string,
+    userId: string,
+    ts: number,
+    workflows: readonly string[]
+  ): Promise<void> {
+    await this.sql.transaction(async (tx) => {
+      await tx.query(
+        `INSERT INTO ${this.t.segmentMember} (segment, user_id, ts) VALUES ($1, $2, ${TS('$3')}) ON CONFLICT DO NOTHING`,
+        [segment, userId, ts]
+      );
+      for (const workflow of workflows) {
+        await tx.query(
+          `INSERT INTO ${this.t.segmentStart} (segment, workflow, user_id, ts)
+           VALUES ($1, $2, $3, ${TS('$4')}) ON CONFLICT DO NOTHING`,
+          [segment, workflow, userId, ts]
+        );
+      }
+    });
+  }
+
+  async pendingSegmentStarts(segment: string, userId: string): Promise<string[]> {
+    const rows = await this.sql.query<{ workflow: string }>(
+      `SELECT workflow FROM ${this.t.segmentStart} WHERE segment = $1 AND user_id = $2`,
+      [segment, userId]
+    );
+    return rows.map((row) => row.workflow);
+  }
+
+  async completeSegmentStart(segment: string, userId: string, workflow: string): Promise<void> {
     await this.sql.query(
-      `INSERT INTO ${this.t.segmentMember} (segment, user_id, ts) VALUES ($1, $2, ${TS('$3')}) ON CONFLICT DO NOTHING`,
-      [segment, userId, ts]
+      `DELETE FROM ${this.t.segmentStart} WHERE segment = $1 AND user_id = $2 AND workflow = $3`,
+      [segment, userId, workflow]
     );
   }
 
   async removeSegmentMember(segment: string, userId: string): Promise<void> {
-    await this.sql.query(
-      `DELETE FROM ${this.t.segmentMember} WHERE segment = $1 AND user_id = $2`,
-      [segment, userId]
-    );
+    await this.sql.transaction(async (tx) => {
+      await tx.query(`DELETE FROM ${this.t.segmentStart} WHERE segment = $1 AND user_id = $2`, [
+        segment,
+        userId,
+      ]);
+      await tx.query(`DELETE FROM ${this.t.segmentMember} WHERE segment = $1 AND user_id = $2`, [
+        segment,
+        userId,
+      ]);
+    });
   }
 
   async enterJourney(entry: EntryInput): Promise<EntryOutcome> {

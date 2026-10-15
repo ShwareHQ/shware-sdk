@@ -1,7 +1,8 @@
 import type { NodeIR, PropValueIR, ScalarIR, WorkflowIR } from '../ir';
 import { hashToBucket } from './bucket';
 import { evaluateCondition, relevantEvents } from './condition';
-import type { FactSource, JourneyContext, JourneyOutcome } from './ports';
+import type { FactSource, JourneyContext, JourneyOutcome, OutboundMessage } from './ports';
+import { RECIPIENT_PROPERTY } from './recipient';
 import { nextWindowStart } from './time-window';
 
 /**
@@ -30,22 +31,6 @@ import { nextWindowStart } from './time-window';
  */
 const MAX_WAIT_CHECKS = 64;
 
-/**
- * Channel → the user property holding its recipient address. The engine
- * resolves it before sending, which keeps senders stateless.
- * TODO: let the app override this table (today it is a convention, with
- * UserPropertyBase guaranteeing `email` exists).
- */
-const RECIPIENT_PROPERTY: Record<string, string | undefined> = {
-  email: 'email',
-  sms: 'phone',
-  push: 'push_token',
-  slack: 'slack_user_id',
-  discord: 'discord_user_id',
-  survey: 'email',
-  in_app: undefined,
-};
-
 /** The user property holding an IANA timezone id, read when a time_window says tz: 'user'. Same convention-table status as RECIPIENT_PROPERTY. */
 const TIMEZONE_PROPERTY = 'timezone';
 
@@ -57,29 +42,135 @@ type FlowSignal =
 
 const FALL_THROUGH: FlowSignal = { kind: 'fall_through' };
 
+/**
+ * Whether and when the instance converted — a fact of its own, apart from how it ends: with
+ * `exitOnMatch: false` a conversion lets the flow go on, and the instance still ends `completed`
+ * (or `exited`, `exit_when`) carrying it. Set only from checkpointed step results, so a replay
+ * rebuilds the same state.
+ */
+interface GoalState {
+  convertedAt?: number;
+}
+
+const goalStates = new WeakMap<JourneyContext, GoalState>();
+
+function goalState(ctx: JourneyContext): GoalState {
+  let state = goalStates.get(ctx);
+  if (state === undefined) {
+    state = {};
+    goalStates.set(ctx, state);
+  }
+  return state;
+}
+
+/** When the goal's attribution window closes, measured from entry; none without `within`. */
+function goalDeadline(ir: WorkflowIR, ctx: JourneyContext): number | undefined {
+  return ir.goal?.within === undefined ? undefined : ctx.enteredAtMs + ir.goal.within.ms;
+}
+
+/**
+ * Whether the goal holds for events inside its window: after entry, and not after the window
+ * closed — an instance resumed past the deadline must not count a purchase made after it. The
+ * conversion time is when the check saw it, capped at the deadline.
+ */
+async function goalReached(
+  ir: WorkflowIR,
+  ctx: JourneyContext,
+  now: number
+): Promise<{ at: number } | null> {
+  const goal = ir.goal;
+  if (goal === undefined) return null;
+  const deadline = goalDeadline(ir, ctx);
+  const met = await evaluateCondition(goal.condition, ctx.facts, now, {
+    anchorMs: ctx.enteredAtMs,
+    ...(deadline === undefined ? {} : { untilMs: deadline }),
+  });
+  return met ? { at: deadline === undefined ? now : Math.min(now, deadline) } : null;
+}
+
 export async function runJourney(ir: WorkflowIR, ctx: JourneyContext): Promise<JourneyOutcome> {
+  await started(ir, ctx);
   const entry = await checkGuards('entry', ir, ctx);
-  const signal = entry ?? (await runFlow(ir.flow, ir, ctx));
+  let signal = entry ?? (await runFlow(ir.flow, ir, ctx));
+  // The flow is done but the conversion window is not: keep watching it (see awaitTail)
+  if (signal.kind === 'fall_through') signal = (await awaitTail(ir, ctx)) ?? FALL_THROUGH;
+  const { convertedAt } = goalState(ctx);
+  const converted = convertedAt === undefined ? {} : { convertedAt };
   switch (signal.kind) {
     case 'fall_through':
-      return { status: 'completed' };
+      return { status: 'completed', ...converted };
     case 'exit':
       return signal.reason !== undefined
-        ? { status: 'exited', reason: signal.reason }
-        : { status: 'exited' };
+        ? { status: 'exited', reason: signal.reason, ...converted }
+        : { status: 'exited', ...converted };
     case 'goal':
-      return { status: 'goal' };
+      return { status: 'goal', ...converted };
     case 'exit_when':
-      return { status: 'exit_when' };
+      return { status: 'exit_when', ...converted };
   }
 }
 
 async function runFlow(nodes: NodeIR[], ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSignal> {
   for (const node of nodes) {
+    await reached(node, ir, ctx);
     const signal = await runNode(node, ir, ctx);
     if (signal.kind !== 'fall_through') return signal;
   }
   return FALL_THROUGH;
+}
+
+/**
+ * Tell the observer the instance entered — before the entry guards, which can end it before the
+ * first node: an instance is counted from its entry, not from its first node.
+ */
+async function started(ir: WorkflowIR, ctx: JourneyContext): Promise<void> {
+  const observer = ctx.observer;
+  if (observer?.started === undefined) return;
+  await ctx.step.do('entry:started', async () => {
+    await observer.started?.({
+      workflow: ir.id,
+      instanceId: ctx.instanceId,
+      userId: ctx.userId,
+      at: ctx.enteredAtMs,
+    });
+  });
+}
+
+/**
+ * Tell the observer the instance is at `node`. A step of its own, so a replay does not report
+ * the nodes it passes on the way back again, and the arrival time stays the first one.
+ */
+async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promise<void> {
+  const observer = ctx.observer;
+  if (observer?.nodeReached === undefined) return;
+  await ctx.step.do(`${node.id}:reached`, async () => {
+    await observer.nodeReached?.({
+      workflow: ir.id,
+      instanceId: ctx.instanceId,
+      userId: ctx.userId,
+      nodeId: node.id,
+      at: Date.now(),
+    });
+  });
+}
+
+/**
+ * One copy out through the host's sender, with the observer on both sides: it may attach
+ * tracking before, and hears how the transport took the copy after. A send that throws is
+ * not reported — the step retries it, and reports when it settles. A report that fails after
+ * the send is logged, never thrown: the step would retry and the transport — a webhook, a web
+ * push, with no idempotency key of its own — would deliver the copy again.
+ */
+async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<void> {
+  const observer = ctx.observer;
+  const tracking = await observer?.messagePrepared?.(message);
+  const copy = tracking === undefined ? message : { ...message, tracking };
+  const result = await ctx.messages.send(copy);
+  try {
+    await observer?.messageSent?.(copy, result ?? { delivered: true });
+  } catch (error) {
+    console.error(`[workflow] reporting ${copy.idempotencyKey} as sent failed`, error);
+  }
 }
 
 /**
@@ -99,39 +190,137 @@ async function checkGuards(
   const exitWhen = ir.exitWhen;
   if (goal === undefined && exitWhen === undefined) return null;
 
+  const state = goalState(ctx);
   const result = await ctx.step.do(`${stepId}:guard`, async () => {
     const now = Date.now();
-    // Attribution window: past goal.within (measured from entry) a match no longer counts as a conversion
-    const goalActive =
-      goal !== undefined && (goal.within === undefined || now - ctx.enteredAtMs <= goal.within.ms);
-    const goalMet =
-      goalActive &&
-      (await evaluateCondition(goal.condition, ctx.facts, now, { anchorMs: ctx.enteredAtMs }));
+    // Already converted (exitOnMatch: false): the conversion stands, no need to look again
+    const goalHit =
+      goal !== undefined && state.convertedAt === undefined
+        ? await goalReached(ir, ctx, now)
+        : null;
     const exitMet = exitWhen !== undefined && (await evaluateCondition(exitWhen, ctx.facts, now));
-    return { goalMet, exitMet };
+    return { goalAt: goalHit?.at ?? null, exitMet };
   });
 
-  if (result.goalMet && (goal?.exitOnMatch ?? true)) return { kind: 'goal' };
+  // A checkpoint from before conversions carried a time held `goalMet` instead: met at entry's anchor
+  const legacy = result as { goalMet?: boolean };
+  const goalAt =
+    typeof result.goalAt === 'number'
+      ? result.goalAt
+      : legacy.goalMet === true
+        ? ctx.enteredAtMs
+        : null;
+  if (goalAt !== null) {
+    state.convertedAt ??= goalAt;
+    if (goal?.exitOnMatch ?? true) return { kind: 'goal' };
+  }
   if (result.exitMet) return { kind: 'exit_when' };
   return null;
+}
+
+/**
+ * The host's template check, with the instance and node added to the message:
+ * a refused message must point at the journey that produced it. The error
+ * keeps its class (and `name`), so adapters can stop retrying it.
+ */
+function validate(
+  node: Extract<NodeIR, { type: 'message' }>,
+  props: Record<string, ScalarIR | undefined>,
+  ctx: JourneyContext
+): Record<string, ScalarIR | undefined> {
+  if (ctx.validator === undefined) return props;
+  try {
+    return ctx.validator.validate({ channel: node.channel, template: node.template, props });
+  } catch (error) {
+    if (error instanceof Error) {
+      error.message = `[${ctx.instanceId} ${node.id}] ${error.message}`;
+    }
+    throw error;
+  }
+}
+
+/**
+ * A push goes to devices, not to a profile address: one copy per device the
+ * host's directory lists (or only the most recent, `devices: 'latest'`). Each
+ * copy's idempotency key carries its token, so a retried step that already
+ * reached some devices re-sends to the rest and the senders drop the repeats —
+ * keyed by token rather than position, because the list can change between
+ * attempts. A user with no device is skipped, not failed: being unreachable is
+ * a state of the user, and `reachable('push')` is how a journey branches on it.
+ */
+/**
+ * A push: one step settles what goes out and to which devices, then each device gets a step of
+ * its own — a failure on one device retries that device alone, and the copies already delivered
+ * are not sent again (APNs and FCM carry the idempotency key but do not de-duplicate on it).
+ */
+async function sendPush(
+  node: Extract<NodeIR, { type: 'message' }>,
+  ir: WorkflowIR,
+  ctx: JourneyContext
+): Promise<void> {
+  const plan = await ctx.step.do(`${node.id}:send`, async () => {
+    const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
+    if (await ctx.facts.isSuppressed?.(node.channel)) return null;
+    const listed = await ctx.facts.listDevices();
+    const devices = node.devices === 'latest' ? listed.slice(0, 1) : listed;
+    return { props, devices };
+  });
+  // null: the channel is opted out. Undefined: a checkpoint from before per-device steps, whose
+  // single step already sent to every device.
+  if (plan === null || plan === undefined) return;
+  if (plan.devices.length === 0) {
+    console.log(`[journey] push ${node.template} skipped: no device for user ${ctx.userId}`);
+    return;
+  }
+  for (const [index, device] of plan.devices.entries()) {
+    await ctx.step.do(`${node.id}:send:${index}`, async () => {
+      await deliver(
+        {
+          workflow: ir.id,
+          instanceId: ctx.instanceId,
+          nodeId: node.id,
+          channel: 'push',
+          template: node.template,
+          props: plan.props,
+          userId: ctx.userId,
+          recipient: device.token,
+          device,
+          idempotencyKey: `${ctx.instanceId}:${node.id}:${device.token}`,
+        },
+        ctx
+      );
+    });
+  }
 }
 
 async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSignal> {
   switch (node.type) {
     case 'message': {
+      if (node.channel === 'push') {
+        await sendPush(node, ir, ctx);
+        return FALL_THROUGH;
+      }
       await ctx.step.do(`${node.id}:send`, async () => {
-        const props = await resolveValues(node.props, ctx.facts);
+        const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
+        // An opted-out channel (an email unsubscribe) is skipped, like a push with no device
+        if (await ctx.facts.isSuppressed?.(node.channel)) return;
         const recipientPath = RECIPIENT_PROPERTY[node.channel];
         const recipient =
           recipientPath === undefined ? undefined : await ctx.facts.getProperty(recipientPath);
-        await ctx.messages.send({
-          channel: node.channel,
-          template: node.template,
-          props,
-          userId: ctx.userId,
-          recipient: recipient === undefined ? undefined : String(recipient),
-          idempotencyKey: `${ctx.instanceId}:${node.id}`,
-        });
+        await deliver(
+          {
+            workflow: ir.id,
+            instanceId: ctx.instanceId,
+            nodeId: node.id,
+            channel: node.channel,
+            template: node.template,
+            props,
+            userId: ctx.userId,
+            recipient: recipient === undefined ? undefined : String(recipient),
+            idempotencyKey: `${ctx.instanceId}:${node.id}`,
+          },
+          ctx
+        );
       });
       return FALL_THROUGH;
     }
@@ -221,7 +410,14 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     case 'send_event': {
       await ctx.step.do(`${node.id}:emit`, async () => {
         const payload = await resolveValues(node.payload, ctx.facts);
-        await ctx.events.emit(node.event, payload, `${ctx.instanceId}:${node.id}`);
+        try {
+          await ctx.events.emit(node.event, payload, `${ctx.instanceId}:${node.id}`);
+        } catch (error) {
+          // A refused event must point at the journey that emitted it
+          if (error instanceof Error)
+            error.message = `[${ctx.instanceId} ${node.id}] ${error.message}`;
+          throw error;
+        }
       });
       return FALL_THROUGH;
     }
@@ -260,54 +456,99 @@ async function waitUntil(
   const events = await ctx.step.do(`${node.id}:events`, async () =>
     relevantEvents(node.condition, ctx.facts)
   );
-  const met = await waitLoop(node, ctx, deadline, events);
-  await ctx.step.unsubscribe(`${node.id}:unsubscribe`);
-  return met;
-}
-
-async function waitLoop(
-  node: Extract<NodeIR, { type: 'wait_until' }>,
-  ctx: JourneyContext,
-  deadline: number,
-  events: string[]
-): Promise<boolean> {
   // Anchor at the moment the wait began (deadline is checkpointed, so this is
   // replay-stable): `performed` inside the condition only counts events that
   // happen during the wait — pre-existing history must not satisfy it.
   const anchorMs = deadline - node.timeout.ms;
+  const met = await waitLoop(node.id, ctx, deadline, events, async (now) =>
+    (await evaluateCondition(node.condition, ctx.facts, now, { anchorMs })) ? true : null
+  );
+  await ctx.step.unsubscribe(`${node.id}:unsubscribe`);
+  return met === true;
+}
 
+/**
+ * The conversion window outlives the flow: a journey whose steps are done while its goal's
+ * `within` is still open keeps watching until the window closes — the purchase that follows the
+ * last offer email is that email's conversion, and ending the instance at the email would report
+ * it as a plain completion. `exitWhen` still applies while it waits. Nothing to wait for without
+ * a window, or once the instance has converted.
+ */
+async function awaitTail(ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSignal | null> {
+  const deadline = goalDeadline(ir, ctx);
+  const goal = ir.goal;
+  if (goal === undefined || deadline === undefined) return null;
+  const state = goalState(ctx);
+  if (state.convertedAt !== undefined) return null;
+  const open = await ctx.step.do('goal:open', async () => deadline > Date.now());
+  if (!open) return null;
+  const exitWhen = ir.exitWhen;
+  const events = await ctx.step.do('goal:events', async () => [
+    ...new Set([
+      ...(await relevantEvents(goal.condition, ctx.facts)),
+      ...(exitWhen === undefined ? [] : await relevantEvents(exitWhen, ctx.facts)),
+    ]),
+  ]);
+  const hit = await waitLoop('goal', ctx, deadline, events, async (now) => {
+    const reached = await goalReached(ir, ctx, now);
+    if (reached !== null) return { kind: 'goal' as const, at: reached.at };
+    if (exitWhen !== undefined && (await evaluateCondition(exitWhen, ctx.facts, now))) {
+      return { kind: 'exit_when' as const, at: now };
+    }
+    return null;
+  });
+  await ctx.step.unsubscribe('goal:unsubscribe');
+  if (hit === null) return null;
+  // A checkpoint from before the tail watched exitWhen recorded a plain `true`: the goal
+  if ((hit as unknown) === true || hit.kind === 'goal') {
+    state.convertedAt ??= (hit as { at?: number }).at ?? deadline;
+    return { kind: 'goal' };
+  }
+  return { kind: 'exit_when' };
+}
+
+/**
+ * Wait until `check` finds something or the deadline passes: subscribe, check, sleep until a
+ * relevant event wakes the instance or time runs out. `check` runs inside a step, so its result
+ * must be serializable; null means "not yet".
+ */
+async function waitLoop<R>(
+  id: string,
+  ctx: JourneyContext,
+  deadline: number,
+  events: string[],
+  check: (now: number) => Promise<R | null>
+): Promise<R | null> {
   for (let attempt = 0; attempt < MAX_WAIT_CHECKS; attempt++) {
     // Subscribe before the check, every attempt: one subscribe arms at least
     // one wake-up (AWS callbacks are consumed on delivery, so each attempt
     // needs a fresh arm; Cloudflare rows make the repeat call idempotent), and
     // arming first closes the race where the event lands between the check and
     // the registration.
-    await ctx.step.subscribe(`${node.id}:subscribe:${attempt}`, events);
+    await ctx.step.subscribe(`${id}:subscribe:${attempt}`, events);
 
-    const met = await ctx.step.do(`${node.id}:check:${attempt}`, async () =>
-      evaluateCondition(node.condition, ctx.facts, Date.now(), { anchorMs })
-    );
-    if (met) return true;
+    const met = await ctx.step.do(`${id}:check:${attempt}`, async () => check(Date.now()));
+    // `false` is a checkpoint from before checks answered null for "not yet"
+    if (met !== null && (met as unknown) !== false) return met;
 
     // Checkpointed: replay re-runs this control flow with wall-clock time far
     // ahead of the original run, so the branch must come from a persisted value.
     const remaining = await ctx.step.do(
-      `${node.id}:remaining:${attempt}`,
+      `${id}:remaining:${attempt}`,
       async () => deadline - Date.now()
     );
     // The condition was checked just above — expiring here needs no extra final check
-    if (remaining <= 0) return false;
+    if (remaining <= 0) return null;
 
-    const wake = await ctx.step.waitForWake(`${node.id}:wait:${attempt}`, remaining);
+    const wake = await ctx.step.waitForWake(`${id}:wait:${attempt}`, remaining);
     if (wake === 'timeout') {
       // Final check after timeout: in a tight race the event may land exactly as the timer fires
-      return ctx.step.do(`${node.id}:final`, async () =>
-        evaluateCondition(node.condition, ctx.facts, Date.now(), { anchorMs })
-      );
+      const final = await ctx.step.do(`${id}:final`, async () => check(Date.now()));
+      return (final as unknown) === false ? null : final;
     }
     // Woken → back to the top of the loop to re-evaluate (at-least-once wake-up semantics)
   }
-  return false; // check budget exhausted → treated as timed out (see MAX_WAIT_CHECKS)
+  return null; // check budget exhausted → treated as timed out (see MAX_WAIT_CHECKS)
 }
 
 async function resolveValues(

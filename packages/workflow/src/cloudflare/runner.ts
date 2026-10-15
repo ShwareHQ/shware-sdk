@@ -1,12 +1,16 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { NonRetryableError } from 'cloudflare:workflows';
+import { type Contract, ContractValidationError, checkEvent } from '../contract';
 import { type RegisteredAction, RegistryActionInvoker } from '../engine/actions';
 import { runJourney } from '../engine/interpreter';
 import type {
   ActionInvoker,
   EngineStep,
   EventSink,
+  JourneyObserver,
   JourneyOutcome,
   MessageSender,
+  MessageValidator,
 } from '../engine/ports';
 import { scaleDurations } from '../engine/time-scale';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
@@ -24,6 +28,9 @@ import { LogMessageSender, WebhookMessageSender } from './senders';
  * waitForEvent, which signals a timeout by throwing — and so does every other
  * failure in there, so only the clock can tell them apart (see wakeExpired).
  */
+/** Refusals a retry would only repeat: a template's props, an emitted event's payload. */
+const NON_RETRYABLE = new Set(['TemplateValidationError', 'ContractValidationError']);
+
 class CfEngineStep implements EngineStep {
   constructor(
     private readonly step: WorkflowStep,
@@ -32,8 +39,22 @@ class CfEngineStep implements EngineStep {
     private readonly instanceId: string
   ) {}
 
+  /**
+   * A template refusing its props, or the contract refusing an emitted event,
+   * is deterministic — a retry hits the same refusal — so it ends the step at
+   * once instead of burning the retry budget.
+   */
   do<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    return this.step.do(name, fn);
+    return this.step.do(name, async () => {
+      try {
+        return await fn();
+      } catch (error) {
+        if (error instanceof Error && NON_RETRYABLE.has(error.name)) {
+          throw new NonRetryableError(error.message, error.name);
+        }
+        throw error;
+      }
+    });
   }
 
   sleep(name: string, ms: number): Promise<void> {
@@ -85,7 +106,7 @@ function logging(sender: MessageSender): MessageSender {
       console.log(
         `[journey] ${message.channel} ${message.template} → ${message.recipient ?? message.userId} ${JSON.stringify(message.props)}`
       );
-      await sender.send(message);
+      return sender.send(message);
     },
   };
 }
@@ -147,6 +168,31 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     return [];
   }
 
+  /**
+   * The contract events this journey emits (`.sendEvent()`) are checked
+   * against, exactly like ingest; journeyWorker passes its config's.
+   */
+  protected contract(): Contract | undefined {
+    return undefined;
+  }
+
+  /**
+   * Template props check before every send; an app overrides this with
+   * `registryValidator({ emails, pushes })` (journeyWorker does it from its
+   * registries). By default props go out as resolved.
+   */
+  protected createMessageValidator(): MessageValidator | undefined {
+    return undefined;
+  }
+
+  /**
+   * Reporting hooks: node arrivals, every copy sent, how each instance ended. The host stores
+   * what it needs for its dashboards; by default nothing is reported.
+   */
+  protected createObserver(_store: JourneyStore): JourneyObserver | undefined {
+    return undefined;
+  }
+
   /** Override for a different version policy ('warn' by default) or a fully custom invoker (e.g. webhook degradation for hosted tenants). */
   protected createActionInvoker(): ActionInvoker {
     return new RegistryActionInvoker(this.actions());
@@ -166,16 +212,27 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     step: WorkflowStep,
     store: JourneyStore
   ): Promise<JourneyOutcome> {
-    const { workflowName, contentHash, userId } = event.payload;
+    const { workflowId, contentHash, userId } = event.payload;
     const env = this.env;
 
     const stored = await store.getWorkflowIR(contentHash);
     if (stored === undefined) {
-      throw new Error(`WorkflowIR not found: ${workflowName}@${contentHash}`);
+      throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
     }
     const runtime = resolveRuntime({ current: this.runtime(event.payload) }, 'current');
     // Development runs the journey in fast-forward; the pinned hash still names the version.
     const ir = scaleDurations(stored, runtime.timeScale);
+
+    const observer = this.createObserver(store);
+    const finished = (status: JourneyOutcome['status'] | 'failed', convertedAt?: number) =>
+      observer?.finished?.({
+        workflow: workflowId,
+        instanceId: event.instanceId,
+        userId,
+        status,
+        at: Date.now(),
+        ...(convertedAt === undefined ? {} : { convertedAt }),
+      });
 
     const messages = runtime.logMessages
       ? logging(this.createMessageSender())
@@ -184,9 +241,17 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     // send_event feeds straight back into the router logic — an in-Worker call
     // forming the event edge between workflows. The step's identity travels as
     // the event id, so a retried emit records the occurrence once.
+    // An emitted event passes the same contract check as one arriving over HTTP.
+    const contract = this.contract();
     const events: EventSink = {
       emit: async (name, payload, id) => {
-        await ingestEvent(env, { id, userId, event: name, payload }, store);
+        let accepted: Record<string, unknown> = payload;
+        if (contract !== undefined) {
+          const verdict = checkEvent(contract, name, payload);
+          if (!verdict.ok) throw new ContractValidationError(name, verdict.issues);
+          accepted = verdict.data;
+        }
+        await ingestEvent(env, { id, userId, event: name, payload: accepted }, store);
       },
     };
 
@@ -202,6 +267,8 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
         messages,
         events,
         actions: this.createActionInvoker(),
+        validator: this.createMessageValidator(),
+        observer,
       });
     } catch (error) {
       /*
@@ -217,6 +284,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
        */
       await step.do('finalize:failed', async () => {
         await store.setEntryStatus(event.instanceId, 'failed');
+        await finished('failed');
       });
       throw error;
     }
@@ -224,6 +292,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     await step.do('finalize', async () => {
       await store.setEntryStatus(event.instanceId, outcome.status);
       await store.unsubscribe(event.instanceId);
+      await finished(outcome.status, outcome.convertedAt);
     });
 
     return outcome;

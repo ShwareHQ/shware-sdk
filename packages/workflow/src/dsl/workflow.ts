@@ -31,7 +31,14 @@ export interface GoalOptions {
   exitOnMatch?: boolean;
 }
 
-export interface WorkflowOptions {
+export interface WorkflowDefinition {
+  /**
+   * Wire identity — engine instances, the entry ledger and stats keys are all
+   * built on it (`WorkflowIR.id`), so it is not something to rename for
+   * readability; `name` is.
+   */
+  id: string;
+
   /** Trigger: a trigger.xxx() asset. TODO: multiple triggers, entry frequency / re-entry policy. */
   trigger: TriggerRef;
 
@@ -51,19 +58,11 @@ export interface WorkflowOptions {
    * version in-flight users are pinned to nor shows up as a change in plan.
    */
 
-  /**
-   * Human label. The first argument to `workflow()` is wire identity — engine
-   * instances, the entry ledger and stats keys are all built on it — so it is
-   * not something to rename for readability. This is.
-   */
+  /** Human label: what the studio shows instead of the id. */
   name?: string;
 
   /** One line on what this flow does (UI lists, plan output). */
   description?: string;
-  /** Grouping tags (UI filtering). */
-  tags?: readonly string[];
-  /** Owner (shown in the UI, used for alert routing). */
-  owner?: string;
 }
 
 export interface WorkflowBuilder extends FlowBuilder {
@@ -131,8 +130,7 @@ function assertUniqueIds(nodes: readonly NodeIR[], seen = new Set<string>()): vo
 
 class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   constructor(
-    private readonly name: string,
-    private readonly options: WorkflowOptions,
+    private readonly options: WorkflowDefinition,
     /** Callsite of the workflow() call (provenance; lands in meta.loc). */
     private readonly loc: SourceLocIR | undefined
   ) {
@@ -153,21 +151,13 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   }
 
   private metaIR(): MetaIR | undefined {
-    const { name, description, tags, owner } = this.options;
-    if (
-      name === undefined &&
-      description === undefined &&
-      tags === undefined &&
-      owner === undefined &&
-      this.loc === undefined
-    ) {
+    const { name, description } = this.options;
+    if (name === undefined && description === undefined && this.loc === undefined) {
       return undefined;
     }
     return {
       ...(name !== undefined ? { name } : {}),
       ...(description !== undefined ? { description } : {}),
-      ...(tags !== undefined ? { tags: [...tags] } : {}),
-      ...(owner !== undefined ? { owner } : {}),
       ...(this.loc !== undefined ? { loc: this.loc } : {}),
     };
   }
@@ -180,7 +170,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
     const meta = this.metaIR();
     const body = {
       irVersion: IR_VERSION,
-      name: this.name,
+      id: this.options.id,
       ...(meta !== undefined ? { meta } : {}),
       trigger: (this.options.trigger as TriggerInternal).ir,
       ...(goal !== undefined ? { goal } : {}),
@@ -193,7 +183,16 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
   }
 }
 
-/** Workflow definition: a name, configuration (trigger / goal / exitWhen), and chained steps. */
-export function workflow(name: string, options: WorkflowOptions): WorkflowBuilder {
-  return new WorkflowBuilderImpl(name, options, captureLoc(workflow));
+/**
+ * Workflow definition: an id, configuration (trigger / goal / exitWhen),
+ * optional labels, and chained steps.
+ *
+ *   export const onboarding = workflow({
+ *     id: 'onboarding',
+ *     name: 'Onboarding',
+ *     trigger: trigger.event(e.sign_up),
+ *   }).email(t.email.welcome);
+ */
+export function workflow(definition: WorkflowDefinition): WorkflowBuilder {
+  return new WorkflowBuilderImpl(definition, captureLoc(workflow));
 }

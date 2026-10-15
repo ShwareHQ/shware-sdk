@@ -12,6 +12,7 @@ export interface Crumb {
   /** Route to link to; omit on the leaf (and on anything not navigable). */
   to?: string;
   params?: Record<string, string>;
+  search?: Record<string, string>;
 }
 
 export function Breadcrumb({ items }: { items: readonly Crumb[] }) {
@@ -28,6 +29,7 @@ export function Breadcrumb({ items }: { items: readonly Crumb[] }) {
               <Link
                 to={item.to as LinkProps['to']}
                 params={item.params as LinkProps['params']}
+                search={item.search as LinkProps['search']}
                 className="text-muted hover:text-primary shrink-0 truncate transition-colors"
               >
                 {item.label}

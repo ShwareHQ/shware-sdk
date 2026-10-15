@@ -1,34 +1,28 @@
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { type Plugin, type ViteDevServer, createServer, searchForWorkspaceRoot } from 'vite';
 import svgr from 'vite-plugin-svgr';
 import {
-  type EnvelopeField,
-  type ValuePath,
-  addAddress,
-  callLiteralAt,
-  envelopeEditability,
-  offsetOf,
-  patchCallLiteral,
-  patchEnvelopeField,
-  removeAddress,
-  resolveRegistryModule,
-  updateAddress,
-} from './server/patch';
+  STATS_METHODS,
+  type StatsMethod,
+  loadSnapshot,
+  ssrModulesOf,
+  virtualModule,
+} from './server/project';
 
 /**
  * The studio dev server.
  *
  * Rather than shipping a prebuilt SPA and a JSON API, the CLI runs Vite over
- * the app source with the user's config injected as a virtual module. Vite then
- * compiles our app, the user's workflow definitions and their react-email
- * components as one graph — which buys HMR on every one of them for free, and
- * means email previews render with exactly the component code on disk.
+ * the app source with the project injected as a virtual module: compiled on
+ * the server, the template registries imported by the browser from their own
+ * modules. Vite serves our app and the user's react-email components as one
+ * graph — HMR on every one of them for free, and email previews render with
+ * exactly the component code on disk.
  */
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -48,219 +42,220 @@ const CONFIG_CANDIDATES = [
   'workflow.config.mjs',
 ];
 
-/** The config is optional — conventions carry the definitions (see discovery below). */
-export function findConfig(cwd: string, explicit?: string): string | undefined {
+/**
+ * The project file — `export default defineConfig({...})` from
+ * `@shware/workflow`. Required: it is the only place the studio reads
+ * definitions from.
+ */
+export function findConfig(cwd: string, explicit?: string): string {
   if (explicit !== undefined) {
     const path = resolve(cwd, explicit);
     if (!existsSync(path)) throw new Error(`workflow-ui: config not found at ${path}`);
     return path;
   }
-  for (const name of CONFIG_CANDIDATES) {
-    const path = resolve(cwd, name);
-    if (existsSync(path)) return path;
+  const found = CONFIG_CANDIDATES.map((name) => resolve(cwd, name)).find((path) =>
+    existsSync(path)
+  );
+  if (found === undefined) {
+    throw new Error(
+      `workflow-ui: no workflow.config.ts in ${cwd}.\n` +
+        `Export defineConfig({ workflows, templates }) from '@shware/workflow' there, or pass --config <path>.`
+    );
   }
-  return undefined;
+  return found;
 }
 
-/* --------------------------------- Discovery -------------------------------- */
+const STATS_CANDIDATES = ['workflow.stats.ts', 'workflow.stats.tsx', 'workflow.stats.js'];
 
 /**
- * Convention over configuration, next.js-style:
- *   - `src/workflows/` (or `workflows/`): every module in the tree is loaded;
- *     exports that quack like a WorkflowBuilder (`toIR`) become workflows keyed
- *     by export name, exports marked `__segment` become the segment list.
- *   - `src/emails/index.ts` (or `emails/index.ts`): must `export const emails`,
- *     the same registry object that types `templates<Emails>()` keys;
- *   - `src/pushes/index.ts` (or `pushes/index.ts`): must `export const pushes`,
- *     the push-notification registry, same contract;
- *   - `src/slack/index.ts` and `src/discord/index.ts`: must `export const
- *     slack` / `export const discord`, the chat-message registries.
+ * The studio's optional stats source, apart from the project: an explicit
+ * path must exist; otherwise `workflow.stats.ts` beside the config, if any.
  */
-const WORKFLOWS_DIRS = ['src/workflows', 'workflows'];
-const EMAILS_INDEXES = [
-  'src/emails/index.ts',
-  'src/emails/index.tsx',
-  'emails/index.ts',
-  'emails/index.tsx',
-];
-const PUSHES_INDEXES = [
-  'src/pushes/index.ts',
-  'src/pushes/index.tsx',
-  'pushes/index.ts',
-  'pushes/index.tsx',
-];
-/* Chat registries: the directory is the channel's own name, no plural to guess at. */
-const CHAT_INDEXES = (channel: string): string[] => [
-  `src/${channel}/index.ts`,
-  `src/${channel}/index.tsx`,
-  `${channel}/index.ts`,
-  `${channel}/index.tsx`,
-];
-
-export function findWorkflowsDir(cwd: string): string | undefined {
-  return WORKFLOWS_DIRS.map((dir) => resolve(cwd, dir)).find((path) => existsSync(path));
-}
-
-function findEmailsIndex(cwd: string): string | undefined {
-  return EMAILS_INDEXES.map((file) => resolve(cwd, file)).find((path) => existsSync(path));
-}
-
-function findPushesIndex(cwd: string): string | undefined {
-  return PUSHES_INDEXES.map((file) => resolve(cwd, file)).find((path) => existsSync(path));
-}
-
-function findChatIndex(cwd: string, channel: 'slack' | 'discord'): string | undefined {
-  return CHAT_INDEXES(channel)
-    .map((file) => resolve(cwd, file))
-    .find((path) => existsSync(path));
-}
-
-/** Modules to load from the workflows dir: .ts/.tsx, skipping declarations and tests. */
-function listWorkflowModules(dir: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = resolve(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listWorkflowModules(path));
-      continue;
-    }
-    if (!/\.tsx?$/.test(entry.name)) continue;
-    if (/\.(d|test|spec|test-d)\.tsx?$/.test(entry.name)) continue;
-    files.push(path);
+export function findStats(cwd: string, explicit?: string): string | undefined {
+  if (explicit !== undefined) {
+    const path = resolve(cwd, explicit);
+    if (!existsSync(path)) throw new Error(`workflow-ui: stats source not found at ${path}`);
+    return path;
   }
-  return files.sort();
+  return STATS_CANDIDATES.map((name) => resolve(cwd, name)).find((path) => existsSync(path));
 }
+
+/* ---------------------------------- Project --------------------------------- */
 
 const VIRTUAL_ID = 'virtual:workflow-config';
 const RESOLVED_ID = `\0${VIRTUAL_ID}`;
 
+const NODE_MODULES = /[/\\]node_modules[/\\]/;
+
 /**
- * The generated module's merge step. It has to run in the browser, beside the
- * user's own modules, because only there do the imported values exist to be
- * duck-typed — so it lives here as source text. Exported so the suite runs the
- * exact text that ships rather than a copy of it.
+ * Every file the last project load evaluated: the config and, transitively,
+ * whatever it imported in Vite's SSR module graph — wherever those files live.
+ * Dependencies under node_modules are left out: they change with an install,
+ * not an edit.
  */
-export const MERGE_SOURCE = `function collectDefinitions(modules) {
-  const workflows = {};
-  const segments = [];
-  const sources = {};
-  for (const [file, mod] of modules) {
-    for (const [key, value] of Object.entries(mod)) {
-      if (value === null || typeof value !== 'object' && typeof value !== 'function') continue;
-      if (typeof value.toIR === 'function') {
-        /*
-         * An export name is a workflow's identity — its studio URL, its reports
-         * row, its key in IR — so two modules claiming one name is an ambiguity
-         * only the developer can settle. Assigning over it (two files that both
-         * 'export default workflow(...)' are both keyed 'default') dropped one
-         * of them with nothing logged anywhere. The same value under the same
-         * key is a re-export through a barrel, which is not a collision.
-         */
-        if (sources[key] !== undefined && workflows[key] !== value) {
-          throw new Error(
-            'workflow-ui: two workflow modules export "' + key + '" — ' + sources[key] +
-              ' and ' + file + '. Rename one of them: the export name is how the ' +
-              'studio, its URLs and your reports identify a workflow.'
-          );
-        }
-        workflows[key] = value;
-        sources[key] = file;
-      } else if (value.__segment === true && !segments.includes(value)) {
-        segments.push(value);
+function evaluatedFiles(dev: ViteDevServer, configPath: string): Set<string> {
+  const files = new Set<string>([resolve(configPath)]);
+  const graph = dev.environments.ssr.moduleGraph;
+  const queue = [...(graph.getModulesByFile(configPath) ?? [])];
+  const seen = new Set(queue);
+  while (queue.length > 0) {
+    const mod = queue.pop();
+    if (mod === undefined) continue;
+    if (mod.file !== null) {
+      if (NODE_MODULES.test(mod.file)) continue;
+      files.add(resolve(mod.file));
+    }
+    for (const imported of mod.importedModules) {
+      if (!seen.has(imported)) {
+        seen.add(imported);
+        queue.push(imported);
       }
     }
   }
-  return { workflows, segments };
-}`;
-
-/**
- * Generate the virtual config module: import everything discovery found plus
- * the optional user config, and assemble the ResolvedStudioConfig at runtime.
- * Detection is duck-typed on values, so how users organise files (barrels,
- * subdirectories, re-exports) never matters — same key + same value collapses.
- *
- * `configPath` is resolved once by the caller, so `--config` reaches the module
- * it names instead of whatever `workflow.config.ts` happens to sit in cwd.
- */
-export function discoveryModule(cwd: string, configPath: string | undefined): string {
-  const workflowsDir = findWorkflowsDir(cwd);
-  const emailsIndex = findEmailsIndex(cwd);
-  const pushesIndex = findPushesIndex(cwd);
-  const slackIndex = findChatIndex(cwd, 'slack');
-  const discordIndex = findChatIndex(cwd, 'discord');
-  const moduleFiles = workflowsDir === undefined ? [] : listWorkflowModules(workflowsDir);
-
-  const imports: string[] = [];
-  moduleFiles.forEach((file, index) => {
-    imports.push(`import * as m${index} from ${JSON.stringify(file)};`);
-  });
-  if (emailsIndex !== undefined) {
-    imports.push(`import { emails as registry } from ${JSON.stringify(emailsIndex)};`);
-  }
-  if (pushesIndex !== undefined) {
-    imports.push(`import { pushes as pushRegistry } from ${JSON.stringify(pushesIndex)};`);
-  }
-  if (slackIndex !== undefined) {
-    imports.push(`import { slack as slackRegistry } from ${JSON.stringify(slackIndex)};`);
-  }
-  if (discordIndex !== undefined) {
-    imports.push(`import { discord as discordRegistry } from ${JSON.stringify(discordIndex)};`);
-  }
-  if (configPath !== undefined) {
-    imports.push(`import userConfig from ${JSON.stringify(configPath)};`);
-  }
-
-  return `${imports.join('\n')}
-${MERGE_SOURCE}
-const modules = [${moduleFiles
-    .map((file, index) => `[${JSON.stringify(file)}, m${index}]`)
-    .join(', ')}];
-const { workflows, segments } = collectDefinitions(modules);
-const config = ${configPath !== undefined ? 'userConfig' : '{}'};
-export default {
-  ...(config.title !== undefined ? { title: config.title } : {}),
-  workflows,
-  emails: ${emailsIndex !== undefined ? 'registry' : '{}'},
-  pushes: ${pushesIndex !== undefined ? 'pushRegistry' : '{}'},
-  slack: ${slackIndex !== undefined ? 'slackRegistry' : '{}'},
-  discord: ${discordIndex !== undefined ? 'discordRegistry' : '{}'},
-  segments,
-  addresses:
-    config.emails?.addresses ??
-    [config.emails?.from, config.emails?.replyTo]
-      .filter((a) => a !== undefined)
-      .map((a) => (typeof a === 'string' ? a : a.name === undefined ? a.email : a.name + ' <' + a.email + '>')),
-  ...(config.emails?.sendTest !== undefined ? { sendTest: config.emails.sendTest } : {}),
-  ...(config.stats !== undefined ? { stats: config.stats } : {}),
-};
-`;
+  return files;
 }
 
-/** Serve the assembled module under a stable id, and refresh it when discovery inputs change. */
-function discoveryPlugin(cwd: string, configPath: string | undefined): Plugin {
+/**
+ * Serve `virtual:workflow-config` and keep it current.
+ *
+ * The project is evaluated on the server (ssrLoadModule) and compiled there;
+ * see server/project.ts for what reaches the browser. After every load the
+ * plugin records the files that load evaluated — the config and everything it
+ * imported, inside the working directory or not (`--config ../shared/...`,
+ * a contract in a sibling package) — and watches them. A change to any of
+ * them drops those evaluated modules and pushes a fresh snapshot over HMR, so
+ * adding a workflow or a template to the registration list shows up without a
+ * reload. Template components also update through their own client-side HMR,
+ * as any module does.
+ */
+/** The stats source's default export, evaluated on the dev server. */
+async function loadStats(
+  dev: ViteDevServer,
+  statsPath: string
+): Promise<Partial<Record<StatsMethod, (...args: unknown[]) => unknown>>> {
+  const mod = await dev.ssrLoadModule(statsPath);
+  const stats: unknown = mod.default;
+  if (typeof stats !== 'object' || stats === null) {
+    throw new Error(`workflow-ui: ${statsPath} must default-export defineStats({...})`);
+  }
+  return stats;
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolveBody, reject) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk: string) => {
+      body += chunk;
+    });
+    req.on('end', () => resolveBody(body));
+    req.on('error', reject);
+  });
+}
+
+export function projectPlugin(configPath: string, statsPath: string | undefined): Plugin {
+  let server: ViteDevServer | undefined;
+  let evaluated = new Set<string>([resolve(configPath)]);
   return {
-    name: 'workflow-ui:config',
+    name: 'workflow-ui:project',
     resolveId: (id) => (id === VIRTUAL_ID ? RESOLVED_ID : null),
-    load: (id) => (id === RESOLVED_ID ? discoveryModule(cwd, configPath) : null),
-    configureServer(server) {
-      const workflowsDir = findWorkflowsDir(cwd);
-      if (workflowsDir !== undefined) server.watcher.add(workflowsDir);
+    async load(id) {
+      if (id !== RESOLVED_ID || server === undefined) return null;
+      const dev = server;
+      const snapshot = await loadSnapshot({
+        configPath,
+        load: (file) => dev.ssrLoadModule(file),
+        modules: ssrModulesOf(dev),
+      });
+      evaluated = evaluatedFiles(dev, configPath);
+      let methods: StatsMethod[] | undefined;
+      if (statsPath !== undefined) {
+        const stats = await loadStats(dev, statsPath);
+        methods = STATS_METHODS.filter((method) => typeof stats[method] === 'function');
+        for (const file of evaluatedFiles(dev, statsPath)) evaluated.add(file);
+      }
+      dev.watcher.add([...evaluated]);
+      return virtualModule(snapshot, methods);
+    },
+    configureServer(dev) {
+      server = dev;
+      /* Positions the DSL captures while the project is evaluated are then lines on disk. */
+      process.setSourceMapsEnabled(true);
+      for (const file of [configPath, statsPath]) {
+        if (file !== undefined) dev.watcher.add(file);
+      }
       const refresh = (file: string): void => {
-        // Adding or removing a module changes the generated import list
-        if (workflowsDir !== undefined && !file.startsWith(workflowsDir)) return;
-        const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
-        if (mod) {
-          server.moduleGraph.invalidateModule(mod);
-          server.ws.send({ type: 'full-reload' });
+        if (!evaluated.has(resolve(file))) return;
+        const virtual = dev.moduleGraph.getModuleById(RESOLVED_ID);
+        if (virtual === undefined) return;
+        /*
+         * ssrLoadModule keeps an evaluated module until it is invalidated, and
+         * the config caches everything it imported — so every evaluated module
+         * goes, not just the file that changed.
+         */
+        for (const path of evaluated) {
+          for (const mod of dev.moduleGraph.getModulesByFile(path) ?? []) {
+            dev.moduleGraph.invalidateModule(mod);
+          }
         }
+        dev.moduleGraph.invalidateModule(virtual);
+        void dev.reloadModule(virtual);
       };
-      server.watcher.on('add', refresh);
-      server.watcher.on('unlink', refresh);
+      dev.watcher.on('change', refresh);
+      dev.watcher.on('add', refresh);
+      dev.watcher.on('unlink', refresh);
+
+      /*
+       * The stats source runs here, not in the browser: it reads the project's
+       * own database or API, with credentials the page must never hold. The
+       * page calls one method per request — the arguments as a JSON array, the
+       * answer as JSON — and only the StatsSource method names are served.
+       */
+      dev.middlewares.use('/__studio/stats/', (req, res) => {
+        const sendJson = (status: number, body: unknown): void => {
+          res.statusCode = status;
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(body));
+        };
+        void (async () => {
+          if (req.method !== 'POST') {
+            res.setHeader('allow', 'POST');
+            sendJson(405, { error: 'stats calls are POST' });
+            return;
+          }
+          const rejection = studioRequestRejection(req);
+          if (rejection !== undefined) {
+            sendJson(403, { error: rejection });
+            return;
+          }
+          const method = (req.url ?? '').replace(/^\//, '').split('?')[0] as StatsMethod;
+          if (statsPath === undefined || !STATS_METHODS.includes(method)) {
+            sendJson(404, { error: `no stats method '${method}'` });
+            return;
+          }
+          try {
+            const args: unknown = JSON.parse((await readBody(req)) || '[]');
+            if (!Array.isArray(args)) {
+              sendJson(400, { error: 'the body is the arguments, as a JSON array' });
+              return;
+            }
+            const fn = (await loadStats(dev, statsPath))[method];
+            if (fn === undefined) {
+              sendJson(404, { error: `workflow.stats.ts defines no '${method}'` });
+              return;
+            }
+            sendJson(200, (await fn(...args)) ?? null);
+          } catch (error) {
+            dev.config.logger.error(`[workflow-ui] stats ${method} failed: ${String(error)}`);
+            sendJson(500, { error: error instanceof Error ? error.message : String(error) });
+          }
+        })();
+      });
     },
   };
 }
 
-/* ------------------------------ Studio write-back ----------------------------- */
+/* -------------------------------- Studio API -------------------------------- */
 
 /** `Sec-Fetch-Site` values no other site can produce: our own page, or a direct navigation. */
 const OWN_FETCH_SITES = new Set(['same-origin', 'none']);
@@ -273,13 +268,11 @@ function headerValue(raw: string | string[] | undefined): string | undefined {
 /**
  * Refuse any request another website could have caused, and say why.
  *
- * These endpoints rewrite files on the developer's disk, so a page they merely
- * *visit* reaching one of them is a stranger editing their source — and every
- * layer that looks like it covers this does not. Vite's CORS handling only
- * decides who may read the response, which is decided long after the patch is
- * written; its host check reads `Host`, and the browser sends our own.
+ * The node endpoint reads the developer's source files to answer, so a page
+ * they merely *visit* should not be able to probe it. Vite's CORS handling
+ * decides who may read a response; this decides whether the request is served
+ * at all.
  *
- * Three checks, each closing a different door:
  *   - `Sec-Fetch-Site` is attached by the browser and cannot be set from
  *     script, so anything but `same-origin` (our page) or `none` (the address
  *     bar) is a request some other page caused — including `same-site`, which
@@ -288,15 +281,8 @@ function headerValue(raw: string | string[] | undefined): string | undefined {
  *     own host means cross-origin. Absent is allowed on purpose — a same-origin
  *     GET and a terminal `curl` both have no Origin at all, and a cross-origin
  *     browser request always has one.
- *   - A JSON content type on writes: a cross-site form or `<img>` can only send
- *     the CORS-safelisted types (text/plain, form-urlencoded, multipart), so
- *     demanding application/json forces a preflight that the two checks above
- *     then refuse. A backstop, never the gate on its own — a non-browser client
- *     sets any header it likes.
  */
-export function studioRequestRejection(
-  req: Pick<IncomingMessage, 'method' | 'headers'>
-): string | undefined {
+export function studioRequestRejection(req: Pick<IncomingMessage, 'headers'>): string | undefined {
   const site = headerValue(req.headers['sec-fetch-site']);
   if (site !== undefined && !OWN_FETCH_SITES.has(site)) {
     return `refused: sec-fetch-site is '${site}', so another site caused this request`;
@@ -315,261 +301,63 @@ export function studioRequestRejection(
       return `refused: cross-origin request from ${origin}`;
     }
   }
-  if (req.method === 'POST') {
-    const type = (headerValue(req.headers['content-type']) ?? '').split(';')[0].trim();
-    if (type.toLowerCase() !== 'application/json') {
-      return 'refused: expected content-type application/json';
-    }
-  }
   return undefined;
 }
 
-function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolvePromise, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => {
-      try {
-        resolvePromise(
-          JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
-        );
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-    req.on('error', reject);
-  });
-}
-
 /**
- * The studio's write-back API. Edits only ever land on source literals (see
- * server/patch.ts); the response is JSON and the real feedback is the file
- * change itself — Vite HMR refreshes the preview the moment the patch lands.
+ * The studio's dev-server API — read-only. The studio views source and never
+ * writes it: edits happen in the editor, and Vite's watcher and HMR bring them
+ * to the page. The one endpoint resolves a node's captured position to a line
+ * on disk for display; everything else under `/__studio` answers 404, so the
+ * write routes earlier versions served (`/__studio/envelope`,
+ * `/__studio/addresses`, POST `/__studio/node`) are gone rather than hidden.
  */
-export function studioApiPlugin(cwd: string, configPath: string | undefined): Plugin {
+export function studioApiPlugin(cwd: string): Plugin {
   const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
     res.statusCode = status;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(body));
   };
 
-  /** Answer and stop, or let the handler run. Every endpoint below writes files. */
-  const refused = (req: IncomingMessage, res: ServerResponse): boolean => {
-    const rejection = studioRequestRejection(req);
-    if (rejection === undefined) return false;
-    sendJson(res, 403, { error: rejection });
-    return true;
-  };
-
   return {
     name: 'workflow-ui:studio-api',
     configureServer(server) {
-      server.middlewares.use('/__studio/envelope', (req, res) => {
-        if (refused(req, res)) return;
-        void (async () => {
-          /* Every content registry, paired with the export name it must carry. */
-          const registries: [path: string | undefined, exportName: string][] = [
-            [findEmailsIndex(cwd), 'emails'],
-            [findPushesIndex(cwd), 'pushes'],
-            [findChatIndex(cwd, 'slack'), 'slack'],
-            [findChatIndex(cwd, 'discord'), 'discord'],
-          ];
-          if (registries.every(([path]) => path === undefined)) {
-            sendJson(res, 404, {
-              error:
-                'no template index (src/emails/index.ts, src/pushes/index.ts, src/slack/index.ts or src/discord/index.ts) in this project',
-            });
-            return;
-          }
-          /* A key lives in exactly one registry, so first hit wins. */
-          const resolveModule = (key: string): string | undefined => {
-            for (const [path, exportName] of registries) {
-              if (path === undefined) continue;
-              const found = resolveRegistryModule(path, key, exportName);
-              if (found !== undefined) return found;
-            }
-            return undefined;
-          };
-          if (req.method === 'GET') {
-            const key = new URL(req.url ?? '/', 'http://internal').searchParams.get('key') ?? '';
-            const modulePath = resolveModule(key);
-            if (modulePath === undefined) {
-              sendJson(res, 404, { error: `no registered module for key '${key}'` });
-              return;
-            }
-            sendJson(res, 200, { editable: envelopeEditability(modulePath) });
-            return;
-          }
-          if (req.method !== 'POST') {
-            sendJson(res, 405, { error: 'GET or POST only' });
-            return;
-          }
-          const body = await readJsonBody(req);
-          const { key, field, value } = body as { key?: string; field?: string; value?: string };
-          const isEnvelopeField = (candidate: unknown): candidate is EnvelopeField =>
-            typeof candidate === 'string' &&
-            ['from', 'replyTo', 'subject', 'name', 'description', 'title', 'body'].includes(
-              candidate
-            );
-          if (typeof key !== 'string' || typeof value !== 'string' || !isEnvelopeField(field)) {
-            sendJson(res, 400, {
-              error:
-                'expected { key, field: from|replyTo|subject|name|description|title|body, value }',
-            });
-            return;
-          }
-          const modulePath = resolveModule(key);
-          if (modulePath === undefined) {
-            sendJson(res, 404, { error: `no registered module for key '${key}'` });
-            return;
-          }
-          const result = patchEnvelopeField(modulePath, field, value);
-          sendJson(res, result.ok ? 200 : 422, result);
-        })().catch((error: unknown) => {
-          sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
-        });
-      });
-
       /*
-       * Node write-back. The client sends the position the DSL captured at
-       * build time (NodeMetaIR.loc), which is a position in the module Vite
-       * *served* — its transform collapses a builder chain onto one line, so
-       * the recorded line is not the line in the file on disk. Vite keeps the
-       * source map for that transform; one lookup through it turns the served
-       * position back into the original one, and only then is it safe to patch.
+       * The client sends the position the DSL captured (NodeMetaIR.loc). The
+       * project is evaluated on the server with source maps enabled, so that
+       * is already a line on disk; this checks the path stays inside the
+       * project and answers it relative to it. Navigation only: the panel
+       * shows the row when this answers and leaves it out when it does not.
        */
       server.middlewares.use('/__studio/node', (req, res) => {
-        if (refused(req, res)) return;
-        void (async () => {
-          const positionFrom = (params: URLSearchParams) => ({
-            file: params.get('file') ?? '',
-            line: Number(params.get('line')),
-            column: Number(params.get('column')),
-          });
-          /* `0`, `1.timeout`, `0.between.1` — numeric segments index, the rest name. */
-          const parsePath = (raw: string | null | undefined): ValuePath =>
-            (raw ?? '')
-              .split('.')
-              .filter((segment) => segment !== '')
-              .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
-          /*
-           * Read side: resolve a captured position to the file on disk, so the
-           * panel can show the real line — the captured one belongs to the
-           * transformed module — and only offer an input where a literal backs
-           * the value, the same contract envelopeEditability follows.
-           */
-          if (req.method === 'GET') {
-            const query = positionFrom(new URL(req.url ?? '/', 'http://internal').searchParams);
-            const found = await originalSourcePosition(
-              server,
-              cwd,
-              query.file,
-              query.line,
-              query.column
-            );
-            if ('error' in found) {
-              sendJson(res, 422, { error: found.error });
-              return;
-            }
-            const offset = offsetOf(found.file, found.line, found.column);
-            const path = parsePath(
-              new URL(req.url ?? '/', 'http://internal').searchParams.get('path')
-            );
-            const literal =
-              offset === undefined ? undefined : callLiteralAt(found.file, offset, path);
-            sendJson(res, 200, {
-              file: relative(cwd, found.file),
-              line: found.line,
-              editable: literal !== undefined,
-            });
-            return;
-          }
-          if (req.method !== 'POST') {
-            sendJson(res, 405, { error: 'GET or POST only' });
-            return;
-          }
-          const body = (await readJsonBody(req)) as {
-            file?: string;
-            line?: number;
-            column?: number;
-            path?: string;
-            value?: string;
-          };
-          const { file, line, column, value } = body;
-          if (
-            typeof file !== 'string' ||
-            typeof line !== 'number' ||
-            typeof column !== 'number' ||
-            typeof value !== 'string'
-          ) {
-            sendJson(res, 400, { error: 'expected { file, line, column, value }' });
-            return;
-          }
-          const located = await originalSourcePosition(server, cwd, file, line, column);
-          if ('error' in located) {
-            sendJson(res, 422, { error: located.error });
-            return;
-          }
-          const offset = offsetOf(located.file, located.line, located.column);
-          if (offset === undefined) {
-            sendJson(res, 422, { error: 'recorded position is outside the source file' });
-            return;
-          }
-          const result = patchCallLiteral(located.file, offset, parsePath(body.path), value);
-          sendJson(res, result.ok ? 200 : 422, result);
-        })().catch((error: unknown) => {
-          sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
-        });
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.setHeader('allow', 'GET, HEAD');
+          sendJson(res, 405, { error: 'the studio is read-only: GET only' });
+          return;
+        }
+        const rejection = studioRequestRejection(req);
+        if (rejection !== undefined) {
+          sendJson(res, 403, { error: rejection });
+          return;
+        }
+        const params = new URL(req.url ?? '/', 'http://internal').searchParams;
+        const found = sourcePosition(cwd, params.get('file') ?? '', Number(params.get('line')));
+        if ('error' in found) {
+          sendJson(res, 422, { error: found.error });
+          return;
+        }
+        sendJson(res, 200, { file: relative(cwd, found.file), line: found.line });
       });
 
-      server.middlewares.use('/__studio/addresses', (req, res) => {
-        if (refused(req, res)) return;
-        void (async () => {
-          if (req.method !== 'POST') {
-            sendJson(res, 405, { error: 'POST only' });
-            return;
-          }
-          if (configPath === undefined) {
-            sendJson(res, 404, { error: 'no workflow.config.ts to store addresses in' });
-            return;
-          }
-          const body = (await readJsonBody(req)) as {
-            action?: string;
-            address?: string;
-            newAddress?: string;
-          };
-          const action = body.action ?? 'add';
-          const address = typeof body.address === 'string' ? body.address.trim() : '';
-          if (address === '') {
-            sendJson(res, 400, { error: 'expected { address }' });
-            return;
-          }
-          if (action === 'update') {
-            const newAddress = typeof body.newAddress === 'string' ? body.newAddress.trim() : '';
-            if (newAddress === '') {
-              sendJson(res, 400, { error: "action 'update' expects { newAddress }" });
-              return;
-            }
-            const result = updateAddress(configPath, address, newAddress);
-            sendJson(res, result.ok ? 200 : 422, result);
-            return;
-          }
-          if (action === 'remove') {
-            const result = removeAddress(configPath, address);
-            sendJson(res, result.ok ? 200 : 422, result);
-            return;
-          }
-          const result = addAddress(configPath, address);
-          sendJson(res, result.ok ? 200 : 422, result);
-        })().catch((error: unknown) => {
-          sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
-        });
+      /* Registered after the routes above, so it only sees what none of them took. */
+      server.middlewares.use('/__studio', (_req, res) => {
+        sendJson(res, 404, { error: 'no such studio endpoint' });
       });
     },
   };
 }
 
-type Located = { file: string; line: number; column: number } | { error: string };
+type Located = { file: string; line: number } | { error: string };
 
 /** The two `node:path` functions containment needs, so the suite can hand in `path.win32`. */
 interface PathOps {
@@ -605,7 +393,7 @@ export function isInsideDir(
  * The scope is `cwd` — the project the studio was started in — and not the
  * workspace root `searchForWorkspaceRoot` walks up to: in a monorepo that root
  * is the whole repo, so a studio started in `apps/marketing` accepted
- * `file=../../packages/billing/src/rates.ts` and patched it.
+ * `file=../../packages/billing/src/rates.ts` and read it.
  */
 export function isInsideProject(cwd: string, candidate: string): boolean {
   const root = resolve(cwd);
@@ -621,19 +409,13 @@ export function isInsideProject(cwd: string, candidate: string): boolean {
 }
 
 /**
- * Turn a served position into a position on disk.
+ * Check a captured position before answering with it.
  *
- * The path is validated against cwd before anything is read: it arrives from
- * the browser, and a write-back endpoint that follows an arbitrary path is a
- * write-anywhere endpoint.
+ * The path is validated against cwd before anything is touched: it arrives
+ * from the browser, and an endpoint that follows an arbitrary path is a
+ * read-anywhere endpoint.
  */
-async function originalSourcePosition(
-  server: ViteDevServer,
-  cwd: string,
-  rawFile: string,
-  line: number,
-  column: number
-): Promise<Located> {
+function sourcePosition(cwd: string, rawFile: string, line: number): Located {
   let path = rawFile;
   if (/^https?:\/\//.test(path)) path = new URL(path).pathname;
   const fsPrefix = '/@fs';
@@ -642,57 +424,38 @@ async function originalSourcePosition(
 
   if (!isInsideProject(cwd, path)) return { error: 'source file is outside the project' };
   if (!existsSync(path)) return { error: `no such source file: ${path}` };
-
-  const transformed = await server.transformRequest(`${fsPrefix}${path}`);
-  const map = transformed?.map;
-  /*
-   * No map means no transform happened, so the served position is already the
-   * position on disk. V8 columns are 1-based; everything below is 0-based.
-   */
-  if (!map) return { file: path, line, column: column - 1 };
-
-  const original = originalPositionFor(
-    new TraceMap(map as ConstructorParameters<typeof TraceMap>[0]),
-    {
-      line,
-      column: column - 1,
-    }
-  );
-  if (original.line === null) return { error: 'could not map the position back to source' };
-  return { file: path, line: original.line, column: original.column };
+  if (!Number.isInteger(line) || line < 1) return { error: 'expected a line number' };
+  return { file: path, line };
 }
 
 export interface StartOptions {
   cwd?: string;
   config?: string;
+  /** The studio's stats source (default ./workflow.stats.ts, if present). */
+  stats?: string;
   port?: number;
   open?: boolean;
 }
 
 export async function startStudio(options: StartOptions = {}): Promise<ViteDevServer> {
   const cwd = options.cwd ?? process.cwd();
-  // Explicit --config must exist (findConfig throws); otherwise everything is
-  // optional. The resolved path is what the plugins use — resolving again from
-  // cwd inside them is what made --config point at the file it does not name.
+  // The config is required (findConfig throws); the stats source is optional.
+  // The resolved path is what the plugin loads — resolving again from cwd
+  // inside it is what once made --config point at a file it does not name.
   const configPath = findConfig(cwd, options.config);
-  if (findWorkflowsDir(cwd) === undefined) {
-    throw new Error(
-      `workflow-ui: no workflows directory in ${cwd}.\n` +
-        `Create src/workflows/ (or workflows/) and export your workflow() definitions from it.`
-    );
-  }
+  const statsPath = findStats(cwd, options.stats);
   const appRoot = resolveAppRoot();
 
   const server = await createServer({
     root: appRoot,
     configFile: false,
-    envFile: false,
+    envDir: false,
     plugins: [
       react(),
       svgr(),
       tailwindcss(),
-      discoveryPlugin(cwd, configPath),
-      studioApiPlugin(cwd, configPath),
+      projectPlugin(configPath, statsPath),
+      studioApiPlugin(cwd),
     ],
     server: {
       port: options.port ?? 4321,
@@ -703,10 +466,33 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
        * dependencies (fonts, css) resolve into a store beside the workspace
        * root rather than anywhere below the app.
        */
-      fs: { allow: [searchForWorkspaceRoot(cwd), searchForWorkspaceRoot(packageRoot), appRoot] },
+      fs: {
+        allow: [
+          searchForWorkspaceRoot(cwd),
+          /* A config outside cwd brings its own workspace: the registries the browser imports live there. */
+          searchForWorkspaceRoot(dirname(configPath)),
+          searchForWorkspaceRoot(packageRoot),
+          appRoot,
+        ],
+      },
     },
     // The app and the user's project each have their own react; one copy only
     resolve: { dedupe: ['react', 'react-dom'] },
+    /*
+     * @react-email/render imports react-dom/server lazily, so the dep scan never
+     * sees it: the first email preview made Vite discover it, re-optimize and
+     * change the deps hash under a page that still held the old one — the
+     * preview then failed with "Failed to fetch dynamically imported module"
+     * (a 504 Outdated Optimize Dep) until a reload. Bundling both up front
+     * keeps the hash stable from the first request. The project's config is
+     * scanned too (never served — only crawled), so its templates'
+     * dependencies (@react-email/components, zod, …) are bundled before the
+     * first preview rather than discovered by it.
+     */
+    optimizeDeps: {
+      entries: ['index.html', configPath],
+      include: ['@react-email/render', 'react-dom/server'],
+    },
   });
 
   await server.listen();

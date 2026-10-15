@@ -57,6 +57,9 @@ function fakeFetch(status: number, body: unknown) {
 }
 
 const message = {
+  workflow: 'w',
+  instanceId: 'inst',
+  nodeId: '0',
   channel: 'push' as const,
   template: 'comeback',
   props: { name: 'Ada' },
@@ -105,6 +108,20 @@ describe('ApnsPushSender', () => {
     });
   });
 
+  test('a push the device should report is mutable, so the service extension runs', async () => {
+    const { calls, fetchFn } = fakeFetch(200, undefined);
+    const delivered_url = 'https://wf.example.com/t/d/m1';
+    await sender(fetchFn).send({
+      ...message,
+      tracking: { data: { message_id: 'm1', delivered_url } },
+    });
+    expect(JSON.parse(calls[0].body)).toMatchObject({
+      aps: { 'mutable-content': 1 },
+      message_id: 'm1',
+      delivered_url,
+    });
+  });
+
   test('an origin override goes to the relay and names the real upstream', async () => {
     const { calls, fetchFn } = fakeFetch(200, undefined);
     await sender(fetchFn, { origin: 'http://localhost:9999', environment: 'production' }).send(
@@ -125,7 +142,9 @@ describe('ApnsPushSender', () => {
   test('a dead token is reported through onUnregistered, not retried', async () => {
     const { fetchFn } = fakeFetch(410, { reason: 'Unregistered' });
     const gone: string[] = [];
-    await sender(fetchFn, { onUnregistered: (m) => void gone.push(m.userId) }).send(message);
+    await expect(
+      sender(fetchFn, { onUnregistered: (m) => void gone.push(m.userId) }).send(message)
+    ).resolves.toEqual({ delivered: false, reason: 'Unregistered' });
     expect(gone).toEqual(['u1']);
   });
 

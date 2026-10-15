@@ -1,8 +1,14 @@
-import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import type { JourneyEnv } from '../src/cloudflare/bindings';
-import { deployBundle, identifyUser, ingestEvent } from '../src/cloudflare/router';
+import {
+  deployBundle,
+  identifyUser,
+  ingestEvent,
+  registerDevice,
+  removeDevice,
+  unbindDevice,
+} from '../src/cloudflare/router';
 import {
   compileBundle,
   eq,
@@ -16,6 +22,7 @@ import {
 } from '../src/index';
 import { JourneyFactSource } from '../src/store/facts';
 import { PostgresJourneyStore, type SqlClientLike, uuidv7 } from '../src/store/postgres';
+import { TABLES, renderDrizzleSchema, renderPostgresDdl } from '../src/store/tables';
 import { FakeJourney } from './fake-cloudflare';
 
 /**
@@ -26,10 +33,7 @@ import { FakeJourney } from './fake-cloudflare';
  * route swap.
  */
 
-const schemaSql = readFileSync(
-  new URL('../src/store/postgres-schema.sql', import.meta.url),
-  'utf8'
-);
+const schemaSql = renderPostgresDdl();
 
 let pg: PGlite;
 
@@ -58,7 +62,9 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pg.exec(
-    'TRUNCATE workflow_event, workflow_profile, workflow_segment, workflow_trigger, workflow_segment_trigger, workflow_segment_member, workflow_entry, workflow_subscription, workflow_ir'
+    `TRUNCATE ${Object.values(TABLES)
+      .map((t) => `workflow."${t.name}"`)
+      .join(', ')}`
   );
 });
 
@@ -74,13 +80,15 @@ interface UserProperty {
 const e = event<Event>();
 const u = user<UserProperty>();
 const welcome = template.email('welcome');
-const pro = segment('pro', eq(u.plan, 'pro'));
-const purchased = segment('purchased', performed(e.purchase));
+const pro = segment({ id: 'pro', condition: eq(u.plan, 'pro') });
+const purchased = segment({ id: 'purchased', condition: performed(e.purchase) });
 
-const welcomeFlow = workflow('welcome', { trigger: trigger.event(e.signed_up) }).email(welcome);
-const proNudge = workflow('pro_nudge', { trigger: trigger.segment(pro), goal: purchased }).email(
-  welcome
-);
+const welcomeFlow = workflow({ id: 'welcome', trigger: trigger.event(e.signed_up) }).email(welcome);
+const proNudge = workflow({
+  id: 'pro_nudge',
+  trigger: trigger.segment(pro),
+  goal: purchased,
+}).email(welcome);
 const bundle = () =>
   compileBundle({ workflows: [welcomeFlow, proNudge], segments: [pro, purchased] });
 
@@ -105,7 +113,7 @@ describe('deploy', () => {
     ]);
     expect(await store.getSegmentCondition('purchased')).toMatchObject({ type: 'performed' });
     const ir = await store.getWorkflowIR(welcomeFlow.toIR().contentHash);
-    expect(ir?.name).toBe('welcome');
+    expect(ir?.id).toBe('welcome');
     expect(await store.getWorkflowIR('nope')).toBeUndefined();
   });
 });
@@ -153,7 +161,7 @@ describe('ingest', () => {
     expect(first).toMatchObject({ id: 'evt-1', stored: true });
     expect(again).toMatchObject({ id: 'evt-1', stored: false, started: [] });
     expect(await store.countEvents('u1', 'signed_up')).toBe(1);
-    const rows = await pg.query<{ event_id: string }>('SELECT event_id FROM workflow_event');
+    const rows = await pg.query<{ event_id: string }>('SELECT event_id FROM workflow.event');
     expect(rows.rows).toEqual([{ event_id: 'evt-1' }]);
   });
 
@@ -175,7 +183,7 @@ describe('ingest', () => {
     await store.setEntryStatus('i1', 'failed');
     expect(await store.enterJourney({ ...entry, instanceId: 'i2', ts: 2 })).toBe('reclaimed');
     const rows = await pg.query<{ instance_id: string; status: string }>(
-      'SELECT instance_id, status FROM workflow_entry'
+      'SELECT instance_id, status FROM workflow.entry'
     );
     expect(rows.rows).toEqual([{ instance_id: 'i2', status: 'running' }]);
   });
@@ -201,7 +209,7 @@ describe('ingest', () => {
     // Stored as a jsonb object, not a JSON string — drivers that serialize jsonb parameters
     // themselves (postgres.js) would otherwise double-encode; the ::text::jsonb cast prevents it.
     const typed = await pg.query<{ t: string }>(
-      "SELECT jsonb_typeof(payload) AS t FROM workflow_event WHERE user_id = 'u1' LIMIT 1"
+      "SELECT jsonb_typeof(payload) AS t FROM workflow.event WHERE user_id = 'u1' LIMIT 1"
     );
     expect(typed.rows).toEqual([{ t: 'object' }]);
     expect(await store.countEvents('u1', 'purchase', { sinceMs: 2_000 })).toBe(1);
@@ -223,7 +231,7 @@ describe('identify', () => {
     const second = await identifyUser(env, 'u1', { plan: 'pro' }, store);
     expect(second.props).toEqual({ email: 'a@example.com', plan: 'pro' });
     expect(second.started).toHaveLength(1);
-    expect(journey.created[0]?.params).toMatchObject({ workflowName: 'pro_nudge' });
+    expect(journey.created[0]?.params).toMatchObject({ workflowId: 'pro_nudge' });
     expect(await store.isSegmentMember('pro', 'u1')).toBe(true);
 
     const third = await identifyUser(env, 'u1', { plan: null }, store);
@@ -264,7 +272,7 @@ describe('subscriptions and entries', () => {
       ts: 1,
     });
     await store.setEntryStatus('i1', 'completed');
-    const rows = await pg.query<{ status: string }>('SELECT status FROM workflow_entry');
+    const rows = await pg.query<{ status: string }>('SELECT status FROM workflow.entry');
     expect(rows.rows).toEqual([{ status: 'completed' }]);
     await store.removeEntry('i1');
     expect(
@@ -279,11 +287,80 @@ describe('subscriptions and entries', () => {
   });
 });
 
+describe('devices', () => {
+  test('a token belongs to the latest user it was registered for, newest first', async () => {
+    const { env, store } = setup();
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    await registerDevice(env, { userId: 'u1', token: 'b', platform: 'android', ts: 2 }, store);
+    await registerDevice(env, { userId: 'u2', token: 'a', platform: 'ios', ts: 3 }, store);
+    expect(await store.listDevices('u1')).toEqual([{ token: 'b', platform: 'android' }]);
+    expect(await store.listDevices('u2')).toEqual([{ token: 'a', platform: 'ios' }]);
+    expect(await new JourneyFactSource(store, 'u2').listDevices()).toEqual([
+      { token: 'a', platform: 'ios' },
+    ]);
+  });
+
+  test('removing a token forgets it and reports its owner', async () => {
+    const { env, store } = setup();
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    expect(await removeDevice(env, 'a', store)).toEqual({ ok: true, woke: 0 });
+    expect(await store.listDevices('u1')).toEqual([]);
+    expect(await store.removeDevice('a')).toBeUndefined();
+  });
+
+  test('signing out unbinds the token, kept for the next sign-in to bind again', async () => {
+    const { env, store } = setup();
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    expect(await unbindDevice(env, 'a', store)).toEqual({ ok: true, woke: 0 });
+    expect(await store.listDevices('u1')).toEqual([]);
+    // Still registered, bound to nobody: unbinding again has no owner to report
+    expect(await store.unbindDevice('a')).toBeUndefined();
+    expect(await store.removeDevice('a')).toBeUndefined();
+    await registerDevice(env, { userId: 'u2', token: 'a', platform: 'ios', ts: 2 }, store);
+    expect(await store.listDevices('u2')).toEqual([{ token: 'a', platform: 'ios' }]);
+  });
+});
+
 describe('uuidv7', () => {
   test('is a version 7, variant 1 uuid ordered by time', () => {
     const a = uuidv7(1_000_000);
     const b = uuidv7(2_000_000);
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(a < b).toBe(true);
+  });
+});
+
+describe('checkSchema', () => {
+  test('a database migrated from the declared tables has no problems', async () => {
+    const { store } = setup();
+    expect(await store.checkSchema()).toEqual([]);
+  });
+
+  test('lists what the live database lacks, without changing it', async () => {
+    const db = await PGlite.create();
+    await db.exec(`CREATE SCHEMA app;
+      CREATE TABLE app.profile (user_id text NOT NULL, props text);`);
+    const store = new PostgresJourneyStore(client(db), { schema: 'app' });
+    const problems = await store.checkSchema();
+    expect(problems).toContain('table "app"."event" is missing');
+    expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
+    expect(problems).toHaveLength(Object.keys(TABLES).length);
+    await db.close();
+    // A PGlite of its own: the WASM cold start alone can take seconds on a CI runner
+  }, 30_000);
+});
+
+describe('renderDrizzleSchema', () => {
+  test('one file, every table on the configured schema', () => {
+    const file = renderDrizzleSchema('marketing');
+    expect(file).toContain("export const workflowSchema = pgSchema('marketing');");
+    for (const spec of Object.values(TABLES)) {
+      expect(file).toContain(`= workflowSchema.table(\n  '${spec.name}',`);
+    }
+    expect(file).not.toMatch(/defaultNow|default\(|gen_random_uuid/);
+    expect(file).toContain(
+      "check('event_uuid_v7', sql`substring(${table.id}::text, 15, 1) = '7'`)"
+    );
+    expect(renderDrizzleSchema('marketing')).toBe(file);
   });
 });

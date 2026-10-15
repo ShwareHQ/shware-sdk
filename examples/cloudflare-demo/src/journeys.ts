@@ -1,22 +1,11 @@
-import {
-  action,
-  compileBundle,
-  event,
-  performed,
-  segment,
-  templates,
-  trigger,
-  user,
-  workflow,
-} from '../../../packages/workflow/src/dsl';
+import { action, event, performed, segment, trigger, user, workflow } from '@shware/workflow';
+import { t } from './templates';
+
 /**
  * Demo flows on a seconds-long timescale, so the whole pipeline is visible by
  * eye under a local wrangler dev: event → trigger → sleep → branch/wait →
  * render and send → goal exit.
- * These import workspace source directly to avoid a build step; a real project
- * would import '@shware/workflow'.
  */
-import type { Emails } from '../emails';
 
 type Empty = Record<never, never>;
 
@@ -35,13 +24,9 @@ interface DemoUser {
 const e = event<DemoEvent>();
 export const u = user<DemoUser>();
 
-/** The emails registry types the key; props are inferred from the component signature (a type-only import, no runtime dependency). */
-const t = templates<Emails>();
-const welcome = t.email('demo_welcome');
-const offer = t.email('demo_offer');
-// t.email('typo') ← fails to compile: the key is not in the registry
+// t.email.typo ← fails to compile: the key is not in the registry
 
-const purchased = segment('demo_purchased', performed(e.demo_purchase));
+export const purchased = segment({ id: 'demo_purchased', condition: performed(e.demo_purchase) });
 
 /**
  * Custom action demo: plain code that ships with this Worker — the IR records
@@ -58,11 +43,12 @@ export const grantCoupon = action<{ coupon: string }>(
 );
 
 /** Branch demo: sign up → 5s → clicked goes down A, everyone else down B; an order (the goal) exits at any point. */
-export const demoRecovery = workflow('demo_recovery', {
+export const demoRecovery = workflow({
+  id: 'demo_recovery',
   trigger: trigger.event(e.demo_signup),
   goal: purchased,
 })
-  .email(welcome, { plan: u.plan })
+  .email(t.email.demo_welcome, { plan: u.plan })
   .delay('5 seconds')
   .branch(
     [
@@ -70,23 +56,12 @@ export const demoRecovery = workflow('demo_recovery', {
       (w) =>
         w
           .run(grantCoupon, { coupon: 'CLICKED10' })
-          .email(offer, { coupon: 'CLICKED10', expiresIn: '24 hours' }),
+          .email(t.email.demo_offer, { coupon: 'CLICKED10', expiresIn: '24 hours' }),
     ],
-    (w) => w.email(offer, { coupon: 'COMEBACK20', expiresIn: '48 hours' })
+    (w) => w.email(t.email.demo_offer, { coupon: 'COMEBACK20', expiresIn: '48 hours' })
   );
 
 /** wait_until demo: wait to be woken by demo_click, or continue after a 20s timeout. */
-export const demoWaiter = workflow('demo_waiter', {
-  trigger: trigger.event(e.demo_signup),
-})
+export const demoWaiter = workflow({ id: 'demo_waiter', trigger: trigger.event(e.demo_signup) })
   .waitUntil(performed(e.demo_click), { timeout: '20 seconds', onTimeout: 'continue' })
-  .email(welcome, { plan: u.plan });
-
-export function demoBundle() {
-  return compileBundle({
-    workflows: [demoRecovery, demoWaiter],
-    segments: [purchased],
-    templates: [welcome, offer],
-    actions: [grantCoupon],
-  });
-}
+  .email(t.email.demo_welcome, { plan: u.plan });

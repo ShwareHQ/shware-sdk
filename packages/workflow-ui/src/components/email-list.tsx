@@ -1,14 +1,13 @@
 import { clsx } from 'clsx';
-import { Bell, type LucideIcon, Mail, MessageCircle, MessagesSquare } from 'lucide-react';
+import { Bell, Mail, MessageCircle, MessagesSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { displayName } from '../utils/label';
 import { superellipse } from './corner-shape';
-import { Menu } from './menu';
 
 /**
- * The emails list, mirroring the workflows table: one row per referenced
- * template with its label, whether content is registered for it, and the key
- * the DSL knows it by.
+ * The templates list, mirroring the workflows table: one row per template with
+ * its label and whether content is registered for it. The key the DSL knows it
+ * by is still what the search matches.
  */
 export interface EmailListItem {
   /** Wire key: how workflows reference the template. Identity, not a label. */
@@ -24,9 +23,8 @@ export interface EmailListItem {
 
 export interface EmailListProps {
   items: EmailListItem[];
-  onOpen: (key: string) => void;
-  /** Open the edit dialog for a template; the row menu only appears when provided. */
-  onEdit?: (key: string) => void;
+  /** The channel says which registry: one key can name an email and a push. */
+  onOpen: (key: string, channel: string | undefined) => void;
 }
 
 /*
@@ -38,24 +36,20 @@ const HEAD_CELL = 'border-border border-b py-3 first:rounded-tl-2xl last:rounded
 /* The row carries the border below md, so the cells drop theirs there. */
 const CELL = 'border-border border-b py-4 max-md:border-b-0 max-md:px-3';
 
-/*
- * One glyph per channel, matching what `channel-icon.ts` hands the analytics
- * views — the same template has to look like itself in both places. Keyed by
- * the IR's channel rather than the analytics one, which splits push by
- * platform and so has no plain `push`.
- */
-const ROW_ICON: Record<string, LucideIcon> = {
-  push: Bell,
-  slack: MessagesSquare,
-  discord: MessageCircle,
-};
-
+/* The template channels, each with its glyph — the same ones `channel-icon.ts` hands the analytics views. */
 function RowIcon({ channel }: { channel: string | undefined }) {
-  const Icon = channel === undefined ? Mail : (ROW_ICON[channel] ?? Mail);
+  const Icon =
+    channel === 'push'
+      ? Bell
+      : channel === 'discord'
+        ? MessageCircle
+        : channel === 'slack'
+          ? MessagesSquare
+          : Mail;
   return <Icon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />;
 }
 
-export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
+export function EmailList({ items, onOpen }: EmailListProps) {
   const { t } = useTranslation();
 
   return (
@@ -73,19 +67,13 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
               {t('common.name')}
             </th>
             <th className={clsx(HEAD_CELL, 'w-28 px-3')} style={superellipse} />
-            <th className={clsx(HEAD_CELL, 'w-56 px-3')} style={superellipse}>
-              {t('emails.id')}
-            </th>
-            {onEdit !== undefined && (
-              <th className={clsx(HEAD_CELL, 'w-14 px-3')} style={superellipse} />
-            )}
           </tr>
         </thead>
         <tbody className="max-md:block">
           {items.map((item) => (
             <tr
-              key={item.key}
-              onClick={() => onOpen(item.key)}
+              key={`${item.channel ?? ''}:${item.key}`}
+              onClick={() => onOpen(item.key, item.channel)}
               /*
                * On desktop the hover fill lives on the cells, not the row: a
                * row box paints its background underneath them, where no cell
@@ -107,11 +95,7 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
               style={superellipse}
             >
               <td
-                className={clsx(
-                  CELL,
-                  'px-6 max-md:order-1 max-md:pb-2',
-                  onEdit === undefined ? 'max-md:col-span-6' : 'max-md:col-span-5'
-                )}
+                className={clsx(CELL, 'px-6 max-md:order-1 max-md:col-span-6 max-md:pb-2')}
                 style={superellipse}
               >
                 <div className="flex items-start gap-3">
@@ -156,25 +140,6 @@ export function EmailList({ items, onOpen, onEdit }: EmailListProps) {
                   {item.registered ? t('emails.ready') : t('emails.noContent')}
                 </span>
               </td>
-
-              {/* The template key is for wiring code, not for reading on a phone. */}
-              <td className={clsx(CELL, 'text-secondary px-3 max-md:hidden')} style={superellipse}>
-                <span className="block truncate font-mono">{item.key}</span>
-              </td>
-
-              {onEdit !== undefined && (
-                <td
-                  className={clsx(CELL, 'px-3 max-md:order-2 max-md:col-span-1 max-md:pb-2')}
-                  style={superellipse}
-                >
-                  <Menu
-                    aria-label={t('common.more')}
-                    items={[
-                      { key: 'edit', label: t('common.edit'), onSelect: () => onEdit(item.key) },
-                    ]}
-                  />
-                </td>
-              )}
             </tr>
           ))}
         </tbody>

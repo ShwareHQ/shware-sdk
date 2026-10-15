@@ -1,14 +1,42 @@
+import * as z from 'zod/mini';
+import type * as core from 'zod/v4/core';
+import type { Contract } from './contract';
+import {
+  type ActionRef,
+  type SegmentRef,
+  type TemplateRegistry,
+  type WorkflowBuilder,
+  compileBundle,
+  template,
+} from './dsl';
+import type { BundleIR, ChannelIR, NodeIR, WorkflowIR } from './ir';
 import type { JourneyMode, JourneyRuntimeConfig } from './runtime';
+import type { EmailTemplate, PropsSchema, PushTemplate } from './templates';
 
 /**
- * `workflow.config.ts` — the project's journey configuration, typed and
- * committed with the code. Everything a host needs to assemble its channels
- * lives here, flat, one field per transport; the studio reads the same file
- * for its own settings (title, address book).
+ * `workflow.config.ts` — the project's journey configuration, typed, flat and
+ * committed with the code: what it deploys (workflows, segments, actions),
+ * the template registries behind them, the contract every inbound event is
+ * checked against, the email envelope, and how the engine runs per
+ * environment (time scale, APNs, FCM). The compiler (`compileConfig`), the
+ * Worker (`journeyWorker({ config })`) and the Workflow Studio all read this
+ * one object, so everything is registered exactly once:
+ *
+ *   export default defineConfig({
+ *     title: 'Workflow Studio · Acme',
+ *     contract,
+ *     workflows: [onboarding, notificationTest],
+ *     templates: registry, // { email, push }; `t = templates(registry)` for the workflows
+ *     emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
+ *     runtime: { development: { timeScale: 600, logMessages: true } },
+ *     apns: { topic: 'io.acme.app', keyId: 'ABC123DEFG', teamId: 'TEAM123456' },
+ *   });
  *
  * Secrets are the one thing that stay out: a `.p8`, a service account, the
  * ingest bearer. The host reads them from its environment under fixed names
- * (see `JourneyEnv`), so the config can say *which* key without carrying it.
+ * (see `JourneyEnv`), so the config says *which* key without carrying it. The
+ * config is a source object (schemas, components, functions); only its
+ * compiled bundle and preview-safe template data may cross to a browser.
  */
 
 /** An address as the transports take it: bare, or with a display name. */
@@ -20,16 +48,25 @@ export function formatEmailAddress(address: EmailAddress): string {
   return address.name === undefined ? address.email : `${address.name} <${address.email}>`;
 }
 
+/** The envelope every journey email goes out with (and the studio shows). */
 export interface EmailConfig {
-  /** Sender of every journey email. */
-  from?: EmailAddress;
+  from: EmailAddress;
   replyTo?: EmailAddress;
   /**
-   * Sender identities the studio's from / reply-to pickers list, e.g. 'Acme
-   * <hello@acme.io>'. Defaults to `from` and `replyTo`; "add address" in the
-   * studio writes back here.
+   * The unsubscribe link the templates' footer carries. Tracked like every link, but following
+   * it shows a confirmation page, and only the confirmation (a POST no link scanner sends) is
+   * recorded as the message's unsubscribe.
    */
-  addresses?: string[];
+  unsubscribe?: string;
+  /** How the Worker tells a person's opens and clicks from a machine's (see the reporting classifier). */
+  tracking?: {
+    /**
+     * An open or click this many milliseconds after delivery is a weak machine signal — machine
+     * only together with another (a second link within seconds); 1000 by default. A person
+     * tapping a mail notification can click within a few seconds, so keep it short.
+     */
+    quickClickMs?: number;
+  };
 }
 
 /** Token-based APNs, the `.p8` auth key; the key itself is `APNS_PRIVATE_KEY_BASE64` in the environment. */
@@ -49,18 +86,80 @@ export interface ApnsConfig {
   environment?: Partial<Record<JourneyMode, 'sandbox' | 'production'>>;
 }
 
+/**
+ * Standard Web Push for browsers (VAPID); the key pair is `VAPID_PUBLIC_KEY` /
+ * `VAPID_PRIVATE_KEY` in the environment, and the site subscribes with the same public key.
+ */
+export interface WebPushConfig {
+  /** Who push services may contact about this sender: `mailto:` or an `https:` URL. */
+  subject: string;
+  /**
+   * The contract event a notification tap the browser reports (`opened_url`) is also recorded
+   * as, with `{ message_id }`: the app reports its own taps as an event, and a service worker has
+   * no session to do so — without this, browser opens reach the reports but not the conditions
+   * (a `performed(e.push_opened)` segment). One event per copy, however often it is tapped.
+   */
+  openedEvent?: string;
+}
+
 /** FCM HTTP v1 for Android; the service account is `GOOGLE_APPLICATION_CREDENTIALS_BASE64` in the environment. */
 export interface FcmConfig {
   /** Android notification channel the pushes land in (`android.notification.channel_id`). */
   androidChannelId?: string;
 }
 
-export interface JourneyConfig {
+/**
+ * The engine's tables live in a Postgres schema of their own, so their short names (`event`,
+ * `profile`, `message`, …) never meet the app's. `workflow-ui generate` writes them as one drizzle
+ * file on this schema; the host migrates it with its own tooling.
+ */
+export interface DatabaseConfig {
+  /** The Postgres schema; `workflow` by default. */
+  schema?: string;
+}
+
+export interface JourneyConfigDefinition<
+  E extends Record<string, EmailTemplate> = Record<string, EmailTemplate>,
+  P extends Record<string, PushTemplate> = Record<string, PushTemplate>,
+> {
+  /** Studio title (the browser tab names the project). */
+  title?: string;
+  /** The shared `defineContract(...)` the Worker validates ingest against. */
+  contract?: Contract;
+  workflows: readonly WorkflowBuilder[];
+  segments?: readonly SegmentRef[];
+  actions?: readonly ActionRef<object>[];
+  templates?: TemplateRegistry<E, P>;
+  emails?: EmailConfig;
   /** How the engine behaves per mode (`development`, `production`, …): time scale, message logging. */
   runtime?: JourneyRuntimeConfig;
-  emails?: EmailConfig;
   apns?: ApnsConfig;
   fcm?: FcmConfig;
+  webPush?: WebPushConfig;
+  /** Where a Postgres store keeps the engine's tables (the D1 store ignores it). */
+  database?: DatabaseConfig;
+}
+
+export interface JourneyConfig<
+  E extends Record<string, EmailTemplate> = Record<string, EmailTemplate>,
+  P extends Record<string, PushTemplate> = Record<string, PushTemplate>,
+> extends JourneyConfigDefinition<E, P> {
+  readonly kind: 'journey-config';
+}
+
+export function defineConfig<
+  E extends Record<string, EmailTemplate> = Record<never, never>,
+  P extends Record<string, PushTemplate> = Record<never, never>,
+>(definition: JourneyConfigDefinition<E, P>): JourneyConfig<E, P> {
+  return { kind: 'journey-config', ...definition };
+}
+
+export function isConfig(value: unknown): value is JourneyConfig {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { kind?: unknown }).kind === 'journey-config'
+  );
 }
 
 /** The APNs environment for `mode`: the configured one, else production only for production. */
@@ -68,11 +167,186 @@ export function apnsEnvironment(config: ApnsConfig, mode: JourneyMode): 'sandbox
   return config.environment?.[mode] ?? (mode === 'production' ? 'production' : 'sandbox');
 }
 
-/** The studio's address book: the configured list, else whatever `from` / `replyTo` name. */
-export function emailAddresses(config: EmailConfig | undefined): string[] {
-  if (config?.addresses !== undefined) return config.addresses;
-  const listed: string[] = [];
-  if (config?.from !== undefined) listed.push(formatEmailAddress(config.from));
-  if (config?.replyTo !== undefined) listed.push(formatEmailAddress(config.replyTo));
-  return listed;
+/** A message node the config's registries cannot serve, or whose literal props its template refuses. */
+export class ConfigCompileError extends Error {
+  override readonly name = 'ConfigCompileError';
+}
+
+/**
+ * Compile the config: the bundle `compileBundle` would produce, with the
+ * template manifest generated from the registries (every registered template,
+ * not a hand-kept list), after checking every message node against them —
+ * an unregistered or cross-channel template reference fails with the workflow,
+ * node and channel named, and so does a literal prop the template's schema
+ * refuses (a missing required prop, an undeclared one, a wrong literal).
+ * User-property references cannot be parsed here (their values exist only at
+ * send time) — they are checked by name only, and parsed before sending.
+ */
+export function compileConfig(config: JourneyConfig): BundleIR {
+  const registered = (channel: ChannelIR) => Object.keys(registryOf(config, channel) ?? {});
+  const bundle = compileBundle({
+    workflows: config.workflows,
+    ...(config.segments === undefined ? {} : { segments: config.segments }),
+    ...(config.actions === undefined ? {} : { actions: config.actions }),
+    templates: [
+      ...registered('email').map((key) => template.email(key)),
+      ...registered('push').map((key) => template.push(key)),
+      ...registered('discord').map((key) => template.discord(key)),
+      ...registered('slack').map((key) => template.slack(key)),
+    ],
+  });
+  for (const workflow of bundle.workflows) checkMessages(workflow, workflow.flow, config);
+  return bundle;
+}
+
+const TEMPLATE_CHANNELS: readonly ChannelIR[] = ['email', 'push', 'discord', 'slack'];
+
+/** The config's registry for a channel; undefined for a channel templates cannot be declared for. */
+function registryOf(
+  config: JourneyConfig,
+  channel: ChannelIR
+): Readonly<Record<string, { props: PropsSchema }>> | undefined {
+  switch (channel) {
+    case 'email':
+      return config.templates?.email;
+    case 'push':
+      return config.templates?.push;
+    case 'discord':
+      return config.templates?.discord;
+    case 'slack':
+      return config.templates?.slack;
+    default:
+      return undefined;
+  }
+}
+
+/** A field that may be left out: optional, or with a default the schema fills in. */
+function canBeOmitted(schema: core.$ZodType): boolean {
+  const type = schema._zod.def.type;
+  return type === 'optional' || type === 'default' || type === 'prefault';
+}
+
+function checkMessages(
+  workflow: WorkflowIR,
+  nodes: readonly NodeIR[],
+  config: JourneyConfig
+): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'message':
+        checkMessage(workflow, node, config);
+        break;
+      case 'send_event':
+        checkEmit(workflow, node, config);
+        break;
+      case 'branch':
+        for (const c of node.cases) checkMessages(workflow, c.flow, config);
+        if (node.otherwise) checkMessages(workflow, node.otherwise, config);
+        break;
+      case 'cohort':
+        for (const arm of node.arms) checkMessages(workflow, arm.flow, config);
+        break;
+      case 'wait_until':
+        if (Array.isArray(node.onTimeout)) checkMessages(workflow, node.onTimeout, config);
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+function checkMessage(
+  workflow: WorkflowIR,
+  node: Extract<NodeIR, { type: 'message' }>,
+  config: JourneyConfig
+): void {
+  const where = `workflow '${workflow.id}' node ${node.id}`;
+  const registry = registryOf(config, node.channel);
+  // Channels without a registry (sms, …) are rendered by app-supplied senders
+  if (registry === undefined && !TEMPLATE_CHANNELS.includes(node.channel)) return;
+  if (registry === undefined || !Object.hasOwn(registry, node.template)) {
+    const other = TEMPLATE_CHANNELS.find(
+      (channel) =>
+        channel !== node.channel && Object.hasOwn(registryOf(config, channel) ?? {}, node.template)
+    );
+    const hint = other === undefined ? '' : ` (it is registered as a ${other} template)`;
+    throw new ConfigCompileError(
+      `${where}: ${node.channel} template '${node.template}' is not registered${hint}`
+    );
+  }
+  const entry = registry[node.template];
+  const shape = (entry.props._zod.def as core.$ZodObjectDef).shape;
+  const problems: string[] = [];
+  for (const [field, value] of Object.entries(node.props)) {
+    if (!Object.hasOwn(shape, field)) {
+      problems.push(`'${field}' is not a prop of the template`);
+      continue;
+    }
+    if (typeof value === 'object' && value !== null && 'type' in value) {
+      // A user ref's value exists only at send time (parsed then); here its name can be checked
+      const profile = config.contract?.schemas.profile._zod.def;
+      if (
+        profile !== undefined &&
+        value.path !== 'userId' &&
+        !Object.hasOwn(profile.shape, value.path)
+      ) {
+        problems.push(
+          `'${field}' reads u.${value.path}, which the contract's profile does not declare`
+        );
+      }
+      continue;
+    }
+    const result = z.safeParse(shape[field], value);
+    if (!result.success)
+      problems.push(`'${field}' = ${JSON.stringify(value)} is refused by the schema`);
+  }
+  for (const [field, schema] of Object.entries(shape)) {
+    const optional = canBeOmitted(schema);
+    if (!optional && !Object.hasOwn(node.props, field))
+      problems.push(`required prop '${field}' is missing`);
+  }
+  if (problems.length > 0) {
+    throw new ConfigCompileError(
+      `${where}: ${node.channel} '${node.template}': ${problems.join('; ')}`
+    );
+  }
+}
+
+/**
+ * An emitted event against the contract, as far as compile time can see: the
+ * event is declared, literal payload values parse against their field, and no
+ * required field is missing. Values read from the profile are checked when the
+ * event is emitted, by the same contract.
+ */
+function checkEmit(
+  workflow: WorkflowIR,
+  node: Extract<NodeIR, { type: 'send_event' }>,
+  config: JourneyConfig
+): void {
+  const contract = config.contract;
+  if (contract === undefined) return;
+  const where = `workflow '${workflow.id}' node ${node.id}`;
+  if (!contract.isEvent(node.event)) {
+    throw new ConfigCompileError(
+      `${where}: emits '${String(node.event)}', which is not in the contract`
+    );
+  }
+  const schema = contract.schemas.events[node.event];
+  const shape = (schema._zod.def as core.$ZodObjectDef).shape;
+  const problems: string[] = [];
+  for (const [field, value] of Object.entries(node.payload)) {
+    if (typeof value === 'object' && value !== null && 'type' in value) continue; // read at emit time
+    if (!Object.hasOwn(shape, field)) continue; // a loose payload may carry extra fields
+    const result = z.safeParse(shape[field], value);
+    if (!result.success)
+      problems.push(`'${field}' = ${JSON.stringify(value)} is refused by the contract`);
+  }
+  for (const [field, fieldSchema] of Object.entries(shape)) {
+    const optional = canBeOmitted(fieldSchema);
+    if (!optional && !Object.hasOwn(node.payload, field))
+      problems.push(`required field '${field}' is missing`);
+  }
+  if (problems.length > 0) {
+    throw new ConfigCompileError(`${where}: event '${node.event}': ${problems.join('; ')}`);
+  }
 }

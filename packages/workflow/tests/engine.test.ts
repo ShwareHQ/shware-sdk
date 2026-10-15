@@ -1,15 +1,17 @@
 import { describe, expect, test, vi } from 'vitest';
+import { condIR } from '../src/dsl/condition';
 import { hashToBucket, murmur3 } from '../src/engine/bucket';
 import {
   type ActionInvocation,
+  DEVICES_UPDATED_EVENT,
   type EngineStep,
   type FactSource,
   type JourneyContext,
   type OutboundMessage,
   PROFILE_UPDATED_EVENT,
+  type PushDevice,
   RegistryActionInvoker,
   evaluateCondition,
-  fillSubject,
   matchesWhere,
   relevantEvents,
   runJourney,
@@ -21,6 +23,8 @@ import {
   compileBundle,
   eq,
   performed,
+  reachable,
+  template,
   trigger,
   workflow,
 } from '../src/index';
@@ -71,21 +75,23 @@ class FakeStep implements EngineStep {
 
 /** Segment definitions come from the compiled bundle — one source of truth with the fixtures. */
 const SEGMENT_DEFS: Record<string, ConditionIR> = Object.fromEntries(
-  compileBundle({ workflows: [], segments: allSegments }).segments.map((s) => [s.name, s.condition])
+  compileBundle({ workflows: [], segments: allSegments }).segments.map((s) => [s.id, s.condition])
 );
 
 class FakeFacts implements FactSource {
   events: { name: string; ts: number; payload?: Record<string, unknown> }[] = [];
   props: Record<string, ScalarIR> = {};
+  devices: PushDevice[] = [];
 
   async countEvents(
     event: string,
-    opts?: { sinceMs?: number; where?: ConditionIR }
+    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR }
   ): Promise<number> {
     return this.events.filter(
       (e) =>
         e.name === event &&
         (opts?.sinceMs === undefined || e.ts >= opts.sinceMs) &&
+        (opts?.untilMs === undefined || e.ts <= opts.untilMs) &&
         (opts?.where === undefined || matchesWhere(e.payload ?? {}, opts.where))
     ).length;
   }
@@ -94,6 +100,9 @@ class FakeFacts implements FactSource {
   }
   async getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
     return SEGMENT_DEFS[name];
+  }
+  async listDevices(): Promise<PushDevice[]> {
+    return this.devices;
   }
 }
 
@@ -171,7 +180,7 @@ describe('runJourney: checkoutRecovery', () => {
 
     const outcome = await runJourney(ir, ctx);
 
-    expect(outcome).toEqual({ status: 'goal' });
+    expect(outcome).toEqual({ status: 'goal', convertedAt: expect.any(Number) });
     expect(sent).toHaveLength(0);
   });
 });
@@ -269,7 +278,7 @@ describe('runJourney: send_event', () => {
 
 describe('runJourney: action', () => {
   const sync = action<{ plan: string }>('sync_crm', async () => {});
-  const wf = workflow('with_action', { trigger: trigger.event(e.sign_up) }).run(sync, {
+  const wf = workflow({ id: 'with_action', trigger: trigger.event(e.sign_up) }).run(sync, {
     plan: u.subscription_plan,
   });
 
@@ -391,7 +400,7 @@ describe('step naming', () => {
 
 describe('waitUntil subscriptions', () => {
   test('a property-only condition subscribes to the profile-updated wake event', async () => {
-    const propWait = workflow('prop_wait', { trigger: trigger.event(e.sign_up) }).waitUntil(
+    const propWait = workflow({ id: 'prop_wait', trigger: trigger.event(e.sign_up) }).waitUntil(
       eq(u.subscription_status, 'active'),
       { timeout: '1 hour' }
     );
@@ -404,7 +413,7 @@ describe('waitUntil subscriptions', () => {
   });
 
   test('the subscription is registered before the first condition check', async () => {
-    const waiter = workflow('sub_order', { trigger: trigger.event(e.sign_up) }).waitUntil(
+    const waiter = workflow({ id: 'sub_order', trigger: trigger.event(e.sign_up) }).waitUntil(
       performed(e.login),
       { timeout: '1 hour' }
     );
@@ -422,7 +431,8 @@ describe('waitUntil subscriptions', () => {
 });
 
 describe('goal attribution window (goal.within)', () => {
-  const windowed = workflow('goal_window', {
+  const windowed = workflow({
+    id: 'goal_window',
     trigger: trigger.event(e.begin_checkout),
     goal: { condition: performed(e.purchase), within: '1 hour' },
   }).email(firstTimeRecovery);
@@ -433,8 +443,30 @@ describe('goal attribution window (goal.within)', () => {
 
     const outcome = await runJourney(windowed.toIR(), ctx);
 
-    expect(outcome).toEqual({ status: 'goal' });
+    expect(outcome).toEqual({ status: 'goal', convertedAt: expect.any(Number) });
     expect(sent).toHaveLength(0);
+  });
+
+  test('a conversion inside the window counts even when the check runs after it closed', async () => {
+    const { ctx, facts } = makeContext();
+    ctx.enteredAtMs = Date.now() - 7_200_000; // resumed two hours in, window is one hour
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs + 1_800_000 });
+
+    const outcome = await runJourney(windowed.toIR(), ctx);
+
+    // converted at the latest at the deadline: the check saw it only now
+    expect(outcome).toEqual({ status: 'goal', convertedAt: ctx.enteredAtMs + 3_600_000 });
+  });
+
+  test('a purchase after the window closed is no conversion, whenever the check runs', async () => {
+    const { ctx, facts, sent } = makeContext();
+    ctx.enteredAtMs = Date.now() - 3_720_000; // 62 minutes in
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs + 3_660_000 }); // at minute 61
+
+    const outcome = await runJourney(windowed.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed' });
+    expect(sent).toHaveLength(1);
   });
 
   test('a conversion past the window no longer counts', async () => {
@@ -449,9 +481,128 @@ describe('goal attribution window (goal.within)', () => {
   });
 });
 
+describe('the conversion window outlives the flow', () => {
+  const windowed = workflow({
+    id: 'goal_tail',
+    trigger: trigger.event(e.begin_checkout),
+    goal: { condition: performed(e.purchase), within: '3 days' },
+  }).email(firstTimeRecovery);
+
+  test('a purchase after the last step, inside the window, is the conversion', async () => {
+    const { ctx, facts, step, sent } = makeContext();
+    step.waitForWake = async () => {
+      facts.events.push({ name: 'purchase', ts: Date.now() });
+      return 'event';
+    };
+    expect(await runJourney(windowed.toIR(), ctx)).toEqual({
+      status: 'goal',
+      convertedAt: expect.any(Number),
+    });
+    expect(sent).toHaveLength(1);
+    expect(step.subscriptions.at(-1)).toEqual(['purchase']);
+    expect(step.stepNames).toContain('goal:unsubscribe');
+  });
+
+  test('no purchase by the end of the window: completed', async () => {
+    const { ctx, step } = makeContext();
+    expect(await runJourney(windowed.toIR(), ctx)).toEqual({ status: 'completed' });
+    expect(step.stepNames).toContain('goal:final');
+  });
+
+  test('a goal without a window ends with the flow', async () => {
+    const { ctx, step } = makeContext();
+    const open = workflow({
+      id: 'goal_open',
+      trigger: trigger.event(e.begin_checkout),
+      goal: performed(e.purchase),
+    }).email(firstTimeRecovery);
+    expect(await runJourney(open.toIR(), ctx)).toEqual({ status: 'completed' });
+    expect(step.stepNames.some((name) => name.startsWith('goal:'))).toBe(false);
+  });
+});
+
+describe('conversion apart from the ending', () => {
+  test('exitOnMatch: false keeps the flow going and ends completed, still converted', async () => {
+    const wf = workflow({
+      id: 'goal_keep_going',
+      trigger: trigger.event(e.begin_checkout),
+      goal: { condition: performed(e.purchase), exitOnMatch: false },
+    }).email(firstTimeRecovery);
+    const { ctx, facts, sent } = makeContext();
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs + 1 });
+
+    const outcome = await runJourney(wf.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed', convertedAt: expect.any(Number) });
+    expect(sent).toHaveLength(1);
+  });
+
+  test('exitWhen still ends the instance while it waits out the conversion window', async () => {
+    const wf = workflow({
+      id: 'goal_tail_exit',
+      trigger: trigger.event(e.begin_checkout),
+      goal: { condition: performed(e.purchase), within: '3 days' },
+      exitWhen: performed(e.login),
+    }).email(firstTimeRecovery);
+    const { ctx, facts, step } = makeContext();
+    step.waitForWake = async () => {
+      facts.events.push({ name: 'login', ts: Date.now() });
+      return 'event';
+    };
+
+    expect(await runJourney(wf.toIR(), ctx)).toEqual({ status: 'exit_when' });
+    // armed for both: the goal's event and the exit's
+    expect([...(step.subscriptions.at(-1) ?? [])].sort()).toEqual(['login', 'purchase']);
+  });
+
+  test('the instance is reported started before an entry guard can end it', async () => {
+    const wf = workflow({
+      id: 'goal_at_entry',
+      trigger: trigger.event(e.begin_checkout),
+      goal: performed(e.purchase),
+    }).email(firstTimeRecovery);
+    const { ctx, facts } = makeContext();
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs + 1 });
+    const started: { instanceId: string; at: number }[] = [];
+    ctx.observer = { started: async (event) => void started.push(event) };
+
+    expect((await runJourney(wf.toIR(), ctx)).status).toBe('goal');
+    expect(started).toEqual([
+      expect.objectContaining({ instanceId: 'inst_1', at: ctx.enteredAtMs }),
+    ]);
+  });
+});
+
+describe('checkpoints written before conversions were recorded apart', () => {
+  test('replay neither invents a conversion nor cuts a wait short', async () => {
+    const wf = workflow({
+      id: 'legacy_replay',
+      trigger: trigger.event(e.begin_checkout),
+      goal: { condition: performed(e.purchase), within: '3 days' },
+    })
+      .waitUntil(performed(e.login), { timeout: '1 day' })
+      .email(firstTimeRecovery);
+    const { ctx, step, sent } = makeContext();
+    // What the old code checkpointed: the guard's booleans, a wait check's `false`
+    const legacy: Record<string, unknown> = {
+      'entry:guard': { goalMet: false, exitMet: false },
+      '0:check:0': false,
+    };
+    step.do = async <T>(name: string, fn: () => Promise<T>): Promise<T> =>
+      name in legacy ? (legacy[name] as T) : fn();
+    step.wakeScript = ['timeout'];
+
+    const outcome = await runJourney(wf.toIR(), ctx);
+
+    expect(outcome).toEqual({ status: 'completed' });
+    expect(sent).toHaveLength(1);
+  });
+});
+
 describe('performed anchoring', () => {
   test('goal ignores events from before workflow entry', async () => {
-    const wf = workflow('anchor_goal', {
+    const wf = workflow({
+      id: 'anchor_goal',
       trigger: trigger.event(e.begin_checkout),
       goal: performed(e.purchase),
     }).email(firstTimeRecovery);
@@ -466,7 +617,8 @@ describe('performed anchoring', () => {
   });
 
   test('goal counts events after entry', async () => {
-    const wf = workflow('anchor_goal', {
+    const wf = workflow({
+      id: 'anchor_goal',
       trigger: trigger.event(e.begin_checkout),
       goal: performed(e.purchase),
     }).email(firstTimeRecovery);
@@ -475,12 +627,12 @@ describe('performed anchoring', () => {
 
     const outcome = await runJourney(wf.toIR(), ctx);
 
-    expect(outcome).toEqual({ status: 'goal' });
+    expect(outcome).toEqual({ status: 'goal', convertedAt: expect.any(Number) });
     expect(sent).toHaveLength(0);
   });
 
   test('waitUntil ignores events from before the wait began', async () => {
-    const wf = workflow('anchor_wait', { trigger: trigger.event(e.sign_up) }).waitUntil(
+    const wf = workflow({ id: 'anchor_wait', trigger: trigger.event(e.sign_up) }).waitUntil(
       performed(e.login),
       { timeout: '1 hour', onTimeout: 'exit' }
     );
@@ -539,7 +691,8 @@ describe('payload where clauses', () => {
 
 describe('guards run at entry and suspension points only', () => {
   test('synchronous nodes get no per-node guard', async () => {
-    const wf = workflow('guarded', {
+    const wf = workflow({
+      id: 'guarded',
       trigger: trigger.event(e.sign_up),
       goal: performed(e.purchase),
     })
@@ -569,10 +722,13 @@ describe('cohort experiment key', () => {
   };
 
   test('with a key, assignment survives node position changes', async () => {
-    const atHead = workflow('ab_head', { trigger: trigger.event(e.sign_up) }).cohort(couponArm, {
-      key: 'exp1',
-    });
-    const shifted = workflow('ab_shifted', { trigger: trigger.event(e.sign_up) })
+    const atHead = workflow({ id: 'ab_head', trigger: trigger.event(e.sign_up) }).cohort(
+      couponArm,
+      {
+        key: 'exp1',
+      }
+    );
+    const shifted = workflow({ id: 'ab_shifted', trigger: trigger.event(e.sign_up) })
       .email(firstTimeRecovery)
       .cohort(couponArm, { key: 'exp1' });
 
@@ -582,8 +738,8 @@ describe('cohort experiment key', () => {
   });
 
   test('without a key, position shifts reshuffle assignments (the reason key exists)', async () => {
-    const atHead = workflow('ab_head', { trigger: trigger.event(e.sign_up) }).cohort(couponArm);
-    const shifted = workflow('ab_shifted', { trigger: trigger.event(e.sign_up) })
+    const atHead = workflow({ id: 'ab_head', trigger: trigger.event(e.sign_up) }).cohort(couponArm);
+    const shifted = workflow({ id: 'ab_shifted', trigger: trigger.event(e.sign_up) })
       .email(firstTimeRecovery)
       .cohort(couponArm);
 
@@ -776,7 +932,7 @@ describe('murmur3 bucketing', () => {
 
   test('fractional weights are honoured at basis-point precision', async () => {
     // A 0.5% arm: exactly buckets 0..49 of 10,000 — impossible on a 100-bucket grid
-    const ab = workflow('bp_split', { trigger: trigger.event(e.login) }).cohort(
+    const ab = workflow({ id: 'bp_split', trigger: trigger.event(e.login) }).cohort(
       { tiny: { weight: 0.5, flow: (w: FlowBuilder) => w.email(proTips) }, rest: { weight: 99.5 } },
       { key: 'bp_probe' }
     );
@@ -794,40 +950,6 @@ describe('murmur3 bucketing', () => {
     // 100-bucket quantization would land on 0 or ~40 — both outside this band
     expect(tiny).toBeGreaterThan(4);
     expect(tiny).toBeLessThan(60);
-  });
-});
-
-describe('fillSubject: subject templates fill from the profile', () => {
-  const profile: Record<string, ScalarIR> = { subscription_plan: 'pro', docs_count: 42 };
-  const lookup = (path: string) => Promise.resolve(profile[path]);
-
-  test('placeholders resolve to property values, repeated and mixed with text', async () => {
-    await expect(
-      fillSubject('Finish upgrading to {{ user.subscription_plan }}', lookup)
-    ).resolves.toBe('Finish upgrading to pro');
-    await expect(
-      fillSubject(
-        '{{ user.subscription_plan }}: {{ user.docs_count }} docs on {{ user.subscription_plan }}',
-        lookup
-      )
-    ).resolves.toBe('pro: 42 docs on pro');
-  });
-
-  test('the filler is lenient about whitespace even though the type layer is not', async () => {
-    await expect(fillSubject('Hi {{user.subscription_plan}}!', lookup)).resolves.toBe('Hi pro!');
-    await expect(fillSubject('Hi {{  user.subscription_plan  }}!', lookup)).resolves.toBe(
-      'Hi pro!'
-    );
-  });
-
-  test('a template without placeholders passes through untouched', async () => {
-    await expect(fillSubject('Welcome aboard', lookup)).resolves.toBe('Welcome aboard');
-  });
-
-  test('a missing property softens to an empty string instead of leaking the placeholder', async () => {
-    await expect(fillSubject('Hi {{ user.first_name }}, welcome', lookup)).resolves.toBe(
-      'Hi , welcome'
-    );
   });
 });
 
@@ -905,6 +1027,7 @@ describe('segment cycles in hand-built IR', () => {
         lookups.push(name);
         return definitions[name];
       },
+      listDevices: async () => [],
     };
     return { facts, lookups };
   }
@@ -940,5 +1063,237 @@ describe('segment cycles in hand-built IR', () => {
 
     await expect(relevantEvents(ref('ping'), facts)).resolves.toEqual(['login']);
     expect(lookups).toEqual(['ping', 'pong']);
+  });
+});
+
+describe('push goes to devices', () => {
+  const ping = template.push<{ name: string }>('ping');
+  const phone: PushDevice = { token: 'tok-phone', platform: 'ios' };
+  const tablet: PushDevice = { token: 'tok-tablet', platform: 'android' };
+
+  test('one copy per listed device, each keyed by its token', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [phone, tablet];
+    const ir = workflow({ id: 'push_all', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email })
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => [m.recipient, m.device?.platform, m.idempotencyKey])).toEqual([
+      ['tok-phone', 'ios', 'inst_1:0:tok-phone'],
+      ['tok-tablet', 'android', 'inst_1:0:tok-tablet'],
+    ]);
+  });
+
+  test('a failure on one device retries that device alone', async () => {
+    const { ctx, facts, step, sent } = makeContext();
+    facts.devices = [phone, tablet];
+    // A durable step: a completed one replays its result; a failed one runs again on retry
+    const done = new Map<string, unknown>();
+    step.do = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+      if (done.has(name)) return done.get(name) as T;
+      const result = await fn();
+      done.set(name, result);
+      return result;
+    };
+    let tabletDown = true;
+    ctx.messages = {
+      send: async (message) => {
+        if (message.recipient === 'tok-tablet' && tabletDown) throw new Error('FCM 503');
+        sent.push(message);
+      },
+    };
+    const ir = workflow({ id: 'push_retry', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email })
+      .toIR();
+
+    await expect(runJourney(ir, ctx)).rejects.toThrow('FCM 503');
+    tabletDown = false;
+    await runJourney(ir, ctx);
+
+    // The phone got its copy once; the retry only reached the tablet
+    expect(sent.map((m) => m.recipient)).toEqual(['tok-phone', 'tok-tablet']);
+  });
+
+  test("devices: 'latest' only reaches the most recently registered device", async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [tablet, phone];
+    const ir = workflow({ id: 'push_latest', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email }, { devices: 'latest' })
+      .toIR();
+    expect(ir.flow[0]).toMatchObject({ type: 'message', devices: 'latest' });
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => m.recipient)).toEqual(['tok-tablet']);
+  });
+
+  test('the default leaves no devices field, so existing pushes keep their hash', () => {
+    const ir = workflow({ id: 'push_default', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email }, { devices: 'all' })
+      .toIR();
+    expect(ir.flow[0]).not.toHaveProperty('devices');
+  });
+
+  test('a user without a device is skipped and the journey goes on', async () => {
+    const { ctx, sent } = makeContext();
+    const ir = workflow({ id: 'push_none', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email })
+      .delay('1 hour')
+      .toIR();
+    expect(await runJourney(ir, ctx)).toEqual({ status: 'completed' });
+    expect(sent).toEqual([]);
+  });
+
+  test("reachable('push') asks the device directory and wakes on device changes", async () => {
+    const facts = new FakeFacts();
+    const condition = condIR(reachable('push'));
+    expect(await evaluateCondition(condition, facts, Date.now())).toBe(false);
+    facts.devices = [phone];
+    expect(await evaluateCondition(condition, facts, Date.now())).toBe(true);
+    expect(await relevantEvents(condition, facts)).toEqual([DEVICES_UPDATED_EVENT]);
+  });
+
+  test("reachable('email') is the recipient property being set", async () => {
+    const facts = new FakeFacts();
+    const condition = condIR(reachable('email'));
+    expect(await evaluateCondition(condition, facts, Date.now())).toBe(false);
+    facts.props.email = 'ada@acme.test';
+    expect(await evaluateCondition(condition, facts, Date.now())).toBe(true);
+    expect(await relevantEvents(condition, facts)).toEqual([PROFILE_UPDATED_EVENT]);
+  });
+});
+
+describe('template validation before sending', () => {
+  const ping = template.push<{ name: string }>('ping');
+
+  test('a refused push reaches no device, and the error names the instance and node', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [
+      { token: 'a', platform: 'ios' },
+      { token: 'b', platform: 'android' },
+    ];
+    ctx.validator = {
+      validate: () => {
+        throw Object.assign(new Error("push template 'ping' rejected its props: name required"), {
+          name: 'TemplateValidationError',
+        });
+      },
+    };
+    const ir = workflow({ id: 'validated', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email })
+      .toIR();
+    const error = await runJourney(ir, ctx).catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'TemplateValidationError' });
+    expect((error as Error).message).toMatch(/^\[inst_1 0\] push template 'ping'/);
+    expect(sent).toEqual([]);
+  });
+
+  test('senders get the parsed props the validator returns', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [{ token: 'a', platform: 'ios' }];
+    facts.props.email = 'ada@acme.test';
+    ctx.validator = { validate: ({ props }) => ({ name: `parsed:${String(props.name)}` }) };
+    const ir = workflow({ id: 'validated_ok', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email })
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => m.props)).toEqual([{ name: 'parsed:ada@acme.test' }]);
+  });
+});
+
+describe('the observer hears positions and copies', () => {
+  const ping = template.push<{ name: string }>('ping');
+  const hello = template.email('hello');
+
+  test('each node is reported once, in its own step, with the workflow and instance', async () => {
+    const { ctx, step } = makeContext();
+    const reached: string[] = [];
+    ctx.observer = {
+      nodeReached: async ({ workflow: name, instanceId, nodeId }) => {
+        reached.push(`${name}/${instanceId}/${nodeId}`);
+      },
+    };
+    const ir = workflow({ id: 'observed', trigger: trigger.event(e.login) })
+      .email(hello)
+      .delay('1 hour')
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(reached).toEqual(['observed/inst_1/0', 'observed/inst_1/1']);
+    expect(step.stepNames.filter((name) => name.endsWith(':reached'))).toEqual([
+      '0:reached',
+      '1:reached',
+    ]);
+  });
+
+  test('no observer, no extra steps', async () => {
+    const { ctx, step } = makeContext();
+    const ir = workflow({ id: 'plain', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(step.stepNames.some((name) => name.endsWith(':reached'))).toBe(false);
+  });
+
+  test('tracking from messagePrepared reaches the sender; messageSent hears the result per copy', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [
+      { token: 'tok-live', platform: 'ios' },
+      { token: 'tok-dead', platform: 'ios' },
+    ];
+    ctx.messages = {
+      send: async (message) => {
+        sent.push(message);
+        return message.recipient === 'tok-dead'
+          ? { delivered: false, reason: 'Unregistered' }
+          : undefined;
+      },
+    };
+    const results: [string, unknown][] = [];
+    ctx.observer = {
+      messagePrepared: async (message) => ({ data: { message_id: `m:${message.idempotencyKey}` } }),
+      messageSent: async (message, result) => {
+        results.push([message.idempotencyKey, result]);
+      },
+    };
+    const ir = workflow({ id: 'pushed', trigger: trigger.event(e.login) })
+      .push(ping, { name: u.email })
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => [m.workflow, m.nodeId, m.tracking?.data])).toEqual([
+      ['pushed', '0', { message_id: 'm:inst_1:0:tok-live' }],
+      ['pushed', '0', { message_id: 'm:inst_1:0:tok-dead' }],
+    ]);
+    expect(results).toEqual([
+      ['inst_1:0:tok-live', { delivered: true }],
+      ['inst_1:0:tok-dead', { delivered: false, reason: 'Unregistered' }],
+    ]);
+  });
+
+  test('a send that throws is not reported as sent', async () => {
+    const { ctx } = makeContext();
+    ctx.messages = {
+      send: async () => {
+        throw new Error('transport down');
+      },
+    };
+    const sentReports: string[] = [];
+    ctx.observer = { messageSent: async (m) => void sentReports.push(m.idempotencyKey) };
+    const ir = workflow({ id: 'failing', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await expect(runJourney(ir, ctx)).rejects.toThrow('transport down');
+    expect(sentReports).toEqual([]);
+  });
+
+  test('a report that fails after the send does not fail the step (no second send)', async () => {
+    const { ctx, sent } = makeContext();
+    ctx.observer = {
+      messageSent: async () => {
+        throw new Error('reporting database down');
+      },
+    };
+    const ir = workflow({ id: 'reporting_down', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await expect(runJourney(ir, ctx)).resolves.toMatchObject({ status: 'completed' });
+    expect(sent).toHaveLength(1);
   });
 });

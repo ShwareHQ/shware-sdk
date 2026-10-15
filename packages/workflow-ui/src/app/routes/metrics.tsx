@@ -8,6 +8,7 @@ import { superellipse } from '../../components/corner-shape';
 import {
   type DateRange,
   DateRangePicker,
+  isoDay,
   lastDays,
   parseIsoDay,
 } from '../../components/date-range';
@@ -22,6 +23,7 @@ import {
   type MetricPoint,
 } from '../../config';
 import { lookup } from '../../utils/lookup';
+import { lookupTemplate } from '../../utils/template-content';
 import { workflowDetailRoute } from './workflows';
 
 /** Sentinel for "no channel filter" — a `<select>` value cannot be undefined. */
@@ -110,8 +112,35 @@ const SERIES: Record<CardKey, (point: MetricPoint) => number> = {
   sent: (point) => point.sent,
   opened: (point) => rate(point.opened, point.delivered),
   clicked: (point) => rate(point.clicked, point.delivered),
-  converted: (point) => rate(point.converted, point.delivered),
+  // A conversion is a user's, not a message's: entered users are its denominator
+  converted: (point) => rate(point.converted, point.entered),
 };
+
+/** The card headline: one number for the whole range, the same rate a chart point uses. */
+const TOTAL: Record<CardKey, (points: readonly MetricPoint[]) => number> = {
+  sent: (points) => sum(points, 'sent'),
+  opened: (points) => rate(sum(points, 'opened'), sum(points, 'delivered')),
+  clicked: (points) => rate(sum(points, 'clicked'), sum(points, 'delivered')),
+  converted: (points) => rate(sum(points, 'converted'), sum(points, 'entered')),
+};
+
+function sum(
+  points: readonly MetricPoint[],
+  key: 'sent' | 'delivered' | 'opened' | 'clicked' | 'entered' | 'converted'
+) {
+  return points.reduce((total, point) => total + point[key], 0);
+}
+
+/** The range just before `range`, of the same length: what the headline is compared against. */
+function previousRange(range: DateRange): DateRange {
+  const from = parseIsoDay(range.from);
+  const days = Math.round((parseIsoDay(range.to).getTime() - from.getTime()) / 86_400_000) + 1;
+  const to = new Date(from);
+  to.setDate(to.getDate() - 1);
+  const start = new Date(to);
+  start.setDate(start.getDate() - (days - 1));
+  return { from: isoDay(start), to: isoDay(to) };
+}
 
 /** The two halves of a split metric, in the order they are plotted. */
 type SplitKey = 'openedHuman' | 'openedMachine' | 'clickedHuman' | 'clickedMachine';
@@ -165,7 +194,7 @@ function totalsOf(rows: readonly MessageStat[]) {
  * than no panels at all.
  */
 function MetricsTab() {
-  const { name } = workflowDetailRoute.useParams();
+  const { id } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
   const { t, i18n } = useTranslation();
 
@@ -174,13 +203,21 @@ function MetricsTab() {
   const [channel, setChannel] = useState<MetricChannel | undefined>(undefined);
   const [sortAscending, setSortAscending] = useState(true);
 
-  const ir = lookup(config.workflows, name)?.toIR();
-  const workflowName = ir?.name ?? '';
+  const ir = lookup(config.workflows, id);
+  const workflowName = ir?.id ?? '';
 
   const { data: points } = useQuery({
     queryKey: ['metrics', workflowName, range.from, range.to, granularity, channel ?? ALL],
     queryFn: async () =>
       (await config.stats?.metrics?.(workflowName, { ...range, granularity, channel })) ?? [],
+    enabled: ir !== undefined && config.stats?.metrics !== undefined,
+  });
+
+  const previous = previousRange(range);
+  const { data: previousPoints } = useQuery({
+    queryKey: ['metrics', workflowName, previous.from, previous.to, granularity, channel ?? ALL],
+    queryFn: async () =>
+      (await config.stats?.metrics?.(workflowName, { ...previous, granularity, channel })) ?? [],
     enabled: ir !== undefined && config.stats?.metrics !== undefined,
   });
 
@@ -216,8 +253,13 @@ function MetricsTab() {
   const nameOf = (row: MessageStat): string => {
     const label = ir === undefined ? undefined : findNode(ir, row.nodeId)?.label?.trim();
     if (label !== undefined && label !== '') return label;
-    const module = lookup(config.emails, row.template) ?? lookup(config.pushes, row.template);
-    const moduleName = module?.name?.trim();
+    /* The row's own channel picks the registry: one key can name an email and a push. */
+    const found = lookupTemplate(
+      config,
+      row.channel.startsWith('push') ? 'push' : row.channel,
+      row.template
+    );
+    const moduleName = found?.entry.title.trim();
     return moduleName !== undefined && moduleName !== '' ? moduleName : row.template;
   };
 
@@ -239,8 +281,6 @@ function MetricsTab() {
   }
 
   const buckets = points ?? [];
-  const last = buckets.at(-1);
-  const previous = buckets.at(-2);
   /* Formatted once for all four cards: the hover readout wants a date a person
      can read, and the card has no locale of its own. Long form, weekday and
      all — the readout is the one place there is room for it, and a weekday is
@@ -264,13 +304,6 @@ function MetricsTab() {
       day: 'numeric',
     });
   });
-
-  /** '-419 from last day' — the unit of comparison is the bucket, so it follows granularity. */
-  const fromLast = (text: string) => {
-    if (granularity === 'week') return t('metrics.fromLast.week', { value: text });
-    if (granularity === 'month') return t('metrics.fromLast.month', { value: text });
-    return t('metrics.fromLast.day', { value: text });
-  };
 
   /**
    * The lines one card plots: its total, and — where the source measured them
@@ -298,21 +331,28 @@ function MetricsTab() {
     ];
   };
 
+  /*
+   * The headline is the whole range — a total, or one rate over all of it — and the delta
+   * compares it with the range of the same length just before. The last bucket alone (today, a
+   * day still in progress) made the headline small and jumpy, and 0 the moment sends paused.
+   */
   const cardOf = (key: CardKey) => {
-    const pick = SERIES[key];
     const format = key === 'sent' ? number : percent;
-    const current = last === undefined ? 0 : pick(last);
-    const delta =
-      previous === undefined || last === undefined ? undefined : current - pick(previous);
+    const current = TOTAL[key](buckets);
+    const before = previousPoints === undefined ? undefined : TOTAL[key](previousPoints);
+    const delta = before === undefined ? undefined : current - before;
     return (
       <MetricCard
         key={key}
         label={t(`metrics.${key}`)}
-        value={last === undefined ? '—' : format(current)}
+        value={buckets.length === 0 ? '—' : format(current)}
         delta={
           delta === undefined
             ? undefined
-            : { text: fromLast(signed(delta, format)), trend: trendOf(delta) }
+            : {
+                text: t('metrics.vsPrevious', { value: signed(delta, format) }),
+                trend: trendOf(delta),
+              }
         }
         dates={dates}
         series={seriesOf(key)}
@@ -411,7 +451,11 @@ function MetricsTab() {
                   {rows.map(({ row, label }) => {
                     const RowGlyph = channelIcon(row.channel);
                     return (
-                      <tr key={row.nodeId} className="last:[&>td]:border-b-0">
+                      /* One send site lands on several channels (a push on iOS and Android): one row each. */
+                      <tr
+                        key={`${row.nodeId}:${row.template}:${row.channel}`}
+                        className="last:[&>td]:border-b-0"
+                      >
                         <td className="border-border border-b px-4 py-3 align-top">
                           <span className="flex items-center gap-2">
                             <RowGlyph
@@ -423,6 +467,9 @@ function MetricsTab() {
                             <Link
                               to="/templates/$key"
                               params={{ key: row.template }}
+                              search={{
+                                channel: row.channel.startsWith('push') ? 'push' : row.channel,
+                              }}
                               className="text-accent truncate hover:underline"
                             >
                               {label}

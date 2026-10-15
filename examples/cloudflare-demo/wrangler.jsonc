@@ -18,6 +18,7 @@
       "database_id": "journey-db-local",
     },
   ],
+  "send_email": [{ "name": "EMAIL" }],
   "kv_namespaces": [
     {
       "binding": "WORKFLOW_KV",

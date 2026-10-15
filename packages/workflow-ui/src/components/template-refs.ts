@@ -21,6 +21,8 @@ export interface TemplateRefInfo {
   usages: TemplateUsage[];
 }
 
+const TEMPLATE_CHANNELS = new Set(['email', 'push', 'discord', 'slack']);
+
 /** Walk the IR node tree depth-first (branch arms, cohort arms and waitUntil timeout flows all included). */
 function walk(nodes: readonly NodeIR[], visit: (node: NodeIR) => void): void {
   for (const node of nodes) {
@@ -42,25 +44,60 @@ function walk(nodes: readonly NodeIR[], visit: (node: NodeIR) => void): void {
   }
 }
 
+/**
+ * One entry per template — per channel and key, since one key can name an
+ * email and a push, and their usages must not run together.
+ */
 export function collectTemplateRefs(irs: readonly WorkflowIR[]): TemplateRefInfo[] {
   const byKey = new Map<string, TemplateRefInfo>();
   for (const ir of irs) {
     walk(ir.flow, (node) => {
-      if (node.type !== 'message') return;
-      const usage: TemplateUsage = { workflow: ir.name, nodeId: node.id, props: node.props };
-      const found = byKey.get(node.template);
+      // Only the template channels have registries; other channels' messages have nothing to preview
+      if (node.type !== 'message' || !TEMPLATE_CHANNELS.has(node.channel)) return;
+      const usage: TemplateUsage = { workflow: ir.id, nodeId: node.id, props: node.props };
+      const id = `${node.channel}:${node.template}`;
+      const found = byKey.get(id);
       if (found) {
         found.usages.push(usage);
         return;
       }
-      byKey.set(node.template, {
+      byKey.set(id, {
         key: node.template,
         channel: node.channel,
         usages: [usage],
       });
     });
   }
-  return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
+  return Array.from(byKey.values()).sort(
+    (a, b) => a.key.localeCompare(b.key) || a.channel.localeCompare(b.channel)
+  );
+}
+
+/**
+ * Every template the studio can show: each registered one — referenced or
+ * not yet, so a template can be previewed before a flow uses it — plus each
+ * one the IR references without registering it (shown as missing). The IR
+ * only adds the use sites.
+ */
+export function collectTemplates(
+  irs: readonly WorkflowIR[],
+  registries: { emails?: object; pushes?: object; discords?: object; slacks?: object }
+): TemplateRefInfo[] {
+  const byKey = new Map(collectTemplateRefs(irs).map((ref) => [`${ref.channel}:${ref.key}`, ref]));
+  for (const [channel, registry] of [
+    ['email', registries.emails],
+    ['push', registries.pushes],
+    ['discord', registries.discords],
+    ['slack', registries.slacks],
+  ] as const) {
+    for (const key of Object.keys(registry ?? {})) {
+      if (!byKey.has(`${channel}:${key}`))
+        byKey.set(`${channel}:${key}`, { key, channel, usages: [] });
+    }
+  }
+  return Array.from(byKey.values()).sort(
+    (a, b) => a.key.localeCompare(b.key) || a.channel.localeCompare(b.channel)
+  );
 }
 
 /** Find one node by its structural id, arms and timeout lanes included. */
@@ -70,23 +107,4 @@ export function findNode(ir: WorkflowIR, id: string): NodeIR | undefined {
     if (node.id === id) found = node;
   });
   return found;
-}
-
-/**
- * How many nodes were built by each source position.
- *
- * A helper reused across arms — `const eduModule = (t) => (w) => w.email(t).delay('1 week')`
- * — produces one call site and many nodes, so editing "this node's" value edits
- * every node the helper made. That is faithful to the code, but the panel has to
- * say so rather than imply the edit is local.
- */
-export function nodesPerSourcePosition(ir: WorkflowIR): Map<string, number> {
-  const counts = new Map<string, number>();
-  walk(ir.flow, (node) => {
-    const loc = node.meta?.loc;
-    if (loc === undefined) return;
-    const key = `${loc.file}:${loc.line}:${loc.column}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  });
-  return counts;
 }

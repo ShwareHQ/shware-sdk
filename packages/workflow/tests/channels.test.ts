@@ -1,11 +1,12 @@
 import { webcrypto } from 'node:crypto';
 import { createElement } from 'react';
 import { beforeAll, describe, expect, test } from 'vitest';
+import { z } from 'zod';
 import type { EmailBindingLike } from '../src/cloudflare/bindings';
-import { channelsFromConfig, journeyMode, runtimeFromConfig } from '../src/cloudflare/channels';
-import { apnsEnvironment, emailAddresses, formatEmailAddress } from '../src/config';
+import { type ChannelsConfig, channelsFromConfig } from '../src/cloudflare/channels';
 import type { OutboundMessage } from '../src/engine/ports';
 import { D1JourneyStore } from '../src/store/d1';
+import { emailTemplate, pushTemplate } from '../src/templates';
 import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
 
 /**
@@ -28,15 +29,27 @@ beforeAll(async () => {
   ).toString('base64');
 });
 
+const named = z.strictObject({ name: z.string() });
 const emails = {
-  welcome: { default: () => createElement('p', null, 'hi'), subject: 'Welcome {{ user.name }}' },
+  welcome: emailTemplate({
+    title: 'Welcome',
+    props: named,
+    subject: 'Welcome aboard',
+    preview: { name: 'A' },
+    component: ({ name }) => createElement('p', null, `hi ${name}`),
+  }),
 };
-const pushes = { nudge: { title: 'Hi {name}', body: 'come back' } };
+const pushes = {
+  nudge: pushTemplate({
+    title: 'Nudge',
+    props: named,
+    preview: { name: 'A' },
+    content: ({ name }) => ({ title: `Hi ${name}`, body: 'come back' }),
+  }),
+};
+const templates = { email: emails, push: pushes };
 
-function setup(platform: 'ios' | 'android' = 'ios') {
-  const db = new FakeD1();
-  const store = new D1JourneyStore(db, new FakeKV());
-  db.profiles.set('u1', JSON.stringify({ name: 'Ada', push_platform: platform }));
+function setup(gone = false) {
   const sent: { to: unknown; from: unknown; subject: string; idempotencyKey: string }[] = [];
   const binding: EmailBindingLike = {
     async send(message) {
@@ -57,6 +70,7 @@ function setup(platform: 'ios' | 'android' = 'ios') {
         status: 200,
       });
     }
+    if (gone) return new Response(JSON.stringify({ reason: 'Unregistered' }), { status: 410 });
     return new Response(null, { status: 200 });
   };
   const env = {
@@ -66,46 +80,53 @@ function setup(platform: 'ios' | 'android' = 'ios') {
     APNS_PRIVATE_KEY_BASE64: p8Base64,
     APNS_RELAY_ORIGIN: 'http://localhost:8341',
   };
-  return { store, env, sent, fetched, fetchImpl };
+  return { env, sent, fetched, fetchImpl };
 }
 
-const message = (channel: 'email' | 'push', recipient: string): OutboundMessage => ({
+const message = (
+  channel: 'email' | 'push',
+  recipient: string,
+  platform: 'ios' | 'android' = 'ios'
+): OutboundMessage => ({
+  workflow: 'w',
+  instanceId: 'inst',
+  nodeId: '0',
   channel,
   template: channel === 'email' ? 'welcome' : 'nudge',
   props: { name: 'Ada' },
   userId: 'u1',
   recipient,
+  ...(channel === 'push' ? { device: { token: recipient, platform } } : {}),
   idempotencyKey: 'inst:1',
 });
 
 describe('channelsFromConfig', () => {
-  test('email goes through the binding with the configured envelope and profile subjects', async () => {
-    const { store, env, sent } = setup();
+  test('email goes through the binding with the configured envelope; the subject as written', async () => {
+    const { env, sent } = setup();
     const sender = channelsFromConfig(
-      { emails: { from: { email: 'hi@acme.test', name: 'Acme' }, replyTo: 'help@acme.test' } },
-      env,
-      store,
-      { emails, pushes }
+      {
+        templates,
+        emails: { from: { email: 'hi@acme.test', name: 'Acme' }, replyTo: 'help@acme.test' },
+      },
+      env
     );
     await sender.send(message('email', 'ada@example.com'));
     expect(sent).toEqual([
       {
         to: 'ada@example.com',
         from: { email: 'hi@acme.test', name: 'Acme' },
-        subject: 'Welcome Ada',
+        subject: 'Welcome aboard',
         idempotencyKey: 'inst:1',
       },
     ]);
   });
 
   test('an iOS push goes to APNs through the dev relay, in the sandbox for development', async () => {
-    const { store, env, fetched, fetchImpl } = setup('ios');
+    const { env, fetched, fetchImpl } = setup();
     const sender = channelsFromConfig(
-      { apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },
+      { templates, apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },
       env,
-      store,
-      { emails, pushes },
-      fetchImpl
+      { fetch: fetchImpl }
     );
     await sender.send(message('push', 'devicetoken'));
     expect(fetched).toEqual([
@@ -117,7 +138,7 @@ describe('channelsFromConfig', () => {
   });
 
   test('an Android push goes through FCM with the service account', async () => {
-    const { store, env, fetched, fetchImpl } = setup('android');
+    const { env, fetched, fetchImpl } = setup();
     const serviceAccount = Buffer.from(
       JSON.stringify({
         project_id: 'acme',
@@ -126,76 +147,67 @@ describe('channelsFromConfig', () => {
       })
     ).toString('base64');
     const sender = channelsFromConfig(
-      { fcm: { androidChannelId: 'default' } },
+      { templates, fcm: { androidChannelId: 'default' } },
       { ...env, GOOGLE_APPLICATION_CREDENTIALS_BASE64: serviceAccount },
-      store,
-      { emails, pushes },
-      fetchImpl
+      { fetch: fetchImpl }
     );
     // The fake key cannot sign, so the token exchange is where this stops — past routing and setup.
-    await expect(sender.send(message('push', 'fcmtoken'))).rejects.toThrow(Error);
+    await expect(sender.send(message('push', 'fcmtoken', 'android'))).rejects.toThrow(Error);
     expect(fetched).toEqual([]);
   });
 
   test('a channel the config leaves out fails the step with the reason', async () => {
-    const { store, env } = setup();
-    const sender = channelsFromConfig({ emails: { from: 'hi@acme.test' } }, env, store, { emails });
-    await expect(sender.send(message('push', 'tok'))).rejects.toThrow(/no push registry/);
-    const noEmail = channelsFromConfig(
-      { apns: { topic: 't', keyId: 'k', teamId: 't' } },
-      env,
-      store,
+    const { env } = setup();
+    const noPush: ChannelsConfig = {
+      templates: { email: emails },
+      emails: { from: 'hi@acme.test' },
+    };
+    await expect(channelsFromConfig(noPush, env).send(message('push', 'tok'))).rejects.toThrow(
+      /no push templates are registered/
+    );
+    const noEmail: ChannelsConfig = {
+      templates: { push: pushes },
+      apns: { topic: 't', keyId: 'k', teamId: 't' },
+    };
+    await expect(channelsFromConfig(noEmail, env).send(message('email', 'a@b.c'))).rejects.toThrow(
+      /no email templates are registered/
+    );
+    await expect(
+      channelsFromConfig({ templates }, env).send(message('email', 'a@b.c'))
+    ).rejects.toThrow(/emails.from is not configured/);
+    await expect(
+      channelsFromConfig({ templates }, env).send(message('push', 'tok'))
+    ).rejects.toThrow(/none of apns, fcm or webPush/);
+  });
+
+  test('a configured channel without its secret fails its first send, naming the variable', async () => {
+    const { env, sent } = setup();
+    const sender = channelsFromConfig(
       {
-        pushes,
-      }
+        templates,
+        emails: { from: 'hi@acme.test' },
+        apns: { topic: 't', keyId: 'k', teamId: 't' },
+      },
+      { ...env, APNS_PRIVATE_KEY_BASE64: undefined }
     );
-    await expect(noEmail.send(message('email', 'a@b.c'))).rejects.toThrow(/no email registry/);
-    const noPlatform = channelsFromConfig({}, env, store, { pushes });
-    await expect(noPlatform.send(message('push', 'tok'))).rejects.toThrow(/neither apns nor fcm/);
-  });
-
-  test('a configured channel without its secret fails at assembly, naming the variable', () => {
-    const { store, env } = setup();
-    expect(() =>
-      channelsFromConfig(
-        { apns: { topic: 't', keyId: 'k', teamId: 't' } },
-        { ...env, APNS_PRIVATE_KEY_BASE64: undefined },
-        store,
-        { pushes }
-      )
-    ).toThrow(/APNS_PRIVATE_KEY_BASE64 is not set/);
-  });
-});
-
-describe('config helpers', () => {
-  test('runtime and mode come from ENVIRONMENT, production when unset', () => {
-    const config = { runtime: { development: { timeScale: 3600, logMessages: true } } };
-    expect(journeyMode({ JOURNEY: new FakeJourney() })).toBe('production');
-    expect(runtimeFromConfig(config, { JOURNEY: new FakeJourney() })).toEqual({
-      timeScale: 1,
-      logMessages: false,
-    });
-    expect(
-      runtimeFromConfig(config, { JOURNEY: new FakeJourney(), ENVIRONMENT: 'development' })
-    ).toEqual({ timeScale: 3600, logMessages: true });
-  });
-
-  test('the APNs environment defaults to sandbox outside production and can be configured', () => {
-    const apns = { topic: 't', keyId: 'k', teamId: 't' };
-    expect(apnsEnvironment(apns, 'development')).toBe('sandbox');
-    expect(apnsEnvironment(apns, 'production')).toBe('production');
-    expect(apnsEnvironment({ ...apns, environment: { staging: 'production' } }, 'staging')).toBe(
-      'production'
+    // An email-only journey is not held hostage by the missing push key
+    await sender.send(message('email', 'ada@acme.test'));
+    expect(sent).toHaveLength(1);
+    await expect(sender.send(message('push', 'tok'))).rejects.toThrow(
+      /APNS_PRIVATE_KEY_BASE64 is not set/
     );
   });
 
-  test('the address book is derived from from / replyTo unless listed', () => {
-    expect(formatEmailAddress({ email: 'a@b.c', name: 'Ab' })).toBe('Ab <a@b.c>');
-    expect(emailAddresses({ from: { email: 'a@b.c', name: 'Ab' }, replyTo: 'r@b.c' })).toEqual([
-      'Ab <a@b.c>',
-      'r@b.c',
-    ]);
-    expect(emailAddresses({ from: 'a@b.c', addresses: ['x@y.z'] })).toEqual(['x@y.z']);
-    expect(emailAddresses(undefined)).toEqual([]);
+  test('a token APNs reports as gone is removed from the store', async () => {
+    const { env, fetchImpl } = setup(true);
+    const store = new D1JourneyStore(new FakeD1(), new FakeKV());
+    await store.upsertDevice({ userId: 'u1', token: 'deadtoken', platform: 'ios', ts: 1 });
+    const sender = channelsFromConfig(
+      { templates, apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },
+      env,
+      { fetch: fetchImpl, store }
+    );
+    await sender.send(message('push', 'deadtoken'));
+    expect(await store.listDevices('u1')).toEqual([]);
   });
 });
