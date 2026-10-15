@@ -1,5 +1,5 @@
 import { hostname } from 'node:os';
-import { defineStats } from '@shware/workflow-ui/config';
+import { defineStats } from '../../../src/config';
 
 /** Server-side on purpose: `node:os` does not exist in a browser. */
 export default defineStats({
