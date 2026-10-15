@@ -1,5 +1,6 @@
 import type { ConditionIR, PropertyOperatorIR, ScalarIR } from '../ir';
 import type { FactSource } from './ports';
+import { RECIPIENT_PROPERTY } from './recipient';
 
 /**
  * Evaluation options.
@@ -7,9 +8,13 @@ import type { FactSource } from './ports';
  *   guard anchors at workflow entry (a conversion must happen *after* entry),
  *   waitUntil at the moment the wait began (a wake must not be satisfied by
  *   pre-existing history). Combined with `within` by taking the later bound.
+ * - untilMs: the latest instant `performed` counts events up to — the goal's
+ *   attribution window ends there, so an event after it is no conversion even
+ *   when the check runs later (a resumed instance, a delayed wake).
  */
 export interface EvaluateOptions {
   anchorMs?: number;
+  untilMs?: number;
 }
 
 /**
@@ -76,6 +81,7 @@ async function evaluate(
       const sinceMs = bounds.length > 0 ? Math.max(...bounds) : undefined;
       const count = await facts.countEvents(condition.event, {
         ...(sinceMs !== undefined ? { sinceMs } : {}),
+        ...(opts?.untilMs !== undefined ? { untilMs: opts.untilMs } : {}),
         ...(condition.where !== undefined ? { where: condition.where } : {}),
       });
       return count >= (condition.count ?? 1);
@@ -83,6 +89,14 @@ async function evaluate(
     case 'property': {
       const actual = await facts.getProperty(condition.path);
       return compareProperty(condition, actual);
+    }
+    case 'reachable': {
+      if (await facts.isSuppressed?.(condition.channel)) return false;
+      if (condition.channel === 'push') return (await facts.listDevices()).length > 0;
+      const path = RECIPIENT_PROPERTY[condition.channel];
+      // in_app, slack and discord need no address: a signed-in user is reachable in the app, and
+      // the webhook channels post to a team channel, not to the user
+      return path === undefined || (await facts.getProperty(path)) !== undefined;
     }
     case 'payload':
       // Placement is validated at compile; reaching here means hand-built IR
@@ -188,6 +202,12 @@ function isBetween(actual: ScalarIR | undefined, values: ScalarIR[] | undefined)
 export const PROFILE_UPDATED_EVENT = '$profile_updated';
 
 /**
+ * Wake-up channel for device changes: a device registered for the user, moved to another account
+ * or was unbound or removed (`POST /devices`, `/devices/unbind`, `/devices/remove`). `reachable('push')` subscribes to it.
+ */
+export const DEVICES_UPDATED_EVENT = '$devices_updated';
+
+/**
  * The set of event names a condition cares about — what wait_until subscribes
  * to for wake-ups. `performed` contributes its event; a property predicate
  * contributes PROFILE_UPDATED_EVENT (so /identify wakes the wait). Segment
@@ -221,6 +241,9 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
       }
       case 'property':
         found.add(PROFILE_UPDATED_EVENT);
+        break;
+      case 'reachable':
+        found.add(c.channel === 'push' ? DEVICES_UPDATED_EVENT : PROFILE_UPDATED_EVENT);
         break;
       case 'payload':
         break; // only appears inside performed.where, which is not walked
