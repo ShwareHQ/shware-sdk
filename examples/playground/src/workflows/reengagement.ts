@@ -41,6 +41,9 @@ export const reengagement = workflow({
     (w) =>
       w.cohort({
         control: { weight: 50 },
-        coupon: { weight: 50, flow: (x) => x.email(t.email.reengage_incentive, { coupon: 'WELCOMEBACK15' }) },
+        coupon: {
+          weight: 50,
+          flow: (x) => x.email(t.email.reengage_incentive, { coupon: 'WELCOMEBACK15' }),
+        },
       }),
   ]);

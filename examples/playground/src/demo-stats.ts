@@ -13,17 +13,22 @@ import type {
   StatsSource,
   WorkflowReport,
 } from '@shware/workflow-ui/config';
-import { activationNudge, checkoutRecovery, christmasPromo, onboarding } from './workflows/index';
-import { onboardingEdu } from './workflows/onboarding';
+import {
+  activationNudge,
+  checkoutRecovery,
+  christmasPromo,
+  onboarding,
+  onboardingEdu,
+  reengagement,
+  winback,
+} from './workflows';
 import * as reengagementModule from './workflows/reengagement';
-import { reengagement } from './workflows/reengagement';
 import * as segmentModule from './workflows/segments';
-import { winback } from './workflows/winback';
 
 /**
  * Stand-in for a real engine: deterministic numbers derived from the workflow
  * name, so the reports and badges have something to render. A real project
- * points the config's `stats` at its stats API (Analytics Engine, D1, …) —
+ * points workflow.stats.ts at its stats API (Analytics Engine, D1, …) —
  * and needs none of this file.
  */
 
@@ -96,6 +101,7 @@ const CHANNEL_WEIGHT: Record<MetricChannel, number> = {
   email: 1,
   push_ios: 0.42,
   push_android: 0.36,
+  push_web: 0.14,
   slack: 0.11,
   discord: 0.07,
   sms: 0.18,
@@ -137,6 +143,7 @@ const EMPTY_POINT = (date: string): MetricPoint => ({
   delivered: 0,
   opened: 0,
   clicked: 0,
+  entered: 0,
   converted: 0,
 });
 
@@ -149,7 +156,9 @@ function dailyPoint(name: string, channel: MetricChannel, date: string): MetricP
   const delivered = Math.round(sent * (0.94 + pseudoRandom(`${seed}:d`, 6) / 100));
   const opened = Math.round(delivered * (0.22 + pseudoRandom(`${seed}:o`, 18) / 100));
   const clicked = Math.round(opened * (0.18 + pseudoRandom(`${seed}:c`, 14) / 100));
-  const converted = Math.round(clicked * (0.12 + pseudoRandom(`${seed}:v`, 16) / 100));
+  // A user gets a few sends: entries run well under sends, and conversions are a share of them
+  const entered = Math.round(sent * (0.35 + pseudoRandom(`${seed}:e`, 10) / 100));
+  const converted = Math.round(entered * (0.06 + pseudoRandom(`${seed}:v`, 10) / 100));
 
   /*
    * Only email has a tracking pixel to prefetch and links to rewrite, so only
@@ -182,6 +191,7 @@ function dailyPoint(name: string, channel: MetricChannel, date: string): MetricP
     clicked,
     clickedHuman: clickedMachine === undefined ? undefined : clicked - clickedMachine,
     clickedMachine,
+    entered,
     converted,
   };
 }
@@ -204,6 +214,7 @@ const addPoint = (total: MetricPoint, point: MetricPoint): MetricPoint => ({
   clicked: total.clicked + point.clicked,
   clickedHuman: addPart(total.clickedHuman, point.clickedHuman),
   clickedMachine: addPart(total.clickedMachine, point.clickedMachine),
+  entered: total.entered + point.entered,
   converted: total.converted + point.converted,
 });
 
@@ -302,7 +313,7 @@ function messagesFor(ir: WorkflowIR, query: StatsRange): MessageStat[] {
     if (channel === undefined) return;
     if (query.channel !== undefined && query.channel !== channel) return;
 
-    const seed = `${ir.name}:${node.id}`;
+    const seed = `${ir.id}:${node.id}`;
     /* Sends taper down the flow: later nodes only see whoever is still in it. */
     const perDay = 4 + pseudoRandom(`${seed}:volume`, 44);
     const sent = Math.round(days * perDay * CHANNEL_WEIGHT[channel]);
@@ -345,7 +356,7 @@ const reportFor = (name: string): WorkflowReport => {
   const active = pseudoRandom(`${name}:active`, Math.floor(entered / 4));
 
   return {
-    name,
+    id: name,
     entered,
     active,
     completed: entered - active,
@@ -377,22 +388,22 @@ const segmentReportFor = (name: string): SegmentReport => {
     const noise = 0.98 + pseudoRandom(`${name}:${date}`, 5) / 100;
     return Math.round(base * (1 + drift * progress) * noise);
   });
-  return { name, size: series.at(-1) ?? base, series };
+  return { id: name, size: series.at(-1) ?? base, series };
 };
 
 /** A segment is named but has no builder's toIR. */
 const isSegment = (value: unknown): value is SegmentRef =>
-  typeof value === 'object' && value !== null && 'name' in value && !('toIR' in value);
+  typeof value === 'object' && value !== null && '__segment' in value;
 
 /*
- * Every segment the studio discovers, from the modules that declare them. The
- * studio itself scans the whole workflows directory; a real stats API would
+ * Every segment the demo declares, from the modules that declare them. A real
+ * stats API would
  * return whatever it tracks and the UI would match by name, so this list only
  * has to cover the demo. flatMap, not filter+map: the guard narrows inline,
  * where filter's overload cannot against this union.
  */
 const SEGMENT_NAMES = [segmentModule, reengagementModule].flatMap((module) =>
-  Object.values(module).flatMap((value) => (isSegment(value) ? [value.name] : []))
+  Object.values(module).flatMap((value) => (isSegment(value) ? [value.id] : []))
 );
 
 /* A stable cast of fake people, so paging through them is not a slideshow. */
@@ -434,7 +445,7 @@ const profileFor = (segmentName: string, index: number): Profile => {
 };
 
 const irOf = (workflowName: string): WorkflowIR | undefined =>
-  WORKFLOWS.map((builder) => builder.toIR()).find((ir) => ir.name === workflowName);
+  WORKFLOWS.map((builder) => builder.toIR()).find((ir) => ir.id === workflowName);
 
 export const demoStats: StatsSource = {
   segments: (): SegmentReport[] => SEGMENT_NAMES.map(segmentReportFor),
@@ -446,7 +457,7 @@ export const demoStats: StatsSource = {
       profiles: Array.from({ length: count }, (_, i) => profileFor(segmentName, offset + i)),
     };
   },
-  reports: (): WorkflowReport[] => WORKFLOWS.map((builder) => reportFor(builder.toIR().name)),
+  reports: (): WorkflowReport[] => WORKFLOWS.map((builder) => reportFor(builder.toIR().id)),
   metrics: (workflowName, query) => metricsFor(workflowName, query),
   links: (workflowName, query) => linksFor(workflowName, query),
   messages: (workflowName, query) => {

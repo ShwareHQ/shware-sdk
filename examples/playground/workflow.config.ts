@@ -1,34 +1,74 @@
-import { defineConfig } from '@shware/workflow-ui/config';
-import { demoStats } from './src/demo-stats';
+import { defineConfig } from '@shware/workflow';
+import { registry } from './src/templates';
+import {
+  activationNudge,
+  checkoutRecovery,
+  christmasPromo,
+  inactive30d,
+  issueCoupon,
+  onboarding,
+  onboardingEdu,
+  reengagement,
+  winback,
+} from './src/workflows';
+import { contract } from './src/workflows/schema';
+import {
+  activated,
+  activeSubscriber,
+  newUsers7d,
+  purchaser,
+  usedApi,
+  usedAutomations,
+  usedCollaboration,
+  usedIntegrations,
+  usedMobile,
+  usedPublishing,
+  usedTemplates,
+  usedWhiteboards,
+} from './src/workflows/segments';
 
 /**
- * Project configuration — everything else is convention:
- * workflows live in src/workflows/, email content in src/emails/.
+ * The project — the one place its definitions are registered. The compiler
+ * (`compileConfig`), the Worker and the Workflow Studio (`pnpm dev`) all read
+ * this object: every workflow, segment, action and template is listed exactly
+ * once, and a message referencing an unregistered template fails the compile.
+ * The studio's numbers come from workflow.stats.ts, not from here.
  */
 export default defineConfig({
   title: 'Workflow Studio · demo',
+  contract,
+  workflows: [
+    checkoutRecovery,
+    onboarding,
+    onboardingEdu,
+    christmasPromo,
+    activationNudge,
+    reengagement,
+    winback,
+  ],
+  segments: [
+    activeSubscriber,
+    purchaser,
+    activated,
+    newUsers7d,
+    usedTemplates,
+    usedCollaboration,
+    usedWhiteboards,
+    usedIntegrations,
+    usedAutomations,
+    usedApi,
+    usedMobile,
+    usedPublishing,
+    inactive30d,
+  ],
+  actions: [issueCoupon],
+  templates: registry,
   emails: {
-    addresses: [
-      'Acme <hello@acme.io>',
-      'Acme Support <support@acme.io>',
-      'Acme Growth <growth@acme.io>',
-      'Acme Contact <contact@acme.io>',
-    ],
-    // react.email's public test-send service — the same endpoint the
-    // react-email preview app uses, keyless and rate-limited. A production
-    // project would point this at its own transport (Resend, SES, an API
-    // route) instead.
-    sendTest: async ({ key, to, subject, html }) => {
-      const res = await fetch('https://react.email/api/send/test', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ to, subject: subject ?? `[test] ${key}`, html }),
-      });
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => undefined)) as { error?: string } | undefined;
-        throw new Error(payload?.error ?? `${res.status} ${res.statusText}`);
-      }
-    },
+    from: { email: 'hello@acme.io', name: 'Acme' },
+    replyTo: { email: 'support@acme.io', name: 'Acme Support' },
   },
-  stats: demoStats,
+  runtime: {
+    development: { timeScale: 600, logMessages: true },
+    production: { timeScale: 1, logMessages: false },
+  },
 });
