@@ -74,6 +74,9 @@ function fakeFetch(fcmStatus: number, fcmBody: unknown) {
 }
 
 const message = {
+  workflow: 'w',
+  instanceId: 'inst',
+  nodeId: '0',
   channel: 'push' as const,
   template: 'comeback',
   props: { name: 'Ada' },
@@ -124,7 +127,10 @@ describe('FcmPushSender', () => {
         gone.push(m.userId);
       },
     });
-    await expect(sender.send(message)).resolves.toBeUndefined();
+    await expect(sender.send(message)).resolves.toEqual({
+      delivered: false,
+      reason: 'UNREGISTERED',
+    });
     expect(gone).toEqual(['u1']);
 
     const flaky = fakeFetch(503, { error: { status: 'UNAVAILABLE' } });

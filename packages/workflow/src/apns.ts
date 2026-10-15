@@ -1,4 +1,4 @@
-import type { MessageSender, OutboundMessage } from './engine/ports';
+import type { MessageSender, OutboundMessage, SendResult } from './engine';
 import { base64url, pemToDer } from './jwt';
 import type { PushRenderer } from './push';
 
@@ -6,7 +6,8 @@ import type { PushRenderer } from './push';
  * `@shware/workflow/apns` — iOS push delivery straight to the Apple Push
  * Notification service, token-based (an APNs auth key, the `.p8` file from the
  * developer portal). No Firebase in between: the app registers the APNs device
- * token itself and the producer identifies it as the profile's `push_token`.
+ * token in its own device table, and the host's DeviceDirectory hands it to the
+ * engine, which sends one message per device.
  * No dependencies: the provider JWT is ES256-signed with WebCrypto.
  *
  * APNs speaks HTTP/2 only. A deployed Worker's `fetch` negotiates it, but
@@ -39,7 +40,7 @@ export interface ApnsPushOptions {
   origin?: string;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /** Called for a token APNs reports as gone (`Unregistered`, `BadDeviceToken`); the producer should drop that subscription. */
+  /** Called for a token APNs reports as gone (`Unregistered`, `BadDeviceToken`); `channelsFromConfig` passes it on to the DeviceDirectory's `disable`. */
   onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
 
@@ -64,14 +65,17 @@ export class ApnsPushSender implements MessageSender {
 
   constructor(private readonly options: ApnsPushOptions) {}
 
-  async send(message: OutboundMessage): Promise<void> {
+  async send(message: OutboundMessage): Promise<void | SendResult> {
     if (message.channel !== 'push') {
       throw new Error(`ApnsPushSender: unsupported channel '${message.channel}'`);
     }
     if (message.recipient === undefined) {
       throw new Error(`ApnsPushSender: no push token for user '${message.userId}'`);
     }
-    const { title, body, image } = await this.options.render(message.template, message.props);
+    const { title, body, image, url } = await this.options.render(message.template, message.props);
+    // A notification service extension runs only for a mutable push: it attaches the image and
+    // reports the device delivery (`delivered_url`)
+    const mutable = image !== undefined || message.tracking?.data?.delivered_url !== undefined;
     const upstream = APNS_HOSTS[this.options.environment];
     const origin = this.options.origin ?? upstream;
     const doFetch = this.options.fetch ?? fetch;
@@ -90,14 +94,15 @@ export class ApnsPushSender implements MessageSender {
         aps: {
           alert: { title, body },
           sound: 'default',
-          // A notification service extension is what attaches the image; the flag lets it run.
-          ...(image === undefined ? {} : { 'mutable-content': 1 }),
+          ...(mutable ? { 'mutable-content': 1 } : {}),
         },
         // The template key travels so the app can route a tap; the idempotency
         // key lets the app de-duplicate a redelivered push.
         template: message.template,
         idempotencyKey: message.idempotencyKey,
         ...(image === undefined ? {} : { image }),
+        ...(url === undefined ? {} : { url }),
+        ...message.tracking?.data,
       }),
     });
     if (response.ok) return;
@@ -109,7 +114,7 @@ export class ApnsPushSender implements MessageSender {
       // report it and move on, so the step does not retry into the same wall.
       console.warn(`[apns] token gone for user ${message.userId}: ${reason || response.status}`);
       await this.options.onUnregistered?.(message);
-      return;
+      return { delivered: false, reason: reason || `HTTP ${response.status}` };
     }
     throw new Error(`APNs send failed: ${response.status} ${text}`);
   }

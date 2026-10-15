@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { CfEmailSender, type EmailBindingLike, routeByPlatform } from '../src/cloudflare/senders';
+import {
+  CfEmailSender,
+  type EmailBindingLike,
+  routeByPlatform,
+  trackEmail,
+} from '../src/cloudflare/senders';
 import type { MessageSender, OutboundMessage } from '../src/engine/ports';
 
 /** A binding that de-duplicates the way the port asks it to — one delivery per key. */
@@ -26,6 +31,9 @@ const render = async (template: string) => ({
 });
 
 const message: OutboundMessage = {
+  workflow: 'w',
+  instanceId: 'inst',
+  nodeId: '0',
   channel: 'email',
   template: 'welcome',
   props: {},
@@ -35,18 +43,17 @@ const message: OutboundMessage = {
 };
 
 describe('CfEmailSender', () => {
-  test('the idempotency key travels with the binding call', async () => {
+  test('the idempotency key travels with the binding call; the subject goes out as written', async () => {
     const { binding, calls } = fakeBinding();
 
-    await new CfEmailSender({
-      binding,
-      from: 'noreply@acme.test',
-      render,
-      profile: async () => 'Ada',
-    }).send(message);
+    await new CfEmailSender({ binding, from: 'noreply@acme.test', render }).send(message);
 
     expect(calls).toEqual([
-      { to: 'ada@example.com', subject: 'welcome for Ada', idempotencyKey: 'inst_1:2' },
+      {
+        to: 'ada@example.com',
+        subject: 'welcome for {{ user.first_name }}',
+        idempotencyKey: 'inst_1:2',
+      },
     ]);
   });
 
@@ -81,20 +88,58 @@ describe('routeByPlatform', () => {
   });
   const push: OutboundMessage = { ...message, channel: 'push', recipient: 'tok' };
 
-  test('hands the push to the sender of the profile platform', async () => {
+  test("hands each copy to the sender of its device's platform", async () => {
     sent.length = 0;
-    const route = routeByPlatform(
-      { ios: outlet('ios'), android: outlet('android') },
-      async (_userId, path) => (path === 'push_platform' ? 'ios' : undefined)
-    );
-    await route.send(push);
-    expect(sent).toEqual(['ios']);
+    const route = routeByPlatform({ ios: outlet('ios'), android: outlet('android') });
+    await route.send({ ...push, device: { token: 'a', platform: 'android' } });
+    await route.send({ ...push, device: { token: 'i', platform: 'ios' } });
+    expect(sent).toEqual(['android', 'ios']);
   });
 
-  test('fails the step when the platform is missing or has no sender', async () => {
-    const none = routeByPlatform({ ios: outlet('ios') }, async () => undefined);
-    await expect(none.send(push)).rejects.toThrow(/no push_platform identified/);
-    const web = routeByPlatform({ ios: outlet('ios') }, async () => 'web');
-    await expect(web.send(push)).rejects.toThrow(/no push sender configured for platform 'web'/);
+  test('fails the step when the copy has no device or its platform has no sender', async () => {
+    const route = routeByPlatform({ ios: outlet('ios') });
+    await expect(route.send(push)).rejects.toThrow(/carries no device/);
+    await expect(route.send({ ...push, device: { token: 'w', platform: 'web' } })).rejects.toThrow(
+      /no push sender configured for platform 'web'/
+    );
+  });
+});
+
+describe('trackEmail', () => {
+  const link = (url: string) => `https://t.test/c?u=${encodeURIComponent(url)}`;
+
+  test('routes every http(s) anchor through link, decoding and re-escaping the attribute', () => {
+    const html =
+      '<a href="https://acme.test/a?x=1&amp;y=2">A</a> <a class="b" href=\'http://acme.test/b\'>B</a> <a href="mailto:hi@acme.test">M</a>';
+    expect(trackEmail(html, { link })).toBe(
+      `<a href="${link('https://acme.test/a?x=1&y=2').replaceAll('&', '&amp;')}">A</a> <a class="b" href='${link('http://acme.test/b')}'>B</a> <a href="mailto:hi@acme.test">M</a>`
+    );
+  });
+
+  test('appends the open pixel before </body>, or at the end without one', () => {
+    expect(trackEmail('<html><body><p>x</p></body></html>', { pixel: 'https://t.test/o' })).toMatch(
+      /<p>x<\/p><img src="https:\/\/t\.test\/o" width="1" height="1"[^>]*\/><\/body>/
+    );
+    expect(trackEmail('<p>x</p>', { pixel: 'https://t.test/o' })).toMatch(/^<p>x<\/p><img /);
+  });
+
+  test('CfEmailSender sends the tracked HTML when the copy carries tracking', async () => {
+    const htmls: string[] = [];
+    const sender = new CfEmailSender({
+      binding: {
+        send: async (m) => {
+          htmls.push(m.html);
+          return {};
+        },
+      },
+      from: 'a@acme.test',
+      render: async () => ({
+        subject: 's',
+        html: '<body><a href="https://acme.test">go</a></body>',
+      }),
+    });
+    await sender.send({ ...message, tracking: { link, pixel: 'https://t.test/o' } });
+    expect(htmls[0]).toContain(link('https://acme.test'));
+    expect(htmls[0]).toContain('src="https://t.test/o"');
   });
 });
