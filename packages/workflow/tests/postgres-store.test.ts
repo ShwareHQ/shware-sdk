@@ -346,7 +346,8 @@ describe('checkSchema', () => {
     expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
     expect(problems).toHaveLength(Object.keys(TABLES).length);
     await db.close();
-  });
+    // A PGlite of its own: the WASM cold start alone can take seconds on a CI runner
+  }, 30_000);
 });
 
 describe('renderDrizzleSchema', () => {
