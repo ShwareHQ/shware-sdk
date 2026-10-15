@@ -28,7 +28,7 @@ export function compileBundle(input: {
     const { id, definition, loc, meta } = segment as SegmentInternal;
     const compiled: SegmentIR = {
       irVersion: IR_VERSION,
-      id: id,
+      id,
       // Labels and provenance both live in meta, which stripMeta drops before hashing
       contentHash: semanticHash(definition),
       condition: definition,

@@ -21,7 +21,7 @@ function expectLocInThisFile(loc: SourceLocIR | undefined): SourceLocIR {
 
 describe('callsite recording', () => {
   test('workflow and each chained step record their own callsites in order', () => {
-    const ir = workflow('probe', { trigger: trigger.event(e.login) })
+    const ir = workflow({ id: 'probe', trigger: trigger.event(e.login) })
       .delay('1 hour')
       .email(gettingStarted)
       .exit('done')
@@ -37,7 +37,7 @@ describe('callsite recording', () => {
   });
 
   test('nodes inside branch arms point at the callback body, not the branch call', () => {
-    const ir = workflow('nested', { trigger: trigger.event(e.login) })
+    const ir = workflow({ id: 'nested', trigger: trigger.event(e.login) })
       .branch([purchaser, (w) => w.email(proTips)])
       .toIR();
 
@@ -50,7 +50,7 @@ describe('callsite recording', () => {
   });
 
   test('segments record the segment() callsite into SegmentIR.meta.loc', () => {
-    const local = segment('provenance_probe', performed(e.login));
+    const local = segment({ id: 'provenance_probe', condition: performed(e.login) });
     const bundle = compileBundle({ workflows: [], segments: [local] });
     const loc = expectLocInThisFile(bundle.segments[0].meta?.loc);
     expect(loc.line).toBeGreaterThan(0);
@@ -64,11 +64,11 @@ describe('callsite recording', () => {
 
 describe('provenance stays out of execution identity', () => {
   const build = () =>
-    workflow('twin', { trigger: trigger.event(e.login) })
+    workflow({ id: 'twin', trigger: trigger.event(e.login) })
       .delay('1 hour')
       .exit();
   const buildElsewhere = () =>
-    workflow('twin', { trigger: trigger.event(e.login) })
+    workflow({ id: 'twin', trigger: trigger.event(e.login) })
       .delay('1 hour')
       .exit();
 
@@ -133,7 +133,7 @@ describe('recorded paths are portable', () => {
 
 describe('personalization refs are unaffected', () => {
   test('a props object spreading u.xxx compiles as before', () => {
-    const ir = workflow('refs', { trigger: trigger.event(e.login) })
+    const ir = workflow({ id: 'refs', trigger: trigger.event(e.login) })
       .sendEvent(e.purchase, { value: 1, currency: u.email })
       .toIR();
     const node = ir.flow[0];

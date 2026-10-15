@@ -14,7 +14,8 @@ import {
 } from './fixtures';
 
 const base = () =>
-  workflow('checkout_recovery', {
+  workflow({
+    id: 'checkout_recovery',
     trigger: trigger.event(e.begin_checkout),
     goal: purchaser,
     description: 'Recover abandoned checkouts',
@@ -28,12 +29,11 @@ const bundleOf = (...builders: ReturnType<typeof base>[]) =>
 describe('metadata is excluded from contentHash', () => {
   test('changing the description keeps contentHash stable', () => {
     const before = base().toIR();
-    const after = workflow('checkout_recovery', {
+    const after = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'A completely different description',
-      tags: ['revenue'],
-      owner: 'growth@example.com',
     })
       .delay('1 hour')
       .branch([activeSubscriber, (w) => w.email(proTips)], (w) => w.email(gettingStarted))
@@ -42,13 +42,12 @@ describe('metadata is excluded from contentHash', () => {
     expect(after.contentHash).toBe(before.contentHash);
     expect(after.meta).toMatchObject({
       description: 'A completely different description',
-      tags: ['revenue'],
-      owner: 'growth@example.com',
     });
   });
 
   test('changing a branch label keeps contentHash stable', () => {
-    const labelled = workflow('checkout_recovery', {
+    const labelled = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Recover abandoned checkouts',
@@ -63,7 +62,8 @@ describe('metadata is excluded from contentHash', () => {
   });
 
   test('changing execution semantics does change contentHash', () => {
-    const longer = workflow('checkout_recovery', {
+    const longer = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
     })
@@ -76,7 +76,7 @@ describe('metadata is excluded from contentHash', () => {
 
   test('cohort arm names stay in the hash (they form node ids)', () => {
     const build = (armName: string) =>
-      workflow('ab', { trigger: trigger.event(e.sign_up) })
+      workflow({ id: 'ab', trigger: trigger.event(e.sign_up) })
         .cohort({ control: { weight: 50 }, [armName]: { weight: 50 } })
         .toIR();
 
@@ -90,7 +90,7 @@ describe('plan', () => {
 
     expect(result.hasChanges).toBe(true);
     expect(result.workflows).toHaveLength(1);
-    expect(result.workflows[0]).toMatchObject({ name: 'checkout_recovery', status: 'added' });
+    expect(result.workflows[0]).toMatchObject({ id: 'checkout_recovery', status: 'added' });
     expect(result.segments.map((s) => s.status)).toEqual(['added', 'added']);
   });
 
@@ -103,7 +103,8 @@ describe('plan', () => {
 
   test('description-only edit is metadata_only and not a change', () => {
     const deployed = bundleOf(base());
-    const edited = workflow('checkout_recovery', {
+    const edited = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Reworded for the growth review',
@@ -119,7 +120,8 @@ describe('plan', () => {
 
   test('semantic edit reports changed nodes and fields', () => {
     const deployed = bundleOf(base());
-    const edited = workflow('checkout_recovery', {
+    const edited = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.sign_up), // trigger changed
       goal: purchaser,
     })
@@ -139,25 +141,26 @@ describe('plan', () => {
   test('removed workflow is reported with its deployed hash', () => {
     const result = plan(compileBundle({ workflows: [] }), bundleOf(base()));
 
-    expect(result.workflows[0]).toMatchObject({ name: 'checkout_recovery', status: 'removed' });
+    expect(result.workflows[0]).toMatchObject({ id: 'checkout_recovery', status: 'removed' });
     expect(result.workflows[0]?.before).toBeDefined();
     expect(result.hasChanges).toBe(true);
   });
 
   test('segment condition edit is reported as changed', () => {
-    const other = segment('purchaser', eq(u.subscription_status, 'active'));
+    const other = segment({ id: 'purchaser', condition: eq(u.subscription_status, 'active') });
     const result = plan(
       compileBundle({ workflows: [base()], segments: [other, activeSubscriber] }),
       bundleOf(base())
     );
 
-    const changed = result.segments.find((s) => s.name === 'purchaser');
+    const changed = result.segments.find((s) => s.id === 'purchaser');
     expect(changed?.status).toBe('changed');
   });
 
   test("editing a branch case's condition is visible on the branch node itself", () => {
     const deployed = bundleOf(base());
-    const edited = workflow('checkout_recovery', {
+    const edited = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Recover abandoned checkouts',
@@ -177,7 +180,7 @@ describe('plan', () => {
 
   test('reweighting a cohort is visible on the cohort node itself', () => {
     const ab = (control: number) =>
-      workflow('ab', { trigger: trigger.event(e.sign_up) }).cohort({
+      workflow({ id: 'ab', trigger: trigger.event(e.sign_up) }).cohort({
         control: { weight: control },
         variant: { weight: 100 - control },
       });
@@ -226,7 +229,8 @@ describe('provenance never reaches plan', () => {
 
   test('a description edit is still visible through a moved loc', () => {
     const deployed = movedLocs(bundleOf(base()));
-    const edited = workflow('checkout_recovery', {
+    const edited = workflow({
+      id: 'checkout_recovery',
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Reworded for the growth review',
@@ -245,7 +249,7 @@ describe('plan smoke test across a realistic bundle', () => {
     const local = compileBundle({ workflows: [checkoutRecovery, reengagement], segments });
 
     const result = plan(local, deployed);
-    const byName = Object.fromEntries(result.workflows.map((w) => [w.name, w.status]));
+    const byName = Object.fromEntries(result.workflows.map((w) => [w.id, w.status]));
 
     expect(byName).toEqual({
       checkout_recovery: 'unchanged',

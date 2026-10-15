@@ -118,7 +118,7 @@ describe('metadata is stripped by position, not by name', () => {
 
   test('and node / workflow metadata is still excluded', () => {
     const wf = (description: string) => ({
-      name: 'w',
+      id: 'w',
       meta: { description, loc: { file: 'a.ts', line: 1, column: 1 } },
       flow: [{ id: '1', type: 'exit', meta: { loc: { file: 'a.ts', line: 2, column: 1 } } }],
     });
@@ -136,7 +136,7 @@ describe('audit reasons are metadata, not semantics', () => {
    */
   test('rewording an exit reason keeps contentHash stable', () => {
     const build = (reason: string) =>
-      workflow('gate', { trigger: trigger.event(e.login) })
+      workflow({ id: 'gate', trigger: trigger.event(e.login) })
         .exit(reason)
         .toIR();
 
@@ -145,7 +145,7 @@ describe('audit reasons are metadata, not semantics', () => {
 
   test('rewording a filter reason keeps contentHash stable, but the condition still counts', () => {
     const build = (reason: string, plan: 'pro' | 'free' = 'pro') =>
-      workflow('gate', { trigger: trigger.event(e.login) })
+      workflow({ id: 'gate', trigger: trigger.event(e.login) })
         .filter(eq(u.subscription_plan, plan), { reason })
         .toIR();
 
@@ -154,7 +154,7 @@ describe('audit reasons are metadata, not semantics', () => {
   });
 
   test('the reason survives into the IR the studio and the audit log read', () => {
-    const node = workflow('gate', { trigger: trigger.event(e.login) })
+    const node = workflow({ id: 'gate', trigger: trigger.event(e.login) })
       .exit('not eligible')
       .toIR().flow[0];
     expect(node).toMatchObject({ type: 'exit', reason: 'not eligible' });
@@ -180,17 +180,14 @@ describe('contentHash is a permanent contract', () => {
    * refactor — these fail loudly if the projection or the algorithm drifts.
    */
   test('the fixture workflows hash to their recorded values', () => {
-    expect(checkoutRecovery.toIR().contentHash).toBe('b9d031dde655eac95a8e4d8413f04f4a');
     /*
-     * winback and reengagement moved once, deliberately, when exit / filter
-     * reasons left the hash (both fixtures carry an .exit('…')). That was a
-     * one-off migration of the projection, not a refactor: anything deployed
-     * before it keeps the old address and has to be republished. The two
-     * fixtures without a reason did not move, which is the check that nothing
-     * else about the projection changed with it.
+     * Every fixture moved once more with IR v2, when the workflow's identity field became `id`
+     * (it was `name`, which read like a label). The identity is part of the hashed content, so
+     * the move is total and deliberate: anything deployed before it has to be republished.
      */
-    expect(winback.toIR().contentHash).toBe('6822e0e7dc86bfc56f094faced85bc08');
-    expect(reengagement.toIR().contentHash).toBe('343ab5c4ca158e9813810494c4a12bbd');
-    expect(nudge.toIR().contentHash).toBe('b3588e5ce143a3e2c956b2fb5c313a4a');
+    expect(checkoutRecovery.toIR().contentHash).toBe('5a2e2c7d1a5ccbbf73e251b86247b2fd');
+    expect(winback.toIR().contentHash).toBe('ba96293de9adcf59c0f077679ce61956');
+    expect(reengagement.toIR().contentHash).toBe('e3491a35d075b6a6c8591a1a6e846d73');
+    expect(nudge.toIR().contentHash).toBe('2f32da2a6298e3d5545816d1be45d60f');
   });
 });

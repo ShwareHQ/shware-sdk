@@ -46,14 +46,20 @@ export const u = user<TestUser>();
 
 /* --------------------------------- Segments --------------------------------- */
 
-export const purchaser = segment('purchaser', performed(e.purchase, { within: '30 days' }));
+export const purchaser = segment({
+  id: 'purchaser',
+  condition: performed(e.purchase, { within: '30 days' }),
+});
 
-export const activeSubscriber = segment(
-  'active_subscriber',
-  and(eq(u.subscription_status, 'active'), eq(u.auto_renew_enabled, true))
-);
+export const activeSubscriber = segment({
+  id: 'active_subscriber',
+  condition: and(eq(u.subscription_status, 'active'), eq(u.auto_renew_enabled, true)),
+});
 
-export const inactive30d = segment('inactive_30d', not(performed(e.login, { within: '30 days' })));
+export const inactive30d = segment({
+  id: 'inactive_30d',
+  condition: not(performed(e.login, { within: '30 days' })),
+});
 
 export const allSegments = [purchaser, activeSubscriber, inactive30d];
 
@@ -73,7 +79,8 @@ export const csAlert = template.slack<{ plan: TestUser['subscription_plan'] }>('
 /* --------------------------------- Workflows -------------------------------- */
 
 /** Two-arm branch, personalization, goal absorbing the exit paths. */
-export const checkoutRecovery = workflow('checkout_recovery', {
+export const checkoutRecovery = workflow({
+  id: 'checkout_recovery',
   trigger: trigger.event(e.begin_checkout),
   goal: purchaser,
 })
@@ -89,7 +96,8 @@ export const checkoutRecovery = workflow('checkout_recovery', {
   );
 
 /** Multi-arm branch, in-arm exit (no rejoin), shared rejoin tail. */
-export const winback = workflow('winback', {
+export const winback = workflow({
+  id: 'winback',
   trigger: trigger.event(e.subscription_cancelled),
   goal: purchaser,
 })
@@ -109,9 +117,7 @@ export const winback = workflow('winback', {
 const cameBack = performed(e.login, { within: '7 days' });
 
 /** Segment trigger, wait_until, in-arm exit, trailing single-arm branch with a cohort. */
-export const reengagement = workflow('reengagement', {
-  trigger: trigger.segment(inactive30d),
-})
+export const reengagement = workflow({ id: 'reengagement', trigger: trigger.segment(inactive30d) })
   .email(firstTimeRecovery)
   .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' })
   .branch([cameBack, (w) => w.exit('reengaged')])
@@ -130,7 +136,7 @@ export const reengagement = workflow('reengagement', {
   ]);
 
 /** send_event coverage: emits an event at the end of the flow. */
-export const nudge = workflow('nudge', { trigger: trigger.event(e.sign_up) })
+export const nudge = workflow({ id: 'nudge', trigger: trigger.event(e.sign_up) })
   .email(gettingStarted)
   .sendEvent(e.nudge_due);
 

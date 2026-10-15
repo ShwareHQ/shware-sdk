@@ -241,7 +241,7 @@ export function not(condition: Condition): Condition {
 
 /**
  * Segment: a named condition expression and a top-level asset — it shows up in
- * the UI sidebar, is reusable across workflows, is referenced by name in IR,
+ * the UI sidebar, is reusable across workflows, is referenced by id in IR,
  * and has a continuously materialized membership count (the prerequisite for
  * segment triggers). Anonymous reuse is just a const expression; a one-off
  * check is an inline expression at the use site.
@@ -250,7 +250,7 @@ export function not(condition: Condition): Condition {
  */
 export interface SegmentRef extends Condition {
   readonly __segment: true;
-  /** Wire identity: by-name references and the membership store are keyed on it (`SegmentIR.name`). */
+  /** Wire identity: segment references and the membership store are keyed on it (`SegmentIR.id`). */
   readonly id: string;
 }
 
@@ -259,7 +259,7 @@ export interface SegmentInternal extends SegmentRef {
   readonly ir: ConditionIR;
   /** Human label / description; metadata, so never part of the hash. */
   readonly meta: SegmentMeta | undefined;
-  /** The segment's own definition (SegmentIR.condition), as opposed to a by-name reference. */
+  /** The segment's own definition (SegmentIR.condition), as opposed to a reference by id. */
   readonly definition: ConditionIR;
   /** Callsite of the segment() call (provenance; lands in SegmentIR.meta.loc). */
   readonly loc: SourceLocIR | undefined;

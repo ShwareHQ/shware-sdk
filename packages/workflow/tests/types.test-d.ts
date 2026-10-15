@@ -10,10 +10,13 @@ import { expectTypeOf } from 'vitest';
 import {
   type Duration,
   type TemplateRef,
+  type TemplateRegistry,
   type UserPropertyRef,
+  action,
   between,
   contains,
-  emailSubject,
+  defineContract,
+  emailTemplate,
   eq,
   exists,
   flow,
@@ -23,6 +26,7 @@ import {
   lte,
   notBetween,
   performed,
+  pushTemplate,
   templates,
   trigger,
   workflow,
@@ -73,7 +77,7 @@ inArray(u.subscription_plan, ['pro', 'vip']);
 /* ------------------------------- workflow options ------------------------------ */
 
 // @ts-expect-error trigger must be a trigger.xxx() asset, not a bare string
-workflow('bad', { trigger: 'sign_up' });
+workflow({ id: 'bad', trigger: 'sign_up' });
 
 /* ------------------------------ messages and props ----------------------------- */
 
@@ -118,42 +122,235 @@ performed(e.sign_up, (p) => eq(p.platform, 'web'));
 // @ts-expect-error gt rejects non-numeric payload fields (currency is a string — value must match)
 trigger.event(e.purchase, (p) => gt(p.currency, 100));
 
-/* ------------------------------ subject templates ------------------------------ */
+/* ---------------------------------- actions ---------------------------------- */
 
-// {{ user.prop }} placeholders resolve against the user-property table
-emailSubject(u, 'Finish upgrading to {{ user.subscription_plan }}');
-emailSubject(u, '{{ user.email }}: {{ user.docs_count }} docs on {{ user.subscription_plan }}');
-emailSubject(u, 'no placeholders is fine too');
-
-// @ts-expect-error a typo inside the braces does not compile
-emailSubject(u, 'Finish upgrading to {{ user.subscription_plann }}');
-
-// @ts-expect-error every placeholder is checked, not just the first
-emailSubject(u, '{{ user.email }} and {{ user.not_a_property }}');
-
-/* ------------------------------ template registries ---------------------------- */
-
-type Registry = {
-  welcome: { default: (props: { name: string }) => unknown };
-  bare: { default: () => unknown };
-};
-const t = templates<Registry>();
-
-// props are inferred from the registered component's signature
-expectTypeOf(t.email('welcome')).toEqualTypeOf<TemplateRef<'email', { name: string }>>();
-
-// @ts-expect-error unregistered keys do not compile
-t.email('welcom');
-
-// a registered template's props flow through to the send site
-flow((w) => w.email(t.email('welcome'), { name: 'Ada' }));
-// @ts-expect-error ...and are checked there
-flow((w) => w.email(t.email('welcome'), { name: 1 }));
+const issueCoupon = action<{ code: string; email: string }>('issue_coupon', async () => {});
+flow((w) => w.run(issueCoupon, { code: 'X', email: u.email }));
+// @ts-expect-error action args are typed by the ActionRef (code must be a string)
+flow((w) => w.run(issueCoupon, { code: 42, email: u.email }));
+// @ts-expect-error the action declares required args, so omitting them fails
+flow((w) => w.run(issueCoupon));
 
 /* -------------------------------- misc positives ------------------------------- */
 
 // branch tuples contextually type both the condition and the sub-flow
-workflow('ok', { trigger: trigger.event(e.login) }).branch(
+workflow({ id: 'ok', trigger: trigger.event(e.login) }).branch(
   [exists(u.email), (w) => w.email(limitedTimeOffer, { coupon: 'X', expiresIn: '1 day' })],
   (w) => w.exit()
 );
+
+/* ------------------------- schema-driven templates (v1) ------------------------- */
+
+import { z } from 'zod';
+
+const namedSchema = z.strictObject({ name: z.string(), plan: z.enum(['free', 'pro']).optional() });
+
+const welcomeEmail = emailTemplate({
+  title: 'Welcome',
+  props: namedSchema,
+  subject: 'Hi',
+  preview: { name: 'Ada' },
+  component: ({ name, plan }) => {
+    expectTypeOf(name).toEqualTypeOf<string>();
+    expectTypeOf(plan).toEqualTypeOf<'free' | 'pro' | undefined>();
+    return null;
+  },
+});
+
+const creditsPush = pushTemplate({
+  title: 'Credits',
+  props: z.strictObject({ credits: z.number() }),
+  preview: { credits: 3 },
+  content: ({ credits }) => ({ title: `${credits} left`, body: 'b' }),
+});
+
+emailTemplate({
+  title: 'Bad preview',
+  props: namedSchema,
+  subject: 'Hi',
+  // @ts-expect-error the preview is missing a required field
+  preview: {},
+  component: () => null,
+});
+
+emailTemplate({
+  title: 'Bad preview',
+  props: namedSchema,
+  subject: 'Hi',
+  // @ts-expect-error the preview has the wrong type for a field
+  preview: { name: 3 },
+  component: () => null,
+});
+
+emailTemplate({
+  title: 'Bad preview',
+  props: namedSchema,
+  subject: 'Hi',
+  // @ts-expect-error an object literal preview cannot add fields the schema does not declare
+  preview: { name: 'Ada', extra: true },
+  component: () => null,
+});
+
+emailTemplate({
+  title: 'No widening',
+  props: namedSchema,
+  subject: 'Hi',
+  preview: { name: 'Ada' },
+  // @ts-expect-error the component cannot read a field the schema does not declare
+  component: ({ missing }) => missing,
+});
+
+pushTemplate({
+  title: 'Async',
+  props: namedSchema,
+  preview: { name: 'Ada' },
+  // @ts-expect-error push content must be synchronous
+  content: async () => ({ title: 't', body: 'b' }),
+});
+
+pushTemplate({
+  title: 'Empty',
+  props: z.strictObject({}),
+  preview: {},
+  content: () => ({ title: 't', body: 'b' }),
+});
+
+pushTemplate({
+  title: 'Empty',
+  props: z.strictObject({}),
+  // @ts-expect-error an empty schema accepts only an empty preview
+  preview: { name: 'Ada' },
+  content: () => ({ title: 't', body: 'b' }),
+});
+
+// the registries type the keys and the props, per template
+const emptyPush = pushTemplate({
+  title: 'Ping',
+  props: z.strictObject({}),
+  preview: {},
+  content: () => ({ title: 't', body: 'b' }),
+});
+const schemaRefs = templates({
+  email: { welcome: welcomeEmail },
+  push: { credits: creditsPush, ping: emptyPush },
+} as const);
+const welcomeRef = schemaRefs.email.welcome;
+const creditsRef = schemaRefs.push.credits;
+expectTypeOf(welcomeRef).toEqualTypeOf<
+  TemplateRef<'email', { name: string; plan?: 'free' | 'pro' | undefined }>
+>();
+expectTypeOf(creditsRef).toEqualTypeOf<TemplateRef<'push', { credits: number }>>();
+expectTypeOf<keyof typeof schemaRefs.push>().toEqualTypeOf<'credits' | 'ping'>();
+// @ts-expect-error a push key is not an email key
+void schemaRefs.email.credits;
+// @ts-expect-error unregistered push key
+void schemaRefs.push.welcome;
+// @ts-expect-error an email registry takes email templates only
+templates({ email: { credits: creditsPush } });
+// @ts-expect-error a push registry takes push templates only
+templates({ push: { welcome: welcomeEmail } });
+
+// a registry with one channel leaves the other an empty table that takes no key
+const emailOnly = templates({ email: { welcome: welcomeEmail } });
+expectTypeOf(emailOnly.email.welcome).toEqualTypeOf(welcomeRef);
+// @ts-expect-error no push registry, no push key
+void emailOnly.push.credits;
+
+// one registry type for config and references: optional channels keep their exact keys
+const typedRegistry: TemplateRegistry<
+  { welcome: typeof welcomeEmail },
+  { credits: typeof creditsPush }
+> = {
+  email: { welcome: welcomeEmail },
+  push: { credits: creditsPush },
+};
+const typedRefs = templates(typedRegistry);
+expectTypeOf(typedRefs.email.welcome).toEqualTypeOf(welcomeRef);
+expectTypeOf(typedRefs.push.credits).toEqualTypeOf(creditsRef);
+// @ts-expect-error still exact under the annotation
+void typedRefs.email.credits;
+
+const checkedRegistry = { email: { welcome: welcomeEmail } } satisfies TemplateRegistry;
+const checkedRefs = templates(checkedRegistry);
+expectTypeOf(checkedRefs.email.welcome).toEqualTypeOf(welcomeRef);
+// @ts-expect-error satisfies keeps the inferred keys
+void checkedRefs.email.credits;
+// @ts-expect-error and the absent channel stays empty
+void checkedRefs.push.credits;
+
+workflow({ id: 'schema_refs_empty', trigger: trigger.event(e.sign_up) })
+  .push(schemaRefs.push.ping, {})
+  // @ts-expect-error an empty schema takes no props
+  .push(schemaRefs.push.ping, { name: 'Ada' });
+
+workflow({ id: 'schema_refs', trigger: trigger.event(e.sign_up) })
+  .email(welcomeRef, { name: 'Ada' })
+  .email(welcomeRef, { name: 'Ada', plan: 'pro' })
+  .push(creditsRef, { credits: u.docs_count })
+  .push(creditsRef, { credits: 3 }, { devices: 'latest' });
+
+workflow({ id: 'schema_refs_bad', trigger: trigger.event(e.sign_up) })
+  // @ts-expect-error required props cannot be omitted
+  .push(creditsRef, {})
+  // @ts-expect-error a user ref of the wrong type
+  .push(creditsRef, { credits: u.subscription_plan })
+  // @ts-expect-error an email ref is not a push ref
+  .push(welcomeRef, { name: 'Ada' });
+
+/* ------------------------------- shared contract ------------------------------- */
+
+import { JourneyClient } from '../src/client';
+
+const shared = defineContract({
+  events: {
+    login: z.looseObject({ method: z.string() }),
+    purchase: z.looseObject({ transaction_id: z.string(), value: z.number() }),
+  },
+  profile: z.strictObject({ email: z.email().optional(), name: z.string() }),
+});
+
+// payload refs come from the declared fields only — a loose object's extra keys are not spellable
+expectTypeOf(shared.user.name).toEqualTypeOf<UserPropertyRef<string>>();
+expectTypeOf(shared.user.userId).toEqualTypeOf<UserPropertyRef<string>>();
+// @ts-expect-error undeclared profile field
+exists(shared.user.plan);
+performed(shared.events.purchase, (p) => gt(p.value, 10));
+// @ts-expect-error undeclared payload field of a loose event
+performed(shared.events.login, (p) => eq(p.session, 'x'));
+
+const producer = new JourneyClient({ origin: 'https://w.test', contract: shared });
+void producer.track('u1', 'purchase', { transaction_id: 't', value: 1 }, { id: 'row' });
+void producer.track('u1', 'login', { method: 'email', extra: true });
+// @ts-expect-error unknown event name
+void producer.track('u1', 'signup', {});
+// @ts-expect-error missing payload field
+void producer.track('u1', 'purchase', { transaction_id: 't' });
+// @ts-expect-error wrong payload type
+void producer.track('u1', 'purchase', { transaction_id: 't', value: '1' });
+void producer.identify('u1', { name: 'Ada', email: null });
+// @ts-expect-error undeclared profile field in a patch
+void producer.identify('u1', { plan: 'pro' });
+
+// without a contract the client stays untyped
+void new JourneyClient({ origin: 'https://w.test' }).track('u1', 'anything', { a: 1 });
+
+/* ------------------------------ emitted payloads ------------------------------- */
+
+const orders = defineContract({
+  events: {
+    order: z.looseObject({ id: z.string(), total: z.number(), items: z.array(z.string()) }),
+    note: z.looseObject({ text: z.string(), tags: z.array(z.string()).optional() }),
+  },
+  profile: z.strictObject({ name: z.string() }),
+});
+
+// scalar fields (or profile refs to them) can be emitted; an optional nested field may be left out
+workflow({ id: 'emit_ok', trigger: trigger.event(orders.events.note) }).sendEvent(
+  orders.events.note,
+  {
+    text: orders.user.name,
+  }
+);
+workflow({ id: 'emit_nested', trigger: trigger.event(orders.events.note) })
+  // @ts-expect-error a required nested field cannot be emitted from a journey
+  .sendEvent(orders.events.order, { id: 'o', total: 1, items: ['a'] });

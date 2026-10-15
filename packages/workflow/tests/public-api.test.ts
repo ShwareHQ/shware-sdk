@@ -38,11 +38,12 @@ interface UserProperty {
 const e = event<Event>();
 const u = user<UserProperty>();
 
-const freeUser = segment('free_user', eq(u.plan, 'free'));
-const upgraded = segment('upgraded', performed(e.upgraded));
+const freeUser = segment({ id: 'free_user', condition: eq(u.plan, 'free') });
+const upgraded = segment({ id: 'upgraded', condition: performed(e.upgraded) });
 const welcome = template.email<{ plan: UserProperty['plan'] }>('welcome');
 
-const onboarding = workflow('onboarding', {
+const onboarding = workflow({
+  id: 'onboarding',
   trigger: trigger.event(e.signed_up),
   goal: upgraded,
   description: 'Welcome new users, nudge free ones to upgrade',
@@ -60,7 +61,7 @@ test('define -> compile -> validate -> plan round trip', () => {
 
   // the compiled IR survives serialization and the authoritative schema
   const revived = WorkflowIR.parse(JSON.parse(JSON.stringify(bundle.workflows[0])));
-  expect(revived.name).toBe('onboarding');
+  expect(revived.id).toBe('onboarding');
   expect(revived.meta?.description).toContain('Welcome new users');
 
   // first deploy: everything is an addition
@@ -89,6 +90,7 @@ describe('running the compiled IR on in-memory ports', () => {
         name === 'free_user'
           ? { type: 'property', path: 'plan', op: 'eq', value: 'free' }
           : { type: 'performed', event: 'upgraded' },
+      listDevices: async () => [],
     };
     const promise = runJourney(onboarding.toIR(), {
       userId: 'u1',

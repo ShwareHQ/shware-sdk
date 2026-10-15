@@ -1,7 +1,7 @@
 /**
  * Content hashing — contentHash covers execution semantics only.
  *
- * Human-facing metadata (description / tags / owner, node labels) is excluded,
+ * Human-facing metadata (name / description, node labels) is excluded,
  * because it cannot change which path a user takes:
  * - rewording a description must not invalidate the version an in-flight
  *   journey is pinned to;
@@ -16,7 +16,7 @@
 
 /**
  * Keys excluded from hashing.
- * - meta: metadata at any level — workflow (description / tags / owner) and
+ * - meta: metadata at any level — workflow (name / description) and
  *   node/segment provenance (`loc`, the callsite source map)
  * - label: node and branch-arm names (UI titles / observability, never routing)
  * - reason: the exit / filter audit string. It is written into the audit log

@@ -32,7 +32,8 @@ export interface NodeChange {
 }
 
 export interface WorkflowChange {
-  name: string;
+  /** The workflow's id. */
+  id: string;
   status: ChangeStatus;
   /** Deployed contentHash (absent when added). */
   before?: string;
@@ -50,7 +51,8 @@ export interface WorkflowChange {
 }
 
 export interface ResourceChange {
-  name: string;
+  /** The resource's identity: a segment's id, a template's key, an action's name. */
+  id: string;
   status: ChangeStatus;
   before?: string;
   after?: string;
@@ -159,14 +161,14 @@ function diffWorkflows(
   local: readonly WorkflowIR[],
   deployed: readonly WorkflowIR[]
 ): WorkflowChange[] {
-  const deployedByName = new Map(deployed.map((item) => [item.name, item]));
+  const deployedByName = new Map(deployed.map((item) => [item.id, item]));
   const changes: WorkflowChange[] = [];
 
   for (const item of local) {
-    const before = deployedByName.get(item.name);
+    const before = deployedByName.get(item.id);
     if (!before) {
       changes.push({
-        name: item.name,
+        id: item.id,
         status: 'added',
         after: item.contentHash,
         fields: [],
@@ -176,7 +178,7 @@ function diffWorkflows(
     }
     const status = statusOf(item, before);
     changes.push({
-      name: item.name,
+      id: item.id,
       status,
       before: before.contentHash,
       after: item.contentHash,
@@ -185,11 +187,11 @@ function diffWorkflows(
     });
   }
 
-  const localNames = new Set(local.map((item) => item.name));
+  const localNames = new Set(local.map((item) => item.id));
   for (const item of deployed) {
-    if (!localNames.has(item.name)) {
+    if (!localNames.has(item.id)) {
       changes.push({
-        name: item.name,
+        id: item.id,
         status: 'removed',
         before: item.contentHash,
         fields: [],
@@ -198,47 +200,47 @@ function diffWorkflows(
     }
   }
 
-  return changes.sort((a, b) => a.name.localeCompare(b.name));
+  return changes.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function diffSegments(
   local: readonly SegmentIR[],
   deployed: readonly SegmentIR[]
 ): ResourceChange[] {
-  const deployedByName = new Map(deployed.map((item) => [item.name, item]));
+  const deployedByName = new Map(deployed.map((item) => [item.id, item]));
   const changes: ResourceChange[] = local.map((item) => {
-    const before = deployedByName.get(item.name);
-    if (!before) return { name: item.name, status: 'added' as const, after: item.contentHash };
+    const before = deployedByName.get(item.id);
+    if (!before) return { id: item.id, status: 'added' as const, after: item.contentHash };
     return {
-      name: item.name,
+      id: item.id,
       status: statusOf(item, before),
       before: before.contentHash,
       after: item.contentHash,
     };
   });
 
-  const localNames = new Set(local.map((item) => item.name));
+  const localNames = new Set(local.map((item) => item.id));
   for (const item of deployed) {
-    if (!localNames.has(item.name)) {
-      changes.push({ name: item.name, status: 'removed', before: item.contentHash });
+    if (!localNames.has(item.id)) {
+      changes.push({ id: item.id, status: 'removed', before: item.contentHash });
     }
   }
-  return changes.sort((a, b) => a.name.localeCompare(b.name));
+  return changes.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function diffTemplates(local: BundleIR['templates'], deployed: BundleIR['templates']) {
   const deployedByKey = new Map(deployed.map((item) => [item.key, item]));
   const changes: ResourceChange[] = local.map((item) => {
     const before = deployedByKey.get(item.key);
-    if (!before) return { name: item.key, status: 'added' as const };
-    return { name: item.key, status: before.channel === item.channel ? 'unchanged' : 'changed' };
+    if (!before) return { id: item.key, status: 'added' as const };
+    return { id: item.key, status: before.channel === item.channel ? 'unchanged' : 'changed' };
   });
 
   const localKeys = new Set(local.map((item) => item.key));
   for (const item of deployed) {
-    if (!localKeys.has(item.key)) changes.push({ name: item.key, status: 'removed' });
+    if (!localKeys.has(item.key)) changes.push({ id: item.key, status: 'removed' });
   }
-  return changes.sort((a, b) => a.name.localeCompare(b.name));
+  return changes.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** Actions diff on codeHash — the manifest's only semantic content (the code itself lives in the Worker bundle). */
@@ -246,9 +248,9 @@ function diffActions(local: BundleIR['actions'], deployed: BundleIR['actions']) 
   const deployedByName = new Map(deployed.map((item) => [item.name, item]));
   const changes: ResourceChange[] = local.map((item) => {
     const before = deployedByName.get(item.name);
-    if (!before) return { name: item.name, status: 'added' as const, after: item.codeHash };
+    if (!before) return { id: item.name, status: 'added' as const, after: item.codeHash };
     return {
-      name: item.name,
+      id: item.name,
       status: before.codeHash === item.codeHash ? ('unchanged' as const) : ('changed' as const),
       before: before.codeHash,
       after: item.codeHash,
@@ -258,10 +260,10 @@ function diffActions(local: BundleIR['actions'], deployed: BundleIR['actions']) 
   const localNames = new Set(local.map((item) => item.name));
   for (const item of deployed) {
     if (!localNames.has(item.name)) {
-      changes.push({ name: item.name, status: 'removed', before: item.codeHash });
+      changes.push({ id: item.name, status: 'removed', before: item.codeHash });
     }
   }
-  return changes.sort((a, b) => a.name.localeCompare(b.name));
+  return changes.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** Empty bundle: the default `deployed` on a first deploy, so everything reports as added. */

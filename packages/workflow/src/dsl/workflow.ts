@@ -34,7 +34,7 @@ export interface GoalOptions {
 export interface WorkflowDefinition {
   /**
    * Wire identity — engine instances, the entry ledger and stats keys are all
-   * built on it (`WorkflowIR.name`), so it is not something to rename for
+   * built on it (`WorkflowIR.id`), so it is not something to rename for
    * readability; `name` is.
    */
   id: string;
@@ -170,7 +170,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
     const meta = this.metaIR();
     const body = {
       irVersion: IR_VERSION,
-      name: this.options.id,
+      id: this.options.id,
       ...(meta !== undefined ? { meta } : {}),
       trigger: (this.options.trigger as TriggerInternal).ir,
       ...(goal !== undefined ? { goal } : {}),
