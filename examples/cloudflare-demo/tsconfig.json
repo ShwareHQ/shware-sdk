@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["src", "emails", "../../packages/workflow/src/cloudflare/workers.d.ts"]
+  "include": ["src", "workflow.config.ts", "../../packages/workflow/src/cloudflare/workers.d.ts"]
 }
