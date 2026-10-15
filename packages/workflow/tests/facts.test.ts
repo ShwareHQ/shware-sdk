@@ -1,13 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import { evaluateCondition } from '../src/engine/condition';
-import { fillSubject } from '../src/engine/subject';
 import type { ConditionIR } from '../src/ir';
 import { D1JourneyStore, JourneyFactSource } from '../src/store/index';
 import { FakeD1, FakeKV } from './fake-cloudflare';
 
 /**
  * The profile read is the last boundary between stored JSON and every
- * ScalarIR-typed consumer — branch evaluation, subject placeholders, resolved
+ * ScalarIR-typed consumer — branch evaluation, resolved
  * message props. /identify checks only that `props` is an object, so anything
  * json_patch accepts can be sitting in that column.
  */
@@ -17,6 +16,15 @@ describe('JourneyFactSource.getProperty: the scalar boundary', () => {
     db.profiles.set('u_1', JSON.stringify(props));
     return new JourneyFactSource(new D1JourneyStore(db, new FakeKV()), 'u_1');
   }
+
+  test("u.userId reads the user's own id, which no profile stores", async () => {
+    await expect(factsFor({}).getProperty('userId')).resolves.toBe('u_1');
+    // a stored field of that name cannot impersonate another user
+    await expect(factsFor({ userId: 'someone-else' }).getProperty('userId')).resolves.toBe('u_1');
+    await expect(
+      evaluateCondition({ type: 'property', path: 'userId', op: 'exists' }, factsFor({}), 0)
+    ).resolves.toBe(true);
+  });
 
   const prop = (path: string, op: 'gt' | 'eq' | 'exists', value?: number): ConditionIR =>
     op === 'exists'
@@ -46,13 +54,10 @@ describe('JourneyFactSource.getProperty: the scalar boundary', () => {
     await expect(evaluateCondition(prop('score', 'eq', 5), facts, 0)).resolves.toBe(false);
   });
 
-  test('an object value cannot reach a recipient or a subject as [object Object]', async () => {
-    const facts = factsFor({ email: { work: 'a@b.c' }, first_name: { given: 'Ada' } });
+  test('an object value cannot reach a recipient as [object Object]', async () => {
+    const facts = factsFor({ email: { work: 'a@b.c' } });
 
     await expect(facts.getProperty('email')).resolves.toBeUndefined();
-    await expect(
-      fillSubject('Hi {{ user.first_name }}', (path) => facts.getProperty(path))
-    ).resolves.toBe('Hi ');
   });
 
   test('inherited keys are not properties: exists stays false for Object.prototype members', async () => {

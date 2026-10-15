@@ -1,7 +1,10 @@
 import { matchesWhere } from '../engine/condition';
-import type { FactSource } from '../engine/ports';
+import type { FactSource, PushDevice } from '../engine/ports';
 import type { ConditionIR, ScalarIR } from '../ir';
 import type { JourneyStore } from './index';
+
+/** The profile path that reads the user's own id (`u.userId`). */
+export const USER_ID_PROPERTY = 'userId';
 
 /** Single-user fact source over a JourneyStore: evaluation lives in engine/condition.ts, this only reads. */
 export class JourneyFactSource implements FactSource {
@@ -12,9 +15,12 @@ export class JourneyFactSource implements FactSource {
 
   async countEvents(
     event: string,
-    opts?: { sinceMs?: number; where?: ConditionIR }
+    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR }
   ): Promise<number> {
-    const window = opts?.sinceMs === undefined ? undefined : { sinceMs: opts.sinceMs };
+    const window = {
+      ...(opts?.sinceMs === undefined ? {} : { sinceMs: opts.sinceMs }),
+      ...(opts?.untilMs === undefined ? {} : { untilMs: opts.untilMs }),
+    };
     if (opts?.where === undefined) return this.store.countEvents(this.userId, event, window);
     // Payload filtering happens in JS via the shared evaluator — one set of
     // where semantics with the in-memory FactSource; per-user row counts are small.
@@ -38,6 +44,8 @@ export class JourneyFactSource implements FactSource {
    * place.
    */
   async getProperty(path: string): Promise<ScalarIR | undefined> {
+    // The system field: the request's identity, never stored in the profile (contract.user.userId)
+    if (path === USER_ID_PROPERTY) return this.userId;
     const props: Record<string, unknown> | undefined = await this.store.getProfile(this.userId);
     if (props === undefined) return undefined;
     // Own keys only: `props[path]` would otherwise find Object.prototype, so
@@ -57,5 +65,14 @@ export class JourneyFactSource implements FactSource {
 
   getSegmentCondition(name: string): Promise<ConditionIR | undefined> {
     return this.store.getSegmentCondition(name);
+  }
+
+  /** The user's registered devices; none, and push skips while `reachable('push')` is false. */
+  async isSuppressed(channel: string): Promise<boolean> {
+    return (await this.store.isSuppressed?.(this.userId, channel)) ?? false;
+  }
+
+  listDevices(): Promise<PushDevice[]> {
+    return this.store.listDevices(this.userId);
   }
 }

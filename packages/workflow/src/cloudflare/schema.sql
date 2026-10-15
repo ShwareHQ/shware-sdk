@@ -27,10 +27,21 @@ CREATE TABLE IF NOT EXISTS profiles (
   props   TEXT NOT NULL DEFAULT '{}'
 );
 
--- Deploy artefacts: segment definitions (resolved by name during evaluation)
+-- Deploy artefacts: segment definitions (resolved by id during evaluation)
 -- and the trigger routing table.
+-- Push devices: one row per provider token, owned by the user who registered it last.
+-- user_id is null for a device whose user signed out: it stays registered until the next
+-- sign-in binds it again. A database created while it was NOT NULL needs the table rebuilt.
+CREATE TABLE IF NOT EXISTS devices (
+  token    TEXT PRIMARY KEY,
+  user_id  TEXT,
+  platform TEXT NOT NULL,
+  ts       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_devices_user_ts ON devices (user_id, ts);
+
 CREATE TABLE IF NOT EXISTS segments (
-  name      TEXT PRIMARY KEY,
+  id        TEXT PRIMARY KEY,
   condition TEXT NOT NULL,
   hash      TEXT NOT NULL
 );
@@ -56,14 +67,31 @@ CREATE INDEX IF NOT EXISTS idx_segment_triggers_segment ON segment_triggers (seg
 
 -- Lazily maintained segment membership, covering only segments that something
 -- triggers on. Transitions are re-evaluated when the user is ingested or
--- identified. Drift driven purely by the clock (an inactivity segment coming
--- true on its own) is therefore only observed on that user's next activity.
--- TODO: a cron sweep for time-driven segments.
+-- identified, and by the scheduled sweep (journeyWorker's `scheduled`), which
+-- also catches drift driven purely by the clock.
 CREATE TABLE IF NOT EXISTS segment_members (
   segment TEXT NOT NULL,
   user_id TEXT NOT NULL,
   ts      INTEGER NOT NULL,
   PRIMARY KEY (segment, user_id)
+);
+
+-- Workflows a segment entry still has to start for a member: written with the
+-- membership, removed as each starts, so a failed start is retried by the next
+-- evaluation instead of being hidden behind the membership.
+CREATE TABLE IF NOT EXISTS segment_starts (
+  segment  TEXT NOT NULL,
+  workflow TEXT NOT NULL,
+  user_id  TEXT NOT NULL,
+  ts       INTEGER NOT NULL,
+  PRIMARY KEY (segment, workflow, user_id)
+);
+
+-- Erasures in progress (forgetUser): the user's data stays until every running
+-- instance is stopped, and the scheduled sweep retries what is left.
+CREATE TABLE IF NOT EXISTS erasures (
+  user_id TEXT PRIMARY KEY,
+  ts      INTEGER NOT NULL
 );
 
 -- Entry ledger: the once-per-user policy, instance addressing, and the audit
