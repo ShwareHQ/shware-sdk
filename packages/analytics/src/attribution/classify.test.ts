@@ -408,6 +408,7 @@ describe('classifyTouch', () => {
   it('does not count a bounce through payment, sign-in or our own hosts as a touch', () => {
     for (const page_referrer of [
       'https://checkout.stripe.com/',
+      'https://app.link.com/',
       'https://accounts.google.com/',
       'https://open.weixin.qq.com/connect/qrconnect',
       'https://nid.naver.com/oauth2.0/authorize',
