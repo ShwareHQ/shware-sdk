@@ -240,6 +240,8 @@ export const REFERRERS_NOT_A_TOUCH = [
   /^localhost(:|$)/,
   // payment
   /(^|\.)stripe\.com$/,
+  // Link, Stripe's wallet: a customer opens a merchant's site from their purchases on app.link.com
+  /(^|\.)link\.com$/,
   /^pay\.google\.com$/,
   /(^|\.)paypal\.com$/,
   /(^|\.)alipay\.com$/,
