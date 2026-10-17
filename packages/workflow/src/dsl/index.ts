@@ -85,6 +85,7 @@ export {
   type FlowBuilder,
   type EmitArgs,
   type EmitPayload,
+  type PreferOptions,
   type PushOptions,
   type SubFlow,
   flow,
