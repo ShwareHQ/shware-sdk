@@ -227,6 +227,7 @@ export const ANDROID_APP_HOSTS: Readonly<Record<string, string>> = {
 /**
  * Referrer hosts that are navigation, not acquisition, when a session happens to start on the way
  * back from them: the local dev host; the payment providers a visitor is bounced through; the
+ * bot challenges (Cloudflare Turnstile, hCaptcha) a visitor passes before the page; the
  * sign-in providers whose login lives on a host of its own (Google, Apple, Microsoft, WeChat,
  * Kakao, LINE, Naver, Yahoo, Twitch, X's OAuth 1.0a endpoint); and the hosted auth services a
  * product may sit behind (Auth0, Okta, Supabase, Firebase, Clerk). A product appends its own
@@ -238,6 +239,7 @@ export const ANDROID_APP_HOSTS: Readonly<Record<string, string>> = {
  */
 export const REFERRERS_NOT_A_TOUCH = [
   /^localhost(:|$)/,
+  /^127\.0\.0\.1$/,
   // payment
   /(^|\.)stripe\.com$/,
   // Link, Stripe's wallet: a customer opens a merchant's site from their purchases on app.link.com
@@ -247,6 +249,11 @@ export const REFERRERS_NOT_A_TOUCH = [
   /(^|\.)alipay\.com$/,
   /(^|\.)paddle\.com$/,
   /(^|\.)lemonsqueezy\.com$/,
+  /^pay\.amazon\.com$/,
+  /^pay\.weixin\.qq\.com$/,
+  // bot challenges a visitor is sent through before the page
+  /^challenges\.cloudflare\.com$/,
+  /(^|\.)hcaptcha\.com$/,
   // app stores
   /^apps\.apple\.com$/,
   /^play\.google\.com$/,
