@@ -33,11 +33,18 @@ export const CHANNELS = [
   'ecosia',
   'naver',
   'brave',
+  'qwant',
   'pinterest',
   'youtube',
   'telegram',
-  /** Gmail's web and Android app: a link in a mail that carried no utm. */
+  /** Webmail, by its web and Android app: a link in a mail that carried no utm. Outlook includes
+   * the links Microsoft 365's Safe Links rewrote. */
   'gmail',
+  'outlook',
+  'yahoo_mail',
+  /** A mail whose client cannot be told: the link was rewritten by an email security gateway
+   * (Proofpoint's URL Defense). */
+  'email',
   /** AI assistants that send people to sites: ChatGPT tags its links `utm_source=chatgpt.com`, the
    * others show as a referrer. Their own channel group, `organic_ai`, since GA4's default groups
    * would file them under Referral / Unassigned and the question "how much does AI bring" comes up. */
@@ -179,8 +186,16 @@ export const REFERRER_SITES = [
   ['yuanbao', 'ai', /^yuanbao\.tencent\.com$/],
   ['ernie', 'ai', /^yiyan\.baidu\.com$|(^|\.)ernie\.baidu\.com$/],
   ['zhipu', 'ai', /(^|\.)(chatglm\.cn|zhipuai\.cn|bigmodel\.cn)$/],
-  // Before google, whose pattern it would match.
+  // Webmail before the search engines whose patterns would match it: Gmail is on google.*,
+  // Yahoo Mail on yahoo.*.
   ['gmail', 'email', /^mail\.google\.com$/],
+  [
+    'outlook',
+    'email',
+    /^outlook\.(live|office|office365)\.com$|(^|\.)safelinks\.protection\.outlook\.com$/,
+  ],
+  ['yahoo_mail', 'email', /^mail\.yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$/],
+  ['email', 'email', /^urldefense\.(com|proofpoint\.com)$/],
   ['google', 'organic', /(^|\.)google\.[a-z]{2,}(\.[a-z]{2,3})?$/],
   ['microsoft', 'organic', /(^|\.)bing\.com$/],
   ['yahoo', 'organic', /(^|\.)yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$/],
@@ -190,6 +205,7 @@ export const REFERRER_SITES = [
   ['ecosia', 'organic', /(^|\.)ecosia\.org$/],
   ['naver', 'organic', /(^|\.)naver\.com$/],
   ['brave', 'organic', /^search\.brave\.com$/],
+  ['qwant', 'organic', /(^|\.)qwant\.com$/],
   ['meta', 'social', /(^|\.)(facebook\.com|instagram\.com|fb\.com|threads\.net)$/],
   ['x', 'social', /(^|\.)(twitter\.com|x\.com|t\.co)$/],
   ['linkedin', 'social', /(^|\.)(linkedin\.com|lnkd\.in)$/],
@@ -211,6 +227,7 @@ export const REFERRER_SITES = [
 export const ANDROID_APP_HOSTS: Readonly<Record<string, string>> = {
   'com.google.android.googlequicksearchbox': 'www.google.com',
   'com.google.android.gm': 'mail.google.com',
+  'com.microsoft.office.outlook': 'outlook.live.com',
   'com.google.android.youtube': 'www.youtube.com',
   'com.facebook.katana': 'www.facebook.com',
   'com.instagram.android': 'www.instagram.com',

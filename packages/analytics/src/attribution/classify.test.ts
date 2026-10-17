@@ -381,6 +381,16 @@ describe('classifyTouch', () => {
     ['https://blog.example.com/post', 'blog.example.com', 'referral', 'referral'],
     ['https://Blog.Example.com:8443/post', 'blog.example.com', 'referral', 'referral'],
     ['https://mail.google.com/', 'gmail', 'email', 'email'],
+    ['https://outlook.live.com/', 'outlook', 'email', 'email'],
+    ['https://outlook.office.com/mail/', 'outlook', 'email', 'email'],
+    ['https://outlook.office365.com/', 'outlook', 'email', 'email'],
+    ['https://nam12.safelinks.protection.outlook.com/?url=x', 'outlook', 'email', 'email'],
+    // Not Yahoo search, whose pattern it would match.
+    ['https://mail.yahoo.com/d/folders/1', 'yahoo_mail', 'email', 'email'],
+    ['https://urldefense.com/v3/__https://x__', 'email', 'email', 'email'],
+    ['https://urldefense.proofpoint.com/v2/url?u=x', 'email', 'email', 'email'],
+    ['https://www.qwant.com/?q=x', 'qwant', 'organic', 'organic_search'],
+    ['https://search.yahoo.com/search?p=x', 'yahoo', 'organic', 'organic_search'],
     ['https://t.me/somechannel', 'telegram', 'social', 'organic_social'],
     // Android apps send their package as the referrer.
     [
@@ -390,6 +400,7 @@ describe('classifyTouch', () => {
       'organic_search',
     ],
     ['android-app://com.google.android.gm/', 'gmail', 'email', 'email'],
+    ['android-app://com.microsoft.office.outlook/', 'outlook', 'email', 'email'],
     ['android-app://m.facebook.com', 'meta', 'social', 'organic_social'],
     ['android-app://com.linkedin.android/', 'linkedin', 'social', 'organic_social'],
     ['android-app://com.reddit.frontpage/', 'reddit', 'social', 'organic_social'],
