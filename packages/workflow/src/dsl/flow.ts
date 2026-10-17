@@ -3,7 +3,7 @@ import { captureLoc } from '../provenance';
 import type { ActionRef } from './action';
 import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
 import { type Condition, condIR } from './condition';
-import type { EventRef, MessageArgs, PropInput } from './refs';
+import type { EventRef, MessageArgs, PropInput, PropsInput } from './refs';
 import type { Channel, TemplateRef } from './template';
 
 /**
@@ -35,6 +35,70 @@ export type EmitArgs<P> =
 export interface PushOptions {
   /** Which devices get a copy: 'all' (the default) or only the most recently registered. */
   devices?: 'all' | 'latest';
+}
+
+/** `prefer()` options. */
+export interface PreferOptions {
+  /** The generated branch's name in IR (UI title / observability handle), as `branch(label, …)`. */
+  label?: string;
+}
+
+/** The candidates `prefer()` takes: one push and one email template, in priority order. */
+type PreferPair =
+  | readonly [TemplateRef<'push', object>, TemplateRef<'email', object>]
+  | readonly [TemplateRef<'email', object>, TemplateRef<'push', object>];
+
+type RefProps<R> = R extends TemplateRef<infer _C, infer P> ? P : never;
+type NormalizeProps<P> = { -readonly [K in keyof P]: P[K] };
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+/** Both candidates render the one props object, so they must declare the same props type — not merely overlap. */
+type SameProps<T extends PreferPair> =
+  Equal<NormalizeProps<RefProps<T[0]>>, NormalizeProps<RefProps<T[1]>>> extends true
+    ? unknown
+    : { readonly __prefer_error__: 'Both templates must declare the same props type' };
+
+/** Distributes, so a field only one member of a union variable has still counts as extra. */
+type KeysOfUnion<A> = A extends unknown ? keyof A : never;
+/** Rejects known extra fields, which `{}` (an empty props schema) would otherwise accept. */
+type NoExtra<A, P> = Record<Exclude<KeysOfUnion<A>, keyof P>, never>;
+
+const PREFER_CHANNELS: ReadonlySet<unknown> = new Set(['push', 'email']);
+
+/** prefer() is typed strictly, but a JS caller (or an `any`) reaches it unchecked — fail at the call, not at send time. */
+function checkPreferArgs(candidates: unknown, props: unknown, options: unknown): void {
+  if (!Array.isArray(candidates) || candidates.length !== 2) {
+    throw new TypeError('prefer(): candidates must be exactly two templates — one push, one email');
+  }
+  for (const ref of candidates as unknown[]) {
+    const { channel, key } = (ref ?? {}) as Partial<TemplateRef>;
+    if (!PREFER_CHANNELS.has(channel) || typeof key !== 'string' || key === '') {
+      throw new TypeError(
+        'prefer(): each candidate must be a push or email template reference (t.push.<key> / t.email.<key>)'
+      );
+    }
+  }
+  if ((candidates[0] as TemplateRef).channel === (candidates[1] as TemplateRef).channel) {
+    throw new TypeError('prefer(): candidates must be one push and one email template');
+  }
+  if (typeof props !== 'object' || props === null || Array.isArray(props)) {
+    throw new TypeError(
+      'prefer(): props must be an object — pass {} when the templates declare none'
+    );
+  }
+  if (options === undefined) return;
+  if (typeof options !== 'object' || options === null || Array.isArray(options)) {
+    throw new TypeError('prefer(): options must be an object');
+  }
+  for (const [name, value] of Object.entries(options)) {
+    if (name !== 'label') {
+      throw new TypeError(
+        `prefer(): unknown option '${name}' — props go in the second argument, options take only 'label'`
+      );
+    }
+    if (typeof value !== 'string') throw new TypeError("prefer(): 'label' must be a string");
+  }
 }
 
 /** A reusable flow fragment (what `flow(...)` returns), referenced directly by branch arms. */
@@ -101,7 +165,7 @@ export interface FlowBuilder {
   /**
    * Push to the user's devices — every device the host's directory lists, or
    * only the most recently registered with `{ devices: 'latest' }`. A user with
-   * no device is skipped (branch on `reachable('push')` to fall back to email).
+   * no device is skipped (`prefer([pushTpl, emailTpl], props)` falls back to email).
    */
   push<P extends object>(
     template: TemplateRef<'push', P>,
@@ -111,6 +175,27 @@ export interface FlowBuilder {
   slack<P extends object>(template: TemplateRef<'slack', P>, ...props: MessageArgs<P>): this;
   discord<P extends object>(template: TemplateRef<'discord', P>, ...props: MessageArgs<P>): this;
   survey<P extends object>(template: TemplateRef<'survey', P>, ...props: MessageArgs<P>): this;
+
+  /**
+   * Send one message on the first channel the user can be reached on: one push
+   * and one email template, in priority order, rendered with the same props.
+   * Sugar for the branch it compiles to — same IR, ids and hash as writing
+   *
+   *   .branch(label, [reachable(first.channel), (b) => b.<first>(first, props)], (b) => b.<second>(second, props))
+   *
+   * so the choice is made once, when the step is reached, and a first choice
+   * that fails to send retries as itself — it never falls through to the
+   * second. Props are always passed (`{}` for templates that declare none),
+   * and both templates must declare the same props type; for differing props
+   * or other channels, write the branch.
+   *
+   *   .prefer([t.push.tip, t.email.tip], { name: u.name }, { label: 'tip by channel' })
+   */
+  prefer<const T extends PreferPair, const A extends PropsInput<NoInfer<RefProps<T[0]>>>>(
+    candidates: T & SameProps<NoInfer<T>>,
+    props: A & NoInfer<NoExtra<A, RefProps<T[0]>>>,
+    options?: PreferOptions
+  ): this;
 
   /* --------------------------------- Delays --------------------------------- */
   /** Time Delay; passing { min, max } makes it a Randomized Delay. */
@@ -141,9 +226,8 @@ export interface FlowBuilder {
    * workflow as if the steps were written inline). Each use gets its own copy,
    * so one fragment can be used in several places and workflows.
    *
-   *   const preferPush = (push, email, props) =>
-   *     flow((w) => w.branch([reachable('push'), (b) => b.push(push, props)], (b) => b.email(email, props)));
-   *   workflow({ id: 'onboarding', ... }).use(preferPush(tipPush, tipEmail, { name: u.name }))
+   *   const officeHours = flow((w) => w.timeWindow({ days: ['mon', 'tue', 'wed', 'thu', 'fri'], between: ['09:00', '17:00'] }));
+   *   workflow({ id: 'onboarding', ... }).delay('1 day').use(officeHours).email(t.email.tip, { name: u.name })
    */
   use(fragment: SubFlow): this;
 
@@ -230,6 +314,23 @@ export interface FlowBuilder {
   run<A extends object>(action: ActionRef<A>, ...args: MessageArgs<A>): this;
 }
 
+function messageNode(
+  channel: ChannelIR,
+  tpl: TemplateRef<Channel, object>,
+  props: object | undefined,
+  devices?: 'latest'
+): NodeIR {
+  return {
+    id: '',
+    type: 'message',
+    channel,
+    template: tpl.key,
+    props: (props ?? {}) as Record<string, PropValueIR>,
+    // Absent for 'all', so adding the option left every existing push's hash as it was
+    ...(devices !== undefined ? { devices } : {}),
+  };
+}
+
 /* oxlint-disable typescript/unbound-method --
  * `captureLoc(this.xxx)` passes the method by identity as the stack-trace
  * boundary for Error.captureStackTrace; it is never invoked, so `this`
@@ -252,18 +353,7 @@ export class FlowBuilderImpl implements FlowBuilder {
     loc: SourceLocIR | undefined,
     devices?: 'latest'
   ): this {
-    return this.pushNode(
-      {
-        id: '',
-        type: 'message',
-        channel,
-        template: tpl.key,
-        props: (props ?? {}) as Record<string, PropValueIR>,
-        // Absent for 'all', so adding the option left every existing push's hash as it was
-        ...(devices !== undefined ? { devices } : {}),
-      },
-      loc
-    );
+    return this.pushNode(messageNode(channel, tpl, props, devices), loc);
   }
 
   email<P extends object>(t: TemplateRef<'email', P>, ...args: MessageArgs<P>): this {
@@ -291,6 +381,34 @@ export class FlowBuilderImpl implements FlowBuilder {
   }
   survey<P extends object>(t: TemplateRef<'survey', P>, ...args: MessageArgs<P>): this {
     return this.message('survey', t, args[0], captureLoc(this.survey));
+  }
+
+  prefer<const T extends PreferPair, const A extends PropsInput<NoInfer<RefProps<T[0]>>>>(
+    candidates: T & SameProps<NoInfer<T>>,
+    props: A & NoInfer<NoExtra<A, RefProps<T[0]>>>,
+    options?: PreferOptions
+  ): this {
+    checkPreferArgs(candidates, props, options);
+    // Every generated node points at the author's prefer() call, not at this method's body
+    const loc = captureLoc(this.prefer);
+    const meta = loc !== undefined ? { meta: { loc } } : {};
+    const [first, second] = candidates as readonly TemplateRef<'push' | 'email', object>[];
+    // A copy per message, as two separately written calls would hold
+    const arm = (tpl: TemplateRef<'push' | 'email', object>): NodeIR[] => [
+      { ...messageNode(tpl.channel, tpl, { ...props }), ...meta },
+    ];
+    return this.pushNode(
+      {
+        id: '',
+        type: 'branch',
+        ...(options?.label !== undefined ? { label: options.label } : {}),
+        cases: [
+          { condition: { type: 'reachable', channel: first.channel, ...meta }, flow: arm(first) },
+        ],
+        otherwise: arm(second),
+      },
+      loc
+    );
   }
 
   delay(duration: Duration): this;
