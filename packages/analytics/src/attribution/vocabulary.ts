@@ -38,7 +38,7 @@ export const CHANNELS = [
   'youtube',
   'telegram',
   /** Webmail, by its web and Android app: a link in a mail that carried no utm. Outlook includes
-   * the links Microsoft 365's Safe Links rewrote. */
+   * Microsoft 365's new `outlook.cloud.microsoft` and the links its Safe Links rewrote. */
   'gmail',
   'outlook',
   'yahoo_mail',
@@ -202,7 +202,7 @@ export const REFERRER_SITES = [
   [
     'outlook',
     'email',
-    /^outlook\.(live|office|office365)\.com$|(^|\.)safelinks\.protection\.outlook\.com$/,
+    /^outlook\.(live|office|office365)\.com$|^outlook\.cloud\.microsoft$|(^|\.)safelinks\.protection\.outlook\.com$/,
   ],
   ['yahoo_mail', 'email', /^mail\.yahoo\.[a-z]{2,}(\.[a-z]{2,3})?$/],
   ['yandex_mail', 'email', /^mail\.yandex\.[a-z]{2,}(\.[a-z]{2,3})?$/],
@@ -211,7 +211,7 @@ export const REFERRER_SITES = [
   ['netease_mail', 'email', /^mail\.(163|126)\.com$/],
   ['proton_mail', 'email', /^mail\.proton(mail)?\.(me|com)$/],
   ['seznam_mail', 'email', /^email\.seznam\.cz$/],
-  ['gmx', 'email', /^deref-[a-z0-9-]+\.(net|de|com)$|^navigator\.(gmx\.net|web\.de)$/],
+  ['gmx', 'email', /^deref-(gmx|web|mail)(-\d+)?\.(net|de|com)$|^navigator\.(gmx\.net|web\.de)$/],
   ['aol_mail', 'email', /^mail\.aol\.com$/],
   ['zoho_mail', 'email', /^mail\.zoho\.[a-z]{2,}(\.[a-z]{2,3})?$/],
   [

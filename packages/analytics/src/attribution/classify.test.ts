@@ -384,6 +384,7 @@ describe('classifyTouch', () => {
     ['https://outlook.live.com/', 'outlook', 'email', 'email'],
     ['https://outlook.office.com/mail/', 'outlook', 'email', 'email'],
     ['https://outlook.office365.com/', 'outlook', 'email', 'email'],
+    ['https://outlook.cloud.microsoft/mail/', 'outlook', 'email', 'email'],
     ['https://nam12.safelinks.protection.outlook.com/?url=x', 'outlook', 'email', 'email'],
     // Not Yahoo search, whose pattern it would match.
     ['https://mail.yahoo.com/d/folders/1', 'yahoo_mail', 'email', 'email'],
@@ -405,6 +406,9 @@ describe('classifyTouch', () => {
     ['https://email.seznam.cz/', 'seznam_mail', 'email', 'email'],
     ['https://deref-gmx.net/mail/client/x', 'gmx', 'email', 'email'],
     ['https://deref-web.de/mail/client/x', 'gmx', 'email', 'email'],
+    ['https://deref-web-02.de/mail/client/x', 'gmx', 'email', 'email'],
+    // Only GMX's own redirectors, not any host that starts with deref-.
+    ['https://deref-links.com/x', 'deref-links.com', 'referral', 'referral'],
     ['https://mail.aol.com/', 'aol_mail', 'email', 'email'],
     ['https://mail.zoho.eu/', 'zoho_mail', 'email', 'email'],
     ['https://www.qwant.com/?q=x', 'qwant', 'organic', 'organic_search'],
