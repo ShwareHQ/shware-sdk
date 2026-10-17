@@ -409,12 +409,17 @@ describe('classifyTouch', () => {
     for (const page_referrer of [
       'https://checkout.stripe.com/',
       'https://app.link.com/',
+      'https://pay.amazon.com/',
+      'https://pay.weixin.qq.com/',
+      'https://challenges.cloudflare.com/',
+      'https://newassets.hcaptcha.com/',
       'https://accounts.google.com/',
       'https://open.weixin.qq.com/connect/qrconnect',
       'https://nid.naver.com/oauth2.0/authorize',
       'https://abc.supabase.co/auth/v1/callback',
       'https://www.shware.net/pricing',
       'http://localhost:3000/',
+      'http://127.0.0.1:5173/',
     ]) {
       expect(classifyTouch(at('https://app.shware.net/', { page_referrer }), own)).toMatchObject({
         channel: '(direct)',
