@@ -110,7 +110,7 @@ so screen changes are tracked as page views.
 Each web framework entry exports an `Analytics` component. Render it once in the document head:
 it tracks page views, outbound clicks and web vitals, and loads the pixels whose ids you pass
 (`gaId`, `gtmId`, `metaPixelId`, `redditPixelId`, `linkedInPartnerId`, `uetTagId`, `hotjarId`,
-and on TanStack Start `openaiPixelId`). TanStack Start, as in the template app:
+and on TanStack Start `openaiPixelId`). On TanStack Start:
 
 ```tsx
 import { Analytics } from '@shware/analytics/tanstack';

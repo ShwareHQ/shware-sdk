@@ -2,9 +2,7 @@
 
 The TypeScript packages behind Shware's apps: analytics and attribution, authentication, HTTP
 error handling, in-app purchases, and code-first customer journeys. Each package is published to
-npm on its own and can be adopted independently; the
-[template](https://github.com/ShwareHQ/template) app shows them wired together in a TanStack Start
-web app, a Hono API on Cloudflare Workers and an Expo native app.
+npm on its own and can be adopted independently.
 
 ## Packages
 
@@ -49,7 +47,6 @@ TypeScript types.
   Cloudflare with KV, D1 and Workflows (`pnpm dev`, `pnpm db:reset`).
 - [`examples/playground`](./examples/playground): a `@shware/workflow` project opened in
   `@shware/workflow-ui` (`pnpm dev`).
-- [ShwareHQ/template](https://github.com/ShwareHQ/template): a full app using every package.
 
 ## Development
 
