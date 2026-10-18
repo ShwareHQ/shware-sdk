@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.13.1
+
+### Patch Changes
+
+- eb5413e: `@shware/analytics/native` now uses the global `URLSearchParams` that Expo SDK 57+ installs, and `react-native-url-polyfill` is no longer an optional peer. Apps can remove `react-native-url-polyfill` from their dependencies unless their own code imports it.
+
 ## 11.13.0
 
 ### Minor Changes
