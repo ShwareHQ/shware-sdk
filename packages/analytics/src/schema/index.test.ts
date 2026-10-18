@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as z from 'zod/mini';
 import {
   createLinkSchema,
   createTrackEventSchema,
@@ -8,6 +9,14 @@ import {
   updateVisitorSchema,
   userProvidedDataSchema,
 } from './index';
+
+function validationIssues(schema: z.core.$ZodType, input: unknown) {
+  const result = z.safeParse(schema, input);
+  expect(result.success).toBe(false);
+  if (result.success) throw new Error('Expected schema validation to fail');
+  expect(result.error).toBeInstanceOf(z.core.$ZodError);
+  return result.error.issues;
+}
 
 /**
  * These schemas drop and truncate silently, by design — nothing downstream can tell that a value
@@ -121,17 +130,27 @@ describe('createTrackEventSchema', () => {
   });
 
   it('rejects an empty batch and non-uuid identity', () => {
-    expect(() => createTrackEventSchema.parse([])).toThrow();
-    expect(() =>
-      createTrackEventSchema.parse([{ ...event({}), visitor_id: 'not-a-uuid' }])
-    ).toThrow();
+    expect(validationIssues(createTrackEventSchema, [])).toContainEqual(
+      expect.objectContaining({ code: 'too_small', origin: 'array', minimum: 1, path: [] })
+    );
+    expect(
+      validationIssues(createTrackEventSchema, [{ ...event({}), visitor_id: 'not-a-uuid' }])
+    ).toContainEqual(
+      expect.objectContaining({ code: 'invalid_format', format: 'uuid', path: [0, 'visitor_id'] })
+    );
   });
 });
 
 describe('tagsSchema', () => {
   it('accepts the WxH screen resolution shape and rejects anything else', () => {
     expect(tagsSchema.parse({ screen_resolution: '390x844' }).screen_resolution).toBe('390x844');
-    expect(() => tagsSchema.parse({ screen_resolution: '390' })).toThrow();
+    expect(validationIssues(tagsSchema, { screen_resolution: '390' })).toContainEqual(
+      expect.objectContaining({
+        code: 'invalid_format',
+        format: 'regex',
+        path: ['screen_resolution'],
+      })
+    );
   });
 });
 
@@ -142,18 +161,37 @@ describe('userProvidedDataSchema', () => {
       phone_number: '+14155551234',
     });
     expect(parsed.email).toBe('ada@example.com');
-    expect(() => userProvidedDataSchema.parse({ phone_number: '(415) 555-1234' })).toThrow();
+    expect(
+      validationIssues(userProvidedDataSchema, { phone_number: '(415) 555-1234' })
+    ).toContainEqual(
+      expect.objectContaining({ code: 'invalid_format', format: 'e164', path: ['phone_number'] })
+    );
   });
 
   it('uppercases the two-letter country code and rejects longer forms', () => {
     const parsed = userProvidedDataSchema.parse({ address: { country: 'us' } });
     expect(parsed.address).toMatchObject({ country: 'US' });
-    expect(() => userProvidedDataSchema.parse({ address: { country: 'USA' } })).toThrow();
+    expect(
+      validationIssues(userProvidedDataSchema, { address: { country: 'USA' } })
+    ).toContainEqual(
+      expect.objectContaining({
+        code: 'invalid_format',
+        format: 'regex',
+        path: ['address', 'country'],
+      })
+    );
   });
 
   it('caps the multi-value lists (3 emails, 2 addresses)', () => {
     const emails = ['a@x.co', 'b@x.co', 'c@x.co', 'd@x.co'];
-    expect(() => userProvidedDataSchema.parse({ email: emails })).toThrow();
+    const issues = validationIssues(userProvidedDataSchema, { email: emails });
+    expect(issues).toContainEqual(
+      expect.objectContaining({ code: 'invalid_union', path: ['email'] })
+    );
+    const union = issues.find((issue) => issue.code === 'invalid_union');
+    expect(union?.errors.flat()).toContainEqual(
+      expect.objectContaining({ code: 'too_big', origin: 'array', maximum: 3, path: [] })
+    );
     expect(userProvidedDataSchema.parse({ email: emails.slice(0, 3) }).email).toHaveLength(3);
   });
 });
@@ -173,7 +211,16 @@ describe('createLinkSchema', () => {
   });
 
   it('requires source, medium and campaign', () => {
-    expect(() => createLinkSchema.parse({ url: 'https://x.test', utm_source: 'a' })).toThrow();
+    expect(validationIssues(createLinkSchema, { url: 'https://x.test', utm_source: 'a' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_type', expected: 'string', path: ['utm_medium'] }),
+        expect.objectContaining({
+          code: 'invalid_type',
+          expected: 'string',
+          path: ['utm_campaign'],
+        }),
+      ])
+    );
   });
 });
 

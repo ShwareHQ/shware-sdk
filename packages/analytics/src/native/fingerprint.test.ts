@@ -1,19 +1,47 @@
+import type * as Application from 'expo-application';
+import type * as Clipboard from 'expo-clipboard';
+import type * as Device from 'expo-device';
+import type * as Localization from 'expo-localization';
+import type * as Native from 'react-native';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDeterministicFingerprint, getProbabilisticFingerprint } from './fingerprint';
 
-const { state, getStringAsync } = vi.hoisted(() => ({
-  state: {
-    os: 'android',
-    referrer: null as string | null,
-  },
-  getStringAsync: vi.fn(async () => 'https://shware.io/?s=abc'),
-}));
+type LocalizationPort = {
+  getLocales: () => Pick<ReturnType<typeof Localization.getLocales>[number], 'languageTag'>[];
+  getCalendars: () => Pick<ReturnType<typeof Localization.getCalendars>[number], 'timeZone'>[];
+};
+type NativePort = {
+  Platform: Pick<typeof Native.Platform, 'OS'>;
+  Dimensions: {
+    get: (
+      dimension: Parameters<typeof Native.Dimensions.get>[0]
+    ) => Pick<ReturnType<typeof Native.Dimensions.get>, 'width' | 'height'>;
+  };
+  PixelRatio: Pick<typeof Native.PixelRatio, 'get'>;
+};
+type DevicePort = Pick<
+  typeof Device,
+  'manufacturer' | 'modelId' | 'modelName' | 'osName' | 'osVersion' | 'supportedCpuArchitectures'
+>;
 
-vi.mock('expo-application', () => ({
+const { state, getStringAsync } = vi.hoisted(() => {
+  const initial: {
+    os: typeof Native.Platform.OS;
+    referrer: Awaited<ReturnType<typeof Application.getInstallReferrerAsync>>;
+  } = { os: 'android', referrer: '' };
+  return {
+    state: initial,
+    getStringAsync: vi.fn<typeof Clipboard.getStringAsync>(async () => 'https://shware.io/?s=abc'),
+  };
+});
+
+vi.mock<Pick<typeof Application, 'getInstallReferrerAsync'>>(import('expo-application'), () => ({
   getInstallReferrerAsync: async () => state.referrer,
 }));
-vi.mock('expo-clipboard', () => ({ getStringAsync }));
-vi.mock('expo-device', () => ({
+vi.mock<Pick<typeof Clipboard, 'getStringAsync'>>(import('expo-clipboard'), () => ({
+  getStringAsync,
+}));
+vi.mock<DevicePort>(import('expo-device'), () => ({
   manufacturer: 'Google',
   modelId: 'Pixel9',
   modelName: 'Pixel 9',
@@ -21,11 +49,11 @@ vi.mock('expo-device', () => ({
   osVersion: '16',
   supportedCpuArchitectures: ['arm64-v8a'],
 }));
-vi.mock('expo-localization', () => ({
+vi.mock<LocalizationPort>(import('expo-localization'), () => ({
   getLocales: () => [{ languageTag: 'en-US' }],
   getCalendars: () => [{ timeZone: 'America/New_York' }],
 }));
-vi.mock('react-native', () => ({
+vi.mock<NativePort>(import('react-native'), () => ({
   Platform: {
     get OS() {
       return state.os;
@@ -38,7 +66,7 @@ vi.mock('react-native', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   state.os = 'android';
-  state.referrer = null;
+  state.referrer = '';
 });
 
 describe('getDeterministicFingerprint', () => {
@@ -51,7 +79,7 @@ describe('getDeterministicFingerprint', () => {
     state.referrer = 'utm_source=meta';
     await expect(getDeterministicFingerprint()).resolves.toEqual({ click_id: null });
 
-    state.referrer = null;
+    state.referrer = '';
     await expect(getDeterministicFingerprint()).resolves.toEqual({ click_id: null });
   });
 

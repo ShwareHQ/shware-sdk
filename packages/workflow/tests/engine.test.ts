@@ -24,7 +24,6 @@ import {
   eq,
   performed,
   reachable,
-  template,
   trigger,
   workflow,
 } from '../src/index';

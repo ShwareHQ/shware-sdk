@@ -55,8 +55,8 @@ describe('differential: getCapiEvent === business SDK normalize()', () => {
       event({
         tags: {
           page_location: 'https://shop.example/checkout?step=2',
-          fbp: 'fb.1.1700000000000.987654',
-          fbc: 'fb.1.1700000000000.CLK1',
+          _fbp: 'fb.1.1700000000000.987654',
+          _fbc: 'fb.1.1700000000000.CLK1',
           idempotency_key: 'idem-1',
         },
         properties: {
@@ -198,12 +198,12 @@ describe('differential: getCapiEvent === business SDK normalize()', () => {
   it('synthesizes _fbc from a bare fbclid at the event time, like the SDK path', () => {
     expectSamePayload(event({ tags: { fbclid: 'CLK99' } }));
     // A real cookie outranks synthesis.
-    expectSamePayload(event({ tags: { fbclid: 'IGNORED', fbc: 'fb.1.111.REAL' } }));
+    expectSamePayload(event({ tags: { fbclid: 'IGNORED', _fbc: 'fb.1.111.REAL' } }));
   });
 
   it('tags-only identity: fbp, madid, ip — and tags.ip outranks the caller ip', () => {
     expectSamePayload(
-      event({ tags: { fbp: 'fb.1.1.2', advertising_id: 'IDFA-1', ip_address: '198.51.100.7' } }),
+      event({ tags: { _fbp: 'fb.1.1.2', advertising_id: 'IDFA-1', ip_address: '198.51.100.7' } }),
       { ip_address: '203.0.113.9' }
     );
   });
@@ -492,7 +492,7 @@ describe('deliberate divergences from the business SDK, on invalid input only', 
 });
 
 describe('sendEvents transport', () => {
-  const fetchMock = vi.fn();
+  const fetchMock = vi.fn<typeof globalThis.fetch>();
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {

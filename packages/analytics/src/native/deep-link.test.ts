@@ -1,24 +1,36 @@
+import type { AppStateStatus } from 'react-native';
+import type * as Native from 'react-native';
+type NativePort = {
+  Linking: Pick<typeof Native.Linking, 'getInitialURL' | 'addEventListener'>;
+  AppState: {
+    addEventListener: (
+      type: 'change',
+      listener: (state: AppStateStatus) => void
+    ) => ReturnType<typeof Native.AppState.addEventListener>;
+  };
+};
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The link that launched the process, and the listeners `listen` registers for the rest.
 const linking = {
   initialUrl: null as string | null,
   onUrl: [] as ((event: { url: string }) => void)[],
-  onAppState: [] as ((state: string) => void)[],
+  onAppState: [] as ((state: AppStateStatus) => void)[],
 };
 const openWith = (url: string) => linking.onUrl.forEach((listener) => listener({ url }));
-const appGoes = (state: string) => linking.onAppState.forEach((listener) => listener(state));
+const appGoes = (state: AppStateStatus) =>
+  linking.onAppState.forEach((listener) => listener(state));
 
-vi.mock('react-native', () => ({
+vi.mock<NativePort>(import('react-native'), () => ({
   Linking: {
     getInitialURL: async () => linking.initialUrl,
-    addEventListener: (_: string, listener: (event: { url: string }) => void) => {
+    addEventListener: (_, listener) => {
       linking.onUrl.push(listener);
       return { remove() {} };
     },
   },
   AppState: {
-    addEventListener: (_: string, listener: (state: string) => void) => {
+    addEventListener: (_, listener) => {
       linking.onAppState.push(listener);
       return { remove() {} };
     },

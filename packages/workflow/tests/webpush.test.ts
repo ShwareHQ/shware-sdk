@@ -49,7 +49,9 @@ async function browser() {
 /** What the browser does with an aes128gcm body (RFC 8291 §3.4, receiver side). */
 async function decrypt(body: Uint8Array, ua: Awaited<ReturnType<typeof browser>>) {
   const salt = body.slice(0, 16);
-  const idlen = body[20] ?? 0;
+  expect(body.length).toBeGreaterThan(20);
+  const idlen = body.at(20);
+  if (idlen === undefined) throw new Error('Missing sender key length');
   const senderPublic = body.slice(21, 21 + idlen);
   const sealed = body.slice(21 + idlen);
   const sender = await crypto.subtle.importKey(
@@ -103,10 +105,18 @@ describe('web push', () => {
   test('the VAPID header carries a token the push service can verify', async () => {
     const vapid = { ...(await generateVapidKeys()), subject: 'mailto:ops@example.com' };
     const header = await vapidAuthorization('https://fcm.googleapis.com/fcm/send/abc', vapid, 0);
-    const [, token, k] = /^vapid t=([^,]+), k=(.+)$/.exec(header) ?? [];
+    const match = /^vapid t=([^,]+), k=(.+)$/.exec(header);
+    expect(match).not.toBeNull();
+    if (!match) throw new Error('Expected a VAPID authorization header');
+    const [, token, k] = match;
     expect(k).toBe(vapid.publicKey);
-    const [h, c, s] = (token ?? '').split('.');
-    const claims = JSON.parse(atob((c ?? '').replace(/-/g, '+').replace(/_/g, '/')));
+    const parts = token.split('.');
+    expect(parts).toHaveLength(3);
+    const h = parts.at(0);
+    const c = parts.at(1);
+    const s = parts.at(2);
+    if (!h || !c || !s) throw new Error('Expected a complete signed JWT');
+    const claims = JSON.parse(atob(c.replace(/-/g, '+').replace(/_/g, '/')));
     expect(claims).toEqual({
       aud: 'https://fcm.googleapis.com',
       exp: 12 * 3600,
@@ -122,7 +132,7 @@ describe('web push', () => {
     const valid = await crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
       publicKey,
-      fromBase64url(s ?? ''),
+      fromBase64url(s),
       utf8(`${h}.${c}`)
     );
     expect(valid).toBe(true);
@@ -144,12 +154,14 @@ describe('web push', () => {
       },
     });
     expect(await sender.send(message(subscription))).toBeUndefined();
-    const [request] = requests;
-    expect(request?.url).toBe('https://push.example.com/send/abc');
-    const headers = request?.init.headers as Record<string, string>;
-    expect(headers['content-encoding']).toBe('aes128gcm');
-    expect(headers.authorization).toMatch(/^vapid t=/);
-    const payload = JSON.parse(await decrypt(request?.init.body as Uint8Array, ua));
+    expect(requests).toHaveLength(1);
+    const request = requests.at(0);
+    if (!request) throw new Error('The push request must be sent');
+    expect(request.url).toBe('https://push.example.com/send/abc');
+    const headers = new Headers(request.init.headers);
+    expect(headers.get('content-encoding')).toBe('aes128gcm');
+    expect(headers.get('authorization')).toMatch(/^vapid t=/);
+    const payload = JSON.parse(await decrypt(request.init.body as Uint8Array, ua));
     expect(payload).toMatchObject({
       title: 'Tip',
       body: 'Try it',

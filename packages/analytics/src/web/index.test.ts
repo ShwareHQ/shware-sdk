@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Link } from '../link/index';
 
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof globalThis.fetch>();
 
 async function load() {
   vi.stubGlobal('fetch', fetchMock);

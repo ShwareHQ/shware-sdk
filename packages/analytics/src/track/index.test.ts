@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Options } from '../setup/index';
-import type { TrackTags } from './types';
+import { textRequestBody } from '../test/setup';
+import type { TrackOptions } from './index';
+import type { ThirdPartyTracker, TrackTags } from './types';
 
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof globalThis.fetch>();
 
 /**
  * Loads a fresh module graph with a configured SDK and a stored visitor id, so `sendEvents` never
@@ -20,8 +22,8 @@ async function load(overrides: Partial<Options> = {}) {
 
 /** The ids the server would answer with, one per event sent. */
 function respondWithIds() {
-  fetchMock.mockImplementation(async (_url, init: RequestInit) => {
-    const body = JSON.parse(init.body as string) as unknown[];
+  fetchMock.mockImplementation(async (_url, init) => {
+    const body = JSON.parse(textRequestBody(init)) as unknown[];
     return new Response(JSON.stringify(body.map((_, i) => ({ id: `event-${i}` }))), {
       status: 200,
     });
@@ -177,7 +179,7 @@ describe('session_start', () => {
   it('goes out again with the next batch of the session when its own batch was rejected', async () => {
     let calls = 0;
     const { track, jsonResponse } = await load({ getTags: () => ({ call: ++calls }) });
-    const onError = vi.fn();
+    const onError = vi.fn<NonNullable<TrackOptions['onError']>>();
 
     // A 400 is not retried by fetch: one invalid event has failed the batch, session_start with it.
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid' }, 400));
@@ -289,8 +291,8 @@ describe('callbacks and third parties', () => {
   it('reports each event its own id', async () => {
     const { track } = await load();
     respondWithIds();
-    const first = vi.fn();
-    const second = vi.fn();
+    const first = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
+    const second = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
     track('custom_action', undefined, { onSucceed: first });
     track('custom_action', undefined, { onSucceed: second });
@@ -304,7 +306,7 @@ describe('callbacks and third parties', () => {
   it('survives a response carrying fewer ids than events', async () => {
     const { track, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse([{ id: 'only-one' }]));
-    const onSucceed = vi.fn();
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
     track('custom_action', undefined, { onSucceed });
     track('custom_action', undefined, { onSucceed });
@@ -317,7 +319,7 @@ describe('callbacks and third parties', () => {
   it('reports onError to every event when the request fails', async () => {
     const { track, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse({ error: 'bad' }, 400));
-    const onError = vi.fn();
+    const onError = vi.fn<NonNullable<TrackOptions['onError']>>();
 
     track('custom_action', undefined, { onError });
     track('purchase', { value: 1, currency: 'USD', transaction_id: 't1', items: [] }, { onError });
@@ -327,7 +329,7 @@ describe('callbacks and third parties', () => {
   });
 
   it('forwards to third-party trackers with the event id, skipping ignored events', async () => {
-    const tracker = vi.fn();
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();
     config.thirdPartyTrackers = [tracker];
     respondWithIds();
@@ -342,11 +344,14 @@ describe('callbacks and third parties', () => {
   });
 
   it('a throwing tracker does not stop the others or fail the batch', async () => {
-    const bad = vi.fn(() => {
+    const { bad, good } = vi.mockObject<{ bad: ThirdPartyTracker; good: ThirdPartyTracker }>({
+      bad() {},
+      good() {},
+    });
+    bad.mockImplementation(() => {
       throw new Error('pixel blocked');
     });
-    const good = vi.fn();
-    const onSucceed = vi.fn();
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
     const { track, config } = await load();
     config.thirdPartyTrackers = [bad, good];
     respondWithIds();
@@ -359,7 +364,7 @@ describe('callbacks and third parties', () => {
   });
 
   it('respects enableThirdPartyTracking: false', async () => {
-    const tracker = vi.fn();
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();
     config.thirdPartyTrackers = [tracker];
     respondWithIds();
@@ -375,7 +380,7 @@ describe('trackAsync', () => {
   it('sends without waiting for the batch window, and resolves once it is sent', async () => {
     const { trackAsync } = await load();
     respondWithIds();
-    const onSucceed = vi.fn();
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
     await trackAsync('custom_action', { a: 1 }, { onSucceed });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -397,7 +402,7 @@ describe('trackAsync', () => {
     const { trackAsync, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse({ error: 'invalid' }, 400));
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    const onError = vi.fn();
+    const onError = vi.fn<NonNullable<TrackOptions['onError']>>();
 
     await expect(trackAsync('custom_action', { a: 1 }, { onError })).resolves.toBeUndefined();
     expect(onError).toHaveBeenCalledTimes(1);
@@ -412,7 +417,7 @@ describe('trackAsync', () => {
       },
     });
     vi.spyOn(console, 'log').mockImplementation(() => {});
-    const onSucceed = vi.fn();
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
     // Resolves without any fake time passing: it is not waiting on a send that may never come.
     await trackAsync('custom_action', { a: 9 }, { onSucceed });
@@ -457,7 +462,7 @@ describe('keepalive', () => {
 });
 
 describe('sendPendingEvents', () => {
-  const beacon = vi.fn(() => true);
+  const beacon = vi.fn<Navigator['sendBeacon']>(() => true);
 
   beforeEach(() => {
     beacon.mockReset();
@@ -473,7 +478,7 @@ describe('sendPendingEvents', () => {
   it('sends the queue, session_start first, and cancels the batch timer', async () => {
     const { track, sendPendingEvents } = await load({ getTags: () => ({ utm_source: 'google' }) });
     respondWithIds();
-    const onSucceed = vi.fn();
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
     track('page_view', undefined, { onSucceed });
     await vi.advanceTimersByTimeAsync(500); // tags settled, batch still waiting
@@ -513,7 +518,7 @@ describe('sendPendingEvents', () => {
   });
 
   it('fires no third-party tracker for what it beacons: there is no server id to dedupe with', async () => {
-    const tracker = vi.fn();
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, sendPendingEvents, config } = await load();
     config.thirdPartyTrackers = [tracker];
 
@@ -549,7 +554,7 @@ describe('sendPendingEvents', () => {
 });
 
 describe('sendBeacon', () => {
-  const beacon = vi.fn(() => true);
+  const beacon = vi.fn<Navigator['sendBeacon']>(() => true);
 
   beforeEach(() => {
     beacon.mockClear();
@@ -564,7 +569,8 @@ describe('sendBeacon', () => {
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
 
     expect(beacon).toHaveBeenCalledTimes(1);
-    const [, blob] = beacon.mock.calls[0] as unknown as [string, Blob];
+    const [, blob] = beacon.mock.calls[0];
+    if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
     const [event] = JSON.parse(await blob.text());
     expect(event.visitor_id).toBe('stored-visitor');
     expect(event.tags).toEqual({});
@@ -586,7 +592,8 @@ describe('sendBeacon', () => {
 
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
 
-    const [, blob] = beacon.mock.calls[0] as unknown as [string, Blob];
+    const [, blob] = beacon.mock.calls[0];
+    if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
     const [event] = JSON.parse(await blob.text());
     expect(event.session_id).toBe('old-session');
     expect(storage.map.get('session')).toBe(`1.old-session.${stale}`);

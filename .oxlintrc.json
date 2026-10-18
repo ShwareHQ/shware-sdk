@@ -248,6 +248,9 @@
     "vitest/no-focused-tests": "error",
     "vitest/no-identical-title": "error",
     "vitest/no-standalone-expect": "error",
+    "vitest/prefer-import-in-mock": ["error", { "fixable": false }],
+    "vitest/prefer-snapshot-hint": "error",
+    "vitest/require-mock-type-parameters": "error",
     "vitest/valid-expect": "error",
     "vitest/valid-expect-in-promise": "error"
   },

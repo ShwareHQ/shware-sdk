@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
+import type { posthog as PostHog } from 'posthog-js';
 // @vitest-environment-options {"url": "https://shop.example/checkout"}
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sendPosthogEvent, setPosthogUser } from './posthog';
 
 const { capture, reset, identify } = vi.hoisted(() => ({
-  capture: vi.fn(),
-  reset: vi.fn(),
-  identify: vi.fn(),
+  capture: vi.fn<typeof PostHog.capture>(),
+  reset: vi.fn<typeof PostHog.reset>(),
+  identify: vi.fn<typeof PostHog.identify>(),
 }));
-vi.mock('posthog-js', () => ({ posthog: { capture, reset, identify } }));
+vi.mock<{ posthog: Pick<typeof PostHog, 'capture' | 'reset' | 'identify'> }>(
+  import('posthog-js'),
+  () => ({ posthog: { capture, reset, identify } })
+);
 
 beforeEach(() => {
   vi.clearAllMocks();
