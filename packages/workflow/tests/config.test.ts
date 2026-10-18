@@ -297,7 +297,8 @@ describe('emitted events against the contract', () => {
       workflows: [
         workflow({ id: 'emit', trigger: trigger.event(shop.events.login) }).sendEvent(
           { type: 'event_ref', name: event } as never,
-          payload
+          // oxlint-disable-next-line no-unnecessary-type-assertion -- the payload is deliberately untyped
+          payload as never
         ),
       ],
     });
