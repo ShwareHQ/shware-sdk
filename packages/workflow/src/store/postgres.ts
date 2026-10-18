@@ -1,6 +1,7 @@
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import type {
+  BundleVersion,
   DeviceInput,
   EntryInput,
   EntryOutcome,
@@ -359,38 +360,71 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   replaceRoutes(bundle: BundleIR): Promise<void> {
+    return this.sql.transaction((tx) => this.swapRoutes(tx, bundle));
+  }
+
+  async liveBundleVersion(): Promise<BundleVersion | undefined> {
+    // In a transaction, so Hyperdrive answers from the database, not from its read cache
+    const rows = await this.sql.transaction((tx) =>
+      tx.query<{ version_id: string; created_at: number | string }>(
+        `SELECT version_id, (extract(epoch FROM version_created_at) * 1000)::double precision AS created_at
+         FROM ${this.t.deployment} WHERE scope = 'routes'`
+      )
+    );
+    const row = rows.at(0);
+    return row === undefined
+      ? undefined
+      : { id: row.version_id, createdAt: Number(row.created_at) };
+  }
+
+  replaceRoutesIfNewer(bundle: BundleIR, version: BundleVersion): Promise<boolean> {
     return this.sql.transaction(async (tx) => {
-      await tx.query(`DELETE FROM ${this.t.trigger}`);
-      await tx.query(`DELETE FROM ${this.t.segmentTrigger}`);
-      await tx.query(`DELETE FROM ${this.t.segment}`);
-      for (const segment of bundle.segments) {
+      // The row lock decides between versions applying at once: the loser's WHERE re-reads the
+      // winner's committed row and updates nothing
+      const claimed = await tx.query(
+        `INSERT INTO ${this.t.deployment} AS live (scope, version_id, version_created_at, applied_at)
+         VALUES ('routes', $1, ${TS('$2')}, ${TS('$3')})
+         ON CONFLICT (scope) DO UPDATE SET version_id = EXCLUDED.version_id,
+           version_created_at = EXCLUDED.version_created_at, applied_at = EXCLUDED.applied_at
+         WHERE live.version_created_at < EXCLUDED.version_created_at
+         RETURNING scope`,
+        [version.id, version.createdAt, Date.now()]
+      );
+      if (claimed.length === 0) return false;
+      await this.swapRoutes(tx, bundle);
+      return true;
+    });
+  }
+
+  private async swapRoutes(tx: SqlClientLike, bundle: BundleIR): Promise<void> {
+    await tx.query(`DELETE FROM ${this.t.trigger}`);
+    await tx.query(`DELETE FROM ${this.t.segmentTrigger}`);
+    await tx.query(`DELETE FROM ${this.t.segment}`);
+    for (const segment of bundle.segments) {
+      await tx.query(
+        `INSERT INTO ${this.t.segment} (id, condition, hash) VALUES ($1, $2::text::jsonb, $3)`,
+        [segment.id, JSON.stringify(segment.condition), segment.contentHash]
+      );
+    }
+    for (const workflow of bundle.workflows) {
+      if (workflow.trigger.type === 'event') {
         await tx.query(
-          `INSERT INTO ${this.t.segment} (id, condition, hash) VALUES ($1, $2::text::jsonb, $3)`,
-          [segment.id, JSON.stringify(segment.condition), segment.contentHash]
+          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb)`,
+          [
+            workflow.id,
+            workflow.contentHash,
+            workflow.trigger.event,
+            workflow.trigger.where === undefined ? null : JSON.stringify(workflow.trigger.where),
+            workflow.trigger.filter === undefined ? null : JSON.stringify(workflow.trigger.filter),
+          ]
+        );
+      } else if (workflow.trigger.type === 'segment') {
+        await tx.query(
+          `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment) VALUES ($1, $2, $3)`,
+          [workflow.id, workflow.contentHash, workflow.trigger.segment]
         );
       }
-      for (const workflow of bundle.workflows) {
-        if (workflow.trigger.type === 'event') {
-          await tx.query(
-            `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb)`,
-            [
-              workflow.id,
-              workflow.contentHash,
-              workflow.trigger.event,
-              workflow.trigger.where === undefined ? null : JSON.stringify(workflow.trigger.where),
-              workflow.trigger.filter === undefined
-                ? null
-                : JSON.stringify(workflow.trigger.filter),
-            ]
-          );
-        } else if (workflow.trigger.type === 'segment') {
-          await tx.query(
-            `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment) VALUES ($1, $2, $3)`,
-            [workflow.id, workflow.contentHash, workflow.trigger.segment]
-          );
-        }
-      }
-    });
+    }
   }
 
   async isSegmentMember(segment: string, userId: string): Promise<boolean> {
