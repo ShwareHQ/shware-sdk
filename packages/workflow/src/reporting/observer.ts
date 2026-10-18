@@ -6,8 +6,9 @@ import type { JourneyReporting } from '../store';
  * and outcome recorded through `store.reporting`.
  *
  * A copy is recorded before it goes out, so its id can travel with it: with a tracking origin,
- * an email's links become `<origin>/t/c/<message>/<position>` and an open pixel
- * `<origin>/t/o/<message>` (served by the Worker, ./tracking.ts), and a push carries
+ * an email's links become `<origin>/t/l/<message>/<position>` — `/t/u/...` for its unsubscribe
+ * link, so what a click means is fixed when it is sent — and an open pixel `<origin>/t/o/<message>`
+ * (served by the Worker, ./tracking.ts), and a push carries
  * `message_id` in its payload for the app to report the tap (`JourneyClient.messageOpened`),
  * plus `delivered_url` / `opened_url` for a client that reports straight to the Worker.
  * The links are recorded when the sender commits the rewritten email, before it goes out.
@@ -37,9 +38,9 @@ export function reportingObserver(
       if (message.channel === 'email' && base !== undefined) {
         const urls: string[] = [];
         return {
-          link: (url) => {
+          link: (url, purpose) => {
             urls.push(url);
-            return `${base}/t/c/${id}/${urls.length - 1}`;
+            return `${base}/t/${purpose === 'unsubscribe' ? 'u' : 'l'}/${id}/${urls.length - 1}`;
           },
           pixel: `${base}/t/o/${id}`,
           // Before the transport takes it, so no click can reach a link not yet recorded

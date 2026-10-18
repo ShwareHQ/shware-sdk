@@ -26,6 +26,7 @@ function fakeBinding() {
 }
 
 const render = async (template: string) => ({
+  from: 'noreply@acme.test',
   subject: `${template} for {{ user.first_name }}`,
   html: `<p>${template}</p>`,
 });
@@ -46,7 +47,7 @@ describe('CfEmailSender', () => {
   test('the idempotency key travels with the binding call; the subject goes out as written', async () => {
     const { binding, calls } = fakeBinding();
 
-    await new CfEmailSender({ binding, from: 'noreply@acme.test', render }).send(message);
+    await new CfEmailSender({ binding, render }).send(message);
 
     expect(calls).toEqual([
       {
@@ -61,7 +62,7 @@ describe('CfEmailSender', () => {
     // The send sits inside step.do, which re-runs after fn resolved but before
     // the checkpoint committed; the key is what lets the binding collapse it.
     const { binding, calls, delivered } = fakeBinding();
-    const sender = new CfEmailSender({ binding, from: 'noreply@acme.test', render });
+    const sender = new CfEmailSender({ binding, render });
 
     await sender.send(message);
     await sender.send(message);
@@ -72,7 +73,7 @@ describe('CfEmailSender', () => {
 
   test('a missing recipient fails the step instead of sending nowhere', async () => {
     const { binding, calls } = fakeBinding();
-    const sender = new CfEmailSender({ binding, from: 'noreply@acme.test', render });
+    const sender = new CfEmailSender({ binding, render });
 
     await expect(sender.send({ ...message, recipient: undefined })).rejects.toThrow(/no recipient/);
     expect(calls).toEqual([]);
@@ -106,7 +107,8 @@ describe('routeByPlatform', () => {
 });
 
 describe('trackEmail', () => {
-  const link = (url: string) => `https://t.test/c?u=${encodeURIComponent(url)}`;
+  const link = (url: string, purpose = 'link') =>
+    `https://t.test/${purpose === 'unsubscribe' ? 'u' : 'c'}?u=${encodeURIComponent(url)}`;
 
   test('routes every http(s) anchor through link, decoding and re-escaping the attribute', () => {
     const html =
@@ -114,6 +116,16 @@ describe('trackEmail', () => {
     expect(trackEmail(html, { link })).toBe(
       `<a href="${link('https://acme.test/a?x=1&y=2').replaceAll('&', '&amp;')}">A</a> <a class="b" href='${link('http://acme.test/b')}'>B</a> <a href="mailto:hi@acme.test">M</a>`
     );
+  });
+
+  test('marks the link the email was rendered with as its unsubscribe link, matched by path', () => {
+    const html =
+      '<a href="https://acme.test/unsubscribe?list=news">U</a> <a href="https://acme.test/unsubscribe-faq">F</a>';
+    expect(trackEmail(html, { link }, 'https://acme.test/unsubscribe')).toBe(
+      `<a href="${link('https://acme.test/unsubscribe?list=news', 'unsubscribe')}">U</a> <a href="${link('https://acme.test/unsubscribe-faq')}">F</a>`
+    );
+    // Without an unsubscribe URL, nothing is one — not even a link that looks like it
+    expect(trackEmail(html, { link })).not.toContain('https://t.test/u');
   });
 
   test('appends the open pixel before </body>, or at the end without one', () => {
@@ -132,8 +144,8 @@ describe('trackEmail', () => {
           return {};
         },
       },
-      from: 'a@acme.test',
       render: async () => ({
+        from: 'a@acme.test',
         subject: 's',
         html: '<body><a href="https://acme.test">go</a></body>',
       }),
@@ -141,5 +153,26 @@ describe('trackEmail', () => {
     await sender.send({ ...message, tracking: { link, pixel: 'https://t.test/o' } });
     expect(htmls[0]).toContain(link('https://acme.test'));
     expect(htmls[0]).toContain('src="https://t.test/o"');
+  });
+
+  test('CfEmailSender tracks the unsubscribe link the email was rendered with as one', async () => {
+    const purposes: string[] = [];
+    const sender = new CfEmailSender({
+      binding: { send: async () => ({}) },
+      render: async () => ({
+        from: 'a@acme.test',
+        unsubscribeUrl: 'https://acme.test/bye',
+        subject: 's',
+        html: '<a href="https://acme.test">go</a><a href="https://acme.test/bye">bye</a>',
+      }),
+    });
+    const tracking = {
+      link: (url: string, purpose: string) => {
+        purposes.push(purpose);
+        return url;
+      },
+    };
+    await sender.send({ ...message, tracking });
+    expect(purposes).toEqual(['link', 'unsubscribe']);
   });
 });

@@ -68,7 +68,10 @@ function Settings() {
         </div>
       </section>
 
-      <EmailDefaults from={config.emailDefaults.from} replyTo={config.emailDefaults.replyTo} />
+      <EmailDefaults
+        unsubscribeUrl={config.email.unsubscribeUrl}
+        quickClickMs={config.email.tracking?.quickClickMs}
+      />
 
       <section
         className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"

@@ -81,13 +81,10 @@ describe('a defineConfig project', () => {
     }
   });
 
-  test('its emails envelope is what the studio shows', async () => {
+  test("its email config is what the studio shows; each template's sender travels with it", async () => {
     const snapshot = await snapshotOf('project');
 
-    expect(snapshot.payload.emailDefaults).toEqual({
-      from: 'Acme <hello@acme.test>',
-      replyTo: 'support@acme.test',
-    });
+    expect(snapshot.payload.email).toEqual({ unsubscribeUrl: 'https://acme.test/unsubscribe' });
   });
 
   test('the browser gets compiled output and the registry import — never the config', async () => {

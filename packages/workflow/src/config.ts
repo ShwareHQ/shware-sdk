@@ -3,6 +3,7 @@ import type * as core from 'zod/v4/core';
 import type { Contract } from './contract';
 import { type ActionRef, type SegmentRef, type WorkflowBuilder, compileBundle } from './dsl';
 import { templateUses } from './dsl/flow';
+import { type EmailConfig, assertEmailConfig } from './email';
 import type { BundleIR, ChannelIR, NodeIR, WorkflowIR } from './ir';
 import type { JourneyMode, JourneyRuntimeConfig } from './runtime';
 import {
@@ -17,7 +18,7 @@ import {
  * `workflow.config.ts` — the project's journey configuration, typed, flat and
  * committed with the code: what it deploys (workflows, segments, actions),
  * the template registries behind them, the contract every inbound event is
- * checked against, the email envelope, and how the engine runs per
+ * checked against, what the email templates share, and how the engine runs per
  * environment (time scale, APNs, FCM). The compiler (`compileConfig`), the
  * Worker (`journeyWorker({ config })`) and the Workflow Studio all read this
  * one object, so everything is registered exactly once:
@@ -27,7 +28,7 @@ import {
  *     contract,
  *     workflows, // [onboarding, notificationTest]
  *     templates, // { email, push }: the definitions the workflows send
- *     emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
+ *     email: { unsubscribeUrl: 'https://acme.test/unsubscribe' },
  *     runtime: { development: { timeScale: 600, logMessages: true } },
  *     apns: { topic: 'io.acme.app', keyId: 'ABC123DEFG', teamId: 'TEAM123456' },
  *   });
@@ -38,36 +39,6 @@ import {
  * config is a source object (schemas, components, functions); only its
  * compiled bundle and preview-safe template data may cross to a browser.
  */
-
-/** An address as the transports take it: bare, or with a display name. */
-export type EmailAddress = string | { email: string; name?: string };
-
-/** `Name <email>`, or the bare address. */
-export function formatEmailAddress(address: EmailAddress): string {
-  if (typeof address === 'string') return address;
-  return address.name === undefined ? address.email : `${address.name} <${address.email}>`;
-}
-
-/** The envelope every journey email goes out with (and the studio shows). */
-export interface EmailConfig {
-  from: EmailAddress;
-  replyTo?: EmailAddress;
-  /**
-   * The unsubscribe link the templates' footer carries. Tracked like every link, but following
-   * it shows a confirmation page, and only the confirmation (a POST no link scanner sends) is
-   * recorded as the message's unsubscribe.
-   */
-  unsubscribe?: string;
-  /** How the Worker tells a person's opens and clicks from a machine's (see the reporting classifier). */
-  tracking?: {
-    /**
-     * An open or click this many milliseconds after delivery is a weak machine signal — machine
-     * only together with another (a second link within seconds); 1000 by default. A person
-     * tapping a mail notification can click within a few seconds, so keep it short.
-     */
-    quickClickMs?: number;
-  };
-}
 
 /** Token-based APNs, the `.p8` auth key; the key itself is `APNS_PRIVATE_KEY_BASE64` in the environment. */
 export interface ApnsConfig {
@@ -128,7 +99,8 @@ export interface JourneyConfigDefinition {
   actions?: readonly ActionRef<object>[];
   /** The template definitions, per channel; each is identified by its own `id`. */
   templates?: TemplateRegistry;
-  emails?: EmailConfig;
+  /** What every email template shares: the default unsubscribe link, how opens and clicks are judged. */
+  email?: EmailConfig;
   /** How the engine behaves per mode (`development`, `production`, …): time scale, message logging. */
   runtime?: JourneyRuntimeConfig;
   apns?: ApnsConfig;
@@ -168,8 +140,10 @@ export class ConfigCompileError extends Error {
  * Compile the config: the bundle `compileBundle` would produce, with the
  * template manifest generated from the registry (every registered template,
  * by id, not a hand-kept list). The registry is checked first, used or not:
- * every entry is a template of its channel with an id, and an id is registered
- * once per channel. Then every message node is checked against it — an
+ * every entry is a template of its channel with an id, an id is registered
+ * once per channel, and every email template's metadata is valid, as is the
+ * config's `email` (which replaced `emails`: a config still carrying it fails).
+ * Then every message node is checked against it — an
  * unregistered or cross-channel template fails with the workflow, node and
  * channel named, and so does a literal prop the template's schema refuses (a
  * missing required prop, an undeclared one, a wrong literal) — and every
@@ -181,8 +155,10 @@ export class ConfigCompileError extends Error {
 export function compileConfig(config: JourneyConfig): BundleIR {
   let index: RegistryIndex;
   try {
+    const email = indexTemplates('email', config.templates?.email);
+    assertEmailConfig(config, email.values());
     index = {
-      email: indexTemplates('email', config.templates?.email),
+      email,
       push: indexTemplates('push', config.templates?.push),
       discord: indexTemplates('discord', config.templates?.discord),
       slack: indexTemplates('slack', config.templates?.slack),

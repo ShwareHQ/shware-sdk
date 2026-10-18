@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'reengage_miss_you',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Re-engagement · Miss you',
   description: 'First email after the push: a plain reminder that the workspace is still there.',
   props: z.strictObject({}),

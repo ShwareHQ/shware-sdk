@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'winback_free_tips',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Winback · Free tips',
   description: 'For downgrades: make the free plan work well, and stay welcome.',
   props: z.strictObject({}),

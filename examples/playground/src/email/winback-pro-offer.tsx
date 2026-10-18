@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'winback_pro_offer',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Winback · Pro offer',
   description: 'For cancelled Pro subscriptions: what they lose, and the door left open.',
   props: z.strictObject({}),

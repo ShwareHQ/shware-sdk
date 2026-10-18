@@ -1,5 +1,6 @@
 import type {
   DiscordTemplate,
+  EmailConfig,
   EmailTemplate,
   PushTemplate,
   SegmentIR,
@@ -280,8 +281,8 @@ export interface ResolvedStudioConfig {
   slacks: Record<string, SlackTemplate>;
   /** Compiled named segments. */
   segments: SegmentIR[];
-  /** The project's envelope (`emails.from` / `replyTo`), formatted as `Name <email>`. */
-  emailDefaults: { from?: string; replyTo?: string };
+  /** The config's `email`: the default unsubscribe link, and how opens and clicks are judged. */
+  email: EmailConfig;
   /** Set when the project failed to load or compile; the shell shows it instead of the views. */
   error?: StudioError;
   stats?: StatsSource;

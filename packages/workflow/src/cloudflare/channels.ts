@@ -86,7 +86,7 @@ function lazy(build: () => MessageSender): MessageSender {
 /** The channels slice of the config — what `channelsFromConfig` reads. */
 export type ChannelsConfig = Pick<
   JourneyConfig,
-  'templates' | 'emails' | 'apns' | 'fcm' | 'webPush' | 'runtime'
+  'templates' | 'email' | 'apns' | 'fcm' | 'webPush' | 'runtime'
 >;
 
 export function channelsFromConfig(
@@ -104,12 +104,10 @@ export function channelsFromConfig(
     const registry = config.templates?.email;
     if (registry === undefined) return unavailable('no email templates are registered');
     if (env.EMAIL === undefined) return unavailable('no EMAIL (send_email) binding');
-    if (config.emails === undefined) return unavailable('emails.from is not configured');
+    // Each template names its own sender: there is no global one to require
     return new CfEmailSender({
       binding: env.EMAIL,
-      from: config.emails.from,
-      ...(config.emails.replyTo === undefined ? {} : { replyTo: config.emails.replyTo }),
-      render: registryRenderer(registry),
+      render: registryRenderer(registry, config.email),
     });
   };
 

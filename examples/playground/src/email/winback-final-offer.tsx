@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'winback_final_offer',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Winback · Final offer',
   description: 'Last touch of the win-back flow, paired with the lock-screen push.',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),

@@ -1,9 +1,7 @@
 import {
   ConfigCompileError,
-  type EmailAddress,
   type JourneyConfig,
   compileConfig,
-  formatEmailAddress,
   isConfig,
   isDiscordTemplate,
   isEmailTemplate,
@@ -18,7 +16,7 @@ import type { ResolvedStudioConfig, StudioError } from '../config';
  *
  * workflow.config.ts default-exports `defineConfig({...})` from
  * `@shware/workflow`, and the studio reads exactly that: its workflows,
- * segments, actions, template registries, title and email envelope. It is
+ * segments, actions, template registries, title and what the email templates share. It is
  * compiled with `compileConfig`, the same compile the Worker deploys, so the
  * studio lists exactly what would ship.
  *
@@ -139,17 +137,13 @@ function errorOf(error: unknown): StudioError {
   };
 }
 
-function formatted(address: EmailAddress | undefined): string | undefined {
-  return address === undefined ? undefined : formatEmailAddress(address);
-}
-
 function failed(error: unknown, title?: string): StudioSnapshot {
   return {
     payload: {
       ...(title !== undefined ? { title } : {}),
       workflows: {},
       segments: [],
-      emailDefaults: {},
+      email: {},
       error: errorOf(error),
     },
     registries: { email: undefined, push: undefined, discord: undefined, slack: undefined },
@@ -188,13 +182,13 @@ export async function loadSnapshot(options: {
     return failed(error);
   }
 
-  const from = formatted(config.emails?.from);
-  const replyTo = formatted(config.emails?.replyTo);
+  const unsubscribeUrl = config.email?.unsubscribeUrl;
+  const quickClickMs = config.email?.tracking?.quickClickMs;
   const shared = {
     ...(config.title !== undefined ? { title: config.title } : {}),
-    emailDefaults: {
-      ...(from !== undefined ? { from } : {}),
-      ...(replyTo !== undefined ? { replyTo } : {}),
+    email: {
+      ...(unsubscribeUrl !== undefined ? { unsubscribeUrl } : {}),
+      ...(quickClickMs !== undefined ? { tracking: { quickClickMs } } : {}),
     },
   };
 

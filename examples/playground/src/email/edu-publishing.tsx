@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'edu_publishing',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Education · Publishing',
   description: 'Week 8: publishing a doc to the web, the last module of the series.',
   props: z.strictObject({}),

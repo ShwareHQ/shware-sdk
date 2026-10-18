@@ -25,7 +25,7 @@ export default defineConfig({
   contract,
   workflows: [onboarding],
   templates,
-  emails: { from: { email: 'hello@acme.io', name: 'Acme' } },
+  email: { unsubscribeUrl: 'https://acme.io/unsubscribe' },
 });
 ```
 
@@ -44,9 +44,11 @@ export const templates = { email, push };
   instead of the views. So does a default export that is not
   `defineConfig({...})`, and a registry entry that is not an
   `emailTemplate({...})` / `pushTemplate({...})`.
-- `title` names the project in the browser tab; `emails.from` / `replyTo` is
-  the envelope every email goes out with, shown above each email and in
-  Settings.
+- `title` names the project in the browser tab. Each email template's own
+  `from` / `replyTo` and its unsubscribe link (its `unsubscribeUrl`, else the
+  config's `email.unsubscribeUrl`) are shown above its preview, and the
+  preview renders inside the same `EmailProvider` a send does, so a layout's
+  `useEmailContext()` works there too.
 - Nothing is scanned: the workflows and registries are the ones registered.
   Adding or removing one updates the studio over HMR.
 - The config is evaluated on the dev server, never in the browser. The
@@ -132,12 +134,12 @@ belongs in a command of its own.
   studio renders with `@react-email/render`, while the Worker's
   `registryRenderer` uses react-dom's static markup, so whitespace and
   attribute order in the HTML can differ slightly — what the email says and
-  how it is laid out does not. The envelope (from, reply-to, subject) is
-  shown above the preview.
+  how it is laid out does not. The template's from, reply-to, subject and
+  unsubscribe link are shown above the preview.
 - **Segments** (`/segments`, `/segments/$name`) — the discovered segments, with
   size and membership when `stats` provides them.
-- **Settings** (`/settings`) — the email envelope, from the config's
-  `emails.from` / `replyTo`.
+- **Settings** (`/settings`) — the config's `email`: the default unsubscribe
+  link and the quick-click window.
 
 ## Options
 

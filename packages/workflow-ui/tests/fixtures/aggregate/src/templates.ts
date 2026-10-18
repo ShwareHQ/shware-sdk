@@ -7,6 +7,7 @@ export const registry = {
   email: {
     welcome: emailTemplate({
       id: 'welcome',
+      from: 'hello@acme.test',
       title: 'Welcome',
       props: z.strictObject({}),
       subject: 'Welcome aboard',

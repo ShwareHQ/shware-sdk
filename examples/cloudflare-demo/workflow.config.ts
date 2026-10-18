@@ -9,5 +9,4 @@ export default defineConfig({
   segments: [purchased],
   actions: [grantCoupon],
   templates,
-  emails: { from: { email: 'noreply@demo.example', name: 'Demo' } },
 });

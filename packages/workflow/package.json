@@ -83,6 +83,16 @@
         "default": "./dist/react-email.cjs"
       }
     },
+    "./email-context": {
+      "import": {
+        "types": "./dist/email-context.d.mts",
+        "default": "./dist/email-context.mjs"
+      },
+      "require": {
+        "types": "./dist/email-context.d.cts",
+        "default": "./dist/email-context.cjs"
+      }
+    },
     "./push": {
       "import": {
         "types": "./dist/push.d.mts",

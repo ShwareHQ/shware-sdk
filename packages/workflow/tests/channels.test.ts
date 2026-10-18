@@ -33,11 +33,22 @@ const named = z.strictObject({ name: z.string() });
 const emails = {
   welcome: emailTemplate({
     id: 'welcome',
+    from: { email: 'hi@acme.test', name: 'Acme' },
     title: 'Welcome',
     props: named,
     subject: 'Welcome aboard',
     preview: { name: 'A' },
     component: ({ name }) => createElement('p', null, `hi ${name}`),
+  }),
+  digest: emailTemplate({
+    id: 'digest',
+    from: 'digest@acme.test',
+    replyTo: 'help@acme.test',
+    title: 'Digest',
+    props: named,
+    subject: 'Your week',
+    preview: { name: 'A' },
+    component: ({ name }) => createElement('p', null, `week of ${name}`),
   }),
 };
 const pushes = {
@@ -52,12 +63,19 @@ const pushes = {
 const templates = { email: emails, push: pushes };
 
 function setup(gone = false) {
-  const sent: { to: unknown; from: unknown; subject: string; idempotencyKey: string }[] = [];
+  const sent: {
+    to: unknown;
+    from: unknown;
+    replyTo?: unknown;
+    subject: string;
+    idempotencyKey: string;
+  }[] = [];
   const binding: EmailBindingLike = {
     async send(message) {
       sent.push({
         to: message.to,
         from: message.from,
+        ...('replyTo' in message ? { replyTo: message.replyTo } : {}),
         subject: message.subject,
         idempotencyKey: message.idempotencyKey,
       });
@@ -103,19 +121,30 @@ const message = (
 });
 
 describe('channelsFromConfig', () => {
-  test('email goes through the binding with the configured envelope; the subject as written', async () => {
+  test("email goes through the binding from each template's own sender; the subject as written", async () => {
     const { env, sent } = setup();
-    const sender = channelsFromConfig(
-      {
-        templates,
-        emails: { from: { email: 'hi@acme.test', name: 'Acme' }, replyTo: 'help@acme.test' },
-      },
-      env
-    );
+    // No `email` config at all: every template names its sender
+    const sender = channelsFromConfig({ templates }, env);
     await sender.send(message('email', 'ada@example.com'));
+    await sender.send({ ...message('email', 'ada@example.com'), template: 'digest' });
+    await sender.send(message('email', 'bob@example.com'));
     expect(sent).toEqual([
       {
         to: 'ada@example.com',
+        from: { email: 'hi@acme.test', name: 'Acme' },
+        subject: 'Welcome aboard',
+        idempotencyKey: 'inst:1',
+      },
+      {
+        to: 'ada@example.com',
+        from: 'digest@acme.test',
+        replyTo: 'help@acme.test',
+        subject: 'Your week',
+        idempotencyKey: 'inst:1',
+      },
+      // Not the previous template's sender, and still no Reply-To
+      {
+        to: 'bob@example.com',
         from: { email: 'hi@acme.test', name: 'Acme' },
         subject: 'Welcome aboard',
         idempotencyKey: 'inst:1',
@@ -160,10 +189,7 @@ describe('channelsFromConfig', () => {
 
   test('a channel the config leaves out fails the step with the reason', async () => {
     const { env } = setup();
-    const noPush: ChannelsConfig = {
-      templates: { email: emails },
-      emails: { from: 'hi@acme.test' },
-    };
+    const noPush: ChannelsConfig = { templates: { email: emails } };
     await expect(channelsFromConfig(noPush, env).send(message('push', 'tok'))).rejects.toThrow(
       /no push templates are registered/
     );
@@ -175,8 +201,10 @@ describe('channelsFromConfig', () => {
       /no email templates are registered/
     );
     await expect(
-      channelsFromConfig({ templates }, env).send(message('email', 'a@b.c'))
-    ).rejects.toThrow(/emails.from is not configured/);
+      channelsFromConfig({ templates }, { ...env, EMAIL: undefined }).send(
+        message('email', 'a@b.c')
+      )
+    ).rejects.toThrow(/no EMAIL \(send_email\) binding/);
     await expect(
       channelsFromConfig({ templates }, env).send(message('push', 'tok'))
     ).rejects.toThrow(/none of apns, fcm or webPush/);
@@ -187,7 +215,6 @@ describe('channelsFromConfig', () => {
     const sender = channelsFromConfig(
       {
         templates,
-        emails: { from: 'hi@acme.test' },
         apns: { topic: 't', keyId: 'k', teamId: 't' },
       },
       { ...env, APNS_PRIVATE_KEY_BASE64: undefined }

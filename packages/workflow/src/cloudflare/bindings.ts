@@ -1,4 +1,4 @@
-import type { EmailAddress } from '../config';
+import type { EmailAddress } from '../email';
 
 /**
  * A minimal structural interface over the Cloudflare bindings.

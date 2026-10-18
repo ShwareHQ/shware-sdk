@@ -38,7 +38,7 @@ export {
   routeByChannel,
   routeByPlatform,
 } from './senders';
-export type { CfEmailOptions, EmailAddress, EmailRenderer } from './senders';
+export type { CfEmailOptions, EmailAddress, EmailRenderer, RenderedEmail } from './senders';
 export { trackEmail } from './senders';
 export { channelsFromConfig, journeyMode, runtimeFromConfig } from './channels';
 export type { ChannelsConfig } from './channels';
@@ -47,6 +47,7 @@ export type { PushDevice } from '../engine/ports';
 // Reporting: what `journeyWorker({ observer })` hears, and the tracking it can attach to a copy.
 export type {
   JourneyObserver,
+  LinkPurpose,
   MessageTracking,
   OutboundMessage,
   SendResult,

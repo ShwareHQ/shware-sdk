@@ -1,6 +1,8 @@
 import { type ComponentType, type ReactElement, createElement } from 'react';
 import { renderToReadableStream } from 'react-dom/server';
 import type { EmailRenderer } from './cloudflare';
+import { type EmailConfig, resolveEmail } from './email';
+import { EmailProvider } from './email-context';
 import {
   type EmailTemplate,
   indexTemplates,
@@ -16,7 +18,11 @@ import {
  * The registry holds `emailTemplate({...})` definitions, looked up by their `id`. Props are
  * parsed against the template's schema before the component renders — a
  * failure throws TemplateValidationError and nothing renders — and the
- * component renders as an element, so hooks and context work. Rendering
+ * component renders as an element inside an `EmailProvider` carrying the
+ * template's resolved metadata (`resolveEmail` against the config's `email`),
+ * so hooks and context work and a layout's `useEmailContext()` reads the
+ * unsubscribe link the email is sent with; the render returns that metadata
+ * with the subject and HTML, for the sender. Rendering
  * streams and waits for every Suspense boundary (`allReady`) — react-email's
  * `<Tailwind>` suspends while it compiles the classes, which synchronous
  * static markup cannot wait for — then prepends the XHTML doctype react-email
@@ -27,13 +33,21 @@ import {
 const DOCTYPE =
   '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">';
 
-export function registryRenderer(emails: Readonly<Record<string, EmailTemplate>>): EmailRenderer {
+export function registryRenderer(
+  emails: Readonly<Record<string, EmailTemplate>>,
+  config?: EmailConfig
+): EmailRenderer {
   const index = indexTemplates('email', emails);
   return async (id, props) => {
     const template = lookupTemplate(index, 'email', id);
     const parsed = parseTemplateProps(template, props);
-    const element = createElement(template.component as ComponentType<object>, parsed);
-    return { subject: template.subject, html: DOCTYPE + (await renderToHtml(element)) };
+    const email = resolveEmail(template, config);
+    const element = createElement(
+      EmailProvider,
+      { email },
+      createElement(template.component as ComponentType<object>, parsed)
+    );
+    return { ...email, subject: template.subject, html: DOCTYPE + (await renderToHtml(element)) };
   };
 }
 

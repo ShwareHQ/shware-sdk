@@ -2,6 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { JourneyEnv } from '../src/cloudflare/bindings';
 import { forgetUser, sweepSegments } from '../src/cloudflare/router';
+import { isUnsubscribeLink } from '../src/email';
 import type { OutboundMessage } from '../src/engine/ports';
 import { classifyClick, classifyOpen } from '../src/reporting/classify';
 import { reportingObserver } from '../src/reporting/observer';
@@ -63,11 +64,14 @@ const email = (overrides: Partial<OutboundMessage> = {}): OutboundMessage => ({
   ...overrides,
 });
 
-async function sendEmail(urls: string[]) {
+/** An email with these links sent; `unsubscribeUrl` is the one it was rendered with. */
+async function sendEmail(urls: string[], unsubscribeUrl?: string) {
   const observer = reportingObserver(reporting(), 'https://wf.example.com/');
   const message = email();
   const tracking = await observer.messagePrepared?.(message);
-  const tracked = urls.map((url) => tracking?.link?.(url));
+  const tracked = urls.map((url) =>
+    tracking?.link?.(url, isUnsubscribeLink(url, unsubscribeUrl) ? 'unsubscribe' : 'link')
+  );
   // What the email sender does once the links are rewritten, before the transport takes it
   await tracking?.commit?.();
   await observer.messageSent?.(message, { delivered: true });
@@ -127,8 +131,8 @@ describe('observer', () => {
       'https://app.example.com/b',
     ]);
     expect(tracked).toEqual([
-      `https://wf.example.com/t/c/${id}/0`,
-      `https://wf.example.com/t/c/${id}/1`,
+      `https://wf.example.com/t/l/${id}/0`,
+      `https://wf.example.com/t/l/${id}/1`,
     ]);
     await observer.finished?.({
       workflow: 'welcome',
@@ -192,7 +196,7 @@ describe('tracking', () => {
     ]);
     vi.setSystemTime(1_000_000 + 60_000);
     for (const position of [0, 1, 2]) {
-      await handleTracking(get(`/t/c/${id}/${position}`), reporting());
+      await handleTracking(get(`/t/l/${id}/${position}`), reporting());
       vi.setSystemTime(Date.now() + 200);
     }
     const clicks = (
@@ -213,7 +217,7 @@ describe('tracking', () => {
 
   test('the request network is stored, never the address', async () => {
     const { id } = await sendEmail(['https://app.example.com/a']);
-    const request = get(`/t/c/${id}/0`);
+    const request = get(`/t/l/${id}/0`);
     Object.defineProperty(request, 'cf', {
       value: { asn: 8075, asOrganization: 'Microsoft Corporation', country: 'US' },
     });
@@ -239,7 +243,7 @@ describe('tracking', () => {
 
     const pixel = await handleTracking(get(`/t/o/${id}`), reporting());
     expect(pixel?.headers.get('content-type')).toBe('image/gif');
-    const click = await handleTracking(get(`/t/c/${id}/0`), reporting());
+    const click = await handleTracking(get(`/t/l/${id}/0`), reporting());
     expect(click?.status).toBe(302);
     expect(click?.headers.get('location')).toBe('https://app.example.com/pricing');
 
@@ -268,30 +272,69 @@ describe('tracking', () => {
 
   test('an unknown link is a 404; a path that is not a tracking route passes through', async () => {
     const { id } = await sendEmail(['https://app.example.com/a']);
-    expect((await handleTracking(get(`/t/c/${id}/7`), reporting()))?.status).toBe(404);
-    expect(await handleTracking(get('/t/c/not-a-uuid/0'), reporting())).toBeUndefined();
+    expect((await handleTracking(get(`/t/l/${id}/7`), reporting()))?.status).toBe(404);
+    expect(await handleTracking(get('/t/l/not-a-uuid/0'), reporting())).toBeUndefined();
     expect(await handleTracking(get('/events'), reporting())).toBeUndefined();
   });
 
   test('the unsubscribe link asks first; only the confirmation unsubscribes', async () => {
-    const options = { unsubscribe: 'https://app.example.com/unsubscribe', product: 'Acme' };
-    const { id } = await sendEmail(['https://app.example.com/unsubscribe?list=journeys']);
-    const confirm = await handleTracking(get(`/t/c/${id}/0`), reporting(), options);
+    const { id, tracked } = await sendEmail(
+      ['https://app.example.com/a', 'https://app.example.com/unsubscribe?list=journeys'],
+      'https://app.example.com/unsubscribe'
+    );
+    expect(tracked).toEqual([
+      `https://wf.example.com/t/l/${id}/0`,
+      `https://wf.example.com/t/u/${id}/1`,
+    ]);
+    // What the link is was fixed when it was sent: no config needed to recognize it
+    const options = { product: 'Acme' };
+    const confirm = await handleTracking(get(`/t/u/${id}/1`), reporting(), options);
     expect(confirm?.status).toBe(200);
     expect(await confirm?.text()).toContain(`action="/t/u/${id}"`);
+    const head = new Request(`https://wf.example.com/t/u/${id}/1`, { method: 'HEAD' });
+    expect((await handleTracking(head, reporting(), options))?.status).toBe(200);
+    const clicks = await pg.query('SELECT position FROM workflow.message_click ORDER BY position');
+    expect(clicks.rows).toEqual([{ position: 1 }, { position: 1 }]);
     const unsubscribed = () =>
       pg.query('SELECT unsubscribed_at IS NOT NULL AS u FROM workflow.message');
     expect((await unsubscribed()).rows).toEqual([{ u: false }]);
 
-    const post = new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
-    expect(await (await handleTracking(post, reporting(), options))?.text()).toContain(
+    const post = () => new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
+    expect(await (await handleTracking(post(), reporting(), options))?.text()).toContain(
       "You won't get these emails from Acme anymore."
     );
+    expect((await handleTracking(post(), reporting(), options))?.status).toBe(200);
     expect((await unsubscribed()).rows).toEqual([{ u: true }]);
-    // The opt-out the engine reads before every email
+    // The opt-out the engine reads before every email: the whole email channel
     const store = new PostgresJourneyStore(client(pg));
     expect(await store.isSuppressed('u1', 'email')).toBe(true);
     expect(await store.isSuppressed('u1', 'push')).toBe(false);
+  });
+
+  test('an email sent without an unsubscribe URL has none, whatever the config says now', async () => {
+    const { id } = await sendEmail(['https://app.example.com/unsubscribe']);
+    const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
+    const click = await handleTracking(get(`/t/l/${id}/0`), reporting(), options);
+    expect(click?.status).toBe(302);
+    expect(click?.headers.get('location')).toBe('https://app.example.com/unsubscribe');
+  });
+
+  test('an email sent before links carried their purpose: its unsubscribe link still asks', async () => {
+    // Recorded as the earlier versions did, the links behind `/t/c/<message>/<position>`
+    const { id } = await sendEmail([]);
+    await reporting().recordLinks(id, [
+      'https://app.example.com/a',
+      'https://app.example.com/unsubscribe?list=journeys',
+    ]);
+    const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
+    const link = await handleTracking(get(`/t/c/${id}/0`), reporting(), options);
+    expect(link?.headers.get('location')).toBe('https://app.example.com/a');
+    const confirm = await handleTracking(get(`/t/c/${id}/1`), reporting(), options);
+    expect(confirm?.status).toBe(200);
+    expect(await confirm?.text()).toContain(`action="/t/u/${id}"`);
+    // Without the URL those emails were sent with, it is a plain link
+    const plain = await handleTracking(get(`/t/c/${id}/1`), reporting());
+    expect(plain?.status).toBe(302);
   });
 
   test('a scanner following every link at once: clicks judged one after another', async () => {
@@ -303,7 +346,7 @@ describe('tracking', () => {
     ]);
     vi.setSystemTime(1_000_000 + 60_000);
     await Promise.all(
-      [0, 1, 2].map((position) => handleTracking(get(`/t/c/${id}/${position}`), reporting()))
+      [0, 1, 2].map((position) => handleTracking(get(`/t/l/${id}/${position}`), reporting()))
     );
     const clicks = (
       await pg.query<{ machine: boolean }>('SELECT machine FROM workflow.message_click')

@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'reengage_product_highlights',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Re-engagement · What shipped',
   description: 'Second touch: what changed while they were gone, in three lines.',
   props: z.strictObject({}),

@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Cta, Heading, Paragraph, Shell } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'n2_limited_time_offer',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Cart Recovery · Last touch',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),
   subject: 'Your discount code is inside — it expires soon',

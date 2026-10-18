@@ -1,4 +1,12 @@
-import type { DiscordTemplate, EmailTemplate, PushTemplate, SlackTemplate } from '@shware/workflow';
+import {
+  type DiscordTemplate,
+  type EmailConfig,
+  type EmailTemplate,
+  type PushTemplate,
+  type SlackTemplate,
+  formatEmailAddress,
+  resolveEmail,
+} from '@shware/workflow';
 import { Minus, Monitor, Moon, Plus, Smartphone, Sun } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -56,8 +64,8 @@ export interface TemplatesPageProps {
   selectedChannel?: string | undefined;
   /** Rendered output for the selected template, produced by the caller. */
   preview: TemplatePreview;
-  /** The project's envelope (`emails.from` / `replyTo`): every email is sent with it. */
-  emailDefaults?: { from?: string; replyTo?: string };
+  /** The config's `email`: an email template's unsubscribe link falls back to its default. */
+  emailConfig?: EmailConfig;
   /**
    * In-memory props override for the selected template's preview; absent
    * renders the template's own `preview`. Never written anywhere.
@@ -242,7 +250,7 @@ export function TemplatesPage({
   selected,
   selectedChannel,
   preview,
-  emailDefaults,
+  emailConfig,
   previewProps,
   onPreviewPropsChange,
   defaultScheme,
@@ -270,6 +278,8 @@ export function TemplatesPage({
   const isPush = active?.channel === 'push';
   const isEmail = active?.channel === 'email';
   const activeEmail = active !== undefined && isEmail ? emails[active.key] : undefined;
+  /* What this template is sent with: its own sender, the unsubscribe link resolved like a send's. */
+  const resolved = activeEmail === undefined ? undefined : resolveEmail(activeEmail, emailConfig);
   const activePush = active !== undefined && isPush ? pushes[active.key] : undefined;
   const isDiscord = active?.channel === 'discord';
   const isSlack = active?.channel === 'slack';
@@ -340,15 +350,18 @@ export function TemplatesPage({
             {((isEmail && activeEmail !== undefined) || push !== undefined) && (
               <div className="border-border bg-card border-b px-6 py-4">
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 text-sm">
-                  {isEmail && activeEmail !== undefined && (
+                  {isEmail && activeEmail !== undefined && resolved !== undefined && (
                     <>
-                      <Field label={t('emails.from')}>
-                        {emailDefaults?.from ?? t('common.none')}
-                      </Field>
-                      {emailDefaults?.replyTo !== undefined && (
-                        <Field label={t('emails.replyTo')}>{emailDefaults.replyTo}</Field>
+                      <Field label={t('emails.from')}>{formatEmailAddress(resolved.from)}</Field>
+                      {resolved.replyTo !== undefined && (
+                        <Field label={t('emails.replyTo')}>
+                          {formatEmailAddress(resolved.replyTo)}
+                        </Field>
                       )}
                       <Field label={t('emails.subject')}>{subject ?? activeEmail.subject}</Field>
+                      <Field label={t('emails.unsubscribeUrl')}>
+                        {resolved.unsubscribeUrl ?? t('common.none')}
+                      </Field>
                     </>
                   )}
                   {push !== undefined && (

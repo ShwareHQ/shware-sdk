@@ -21,7 +21,15 @@ import { e } from './fixtures';
 const pu = user<{ userId: string; name: string; nick?: string; age: number }>();
 
 const email = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
-  emailTemplate({ id: 'e', title: 'E', props, subject: 's', preview, component: () => null });
+  emailTemplate({
+    id: 'e',
+    from: 'noreply@acme.test',
+    title: 'E',
+    props,
+    subject: 's',
+    preview,
+    component: () => null,
+  });
 const push = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
   pushTemplate({ id: 'p', title: 'P', props, preview, content: () => ({ title: 't', body: 'b' }) });
 

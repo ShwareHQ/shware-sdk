@@ -74,10 +74,19 @@ const empty = z.strictObject({});
 
 /** Templates whose content does not matter to the test: no props, or one `name`. */
 export const plainEmail = (id: string) =>
-  emailTemplate({ id, title: id, props: empty, subject: id, preview: {}, component: () => null });
+  emailTemplate({
+    id,
+    from: 'noreply@acme.test',
+    title: id,
+    props: empty,
+    subject: id,
+    preview: {},
+    component: () => null,
+  });
 export const namedEmail = (id: string) =>
   emailTemplate({
     id,
+    from: 'noreply@acme.test',
     title: id,
     props: named,
     subject: id,
@@ -103,6 +112,7 @@ export const namedPush = (id: string) =>
 
 export const upgradeRecovery = emailTemplate({
   id: 'u1_upgrade_recovery',
+  from: 'noreply@acme.test',
   title: 'Upgrade recovery',
   props: plan,
   subject: 'Upgrade',
@@ -112,6 +122,7 @@ export const upgradeRecovery = emailTemplate({
 export const firstTimeRecovery = plainEmail('n1_first_time_recovery');
 export const limitedTimeOffer = emailTemplate({
   id: 'n2_limited_time_offer',
+  from: 'noreply@acme.test',
   title: 'Limited time offer',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),
   subject: 'Offer',

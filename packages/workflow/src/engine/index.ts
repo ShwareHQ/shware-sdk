@@ -20,6 +20,7 @@ export type {
   JourneyContext,
   JourneyObserver,
   JourneyOutcome,
+  LinkPurpose,
   MessageSender,
   MessageTracking,
   OutboundMessage,

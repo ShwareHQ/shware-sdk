@@ -2,6 +2,7 @@ import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
 import { type JourneyConfig, compileConfig } from '../config';
 import { type Contract, ContractValidationError, checkEvent } from '../contract';
+import { assertEmailConfig } from '../email';
 import type { RegisteredAction } from '../engine/actions';
 import type { JourneyObserver, MessageSender, MessageValidator } from '../engine/ports';
 import { scaleSegmentWindows } from '../engine/time-scale';
@@ -17,7 +18,7 @@ import {
   type StoreLease,
 } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
-import { TemplateValidationError, registryValidator } from '../templates';
+import { TemplateValidationError, indexTemplates, registryValidator } from '../templates';
 import type { JourneyEnv, JourneyParams } from './bindings';
 import { channelsFromConfig, runtimeFromConfig } from './channels';
 import { d1Store } from './d1-env';
@@ -117,6 +118,9 @@ export function journeyWorker<Env extends JourneyEnv>(
   options: JourneyWorkerOptions<Env>
 ): JourneyWorker<Env> {
   const { config } = options;
+  const emailIds = indexTemplates('email', config.templates?.email);
+  // A config still on `emails` (its sender would be silently dropped) fails here, not at a send
+  assertEmailConfig(config, emailIds.values());
   // Parsed once per env object: the runtime hands the same one to every request of an isolate
   const checked = new WeakMap<object, Env>();
   const checkEnv = (env: Env): Env => {
@@ -208,7 +212,7 @@ export function journeyWorker<Env extends JourneyEnv>(
     env.API_TOKEN === undefined ||
     request.headers.get('authorization') === `Bearer ${env.API_TOKEN}`;
 
-  const preview = emails === undefined ? undefined : registryRenderer(emails);
+  const preview = emails === undefined ? undefined : registryRenderer(emails, config.email);
 
   // The bundle compiled into this version goes live on its own, once per isolate: the first
   // request or cron run reads which version's bundle is live (one row) and applies this one only
@@ -267,9 +271,9 @@ export function journeyWorker<Env extends JourneyEnv>(
       if (url.pathname.startsWith('/t/') && store.reporting !== undefined) {
         const openedEvent = config.webPush?.openedEvent;
         const tracked = await handleTracking(request, store.reporting, {
-          unsubscribe: config.emails?.unsubscribe,
+          legacyUnsubscribeUrl: config.email?.unsubscribeUrl,
           product: config.title,
-          quickMs: config.emails?.tracking?.quickClickMs,
+          quickMs: config.email?.tracking?.quickClickMs,
           pushOpened:
             openedEvent === undefined
               ? undefined
@@ -321,8 +325,7 @@ export function journeyWorker<Env extends JourneyEnv>(
         if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
         if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
         const key = url.pathname.slice('/preview/'.length);
-        if (!Object.hasOwn(emails, key))
-          return json({ error: `unknown email template: ${key}` }, 404);
+        if (!emailIds.has(key)) return json({ error: `unknown email template: ${key}` }, 404);
         // `?props=<JSON object>`: JSON keeps numbers and booleans typed, which query strings cannot
         let props: unknown = {};
         try {

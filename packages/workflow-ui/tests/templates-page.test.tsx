@@ -23,6 +23,8 @@ const pushRef: TemplateRefInfo = {
 
 const welcome = emailTemplate({
   id: 'welcome',
+  from: { email: 'hello@acme.io', name: 'Acme' },
+  replyTo: { email: 'support@acme.io', name: 'Acme Support' },
   title: 'Welcome · display name',
   props: z.strictObject({ name: z.string() }),
   subject: 'Welcome aboard',
@@ -38,7 +40,7 @@ const nudge = pushTemplate({
   content: () => ({ title: 'Come back', body: 'Your streak is waiting' }),
 });
 
-const DEFAULTS = { from: 'Acme <hello@acme.io>', replyTo: 'Acme Support <support@acme.io>' };
+const EMAIL = { unsubscribeUrl: 'https://acme.io/unsubscribe' };
 
 function setup({
   refs = [emailRef],
@@ -59,7 +61,7 @@ function setup({
       emails={emails}
       pushes={pushes}
       selected={refs[0]?.key}
-      emailDefaults={DEFAULTS}
+      emailConfig={EMAIL}
       preview={preview}
       previewProps={previewProps}
       onPreviewPropsChange={() => {}}
@@ -70,14 +72,37 @@ function setup({
 afterEach(cleanup);
 
 describe('the envelope is read-only', () => {
-  test('from and reply-to are the project’s, the subject the template’s — no pickers, no editors', () => {
+  test('from, reply-to and subject are the template’s, the unsubscribe link resolved — no pickers, no editors', () => {
     setup();
 
     expect(screen.getByText('Acme <hello@acme.io>')).toBeDefined();
     expect(screen.getByText('Acme Support <support@acme.io>')).toBeDefined();
     expect(screen.getByText('Welcome aboard')).toBeDefined();
+    // Inherited from the config: the template names none of its own
+    expect(screen.getByText('https://acme.io/unsubscribe')).toBeDefined();
     expect(screen.queryByText('Welcome · display name')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  test('another template shows its own sender and link, and no reply-to it does not have', () => {
+    const newsletter = emailTemplate({
+      id: 'weekly_newsletter',
+      from: 'newsletter@acme.io',
+      unsubscribeUrl: 'https://acme.io/newsletter/unsubscribe',
+      title: 'Newsletter',
+      props: z.strictObject({}),
+      subject: 'This week',
+      preview: {},
+      component: () => <p>news</p>,
+    });
+    setup({
+      refs: [{ ...emailRef, key: 'weekly_newsletter' }],
+      emails: { weekly_newsletter: newsletter },
+    });
+    expect(screen.getByText('newsletter@acme.io')).toBeDefined();
+    expect(screen.getByText('https://acme.io/newsletter/unsubscribe')).toBeDefined();
+    expect(screen.queryByText('Reply to')).toBeNull();
+    expect(screen.queryByText('Acme <hello@acme.io>')).toBeNull();
   });
 
   test('a rendered subject replaces the template’s own', () => {
@@ -114,7 +139,7 @@ describe('failures and registration', () => {
         refs={[emailRef]}
         emails={{ welcome }}
         selected="gone"
-        emailDefaults={DEFAULTS}
+        emailConfig={EMAIL}
         preview={{ loading: false }}
       />
     );
