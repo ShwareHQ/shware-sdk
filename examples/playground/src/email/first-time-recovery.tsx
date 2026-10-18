@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Cta, Heading, Paragraph, Shell } from './layout';
 
 export default emailTemplate({
+  id: 'n1_first_time_recovery',
   title: 'Cart Recovery · First touch',
   props: z.strictObject({}),
   subject: 'Your workspace is waiting',

@@ -256,9 +256,7 @@ function CanvasTab() {
   const pushModule =
     message?.channel === 'push' ? lookup(config.pushes, message.template) : undefined;
   const push =
-    message !== undefined && pushModule !== undefined
-      ? resolvePush(pushModule, message.template)
-      : undefined;
+    message !== undefined && pushModule !== undefined ? resolvePush(pushModule) : undefined;
 
   if (ir === undefined) return null;
 

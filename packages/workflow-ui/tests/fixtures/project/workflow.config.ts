@@ -1,11 +1,11 @@
 import { defineConfig } from '@shware/workflow';
 import { onboarding } from './src/flows';
-import { registry } from './src/templates';
+import { templates } from './src/templates';
 
 export default defineConfig({
   title: 'Fixture project',
   workflows: [onboarding],
-  templates: registry,
+  templates,
   emails: {
     from: { email: 'hello@acme.test', name: 'Acme' },
     replyTo: 'support@acme.test',

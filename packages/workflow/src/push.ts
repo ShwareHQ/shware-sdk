@@ -1,5 +1,11 @@
 import type { ScalarIR } from './ir';
-import { type PushContent, type PushTemplate, renderPushContent } from './templates';
+import {
+  type PushContent,
+  type PushTemplate,
+  indexTemplates,
+  lookupTemplate,
+  renderPushContent,
+} from './templates';
 
 /**
  * `@shware/workflow/push` — push-notification content. A push is data, not a
@@ -16,10 +22,8 @@ export type PushRenderer = (
   props: Record<string, ScalarIR | undefined>
 ) => Promise<RenderedPush>;
 
-/** A renderer over the registry; a TemplateValidationError means nothing may be sent. */
-export function registryPushRenderer(pushes: Record<string, PushTemplate>): PushRenderer {
-  return async (key, props) => {
-    if (!Object.hasOwn(pushes, key)) throw new Error(`unknown push template: ${key}`);
-    return renderPushContent(pushes[key], key, props);
-  };
+/** A renderer over the registry, by template id; a TemplateValidationError means nothing may be sent. */
+export function registryPushRenderer(pushes: Readonly<Record<string, PushTemplate>>): PushRenderer {
+  const index = indexTemplates('push', pushes);
+  return async (id, props) => renderPushContent(lookupTemplate(index, 'push', id), props);
 }

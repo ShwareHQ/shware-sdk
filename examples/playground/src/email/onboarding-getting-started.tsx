@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'onboarding_getting_started',
   title: 'Onboarding · Getting started',
   description: 'The first step for people who have not created anything yet.',
   props: z.strictObject({}),

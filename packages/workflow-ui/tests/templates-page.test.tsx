@@ -22,6 +22,7 @@ const pushRef: TemplateRefInfo = {
 };
 
 const welcome = emailTemplate({
+  id: 'welcome',
   title: 'Welcome · display name',
   props: z.strictObject({ name: z.string() }),
   subject: 'Welcome aboard',
@@ -30,6 +31,7 @@ const welcome = emailTemplate({
 });
 
 const nudge = pushTemplate({
+  id: 'nudge',
   title: 'Nudge · display name',
   props: z.strictObject({}),
   preview: {},

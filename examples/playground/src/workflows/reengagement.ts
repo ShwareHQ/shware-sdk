@@ -1,5 +1,6 @@
 import { not, performed, segment, trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
+import { email } from '../email';
+import { push } from '../push';
 import { e, u } from './schema';
 
 /**
@@ -28,12 +29,12 @@ export const reengagement = workflow({
   name: 'Re-engagement',
   trigger: trigger.segment(inactive30d),
 })
-  .push(t.push.reengage_comeback_push, { name: u.name })
+  .push(push.comeback, { name: u.name })
   .delay('1 day') // give the push a day to work before falling back to email
-  .email(t.email.reengage_miss_you)
+  .email(email.reengageMissYou)
   .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' }) // wait a week at most
   .branch([cameBack, (w) => w.exit('reengaged')]) // back already: done. Still gone: carry on down the main line
-  .email(t.email.reengage_product_highlights)
+  .email(email.reengageProductHighlights)
   .delay('7 days')
   .branch([
     not(cameBack),
@@ -43,7 +44,7 @@ export const reengagement = workflow({
         control: { weight: 50 },
         coupon: {
           weight: 50,
-          flow: (x) => x.email(t.email.reengage_incentive, { coupon: 'WELCOMEBACK15' }),
+          flow: (x) => x.email(email.reengageIncentive, { coupon: 'WELCOMEBACK15' }),
         },
       }),
   ]);

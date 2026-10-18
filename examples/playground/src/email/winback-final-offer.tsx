@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'winback_final_offer',
   title: 'Winback · Final offer',
   description: 'Last touch of the win-back flow, paired with the lock-screen push.',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),

@@ -18,6 +18,7 @@ import { type Props, prepareEmail, resolvePush } from '../src/utils/template-con
 const named = z.strictObject({ name: z.string().check(z.minLength(1)) });
 
 const welcome = emailTemplate({
+  id: 'welcome',
   title: 'Welcome (display name)',
   description: 'First email after sign-up.',
   props: named,
@@ -27,6 +28,7 @@ const welcome = emailTemplate({
 });
 
 const nudge = pushTemplate({
+  id: 'nudge',
   title: 'Nudge (display name)',
   props: named,
   preview: { name: 'Ada' },
@@ -37,12 +39,12 @@ afterEach(cleanup);
 
 describe('labels and notification', () => {
   test('a push never shows its display name as the notification title', () => {
-    const result = resolvePush(nudge, 'nudge');
+    const result = resolvePush(nudge);
     expect(result.ok && result.push.title).toBe('Still there, Ada?');
   });
 
   test('an email preview hands the component the parsed props', () => {
-    const result = prepareEmail(welcome, 'welcome', { name: 'Grace' });
+    const result = prepareEmail(welcome, { name: 'Grace' });
     expect(result.ok && result.email.props).toEqual({ name: 'Grace' });
     expect(result.ok && result.email.subject).toBe('Welcome aboard');
   });
@@ -57,6 +59,7 @@ describe('push content', () => {
       })
     );
     const template = pushTemplate({
+      id: 'template',
       title: 'Spy',
       props: named,
       preview: { name: 'Ada' },
@@ -64,7 +67,7 @@ describe('push content', () => {
     });
     const input = { name: 'Linus' };
 
-    const result = resolvePush(template, 'spy', input);
+    const result = resolvePush(template, input);
 
     expect(result).toEqual({ ok: true, push: { title: 'Hi Linus', body: 'Use code {code}' } });
     /* The parsed copy, not the object the studio passed in. */
@@ -75,10 +78,16 @@ describe('push content', () => {
 
   test('props the schema refuses never reach content, and the failure names the field', () => {
     const content = vi.fn<() => { title: string; body: string }>(() => ({ title: 't', body: 'b' }));
-    const template = pushTemplate({ title: 'Spy', props: named, preview: { name: 'A' }, content });
+    const template = pushTemplate({
+      id: 'spy',
+      title: 'Spy',
+      props: named,
+      preview: { name: 'A' },
+      content,
+    });
     content.mockClear();
 
-    const result = resolvePush(template, 'spy', { name: '' });
+    const result = resolvePush(template, { name: '' });
 
     expect(result.ok).toBe(false);
     expect(!result.ok && result.failure.phase).toBe('props');
@@ -88,6 +97,7 @@ describe('push content', () => {
 
   test('content that returns no notification is a content failure', () => {
     const template = pushTemplate({
+      id: 'template',
       title: 'Broken',
       props: named,
       preview: { name: 'A' },
@@ -95,7 +105,7 @@ describe('push content', () => {
     });
     const broken = { ...template, content: () => ({ title: 1 }) } as unknown as PushTemplate;
 
-    const result = resolvePush(broken, 'broken');
+    const result = resolvePush(broken);
 
     expect(!result.ok && result.failure.phase).toBe('content');
     expect(!result.ok && result.failure.issues.map((issue) => issue.path)).toContain('title');

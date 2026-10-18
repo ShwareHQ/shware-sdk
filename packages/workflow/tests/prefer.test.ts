@@ -18,7 +18,6 @@ import {
   pushTemplate,
   reachable,
   template,
-  templates,
   trigger,
   workflow,
 } from '../src/index';
@@ -31,9 +30,10 @@ const contract = defineContract({
 const { events: e, user: u } = contract;
 
 const named = z.strictObject({ name: z.string() });
-const registry = {
+const templates = {
   email: {
     tip: emailTemplate({
+      id: 'tip',
       title: 'Tip',
       props: named,
       subject: 'Tip',
@@ -41,6 +41,7 @@ const registry = {
       component: () => null,
     }),
     tip_long: emailTemplate({
+      id: 'tip_long',
       title: 'Tip',
       props: z.strictObject({ name: z.string().min(3) }),
       subject: 'Tip',
@@ -50,6 +51,7 @@ const registry = {
   },
   push: {
     tip_push: pushTemplate({
+      id: 'tip_push',
       title: 'Tip',
       props: named,
       preview: { name: 'Ada' },
@@ -57,7 +59,6 @@ const registry = {
     }),
   },
 };
-const t = templates(registry);
 
 const start = () => workflow({ id: 'w', trigger: trigger.event(e.login) });
 
@@ -84,8 +85,8 @@ describe('prefer() compiles to the branch it stands for', () => {
     ['email first, no label', 'email', undefined],
   ] as const)('%s', (_, first, label) => {
     const props = { name: u.name };
-    const push = (b: FlowBuilder) => b.push(t.push.tip_push, props);
-    const email = (b: FlowBuilder) => b.email(t.email.tip, props);
+    const push = (b: FlowBuilder) => b.push(templates.push.tip_push, props);
+    const email = (b: FlowBuilder) => b.email(templates.email.tip, props);
     const [preferred, fallback] = first === 'push' ? [push, email] : [email, push];
     const arms = [[reachable(first), preferred], fallback] as const;
 
@@ -94,8 +95,8 @@ describe('prefer() compiles to the branch it stands for', () => {
       .toIR();
     const candidates =
       first === 'push'
-        ? ([t.push.tip_push, t.email.tip] as const)
-        : ([t.email.tip, t.push.tip_push] as const);
+        ? ([templates.push.tip_push, templates.email.tip] as const)
+        : ([templates.email.tip, templates.push.tip_push] as const);
     const preferredIR = (
       label === undefined
         ? start().prefer(candidates, props)
@@ -111,7 +112,9 @@ describe('prefer() compiles to the branch it stands for', () => {
   });
 
   test('every generated node points at the prefer() call', () => {
-    const ir = start().prefer([t.push.tip_push, t.email.tip], { name: u.name }).toIR();
+    const ir = start()
+      .prefer([templates.push.tip_push, templates.email.tip], { name: u.name })
+      .toIR();
     const branch = ir.flow[0] as Extract<NodeIR, { type: 'branch' }>;
     const locs = [
       branch.meta?.loc,
@@ -126,7 +129,9 @@ describe('prefer() compiles to the branch it stands for', () => {
   });
 
   test('each message holds its own props object', () => {
-    const ir = start().prefer([t.push.tip_push, t.email.tip], { name: 'Ada' }).toIR();
+    const ir = start()
+      .prefer([templates.push.tip_push, templates.email.tip], { name: 'Ada' })
+      .toIR();
     const branch = ir.flow[0] as Extract<NodeIR, { type: 'branch' }>;
     type Message = Extract<NodeIR, { type: 'message' }>;
     const first = branch.cases[0]?.flow[0] as Message;
@@ -136,7 +141,9 @@ describe('prefer() compiles to the branch it stands for', () => {
   });
 
   test('a fragment with a prefer used twice gets its own nodes and ids each time', () => {
-    const tip = flow((w) => w.prefer([t.push.tip_push, t.email.tip], { name: u.name }));
+    const tip = flow((w) =>
+      w.prefer([templates.push.tip_push, templates.email.tip], { name: u.name })
+    );
     const ir = start().use(tip).delay('1 day').use(tip).toIR();
     const all = ids(ir.flow);
     expect(new Set(all).size).toBe(all.length);
@@ -152,19 +159,55 @@ describe('prefer() compiles to the branch it stands for', () => {
 describe('prefer() checks untyped calls', () => {
   const bad: [string, unknown[], RegExp][] = [
     ['no candidates', [[], {}], /exactly two templates/],
-    ['one candidate', [[t.push.tip_push], {}], /exactly two templates/],
-    ['three candidates', [[t.push.tip_push, t.email.tip, t.email.tip], {}], /exactly two/],
-    ['not an array', [t.push.tip_push, {}], /exactly two templates/],
-    ['two pushes', [[t.push.tip_push, t.push.tip_push], {}], /one push and one email/],
-    ['another channel', [[template.sms('s'), t.email.tip], {}], /push or email template/],
-    ['not a reference', [[{ channel: 'push' }, t.email.tip], {}], /push or email template/],
-    ['a null candidate', [[null, t.email.tip], {}], /push or email template/],
-    ['props left out', [[t.push.tip_push, t.email.tip]], /props must be an object/],
-    ['null props', [[t.push.tip_push, t.email.tip], null], /props must be an object/],
-    ['array props', [[t.push.tip_push, t.email.tip], []], /props must be an object/],
-    ['string options', [[t.push.tip_push, t.email.tip], {}, 'x'], /options must be an object/],
-    ['an unknown option', [[t.push.tip_push, t.email.tip], {}, { name: 'A' }], /unknown option/],
-    ['a non-string label', [[t.push.tip_push, t.email.tip], {}, { label: 1 }], /'label'/],
+    ['one candidate', [[templates.push.tip_push], {}], /exactly two templates/],
+    [
+      'three candidates',
+      [[templates.push.tip_push, templates.email.tip, templates.email.tip], {}],
+      /exactly two/,
+    ],
+    ['not an array', [templates.push.tip_push, {}], /exactly two templates/],
+    [
+      'two pushes',
+      [[templates.push.tip_push, templates.push.tip_push], {}],
+      /one push and one email/,
+    ],
+    [
+      'another channel',
+      [[template.sms('s'), templates.email.tip], {}],
+      /pushTemplate or an emailTemplate/,
+    ],
+    [
+      'not a reference',
+      [[{ channel: 'push' }, templates.email.tip], {}],
+      /pushTemplate or an emailTemplate/,
+    ],
+    ['a null candidate', [[null, templates.email.tip], {}], /pushTemplate or an emailTemplate/],
+    ['props left out', [[templates.push.tip_push, templates.email.tip]], /props must be an object/],
+    [
+      'null props',
+      [[templates.push.tip_push, templates.email.tip], null],
+      /props must be an object/,
+    ],
+    [
+      'array props',
+      [[templates.push.tip_push, templates.email.tip], []],
+      /props must be an object/,
+    ],
+    [
+      'string options',
+      [[templates.push.tip_push, templates.email.tip], {}, 'x'],
+      /options must be an object/,
+    ],
+    [
+      'an unknown option',
+      [[templates.push.tip_push, templates.email.tip], {}, { name: 'A' }],
+      /unknown option/,
+    ],
+    [
+      'a non-string label',
+      [[templates.push.tip_push, templates.email.tip], {}, { label: 1 }],
+      /'label'/,
+    ],
   ];
   test.each(bad)('%s', (_, args, message) => {
     const builder = start();
@@ -182,18 +225,18 @@ describe('compileConfig checks both candidates', () => {
         title: 'Acme',
         contract,
         workflows: [w],
-        templates: registry,
+        templates,
         emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
       })
     );
-  const raw = (props: Record<string, unknown>, fallback = t.email.tip) =>
-    start().prefer([t.push.tip_push, fallback] as const, props as never);
+  const raw = (props: Record<string, unknown>, fallback = templates.email.tip) =>
+    start().prefer([templates.push.tip_push, fallback] as const, props as never);
 
   test('a valid prefer compiles', () => {
     expect(() => config(raw({ name: u.name }))).not.toThrow();
   });
   test('an unregistered fallback fails by its node', () => {
-    expect(() => config(raw({ name: 'Ada' }, template.email('gone')))).toThrow(
+    expect(() => config(raw({ name: 'Ada' }, { ...templates.email.tip, id: 'gone' }))).toThrow(
       /node 0\.o\.0: email template 'gone' is not registered/
     );
   });
@@ -201,7 +244,7 @@ describe('compileConfig checks both candidates', () => {
     expect(() => config(raw({}))).toThrow(/required prop 'name' is missing/);
     expect(() => config(raw({ name: 'Ada', extra: 1 }))).toThrow(/'extra' is not a prop/);
     // both templates' static types are string, but the fallback refuses a short literal
-    expect(() => config(raw({ name: 'Al' }, t.email.tip_long))).toThrow(
+    expect(() => config(raw({ name: 'Al' }, templates.email.tip_long))).toThrow(
       /node 0\.o\.0.*'name' = "Al" is refused/
     );
     expect(() => config(raw({ name: { type: 'user_property', path: 'nickname' } }))).toThrow(
@@ -289,10 +332,12 @@ function harness() {
 }
 
 const pushFirst = start()
-  .prefer([t.push.tip_push, t.email.tip], { name: u.name }, { label: 'tip' })
+  .prefer([templates.push.tip_push, templates.email.tip], { name: u.name }, { label: 'tip' })
   .delay('1 day')
   .toIR();
-const emailFirst = start().prefer([t.email.tip, t.push.tip_push], { name: u.name }).toIR();
+const emailFirst = start()
+  .prefer([templates.email.tip, templates.push.tip_push], { name: u.name })
+  .toIR();
 
 describe('prefer() at run time', () => {
   test('a reachable first choice is the only message, and the journey goes on', async () => {
@@ -379,9 +424,9 @@ describe('prefer() at run time', () => {
 
   test('each prefer chooses with the facts of its own moment', async () => {
     const twice = start()
-      .prefer([t.push.tip_push, t.email.tip], { name: u.name })
+      .prefer([templates.push.tip_push, templates.email.tip], { name: u.name })
       .delay('2 days')
-      .prefer([t.push.tip_push, t.email.tip], { name: u.name })
+      .prefer([templates.push.tip_push, templates.email.tip], { name: u.name })
       .toIR();
     const h = harness();
     h.facts.devices = [phone];

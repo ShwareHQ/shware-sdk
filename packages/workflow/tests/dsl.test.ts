@@ -29,7 +29,15 @@ import {
   workflow,
 } from '../src/index';
 import { BundleIR, type ConditionIR, type NodeIR } from '../src/ir';
-import { activeSubscriber, e, gettingStarted, limitedTimeOffer, purchaser, u } from './fixtures';
+import {
+  activeSubscriber,
+  e,
+  gettingStarted,
+  limitedTimeOffer,
+  namedEmail,
+  purchaser,
+  u,
+} from './fixtures';
 
 /** Compile a single-node flow and return that node's IR. */
 function nodeOf(build: (w: Parameters<Parameters<typeof flow>[0]>[0]) => unknown) {
@@ -349,7 +357,7 @@ describe('workflow options', () => {
 
 describe('bundle compilation', () => {
   test('segments carry their definition and hash; templates form a manifest', () => {
-    const hello = template.email<{ name: string }>('hello');
+    const hello = namedEmail('hello');
     const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).email(hello, { name: 'x' });
 
     const bundle = compileBundle({

@@ -120,9 +120,9 @@ export type EmailPreparation =
  * hand the component the parsed value — or refuse, with the field paths, and
  * render nothing.
  */
-export function prepareEmail(entry: EmailTemplate, key: string, props?: Props): EmailPreparation {
+export function prepareEmail(entry: EmailTemplate, props?: Props): EmailPreparation {
   try {
-    const parsed = parseTemplateProps(entry, key, props ?? previewPropsOf(entry));
+    const parsed = parseTemplateProps(entry, props ?? previewPropsOf(entry));
     return {
       ok: true,
       email: {
@@ -152,9 +152,9 @@ export type PushResolution =
  * over the parsed props, through the SDK (output checked, nothing
  * placeholder-filled afterwards).
  */
-export function resolvePush(entry: PushTemplate, key: string, props?: Props): PushResolution {
+export function resolvePush(entry: PushTemplate, props?: Props): PushResolution {
   try {
-    return { ok: true, push: renderPushContent(entry, key, props ?? previewPropsOf(entry)) };
+    return { ok: true, push: renderPushContent(entry, props ?? previewPropsOf(entry)) };
   } catch (error) {
     return { ok: false, failure: failureOf(error, 'content') };
   }
@@ -171,22 +171,18 @@ export type SlackResolution =
   | { ok: false; failure: TemplateFailure };
 
 /** The Discord message a template posts for some props, checked like a send checks it. */
-export function resolveDiscord(
-  entry: DiscordTemplate,
-  key: string,
-  props?: Props
-): DiscordResolution {
+export function resolveDiscord(entry: DiscordTemplate, props?: Props): DiscordResolution {
   try {
-    return { ok: true, message: renderDiscordContent(entry, key, props ?? previewPropsOf(entry)) };
+    return { ok: true, message: renderDiscordContent(entry, props ?? previewPropsOf(entry)) };
   } catch (error) {
     return { ok: false, failure: failureOf(error, 'content') };
   }
 }
 
 /** The Slack message a template posts for some props, checked like a send checks it. */
-export function resolveSlack(entry: SlackTemplate, key: string, props?: Props): SlackResolution {
+export function resolveSlack(entry: SlackTemplate, props?: Props): SlackResolution {
   try {
-    return { ok: true, message: renderSlackContent(entry, key, props ?? previewPropsOf(entry)) };
+    return { ok: true, message: renderSlackContent(entry, props ?? previewPropsOf(entry)) };
   } catch (error) {
     return { ok: false, failure: failureOf(error, 'content') };
   }

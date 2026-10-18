@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'reengage_product_highlights',
   title: 'Re-engagement · What shipped',
   description: 'Second touch: what changed while they were gone, in three lines.',
   props: z.strictObject({}),

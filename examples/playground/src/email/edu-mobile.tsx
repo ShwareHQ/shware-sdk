@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'edu_mobile',
   title: 'Education · Mobile',
   description: 'Week 7: the app, for capture away from the desk.',
   props: z.strictObject({}),

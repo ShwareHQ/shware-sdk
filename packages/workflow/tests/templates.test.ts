@@ -15,6 +15,7 @@ const named = z.strictObject({ name: z.string() });
 describe('emailTemplate / pushTemplate declarations', () => {
   test('accept a strict scalar schema and a matching preview', () => {
     const t = emailTemplate({
+      id: 't',
       title: 'Welcome',
       props: z.strictObject({
         name: z.string().min(1),
@@ -71,6 +72,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
   ])('reject %s at declaration', (_label, schema) => {
     expect(() =>
       pushTemplate({
+        id: 'bad',
         title: 'Bad',
         props: schema as never,
         preview: {} as never,
@@ -82,6 +84,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
   test('a preview that does not parse fails the declaration, naming the field', () => {
     expect(() =>
       emailTemplate({
+        id: 'welcome',
         title: 'Welcome',
         props: named,
         subject: 'Hi',
@@ -94,8 +97,15 @@ describe('emailTemplate / pushTemplate declarations', () => {
   test('declaring never runs the component or the content', () => {
     const component = vi.fn(() => null);
     const content = vi.fn(() => ({ title: 't', body: 'b' }));
-    emailTemplate({ title: 'E', props: named, subject: 's', preview: { name: 'A' }, component });
-    pushTemplate({ title: 'P', props: named, preview: { name: 'A' }, content });
+    emailTemplate({
+      id: 'e',
+      title: 'E',
+      props: named,
+      subject: 's',
+      preview: { name: 'A' },
+      component,
+    });
+    pushTemplate({ id: 'p', title: 'P', props: named, preview: { name: 'A' }, content });
     expect(component).not.toHaveBeenCalled();
     expect(content).not.toHaveBeenCalled();
   });
@@ -105,6 +115,7 @@ describe('email rendering', () => {
   const component = vi.fn(({ name }: { name: string }) => createElement('p', null, `Hi ${name}`));
   const emails = {
     welcome: emailTemplate({
+      id: 'welcome',
       title: 'Welcome',
       props: named,
       subject: 'Welcome {{ user.name }}',
@@ -119,7 +130,7 @@ describe('email rendering', () => {
     expect(html.endsWith('<p>Hi Ada</p>')).toBe(true);
     expect(subject).toBe('Welcome {{ user.name }}');
     await expect(registryRenderer(emails)('nope', {})).rejects.toThrow(
-      'unknown email template: nope'
+      "email template 'nope' is not registered"
     );
   });
 
@@ -140,6 +151,7 @@ describe('email rendering', () => {
     const Brand = createContext('Acme');
     const withContext = {
       ctx: emailTemplate({
+        id: 'ctx',
         title: 'Ctx',
         props: named,
         subject: 's',
@@ -158,6 +170,7 @@ describe('push rendering', () => {
   test('content gets the parsed props; braces in its result are never expanded', async () => {
     const pushes = {
       tip: pushTemplate({
+        id: 'tip',
         title: 'Tip (studio name)',
         props: named,
         preview: { name: 'A' },
@@ -173,6 +186,7 @@ describe('push rendering', () => {
   test('a push may name where a tap leads', async () => {
     const pushes = {
       offer: pushTemplate({
+        id: 'offer',
         title: 'Offer',
         props: named,
         preview: { name: 'A' },
@@ -189,7 +203,7 @@ describe('push rendering', () => {
   test('an input failure never calls content; a bad result was called but is refused', async () => {
     const content = vi.fn(() => ({ title: 't', body: 'b' }));
     const pushes = {
-      tip: pushTemplate({ title: 'Tip', props: named, preview: { name: 'A' }, content }),
+      tip: pushTemplate({ id: 'tip', title: 'Tip', props: named, preview: { name: 'A' }, content }),
     };
     const error = await registryPushRenderer(pushes)('tip', {}).catch((e: unknown) => e);
     expect(error).toMatchObject({ name: 'TemplateValidationError', phase: 'props' });
@@ -197,6 +211,7 @@ describe('push rendering', () => {
 
     const broken = {
       tip: pushTemplate({
+        id: 'tip',
         title: 'Tip',
         props: named,
         preview: { name: 'A' },
@@ -215,6 +230,7 @@ describe('registryValidator', () => {
   const validator = registryValidator({
     email: {
       welcome: emailTemplate({
+        id: 'welcome',
         title: 'W',
         props: named,
         subject: 's',
@@ -223,7 +239,7 @@ describe('registryValidator', () => {
       }),
     },
     push: {
-      tip: pushTemplate({ title: 'T', props: named, preview: { name: 'A' }, content }),
+      tip: pushTemplate({ id: 'tip', title: 'T', props: named, preview: { name: 'A' }, content }),
     },
   });
 
@@ -250,6 +266,62 @@ describe('registryValidator', () => {
   });
 });
 
+describe('templates are found by id, never by the property holding them', () => {
+  const welcome = emailTemplate({
+    id: 'welcome',
+    title: 'W',
+    props: named,
+    subject: 'Hi',
+    preview: { name: 'A' },
+    component: ({ name }) => createElement('p', null, name),
+  });
+  const tip = pushTemplate({
+    id: 'onboarding_tip_push',
+    title: 'T',
+    props: named,
+    preview: { name: 'A' },
+    content: ({ name }) => ({ title: name, body: 'b' }),
+  });
+  const emails = { welcomeAlias: welcome };
+  const pushes = { tipAlias: tip };
+
+  test('the renderers and the validator', async () => {
+    expect((await registryRenderer(emails)('welcome', { name: 'Ada' })).html).toContain('Ada');
+    expect(
+      await registryPushRenderer(pushes)('onboarding_tip_push', { name: 'Ada' })
+    ).toMatchObject({ title: 'Ada' });
+    const validator = registryValidator({ email: emails, push: pushes });
+    expect(
+      validator.validate({ channel: 'push', template: 'onboarding_tip_push', props: { name: 'A' } })
+    ).toEqual({ name: 'A' });
+  });
+
+  test('an alias is not a second key', async () => {
+    await expect(registryRenderer(emails)('welcomeAlias', { name: 'Ada' })).rejects.toThrow(
+      "email template 'welcomeAlias' is not registered"
+    );
+    await expect(registryPushRenderer(pushes)('tipAlias', { name: 'Ada' })).rejects.toThrow(
+      /not registered/
+    );
+    expect(() =>
+      registryValidator({ push: pushes }).validate({
+        channel: 'push',
+        template: 'tipAlias',
+        props: {},
+      })
+    ).toThrow(/not registered/);
+  });
+
+  test('two registrations of one id are refused when the index is built', () => {
+    expect(() => registryRenderer({ a: welcome, b: welcome })).toThrow(
+      "email template id 'welcome' is registered twice: templates.email.a and templates.email.b"
+    );
+    expect(() => registryPushRenderer({ a: tip, b: { ...tip } as typeof tip })).toThrow(
+      /registered twice/
+    );
+  });
+});
+
 describe('email rendering waits for Suspense', () => {
   test("a component that suspends (react-email's <Tailwind> does) renders once resolved", async () => {
     const pending = new Promise<void>((resolve) => {
@@ -261,6 +333,7 @@ describe('email rendering waits for Suspense', () => {
     }
     const emails = {
       slow: emailTemplate({
+        id: 'slow',
         title: 'Slow',
         props: named,
         subject: 's',
@@ -276,6 +349,7 @@ describe('email rendering waits for Suspense', () => {
   test('a full document keeps one (XHTML) doctype and no image preload hints', async () => {
     const emails = {
       doc: emailTemplate({
+        id: 'doc',
         title: 'Doc',
         props: named,
         subject: 's',
@@ -302,6 +376,7 @@ describe('email rendering waits for Suspense', () => {
   test('a component that throws rejects the render', async () => {
     const emails = {
       broken: emailTemplate({
+        id: 'broken',
         title: 'Broken',
         props: named,
         subject: 's',

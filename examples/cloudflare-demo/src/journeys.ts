@@ -1,5 +1,5 @@
 import { action, event, performed, segment, trigger, user, workflow } from '@shware/workflow';
-import { t } from './templates';
+import { email } from './email';
 
 /**
  * Demo flows on a seconds-long timescale, so the whole pipeline is visible by
@@ -24,7 +24,7 @@ interface DemoUser {
 const e = event<DemoEvent>();
 export const u = user<DemoUser>();
 
-// t.email.typo ← fails to compile: the key is not in the registry
+// email.typo ← fails to compile: there is no such template
 
 export const purchased = segment({ id: 'demo_purchased', condition: performed(e.demo_purchase) });
 
@@ -48,7 +48,7 @@ export const demoRecovery = workflow({
   trigger: trigger.event(e.demo_signup),
   goal: purchased,
 })
-  .email(t.email.demo_welcome, { plan: u.plan })
+  .email(email.welcome, { plan: u.plan })
   .delay('5 seconds')
   .branch(
     [
@@ -56,12 +56,12 @@ export const demoRecovery = workflow({
       (w) =>
         w
           .run(grantCoupon, { coupon: 'CLICKED10' })
-          .email(t.email.demo_offer, { coupon: 'CLICKED10', expiresIn: '24 hours' }),
+          .email(email.offer, { coupon: 'CLICKED10', expiresIn: '24 hours' }),
     ],
-    (w) => w.email(t.email.demo_offer, { coupon: 'COMEBACK20', expiresIn: '48 hours' })
+    (w) => w.email(email.offer, { coupon: 'COMEBACK20', expiresIn: '48 hours' })
   );
 
 /** wait_until demo: wait to be woken by demo_click, or continue after a 20s timeout. */
 export const demoWaiter = workflow({ id: 'demo_waiter', trigger: trigger.event(e.demo_signup) })
   .waitUntil(performed(e.demo_click), { timeout: '20 seconds', onTimeout: 'continue' })
-  .email(t.email.demo_welcome, { plan: u.plan });
+  .email(email.welcome, { plan: u.plan });

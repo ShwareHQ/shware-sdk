@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'reengage_miss_you',
   title: 'Re-engagement · Miss you',
   description: 'First email after the push: a plain reminder that the workspace is still there.',
   props: z.strictObject({}),

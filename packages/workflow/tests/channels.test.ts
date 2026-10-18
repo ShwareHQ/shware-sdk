@@ -32,6 +32,7 @@ beforeAll(async () => {
 const named = z.strictObject({ name: z.string() });
 const emails = {
   welcome: emailTemplate({
+    id: 'welcome',
     title: 'Welcome',
     props: named,
     subject: 'Welcome aboard',
@@ -41,6 +42,7 @@ const emails = {
 };
 const pushes = {
   nudge: pushTemplate({
+    id: 'nudge',
     title: 'Nudge',
     props: named,
     preview: { name: 'A' },

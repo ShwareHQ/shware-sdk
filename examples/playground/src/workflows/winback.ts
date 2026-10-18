@@ -1,5 +1,7 @@
-import { eq, template, trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
+import { eq, trigger, workflow } from '@shware/workflow';
+import { email } from '../email';
+import { push } from '../push';
+import { slack } from '../slack';
 import { e, u } from './schema';
 import { purchaser } from './segments';
 
@@ -13,14 +15,13 @@ import { purchaser } from './segments';
 
 /* --------------------------------- Templates -------------------------------- */
 
-/** Internal Slack ping for the customer success team — message channels are not only for end users. */
-const csAlert = template.slack<{ plan: 'free' | 'pro' | 'business' }>('cs_churn_alert');
+const csAlert = slack.csChurnAlert;
 
-const proWinback = t.email.winback_pro_offer;
-const freeWinback = t.email.winback_free_tips;
-const finalOffer = t.email.winback_final_offer;
+const proWinback = email.winbackProOffer;
+const freeWinback = email.winbackFreeTips;
+const finalOffer = email.winbackFinalOffer;
 /** Same last call on the lock screen — the push mirrors the email's props. */
-const finalOfferPush = t.push.winback_final_offer_push;
+const finalOfferPush = push.finalOffer;
 
 /* -------------------------------- workflow -------------------------------- */
 

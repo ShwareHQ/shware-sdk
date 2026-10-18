@@ -1,4 +1,4 @@
-import { emailTemplate, pushTemplate, templates } from '@shware/workflow';
+import { emailTemplate, pushTemplate } from '@shware/workflow';
 import { createElement } from 'react';
 import * as z from 'zod/mini';
 
@@ -6,6 +6,7 @@ import * as z from 'zod/mini';
 export const registry = {
   email: {
     welcome: emailTemplate({
+      id: 'welcome',
       title: 'Welcome',
       props: z.strictObject({}),
       subject: 'Welcome aboard',
@@ -15,6 +16,7 @@ export const registry = {
   },
   push: {
     nudge: pushTemplate({
+      id: 'nudge',
       title: 'Nudge',
       props: z.strictObject({}),
       preview: {},
@@ -22,4 +24,3 @@ export const registry = {
     }),
   },
 };
-export const t = templates(registry);

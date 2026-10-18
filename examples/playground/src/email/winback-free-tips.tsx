@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'winback_free_tips',
   title: 'Winback · Free tips',
   description: 'For downgrades: make the free plan work well, and stay welcome.',
   props: z.strictObject({}),

@@ -1,5 +1,7 @@
-import { exists, flow, gt, not, template, trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
+import { exists, flow, gt, not, trigger, workflow } from '@shware/workflow';
+import { discord } from '../discord';
+import { email } from '../email';
+import { push } from '../push';
 import { e, u } from './schema';
 import { activated, activeSubscriber } from './segments';
 
@@ -15,8 +17,8 @@ const powerUser = gt(u.docs_count, 100);
  * fragment like this one, keeping every expression shallow.
  */
 const subscriberSplit = flow((w) =>
-  w.branch([powerUser, (w) => w.email(t.email.onboarding_pro_tips)], (w) =>
-    w.email(t.email.onboarding_getting_started)
+  w.branch([powerUser, (w) => w.email(email.onboardingProTips)], (w) =>
+    w.email(email.onboardingGettingStarted)
   )
 );
 
@@ -31,12 +33,10 @@ export const onboarding = workflow({
   trigger: signedUp,
 })
   // The community hears about a sign-up too: a channel post reaches people the inbox does not.
-  // Chat channels have no template registry: the app's own sender renders them, and the studio
-  // shows the node without a preview.
-  .discord(template.discord('community_welcome'))
+  .discord(discord.communityWelcome)
   .waitUntil(activated, { timeout: '3 days', onTimeout: 'continue' })
   // Timed out without a first document: a lock-screen nudge; the activated skip straight past
-  .branch([not(activated), (w) => w.push(t.push.onboarding_first_doc_push)])
+  .branch([not(activated), (w) => w.push(push.firstDoc)])
   .timeWindow({
     days: ['mon', 'tue', 'wed', 'thu', 'fri'],
     between: ['09:00', '17:00'],
@@ -44,9 +44,9 @@ export const onboarding = workflow({
   })
   .branch(
     [activeSubscriber, subscriberSplit], // nested branch inside an arm, kept shallow as a fragment
-    (w) => w.email(t.email.onboarding_getting_started)
+    (w) => w.email(email.onboardingGettingStarted)
   )
   .cohort({
     control: { weight: 50 },
-    variant: { weight: 50, flow: (w) => w.delay('3 days').email(t.email.onboarding_pro_tips) },
+    variant: { weight: 50, flow: (w) => w.delay('3 days').email(email.onboardingProTips) },
   });

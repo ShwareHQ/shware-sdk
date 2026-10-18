@@ -6,6 +6,7 @@ import * as z from 'zod/mini';
  * renders inside its own chrome, built from what the workflow passes.
  */
 export default pushTemplate({
+  id: 'reengage_comeback_push',
   title: 'Re-engagement · Come back',
   description: 'First touch for dormant users, sent before the win-back emails.',
   props: z.strictObject({ name: z.string() }),

@@ -3,6 +3,7 @@ import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 
 export default emailTemplate({
+  id: 'demo_welcome',
   title: 'Demo · Welcome',
   props: z.strictObject({ plan: z.string() }),
   subject: 'Welcome to your new plan',

@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Cta, Heading, Paragraph, Shell } from './layout';
 
 export default emailTemplate({
+  id: 'onboarding_welcome',
   title: 'Welcome · Day 0',
   description: 'First message after sign-up: one action, one promise about frequency.',
   props: z.strictObject({}),

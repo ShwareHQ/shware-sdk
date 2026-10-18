@@ -1,14 +1,19 @@
 import { type ComponentType, type ReactElement, createElement } from 'react';
 import { renderToReadableStream } from 'react-dom/server';
 import type { EmailRenderer } from './cloudflare';
-import { type EmailTemplate, parseTemplateProps } from './templates';
+import {
+  type EmailTemplate,
+  indexTemplates,
+  lookupTemplate,
+  parseTemplateProps,
+} from './templates';
 
 /**
  * `@shware/workflow/react-email` — an EmailRenderer over the project's email
  * registry (`react-dom` is an optional peer dependency; import this subpath
  * only when you use it).
  *
- * The registry maps keys to `emailTemplate({...})` definitions. Props are
+ * The registry holds `emailTemplate({...})` definitions, looked up by their `id`. Props are
  * parsed against the template's schema before the component renders — a
  * failure throws TemplateValidationError and nothing renders — and the
  * component renders as an element, so hooks and context work. Rendering
@@ -22,11 +27,11 @@ import { type EmailTemplate, parseTemplateProps } from './templates';
 const DOCTYPE =
   '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">';
 
-export function registryRenderer(emails: Record<string, EmailTemplate>): EmailRenderer {
-  return async (key, props) => {
-    if (!Object.hasOwn(emails, key)) throw new Error(`unknown email template: ${key}`);
-    const template = emails[key];
-    const parsed = parseTemplateProps(template, key, props);
+export function registryRenderer(emails: Readonly<Record<string, EmailTemplate>>): EmailRenderer {
+  const index = indexTemplates('email', emails);
+  return async (id, props) => {
+    const template = lookupTemplate(index, 'email', id);
+    const parsed = parseTemplateProps(template, props);
     const element = createElement(template.component as ComponentType<object>, parsed);
     return { subject: template.subject, html: DOCTYPE + (await renderToHtml(element)) };
   };

@@ -1,5 +1,6 @@
 import { flow, trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
+import { email } from '../email';
+import { push } from '../push';
 import { issueCoupon } from './actions';
 import { e, u } from './schema';
 import { activeSubscriber, purchaser } from './segments';
@@ -10,9 +11,7 @@ import { activeSubscriber, purchaser } from './segments';
  * channels, one moment. Original canvas: U1: Upgrade recovery → Exit.
  */
 const upgradeFlow = flow((w) =>
-  w
-    .push(t.push.checkout_reminder_push)
-    .email(t.email.u1_upgrade_recovery, { plan: u.subscription_plan })
+  w.push(push.checkoutReminder).email(email.upgradeRecovery, { plan: u.subscription_plan })
 );
 
 /**
@@ -23,11 +22,11 @@ const upgradeFlow = flow((w) =>
  */
 const firstTimeFlow = flow((w) =>
   w
-    .email(t.email.n1_first_time_recovery)
+    .email(email.firstTimeRecovery)
     .delay('23 hours')
     // Provision the coupon in billing right before the offer lands; args may reference u.xxx like message props
     .run(issueCoupon, { code: '15OFF', email: u.email })
-    .email(t.email.n2_limited_time_offer, { coupon: '15OFF', expiresIn: '48 hours' })
+    .email(email.limitedTimeOffer, { coupon: '15OFF', expiresIn: '48 hours' })
 );
 
 /**

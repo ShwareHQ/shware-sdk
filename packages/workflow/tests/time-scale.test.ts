@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import { scaleDurations, scaleSegmentWindows } from '../src/engine/time-scale';
-import { event, not, performed, template, trigger, workflow } from '../src/index';
+import { event, not, performed, trigger, workflow } from '../src/index';
+import { plainEmail } from './fixtures';
 
 interface Event {
   login: { method: string };
   purchase: Record<never, never>;
 }
 const e = event<Event>();
-const tpl = template.email('t');
+const tpl = plainEmail('t');
 
 const flow = workflow({
   id: 'scaled',

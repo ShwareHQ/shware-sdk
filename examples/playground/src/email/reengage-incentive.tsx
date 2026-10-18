@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'reengage_incentive',
   title: 'Re-engagement · Incentive',
   description: 'The A/B variant arm: the same nudge, with a discount attached.',
   props: z.strictObject({ coupon: z.string() }),

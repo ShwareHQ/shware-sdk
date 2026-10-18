@@ -191,7 +191,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
  *     id: 'onboarding',
  *     name: 'Onboarding',
  *     trigger: trigger.event(e.sign_up),
- *   }).email(t.email.welcome);
+ *   }).email(email.welcome);
  */
 export function workflow(definition: WorkflowDefinition): WorkflowBuilder {
   return new WorkflowBuilderImpl(definition, captureLoc(workflow));

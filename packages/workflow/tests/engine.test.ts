@@ -34,7 +34,9 @@ import {
   checkoutRecovery,
   e,
   firstTimeRecovery,
+  namedPush,
   nudge,
+  plainEmail,
   proTips,
   reengagement,
   u,
@@ -1067,7 +1069,7 @@ describe('segment cycles in hand-built IR', () => {
 });
 
 describe('push goes to devices', () => {
-  const ping = template.push<{ name: string }>('ping');
+  const ping = namedPush('ping');
   const phone: PushDevice = { token: 'tok-phone', platform: 'ios' };
   const tablet: PushDevice = { token: 'tok-tablet', platform: 'android' };
 
@@ -1162,7 +1164,7 @@ describe('push goes to devices', () => {
 });
 
 describe('template validation before sending', () => {
-  const ping = template.push<{ name: string }>('ping');
+  const ping = namedPush('ping');
 
   test('a refused push reaches no device, and the error names the instance and node', async () => {
     const { ctx, facts, sent } = makeContext();
@@ -1200,8 +1202,8 @@ describe('template validation before sending', () => {
 });
 
 describe('the observer hears positions and copies', () => {
-  const ping = template.push<{ name: string }>('ping');
-  const hello = template.email('hello');
+  const ping = namedPush('ping');
+  const hello = plainEmail('hello');
 
   test('each node is reported once, in its own step, with the workflow and instance', async () => {
     const { ctx, step } = makeContext();

@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'winback_pro_offer',
   title: 'Winback · Pro offer',
   description: 'For cancelled Pro subscriptions: what they lose, and the door left open.',
   props: z.strictObject({}),

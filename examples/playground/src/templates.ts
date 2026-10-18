@@ -1,13 +1,12 @@
-import { templates } from '@shware/workflow';
+import { discord } from './discord';
 import { email } from './email';
 import { push } from './push';
+import { slack } from './slack';
 
 /**
- * Templates are registered once, per channel: the config takes the registries
- * (`templates: registry`), the workflows take the references derived from them
- * (`t.email.<key>` / `t.push.<key>`). The registries type the keys — an
- * unregistered or cross-channel key does not compile — and each template's
- * `props` schema types every `.email(ref, props)` / `.push(ref, props)` site.
+ * Every channel's templates, as workflow.config.ts registers them. The
+ * workflows send the definitions themselves (`.email(email.onboardingWelcome)`,
+ * imported from the channel's module), so each template's `props` schema types
+ * its call; the IR, the Worker and the studio find each template by its own `id`.
  */
-export const registry = { email, push };
-export const t = templates(registry);
+export const templates = { email, push, discord, slack };

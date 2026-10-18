@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'edu_api',
   title: 'Education · API',
   description: 'Week 6: for the teams who want to build on top of the workspace.',
   props: z.strictObject({}),

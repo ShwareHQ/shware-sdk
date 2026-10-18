@@ -10,7 +10,6 @@ import {
   not,
   performed,
   segment,
-  templates,
   trigger,
   workflow,
 } from '../src/index';
@@ -30,6 +29,7 @@ import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
 const e = event<{ login: { method: string } }>();
 const emails = {
   welcome: emailTemplate({
+    id: 'welcome',
     title: 'Welcome',
     props: z.strictObject({ name: z.string() }),
     subject: 'Welcome aboard',
@@ -37,8 +37,7 @@ const emails = {
     component: ({ name }) => createElement('p', null, `Hi ${name}`),
   }),
 };
-const t = templates({ email: emails });
-const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(t.email.welcome, {
+const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(emails.welcome, {
   name: 'friend',
 });
 const config = defineConfig({ workflows: [flow], templates: { email: emails } });
@@ -124,7 +123,7 @@ describe('sweep', () => {
       condition: not(performed(te.login, { within: '7 days' })),
     });
     const comeBack = workflow({ id: 'come_back', trigger: trigger.segment(dormant) }).email(
-      t.email.welcome,
+      emails.welcome,
       { name: 'friend' }
     );
     const db = new FakeD1();
@@ -175,7 +174,7 @@ describe('a version applies its own bundle', () => {
     await pg.close();
   });
 
-  const other = workflow({ id: 'other', trigger: trigger.event(e.login) }).email(t.email.welcome, {
+  const other = workflow({ id: 'other', trigger: trigger.event(e.login) }).email(emails.welcome, {
     name: 'friend',
   });
   const versioned = (workflows: (typeof flow)[], id: string, timestamp: string) => {

@@ -3,6 +3,7 @@ import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 
 export default emailTemplate({
+  id: 'demo_offer',
   title: 'Demo · Offer',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),
   subject: 'Your discount is about to expire',

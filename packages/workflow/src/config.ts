@@ -1,17 +1,17 @@
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
 import type { Contract } from './contract';
-import {
-  type ActionRef,
-  type SegmentRef,
-  type TemplateRegistry,
-  type WorkflowBuilder,
-  compileBundle,
-  template,
-} from './dsl';
+import { type ActionRef, type SegmentRef, type WorkflowBuilder, compileBundle } from './dsl';
+import { templateUses } from './dsl/flow';
 import type { BundleIR, ChannelIR, NodeIR, WorkflowIR } from './ir';
 import type { JourneyMode, JourneyRuntimeConfig } from './runtime';
-import type { EmailTemplate, PropsSchema, PushTemplate } from './templates';
+import {
+  type AnyTemplate,
+  CHANNEL_OF,
+  type TemplateChannel,
+  type TemplateRegistry,
+  indexTemplates,
+} from './templates';
 
 /**
  * `workflow.config.ts` — the project's journey configuration, typed, flat and
@@ -25,8 +25,8 @@ import type { EmailTemplate, PropsSchema, PushTemplate } from './templates';
  *   export default defineConfig({
  *     title: 'Workflow Studio · Acme',
  *     contract,
- *     workflows: [onboarding, notificationTest],
- *     templates: registry, // { email, push }; `t = templates(registry)` for the workflows
+ *     workflows, // [onboarding, notificationTest]
+ *     templates, // { email, push }: the definitions the workflows send
  *     emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
  *     runtime: { development: { timeScale: 600, logMessages: true } },
  *     apns: { topic: 'io.acme.app', keyId: 'ABC123DEFG', teamId: 'TEAM123456' },
@@ -118,10 +118,7 @@ export interface DatabaseConfig {
   schema?: string;
 }
 
-export interface JourneyConfigDefinition<
-  E extends Record<string, EmailTemplate> = Record<string, EmailTemplate>,
-  P extends Record<string, PushTemplate> = Record<string, PushTemplate>,
-> {
+export interface JourneyConfigDefinition {
   /** Studio title (the browser tab names the project). */
   title?: string;
   /** The shared `defineContract(...)` the Worker validates ingest against. */
@@ -129,7 +126,8 @@ export interface JourneyConfigDefinition<
   workflows: readonly WorkflowBuilder[];
   segments?: readonly SegmentRef[];
   actions?: readonly ActionRef<object>[];
-  templates?: TemplateRegistry<E, P>;
+  /** The template definitions, per channel; each is identified by its own `id`. */
+  templates?: TemplateRegistry;
   emails?: EmailConfig;
   /** How the engine behaves per mode (`development`, `production`, …): time scale, message logging. */
   runtime?: JourneyRuntimeConfig;
@@ -140,17 +138,11 @@ export interface JourneyConfigDefinition<
   database?: DatabaseConfig;
 }
 
-export interface JourneyConfig<
-  E extends Record<string, EmailTemplate> = Record<string, EmailTemplate>,
-  P extends Record<string, PushTemplate> = Record<string, PushTemplate>,
-> extends JourneyConfigDefinition<E, P> {
+export interface JourneyConfig extends JourneyConfigDefinition {
   readonly kind: 'journey-config';
 }
 
-export function defineConfig<
-  E extends Record<string, EmailTemplate> = Record<never, never>,
-  P extends Record<string, PushTemplate> = Record<never, never>,
->(definition: JourneyConfigDefinition<E, P>): JourneyConfig<E, P> {
+export function defineConfig(definition: JourneyConfigDefinition): JourneyConfig {
   return { kind: 'journey-config', ...definition };
 }
 
@@ -174,49 +166,82 @@ export class ConfigCompileError extends Error {
 
 /**
  * Compile the config: the bundle `compileBundle` would produce, with the
- * template manifest generated from the registries (every registered template,
- * not a hand-kept list), after checking every message node against them —
- * an unregistered or cross-channel template reference fails with the workflow,
- * node and channel named, and so does a literal prop the template's schema
- * refuses (a missing required prop, an undeclared one, a wrong literal).
- * User-property references cannot be parsed here (their values exist only at
- * send time) — they are checked by name only, and parsed before sending.
+ * template manifest generated from the registry (every registered template,
+ * by id, not a hand-kept list). The registry is checked first, used or not:
+ * every entry is a template of its channel with an id, and an id is registered
+ * once per channel. Then every message node is checked against it — an
+ * unregistered or cross-channel template fails with the workflow, node and
+ * channel named, and so does a literal prop the template's schema refuses (a
+ * missing required prop, an undeclared one, a wrong literal) — and every
+ * definition a workflow sends must be the very object registered under its id,
+ * not merely one with the same id. User-property references cannot be parsed
+ * here (their values exist only at send time) — they are checked by name only,
+ * and parsed before sending.
  */
 export function compileConfig(config: JourneyConfig): BundleIR {
-  const registered = (channel: ChannelIR) => Object.keys(registryOf(config, channel) ?? {});
+  let index: RegistryIndex;
+  try {
+    index = {
+      email: indexTemplates('email', config.templates?.email),
+      push: indexTemplates('push', config.templates?.push),
+      discord: indexTemplates('discord', config.templates?.discord),
+      slack: indexTemplates('slack', config.templates?.slack),
+    };
+  } catch (error) {
+    throw new ConfigCompileError((error as Error).message);
+  }
   const bundle = compileBundle({
     workflows: config.workflows,
     ...(config.segments === undefined ? {} : { segments: config.segments }),
     ...(config.actions === undefined ? {} : { actions: config.actions }),
-    templates: [
-      ...registered('email').map((key) => template.email(key)),
-      ...registered('push').map((key) => template.push(key)),
-      ...registered('discord').map((key) => template.discord(key)),
-      ...registered('slack').map((key) => template.slack(key)),
-    ],
+    templates: TEMPLATE_CHANNELS.flatMap((channel) => [...index[channel].values()]),
   });
-  for (const workflow of bundle.workflows) checkMessages(workflow, workflow.flow, config);
+  bundle.workflows.forEach((workflow, i) => {
+    checkMessages(workflow, workflow.flow, index, config);
+    checkUses(workflow, config.workflows[i], index, config);
+  });
   return bundle;
 }
 
-const TEMPLATE_CHANNELS: readonly ChannelIR[] = ['email', 'push', 'discord', 'slack'];
+const TEMPLATE_CHANNELS = ['email', 'push', 'discord', 'slack'] as const;
 
-/** The config's registry for a channel; undefined for a channel templates cannot be declared for. */
-function registryOf(
-  config: JourneyConfig,
+/** The registry by id, per channel. */
+type RegistryIndex = Record<TemplateChannel, ReadonlyMap<string, AnyTemplate>>;
+
+/** The channel's templates by id; undefined for a channel templates cannot be declared for. */
+function indexOf(
+  index: RegistryIndex,
   channel: ChannelIR
-): Readonly<Record<string, { props: PropsSchema }>> | undefined {
-  switch (channel) {
-    case 'email':
-      return config.templates?.email;
-    case 'push':
-      return config.templates?.push;
-    case 'discord':
-      return config.templates?.discord;
-    case 'slack':
-      return config.templates?.slack;
-    default:
-      return undefined;
+): ReadonlyMap<string, AnyTemplate> | undefined {
+  return (TEMPLATE_CHANNELS as readonly ChannelIR[]).includes(channel)
+    ? index[channel as TemplateChannel]
+    : undefined;
+}
+
+/**
+ * The definitions a workflow sends against the registered ones: same id is not enough — a
+ * workflow typed by one definition and a registry holding another under that id would render
+ * with a schema the call was never checked against.
+ */
+function checkUses(
+  workflow: WorkflowIR,
+  builder: WorkflowBuilder,
+  index: RegistryIndex,
+  config: JourneyConfig
+): void {
+  for (const { template, loc } of templateUses(builder)) {
+    const channel = CHANNEL_OF[template.kind];
+    const registered = index[channel].get(template.id);
+    if (registered === template) continue;
+    const at = loc === undefined ? '' : ` (${loc.file}:${loc.line})`;
+    const where = `workflow '${workflow.id}'${at}: ${channel} template '${template.id}'`;
+    if (registered === undefined) throw new ConfigCompileError(`${where} is not registered`);
+    const name = Object.entries(config.templates?.[channel] ?? {}).find(
+      ([, entry]) => entry === registered
+    )?.[0];
+    throw new ConfigCompileError(
+      `${where} is not the definition registered under that id (templates.${channel}.${name}) — two definitions share the id`
+    );
   }
 }
 
@@ -229,25 +254,26 @@ function canBeOmitted(schema: core.$ZodType): boolean {
 function checkMessages(
   workflow: WorkflowIR,
   nodes: readonly NodeIR[],
+  index: RegistryIndex,
   config: JourneyConfig
 ): void {
   for (const node of nodes) {
     switch (node.type) {
       case 'message':
-        checkMessage(workflow, node, config);
+        checkMessage(workflow, node, index, config);
         break;
       case 'send_event':
         checkEmit(workflow, node, config);
         break;
       case 'branch':
-        for (const c of node.cases) checkMessages(workflow, c.flow, config);
-        if (node.otherwise) checkMessages(workflow, node.otherwise, config);
+        for (const c of node.cases) checkMessages(workflow, c.flow, index, config);
+        if (node.otherwise) checkMessages(workflow, node.otherwise, index, config);
         break;
       case 'cohort':
-        for (const arm of node.arms) checkMessages(workflow, arm.flow, config);
+        for (const arm of node.arms) checkMessages(workflow, arm.flow, index, config);
         break;
       case 'wait_until':
-        if (Array.isArray(node.onTimeout)) checkMessages(workflow, node.onTimeout, config);
+        if (Array.isArray(node.onTimeout)) checkMessages(workflow, node.onTimeout, index, config);
         break;
       default:
         break;
@@ -258,23 +284,23 @@ function checkMessages(
 function checkMessage(
   workflow: WorkflowIR,
   node: Extract<NodeIR, { type: 'message' }>,
+  index: RegistryIndex,
   config: JourneyConfig
 ): void {
   const where = `workflow '${workflow.id}' node ${node.id}`;
-  const registry = registryOf(config, node.channel);
-  // Channels without a registry (sms, …) are rendered by app-supplied senders
-  if (registry === undefined && !TEMPLATE_CHANNELS.includes(node.channel)) return;
-  if (registry === undefined || !Object.hasOwn(registry, node.template)) {
+  const registry = indexOf(index, node.channel);
+  // Channels without template definitions (sms, …) are rendered by app-supplied senders
+  if (registry === undefined) return;
+  const entry = registry.get(node.template);
+  if (entry === undefined) {
     const other = TEMPLATE_CHANNELS.find(
-      (channel) =>
-        channel !== node.channel && Object.hasOwn(registryOf(config, channel) ?? {}, node.template)
+      (channel) => channel !== node.channel && index[channel].has(node.template)
     );
     const hint = other === undefined ? '' : ` (it is registered as a ${other} template)`;
     throw new ConfigCompileError(
       `${where}: ${node.channel} template '${node.template}' is not registered${hint}`
     );
   }
-  const entry = registry[node.template];
   const shape = (entry.props._zod.def as core.$ZodObjectDef).shape;
   const problems: string[] = [];
   for (const [field, value] of Object.entries(node.props)) {

@@ -1,6 +1,4 @@
-import { templates } from '@shware/workflow';
 import { email } from './email';
 
-/** Registered once: the config takes `registry`, the flows take `t.email.<key>`. */
-export const registry = { email };
-export const t = templates(registry);
+/** Every channel's templates, as workflow.config.ts registers them; the flows import their channel. */
+export const templates = { email };

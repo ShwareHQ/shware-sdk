@@ -16,7 +16,7 @@ template is listed once:
 
 ```ts
 import { defineConfig } from '@shware/workflow';
-import { registry } from './src/templates';
+import { templates } from './src/templates';
 import { onboarding } from './src/workflows/onboarding';
 import { contract } from './src/workflows/schema';
 
@@ -24,19 +24,17 @@ export default defineConfig({
   title: 'Workflow Studio · Acme',
   contract,
   workflows: [onboarding],
-  templates: registry,
+  templates,
   emails: { from: { email: 'hello@acme.io', name: 'Acme' } },
 });
 ```
 
 ```ts
-// src/templates.ts — templates are registered once, per channel
-import { templates } from '@shware/workflow';
+// src/templates.ts — what the config registers; the workflows send email.welcome
 import { email } from './email'; // export const email = { welcome, ... }
 import { push } from './push'; // export const push = { nudge, ... }
 
-export const registry = { email, push }; // what the config registers
-export const t = templates(registry); // what the workflows reference: t.email.welcome
+export const templates = { email, push };
 ```
 
 - The studio compiles it with `compileConfig` — the bundle the Worker
@@ -125,8 +123,8 @@ belongs in a command of its own.
   to their template, and the inspector shows a node's parameters and the line
   that built it.
 - **Templates** (`/templates`, `/templates/$key`) — every email and push
-  template your workflows reference, derived from IR; an email and a push
-  sharing a key stay two templates. Each renders
+  template your workflows reference, derived from IR and found by id; an
+  email and a push sharing an id stay two templates. Each renders
   from its `preview` props, validated against its schema exactly as a send
   would be; a props editor tries other values in memory, and a refusal lists
   the failing fields. Emails render through `@react-email/render`, pushes as

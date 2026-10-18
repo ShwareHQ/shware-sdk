@@ -293,7 +293,7 @@ export function TemplatesPage({
    */
   const pushResolution =
     active !== undefined && activePush !== undefined
-      ? resolvePush(activePush, active.key, previewProps)
+      ? resolvePush(activePush, previewProps)
       : undefined;
   const push =
     propsFailure === undefined && pushResolution?.ok === true ? pushResolution.push : undefined;
@@ -303,11 +303,11 @@ export function TemplatesPage({
   /* A chat message, from the same checked content a send posts. */
   const discordResolution =
     active !== undefined && activeDiscord !== undefined
-      ? resolveDiscord(activeDiscord, active.key, previewProps)
+      ? resolveDiscord(activeDiscord, previewProps)
       : undefined;
   const slackResolution =
     active !== undefined && activeSlack !== undefined
-      ? resolveSlack(activeSlack, active.key, previewProps)
+      ? resolveSlack(activeSlack, previewProps)
       : undefined;
   const chatResolution = discordResolution ?? slackResolution;
   const chatFailure =
