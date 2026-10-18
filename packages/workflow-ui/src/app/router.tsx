@@ -10,7 +10,7 @@ import { ThemeProvider } from './integrations/theme/root-provider';
 import { routeTree } from './routes';
 
 /**
- * The studio owns the URL, so views are shareable: `/workflows/$name`,
+ * The studio owns the URL, so views are shareable: `/workflows/$id`,
  * `/emails/$key`, `/segments`. The exported components stay router-free, so a
  * host app that embeds them keeps ownership of its own routing.
  */
