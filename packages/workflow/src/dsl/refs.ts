@@ -67,7 +67,7 @@ export type PropsInput<P> = { [K in keyof P]: PropInput<P[K]> };
 
 /** Props may be omitted when a template declares none, and are required when it does. */
 export type MessageArgs<P> =
-  Record<never, never> extends P ? [props?: PropsInput<P>] : [props: PropsInput<P>];
+  Record<string, never> extends P ? [props?: PropsInput<P>] : [props: PropsInput<P>];
 
 /* ------------------------------ payload references ----------------------------- */
 

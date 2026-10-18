@@ -28,7 +28,7 @@ type ObjectSchema = core.$ZodObject;
 /** The declared fields of an object schema — without a loose object's `[key: string]: unknown`, so the DSL only offers fields that were written down. */
 export type DeclaredOutput<S> =
   S extends core.$ZodObject<infer Shape>
-    ? core.$InferObjectOutput<Shape, Record<never, never>>
+    ? core.$InferObjectOutput<Shape, core.$strict['out']>
     : never;
 
 export interface ContractDefinition<

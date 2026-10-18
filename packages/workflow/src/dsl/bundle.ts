@@ -23,7 +23,7 @@ export function compileBundle(input: {
   segments?: readonly SegmentRef[];
   /** The template manifest: these definitions, by channel and id. */
   templates?: readonly AnyTemplate[];
-  actions?: readonly ActionRef<object>[];
+  actions?: readonly ActionRef[];
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
     const { id, definition, loc, meta } = segment as SegmentInternal;
