@@ -16,6 +16,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
   test('accept a strict scalar schema and a matching preview', () => {
     const t = emailTemplate({
       id: 't',
+      from: 'noreply@acme.test',
       title: 'Welcome',
       props: z.strictObject({
         name: z.string().min(1),
@@ -85,6 +86,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
     expect(() =>
       emailTemplate({
         id: 'welcome',
+        from: 'noreply@acme.test',
         title: 'Welcome',
         props: named,
         subject: 'Hi',
@@ -99,6 +101,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
     const content = vi.fn(() => ({ title: 't', body: 'b' }));
     emailTemplate({
       id: 'e',
+      from: 'noreply@acme.test',
       title: 'E',
       props: named,
       subject: 's',
@@ -116,6 +119,7 @@ describe('email rendering', () => {
   const emails = {
     welcome: emailTemplate({
       id: 'welcome',
+      from: 'noreply@acme.test',
       title: 'Welcome',
       props: named,
       subject: 'Welcome {{ user.name }}',
@@ -152,6 +156,7 @@ describe('email rendering', () => {
     const withContext = {
       ctx: emailTemplate({
         id: 'ctx',
+        from: 'noreply@acme.test',
         title: 'Ctx',
         props: named,
         subject: 's',
@@ -231,6 +236,7 @@ describe('registryValidator', () => {
     email: {
       welcome: emailTemplate({
         id: 'welcome',
+        from: 'noreply@acme.test',
         title: 'W',
         props: named,
         subject: 's',
@@ -269,6 +275,7 @@ describe('registryValidator', () => {
 describe('templates are found by id, never by the property holding them', () => {
   const welcome = emailTemplate({
     id: 'welcome',
+    from: 'noreply@acme.test',
     title: 'W',
     props: named,
     subject: 'Hi',
@@ -334,6 +341,7 @@ describe('email rendering waits for Suspense', () => {
     const emails = {
       slow: emailTemplate({
         id: 'slow',
+        from: 'noreply@acme.test',
         title: 'Slow',
         props: named,
         subject: 's',
@@ -350,6 +358,7 @@ describe('email rendering waits for Suspense', () => {
     const emails = {
       doc: emailTemplate({
         id: 'doc',
+        from: 'noreply@acme.test',
         title: 'Doc',
         props: named,
         subject: 's',
@@ -377,6 +386,7 @@ describe('email rendering waits for Suspense', () => {
     const emails = {
       broken: emailTemplate({
         id: 'broken',
+        from: 'noreply@acme.test',
         title: 'Broken',
         props: named,
         subject: 's',

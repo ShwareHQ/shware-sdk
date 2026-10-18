@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'onboarding_pro_tips',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Onboarding · Pro tips',
   description: 'For users already active: the shortcuts that separate daily drivers from visitors.',
   props: z.strictObject({}),

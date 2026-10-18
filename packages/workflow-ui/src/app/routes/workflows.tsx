@@ -251,7 +251,7 @@ function CanvasTab() {
   const message = selected?.type === 'message' ? selected : undefined;
   const emailModule =
     message?.channel === 'email' ? lookup(config.emails, message.template) : undefined;
-  const emailPreview = useEmailPreview(emailModule, message?.template ?? '');
+  const emailPreview = useEmailPreview(emailModule, message?.template ?? '', config.email);
   /* A push has no document: its notification is drawn into the OS banner. */
   const pushModule =
     message?.channel === 'push' ? lookup(config.pushes, message.template) : undefined;

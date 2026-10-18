@@ -1,5 +1,6 @@
 import { render } from '@react-email/render';
-import type { EmailTemplate } from '@shware/workflow';
+import { type EmailConfig, type EmailTemplate, resolveEmail } from '@shware/workflow';
+import { EmailProvider } from '@shware/workflow/email-context';
 import { useQuery } from '@tanstack/react-query';
 import { createElement } from 'react';
 import {
@@ -25,17 +26,37 @@ export type EmailPreviewResult =
  * again, and a refusal is this render's result rather than an error sitting
  * beside the last success. A definition parses its props first (see
  * prepareEmail); a component that throws is a failure too.
+ *
+ * The component renders inside the `EmailProvider` the Worker's renderer gives it, with the
+ * template resolved against the config's `email` the same way (`resolveEmail`): a layout's
+ * unsubscribe link is the one the email would be sent with. The resolved URL is in the key, so a
+ * changed config default renders again.
  */
-export function useEmailPreview(mod: EmailTemplate | undefined, key: string, props?: Props) {
+export function useEmailPreview(
+  mod: EmailTemplate | undefined,
+  key: string,
+  config: EmailConfig,
+  props?: Props
+) {
+  const email = mod === undefined ? undefined : resolveEmail(mod, config);
   return useQuery({
-    queryKey: ['email-preview', key, entryIdentity(mod), props ?? null],
+    queryKey: [
+      'email-preview',
+      key,
+      entryIdentity(mod),
+      email?.unsubscribeUrl ?? null,
+      props ?? null,
+    ],
     queryFn: async (): Promise<EmailPreviewResult> => {
-      if (mod === undefined) throw new Error(`no email registered for '${key}'`);
+      if (mod === undefined || email === undefined) {
+        throw new Error(`no email registered for '${key}'`);
+      }
       const prepared = prepareEmail(mod, props);
       if (!prepared.ok) return { status: 'invalid', failure: prepared.failure };
       const { component, props: parsed, subject } = prepared.email;
       try {
-        return { status: 'ok', html: await render(createElement(component, parsed)), subject };
+        const element = createElement(EmailProvider, { email }, createElement(component, parsed));
+        return { status: 'ok', html: await render(element), subject };
       } catch (error) {
         return { status: 'invalid', failure: renderFailure(error) };
       }

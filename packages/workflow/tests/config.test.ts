@@ -27,6 +27,7 @@ const named = z.strictObject({ name: z.string(), tone: z.enum(['warm', 'brief'])
 const emails = {
   welcome: emailTemplate({
     id: 'welcome',
+    from: 'noreply@acme.test',
     title: 'Welcome',
     props: named,
     subject: 'Hi',
@@ -35,6 +36,7 @@ const emails = {
   }),
   nudge: emailTemplate({
     id: 'nudge',
+    from: 'noreply@acme.test',
     title: 'Nudge',
     props: named,
     subject: 'Hey',
@@ -63,13 +65,13 @@ const config = (flows = [onboarding]) =>
     contract,
     workflows: flows,
     templates: registry,
-    emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
   });
 
 /** Another email definition, its own object, under an id of our choosing. */
 const welcomeTwin = (id = 'welcome') =>
   emailTemplate({
     id,
+    from: 'noreply@acme.test',
     title: 'Twin',
     props: named,
     subject: 'Hi',
@@ -331,6 +333,7 @@ test('/preview takes typed JSON props, so number and boolean fields can be previ
   const typed = {
     credits: emailTemplate({
       id: 'credits',
+      from: 'noreply@acme.test',
       title: 'Credits',
       props: z.strictObject({ credits: z.number(), trial: z.boolean() }),
       subject: 'Credits',

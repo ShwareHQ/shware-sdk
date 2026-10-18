@@ -7,6 +7,8 @@ export const email = {
   // A JavaScript name of its own: the template is `welcome` by its id
   welcomeEmail: emailTemplate({
     id: 'welcome',
+    from: { email: 'hello@acme.test', name: 'Acme' },
+    replyTo: 'support@acme.test',
     title: 'Welcome',
     props: z.strictObject({}),
     subject: 'Welcome aboard',

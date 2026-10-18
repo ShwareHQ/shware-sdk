@@ -22,7 +22,7 @@
  *   reclassified too (see `recordClick`).
  *
  * Weak, machine only together:
- * - `quick`: within `quickMs` of delivery (1 s by default, `emails.tracking.quickClickMs`);
+ * - `quick`: within `quickMs` of delivery (1 s by default, `email.tracking.quickClickMs`);
  * - `link_pair`: another link of the same message clicked within a few seconds.
  *
  * Gmail's image proxy fetches when the person opens the message, so its opens count as human —

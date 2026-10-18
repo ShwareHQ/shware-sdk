@@ -34,6 +34,7 @@ const templates = {
   email: {
     tip: emailTemplate({
       id: 'tip',
+      from: 'noreply@acme.test',
       title: 'Tip',
       props: named,
       subject: 'Tip',
@@ -42,6 +43,7 @@ const templates = {
     }),
     tip_long: emailTemplate({
       id: 'tip_long',
+      from: 'noreply@acme.test',
       title: 'Tip',
       props: z.strictObject({ name: z.string().min(3) }),
       subject: 'Tip',
@@ -226,7 +228,6 @@ describe('compileConfig checks both candidates', () => {
         contract,
         workflows: [w],
         templates,
-        emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
       })
     );
   const raw = (props: Record<string, unknown>, fallback = templates.email.tip) =>

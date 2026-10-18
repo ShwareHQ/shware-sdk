@@ -2,6 +2,7 @@ import type { Block, KnownBlock } from '@slack/types';
 import type { RESTPostAPIWebhookWithTokenJSONBody } from 'discord-api-types/v10';
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
+import { type EmailAddress, assertEmailMetadata } from './email';
 import type { ScalarIR } from './ir';
 
 /**
@@ -73,7 +74,21 @@ interface TemplateBase<S extends PropsSchema> {
   readonly preview: core.input<S>;
 }
 
-export interface EmailTemplate<S extends PropsSchema = PropsSchema> extends TemplateBase<S> {
+/**
+ * Who an email comes from and where it leads: declared on each template, never inherited from a
+ * global sender. Metadata, not props — the component never receives it; its layout reads the
+ * resolved unsubscribe link with `useEmailContext()` (`@shware/workflow/email-context`).
+ */
+export interface EmailMetadata {
+  readonly from: EmailAddress;
+  /** Where replies go; left out, the email has no Reply-To (it is not `from`, and not inherited). */
+  readonly replyTo?: EmailAddress | undefined;
+  /** This template's unsubscribe link; left out, the config's `email.unsubscribeUrl` (if any). */
+  readonly unsubscribeUrl?: string | undefined;
+}
+
+export interface EmailTemplate<S extends PropsSchema = PropsSchema>
+  extends TemplateBase<S>, EmailMetadata {
   readonly kind: 'email-template';
   readonly version: 1;
   readonly subject: string;
@@ -125,6 +140,9 @@ export interface EmailTemplateDefinition<S extends PropsSchema> {
   id: string;
   title: string;
   description?: string;
+  from: EmailAddress;
+  replyTo?: EmailAddress;
+  unsubscribeUrl?: string;
   props: S;
   subject: string;
   preview: NoInfer<core.input<S>>;
@@ -171,11 +189,15 @@ export function slackTemplate<S extends PropsSchema, Env = Record<string, unknow
   return { kind: 'slack-template', version: 1, ...definition };
 }
 
-/** Declare an email template. Throws when `props` uses an unsupported schema or `preview` does not parse. */
+/**
+ * Declare an email template. Throws when `from` is missing or invalid, `replyTo` or `unsubscribeUrl`
+ * is invalid, `props` uses an unsupported schema or `preview` does not parse.
+ */
 export function emailTemplate<S extends PropsSchema>(
   definition: EmailTemplateDefinition<S>
 ): EmailTemplate<S> {
   assertTemplateId(definition.id, 'emailTemplate');
+  assertEmailMetadata(definition, `emailTemplate('${definition.id}')`);
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'email', definition.title);
   return { kind: 'email-template', version: 1, ...definition };

@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'edu_mobile',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Education · Mobile',
   description: 'Week 7: the app, for capture away from the desk.',
   props: z.strictObject({}),

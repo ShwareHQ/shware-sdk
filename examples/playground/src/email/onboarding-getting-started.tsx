@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'onboarding_getting_started',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Onboarding · Getting started',
   description: 'The first step for people who have not created anything yet.',
   props: z.strictObject({}),

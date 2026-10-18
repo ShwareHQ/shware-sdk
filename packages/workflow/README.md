@@ -82,6 +82,7 @@ import { strictObject, string } from 'zod/mini';
 
 export default emailTemplate({
   id: 'welcome',
+  from: { email: 'noreply@acme.test', name: 'Acme' },
   title: 'Welcome',
   props: strictObject({ name: string() }),
   subject: 'Welcome aboard',
@@ -154,7 +155,7 @@ export default defineConfig({
   contract,
   workflows: [welcomeSeries],
   templates,
-  emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
+  email: { unsubscribeUrl: 'https://acme.test/unsubscribe' },
   runtime: {
     development: { timeScale: 600, logMessages: true },
     production: { timeScale: 1, logMessages: false },
@@ -460,17 +461,45 @@ the compile fails.
 
 ### Email
 
-`emailTemplate({ title, description?, props, subject, preview, component })`
+`emailTemplate({ id, from, replyTo?, unsubscribeUrl?, title, description?, props, subject, preview, component })`
 declares one. The Worker renders it with `@shware/workflow/react-email` (React's
 streaming renderer, which waits for react-email's `<Tailwind>`) and sends it
-through the `EMAIL` send_email binding with the config's `emails` envelope:
+through the `EMAIL` send_email binding, from the template's own `from`:
 
 ```ts
-emails: {
+// src/email/welcome.tsx
+export default emailTemplate({
+  id: 'welcome',
   from: { email: 'noreply@acme.test', name: 'Acme' },
-  replyTo: { email: 'support@acme.test', name: 'Acme Support' },
-  unsubscribe: 'https://acme.test/unsubscribe',
-  tracking: { quickClickMs: 1_000 },
+  replyTo: { email: 'support@acme.test', name: 'Acme Support' }, // left out: no Reply-To
+  title: 'Welcome',
+  props: strictObject({ name: string() }),
+  subject: 'Welcome to Acme',
+  preview: { name: 'John Doe' },
+  component: ({ name }) => <Layout name={name}>…</Layout>,
+});
+```
+
+There is no global sender: share addresses through a module of your own. The
+unsubscribe link is the template's `unsubscribeUrl`, else the config's
+`email.unsubscribeUrl`, else none (`resolveEmail` is the rule). A layout reads
+it from the render, never from a constant, so a template's own URL reaches
+its HTML:
+
+```tsx
+import { useEmailContext } from '@shware/workflow/email-context';
+
+const { unsubscribeUrl } = useEmailContext();
+{
+  unsubscribeUrl !== undefined && <Link href={unsubscribeUrl}>Unsubscribe</Link>;
+}
+```
+
+```ts
+// workflow.config.ts
+email: {
+  unsubscribeUrl: 'https://acme.test/unsubscribe', // templates without their own
+  tracking: { quickClickMs: 1_000 }, // the default
 },
 ```
 
@@ -480,12 +509,13 @@ An email step refuses to send when the profile has no `email`.
 
 ### Push
 
-`pushTemplate({ title, description?, props, preview, content })`, where
+`pushTemplate({ id, title, description?, props, preview, content })`, where
 `content(props)` returns `{ title, body, image?, url? }`: final text, never
 placeholder-expanded. `url` is the page a browser push opens.
 
 ```ts
 export default pushTemplate({
+  id: 'onboarding_tip_push',
   title: 'Onboarding tip (push)',
   props: strictObject({ name: string() }),
   preview: { name: 'John Doe' },
@@ -571,7 +601,7 @@ Discord; supply anything else with `journeyWorker({ messages })`.
 | `segments`  | Named segments                                                                 |
 | `actions`   | Custom actions `.run()` uses                                                   |
 | `templates` | The registries: `{ email?, push?, discord?, slack? }`                          |
-| `emails`    | `{ from, replyTo?, unsubscribe?, tracking? }`                                  |
+| `email`     | `{ unsubscribeUrl?, tracking? }`: what every email template shares             |
 | `runtime`   | Per mode (`development`, `production`, …): `{ timeScale?, logMessages? }`      |
 | `apns`      | `{ topic, keyId, teamId, environment? }`                                       |
 | `fcm`       | `{ androidChannelId? }`                                                        |
@@ -675,7 +705,7 @@ The default store needs three bindings, named as in `JourneyEnv`:
 | `JOURNEY`     | Workflow     | The `JourneyRunner` entrypoint            |
 
 A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
-when the config has `emails`, and a `triggers.crons` entry with `scheduled`
+when the config registers email templates, and a `triggers.crons` entry with `scheduled`
 exported to run the segment sweep.
 
 Set `API_TOKEN` in production. Without it every mutating endpoint is open, and
@@ -752,7 +782,8 @@ On Postgres the engine also keeps:
   by the default observer. With `WORKFLOW_ORIGIN` set, email links and an open
   pixel are tracked through the Worker's `/t/...` routes. Each open and click
   is classified as a person's or a machine's (Apple Mail Privacy Protection,
-  link scanners, prefetches). `emails.unsubscribe` gets a confirmation page.
+  link scanners, prefetches). An email's unsubscribe link gets a confirmation
+  page; which link that is was fixed when the email was sent.
   A push carries `message_id`; report the tap with `messageOpened`.
 - **Segments.** The cron trigger runs `sweepSegments`, which keeps every
   segment's membership and size and starts the journeys of segments entered by

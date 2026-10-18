@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Cta, FinePrint, Heading, Paragraph, Shell } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'u1_upgrade_recovery',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Upgrade Recovery',
   props: z.strictObject({ plan: z.enum(['free', 'pro', 'business']) }),
   subject: 'Your upgrade is one click away',

@@ -5,6 +5,7 @@ import { contract } from '../contract';
 
 const neverRegistered = emailTemplate({
   id: 'never_written',
+  from: 'hello@acme.test',
   title: 'Never registered',
   props: z.strictObject({}),
   subject: 'Hi',

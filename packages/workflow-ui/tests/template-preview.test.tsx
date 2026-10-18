@@ -4,6 +4,7 @@ import {
   emailTemplate,
   pushTemplate,
 } from '@shware/workflow';
+import { useEmailContext } from '@shware/workflow/email-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -17,14 +18,26 @@ import { type Props, prepareEmail, resolvePush } from '../src/utils/template-con
 
 const named = z.strictObject({ name: z.string().check(z.minLength(1)) });
 
+/** A layout reading the link the email resolves to, as a project's shared layout does. */
+function Footer() {
+  const { unsubscribeUrl } = useEmailContext();
+  return unsubscribeUrl === undefined ? null : <a href={unsubscribeUrl}>Unsubscribe</a>;
+}
+
 const welcome = emailTemplate({
   id: 'welcome',
+  from: { email: 'hello@acme.io', name: 'Acme' },
   title: 'Welcome (display name)',
   description: 'First email after sign-up.',
   props: named,
   subject: 'Welcome aboard',
   preview: { name: 'Ada' },
-  component: ({ name }) => <p>Hello {name}</p>,
+  component: ({ name }) => (
+    <>
+      <p>Hello {name}</p>
+      <Footer />
+    </>
+  ),
 });
 
 const nudge = pushTemplate({
@@ -117,6 +130,8 @@ describe('push content', () => {
 const emailRef: TemplateRefInfo = { key: 'welcome', channel: 'email', usages: [] };
 const pushRef: TemplateRefInfo = { key: 'welcome', channel: 'push', usages: [] };
 
+const EMAIL = { unsubscribeUrl: 'https://acme.io/unsubscribe' };
+
 /** The route's wiring, minus the router: props override in state, the email render through the shared hook. */
 function Harness({
   emails,
@@ -129,7 +144,7 @@ function Harness({
 }) {
   const [override, setOverride] = useState<Props | undefined>();
   const entry = channel === 'email' ? emails.welcome : undefined;
-  const { data, error, isPending } = useEmailPreview(entry, 'welcome', override);
+  const { data, error, isPending } = useEmailPreview(entry, 'welcome', EMAIL, override);
   return (
     <TemplatesPage
       refs={[emailRef, pushRef]}
@@ -137,7 +152,7 @@ function Harness({
       pushes={pushes}
       selected="welcome"
       selectedChannel={channel}
-      emailDefaults={{ from: 'Acme <hello@acme.io>', replyTo: 'Acme Support <support@acme.io>' }}
+      emailConfig={EMAIL}
       previewProps={override}
       onPreviewPropsChange={setOverride}
       preview={{
@@ -171,10 +186,12 @@ function editProps(text: string) {
 const frame = () => document.querySelector<HTMLIFrameElement>('iframe');
 
 describe('email preview validation', () => {
-  test('a valid preview renders, with the project defaults as its envelope', async () => {
+  test("a valid preview renders inside the email's context, with the template's sender", async () => {
     renderHarness('email');
 
     await waitFor(() => expect(frame()?.srcdoc).toContain('Hello <!-- -->Ada'));
+    // The layout's footer: the config's default, as a send resolves it
+    expect(frame()?.srcdoc).toContain('href="https://acme.io/unsubscribe"');
     expect(screen.getByText('Acme <hello@acme.io>')).toBeDefined();
     expect(screen.getByText('Welcome aboard')).toBeDefined();
   });

@@ -1,3 +1,4 @@
+import { isUnsubscribeLink } from '../email';
 import type { JourneyReporting } from '../store';
 import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
 
@@ -6,25 +7,36 @@ import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
  * without a bearer — recipients open them:
  *
  *   GET /t/o/<message>             the open pixel: records the open, answers a 1×1 GIF
- *   GET /t/c/<message>/<position>  a link: records the click, redirects to the recorded URL
+ *   GET /t/l/<message>/<position>  a link: records the click, redirects to the recorded URL
+ *   GET /t/u/<message>/<position>  the unsubscribe link: records the click, asks to confirm
  *   POST /t/u/<message>            the unsubscribe confirmation
+ *   GET /t/c/<message>/<position>  a link of an email sent before links carried their purpose
  *   POST /t/d/<message>            a push the device received (iOS's notification service
  *                                  extension, a browser's service worker)
  *   POST /t/p/<message>            a push opened, reported by a browser's service worker
  *
  * Every open and click is recorded with its verdict (./classify.ts), and the message keeps its
  * first open and click of each kind. The redirect goes only to the URL recorded for that position,
- * never to one the request carries, so the endpoint cannot bounce visitors anywhere else. The
- * config's unsubscribe link (`emails.unsubscribe`) is a tracked link too: following it shows a
- * confirmation page, and only the confirmation — a POST, which no link scanner sends — counts.
+ * never to one the request carries, so the endpoint cannot bounce visitors anywhere else. An
+ * email's unsubscribe link is a tracked link too, and which link it is was fixed when the email was
+ * sent (its route): following it shows a confirmation page, and only the confirmation — a POST,
+ * which no link scanner sends — counts. Changing a template's or the config's unsubscribe URL, or
+ * removing the template, changes nothing for emails already sent.
+ *
+ * Emails sent before that carry `/t/c/` links, which say nothing of their purpose: one is the
+ * unsubscribe link when its recorded URL is `legacyUnsubscribeUrl` (the global unsubscribe URL
+ * those emails were all sent with), as it was then.
  */
 
 export interface TrackingOptions {
-  /** `emails.unsubscribe` from the config: the footer link that asks for confirmation instead of redirecting. */
-  unsubscribe?: string | undefined;
+  /**
+   * The unsubscribe URL emails sent with `/t/c/` links carried (the config's `email.unsubscribeUrl`
+   * by default): following such a link to it asks for confirmation instead of redirecting.
+   */
+  legacyUnsubscribeUrl?: string | undefined;
   /** The name the confirmation pages show (the config's `title`). */
   product?: string | undefined;
-  /** `emails.tracking.quickClickMs`: how soon after delivery an open or click is a weak machine signal. */
+  /** `email.tracking.quickClickMs`: how soon after delivery an open or click is a weak machine signal. */
   quickMs?: number | undefined;
   /** A browser reported a push tapped (`/t/p`): the host records it as an event too (`webPush.openedEvent`). */
   pushOpened?:
@@ -76,10 +88,12 @@ export async function handleTracking(
       headers: { 'content-type': 'image/gif', 'cache-control': 'no-store, max-age=0' },
     });
   }
-  if (kind === 'c' && position !== undefined && read) {
+  if ((kind === 'l' || kind === 'u' || kind === 'c') && position !== undefined && read) {
     const target = await recordClick(reporting, id, Number(position), who, options);
     if (target === undefined) return page(options, 'This link has expired.', 404);
-    if (options.unsubscribe !== undefined && sameLink(target, options.unsubscribe)) {
+    const unsubscribe =
+      kind === 'u' || (kind === 'c' && isUnsubscribeLink(target, options.legacyUnsubscribeUrl));
+    if (unsubscribe) {
       return page(
         options,
         `Unsubscribe from ${escape(options.product ?? 'these')} emails?`,
@@ -199,17 +213,6 @@ async function recordClick(
     };
   });
   return recorded?.url;
-}
-
-/** The unsubscribe link may carry its own query (a token, a list): the path names it. */
-function sameLink(target: string, unsubscribe: string): boolean {
-  try {
-    const a = new URL(target);
-    const b = new URL(unsubscribe);
-    return a.origin === b.origin && a.pathname === b.pathname;
-  } catch {
-    return false;
-  }
 }
 
 function escape(text: string): string {

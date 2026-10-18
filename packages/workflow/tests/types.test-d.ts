@@ -9,6 +9,7 @@
 import { expectTypeOf } from 'vitest';
 import {
   type Duration,
+  type EmailAddress,
   type PropsOf,
   type UserPropertyRef,
   action,
@@ -146,6 +147,7 @@ const namedSchema = z.strictObject({ name: z.string(), plan: z.enum(['free', 'pr
 
 const welcomeEmail = emailTemplate({
   id: 'welcome',
+  from: 'noreply@acme.test',
   title: 'Welcome',
   props: namedSchema,
   subject: 'Hi',
@@ -157,6 +159,43 @@ const welcomeEmail = emailTemplate({
   },
 });
 
+// Email metadata: from is required and an address; replyTo and unsubscribeUrl are typed when given
+// @ts-expect-error an email template must name its sender
+emailTemplate({
+  id: 'x',
+  title: 'X',
+  props: namedSchema,
+  subject: 's',
+  preview: { name: 'A' },
+  component: () => null,
+});
+emailTemplate({
+  id: 'x',
+  // @ts-expect-error from is an address, a string or { email, name? }
+  from: { name: 'Acme' },
+  title: 'X',
+  props: namedSchema,
+  subject: 's',
+  preview: { name: 'A' },
+  component: () => null,
+});
+emailTemplate({
+  id: 'x',
+  from: 'a@acme.test',
+  // @ts-expect-error unsubscribeUrl is a URL string, not a switch
+  unsubscribeUrl: false,
+  title: 'X',
+  props: namedSchema,
+  subject: 's',
+  preview: { name: 'A' },
+  component: (props) => {
+    // @ts-expect-error metadata never reaches the component's props
+    void props.from;
+    return null;
+  },
+});
+expectTypeOf(welcomeEmail.from).toEqualTypeOf<EmailAddress>();
+
 const creditsPush = pushTemplate({
   id: 'credits',
   title: 'Credits',
@@ -167,6 +206,7 @@ const creditsPush = pushTemplate({
 
 emailTemplate({
   id: 'x',
+  from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
   subject: 'Hi',
@@ -177,6 +217,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
   subject: 'Hi',
@@ -187,6 +228,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
   subject: 'Hi',
@@ -197,6 +239,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  from: 'noreply@acme.test',
   title: 'No widening',
   props: namedSchema,
   subject: 'Hi',
@@ -257,6 +300,7 @@ pushTemplate({
 emailTemplate({
   // @ts-expect-error an id is a string
   id: 1,
+  from: 'noreply@acme.test',
   title: 'x',
   props: namedSchema,
   subject: 's',

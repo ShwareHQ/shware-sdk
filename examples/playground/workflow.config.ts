@@ -63,10 +63,6 @@ export default defineConfig({
   ],
   actions: [issueCoupon],
   templates,
-  emails: {
-    from: { email: 'hello@acme.io', name: 'Acme' },
-    replyTo: { email: 'support@acme.io', name: 'Acme Support' },
-  },
   runtime: {
     development: { timeScale: 600, logMessages: true },
     production: { timeScale: 1, logMessages: false },

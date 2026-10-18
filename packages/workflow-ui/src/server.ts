@@ -476,8 +476,10 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
         ],
       },
     },
-    // The app and the user's project each have their own react; one copy only
-    resolve: { dedupe: ['react', 'react-dom'] },
+    // The app and the user's project each have their own react; one copy only. One
+    // @shware/workflow too: the preview's <EmailProvider> and the project's layout calling
+    // useEmailContext() must share the context object
+    resolve: { dedupe: ['react', 'react-dom', '@shware/workflow'] },
     /*
      * @react-email/render imports react-dom/server lazily, so the dep scan never
      * sees it: the first email preview made Vite discover it, re-optimize and

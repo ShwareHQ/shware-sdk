@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'edu_whiteboards',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Education · Whiteboards',
   description: 'Week 3: the canvas, for the thinking that does not fit in paragraphs.',
   props: z.strictObject({}),

@@ -130,7 +130,7 @@ function EmailView() {
   /* Only email renders a document; every other channel's content is data. */
   const found = lookupTemplate(config, activeChannel, key);
   const selected = found?.channel === 'email' ? found.entry : undefined;
-  const { data, error, isPending } = useEmailPreview(selected, key, previewProps);
+  const { data, error, isPending } = useEmailPreview(selected, key, config.email, previewProps);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -169,7 +169,7 @@ function EmailView() {
           defaultScheme={studioScheme}
           selected={key}
           selectedChannel={activeChannel}
-          emailDefaults={config.emailDefaults}
+          emailConfig={config.email}
           previewProps={previewProps}
           onPreviewPropsChange={(props) =>
             setOverride(props === undefined ? undefined : { id, props })

@@ -1,9 +1,11 @@
 import { Container, Head, Html, Preview, Text } from '@react-email/components';
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'demo_offer',
+  from: senders.noreply,
   title: 'Demo · Offer',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),
   subject: 'Your discount is about to expire',

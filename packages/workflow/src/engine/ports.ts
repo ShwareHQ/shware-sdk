@@ -102,14 +102,20 @@ export interface OutboundMessage {
   tracking?: MessageTracking | undefined;
 }
 
+/** What following a tracked email link does: redirect to it, or confirm an unsubscribe. */
+export type LinkPurpose = 'link' | 'unsubscribe';
+
 /**
  * Measuring a copy, as the built-in senders apply it: an email's links are routed through
  * `link` and `pixel` is appended as a 1×1 image; a push carries `data` in its payload.
  * Each is optional, and a sender ignores what its channel has no use for.
  */
 export interface MessageTracking {
-  /** The original `http(s)` URL in, the URL that records the click and redirects out. */
-  link?: (url: string) => string;
+  /**
+   * The original `http(s)` URL in, the URL that records the click and redirects out — or, for the
+   * email's unsubscribe link, asks the recipient to confirm.
+   */
+  link?: (url: string, purpose: LinkPurpose) => string;
   /** Loaded when the email is opened. */
   pixel?: string;
   /** Extra string keys in the push payload. */

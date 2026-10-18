@@ -184,6 +184,7 @@ export default {
     subject: 'Subject',
     from: 'From',
     replyTo: 'Reply to',
+    unsubscribeUrl: 'Unsubscribe link',
     sentBy: 'Sent by',
     rendering: 'Rendering…',
     contentTitle: 'Title',
@@ -212,9 +213,11 @@ export default {
     slackBlockUnsupported: 'A {{type}} block (not drawn in the preview)',
   },
   settings: {
-    emailDefaults: 'Email envelope',
+    emailDefaults: 'Email',
     emailDefaultsHint:
-      'Every email is sent with these — emails.from / replyTo in workflow.config.ts.',
+      'Shared by every email template — email in workflow.config.ts. Each template names its own sender, and its own unsubscribe link overrides this one.',
+    quickClick: 'Quick click',
+    quickClickValue: 'Within {{ms}} ms of delivery: a weak machine signal',
     title: 'Settings',
     language: 'Language',
     languageHint: 'Applies to the studio interface only.',

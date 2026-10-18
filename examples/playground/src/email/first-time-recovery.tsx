@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Cta, Heading, Paragraph, Shell } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'n1_first_time_recovery',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Cart Recovery · First touch',
   props: z.strictObject({}),
   subject: 'Your workspace is waiting',

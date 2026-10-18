@@ -1,9 +1,12 @@
 import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
 import { Message } from './layout';
+import { senders } from './senders';
 
 export default emailTemplate({
   id: 'reengage_incentive',
+  from: senders.hello,
+  replyTo: senders.support,
   title: 'Re-engagement · Incentive',
   description: 'The A/B variant arm: the same nudge, with a discount attached.',
   props: z.strictObject({ coupon: z.string() }),

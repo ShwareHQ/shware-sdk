@@ -183,6 +183,7 @@ export default {
     subject: '主题',
     from: '发件人',
     replyTo: '回复至',
+    unsubscribeUrl: '退订链接',
     sentBy: '发送方',
     rendering: '渲染中…',
     contentTitle: '标题',
@@ -207,9 +208,11 @@ export default {
     slackBlockUnsupported: '{{type}} 块（预览中不绘制）',
   },
   settings: {
-    emailDefaults: '邮件信封',
+    emailDefaults: '邮件',
     emailDefaultsHint:
-      '所有邮件都用这里的发件人发送，对应 workflow.config.ts 的 emails.from / replyTo。',
+      '所有邮件模板共用，对应 workflow.config.ts 的 email。发件人由每个模板自己声明，模板自己的退订链接会覆盖这里的默认值。',
+    quickClick: '快速点击',
+    quickClickValue: '送达后 {{ms}} 毫秒内：较弱的机器信号',
     title: '设置',
     language: '语言',
     languageHint: '仅影响 studio 界面文案。',

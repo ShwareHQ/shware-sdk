@@ -2,20 +2,28 @@ import { useTranslation } from 'react-i18next';
 import { superellipse } from './corner-shape';
 
 /**
- * The envelope every email goes out with: `emails.from` / `replyTo` in
- * workflow.config.ts. Read-only — the config is where it changes; the studio
+ * What every email template shares: `email` in workflow.config.ts — the
+ * unsubscribe link of templates that name none of their own, and how opens
+ * and clicks are judged. Senders are each template's own (its detail page
+ * shows them). Read-only — the config is where it changes; the studio
  * refreshes when it does.
  */
 export interface EmailDefaultsProps {
-  from?: string | undefined;
-  replyTo?: string | undefined;
+  unsubscribeUrl?: string | undefined;
+  quickClickMs?: number | undefined;
 }
 
-export function EmailDefaults({ from, replyTo }: EmailDefaultsProps) {
+/** The reporting classifier's default (`email.tracking.quickClickMs`). */
+const QUICK_CLICK_MS = 1_000;
+
+export function EmailDefaults({ unsubscribeUrl, quickClickMs }: EmailDefaultsProps) {
   const { t } = useTranslation();
   const rows = [
-    { label: t('emails.from'), value: from },
-    { label: t('emails.replyTo'), value: replyTo },
+    { label: t('emails.unsubscribeUrl'), value: unsubscribeUrl },
+    {
+      label: t('settings.quickClick'),
+      value: t('settings.quickClickValue', { ms: quickClickMs ?? QUICK_CLICK_MS }),
+    },
   ];
 
   return (
