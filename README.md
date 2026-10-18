@@ -33,7 +33,7 @@ Each package's README covers installation, its entry points and usage:
 Install only the packages you use:
 
 ```bash
-pnpm add @shware/analytics @shware/http
+pnpm add @shware/analytics @shware/http zod
 ```
 
 Framework and platform integrations (Next.js, TanStack Start, Hono, Expo, Stripe, Postgres, …)

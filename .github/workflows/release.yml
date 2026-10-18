@@ -63,7 +63,7 @@ jobs:
           fetch-depth: 0 # changesets compares against the base branch history
 
       - name: Install pnpm
-        run: npm install --global pnpm@11.24.0 # exact version, matches packageManager
+        run: npm install --global pnpm@11.28.6 # exact version, matches packageManager
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

@@ -9,7 +9,7 @@ use the Spring Session key layout, so sessions can be shared with a Spring backe
 ## Install
 
 ```sh
-pnpm add @shware/security
+pnpm add @shware/security zod
 ```
 
 No peer dependencies. `ioredis` is a regular dependency; you only need a client instance if you

@@ -73,29 +73,25 @@
     "lint": "oxlint --type-aware . --fix"
   },
   "dependencies": {
-    "@shware/utils": "workspace:^",
-    "vitest": "^5.0.2",
-    "zod": "^4.6.5"
+    "@shware/utils": "workspace:^"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "^26.6.3",
-    "@types/react": "^19.3.0",
-    "typescript": "^7.0.2"
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "hono": "^4.13.9",
     "i18next": "^26.4.2",
-    "react": "^19.3.0"
+    "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {
     "hono": {
       "optional": true
     },
     "i18next": {
-      "optional": true
-    },
-    "react": {
       "optional": true
     }
   }
