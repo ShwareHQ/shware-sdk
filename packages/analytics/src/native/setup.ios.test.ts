@@ -45,7 +45,6 @@ vi.mock('react-native', () => ({
   Dimensions: { get: () => ({ width: 1024, height: 1366 }) },
   PixelRatio: { get: () => 2 },
 }));
-vi.mock('react-native-url-polyfill', () => ({ URLSearchParams }));
 
 const store = new Map<string, string>();
 vi.stubGlobal('localStorage', {

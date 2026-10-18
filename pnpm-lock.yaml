@@ -171,9 +171,6 @@ importers:
       react-native-fbsdk-next:
         specifier: ^13.4.3
         version: 13.4.3(expo@57.0.4(@babel/core@7.29.7(supports-color@10.2.2))(react-dom@19.3.1(react@19.3.1))(react-native@0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2))(react@19.3.1)(supports-color@10.2.2)(typescript@7.0.2))(react-native@0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2))
-      react-native-url-polyfill:
-        specifier: ^4.0.0
-        version: 4.0.0(react-native@0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2))
       react-router:
         specifier: ^8.4.0
         version: 8.4.0(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -5877,11 +5874,6 @@ packages:
     peerDependenciesMeta:
       expo:
         optional: true
-
-  react-native-url-polyfill@4.0.0:
-    resolution: {integrity: sha512-eqYM3wBAA0eL1sPYbBAoNfbES3+NkgcxUdelQ7QzmoVtqKB5qGG0U13MPTRUroAWK+y2EoJFS3MZUK0fwTf0pA==}
-    peerDependencies:
-      react-native: '*'
 
   react-native@0.87.1:
     resolution: {integrity: sha512-DJKG6ANoD7BtrE4z9DewiSD7/RxCX73lK5Pu49aUr85P3333Dm2roTiP0rRjQNDZdVizHSOmstWfwF/o9EjCRA==}
@@ -12387,10 +12379,6 @@ snapshots:
       react-native: 0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2)
     optionalDependencies:
       expo: 57.0.4(@babel/core@7.29.7(supports-color@10.2.2))(react-dom@19.3.1(react@19.3.1))(react-native@0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2))(react@19.3.1)(supports-color@10.2.2)(typescript@7.0.2)
-
-  react-native-url-polyfill@4.0.0(react-native@0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2)):
-    dependencies:
-      react-native: 0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2)
 
   react-native@0.87.1(@babel/core@7.29.7(supports-color@10.2.2))(@types/react@19.3.0)(react@19.3.1)(supports-color@10.2.2):
     dependencies:

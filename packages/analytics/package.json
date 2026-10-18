@@ -200,7 +200,6 @@
     "react": "^19.3.0",
     "react-native": "^0.87.1 || ^0.88.0",
     "react-native-fbsdk-next": "^13.4.3",
-    "react-native-url-polyfill": "^4.0.0",
     "react-router": "^8.4.0",
     "zod": "^4.6.5"
   },
@@ -251,9 +250,6 @@
       "optional": true
     },
     "react-native-fbsdk-next": {
-      "optional": true
-    },
-    "react-native-url-polyfill": {
       "optional": true
     },
     "react-router": {

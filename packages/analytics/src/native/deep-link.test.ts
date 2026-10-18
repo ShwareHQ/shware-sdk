@@ -24,7 +24,6 @@ vi.mock('react-native', () => ({
     },
   },
 }));
-vi.mock('react-native-url-polyfill', () => ({ URLSearchParams }));
 
 const EMAIL =
   'https://example.com/pricing?utm_source=lifecycle&utm_medium=email&utm_campaign=day3&fbclid=F1';
