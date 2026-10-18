@@ -12,6 +12,7 @@ afterEach(cleanup);
 const props = z.strictObject({ name: z.string() });
 const discords = {
   sale: discordTemplate({
+    id: 'sale',
     title: 'Sale',
     props,
     preview: { name: 'Ada' },
@@ -26,6 +27,7 @@ const discords = {
 };
 const slacks = {
   alert: slackTemplate({
+    id: 'alert',
     title: 'Alert',
     props,
     preview: { name: 'Ada' },

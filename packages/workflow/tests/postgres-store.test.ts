@@ -15,7 +15,6 @@ import {
   event,
   performed,
   segment,
-  template,
   trigger,
   user,
   workflow,
@@ -24,6 +23,7 @@ import { JourneyFactSource } from '../src/store/facts';
 import { PostgresJourneyStore, type SqlClientLike, uuidv7 } from '../src/store/postgres';
 import { TABLES, renderDrizzleSchema, renderPostgresDdl } from '../src/store/tables';
 import { FakeJourney } from './fake-cloudflare';
+import { plainEmail } from './fixtures';
 
 /**
  * PostgresJourneyStore against a real Postgres (PGlite, in-process) through
@@ -79,7 +79,7 @@ interface UserProperty {
 }
 const e = event<Event>();
 const u = user<UserProperty>();
-const welcome = template.email('welcome');
+const welcome = plainEmail('welcome');
 const pro = segment({ id: 'pro', condition: eq(u.plan, 'pro') });
 const purchased = segment({ id: 'purchased', condition: performed(e.purchase) });
 

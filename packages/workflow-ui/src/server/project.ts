@@ -80,8 +80,8 @@ class StudioLoadError extends Error {}
 
 /**
  * The module that exports `registry`, by identity: the registry itself, or
- * else an exported `{ email, push }` holding it (`export const registry =
- * { email: {...}, push: {...} }` next to `t = templates(registry)`).
+ * else an exported `{ email, push }` holding it (`export const templates =
+ * { email, push }`).
  * workflow.config.ts itself is never a candidate: importing it would bring the
  * whole config (and everything it imports) into the browser. Sorted by path,
  * so the answer does not depend on load order.
@@ -125,7 +125,7 @@ function locate(
   throw new StudioLoadError(
     `templates.${channel} is not exported from a module of its own. Export the registry ` +
       `(e.g. \`export const ${channel} = {...}\` in src/${channel}/index.ts, or ` +
-      '`export const registry = { email, push }` in src/templates.ts) ' +
+      '`export const templates = { email, push }` in src/templates.ts) ' +
       'and import it into workflow.config.ts — the studio loads that module, never the config, into the browser.'
   );
 }
@@ -232,7 +232,8 @@ export type StatsMethod = (typeof STATS_METHODS)[number];
 
 /**
  * The module the browser imports as `virtual:workflow-config`: the payload as
- * a JSON literal, the two registries as imports from their own modules, and
+ * a JSON literal, the template registries as imports from their own modules
+ * (re-keyed by template id), and
  * the stats source as calls to the studio's server, one per method
  * workflow.stats.ts defines — the source itself runs there, next to the
  * database and the secrets it reads with, never in the browser.
@@ -259,7 +260,7 @@ export function virtualModule(
   const registries = (Object.keys(CHANNELS) as Channel[]).map((channel) => {
     const ref = snapshot.registries[channel];
     const { field } = CHANNELS[channel];
-    return `  ${field}: ${ref === undefined ? '{}' : importOf(ref, field)},`;
+    return `  ${field}: ${ref === undefined ? '{}' : `byId(${importOf(ref, field)})`},`;
   });
   const stats =
     statsMethods === undefined
@@ -281,6 +282,8 @@ const call = (method) => async (...args) => {
 };`;
 
   return `${imports.join('\n')}${call}
+/* The views look a template up by its id, the name messages use, never by the property holding it. */
+const byId = (registry) => Object.fromEntries(Object.values(registry).map((t) => [t.id, t]));
 const payload = ${JSON.stringify(snapshot.payload)};
 export default {
   ...payload,

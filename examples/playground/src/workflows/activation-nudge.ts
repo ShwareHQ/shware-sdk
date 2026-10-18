@@ -1,5 +1,5 @@
 import { trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
+import { email } from '../email';
 import { e } from './schema';
 import { activated } from './segments';
 
@@ -17,6 +17,6 @@ export const activationNudge = workflow({
   trigger: trigger.event(e.activation_nudge_due),
   goal: { condition: activated, within: '30 days', exitOnMatch: true },
 })
-  .email(t.email.onboarding_getting_started)
+  .email(email.onboardingGettingStarted)
   .delay('8 days')
   .sendEvent(e.activation_nudge_due);

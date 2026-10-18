@@ -4,7 +4,9 @@ import * as z from 'zod/mini';
 
 /** The project's email registry, in a module of its own — what the browser imports. */
 export const email = {
-  welcome: emailTemplate({
+  // A JavaScript name of its own: the template is `welcome` by its id
+  welcomeEmail: emailTemplate({
+    id: 'welcome',
     title: 'Welcome',
     props: z.strictObject({}),
     subject: 'Welcome aboard',

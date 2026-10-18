@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'edu_whiteboards',
   title: 'Education · Whiteboards',
   description: 'Week 3: the canvas, for the thinking that does not fit in paragraphs.',
   props: z.strictObject({}),

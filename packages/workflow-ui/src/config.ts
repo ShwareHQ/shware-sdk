@@ -270,13 +270,13 @@ export interface ResolvedStudioConfig {
   title?: string;
   /** Compiled workflows, keyed by workflow name (empty when `error` is set). */
   workflows: Record<string, WorkflowIR>;
-  /** The project's email registry (empty if none). */
+  /** The project's email templates by id (empty if none). */
   emails: Record<string, EmailTemplate>;
-  /** The project's push registry (empty if none). */
+  /** The project's push templates by id (empty if none). */
   pushes: Record<string, PushTemplate>;
-  /** The project's Discord webhook registry (empty if none). */
+  /** The project's Discord webhook templates by id (empty if none). */
   discords: Record<string, DiscordTemplate>;
-  /** The project's Slack webhook registry (empty if none). */
+  /** The project's Slack webhook templates by id (empty if none). */
   slacks: Record<string, SlackTemplate>;
   /** Compiled named segments. */
   segments: SegmentIR[];

@@ -9,11 +9,11 @@ data in D1 or in your own Postgres.
 
 ```ts
 const welcome = workflow({ id: 'welcome', trigger: trigger.event(e.sign_up) })
-  .email(t.email.getting_started, { name: u.name })
+  .email(email.getting_started, { name: u.name })
   .delay('3 days')
   .waitUntil(performed(e.activated), {
     timeout: '7 days',
-    onTimeout: (w) => w.email(t.email.nudge, { name: u.name }),
+    onTimeout: (w) => w.email(email.nudge, { name: u.name }),
   });
 ```
 
@@ -68,9 +68,11 @@ the contract is defined, because input and output must mean the same JSON.
 
 ### 2. Templates
 
-One object per template. Its strict Zod `props` schema is the only source of
-the props type: the DSL's arguments, the `preview` and the component are all
-derived from it, and every send parses the props against it first.
+One object per template, identified by its own `id` (unique per channel): the
+IR, the manifest, every send and the studio name it by that id, so keep it
+stable and rename `title` instead. Its strict Zod `props` schema is the only
+source of the props type: the DSL's arguments, the `preview` and the component
+are all derived from it, and every send parses the props against it first.
 
 ```tsx
 // src/email/welcome.tsx
@@ -79,6 +81,7 @@ import { emailTemplate } from '@shware/workflow';
 import { strictObject, string } from 'zod/mini';
 
 export default emailTemplate({
+  id: 'welcome',
   title: 'Welcome',
   props: strictObject({ name: string() }),
   subject: 'Welcome aboard',
@@ -91,30 +94,37 @@ export default emailTemplate({
 });
 ```
 
-Register templates once, per channel, and derive the references the workflows
-use from the same registry:
+Gather them per channel; the workflows send the definitions and the config
+registers the whole:
+
+```ts
+// src/email/index.ts
+import tip from './tip';
+import welcome from './welcome';
+
+export const email = { welcome, tip };
+```
 
 ```ts
 // src/templates.ts
-import { templates } from '@shware/workflow';
-import welcome from './email/welcome';
-import tip from './email/tip';
+import { email } from './email';
 
-export const registry = { email: { welcome, tip } };
-export const t = templates(registry);
+export const templates = { email };
 ```
 
-`tip.tsx` is written the same way. The registry types the keys: `t.email.typo` does not compile, a push template
-is not accepted where an email is, and `.email(t.email.welcome, props)` checks
-`props` against the template's schema.
+`tip.tsx` is written the same way. The property names are JavaScript names
+only. `.email(email.welcome, props)` checks `props` against that template's
+schema, and a push template is not accepted where an email is. The compile
+refuses an id registered twice in a channel, and a workflow sending a
+definition other than the one registered under its id.
 
 ### 3. A workflow
 
 ```ts
 // src/workflows/welcome.ts
 import { not, performed, trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
 import { e, u } from '../contract';
+import { email } from '../email';
 
 export const welcomeSeries = workflow({
   id: 'welcome_series',
@@ -122,9 +132,9 @@ export const welcomeSeries = workflow({
   trigger: trigger.event(e.login),
   goal: { condition: performed(e.purchase), within: '7 days' },
 })
-  .email(t.email.welcome, { name: u.name })
+  .email(email.welcome, { name: u.name })
   .delay('2 days')
-  .branch([not(performed(e.purchase)), (w) => w.email(t.email.tip, { name: u.name })]);
+  .branch([not(performed(e.purchase)), (w) => w.email(email.tip, { name: u.name })]);
 ```
 
 `id` is wire identity (instances, the entry ledger and stats are keyed on it),
@@ -136,14 +146,14 @@ so rename `name` instead.
 // workflow.config.ts
 import { defineConfig } from '@shware/workflow';
 import { contract } from './src/contract';
-import { registry } from './src/templates';
+import { templates } from './src/templates';
 import { welcomeSeries } from './src/workflows/welcome';
 
 export default defineConfig({
   title: 'Workflow Studio · Acme',
   contract,
   workflows: [welcomeSeries],
-  templates: registry,
+  templates,
   emails: { from: { email: 'noreply@acme.test', name: 'Acme' } },
   runtime: {
     development: { timeScale: 600, logMessages: true },
@@ -212,8 +222,8 @@ the routing table. Run it after every deploy that changes a journey.
 From the service that knows what users do:
 
 ```ts
-import { JourneyClient } from '@shware/workflow/client';
 import { contract } from '@acme/workflow-contract';
+import { JourneyClient } from '@shware/workflow/client';
 
 export const journeys = new JourneyClient({
   contract,
@@ -296,10 +306,10 @@ trigger.webhook();
 
 | Step                                          | What it does                                                              |
 | --------------------------------------------- | ------------------------------------------------------------------------- |
-| `.email(t.email.k, props)`                    | Send an email                                                             |
-| `.push(t.push.k, props, { devices? })`        | Push to every device of the user, or only the `'latest'`; skipped if none |
-| `.slack(t.slack.k, props)`                    | Post to a Slack incoming webhook                                          |
-| `.discord(t.discord.k, props)`                | Post to a Discord webhook                                                 |
+| `.email(email.k, props)`                      | Send an email                                                             |
+| `.push(push.k, props, { devices? })`          | Push to every device of the user, or only the `'latest'`; skipped if none |
+| `.slack(slack.k, props)`                      | Post to a Slack incoming webhook                                          |
+| `.discord(discord.k, props)`                  | Post to a Discord webhook                                                 |
 | `.sms()`, `.inApp()`, `.survey()`             | Message nodes with no built-in sender (see [Channels](#channels))         |
 | `.prefer([first, second], props, { label? })` | One push and one email: the first the user is reachable on                |
 | `.delay('1 day')`                             | Sleep; `{ min, max }` sleeps a random time in between                     |
@@ -323,9 +333,9 @@ Both templates must declare the same props type.
 
 ```ts
 workflow({ id: 'welcome_series', trigger: trigger.event(e.login) })
-  .email(t.email.welcome, { name: u.name })
+  .email(email.welcome, { name: u.name })
   .delay('1 day')
-  .prefer([t.push.tip_push, t.email.tip], { name: u.name }, { label: 'tip by channel' });
+  .prefer([push.tip_push, email.tip], { name: u.name }, { label: 'tip by channel' });
 ```
 
 **timeWindow** takes `between: ['09:00', '17:00']` (24-hour, leading zeros, not
@@ -345,7 +355,7 @@ workflow({ id: 'notification_optin', trigger: trigger.event(e.login) }).waitUnti
   ),
   {
     timeout: '1 day',
-    onTimeout: (w) => w.email(t.email.enable_notifications, { name: u.name }),
+    onTimeout: (w) => w.email(email.enable_notifications, { name: u.name }),
   }
 );
 ```
@@ -359,11 +369,11 @@ workflow({ id: 'nps_followup', trigger: trigger.event(e.nps_sent) }).branch(
   'by score',
   [
     performed(e.nps_sent, (p) => gte(p.score, 9)),
-    (w) => w.delay('1 day').email(t.email.review_ask, { name: u.name }),
+    (w) => w.delay('1 day').email(email.review_ask, { name: u.name }),
   ],
   [
     performed(e.nps_sent, (p) => lte(p.score, 6)),
-    (w) => w.slack(t.slack.nps_detractor, { name: u.name }).exit('handed to support'),
+    (w) => w.slack(slack.nps_detractor, { name: u.name }).exit('handed to support'),
   ]
 );
 ```
@@ -378,8 +388,8 @@ workflow({ id: 'checkout_recovery', trigger: trigger.event(e.begin_checkout) })
   .delay('1 day')
   .cohort(
     {
-      discount: { weight: 50, flow: (w) => w.email(t.email.offer_discount, { name: u.name }) },
-      social_proof: { weight: 50, flow: (w) => w.email(t.email.offer_reviews, { name: u.name }) },
+      discount: { weight: 50, flow: (w) => w.email(email.offer_discount, { name: u.name }) },
+      social_proof: { weight: 50, flow: (w) => w.email(email.offer_reviews, { name: u.name }) },
     },
     { key: 'checkout_offer_v1' }
   );
@@ -465,7 +475,7 @@ emails: {
 ```
 
 An email step refuses to send when the profile has no `email`.
-`GET /preview/<key>?props=<JSON>` renders a template, with the subject in the
+`GET /preview/<id>?props=<JSON>` renders a template, with the subject in the
 `x-subject` header.
 
 ### Push
@@ -528,6 +538,7 @@ import { optional, strictObject, string } from 'zod/mini';
 import type { Env } from '../env';
 
 export default slackTemplate({
+  id: 'nps_detractor',
   title: 'NPS detractor (support)',
   props: strictObject({ name: string(), email: optional(string()) }),
   preview: { name: 'John Doe', email: 'john@example.com' },
@@ -544,9 +555,8 @@ post never holds up the messages after it.
 
 ### Other channels
 
-`.sms()`, `.inApp()` and `.survey()` compile, and `template.sms<P>(key)` (also
-`email`, `push`, `inApp`, `slack`, `discord`, `survey`) makes an unregistered,
-hand-typed reference. The config's channels deliver only email, push, Slack and
+`.sms()`, `.inApp()` and `.survey()` compile, and take a hand-typed reference
+by key: `template.sms<P>(key)` (also `inApp`, `survey`). The config's channels deliver only email, push, Slack and
 Discord; supply anything else with `journeyWorker({ messages })`.
 
 ## Configuration
@@ -651,8 +661,8 @@ workflows actually changed. Deploy recomputes every declared hash and refuses a
 bundle whose hashes do not describe its contents.
 
 Node ids are structural paths, so inserting a node shifts the ids of the nodes
-after it. Template keys are stable identities too: a key in flight takes only
-backward-compatible changes, so a new required prop means a new key.
+after it. Template ids are stable identities too: an id in flight takes only
+backward-compatible changes, so a new required prop means a new id.
 
 ## Cloudflare setup
 

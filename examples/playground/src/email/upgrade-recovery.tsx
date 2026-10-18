@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Cta, FinePrint, Heading, Paragraph, Shell } from './layout';
 
 export default emailTemplate({
+  id: 'u1_upgrade_recovery',
   title: 'Upgrade Recovery',
   props: z.strictObject({ plan: z.enum(['free', 'pro', 'business']) }),
   subject: 'Your upgrade is one click away',

@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'edu_integrations',
   title: 'Education · Integrations',
   description: 'Week 4: connecting the tools the work already lives in.',
   props: z.strictObject({}),

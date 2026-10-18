@@ -6,7 +6,9 @@ import type { ScalarIR } from './ir';
 
 /**
  * Template definitions — `emailTemplate`, `pushTemplate`, `discordTemplate` and `slackTemplate`. One
- * object per template, and its Zod `props` schema is the only source of the
+ * object per template, identified by its own `id` (unique per channel): workflows take the
+ * definition itself (`.email(welcome, props)`), the config registers it, and the IR, the manifest,
+ * the senders and the studio all find it by that id. Its Zod `props` schema is the only source of the
  * props type: the DSL's `.email()/.push()` arguments, the `preview`, and the
  * `component`/`content` parameter are all derived from it, and every render
  * parses the props against it first (types alone check nothing at run time).
@@ -57,6 +59,12 @@ export interface SlackContent {
 export type TemplateChannel = 'email' | 'push' | 'discord' | 'slack';
 
 interface TemplateBase<S extends PropsSchema> {
+  /**
+   * Wire identity, unique per channel: message nodes, the template manifest, every send and the
+   * studio's preview links name the template by it. Not something to rename for readability —
+   * `title` is; the property a registry holds it under is only a JavaScript name.
+   */
+  readonly id: string;
   /** Display name in the studio (not the email subject, not the notification title). */
   readonly title: string;
   readonly description?: string | undefined;
@@ -114,6 +122,7 @@ export interface SlackTemplate<
 type Sync<T> = T extends Promise<unknown> ? never : T;
 
 export interface EmailTemplateDefinition<S extends PropsSchema> {
+  id: string;
   title: string;
   description?: string;
   props: S;
@@ -123,6 +132,7 @@ export interface EmailTemplateDefinition<S extends PropsSchema> {
 }
 
 export interface PushTemplateDefinition<S extends PropsSchema, R> {
+  id: string;
   title: string;
   description?: string;
   props: S;
@@ -131,6 +141,7 @@ export interface PushTemplateDefinition<S extends PropsSchema, R> {
 }
 
 export interface WebhookTemplateDefinition<S extends PropsSchema, Env, C> {
+  id: string;
   title: string;
   description?: string;
   props: S;
@@ -144,6 +155,7 @@ export interface WebhookTemplateDefinition<S extends PropsSchema, Env, C> {
 export function discordTemplate<S extends PropsSchema, Env = Record<string, unknown>>(
   definition: WebhookTemplateDefinition<S, Env, DiscordContent>
 ): DiscordTemplate<S, Env> {
+  assertTemplateId(definition.id, 'discordTemplate');
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'discord', definition.title);
   return { kind: 'discord-template', version: 1, ...definition };
@@ -153,6 +165,7 @@ export function discordTemplate<S extends PropsSchema, Env = Record<string, unkn
 export function slackTemplate<S extends PropsSchema, Env = Record<string, unknown>>(
   definition: WebhookTemplateDefinition<S, Env, SlackContent>
 ): SlackTemplate<S, Env> {
+  assertTemplateId(definition.id, 'slackTemplate');
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'slack', definition.title);
   return { kind: 'slack-template', version: 1, ...definition };
@@ -162,6 +175,7 @@ export function slackTemplate<S extends PropsSchema, Env = Record<string, unknow
 export function emailTemplate<S extends PropsSchema>(
   definition: EmailTemplateDefinition<S>
 ): EmailTemplate<S> {
+  assertTemplateId(definition.id, 'emailTemplate');
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'email', definition.title);
   return { kind: 'email-template', version: 1, ...definition };
@@ -171,9 +185,20 @@ export function emailTemplate<S extends PropsSchema>(
 export function pushTemplate<S extends PropsSchema, R extends PushContent>(
   definition: PushTemplateDefinition<S, R>
 ): PushTemplate<S> {
+  assertTemplateId(definition.id, 'pushTemplate');
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'push', definition.title);
   return { kind: 'push-template', version: 1, ...definition } as unknown as PushTemplate<S>;
+}
+
+function assertTemplateId(id: unknown, factory: string): void {
+  if (!isTemplateId(id)) {
+    throw new TypeError(`${factory}(): 'id' must be a non-empty string`);
+  }
+}
+
+function isTemplateId(id: unknown): id is string {
+  return typeof id === 'string' && id.trim() !== '';
 }
 
 export function isEmailTemplate(value: unknown): value is EmailTemplate {
@@ -195,7 +220,7 @@ export function isSlackTemplate(value: unknown): value is SlackTemplate {
 /** Any declared template. */
 export type AnyTemplate = EmailTemplate | PushTemplate | DiscordTemplate | SlackTemplate;
 
-const CHANNEL_OF: Record<AnyTemplate['kind'], TemplateChannel> = {
+export const CHANNEL_OF: Record<AnyTemplate['kind'], TemplateChannel> = {
   'email-template': 'email',
   'push-template': 'push',
   'discord-template': 'discord',
@@ -209,6 +234,85 @@ function isMarked(value: unknown, kind: string): boolean {
     (value as { kind?: unknown }).kind === kind &&
     (value as { version?: unknown }).version === 1
   );
+}
+
+/** Any template definition, whatever its channel. */
+export function isTemplate(value: unknown): value is AnyTemplate {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.hasOwn(CHANNEL_OF, (value as { kind?: unknown }).kind as string) &&
+    (value as { version?: unknown }).version === 1
+  );
+}
+
+/* --------------------------------- registry -------------------------------- */
+
+/**
+ * The template registry: per channel, the definitions the project registers. Each channel is a
+ * plain object whose property names are JavaScript names only — a template is identified by its
+ * own `id` (`indexTemplates`).
+ */
+export interface TemplateRegistry {
+  readonly email?: Readonly<Record<string, EmailTemplate>>;
+  readonly push?: Readonly<Record<string, PushTemplate>>;
+  /** Discord webhook templates, each typed by the host's Env its `webhook` reads. */
+  readonly discord?: Readonly<Record<string, DiscordTemplate<PropsSchema, never>>>;
+  readonly slack?: Readonly<Record<string, SlackTemplate<PropsSchema, never>>>;
+}
+
+/** The template a channel's registry holds. */
+export interface ChannelTemplate {
+  email: EmailTemplate;
+  push: PushTemplate;
+  discord: DiscordTemplate;
+  slack: SlackTemplate;
+}
+
+const IS_TEMPLATE: Record<TemplateChannel, (value: unknown) => boolean> = {
+  email: isEmailTemplate,
+  push: isPushTemplate,
+  discord: isDiscordTemplate,
+  slack: isSlackTemplate,
+};
+
+/**
+ * A channel's registry by template id — how everything that turns an id back into a definition
+ * (the compiler, the validator, the renderers, the senders, the studio) looks it up. Throws when
+ * an entry is not a template of the channel, has no id, or shares its id with another entry: an id
+ * is registered once per channel, so two registrations (even of the same object) are an error,
+ * not a silent last-wins. Insertion order is the registry's.
+ */
+export function indexTemplates<C extends TemplateChannel>(
+  channel: C,
+  registry: Readonly<Record<string, unknown>> | undefined
+): ReadonlyMap<string, ChannelTemplate[C]> {
+  const index = new Map<string, ChannelTemplate[C]>();
+  const paths = new Map<string, string>();
+  for (const [name, entry] of Object.entries(registry ?? {})) {
+    const path = `templates.${channel}.${name}`;
+    if (!IS_TEMPLATE[channel](entry)) {
+      throw new TypeError(`${path} is not a ${channel} template`);
+    }
+    const id = (entry as AnyTemplate).id;
+    if (!isTemplateId(id)) throw new TypeError(`${path} has no id`);
+    const previous = paths.get(id);
+    if (previous !== undefined) {
+      throw new TypeError(
+        `${channel} template id '${id}' is registered twice: ${previous} and ${path}`
+      );
+    }
+    paths.set(id, path);
+    index.set(id, entry as ChannelTemplate[C]);
+  }
+  return index;
+}
+
+/** A registered template by id; throws naming the channel and id when there is none. */
+export function lookupTemplate<T>(index: ReadonlyMap<string, T>, channel: string, id: string): T {
+  const template = index.get(id);
+  if (template === undefined) throw new Error(`${channel} template '${id}' is not registered`);
+  return template;
 }
 
 /* ------------------------------- validation -------------------------------- */
@@ -254,13 +358,12 @@ function issuesOf(error: core.$ZodError): TemplateIssue[] {
  */
 export function parseTemplateProps<S extends PropsSchema>(
   template: EmailTemplate<S> | PushTemplate<S> | DiscordTemplate<S> | SlackTemplate<S>,
-  key: string,
   props: Record<string, unknown>
 ): core.output<S> {
   const channel = CHANNEL_OF[template.kind];
   const result = z.safeParse(template.props, props);
   if (!result.success) {
-    throw new TemplateValidationError(channel, key, 'props', issuesOf(result.error));
+    throw new TemplateValidationError(channel, template.id, 'props', issuesOf(result.error));
   }
   return result.data;
 }
@@ -275,15 +378,14 @@ const pushContentSchema = z.strictObject({
 /** Run a push template's content over parsed props and check the notification it returns. */
 export function renderPushContent(
   template: PushTemplate,
-  key: string,
   props: Record<string, unknown>
 ): PushContent {
-  const parsed = parseTemplateProps(template, key, props);
+  const parsed = parseTemplateProps(template, props);
   const output: unknown = template.content(parsed);
   // A Promise (async content smuggled past the types) is an object without title/body: refused here
   const result = z.safeParse(pushContentSchema, output);
   if (!result.success) {
-    throw new TemplateValidationError('push', key, 'content', issuesOf(result.error));
+    throw new TemplateValidationError('push', template.id, 'content', issuesOf(result.error));
   }
   return result.data;
 }
@@ -306,10 +408,9 @@ const slackContentSchema = z.looseObject({
 /** Run a Discord template's content over parsed props and check the message it returns. */
 export function renderDiscordContent(
   template: DiscordTemplate,
-  key: string,
   props: Record<string, unknown>
 ): DiscordContent {
-  const output: unknown = template.content(parseTemplateProps(template, key, props));
+  const output: unknown = template.content(parseTemplateProps(template, props));
   const result = z.safeParse(discordContentSchema, output);
   const empty =
     result.success &&
@@ -321,7 +422,7 @@ export function renderDiscordContent(
     const issues = result.success
       ? [{ path: '', message: 'a Discord message needs content, an embed, a poll or components' }]
       : issuesOf(result.error);
-    throw new TemplateValidationError('discord', key, 'content', issues);
+    throw new TemplateValidationError('discord', template.id, 'content', issues);
   }
   return output as DiscordContent;
 }
@@ -329,13 +430,12 @@ export function renderDiscordContent(
 /** Run a Slack template's content over parsed props and check the message it returns. */
 export function renderSlackContent(
   template: SlackTemplate,
-  key: string,
   props: Record<string, unknown>
 ): SlackContent {
-  const output: unknown = template.content(parseTemplateProps(template, key, props));
+  const output: unknown = template.content(parseTemplateProps(template, props));
   const result = z.safeParse(slackContentSchema, output);
   if (!result.success) {
-    throw new TemplateValidationError('slack', key, 'content', issuesOf(result.error));
+    throw new TemplateValidationError('slack', template.id, 'content', issuesOf(result.error));
   }
   return output as SlackContent;
 }
@@ -429,46 +529,35 @@ export type ResolvedProps = Record<string, ScalarIR | undefined>;
  * stops the send before any device; Discord and Slack content likewise. Channels without a
  * registry here (sms, …) pass through to their app-supplied senders.
  */
-export function registryValidator(registries: {
-  email?: Record<string, EmailTemplate> | undefined;
-  push?: Record<string, PushTemplate> | undefined;
-  discord?: Readonly<Record<string, DiscordTemplate<PropsSchema, never>>> | undefined;
-  slack?: Readonly<Record<string, SlackTemplate<PropsSchema, never>>> | undefined;
-}): {
+export function registryValidator(registry: TemplateRegistry): {
   validate(message: { channel: string; template: string; props: ResolvedProps }): ResolvedProps;
 } {
+  const email = indexTemplates('email', registry.email);
+  const push = indexTemplates('push', registry.push);
+  const discord = indexTemplates('discord', registry.discord);
+  const slack = indexTemplates('slack', registry.slack);
   return {
     validate({ channel, template, props }) {
       if (channel === 'email') {
-        return parseTemplateProps(
-          lookup(registries.email, 'email', template),
-          template,
-          props
-        ) as ResolvedProps;
+        const entry = lookupTemplate(email, 'email', template);
+        return parseTemplateProps(entry, props) as ResolvedProps;
       }
       if (channel === 'push') {
-        const entry = lookup(registries.push, 'push', template);
-        renderPushContent(entry, template, props);
-        return parseTemplateProps(entry, template, props) as ResolvedProps;
+        const entry = lookupTemplate(push, 'push', template);
+        renderPushContent(entry, props);
+        return parseTemplateProps(entry, props) as ResolvedProps;
       }
       if (channel === 'discord') {
-        const entry = lookup(registries.discord, 'discord', template) as DiscordTemplate;
-        renderDiscordContent(entry, template, props);
-        return parseTemplateProps(entry, template, props) as ResolvedProps;
+        const entry = lookupTemplate(discord, 'discord', template);
+        renderDiscordContent(entry, props);
+        return parseTemplateProps(entry, props) as ResolvedProps;
       }
       if (channel === 'slack') {
-        const entry = lookup(registries.slack, 'slack', template) as SlackTemplate;
-        renderSlackContent(entry, template, props);
-        return parseTemplateProps(entry, template, props) as ResolvedProps;
+        const entry = lookupTemplate(slack, 'slack', template);
+        renderSlackContent(entry, props);
+        return parseTemplateProps(entry, props) as ResolvedProps;
       }
       return props;
     },
   };
-}
-
-function lookup<T>(registry: Record<string, T> | undefined, channel: string, key: string): T {
-  if (registry === undefined || !Object.hasOwn(registry, key)) {
-    throw new Error(`${channel} template '${key}' is not registered`);
-  }
-  return registry[key];
 }

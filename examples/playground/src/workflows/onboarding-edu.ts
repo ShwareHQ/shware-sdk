@@ -1,5 +1,6 @@
-import { type SubFlow, type TemplateRef, not, template, trigger, workflow } from '@shware/workflow';
-import { t } from '../templates';
+import { type SubFlow, not, trigger, workflow } from '@shware/workflow';
+import { discord } from '../discord';
+import { email } from '../email';
 import { e } from './schema';
 import {
   newUsers7d,
@@ -31,24 +32,24 @@ const login = trigger.event(e.login, { filter: newUsers7d });
 
 /* -------------------------------- Templates --------------------------------- */
 
-const welcome = t.email.onboarding_welcome;
+const welcome = email.onboardingWelcome;
 /** The series ends in the community server rather than with a ninth email. */
-const graduation = template.discord('community_series_graduation');
+const graduation = discord.communitySeriesGraduation;
 
 const edu = {
-  templates: t.email.edu_templates,
-  collaboration: t.email.edu_collaboration,
-  whiteboards: t.email.edu_whiteboards,
-  integrations: t.email.edu_integrations,
-  automations: t.email.edu_automations,
-  api: t.email.edu_api,
-  mobile: t.email.edu_mobile,
-  publishing: t.email.edu_publishing,
+  templates: email.eduTemplates,
+  collaboration: email.eduCollaboration,
+  whiteboards: email.eduWhiteboards,
+  integrations: email.eduIntegrations,
+  automations: email.eduAutomations,
+  api: email.eduApi,
+  mobile: email.eduMobile,
+  publishing: email.eduPublishing,
 };
 
 /** One education module: send the email, wait a week, then rejoin for the next module. */
 const eduModule =
-  (template: TemplateRef<'email'>): SubFlow =>
+  (template: (typeof edu)[keyof typeof edu]): SubFlow =>
   (w) =>
     w.email(template).delay('1 week');
 

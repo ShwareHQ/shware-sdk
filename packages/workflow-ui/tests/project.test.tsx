@@ -63,6 +63,24 @@ describe('a defineConfig project', () => {
     expect(snapshot.registries.push).toBeUndefined();
   });
 
+  test('the browser looks templates up by id, not by the property holding them', async () => {
+    const snapshot = await snapshotOf('project');
+    const server = servers.at(-1);
+    if (server === undefined) throw new Error('no fixture server');
+    /* Evaluate the generated module the way the browser would, beside the fixture it imports. */
+    const file = resolve(fixtures, 'project/.virtual.mjs');
+    writeFileSync(file, virtualModule(snapshot, undefined));
+    try {
+      const { default: config } = await server.ssrLoadModule(file);
+      const { email } = await server.ssrLoadModule(resolve(fixtures, 'project/src/email.ts'));
+      expect(Object.keys(config.emails)).toEqual(['welcome']);
+      expect(config.emails.welcome).toBe(email.welcomeEmail);
+      expect(config.workflows.onboarding.flow[0]).toMatchObject({ template: 'welcome' });
+    } finally {
+      rmSync(file);
+    }
+  });
+
   test('its emails envelope is what the studio shows', async () => {
     const snapshot = await snapshotOf('project');
 
@@ -112,8 +130,8 @@ describe('one exported { email, push } registry', () => {
       `import { registry as emailsSource } from ${JSON.stringify(file)};`,
       `import { registry as pushesSource } from ${JSON.stringify(file)};`,
     ]);
-    expect(code).toContain('emails: emailsSource.email,');
-    expect(code).toContain('pushes: pushesSource.push,');
+    expect(code).toContain('emails: byId(emailsSource.email),');
+    expect(code).toContain('pushes: byId(pushesSource.push),');
   });
 });
 

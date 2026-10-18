@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'onboarding_pro_tips',
   title: 'Onboarding · Pro tips',
   description: 'For users already active: the shortcuts that separate daily drivers from visitors.',
   props: z.strictObject({}),

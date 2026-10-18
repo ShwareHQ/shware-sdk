@@ -9,8 +9,7 @@
 import { expectTypeOf } from 'vitest';
 import {
   type Duration,
-  type TemplateRef,
-  type TemplateRegistry,
+  type PropsOf,
   type UserPropertyRef,
   action,
   between,
@@ -27,7 +26,7 @@ import {
   notBetween,
   performed,
   pushTemplate,
-  templates,
+  slackTemplate,
   trigger,
   workflow,
 } from '../src/index';
@@ -146,6 +145,7 @@ import { z } from 'zod';
 const namedSchema = z.strictObject({ name: z.string(), plan: z.enum(['free', 'pro']).optional() });
 
 const welcomeEmail = emailTemplate({
+  id: 'welcome',
   title: 'Welcome',
   props: namedSchema,
   subject: 'Hi',
@@ -158,6 +158,7 @@ const welcomeEmail = emailTemplate({
 });
 
 const creditsPush = pushTemplate({
+  id: 'credits',
   title: 'Credits',
   props: z.strictObject({ credits: z.number() }),
   preview: { credits: 3 },
@@ -165,6 +166,7 @@ const creditsPush = pushTemplate({
 });
 
 emailTemplate({
+  id: 'x',
   title: 'Bad preview',
   props: namedSchema,
   subject: 'Hi',
@@ -174,6 +176,7 @@ emailTemplate({
 });
 
 emailTemplate({
+  id: 'x',
   title: 'Bad preview',
   props: namedSchema,
   subject: 'Hi',
@@ -183,6 +186,7 @@ emailTemplate({
 });
 
 emailTemplate({
+  id: 'x',
   title: 'Bad preview',
   props: namedSchema,
   subject: 'Hi',
@@ -192,6 +196,7 @@ emailTemplate({
 });
 
 emailTemplate({
+  id: 'x',
   title: 'No widening',
   props: namedSchema,
   subject: 'Hi',
@@ -201,6 +206,7 @@ emailTemplate({
 });
 
 pushTemplate({
+  id: 'x',
   title: 'Async',
   props: namedSchema,
   preview: { name: 'Ada' },
@@ -209,6 +215,7 @@ pushTemplate({
 });
 
 pushTemplate({
+  id: 'x',
   title: 'Empty',
   props: z.strictObject({}),
   preview: {},
@@ -216,6 +223,7 @@ pushTemplate({
 });
 
 pushTemplate({
+  id: 'x',
   title: 'Empty',
   props: z.strictObject({}),
   // @ts-expect-error an empty schema accepts only an empty preview
@@ -223,79 +231,74 @@ pushTemplate({
   content: () => ({ title: 't', body: 'b' }),
 });
 
-// the registries type the keys and the props, per template
+// the definitions themselves type the calls: props from each template's schema
 const emptyPush = pushTemplate({
+  id: 'ping',
   title: 'Ping',
   props: z.strictObject({}),
   preview: {},
   content: () => ({ title: 't', body: 'b' }),
 });
-const schemaRefs = templates({
-  email: { welcome: welcomeEmail },
-  push: { credits: creditsPush, ping: emptyPush },
-} as const);
-const welcomeRef = schemaRefs.email.welcome;
-const creditsRef = schemaRefs.push.credits;
-expectTypeOf(welcomeRef).toEqualTypeOf<
-  TemplateRef<'email', { name: string; plan?: 'free' | 'pro' | undefined }>
->();
-expectTypeOf(creditsRef).toEqualTypeOf<TemplateRef<'push', { credits: number }>>();
-expectTypeOf<keyof typeof schemaRefs.push>().toEqualTypeOf<'credits' | 'ping'>();
-// @ts-expect-error a push key is not an email key
-void schemaRefs.email.credits;
-// @ts-expect-error unregistered push key
-void schemaRefs.push.welcome;
-// @ts-expect-error an email registry takes email templates only
-templates({ email: { credits: creditsPush } });
-// @ts-expect-error a push registry takes push templates only
-templates({ push: { welcome: welcomeEmail } });
+expectTypeOf<PropsOf<typeof welcomeEmail>>().toEqualTypeOf<{
+  name: string;
+  plan?: 'free' | 'pro' | undefined;
+}>();
+expectTypeOf<PropsOf<typeof creditsPush>>().toEqualTypeOf<{ credits: number }>();
+expectTypeOf(welcomeEmail.id).toEqualTypeOf<string>();
+// @ts-expect-error the id is read-only
+welcomeEmail.id = 'renamed';
+// @ts-expect-error a template has an id
+pushTemplate({
+  title: 'No id',
+  props: z.strictObject({}),
+  preview: {},
+  content: () => ({ title: 't', body: 'b' }),
+});
+emailTemplate({
+  // @ts-expect-error an id is a string
+  id: 1,
+  title: 'x',
+  props: namedSchema,
+  subject: 's',
+  preview: { name: 'A' },
+  component: () => null,
+});
 
-// a registry with one channel leaves the other an empty table that takes no key
-const emailOnly = templates({ email: { welcome: welcomeEmail } });
-expectTypeOf(emailOnly.email.welcome).toEqualTypeOf(welcomeRef);
-// @ts-expect-error no push registry, no push key
-void emailOnly.push.credits;
-
-// one registry type for config and references: optional channels keep their exact keys
-const typedRegistry: TemplateRegistry<
-  { welcome: typeof welcomeEmail },
-  { credits: typeof creditsPush }
-> = {
-  email: { welcome: welcomeEmail },
-  push: { credits: creditsPush },
-};
-const typedRefs = templates(typedRegistry);
-expectTypeOf(typedRefs.email.welcome).toEqualTypeOf(welcomeRef);
-expectTypeOf(typedRefs.push.credits).toEqualTypeOf(creditsRef);
-// @ts-expect-error still exact under the annotation
-void typedRefs.email.credits;
-
-const checkedRegistry = { email: { welcome: welcomeEmail } } satisfies TemplateRegistry;
-const checkedRefs = templates(checkedRegistry);
-expectTypeOf(checkedRefs.email.welcome).toEqualTypeOf(welcomeRef);
-// @ts-expect-error satisfies keeps the inferred keys
-void checkedRefs.email.credits;
-// @ts-expect-error and the absent channel stays empty
-void checkedRefs.push.credits;
-
-workflow({ id: 'schema_refs_empty', trigger: trigger.event(e.sign_up) })
-  .push(schemaRefs.push.ping, {})
+workflow({ id: 'schema_empty', trigger: trigger.event(e.sign_up) })
+  .push(emptyPush)
+  .push(emptyPush, {})
   // @ts-expect-error an empty schema takes no props
-  .push(schemaRefs.push.ping, { name: 'Ada' });
+  .push(emptyPush, { name: 'Ada' });
 
-workflow({ id: 'schema_refs', trigger: trigger.event(e.sign_up) })
-  .email(welcomeRef, { name: 'Ada' })
-  .email(welcomeRef, { name: 'Ada', plan: 'pro' })
-  .push(creditsRef, { credits: u.docs_count })
-  .push(creditsRef, { credits: 3 }, { devices: 'latest' });
+workflow({ id: 'schema', trigger: trigger.event(e.sign_up) })
+  .email(welcomeEmail, { name: 'Ada' })
+  .email(welcomeEmail, { name: 'Ada', plan: 'pro' })
+  .push(creditsPush, { credits: u.docs_count })
+  .push(creditsPush, { credits: 3 }, { devices: 'latest' });
 
-workflow({ id: 'schema_refs_bad', trigger: trigger.event(e.sign_up) })
+workflow({ id: 'schema_bad', trigger: trigger.event(e.sign_up) })
   // @ts-expect-error required props cannot be omitted
-  .push(creditsRef, {})
+  .push(creditsPush, {})
   // @ts-expect-error a user ref of the wrong type
-  .push(creditsRef, { credits: u.subscription_plan })
-  // @ts-expect-error an email ref is not a push ref
-  .push(welcomeRef, { name: 'Ada' });
+  .push(creditsPush, { credits: u.subscription_plan })
+  // @ts-expect-error an email template is not a push template
+  .push(welcomeEmail, { name: 'Ada' })
+  // @ts-expect-error a field the schema does not declare
+  .email(welcomeEmail, { name: 'Ada', extra: 1 });
+
+// webhook templates keep the host's Env and type their props the same way
+const alert = slackTemplate<z.ZodObject<{ plan: z.ZodString }>, { WEBHOOK_SLACK: string }>({
+  id: 'alert',
+  title: 'Alert',
+  props: z.strictObject({ plan: z.string() }),
+  preview: { plan: 'pro' },
+  webhook: (env) => env.WEBHOOK_SLACK,
+  content: ({ plan }) => ({ text: plan }),
+});
+workflow({ id: 'webhook', trigger: trigger.event(e.sign_up) })
+  .slack(alert, { plan: 'pro' })
+  // @ts-expect-error a slack template is not a discord template
+  .discord(alert, { plan: 'pro' });
 
 /* ------------------------------- shared contract ------------------------------- */
 

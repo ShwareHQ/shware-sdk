@@ -1,5 +1,5 @@
 import { defineConfig } from '@shware/workflow';
-import { registry } from './src/templates';
+import { templates } from './src/templates';
 import {
   activationNudge,
   checkoutRecovery,
@@ -62,7 +62,7 @@ export default defineConfig({
     inactive30d,
   ],
   actions: [issueCoupon],
-  templates: registry,
+  templates,
   emails: {
     from: { email: 'hello@acme.io', name: 'Acme' },
     replyTo: { email: 'support@acme.io', name: 'Acme Support' },

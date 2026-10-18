@@ -9,6 +9,8 @@ import type { JourneyStore } from '../store/index';
 import {
   type DiscordTemplate,
   type SlackTemplate,
+  indexTemplates,
+  lookupTemplate,
   renderDiscordContent,
   renderSlackContent,
 } from '../templates';
@@ -182,37 +184,26 @@ export function channelsFromConfig(
    * A webhook template's URL, read from the environment the Worker validated at startup (its
    * `env` schema): a template whose variable is unset fails the step, naming the template.
    */
-  const webhookUrl = (
-    channel: 'discord' | 'slack',
-    key: string,
-    template: DiscordTemplate | SlackTemplate
-  ) => {
+  const webhookUrl = (channel: 'discord' | 'slack', template: DiscordTemplate | SlackTemplate) => {
     const url = template.webhook(env as unknown as Record<string, unknown>);
     if (typeof url !== 'string' || url === '') {
       throw new Error(
-        `${channel} template '${key}': its webhook URL is not set in the environment`
+        `${channel} template '${template.id}': its webhook URL is not set in the environment`
       );
     }
     return url;
-  };
-  const lookupTemplate = <T>(
-    registry: Readonly<Record<string, T>>,
-    channel: string,
-    key: string
-  ) => {
-    if (!Object.hasOwn(registry, key)) throw new Error(`unknown ${channel} template: ${key}`);
-    return registry[key];
   };
 
   const discord = (): MessageSender => {
     const registry = config.templates?.discord;
     if (registry === undefined) return unavailable('no discord templates are registered');
+    const index = indexTemplates('discord', registry);
     return new DiscordWebhookSender({
-      render: (key, props) => {
-        const template = lookupTemplate(registry, 'discord', key) as DiscordTemplate;
+      render: (id, props) => {
+        const template = lookupTemplate(index, 'discord', id);
         return {
-          url: webhookUrl('discord', key, template),
-          content: renderDiscordContent(template, key, props),
+          url: webhookUrl('discord', template),
+          content: renderDiscordContent(template, props),
         };
       },
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
@@ -222,13 +213,11 @@ export function channelsFromConfig(
   const slack = (): MessageSender => {
     const registry = config.templates?.slack;
     if (registry === undefined) return unavailable('no slack templates are registered');
+    const index = indexTemplates('slack', registry);
     return new SlackWebhookSender({
-      render: (key, props) => {
-        const template = lookupTemplate(registry, 'slack', key) as SlackTemplate;
-        return {
-          url: webhookUrl('slack', key, template),
-          content: renderSlackContent(template, key, props),
-        };
+      render: (id, props) => {
+        const template = lookupTemplate(index, 'slack', id);
+        return { url: webhookUrl('slack', template), content: renderSlackContent(template, props) };
       },
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     });

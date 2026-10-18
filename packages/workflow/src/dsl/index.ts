@@ -45,11 +45,7 @@ export {
   type PropsOf,
   type TemplateFactory,
   type TemplateRef,
-  type TemplateRefs,
-  type TemplateRefTable,
-  type TemplateRegistry,
   template,
-  templates,
 } from './template';
 export {
   type Condition,

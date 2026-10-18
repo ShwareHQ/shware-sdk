@@ -1,20 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import {
-  type Duration,
-  compileBundle,
-  eq,
-  flow,
-  performed,
-  template,
-  trigger,
-  workflow,
-} from '../src/index';
+import { type Duration, compileBundle, eq, flow, performed, trigger, workflow } from '../src/index';
 import { WorkflowIR } from '../src/ir';
 import {
   activeSubscriber,
   allWorkflows,
   checkoutRecovery,
   e,
+  plainEmail,
+  plainPush,
   purchaser,
   reengagement,
   winback,
@@ -198,15 +191,15 @@ describe('compileBundle guards', () => {
   });
 
   test('duplicate template keys within a channel fail to compile', () => {
-    const a = template.email('offer');
-    const b = template.email('offer');
+    const a = plainEmail('offer');
+    const b = plainEmail('offer');
     expect(() => compileBundle({ workflows: [], templates: [a, b] })).toThrow(/duplicate template/);
   });
 
   test('one key in two channels is two templates (an email and a push of one nudge)', () => {
     const bundle = compileBundle({
       workflows: [],
-      templates: [template.email('offer'), template.push('offer')],
+      templates: [plainEmail('offer'), plainPush('offer')],
     });
     expect(bundle.templates.map((t) => `${t.channel}:${t.key}`)).toEqual([
       'email:offer',

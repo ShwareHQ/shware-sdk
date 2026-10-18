@@ -1,10 +1,20 @@
 import type { ChannelIR, ConditionIR, NodeIR, PropValueIR, SourceLocIR } from '../ir';
 import { captureLoc } from '../provenance';
+import {
+  type AnyTemplate,
+  CHANNEL_OF,
+  type DiscordTemplate,
+  type EmailTemplate,
+  type PropsSchema,
+  type PushTemplate,
+  type SlackTemplate,
+  isTemplate,
+} from '../templates';
 import type { ActionRef } from './action';
 import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
 import { type Condition, condIR } from './condition';
 import type { EventRef, MessageArgs, PropInput, PropsInput } from './refs';
-import type { Channel, TemplateRef } from './template';
+import type { PropsOf, TemplateRef } from './template';
 
 /**
  * The flow chain — FlowBuilder is the DSL's step surface (messages, delays,
@@ -44,18 +54,15 @@ export interface PreferOptions {
 }
 
 /** The candidates `prefer()` takes: one push and one email template, in priority order. */
-type PreferPair =
-  | readonly [TemplateRef<'push', object>, TemplateRef<'email', object>]
-  | readonly [TemplateRef<'email', object>, TemplateRef<'push', object>];
+type PreferPair = readonly [PushTemplate, EmailTemplate] | readonly [EmailTemplate, PushTemplate];
 
-type RefProps<R> = R extends TemplateRef<infer _C, infer P> ? P : never;
 type NormalizeProps<P> = { -readonly [K in keyof P]: P[K] };
 type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
 /** Both candidates render the one props object, so they must declare the same props type — not merely overlap. */
 type SameProps<T extends PreferPair> =
-  Equal<NormalizeProps<RefProps<T[0]>>, NormalizeProps<RefProps<T[1]>>> extends true
+  Equal<NormalizeProps<PropsOf<T[0]>>, NormalizeProps<PropsOf<T[1]>>> extends true
     ? unknown
     : { readonly __prefer_error__: 'Both templates must declare the same props type' };
 
@@ -64,22 +71,18 @@ type KeysOfUnion<A> = A extends unknown ? keyof A : never;
 /** Rejects known extra fields, which `{}` (an empty props schema) would otherwise accept. */
 type NoExtra<A, P> = Record<Exclude<KeysOfUnion<A>, keyof P>, never>;
 
-const PREFER_CHANNELS: ReadonlySet<unknown> = new Set(['push', 'email']);
-
 /** prefer() is typed strictly, but a JS caller (or an `any`) reaches it unchecked — fail at the call, not at send time. */
 function checkPreferArgs(candidates: unknown, props: unknown, options: unknown): void {
   if (!Array.isArray(candidates) || candidates.length !== 2) {
     throw new TypeError('prefer(): candidates must be exactly two templates — one push, one email');
   }
-  for (const ref of candidates as unknown[]) {
-    const { channel, key } = (ref ?? {}) as Partial<TemplateRef>;
-    if (!PREFER_CHANNELS.has(channel) || typeof key !== 'string' || key === '') {
-      throw new TypeError(
-        'prefer(): each candidate must be a push or email template reference (t.push.<key> / t.email.<key>)'
-      );
-    }
+  const channels = (candidates as unknown[]).map((candidate) =>
+    isTemplate(candidate) ? CHANNEL_OF[candidate.kind] : undefined
+  );
+  if (!channels.every((channel) => channel === 'push' || channel === 'email')) {
+    throw new TypeError('prefer(): each candidate must be a pushTemplate or an emailTemplate');
   }
-  if ((candidates[0] as TemplateRef).channel === (candidates[1] as TemplateRef).channel) {
+  if (channels[0] === channels[1]) {
     throw new TypeError('prefer(): candidates must be one push and one email template');
   }
   if (typeof props !== 'object' || props === null || Array.isArray(props)) {
@@ -108,6 +111,22 @@ export interface Flow {
 
 interface FlowInternal extends Flow {
   readonly nodes: NodeIR[];
+  readonly uses: readonly TemplateUse[];
+}
+
+/**
+ * @internal A template definition a flow sends, kept beside the IR (which names it by id only):
+ * compileConfig checks that the registered definition under that id is this very object, so the
+ * schema that typed the call is the one that renders it. Never part of the IR or its hash.
+ */
+export interface TemplateUse {
+  readonly template: AnyTemplate;
+  readonly loc: SourceLocIR | undefined;
+}
+
+/** @internal The template definitions a workflow sends, sub-flows and fragments included. */
+export function templateUses(builder: FlowBuilder): readonly TemplateUse[] {
+  return builder instanceof FlowBuilderImpl ? builder.uses : [];
 }
 
 /** Sub-flow: a named fragment, or an inline callback (runs once at construction — builder in, builder out). */
@@ -135,7 +154,8 @@ export type BranchArm = BranchCase | SubFlow;
  */
 const ARM_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
-function resolveSubFlow(sub: SubFlow): NodeIR[] {
+/** A sub-flow's nodes; the template definitions it sends are added to `uses`. */
+function resolveSubFlow(sub: SubFlow, uses: TemplateUse[]): NodeIR[] {
   if (typeof sub === 'function') {
     const builder = new FlowBuilderImpl();
     const returned: unknown = sub(builder);
@@ -145,8 +165,10 @@ function resolveSubFlow(sub: SubFlow): NodeIR[] {
         'sub-flow callbacks must be synchronous: they run once, while the workflow is defined'
       );
     }
+    uses.push(...builder.uses);
     return builder.nodes;
   }
+  uses.push(...(sub as FlowInternal).uses);
   /*
    * A named fragment is a value, and the convention is to reuse it — two branch
    * arms may hold the same one. Handing out its own nodes aliases them into
@@ -160,20 +182,26 @@ function resolveSubFlow(sub: SubFlow): NodeIR[] {
 
 export interface FlowBuilder {
   /* ---- Messages: every channel is one message node; separate methods buy channel-level typing ---- */
-  email<P extends object>(template: TemplateRef<'email', P>, ...props: MessageArgs<P>): this;
+  email<T extends EmailTemplate>(template: T, ...props: MessageArgs<PropsOf<T>>): this;
   sms<P extends object>(template: TemplateRef<'sms', P>, ...props: MessageArgs<P>): this;
   /**
    * Push to the user's devices — every device the host's directory lists, or
    * only the most recently registered with `{ devices: 'latest' }`. A user with
    * no device is skipped (`prefer([pushTpl, emailTpl], props)` falls back to email).
    */
-  push<P extends object>(
-    template: TemplateRef<'push', P>,
-    ...args: [...props: MessageArgs<P>, options?: PushOptions]
+  push<T extends PushTemplate>(
+    template: T,
+    ...args: [...props: MessageArgs<PropsOf<T>>, options?: PushOptions]
   ): this;
   inApp<P extends object>(template: TemplateRef<'in_app', P>, ...props: MessageArgs<P>): this;
-  slack<P extends object>(template: TemplateRef<'slack', P>, ...props: MessageArgs<P>): this;
-  discord<P extends object>(template: TemplateRef<'discord', P>, ...props: MessageArgs<P>): this;
+  slack<T extends SlackTemplate<PropsSchema, never>>(
+    template: T,
+    ...props: MessageArgs<PropsOf<T>>
+  ): this;
+  discord<T extends DiscordTemplate<PropsSchema, never>>(
+    template: T,
+    ...props: MessageArgs<PropsOf<T>>
+  ): this;
   survey<P extends object>(template: TemplateRef<'survey', P>, ...props: MessageArgs<P>): this;
 
   /**
@@ -189,11 +217,11 @@ export interface FlowBuilder {
    * and both templates must declare the same props type; for differing props
    * or other channels, write the branch.
    *
-   *   .prefer([t.push.tip, t.email.tip], { name: u.name }, { label: 'tip by channel' })
+   *   .prefer([push.tip, email.tip], { name: u.name }, { label: 'tip by channel' })
    */
-  prefer<const T extends PreferPair, const A extends PropsInput<NoInfer<RefProps<T[0]>>>>(
+  prefer<const T extends PreferPair, const A extends PropsInput<NoInfer<PropsOf<T[0]>>>>(
     candidates: T & SameProps<NoInfer<T>>,
-    props: A & NoInfer<NoExtra<A, RefProps<T[0]>>>,
+    props: A & NoInfer<NoExtra<A, PropsOf<T[0]>>>,
     options?: PreferOptions
   ): this;
 
@@ -227,7 +255,7 @@ export interface FlowBuilder {
    * so one fragment can be used in several places and workflows.
    *
    *   const officeHours = flow((w) => w.timeWindow({ days: ['mon', 'tue', 'wed', 'thu', 'fri'], between: ['09:00', '17:00'] }));
-   *   workflow({ id: 'onboarding', ... }).delay('1 day').use(officeHours).email(t.email.tip, { name: u.name })
+   *   workflow({ id: 'onboarding', ... }).delay('1 day').use(officeHours).email(email.tip, { name: u.name })
    */
   use(fragment: SubFlow): this;
 
@@ -314,9 +342,23 @@ export interface FlowBuilder {
   run<A extends object>(action: ActionRef<A>, ...args: MessageArgs<A>): this;
 }
 
+const DEFINED_CHANNELS: ReadonlySet<ChannelIR> = new Set(Object.values(CHANNEL_OF));
+
+/** A message's template: a definition of the channel (named by its id), or a reference by key. */
+type MessageTemplate = AnyTemplate | TemplateRef;
+
+function templateKey(channel: ChannelIR, tpl: MessageTemplate): string {
+  if (!DEFINED_CHANNELS.has(channel)) return (tpl as TemplateRef).key;
+  // Typed, but a JS caller (or an `any`) reaches it unchecked: fail where the workflow is written
+  if (!isTemplate(tpl) || CHANNEL_OF[tpl.kind] !== channel) {
+    throw new TypeError(`${channel}(): expects a ${channel} template definition`);
+  }
+  return tpl.id;
+}
+
 function messageNode(
   channel: ChannelIR,
-  tpl: TemplateRef<Channel, object>,
+  tpl: MessageTemplate,
   props: object | undefined,
   devices?: 'latest'
 ): NodeIR {
@@ -324,7 +366,7 @@ function messageNode(
     id: '',
     type: 'message',
     channel,
-    template: tpl.key,
+    template: templateKey(channel, tpl),
     props: (props ?? {}) as Record<string, PropValueIR>,
     // Absent for 'all', so adding the option left every existing push's hash as it was
     ...(devices !== undefined ? { devices } : {}),
@@ -339,6 +381,8 @@ function messageNode(
 export class FlowBuilderImpl implements FlowBuilder {
   /** Nodes as collected; ids are assigned in one pass inside toIR, so '' is a placeholder here. */
   readonly nodes: NodeIR[] = [];
+  /** The template definitions sent, with where: compile-time only, never in the IR. */
+  readonly uses: TemplateUse[] = [];
 
   /** Provenance: the callsite (captured in the public method) lands in meta.loc, outside the hash. */
   private pushNode(node: NodeIR, loc: SourceLocIR | undefined): this {
@@ -348,23 +392,25 @@ export class FlowBuilderImpl implements FlowBuilder {
 
   private message(
     channel: ChannelIR,
-    tpl: TemplateRef<Channel, object>,
+    tpl: MessageTemplate,
     props: object | undefined,
     loc: SourceLocIR | undefined,
     devices?: 'latest'
   ): this {
-    return this.pushNode(messageNode(channel, tpl, props, devices), loc);
+    this.pushNode(messageNode(channel, tpl, props, devices), loc);
+    if (isTemplate(tpl)) this.uses.push({ template: tpl, loc });
+    return this;
   }
 
-  email<P extends object>(t: TemplateRef<'email', P>, ...args: MessageArgs<P>): this {
+  email<T extends EmailTemplate>(t: T, ...args: MessageArgs<PropsOf<T>>): this {
     return this.message('email', t, args[0], captureLoc(this.email));
   }
   sms<P extends object>(t: TemplateRef<'sms', P>, ...args: MessageArgs<P>): this {
     return this.message('sms', t, args[0], captureLoc(this.sms));
   }
-  push<P extends object>(
-    t: TemplateRef<'push', P>,
-    ...args: [...props: MessageArgs<P>, options?: PushOptions]
+  push<T extends PushTemplate>(
+    t: T,
+    ...args: [...props: MessageArgs<PropsOf<T>>, options?: PushOptions]
   ): this {
     const [props, options] = args as unknown as [object | undefined, PushOptions | undefined];
     const devices = options?.devices === 'latest' ? 'latest' : undefined;
@@ -373,29 +419,35 @@ export class FlowBuilderImpl implements FlowBuilder {
   inApp<P extends object>(t: TemplateRef<'in_app', P>, ...args: MessageArgs<P>): this {
     return this.message('in_app', t, args[0], captureLoc(this.inApp));
   }
-  slack<P extends object>(t: TemplateRef<'slack', P>, ...args: MessageArgs<P>): this {
+  slack<T extends SlackTemplate<PropsSchema, never>>(t: T, ...args: MessageArgs<PropsOf<T>>): this {
     return this.message('slack', t, args[0], captureLoc(this.slack));
   }
-  discord<P extends object>(t: TemplateRef<'discord', P>, ...args: MessageArgs<P>): this {
+  discord<T extends DiscordTemplate<PropsSchema, never>>(
+    t: T,
+    ...args: MessageArgs<PropsOf<T>>
+  ): this {
     return this.message('discord', t, args[0], captureLoc(this.discord));
   }
   survey<P extends object>(t: TemplateRef<'survey', P>, ...args: MessageArgs<P>): this {
     return this.message('survey', t, args[0], captureLoc(this.survey));
   }
 
-  prefer<const T extends PreferPair, const A extends PropsInput<NoInfer<RefProps<T[0]>>>>(
+  prefer<const T extends PreferPair, const A extends PropsInput<NoInfer<PropsOf<T[0]>>>>(
     candidates: T & SameProps<NoInfer<T>>,
-    props: A & NoInfer<NoExtra<A, RefProps<T[0]>>>,
+    props: A & NoInfer<NoExtra<A, PropsOf<T[0]>>>,
     options?: PreferOptions
   ): this {
     checkPreferArgs(candidates, props, options);
     // Every generated node points at the author's prefer() call, not at this method's body
     const loc = captureLoc(this.prefer);
     const meta = loc !== undefined ? { meta: { loc } } : {};
-    const [first, second] = candidates as readonly TemplateRef<'push' | 'email', object>[];
+    const [first, second] = candidates as readonly (EmailTemplate | PushTemplate)[];
+    const channel = (tpl: EmailTemplate | PushTemplate) => CHANNEL_OF[tpl.kind] as 'email' | 'push';
+    // Both are sent from here as far as the registry check goes, the fallback included
+    this.uses.push({ template: first, loc }, { template: second, loc });
     // A copy per message, as two separately written calls would hold
-    const arm = (tpl: TemplateRef<'push' | 'email', object>): NodeIR[] => [
-      { ...messageNode(tpl.channel, tpl, { ...props }), ...meta },
+    const arm = (tpl: EmailTemplate | PushTemplate): NodeIR[] => [
+      { ...messageNode(channel(tpl), tpl, { ...props }), ...meta },
     ];
     return this.pushNode(
       {
@@ -403,7 +455,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         type: 'branch',
         ...(options?.label !== undefined ? { label: options.label } : {}),
         cases: [
-          { condition: { type: 'reachable', channel: first.channel, ...meta }, flow: arm(first) },
+          { condition: { type: 'reachable', channel: channel(first), ...meta }, flow: arm(first) },
         ],
         otherwise: arm(second),
       },
@@ -471,7 +523,9 @@ export class FlowBuilderImpl implements FlowBuilder {
         condition: condIR(condition),
         timeout: durationIR(opts.timeout),
         onTimeout:
-          onTimeout === 'continue' || onTimeout === 'exit' ? onTimeout : resolveSubFlow(onTimeout),
+          onTimeout === 'continue' || onTimeout === 'exit'
+            ? onTimeout
+            : resolveSubFlow(onTimeout, this.uses),
       },
       loc
     );
@@ -479,7 +533,7 @@ export class FlowBuilderImpl implements FlowBuilder {
 
   use(fragment: SubFlow): this {
     // The fragment's nodes carry their own provenance (where the fragment was written)
-    this.nodes.push(...resolveSubFlow(fragment));
+    this.nodes.push(...resolveSubFlow(fragment, this.uses));
     return this;
   }
 
@@ -498,7 +552,7 @@ export class FlowBuilderImpl implements FlowBuilder {
           throw new Error('branch(): default arm (bare sub-flow) must be the last argument');
         }
         const [condition, sub] = arm as BranchCase;
-        cases.push({ condition: condIR(condition), flow: resolveSubFlow(sub) });
+        cases.push({ condition: condIR(condition), flow: resolveSubFlow(sub, this.uses) });
       } else {
         if (otherwise !== undefined) {
           throw new Error('branch(): only one default arm (bare sub-flow) is allowed');
@@ -506,7 +560,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         if (i !== arms.length - 1) {
           throw new Error('branch(): default arm (bare sub-flow) must be the last argument');
         }
-        otherwise = resolveSubFlow(arm as SubFlow);
+        otherwise = resolveSubFlow(arm as SubFlow, this.uses);
       }
     });
 
@@ -578,7 +632,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         arms: entries.map(([name, a]) => ({
           name,
           weight: a.weight,
-          flow: a.flow ? resolveSubFlow(a.flow) : [],
+          flow: a.flow ? resolveSubFlow(a.flow, this.uses) : [],
         })),
       },
       loc
@@ -638,6 +692,6 @@ export class FlowBuilderImpl implements FlowBuilder {
 export function flow(build: (w: FlowBuilder) => FlowBuilder): Flow {
   const builder = new FlowBuilderImpl();
   build(builder);
-  const impl: FlowInternal = { __flow: true, nodes: builder.nodes };
+  const impl: FlowInternal = { __flow: true, nodes: builder.nodes, uses: builder.uses };
   return impl;
 }

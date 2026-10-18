@@ -31,7 +31,7 @@ export function useEmailPreview(mod: EmailTemplate | undefined, key: string, pro
     queryKey: ['email-preview', key, entryIdentity(mod), props ?? null],
     queryFn: async (): Promise<EmailPreviewResult> => {
       if (mod === undefined) throw new Error(`no email registered for '${key}'`);
-      const prepared = prepareEmail(mod, key, props);
+      const prepared = prepareEmail(mod, props);
       if (!prepared.ok) return { status: 'invalid', failure: prepared.failure };
       const { component, props: parsed, subject } = prepared.email;
       try {

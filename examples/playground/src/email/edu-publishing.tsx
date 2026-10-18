@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'edu_publishing',
   title: 'Education · Publishing',
   description: 'Week 8: publishing a doc to the web, the last module of the series.',
   props: z.strictObject({}),

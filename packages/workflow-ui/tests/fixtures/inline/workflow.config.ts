@@ -8,6 +8,7 @@ export default defineConfig({
   templates: {
     email: {
       welcome: emailTemplate({
+        id: 'welcome',
         title: 'Welcome',
         props: z.strictObject({}),
         subject: 'Welcome',

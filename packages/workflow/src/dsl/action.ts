@@ -51,7 +51,7 @@ export interface ActionRef<A extends object = Record<never, never>> {
 
 /**
  * Define a custom action. The generic `A` types the args `.run()` accepts —
- * the only type injection point, mirroring `template.email<P>()`:
+ * the only type injection point, mirroring `template.sms<P>()`:
  *
  *   const syncCrm = action<{ plan: string }>('sync_crm', async ({ plan }, { userId }) => {
  *     await fetch('https://crm.example.com/sync', { method: 'POST', body: JSON.stringify({ userId, plan }) });

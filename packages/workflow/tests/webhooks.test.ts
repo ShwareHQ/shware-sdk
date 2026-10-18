@@ -10,7 +10,6 @@ import {
   renderDiscordContent,
   renderSlackContent,
   slackTemplate,
-  templates,
 } from '../src/index';
 import { DiscordWebhookSender, SlackWebhookSender } from '../src/webhooks';
 import { FakeJourney } from './fake-cloudflare';
@@ -29,6 +28,7 @@ type Env = z.output<typeof env>;
 const props = z.strictObject({ name: z.string(), plan: z.string() });
 
 const churn = discordTemplate({
+  id: 'churn',
   title: 'Churn risk',
   props,
   preview: { name: 'Ada', plan: 'Pro' },
@@ -40,6 +40,7 @@ const churn = discordTemplate({
 });
 
 const signup = slackTemplate({
+  id: 'signup',
   title: 'New signup',
   props,
   preview: { name: 'Ada', plan: 'Pro' },
@@ -50,7 +51,8 @@ const signup = slackTemplate({
   }),
 });
 
-const registry = { discord: { churn }, slack: { signup } };
+// Registered under JavaScript names of their own: messages name them by id
+const registry = { discord: { churnAlert: churn }, slack: { newSignup: signup } };
 
 const message = (channel: 'discord' | 'slack', template: string): OutboundMessage => ({
   workflow: 'w',
@@ -73,28 +75,34 @@ function recording(status = 204, body = '') {
 }
 
 describe('webhook templates', () => {
-  test('t.discord / t.slack reference the registered keys', () => {
-    const t = templates(registry);
-    expect(t.discord.churn).toMatchObject({ channel: 'discord', key: 'churn' });
-    expect(t.slack.signup).toMatchObject({ channel: 'slack', key: 'signup' });
+  test('the registry is read by id; the property names are not keys', () => {
+    const validator = registryValidator(registry);
+    const valid = { name: 'Ada', plan: 'Pro' };
+    expect(validator.validate({ channel: 'discord', template: 'churn', props: valid })).toEqual(
+      valid
+    );
+    expect(() =>
+      validator.validate({ channel: 'discord', template: 'churnAlert', props: valid })
+    ).toThrow("discord template 'churnAlert' is not registered");
   });
 
   test('content is rendered from parsed props and checked', () => {
-    expect(renderDiscordContent(churn, 'churn', { name: 'Ada', plan: 'Pro' })).toEqual({
+    expect(renderDiscordContent(churn, { name: 'Ada', plan: 'Pro' })).toEqual({
       content: 'Ada may churn',
       embeds: [{ title: 'Pro', color: 0xef4444 }],
     });
-    expect(renderSlackContent(signup, 'signup', { name: 'Ada', plan: 'Pro' }).text).toBe(
+    expect(renderSlackContent(signup, { name: 'Ada', plan: 'Pro' }).text).toBe(
       'Ada signed up for Pro'
     );
     const empty = discordTemplate({
+      id: 'empty',
       title: 'Empty',
       props,
       preview: { name: 'A', plan: 'B' },
       webhook: () => 'https://discord.com/api/webhooks/1/x',
       content: () => ({}),
     });
-    expect(() => renderDiscordContent(empty, 'empty', { name: 'A', plan: 'B' })).toThrow(
+    expect(() => renderDiscordContent(empty, { name: 'A', plan: 'B' })).toThrow(
       /needs content, an embed/
     );
     expect(() =>

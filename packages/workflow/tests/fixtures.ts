@@ -8,14 +8,17 @@
  *    live in examples/playground). The flows below mirror those showcases so
  *    the suite keeps exercising realistic shapes.
  */
+import * as z from 'zod/mini';
 import {
   and,
+  emailTemplate,
   eq,
   event,
   not,
   performed,
+  pushTemplate,
   segment,
-  template,
+  slackTemplate,
   trigger,
   user,
   workflow,
@@ -65,16 +68,66 @@ export const allSegments = [purchaser, activeSubscriber, inactive30d];
 
 /* --------------------------------- Templates -------------------------------- */
 
-export const upgradeRecovery = template.email<{ plan: TestUser['subscription_plan'] }>(
-  'u1_upgrade_recovery'
-);
-export const firstTimeRecovery = template.email('n1_first_time_recovery');
-export const limitedTimeOffer = template.email<{ coupon: string; expiresIn: string }>(
-  'n2_limited_time_offer'
-);
-export const gettingStarted = template.email('getting_started');
-export const proTips = template.email('pro_tips');
-export const csAlert = template.slack<{ plan: TestUser['subscription_plan'] }>('cs_churn_alert');
+const plan = z.strictObject({ plan: z.enum(['free', 'pro', 'business']) });
+const named = z.strictObject({ name: z.string() });
+const empty = z.strictObject({});
+
+/** Templates whose content does not matter to the test: no props, or one `name`. */
+export const plainEmail = (id: string) =>
+  emailTemplate({ id, title: id, props: empty, subject: id, preview: {}, component: () => null });
+export const namedEmail = (id: string) =>
+  emailTemplate({
+    id,
+    title: id,
+    props: named,
+    subject: id,
+    preview: { name: 'A' },
+    component: () => null,
+  });
+export const plainPush = (id: string) =>
+  pushTemplate({
+    id,
+    title: id,
+    props: empty,
+    preview: {},
+    content: () => ({ title: id, body: id }),
+  });
+export const namedPush = (id: string) =>
+  pushTemplate({
+    id,
+    title: id,
+    props: named,
+    preview: { name: 'A' },
+    content: ({ name }) => ({ title: id, body: name }),
+  });
+
+export const upgradeRecovery = emailTemplate({
+  id: 'u1_upgrade_recovery',
+  title: 'Upgrade recovery',
+  props: plan,
+  subject: 'Upgrade',
+  preview: { plan: 'pro' },
+  component: () => null,
+});
+export const firstTimeRecovery = plainEmail('n1_first_time_recovery');
+export const limitedTimeOffer = emailTemplate({
+  id: 'n2_limited_time_offer',
+  title: 'Limited time offer',
+  props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),
+  subject: 'Offer',
+  preview: { coupon: 'SAVE', expiresIn: '24h' },
+  component: () => null,
+});
+export const gettingStarted = plainEmail('getting_started');
+export const proTips = plainEmail('pro_tips');
+export const csAlert = slackTemplate({
+  id: 'cs_churn_alert',
+  title: 'CS churn alert',
+  props: plan,
+  preview: { plan: 'pro' },
+  webhook: () => 'https://hooks.slack.com/services/T/B/x',
+  content: ({ plan }) => ({ text: `churn risk on ${plan}` }),
+});
 
 /* --------------------------------- Workflows -------------------------------- */
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import * as z from 'zod/mini';
 /**
  * Consumer-perspective smoke test: everything below goes through the public
  * entry points only (`.` and `./engine`), exactly the way an installed user
@@ -13,12 +14,12 @@ import {
 import {
   WorkflowIR,
   compileBundle,
+  emailTemplate,
   eq,
   event,
   performed,
   plan,
   segment,
-  template,
   trigger,
   user,
   workflow,
@@ -40,7 +41,14 @@ const u = user<UserProperty>();
 
 const freeUser = segment({ id: 'free_user', condition: eq(u.plan, 'free') });
 const upgraded = segment({ id: 'upgraded', condition: performed(e.upgraded) });
-const welcome = template.email<{ plan: UserProperty['plan'] }>('welcome');
+const welcome = emailTemplate({
+  id: 'welcome',
+  title: 'Welcome',
+  props: z.strictObject({ plan: z.enum(['free', 'pro']) }),
+  subject: 'Welcome',
+  preview: { plan: 'free' },
+  component: () => null,
+});
 
 const onboarding = workflow({
   id: 'onboarding',

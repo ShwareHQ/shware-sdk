@@ -3,6 +3,7 @@ import * as z from 'zod/mini';
 import { Message } from './layout';
 
 export default emailTemplate({
+  id: 'edu_templates',
   title: 'Education · Templates',
   description: 'Week 1 of the education series: starting from a template instead of a blank page.',
   props: z.strictObject({}),

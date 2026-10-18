@@ -7,6 +7,7 @@ import * as z from 'zod/mini';
  * condition in the content.
  */
 export default pushTemplate({
+  id: 'onboarding_first_doc_push',
   title: 'Onboarding · First doc',
   description: 'For new users three days in without a single document.',
   props: z.strictObject({}),

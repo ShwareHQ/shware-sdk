@@ -6,6 +6,7 @@ import * as z from 'zod/mini';
  * prop the workflow supplies, so the same content serves any code.
  */
 export default pushTemplate({
+  id: 'christmas_promo_push',
   title: 'Christmas · 25% off',
   description: 'Holiday discount push for active subscribers, paired with the offer email.',
   props: z.strictObject({ coupon: z.string() }),

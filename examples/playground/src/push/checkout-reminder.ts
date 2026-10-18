@@ -6,6 +6,7 @@ import * as z from 'zod/mini';
  * email, so a subscriber who never opens the inbox still sees the nudge.
  */
 export default pushTemplate({
+  id: 'checkout_reminder_push',
   title: 'Checkout · Reminder',
   description: 'Lands with the upgrade-recovery email an hour after an abandoned checkout.',
   props: z.strictObject({}),

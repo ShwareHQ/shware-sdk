@@ -224,7 +224,7 @@ export function performed<P>(
  *
  *   .branch([reachable('push'), (w) => w.push(tip)], (w) => w.email(tip))
  *
- * (`.prefer([t.push.tip, t.email.tip], props)` is this branch for one push and one email.)
+ * (`.prefer([push.tip, email.tip], props)` is this branch for one push and one email.)
  */
 export function reachable(channel: Channel): Condition {
   return cond({ type: 'reachable', channel }, captureLoc(reachable));

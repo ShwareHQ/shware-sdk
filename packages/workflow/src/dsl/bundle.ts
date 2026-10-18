@@ -8,9 +8,9 @@ import {
   type SegmentIR,
   type WorkflowIR,
 } from '../ir';
+import { type AnyTemplate, CHANNEL_OF } from '../templates';
 import type { ActionRef } from './action';
 import type { SegmentInternal, SegmentRef } from './condition';
-import type { TemplateRef } from './template';
 import type { WorkflowBuilder } from './workflow';
 
 /**
@@ -21,7 +21,8 @@ import type { WorkflowBuilder } from './workflow';
 export function compileBundle(input: {
   workflows: readonly WorkflowBuilder[];
   segments?: readonly SegmentRef[];
-  templates?: readonly TemplateRef[];
+  /** The template manifest: these definitions, by channel and id. */
+  templates?: readonly AnyTemplate[];
   actions?: readonly ActionRef<object>[];
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
@@ -44,8 +45,8 @@ export function compileBundle(input: {
 
   const templates = (input.templates ?? []).map((template) => ({
     irVersion: IR_VERSION,
-    key: template.key,
-    channel: template.channel,
+    key: template.id,
+    channel: CHANNEL_OF[template.kind],
   }));
 
   // Manifest only — name and code-identity hash; the implementation ships in the Worker bundle, never in IR

@@ -1,6 +1,6 @@
 import { defineConfig } from '@shware/workflow';
 import { demoRecovery, demoWaiter, grantCoupon, purchased } from './src/journeys';
-import { registry } from './src/templates';
+import { templates } from './src/templates';
 
 /** The demo's one config: what `POST /bundle/deploy` deploys and what the Worker sends with. */
 export default defineConfig({
@@ -8,6 +8,6 @@ export default defineConfig({
   workflows: [demoRecovery, demoWaiter],
   segments: [purchased],
   actions: [grantCoupon],
-  templates: registry,
+  templates,
   emails: { from: { email: 'noreply@demo.example', name: 'Demo' } },
 });

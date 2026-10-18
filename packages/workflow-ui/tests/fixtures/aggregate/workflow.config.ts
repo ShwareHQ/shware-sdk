@@ -1,9 +1,9 @@
 import { defineConfig, trigger, workflow } from '@shware/workflow';
 import { contract } from '../contract';
-import { registry, t } from './src/templates';
+import { registry } from './src/templates';
 
 const onboarding = workflow({ id: 'onboarding', trigger: trigger.event(contract.events.sign_up) })
-  .email(t.email.welcome)
-  .push(t.push.nudge);
+  .email(registry.email.welcome)
+  .push(registry.push.nudge);
 
 export default defineConfig({ workflows: [onboarding], templates: registry });
