@@ -103,7 +103,7 @@ export const workflowsIndexRoute = createRoute({
 
 const TABS = [
   { to: '/workflows/$id', label: 'workflows.tabs.overview', exact: true },
-  { to: '/workflows/$name/workflow', label: 'workflows.tabs.canvas', exact: true },
+  { to: '/workflows/$id/workflow', label: 'workflows.tabs.canvas', exact: true },
 ] as const;
 
 function WorkflowDetail() {
