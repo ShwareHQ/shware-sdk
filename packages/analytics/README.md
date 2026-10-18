@@ -1,4 +1,42 @@
-# Shware Analytics SDK
+# @shware/analytics
+
+First-party product and marketing analytics for web (Next.js, TanStack Start, React Router) and
+React Native (Expo). One `track()` call records the event against your own backend, forwards it to
+the browser pixels you configure (GA4, PostHog, Meta, Reddit, LinkedIn, OpenAI, Microsoft UET),
+and carries the visit's attribution (UTM, click ids, referrer) so the server can send the same
+conversion on to the ad platforms' conversions APIs.
+
+Related guides in this folder: [GA4.md](./GA4.md) (how sessions and engagement line up with GA4)
+and [UTM.md](./UTM.md) (how to tag campaign links).
+
+## Install
+
+```bash
+pnpm add @shware/analytics
+```
+
+Every framework and platform integration is an optional peer dependency: install only what your
+entry point imports (`next`, `@tanstack/react-start`, `react-router`, `posthog-js`, the `expo-*`
+modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on).
+
+## Entry points
+
+| Import                                    | Runs on | What it is for                                                          |
+| ----------------------------------------- | ------- | ----------------------------------------------------------------------- |
+| `@shware/analytics`                       | client  | `setupAnalytics`, `track`, `setVisitor`, `sendFeedback`, links, bots    |
+| `@shware/analytics/web`                   | browser | `storage`, `getTags`, `getDeviceId` for `setupAnalytics` on the web     |
+| `@shware/analytics/native`                | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`        |
+| `@shware/analytics/native/firebase`       | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics       |
+| `@shware/analytics/native/fbsdk`          | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK               |
+| `@shware/analytics/next`                  | browser | `<Analytics />` for the Next.js App Router                              |
+| `@shware/analytics/tanstack`              | both    | `<Analytics />` and `createClickIdMiddleware` for TanStack Start        |
+| `@shware/analytics/react-router`          | browser | `<Analytics />` for React Router                                        |
+| `@shware/analytics/third-parties`         | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters  |
+| `@shware/analytics/third-parties/posthog` | browser | `sendPosthogEvent` and `setPosthogUser`                                 |
+| `@shware/analytics/server`                | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI |
+| `@shware/analytics/server/legacy`         | server  | The old Meta sender built on `facebook-nodejs-business-sdk`             |
+| `@shware/analytics/attribution`           | server  | `classifyTouch` and the channel vocabulary for reading sessions         |
+| `@shware/analytics/ads`                   | server  | Pulling spend and performance from Google Ads and Meta                  |
 
 ## Client-side only
 
@@ -12,29 +50,37 @@ Server-side conversions go the other way: store the client's events, then hand t
 `@shware/analytics/server`, which takes a `TrackEvent` and forwards it to the Meta, Reddit, OpenAI,
 LinkedIn, Google Ads and Microsoft Advertising conversions APIs.
 
-## Config
+## Setup
 
-layout.tsx
+Call `setupAnalytics` once, at module scope of the client entry, before anything tracks. Web:
 
-```tsx
+```ts
 import { setupAnalytics } from '@shware/analytics';
-import { getTags, getDeviceId, storage } from '@shware/analytics/web';
+import { sendGAEvent, setGAUser } from '@shware/analytics/third-parties';
+import { sendPosthogEvent, setPosthogUser } from '@shware/analytics/third-parties/posthog';
+import { getDeviceId, getTags, storage } from '@shware/analytics/web';
+import { version } from '../package.json';
 
 setupAnalytics({
   storage,
   getTags,
   getDeviceId,
+  release: version,
+  platform: 'web',
+  environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
+  // Optional: every tracked event is also handed to these, and setVisitor to the setters.
+  thirdPartyTrackers: [sendGAEvent, sendPosthogEvent],
+  thirdPartyUserSetters: [setGAUser, setPosthogUser],
   endpoint: 'https://api.example.com/v1/analytics',
 });
-
-function App() {
-  return <div>My React App</div>;
-}
 ```
+
+`getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
 
 React Native (Expo):
 
 ```ts
+import { Platform } from 'react-native';
 import { setupAnalytics } from '@shware/analytics';
 import { deepLink, getDeviceId, getTags, storage } from '@shware/analytics/native';
 
@@ -42,6 +88,9 @@ setupAnalytics({
   storage,
   getTags,
   getDeviceId,
+  release: '1.0.0',
+  platform: Platform.OS === 'ios' ? 'ios' : 'android',
+  environment: __DEV__ ? 'development' : 'production',
   // The link that opened the app — a universal link, an app link, a custom scheme — lands the
   // visit as a web page's URL does: its URL and utm go into every event's tags until
   // the app goes to the background. `setupAnalytics` starts its listeners; nothing runs at import.
@@ -53,14 +102,47 @@ setupAnalytics({
 deepLink.open(url);
 ```
 
+In the app, call `useAppAnalytics(pathname)` from `@shware/analytics/native` in the root layout
+so screen changes are tracked as page views.
+
+### The `<Analytics />` component (web)
+
+Each web framework entry exports an `Analytics` component. Render it once in the document head:
+it tracks page views, outbound clicks and web vitals, and loads the pixels whose ids you pass
+(`gaId`, `gtmId`, `metaPixelId`, `redditPixelId`, `linkedInPartnerId`, `uetTagId`, `hotjarId`,
+and on TanStack Start `openaiPixelId`). TanStack Start, as in the template app:
+
+```tsx
+import { Analytics } from '@shware/analytics/tanstack';
+
+<head>
+  <HeadContent />
+  <Analytics nonce={nonce} gaId="G-XXXXXXXXXX" debugMode={import.meta.env.DEV} />
+</head>;
+```
+
+On TanStack Start, also register the click-id middleware so the ad platforms' first-party cookies
+survive Safari's 7-day cap (see [Keeping the cookies past Safari's limits](#keeping-the-cookies-past-safaris-limits-tanstack-start)):
+
+```ts
+import { createClickIdMiddleware } from '@shware/analytics/tanstack';
+import { createStart } from '@tanstack/react-start';
+
+const clickIdMiddleware = createClickIdMiddleware({ domain: '.example.com' });
+
+export const startInstance = createStart(() => ({ requestMiddleware: [clickIdMiddleware] }));
+```
+
 ## Usage
 
 ```tsx
-import { track } from '@shware/analytics';
+import { setVisitor, track } from '@shware/analytics';
 
 function Button() {
   const onClick = async () => {
-    await api.login();
+    const user = await api.login();
+    // Binds this visitor to the signed-in user (see Visitors below).
+    setVisitor({ user_id: user.id });
     track('login', { method: 'google' });
   };
   return <button onClick={onClick}>Login with Google</button>;
