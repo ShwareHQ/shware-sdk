@@ -1,5 +1,18 @@
 # @shware/security
 
+## 3.4.0
+
+### Minor Changes
+
+- a9ed686: Move `zod` from `dependencies` to `peerDependencies` (`^4.6.5`). These packages export zod schemas and accept your own schemas (`zValidator`, `valid`, workflow props), so they must share the app's zod instance instead of bundling a second copy. Install `zod` alongside the package if your app does not already depend on it; pnpm and npm install it automatically as a peer.
+
+### Patch Changes
+
+- a9ed686: Upgrade dependencies to their latest versions.
+- a9ed686: Make `ioredis` an optional peer instead of a dependency: the Redis session store only takes the `Redis` client you pass in as a type, so apps that do not use it no longer install ioredis. Drop the unused `uuid` dependency.
+- Updated dependencies [a9ed686]
+  - @shware/utils@1.6.3
+
 ## 3.3.2
 
 ### Patch Changes
