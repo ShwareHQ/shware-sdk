@@ -288,7 +288,7 @@ function CanvasTab() {
     preview = (
       <PushThumbnail
         appName={config.title ?? 'App'}
-        title={push?.ok === true ? (push.push.title ?? message.template) : message.template}
+        title={push?.ok === true ? push.push.title : message.template}
         body={push?.ok === true ? push.push.body : ''}
         {...(push?.ok === false ? { error: formatIssues(push.failure) } : {})}
         registered={pushModule !== undefined}

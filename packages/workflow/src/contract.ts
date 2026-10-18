@@ -230,7 +230,7 @@ const ALLOWED = new Set([
 const REFUSED_CHECKS = new Set(['custom', 'overwrite']);
 
 function assertJsonSchema(schema: unknown, where: string, top = false): void {
-  const def = (schema as core.$ZodType | undefined)?._zod?.def;
+  const def = (schema as { _zod?: { def?: core.$ZodTypeDef } } | null | undefined)?._zod?.def;
   if (def === undefined) throw new TypeError(`contract ${where}: not a Zod schema`);
   if (top && def.type !== 'object') {
     throw new TypeError(

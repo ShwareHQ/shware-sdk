@@ -28,6 +28,7 @@ import type { TrackTags } from '../track/types';
  * `resolveClickIdCookies` sets it on the landing document, before any event of the page.
  */
 export function metaFbc(tags: TrackTags, eventTimeMs: number): string | undefined {
+  // oxlint-disable-next-line typescript/no-deprecated -- Read pre-9.0 clients only when the canonical cookie tag is absent.
   const cookie = tags._fbc ?? tags.fbc;
   if (tags.fbclid) {
     if (parseFbc(cookie)?.fbclid === tags.fbclid) return cookie;
@@ -42,6 +43,7 @@ export function metaFbc(tags: TrackTags, eventTimeMs: number): string | undefine
 
 /** Meta's `fbp`: the pixel's browser id, a cookie only. */
 export function metaFbp(tags: TrackTags): string | undefined {
+  // oxlint-disable-next-line typescript/no-deprecated -- Read pre-9.0 clients only when the canonical cookie tag is absent.
   return tags._fbp ?? tags.fbp;
 }
 
@@ -79,6 +81,7 @@ export function redditClickId(tags: TrackTags): string | undefined {
 
 /** The Reddit pixel's browser id, a cookie only. */
 export function redditUuid(tags: TrackTags): string | undefined {
+  // oxlint-disable-next-line typescript/no-deprecated -- Read pre-9.0 clients only when the canonical cookie tag is absent.
   return tags._rdt_uuid ?? tags.rdt_uuid;
 }
 

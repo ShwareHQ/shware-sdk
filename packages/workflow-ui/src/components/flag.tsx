@@ -7,10 +7,13 @@ import { type ComponentType, type SVGProps, useEffect, useState } from 'react';
  * by the module system from then on. vite-only (glob + svgr) — this component
  * is app-internal and deliberately not part of the library exports.
  */
-const FLAGS = import.meta.glob<ComponentType<SVGProps<SVGSVGElement>>>(
-  '../app/assets/flags/*.svg',
-  { query: '?react', import: 'default' }
-);
+type FlagComponent = ComponentType<SVGProps<SVGSVGElement>>;
+
+const FLAGS: Partial<Record<string, () => Promise<FlagComponent>>> =
+  import.meta.glob<FlagComponent>('../app/assets/flags/*.svg', {
+    query: '?react',
+    import: 'default',
+  });
 
 export interface FlagProps {
   /** ISO 3166-1 alpha-2, case-insensitive. Unknown codes render nothing. */
