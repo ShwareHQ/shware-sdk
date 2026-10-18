@@ -12,6 +12,7 @@ import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
 import { recordPushOpen } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
 import {
+  type BundleVersion,
   type JourneyStore,
   type ProfileProps,
   SchemaMismatchError,
@@ -524,6 +525,19 @@ export interface DeployResult {
    * and webhook (TODO — needs endpoint allocation).
    */
   unrouted: { workflow: string; trigger: TriggerIR['type'] }[];
+  /**
+   * Whether the routes now point at this bundle: always for a forced deploy, false for a
+   * versioned one when a version as new or newer is already live (nothing was swapped).
+   */
+  applied: boolean;
+}
+
+/** A versioned deploy on a store that cannot tell which version is live (D1). */
+export class UnversionedStoreError extends Error {
+  override readonly name = 'UnversionedStoreError';
+  constructor() {
+    super('this store does not record which version is live: deploy with POST /bundle/deploy');
+  }
 }
 
 /** A bundle whose declared hashes do not describe its contents — rejected before anything is written. */
@@ -568,12 +582,21 @@ function verifyBundleHashes(parsed: BundleIR): void {
   }
 }
 
-/** Bundle deploy, terraform-apply style: workflow bodies first (content-addressed, so a failed deploy leaves only harmless orphans), then the routing swap. */
+/**
+ * Bundle deploy, terraform-apply style: workflow bodies first (content-addressed, so a failed
+ * deploy leaves only harmless orphans), then the routing swap. With a `version` the swap happens
+ * only over an older live version (`replaceRoutesIfNewer`) — how journeyWorker applies the bundle
+ * compiled into it; without one it is forced, whatever is live.
+ */
 export async function deployBundle(
   env: JourneyEnv,
   bundle: unknown,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore = d1Store(env),
+  version?: BundleVersion
 ): Promise<DeployResult> {
+  if (version !== undefined && store.replaceRoutesIfNewer === undefined) {
+    throw new UnversionedStoreError();
+  }
   const parsed = BundleIR.parse(bundle);
   // Before any write: a bad hash must not reach the store, where it would address content it does not describe
   verifyBundleHashes(parsed);
@@ -582,7 +605,9 @@ export async function deployBundle(
   if (problems.length > 0) throw new SchemaMismatchError(problems);
 
   for (const workflow of parsed.workflows) await store.putWorkflowIR(workflow);
-  await store.replaceRoutes(parsed);
+  let applied = true;
+  if (version === undefined) await store.replaceRoutes(parsed);
+  else applied = (await store.replaceRoutesIfNewer?.(parsed, version)) ?? false;
 
   const unrouted = parsed.workflows
     .filter((workflow) => workflow.trigger.type === 'date' || workflow.trigger.type === 'webhook')
@@ -591,6 +616,7 @@ export async function deployBundle(
   return {
     workflows: parsed.workflows.map((w) => `${w.id}@${w.contentHash.slice(0, 8)}`),
     unrouted,
+    applied,
   };
 }
 

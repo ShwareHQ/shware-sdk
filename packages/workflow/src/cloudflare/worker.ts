@@ -10,7 +10,12 @@ import { registryRenderer } from '../react-email';
 import { reportingObserver } from '../reporting/observer';
 import { handleTracking } from '../reporting/tracking';
 import type { JourneyRuntimeOptions } from '../runtime';
-import { type JourneyStore, SchemaMismatchError, type StoreLease } from '../store/index';
+import {
+  type BundleVersion,
+  type JourneyStore,
+  SchemaMismatchError,
+  type StoreLease,
+} from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
 import { TemplateValidationError, registryValidator } from '../templates';
 import type { JourneyEnv, JourneyParams } from './bindings';
@@ -205,6 +210,40 @@ export function journeyWorker<Env extends JourneyEnv>(
 
   const preview = emails === undefined ? undefined : registryRenderer(emails);
 
+  // The bundle compiled into this version goes live on its own, once per isolate: the first
+  // request or cron run reads which version's bundle is live (one row) and applies this one only
+  // over an older version, so one still serving during a rollout can never put its routes back.
+  // A failure (say the migrations have not run) is logged and retried a minute later. Only the
+  // request that starts the check gets its promise back: a request context cannot wait on
+  // another's I/O.
+  let applying: Promise<void> | undefined;
+  let retryAt = 0;
+  const applyOwnBundle = (env: Env): Promise<void> | undefined => {
+    const metadata = env.CF_VERSION_METADATA;
+    if (metadata === undefined || metadata.id === '') return undefined;
+    const version: BundleVersion = { id: metadata.id, createdAt: Date.parse(metadata.timestamp) };
+    if (Number.isNaN(version.createdAt)) return undefined;
+    if (applying !== undefined || Date.now() < retryAt) return undefined;
+    applying = (async () => {
+      const { store, close } = lease(env);
+      try {
+        if (store.liveBundleVersion === undefined) return; // D1: POST /bundle/deploy
+        const live = await store.liveBundleVersion();
+        if (live !== undefined && (live.id === version.id || live.createdAt >= version.createdAt))
+          return;
+        const result = await deployBundle(env, bundle(), store, version);
+        if (result.applied) console.log(`[workflow] version ${version.id} is live`);
+      } finally {
+        await close();
+      }
+    })().catch((error: unknown) => {
+      applying = undefined;
+      retryAt = Date.now() + 60_000;
+      console.error(`[workflow] could not make version ${version.id} live`, error);
+    });
+    return applying;
+  };
+
   const fetch = async (request: Request, rawEnv: Env, ctx?: ExecutionContextLike) => {
     // Everything below reads the validated environment (the schema's defaults applied)
     let env: Env;
@@ -214,6 +253,12 @@ export function journeyWorker<Env extends JourneyEnv>(
       if (!(error instanceof EnvValidationError)) throw error;
       console.error(`[workflow] ${error.message}`);
       return json({ error: error.message }, 500);
+    }
+    const pending = applyOwnBundle(env);
+    // In the background where the runtime has waitUntil; inline otherwise (tests)
+    if (pending !== undefined) {
+      if (ctx === undefined) await pending;
+      else ctx.waitUntil(pending);
     }
     const url = new URL(request.url);
     const { store, close } = lease(env);
@@ -323,7 +368,13 @@ export function journeyWorker<Env extends JourneyEnv>(
   };
 
   const scheduled = async (_controller: unknown, env: Env, ctx: ExecutionContextLike) => {
-    ctx.waitUntil(sweep(env));
+    // A version with no traffic yet goes live here; the sweep then reads its segments
+    ctx.waitUntil(
+      (async () => {
+        await applyOwnBundle(checkEnv(env));
+        await sweep(env);
+      })()
+    );
   };
 
   return { Runner, fetch, sweep, scheduled };

@@ -149,6 +149,12 @@ export const TABLES = {
     primaryKey: ['wakeHandle', 'event'],
     indexes: [['userId', 'event']],
   }),
+  deployment: table({
+    name: 'deployment',
+    doc: "The Worker version whose compiled bundle the routes came from, one row (`scope` = 'routes'): journeyWorker applies its own bundle only over an older version, so one still serving during a rollout cannot put its routes back. A forced `POST /bundle/deploy` leaves it as it is.",
+    columns: { scope: text, versionId: text, versionCreatedAt: ts, appliedAt: ts },
+    primaryKey: ['scope'],
+  }),
   ir: table({
     name: 'ir',
     doc: 'Workflow bodies (WorkflowIR), content-addressed.',

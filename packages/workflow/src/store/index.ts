@@ -44,6 +44,16 @@ export interface SegmentTriggerRoute {
   segment: string;
 }
 
+/**
+ * A Worker version, as Cloudflare's version metadata binding names it: the bundle compiled into
+ * that version goes live only over an older one (`replaceRoutesIfNewer`).
+ */
+export interface BundleVersion {
+  id: string;
+  /** When the version was created (epoch ms): later versions are newer. */
+  createdAt: number;
+}
+
 export interface EntryInput {
   workflow: string;
   userId: string;
@@ -282,6 +292,18 @@ export interface JourneyStore {
    * are content-addressed and outlive the routes that point at them.
    */
   replaceRoutes(bundle: BundleIR): Promise<void>;
+  /**
+   * The Worker version whose bundle the routes came from, when one put them there through
+   * `replaceRoutesIfNewer` (a forced deploy leaves it as it was). Read from the database itself,
+   * not a cache in front of it. Stores without it (D1) leave every deploy to `POST /bundle/deploy`.
+   */
+  liveBundleVersion?(): Promise<BundleVersion | undefined>;
+  /**
+   * `replaceRoutes`, only when `version` is newer than the live one, recorded in the same
+   * transaction: two versions serving side by side during a rollout cannot leave the older one's
+   * routes in force. False, with nothing written, when a version as new or newer is live.
+   */
+  replaceRoutesIfNewer?(bundle: BundleIR, version: BundleVersion): Promise<boolean>;
 
   /* ----------------------------- segment membership --------------------------- */
   isSegmentMember(segment: string, userId: string): Promise<boolean>;

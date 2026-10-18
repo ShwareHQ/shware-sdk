@@ -103,6 +103,13 @@ export interface JourneyEnv {
   /** The VAPID key pair web pushes are signed with (`generateVapidKeys`); the config's `webPush` turns the channel on. */
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
+  /**
+   * Cloudflare's version metadata binding (wrangler `"version_metadata": { "binding":
+   * "CF_VERSION_METADATA" }`). With it, and a store that records the live version (Postgres),
+   * journeyWorker makes the bundle compiled into each new version live by itself: `wrangler
+   * deploy` is the whole deploy.
+   */
+  CF_VERSION_METADATA?: { id: string; tag?: string; timestamp: string };
   /** Development only: the HTTP/2 relay `wrangler dev` sends APNs requests through (see `@shware/workflow/apns-relay`). */
   APNS_RELAY_ORIGIN?: string;
 }
