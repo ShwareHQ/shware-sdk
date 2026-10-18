@@ -1,5 +1,4 @@
 import { AppState, Linking } from 'react-native';
-import { URLSearchParams } from 'react-native-url-polyfill';
 import type { DeepLink } from '../setup/index';
 import type { TrackTags, UTMParams } from '../track/types';
 

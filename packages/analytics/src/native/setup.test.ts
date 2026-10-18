@@ -33,7 +33,6 @@ vi.mock('react-native', () => ({
   Dimensions: { get: () => ({ width: 390.5, height: 844.4 }) },
   PixelRatio: { get: () => 3 },
 }));
-vi.mock('react-native-url-polyfill', () => ({ URLSearchParams }));
 
 // localStorage for the device-id fallback path; the expo shim install is mocked away.
 const store = new Map<string, string>();
