@@ -12,7 +12,7 @@ and [UTM.md](./UTM.md) (how to tag campaign links).
 ## Install
 
 ```bash
-pnpm add @shware/analytics
+pnpm add @shware/analytics zod
 ```
 
 Every framework and platform integration is an optional peer dependency: install only what your

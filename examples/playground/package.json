@@ -11,10 +11,10 @@
     "@react-email/components": "^1.0.12",
     "@shware/workflow": "workspace:*",
     "@shware/workflow-ui": "workspace:*",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "tailwindcss": "^4.3.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

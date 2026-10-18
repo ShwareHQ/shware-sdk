@@ -8,7 +8,7 @@ limiting), Google One Tap sign-in, Standard Webhooks verification and a few smal
 ## Install
 
 ```bash
-pnpm add @shware/http
+pnpm add @shware/http zod
 ```
 
 Optional peer dependencies, needed only for the parts that use them:

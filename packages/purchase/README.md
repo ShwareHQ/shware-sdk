@@ -10,9 +10,9 @@ signatures and calling store APIs stays in your app, with the official SDKs.
 ## Install
 
 ```sh
-pnpm add @shware/purchase
+pnpm add @shware/purchase zod
 # optional peers, only for the subpaths you use
-pnpm add stripe                            # @shware/purchase/stripe (^22.6.2)
+pnpm add stripe                            # @shware/purchase/stripe (^22.6.2 || ^23.0.0)
 pnpm add @apple/app-store-server-library   # @shware/purchase/app-store (^3.1.0)
 ```
 
