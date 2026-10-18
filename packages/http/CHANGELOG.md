@@ -1,5 +1,18 @@
 # @shware/http
 
+## 3.6.0
+
+### Minor Changes
+
+- a9ed686: Move `zod` from `dependencies` to `peerDependencies` (`^4.6.5`). These packages export zod schemas and accept your own schemas (`zValidator`, `valid`, workflow props), so they must share the app's zod instance instead of bundling a second copy. Install `zod` alongside the package if your app does not already depend on it; pnpm and npm install it automatically as a peer.
+
+### Patch Changes
+
+- a9ed686: Upgrade dependencies to their latest versions.
+- a9ed686: Stop installing `vitest` for consumers (it was listed under `dependencies` but only the tests use it) and drop the unused optional `react` peer.
+- Updated dependencies [a9ed686]
+  - @shware/utils@1.6.3
+
 ## 3.5.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @shware/workflow-ui
 
+## 0.1.3
+
+### Patch Changes
+
+- a9ed686: Upgrade dependencies to their latest versions.
+- a9ed686: Ship `@fontsource-variable/inter` as a dependency: the studio's stylesheet imports it and Vite compiles that stylesheet in the host project, so it was unresolved under strict installs. Drop two unused devtools dev dependencies.
+- Updated dependencies [a9ed686]
+- Updated dependencies [a9ed686]
+- Updated dependencies [a9ed686]
+  - @shware/workflow@0.4.0
+
 ## 0.1.2
 
 ### Patch Changes

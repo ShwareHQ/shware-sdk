@@ -1,5 +1,18 @@
 # @shware/purchase
 
+## 5.2.0
+
+### Minor Changes
+
+- a9ed686: Move `zod` from `dependencies` to `peerDependencies` (`^4.6.5`). These packages export zod schemas and accept your own schemas (`zValidator`, `valid`, workflow props), so they must share the app's zod instance instead of bundling a second copy. Install `zod` alongside the package if your app does not already depend on it; pnpm and npm install it automatically as a peer.
+
+### Patch Changes
+
+- a9ed686: Upgrade dependencies to their latest versions.
+- a9ed686: Accept `stripe@^23.0.0` as the optional peer for `@shware/purchase/stripe`, alongside `^22.6.2`.
+- Updated dependencies [a9ed686]
+  - @shware/utils@1.6.3
+
 ## 5.1.1
 
 ### Patch Changes

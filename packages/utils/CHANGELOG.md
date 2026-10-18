@@ -1,5 +1,11 @@
 # @shware/utils
 
+## 1.6.3
+
+### Patch Changes
+
+- a9ed686: Upgrade dependencies to their latest versions.
+
 ## 1.6.2
 
 ### Patch Changes
