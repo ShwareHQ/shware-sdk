@@ -32,6 +32,7 @@ export function Modal({ visible = false, className, disabled = false, children, 
       if (!open && !disabled) onCancel?.();
     },
   });
+  const { setFloating }: { setFloating: (this: void, node: HTMLElement | null) => void } = refs;
 
   const { getFloatingProps } = useInteractions([
     useDismiss(context, { enabled: !disabled }),
@@ -48,7 +49,7 @@ export function Modal({ visible = false, className, disabled = false, children, 
       >
         <FloatingFocusManager context={context}>
           <div
-            ref={refs.setFloating}
+            ref={setFloating}
             style={superellipse}
             className={cn(
               'bg-card relative max-h-dvh max-w-dvw overflow-y-auto rounded-3xl',

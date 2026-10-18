@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
@@ -56,6 +57,37 @@ afterEach(() => {
 });
 
 describe('useAppAnalytics', () => {
+  it('keeps the first screen predecessor empty during Strict Mode effect replay', async () => {
+    const { Screen } = await mount();
+    const view = render(
+      <StrictMode>
+        <Screen pathname="/home" />
+      </StrictMode>
+    );
+    const initial = track.mock.calls.filter(([name]) => name === 'screen_view');
+    expect(initial).toHaveLength(2);
+    expect(initial.map(([, props]) => props.previous_screen_class)).toEqual([undefined, undefined]);
+    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, undefined]);
+    view.rerender(
+      <StrictMode>
+        <Screen pathname="/settings" />
+      </StrictMode>
+    );
+    expect(track).toHaveBeenLastCalledWith(
+      'screen_view',
+      expect.objectContaining({ screen_name: '/settings', previous_screen_class: '/home' })
+    );
+    view.rerender(
+      <StrictMode>
+        <Screen pathname="/home" />
+      </StrictMode>
+    );
+    expect(track).toHaveBeenLastCalledWith(
+      'screen_view',
+      expect.objectContaining({ screen_name: '/home', previous_screen_class: '/settings' })
+    );
+  });
+
   it('sends first_open once ever, and screen_view per screen', async () => {
     const { Screen, storage } = await mount();
     const { rerender } = render(<Screen pathname="/home" />);

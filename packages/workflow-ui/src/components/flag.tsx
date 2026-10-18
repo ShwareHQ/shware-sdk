@@ -19,22 +19,25 @@ export interface FlagProps {
 }
 
 export function Flag({ code, className }: FlagProps) {
-  const [Component, setComponent] = useState<ComponentType<SVGProps<SVGSVGElement>> | undefined>(
-    undefined
-  );
-  const load = FLAGS[`../app/assets/flags/${code.toUpperCase()}.svg`];
+  const key = `../app/assets/flags/${code.toUpperCase()}.svg`;
+  const load = Object.hasOwn(FLAGS, key) ? FLAGS[key] : undefined;
+  const [loaded, setLoaded] = useState<{
+    load: typeof load;
+    Component: ComponentType<SVGProps<SVGSVGElement>>;
+  }>();
 
   useEffect(() => {
+    if (load === undefined) return;
     let alive = true;
-    setComponent(undefined);
-    void load?.().then((mod) => {
-      if (alive) setComponent(() => mod);
+    void load().then((Component) => {
+      if (alive) setLoaded({ load, Component });
     });
     return () => {
       alive = false;
     };
   }, [load]);
 
+  const Component = loaded !== undefined && loaded.load === load ? loaded.Component : undefined;
   if (Component === undefined) return null;
   return <Component className={className} aria-hidden />;
 }

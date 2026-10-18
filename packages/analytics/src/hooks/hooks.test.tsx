@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react';
+import { StrictMode, Suspense, startTransition, use, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
@@ -171,6 +172,42 @@ describe('useWebAnalytics', () => {
     return { Page, storage };
   }
 
+  it('does not use a suspended speculative page as the next committed page predecessor', async () => {
+    await load();
+    const { useWebAnalytics } = await import('./use-web-analytics');
+    const pending = new Promise<void>(() => {});
+    function Page({ pathname }: { pathname: string }) {
+      useWebAnalytics(pathname, '');
+      if (pathname === '/pending') use(pending);
+      return <output>{pathname}</output>;
+    }
+    function App() {
+      const [pathname, setPathname] = useState('/a');
+      return (
+        <>
+          <button type="button" onClick={() => startTransition(() => setPathname('/pending'))}>
+            Suspend
+          </button>
+          <button type="button" onClick={() => setPathname('/b')}>
+            Navigate
+          </button>
+          <Suspense fallback="Loading">
+            <Page pathname={pathname} />
+          </Suspense>
+        </>
+      );
+    }
+    const view = render(<App />);
+    await act(async () => view.getByText('Suspend').click());
+    expect(view.getByRole('status').textContent).toBe('/a');
+    act(() => view.getByText('Navigate').click());
+    expect(track).toHaveBeenLastCalledWith(
+      'page_view',
+      expect.objectContaining({ page_path: '/b', previous_page_path: '/a' })
+    );
+    expect(track.mock.calls.filter(([name]) => name === 'page_view')).toHaveLength(2);
+  });
+
   it('sends page_view on a query change, but not on a tracking-parameter cleanup', async () => {
     const { Page } = await mount();
     const pageViews = () => track.mock.calls.filter(([name]) => name === 'page_view');
@@ -188,6 +225,37 @@ describe('useWebAnalytics', () => {
       page_path: '/pricing',
       previous_page_path: '/pricing',
     });
+  });
+
+  it('keeps the first view predecessor empty during Strict Mode effect replay', async () => {
+    const { Page } = await mount();
+    const view = render(
+      <StrictMode>
+        <Page pathname="/a" />
+      </StrictMode>
+    );
+    const initial = track.mock.calls.filter(([name]) => name === 'page_view');
+    expect(initial).toHaveLength(2);
+    expect(initial.map(([, props]) => props.previous_page_path)).toEqual([undefined, undefined]);
+    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, undefined]);
+    view.rerender(
+      <StrictMode>
+        <Page pathname="/b" />
+      </StrictMode>
+    );
+    expect(track).toHaveBeenLastCalledWith(
+      'page_view',
+      expect.objectContaining({ page_path: '/b', previous_page_path: '/a' })
+    );
+    view.rerender(
+      <StrictMode>
+        <Page pathname="/a" />
+      </StrictMode>
+    );
+    expect(track).toHaveBeenLastCalledWith(
+      'page_view',
+      expect.objectContaining({ page_path: '/a', previous_page_path: '/b' })
+    );
   });
 
   it('sends first_visit once ever, and page_view per pathname', async () => {

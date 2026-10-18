@@ -1,10 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { sendPendingEvents, track } from '../track/index';
-import { usePrevious } from './use-previous';
 
 function sendFirstOpen(pathname: string) {
   if (config.storage.getItem(keys.first_open_time)) return;
@@ -19,7 +18,7 @@ function sendUserEngagement() {
 }
 
 export function useAppAnalytics(pathname: string) {
-  const prevPathname = usePrevious(pathname);
+  const committedScreen = useRef<{ path: string; previousPath: string | undefined }>(undefined);
 
   useEffect(() => {
     const session = getSession();
@@ -48,6 +47,11 @@ export function useAppAnalytics(pathname: string) {
 
   // when the screen is switched, the engagement time of the previous screen is recorded
   useEffect(() => {
+    if (committedScreen.current?.path !== pathname) {
+      committedScreen.current = { path: pathname, previousPath: committedScreen.current?.path };
+    }
+    // Strict Mode can replay this setup without navigating to a new screen.
+    const prevPathname = committedScreen.current.previousPath;
     track('screen_view', {
       screen_name: pathname,
       screen_class: pathname,

@@ -1,4 +1,12 @@
-import { type ReactNode, createContext, useCallback, useContext, useEffect, useState } from 'react';
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 /**
  * Light / dark / follow-the-OS, applied as a `dark` class on <html>.
@@ -21,6 +29,16 @@ function readStored(): Theme {
 const prefersDark = () =>
   typeof matchMedia === 'undefined' ? false : matchMedia('(prefers-color-scheme: dark)').matches;
 
+function subscribeSystemTheme(onChange: () => void) {
+  if (typeof matchMedia === 'undefined') return () => {};
+  const query = matchMedia('(prefers-color-scheme: dark)');
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+const subscribeExplicitTheme = () => () => {};
+const getServerSystemTheme = () => false;
+
 /** Runs before React mounts, so the first paint is already the right theme. */
 export function applyStoredTheme() {
   const theme = readStored();
@@ -42,17 +60,11 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readStored);
-  const [systemDark, setSystemDark] = useState(prefersDark);
-
-  /* Track the OS only while `system` is selected; an explicit choice ignores it. */
-  useEffect(() => {
-    if (theme !== 'system' || typeof matchMedia === 'undefined') return;
-    const query = matchMedia('(prefers-color-scheme: dark)');
-    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
-    query.addEventListener('change', onChange);
-    setSystemDark(query.matches);
-    return () => query.removeEventListener('change', onChange);
-  }, [theme]);
+  const systemDark = useSyncExternalStore(
+    theme === 'system' ? subscribeSystemTheme : subscribeExplicitTheme,
+    prefersDark,
+    getServerSystemTheme
+  );
 
   const resolved = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
 

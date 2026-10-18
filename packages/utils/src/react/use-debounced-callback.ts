@@ -1,8 +1,9 @@
-import { useEffect, useEffectEvent, useMemo } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react';
 import { type DebounceOptions, debounce } from '../debounce';
-import { useLatestRef } from './use-latest-ref';
 
 /**
+ * Uses the latest committed callback for events and timers without restarting the queue.
+ * Call after commit, rather than from a child's ref or layout effect during its parent's commit.
  * flushOnExit: flush the debounced callback when the component unmounts, default is false
  */
 export function useDebouncedCallback<Args extends unknown[]>(
@@ -12,11 +13,16 @@ export function useDebouncedCallback<Args extends unknown[]>(
 ) {
   const { maxWait, leading, trailing, flushOnExit = false } = options;
 
-  const fnRef = useLatestRef(fn);
-  const flushOnExitRef = useLatestRef(flushOnExit);
+  const fnRef = useRef(fn);
+  const flushOnExitRef = useRef(flushOnExit);
+  useLayoutEffect(() => {
+    fnRef.current = fn;
+    flushOnExitRef.current = flushOnExit;
+  }, [fn, flushOnExit]);
 
   const debounced = useMemo(
     () =>
+      // oxlint-disable-next-line react/refs -- debounce stores this callback; construction never invokes it.
       debounce((...args: Args) => fnRef.current(...args), delay, { maxWait, leading, trailing }),
     [delay, maxWait, leading, trailing]
   );

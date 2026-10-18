@@ -1,5 +1,6 @@
 import {
   FloatingFocusManager,
+  type ReferenceType,
   autoUpdate,
   flip,
   offset,
@@ -90,6 +91,13 @@ export function DateRangePicker({ value, onChange, className }: Props) {
     whileElementsMounted: autoUpdate,
     middleware: [offset(4), flip({ padding: 8 }), shift({ padding: 8 })],
   });
+  const {
+    setFloating,
+    setReference,
+  }: {
+    setFloating: (this: void, node: HTMLElement | null) => void;
+    setReference: (this: void, node: ReferenceType | null) => void;
+  } = refs;
 
   const { getReferenceProps, getFloatingProps } = useInteractions([
     useClick(context),
@@ -116,7 +124,7 @@ export function DateRangePicker({ value, onChange, className }: Props) {
   return (
     <>
       <Button
-        ref={refs.setReference}
+        ref={setReference}
         size="sm"
         variant="outline"
         className={cn('gap-2 font-normal', className)}
@@ -130,7 +138,7 @@ export function DateRangePicker({ value, onChange, className }: Props) {
       {open && (
         <FloatingFocusManager context={context} modal={false}>
           <div
-            ref={refs.setFloating}
+            ref={setFloating}
             style={{ ...floatingStyles, ...superellipse }}
             className="border-border bg-card shadow-card-shadow z-50 w-64 rounded-xl border p-2 shadow-lg"
             {...getFloatingProps()}

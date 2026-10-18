@@ -1,5 +1,6 @@
 import {
   FloatingFocusManager,
+  type ReferenceType,
   autoUpdate,
   flip,
   offset,
@@ -47,6 +48,13 @@ export function Menu({ items, className, ...aria }: Props) {
     whileElementsMounted: autoUpdate,
     middleware: [offset(4), flip({ padding: 8 }), shift({ padding: 8 })],
   });
+  const {
+    setFloating,
+    setReference,
+  }: {
+    setFloating: (this: void, node: HTMLElement | null) => void;
+    setReference: (this: void, node: ReferenceType | null) => void;
+  } = refs;
 
   const listRef = useRef<(HTMLElement | null)[]>([]);
   const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions([
@@ -60,7 +68,7 @@ export function Menu({ items, className, ...aria }: Props) {
     <>
       <button
         type="button"
-        ref={refs.setReference}
+        ref={setReference}
         className={cn(
           'text-muted hover:bg-hover hover:text-primary flex size-8 items-center justify-center',
           'rounded-lg transition-colors focus:outline-none',
@@ -79,7 +87,7 @@ export function Menu({ items, className, ...aria }: Props) {
       {open && (
         <FloatingFocusManager context={context} modal={false}>
           <div
-            ref={refs.setFloating}
+            ref={setFloating}
             style={floatingStyles}
             className="border-border bg-card z-50 min-w-36 rounded-xl border p-1 shadow-lg"
             {...getFloatingProps()}

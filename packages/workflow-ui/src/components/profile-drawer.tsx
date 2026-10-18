@@ -118,7 +118,34 @@ function Row({
   );
 }
 
-/** Copy-to-clipboard tail for identity rows, flipping to a check as feedback. */
+async function copyText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    // Clipboard permissions and embedded webviews can require the legacy fallback.
+  }
+
+  const area = document.createElement('textarea');
+  const previousFocus = document.activeElement;
+  area.value = value;
+  area.readOnly = true;
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  try {
+    document.body.append(area);
+    area.select();
+    // oxlint-disable-next-line typescript/no-deprecated -- Only used when the Clipboard API is unavailable or rejects permission.
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+    if (previousFocus instanceof HTMLElement) previousFocus.focus();
+  }
+}
+
+/** Copy-to-clipboard tail for identity rows, flipping to a check only after success. */
 function CopyButton({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -132,20 +159,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
       aria-label={label}
       title={label}
       onClick={() => {
-        void (async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-          } catch {
-            /* Clipboard API can be permission-gated (embedded webviews); fall back. */
-            const area = document.createElement('textarea');
-            area.value = value;
-            document.body.append(area);
-            area.select();
-            document.execCommand('copy');
-            area.remove();
-          }
-          setCopied(true);
-        })();
+        void copyText(value).then(setCopied);
       }}
       className="text-muted hover:bg-hover hover:text-primary flex size-6 shrink-0 items-center justify-center rounded-md transition-colors"
       style={superellipse}

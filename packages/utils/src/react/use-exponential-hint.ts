@@ -66,7 +66,9 @@ function shouldShowHint(key: string, baseDays: number, maxDismissals: number): b
  * - Third dismissal: wait baseDays^3 days
  * - After maxDismissals: permanently hidden
  *
- * All hints are stored in a single localStorage key: "exponential-hints"
+ * All hints are stored in a single localStorage key: "exponential-hints".
+ * Eligibility is checked after mount and when the key or options change. Time passing alone
+ * does not reopen a dismissed hint in the same mounted session.
  */
 export function useExponentialHint(key: Lowercase<string>, options: Options = {}) {
   const { baseDays = 4, maxDismissals = 3 } = options;
@@ -75,6 +77,7 @@ export function useExponentialHint(key: Lowercase<string>, options: Options = {}
   // mount (client-side only)
   const [visible, setVisible] = useState(false);
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Read persisted eligibility after hydration; dismissal stays hidden for this mounted session.
     setVisible(shouldShowHint(key, baseDays, maxDismissals));
   }, [key, baseDays, maxDismissals]);
 

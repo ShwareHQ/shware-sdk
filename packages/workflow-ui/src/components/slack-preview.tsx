@@ -36,38 +36,39 @@ const textOf = (value: unknown): TextObject | undefined => {
   return typeof object.text === 'string' ? (object as TextObject) : undefined;
 };
 
+const linkClass = 'text-[#1d9bd1] hover:underline';
+const Text = ({ value, className }: { value: TextObject | undefined; className?: string }) =>
+  value === undefined ? null : (
+    <div className={`break-words whitespace-pre-wrap ${className ?? ''}`}>
+      {value.type === 'mrkdwn' ? (
+        <ChatMarkup text={value.text} dialect="slack" linkClass={linkClass} />
+      ) : (
+        value.text
+      )}
+    </div>
+  );
+const Button = ({ element, colors }: { element: Element; colors: (typeof PALETTE)['light'] }) => {
+  const style = element.style as string | undefined;
+  return (
+    <span
+      className="inline-flex h-8 items-center rounded-lg border px-3 text-[13px] font-bold"
+      style={
+        style === 'primary'
+          ? { background: '#007a5a', borderColor: '#007a5a', color: '#fff' }
+          : style === 'danger'
+            ? { background: '#e01e5a', borderColor: '#e01e5a', color: '#fff' }
+            : { borderColor: colors.border, color: colors.name }
+      }
+    >
+      {textOf(element.text)?.text}
+    </span>
+  );
+};
+
 export function SlackPreview({ message, appName, scheme, zoom }: SlackPreviewProps) {
   const { t } = useTranslation();
   const colors = PALETTE[scheme];
   const name = message.username ?? appName;
-  const linkClass = 'text-[#1d9bd1] hover:underline';
-  const Text = ({ value, className }: { value: TextObject | undefined; className?: string }) =>
-    value === undefined ? null : (
-      <div className={`break-words whitespace-pre-wrap ${className ?? ''}`}>
-        {value.type === 'mrkdwn' ? (
-          <ChatMarkup text={value.text} dialect="slack" linkClass={linkClass} />
-        ) : (
-          value.text
-        )}
-      </div>
-    );
-  const Button = ({ element }: { element: Element }) => {
-    const style = element.style as string | undefined;
-    return (
-      <span
-        className="inline-flex h-8 items-center rounded-lg border px-3 text-[13px] font-bold"
-        style={
-          style === 'primary'
-            ? { background: '#007a5a', borderColor: '#007a5a', color: '#fff' }
-            : style === 'danger'
-              ? { background: '#e01e5a', borderColor: '#e01e5a', color: '#fff' }
-              : { borderColor: colors.border, color: colors.name }
-        }
-      >
-        {textOf(element.text)?.text}
-      </span>
-    );
-  };
 
   const blocks = (message.blocks ?? []) as Element[];
   return (
@@ -154,7 +155,9 @@ export function SlackPreview({ message, appName, scheme, zoom }: SlackPreviewPro
                           className="size-[88px] shrink-0 rounded-lg object-cover"
                         />
                       )}
-                      {accessory?.type === 'button' && <Button element={accessory} />}
+                      {accessory?.type === 'button' && (
+                        <Button element={accessory} colors={colors} />
+                      )}
                     </div>
                   );
                 }
@@ -187,7 +190,7 @@ export function SlackPreview({ message, appName, scheme, zoom }: SlackPreviewPro
                       {((block.elements as Element[] | undefined) ?? []).map((element, i) =>
                         element.type === 'button' ? (
                           // oxlint-disable-next-line react/no-array-index-key -- elements are positional
-                          <Button key={i} element={element} />
+                          <Button key={i} element={element} colors={colors} />
                         ) : null
                       )}
                     </div>
