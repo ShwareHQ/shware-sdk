@@ -20,6 +20,7 @@ export {
   removeDevice,
   unbindDevice,
   sweepSegments,
+  UnversionedStoreError,
 } from './router';
 export type {
   DeployResult,
@@ -72,6 +73,7 @@ export {
   SchemaMismatchError,
 } from '../store/index';
 export type {
+  BundleVersion,
   Engagement,
   JourneyReporting,
   MessageRecord,

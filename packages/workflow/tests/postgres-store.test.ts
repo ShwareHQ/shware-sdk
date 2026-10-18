@@ -116,6 +116,29 @@ describe('deploy', () => {
     expect(ir?.id).toBe('welcome');
     expect(await store.getWorkflowIR('nope')).toBeUndefined();
   });
+
+  test('a versioned deploy goes live only over an older version', async () => {
+    const { env, store } = setup();
+    const older = compileBundle({ workflows: [welcomeFlow], segments: [] });
+    const v1 = { id: 'v1', createdAt: Date.parse('2026-10-01T00:00:00.000Z') };
+    const v2 = { id: 'v2', createdAt: Date.parse('2026-10-02T00:00:00.000Z') };
+    expect(await store.liveBundleVersion()).toBeUndefined();
+
+    expect(await deployBundle(env, bundle(), store, v2)).toMatchObject({ applied: true });
+    expect(await store.liveBundleVersion()).toEqual(v2);
+
+    // v1 still serving during the rollout: its bundle never replaces v2's
+    expect(await deployBundle(env, older, store, v1)).toMatchObject({ applied: false });
+    // Nor does v2 again (another isolate of the same version)
+    expect(await deployBundle(env, older, store, v2)).toMatchObject({ applied: false });
+    expect(await store.liveBundleVersion()).toEqual(v2);
+    expect(await store.listSegmentTriggers()).toMatchObject([{ workflow: 'pro_nudge' }]);
+
+    // A forced deploy swaps the routes and leaves the recorded version as it was
+    expect(await deployBundle(env, older, store)).toMatchObject({ applied: true });
+    expect(await store.listSegmentTriggers()).toEqual([]);
+    expect(await store.liveBundleVersion()).toEqual(v2);
+  });
 });
 
 describe('ingest', () => {

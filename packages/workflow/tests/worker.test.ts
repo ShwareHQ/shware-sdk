@@ -1,5 +1,6 @@
+import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { journeyWorker } from '../src/cloudflare/worker';
 import {
@@ -14,6 +15,8 @@ import {
   workflow,
 } from '../src/index';
 import { D1JourneyStore } from '../src/store/d1';
+import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
+import { renderPostgresDdl } from '../src/store/tables';
 import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
 
 /**
@@ -148,5 +151,98 @@ describe('sweep', () => {
     expect(journey.created).toHaveLength(2);
     // Already members: a second sweep starts nothing
     expect((await worker.sweep(env)).started).toEqual([]);
+  });
+});
+
+describe('a version applies its own bundle', () => {
+  let pg: PGlite;
+  const client = (
+    db: Pick<PGlite, 'query'> & Partial<Pick<PGlite, 'transaction'>>
+  ): SqlClientLike => ({
+    query: async <T>(text: string, params: readonly unknown[] = []) =>
+      (await db.query<T>(text, [...params])).rows,
+    transaction: (fn) =>
+      db.transaction === undefined
+        ? fn(client(db))
+        : db.transaction((tx) => fn(client({ query: tx.query.bind(tx) }))),
+  });
+
+  beforeAll(async () => {
+    pg = new PGlite();
+    await pg.exec(renderPostgresDdl());
+  });
+  afterAll(async () => {
+    await pg.close();
+  });
+
+  const other = workflow({ id: 'other', trigger: trigger.event(e.login) }).email(t.email.welcome, {
+    name: 'friend',
+  });
+  const versioned = (workflows: (typeof flow)[], id: string, timestamp: string) => {
+    const env = {
+      JOURNEY: new FakeJourney(),
+      CF_VERSION_METADATA: { id, timestamp },
+    };
+    const worker = journeyWorker<typeof env>({
+      store: () => new PostgresJourneyStore(client(pg)),
+      config: defineConfig({ workflows, templates: { email: emails } }),
+    });
+    return () => worker.fetch(new Request('http://worker/health'), env);
+  };
+  const routed = async () =>
+    (await new PostgresJourneyStore(client(pg)).findTriggers('login')).map((r) => r.workflow);
+
+  test('the first request makes a new version live; an older one serving beside it cannot undo it', async () => {
+    await versioned([flow], 'v1', '2026-10-01T00:00:00.000Z')();
+    expect(await routed()).toEqual(['welcome']);
+
+    const v2 = versioned([other], 'v2', '2026-10-02T00:00:00.000Z');
+    await v2();
+    expect(await routed()).toEqual(['other']);
+
+    // A fresh isolate of v1, still serving during the rollout
+    await versioned([flow], 'v1', '2026-10-01T00:00:00.000Z')();
+    expect(await routed()).toEqual(['other']);
+    // Once per isolate: v2 does not deploy again
+    await v2();
+    expect(await routed()).toEqual(['other']);
+  });
+
+  test('a failed apply is logged and never fails the request', async () => {
+    const empty = new PGlite(); // no migrations: the deployment table is missing
+    const env = {
+      JOURNEY: new FakeJourney(),
+      CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
+    };
+    const worker = journeyWorker<typeof env>({
+      store: () => new PostgresJourneyStore(client(empty)),
+      config,
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(new Request('http://worker/health'), env);
+      expect(response.status).toBe(200);
+      expect(logged).toHaveBeenCalledWith(
+        '[workflow] could not make version v1 live',
+        expect.any(Error)
+      );
+    } finally {
+      logged.mockRestore();
+      await empty.close();
+    }
+  });
+
+  test('a store that records no version (D1) leaves deploying to POST /bundle/deploy', async () => {
+    const env = {
+      JOURNEY: new FakeJourney(),
+      CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
+    };
+    const db = new FakeD1();
+    const worker = journeyWorker<typeof env>({
+      store: () => new D1JourneyStore(db, new FakeKV()),
+      config,
+    });
+    await worker.fetch(new Request('http://worker/health'), env);
+    expect(db.triggers).toHaveLength(0);
   });
 });

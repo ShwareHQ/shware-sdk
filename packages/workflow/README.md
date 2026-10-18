@@ -709,6 +709,33 @@ Run `--check` in CI to catch an SDK upgrade that changed them. Without drizzle,
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
 
+### Deploying is `wrangler deploy`
+
+The journeys are compiled into the Worker, so a new version carries its own
+bundle. Add Cloudflare's version metadata binding and each new version makes
+that bundle live by itself, with nothing to call after `wrangler deploy`:
+
+```jsonc
+// wrangler.jsonc
+"version_metadata": { "binding": "CF_VERSION_METADATA" }
+```
+
+The first request or cron run an isolate serves reads which version's bundle
+is live (one row, `workflow.deployment`) and applies its own only over an older
+version, in the same transaction that records it. Isolates of the old version
+keep serving for a few seconds after a deploy; they can never put their routes
+back. Until the new version first runs, events still follow the old routes.
+The check runs once per isolate, in the background; a failure (migrations not
+applied, say) is logged and retried a minute later.
+
+With a gradual deployment the newest version's bundle goes live as soon as
+that version serves its first request, whatever share of traffic it has.
+
+`wrangler rollback` restores an older version, which does not apply itself over
+the newer one. Call `POST /bundle/deploy` after a rollback: it applies the
+running version's bundle whatever is live. The D1 store keeps no version, so
+on D1 every deploy is that call.
+
 On Postgres the engine also keeps:
 
 - **Reporting.** Instances, every message copy, opens and clicks, recorded
