@@ -18,8 +18,8 @@ const day = (iso: string | undefined) => (iso === undefined ? '—' : iso.slice(
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-border bg-card rounded-2xl border px-4 py-3" style={superellipse}>
-      <div className="text-muted text-xs">{label}</div>
+    <div className="rounded-2xl border border-border bg-card px-4 py-3" style={superellipse}>
+      <div className="text-xs text-muted">{label}</div>
       <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
     </div>
   );
@@ -70,11 +70,11 @@ function SegmentOverview() {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <div
-          className="border-border bg-card max-w-md rounded-2xl border border-dashed p-8 text-center"
+          className="max-w-md rounded-2xl border border-dashed border-border bg-card p-8 text-center"
           style={superellipse}
         >
           <p className="text-sm font-medium">{t('segments.noSource')}</p>
-          <p className="text-muted mt-2 text-sm">{t('segments.noSourceHint')}</p>
+          <p className="mt-2 text-sm text-muted">{t('segments.noSourceHint')}</p>
         </div>
       </div>
     );
@@ -94,25 +94,25 @@ function SegmentOverview() {
           <Stat label={t('segments.profiles')} value={total > 0 ? number(total) : '—'} />
         </div>
 
-        <section className="border-border bg-card mt-6 rounded-2xl border p-5" style={superellipse}>
+        <section className="mt-6 rounded-2xl border border-border bg-card p-5" style={superellipse}>
           <h2 className="text-sm font-semibold">{t('segments.overTime')}</h2>
           {series.length > 1 ? (
             <div className="mt-4">
               <SeriesChart values={series} ariaLabel={t('segments.overTime')} />
             </div>
           ) : (
-            <p className="text-muted mt-6 text-sm">{t('segments.noData')}</p>
+            <p className="mt-6 text-sm text-muted">{t('segments.noData')}</p>
           )}
         </section>
 
         {/* No `overflow-hidden`: it would clip the corners for free, but any
             overflow value turns a card into a scrollport, which is the habit
             this layout is getting rid of. The last row re-cuts its own. */}
-        <section className="border-border bg-card mt-6 rounded-2xl border" style={superellipse}>
-          <div className="border-border flex items-center justify-between border-b px-5 py-3">
+        <section className="mt-6 rounded-2xl border border-border bg-card" style={superellipse}>
+          <div className="flex items-center justify-between border-b border-border px-5 py-3">
             <h2 className="text-sm font-semibold">{t('segments.members')}</h2>
             {total > PAGE_SIZE && (
-              <div className="text-muted flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-xs text-muted">
                 <span className="tabular-nums">
                   {number(page * PAGE_SIZE + 1)}–{number(Math.min((page + 1) * PAGE_SIZE, total))} /{' '}
                   {number(total)}
@@ -121,7 +121,7 @@ function SegmentOverview() {
                   type="button"
                   disabled={page === 0}
                   onClick={() => setPage((current) => current - 1)}
-                  className="hover:bg-hover rounded px-2 py-1 transition-colors disabled:opacity-40"
+                  className="rounded px-2 py-1 transition-colors hover:bg-hover disabled:opacity-40"
                 >
                   {t('common.previous')}
                 </button>
@@ -129,7 +129,7 @@ function SegmentOverview() {
                   type="button"
                   disabled={page >= lastPage}
                   onClick={() => setPage((current) => current + 1)}
-                  className="hover:bg-hover rounded px-2 py-1 transition-colors disabled:opacity-40"
+                  className="rounded px-2 py-1 transition-colors hover:bg-hover disabled:opacity-40"
                 >
                   {t('common.next')}
                 </button>
@@ -138,18 +138,18 @@ function SegmentOverview() {
           </div>
 
           {isPending ? (
-            <p className="text-muted p-5 text-sm">{t('common.loading')}</p>
+            <p className="p-5 text-sm text-muted">{t('common.loading')}</p>
           ) : profilePage === undefined || profilePage.profiles.length === 0 ? (
-            <p className="text-muted p-5 text-sm">{t('segments.noProfiles')}</p>
+            <p className="p-5 text-sm text-muted">{t('segments.noProfiles')}</p>
           ) : (
             <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
               <thead>
-                <tr className="text-muted text-left text-xs font-medium">
-                  <th className="border-border border-b px-5 py-2">{t('profiles.email')}</th>
-                  <th className="border-border w-56 border-b px-5 py-2">
+                <tr className="text-left text-xs font-medium text-muted">
+                  <th className="border-b border-border px-5 py-2">{t('profiles.email')}</th>
+                  <th className="w-56 border-b border-border px-5 py-2">
                     {t('profiles.utmSource')}
                   </th>
-                  <th className="border-border w-36 border-b px-5 py-2 whitespace-nowrap">
+                  <th className="w-36 border-b border-border px-5 py-2 whitespace-nowrap">
                     {t('profiles.createdAt')}
                   </th>
                 </tr>
@@ -163,10 +163,10 @@ function SegmentOverview() {
                        top of it reads as a doubled line. The hover fill sits on
                        the cells so the last row's corners can follow the card's
                        — a row box paints below any cell radius. */
-                    className="hover:[&>td]:bg-hover cursor-pointer [&>td]:transition-colors last:[&>td]:border-b-0 last:[&>td:first-child]:rounded-bl-2xl last:[&>td:last-child]:rounded-br-2xl"
+                    className="cursor-pointer [&>td]:transition-colors last:[&>td]:border-b-0 hover:[&>td]:bg-hover last:[&>td:first-child]:rounded-bl-2xl last:[&>td:last-child]:rounded-br-2xl"
                     style={superellipse}
                   >
-                    <td className="border-border border-b px-5 py-2.5" style={superellipse}>
+                    <td className="border-b border-border px-5 py-2.5" style={superellipse}>
                       {/* The avatar is fixed-width, so the address does the
                           truncating — `truncate` on the cell itself would be
                           undone by the flex row inside it. */}
@@ -179,14 +179,14 @@ function SegmentOverview() {
                         <span className="truncate">{profile.email ?? '—'}</span>
                       </div>
                     </td>
-                    <td className="border-border text-muted truncate border-b px-5 py-2.5 font-mono text-sm">
+                    <td className="truncate border-b border-border px-5 py-2.5 font-mono text-sm text-muted">
                       {/* Out of a dictionary of unknowns, so anything but a string reads as absent. */}
                       {typeof profile.properties?.utm_source === 'string'
                         ? profile.properties.utm_source
                         : '—'}
                     </td>
                     <td
-                      className="border-border text-muted border-b px-5 py-2.5 whitespace-nowrap tabular-nums"
+                      className="border-b border-border px-5 py-2.5 whitespace-nowrap text-muted tabular-nums"
                       style={superellipse}
                     >
                       {day(profile.createdAt)}

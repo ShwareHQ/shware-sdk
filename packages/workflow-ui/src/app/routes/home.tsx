@@ -12,10 +12,10 @@ import { collectSegments } from './segments';
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="border-border bg-card rounded-2xl border px-5 py-4" style={superellipse}>
-      <div className="text-muted text-xs">{label}</div>
+    <div className="rounded-2xl border border-border bg-card px-5 py-4" style={superellipse}>
+      <div className="text-xs text-muted">{label}</div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
-      {hint !== undefined && <div className="text-muted mt-1 text-xs">{hint}</div>}
+      {hint !== undefined && <div className="mt-1 text-xs text-muted">{hint}</div>}
     </div>
   );
 }
@@ -52,7 +52,7 @@ function Home() {
     <div className="flex-1 p-6">
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.home') }]} />} />
       <h1 className="text-lg font-semibold">{t('home.title')}</h1>
-      <p className="text-muted mt-1 text-sm">{t('home.subtitle')}</p>
+      <p className="mt-1 text-sm text-muted">{t('home.subtitle')}</p>
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat label={t('home.workflows')} value={String(irs.length)} />

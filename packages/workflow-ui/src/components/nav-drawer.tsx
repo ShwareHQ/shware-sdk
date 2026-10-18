@@ -61,7 +61,7 @@ export function NavDrawer({ open, onClose, children }: NavDrawerProps) {
       */}
       <aside
         inert={!open}
-        className={`border-border bg-card fixed inset-y-0 left-0 z-30 flex w-60 max-w-[80%] flex-col border-r shadow-xl transition-transform duration-200 ease-out md:hidden ${
+        className={`fixed inset-y-0 left-0 z-30 flex w-60 max-w-[80%] flex-col border-r border-border bg-card shadow-xl transition-transform duration-200 ease-out md:hidden ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -69,10 +69,10 @@ export function NavDrawer({ open, onClose, children }: NavDrawerProps) {
             lands the logo exactly where the header would have drawn it. */}
         <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
           <div
-            className="bg-primary flex size-7 shrink-0 items-center justify-center rounded-lg"
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary"
             style={superellipse}
           >
-            <Workflow className="text-card size-4" strokeWidth={2} />
+            <Workflow className="size-4 text-card" strokeWidth={2} />
           </div>
           <strong className="text-sm font-semibold whitespace-nowrap">Workflow Studio</strong>
         </div>

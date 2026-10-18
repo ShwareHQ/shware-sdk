@@ -70,7 +70,7 @@ export function Menu({ items, className, ...aria }: Props) {
         type="button"
         ref={setReference}
         className={cn(
-          'text-muted hover:bg-hover hover:text-primary flex size-8 items-center justify-center',
+          'flex size-8 items-center justify-center text-muted hover:bg-hover hover:text-primary',
           'rounded-lg transition-colors focus:outline-none',
           className
         )}
@@ -89,7 +89,7 @@ export function Menu({ items, className, ...aria }: Props) {
           <div
             ref={setFloating}
             style={floatingStyles}
-            className="border-border bg-card z-50 min-w-36 rounded-xl border p-1 shadow-lg"
+            className="z-50 min-w-36 rounded-xl border border-border bg-card p-1 shadow-lg"
             {...getFloatingProps()}
           >
             {items.map((item, index) => (

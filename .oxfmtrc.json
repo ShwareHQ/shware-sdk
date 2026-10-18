@@ -19,5 +19,13 @@
   "sortPackageJson": true,
   "sortTailwindcss": { "functions": ["clsx", "cn", "cva", "tw"] },
   "sortImports": { "newlinesBetween": false },
-  "ignorePatterns": ["routeTree.gen.ts"]
+  "ignorePatterns": ["routeTree.gen.ts"],
+  "overrides": [
+    {
+      "files": ["packages/workflow-ui/**"],
+      "options": {
+        "sortTailwindcss": { "stylesheet": "./packages/workflow-ui/src/app/index.css" }
+      }
+    }
+  ]
 }
