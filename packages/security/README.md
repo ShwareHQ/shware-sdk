@@ -175,7 +175,7 @@ All repositories implement `SessionRepository` and index sessions by principal n
 
 Both session repositories have `setDefaultMaxInactiveInterval(seconds)` (default 1800).
 
-A database-backed setup, as used by the template app with Drizzle:
+A database-backed setup with Drizzle:
 
 ```ts
 import {
