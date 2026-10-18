@@ -1,5 +1,11 @@
 # @shware/workflow-ui
 
+## 1.0.1
+
+### Patch Changes
+
+- 51f8898: The workflow detail's "Workflow" tab links to `/workflows/<id>/workflow` again (it linked to `/workflows/undefined/workflow`), and shows as the active tab on the canvas.
+
 ## 1.0.0
 
 ### Major Changes
