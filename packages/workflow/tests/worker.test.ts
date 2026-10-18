@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { journeyWorker } from '../src/cloudflare/worker';
 import {
@@ -206,6 +206,30 @@ describe('a version applies its own bundle', () => {
     // Once per isolate: v2 does not deploy again
     await v2();
     expect(await routed()).toEqual(['other']);
+  });
+
+  test('a failed apply is logged and never fails the request', async () => {
+    const empty = new PGlite(); // no migrations: the deployment table is missing
+    const env = {
+      JOURNEY: new FakeJourney(),
+      CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
+    };
+    const worker = journeyWorker<typeof env>({
+      store: () => new PostgresJourneyStore(client(empty)),
+      config,
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const response = await worker.fetch(new Request('http://worker/health'), env);
+      expect(response.status).toBe(200);
+      expect(logged).toHaveBeenCalledWith(
+        '[workflow] could not make version v1 live',
+        expect.any(Error)
+      );
+    } finally {
+      logged.mockRestore();
+      await empty.close();
+    }
   });
 
   test('a store that records no version (D1) leaves deploying to POST /bundle/deploy', async () => {

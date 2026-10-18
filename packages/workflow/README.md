@@ -108,6 +108,9 @@ back. Until the new version first runs, events still follow the old routes.
 The check runs once per isolate, in the background; a failure (migrations not
 applied, say) is logged and retried a minute later.
 
+With a gradual deployment the newest version's bundle goes live as soon as
+that version serves its first request, whatever share of traffic it has.
+
 `wrangler rollback` restores an older version, which does not apply itself over
 the newer one. Call `POST /bundle/deploy` after a rollback: it applies the
 running version's bundle whatever is live. The D1 store keeps no version, so
