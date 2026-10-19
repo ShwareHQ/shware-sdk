@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react';
-import { StrictMode, Suspense, startTransition, use, useState } from 'react';
+import { Activity, StrictMode, Suspense, startTransition, use, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
@@ -171,6 +171,52 @@ describe('useWebAnalytics', () => {
     }
     return { Page, storage };
   }
+
+  it.each([false, true])(
+    'preserves the page predecessor and engagement flush on Activity restoration (navigated: %s)',
+    async (navigate) => {
+      const { Page } = await mount();
+      const { getSession } = await import('../setup/session');
+      const flush = vi.spyOn(getSession(), 'flush').mockReturnValue(1234);
+      const view = render(
+        <Activity mode="visible">
+          <Page pathname="/a" />
+        </Activity>
+      );
+      const pathname = navigate ? '/b' : '/a';
+      if (navigate) {
+        view.rerender(
+          <Activity mode="visible">
+            <Page pathname={pathname} />
+          </Activity>
+        );
+      }
+      view.rerender(
+        <Activity mode="hidden">
+          <Page pathname={pathname} />
+        </Activity>
+      );
+      track.mockClear();
+      flush.mockClear();
+
+      view.rerender(
+        <Activity mode="visible">
+          <Page pathname={pathname} />
+        </Activity>
+      );
+
+      expect(flush).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenLastCalledWith(
+        'page_view',
+        expect.objectContaining({
+          page_path: pathname,
+          previous_page_path: pathname,
+          engagement_time_msec: 1234,
+        })
+      );
+    }
+  );
 
   it('does not use a suspended speculative page as the next committed page predecessor', async () => {
     await load();

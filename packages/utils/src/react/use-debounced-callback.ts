@@ -1,9 +1,11 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useEffectEvent, useMemo } from 'react';
 import { type DebounceOptions, debounce } from '../debounce';
+import { useLatestRef } from './use-latest-ref';
 
 /**
- * Uses the latest committed callback for events and timers without restarting the queue.
- * Call after commit, rather than from a child's ref or layout effect during its parent's commit.
+ * Retains the latest render-time callback and exit policy without restarting pending work.
+ * Synchronous updates preserve calls from layout effects and ref callbacks. Like useLatestRef,
+ * this can expose uncommitted values during concurrent rendering; it is not a committed-only snapshot.
  * flushOnExit: flush the debounced callback when the component unmounts, default is false
  */
 export function useDebouncedCallback<Args extends unknown[]>(
@@ -13,12 +15,8 @@ export function useDebouncedCallback<Args extends unknown[]>(
 ) {
   const { maxWait, leading, trailing, flushOnExit = false } = options;
 
-  const fnRef = useRef(fn);
-  const flushOnExitRef = useRef(flushOnExit);
-  useLayoutEffect(() => {
-    fnRef.current = fn;
-    flushOnExitRef.current = flushOnExit;
-  }, [fn, flushOnExit]);
+  const fnRef = useLatestRef(fn);
+  const flushOnExitRef = useLatestRef(flushOnExit);
 
   const debounced = useMemo(
     () =>

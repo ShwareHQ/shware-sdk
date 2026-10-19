@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react';
-import { StrictMode } from 'react';
+import { Activity, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
@@ -54,9 +54,55 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('useAppAnalytics', () => {
+  it.each([false, true])(
+    'preserves the screen predecessor and engagement flush on Activity restoration (navigated: %s)',
+    async (navigate) => {
+      const { Screen, session } = await mount();
+      const flush = vi.spyOn(session, 'flush').mockReturnValue(1234);
+      const view = render(
+        <Activity mode="visible">
+          <Screen pathname="/a" />
+        </Activity>
+      );
+      const pathname = navigate ? '/b' : '/a';
+      if (navigate) {
+        view.rerender(
+          <Activity mode="visible">
+            <Screen pathname={pathname} />
+          </Activity>
+        );
+      }
+      view.rerender(
+        <Activity mode="hidden">
+          <Screen pathname={pathname} />
+        </Activity>
+      );
+      track.mockClear();
+      flush.mockClear();
+
+      view.rerender(
+        <Activity mode="visible">
+          <Screen pathname={pathname} />
+        </Activity>
+      );
+
+      expect(flush).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenLastCalledWith(
+        'screen_view',
+        expect.objectContaining({
+          screen_name: pathname,
+          previous_screen_class: pathname,
+          engagement_time_msec: 1234,
+        })
+      );
+    }
+  );
+
   it('keeps the first screen predecessor empty during Strict Mode effect replay', async () => {
     const { Screen } = await mount();
     const view = render(

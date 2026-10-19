@@ -1,5 +1,5 @@
 import { act, cleanup, render, renderHook } from '@testing-library/react';
-import { Suspense, startTransition, use, useLayoutEffect, useState } from 'react';
+import { Activity, useLayoutEffect, useRef } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,8 +12,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('committed debounced callbacks', () => {
-  it('keeps the pending queue and uses the latest committed callback', () => {
+describe('synchronous debounced callbacks', () => {
+  it('keeps the pending queue and uses the latest callback', () => {
     vi.useFakeTimers();
     const first = vi.fn<(value: string) => void>();
     const latest = vi.fn<(value: string) => void>();
@@ -31,34 +31,109 @@ describe('committed debounced callbacks', () => {
     expect(latest).toHaveBeenCalledExactlyOnceWith('queued');
   });
 
-  it('does not expose a callback from a suspended transition to an existing event handler', async () => {
+  it('uses the latest callback when a child layout effect invokes the leading edge', () => {
+    vi.useFakeTimers();
     const record = vi.fn<(value: string) => void>();
-    const suspended = new Promise<void>(() => {});
-    function Page() {
-      const [value, setValue] = useState('committed');
+    function Child({ value, onInvoke }: { value: string; onInvoke: () => void }) {
+      useLayoutEffect(() => {
+        onInvoke();
+      }, [value, onInvoke]);
+      return null;
+    }
+    function Parent({ value }: { value: string }) {
       const invoke = useDebouncedCallback(() => record(value), 100, { leading: true });
-      if (value === 'pending') use(suspended);
+      return <Child value={value} onInvoke={invoke} />;
+    }
+    const view = render(<Parent value="first" />);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    view.rerender(<Parent value="latest" />);
+    expect(record.mock.calls.map(([value]) => value)).toEqual(['first', 'latest']);
+  });
+
+  it('uses the latest callback when a child layout effect flushes a queued invocation', () => {
+    const record = vi.fn<(value: string) => void>();
+    function Child({ value, onFlush }: { value: string; onFlush: () => void }) {
+      useLayoutEffect(() => {
+        if (value === 'latest') onFlush();
+      }, [value, onFlush]);
+      return null;
+    }
+    function Parent({ value }: { value: string }) {
+      const invoke = useDebouncedCallback(() => record(value), 100);
       return (
         <>
-          <output>{value}</output>
-          <button type="button" onClick={() => startTransition(() => setValue('pending'))}>
-            Transition
-          </button>
           <button type="button" onClick={() => invoke()}>
-            Invoke
+            Queue
           </button>
+          <Child value={value} onFlush={invoke.flush} />
         </>
       );
     }
+    const view = render(<Parent value="first" />);
+    act(() => view.getByText('Queue').click());
+    view.rerender(<Parent value="latest" />);
+    expect(record).toHaveBeenCalledExactlyOnceWith('latest');
+  });
+
+  it('uses the latest callback for a focus event fired before the parent layout effects', () => {
+    vi.useFakeTimers();
+    const record = vi.fn<(value: string) => void>();
+    function Field({ onFocus }: { onFocus: () => void }) {
+      const input = useRef<HTMLInputElement>(null);
+      useLayoutEffect(() => {
+        input.current?.focus();
+      }, []);
+      return <input ref={input} onFocus={onFocus} />;
+    }
+    function Parent({ value }: { value: string }) {
+      const invoke = useDebouncedCallback(() => record(value), 100, { leading: true });
+      return <Field key={value} onFocus={() => invoke()} />;
+    }
+    const view = render(<Parent value="first" />);
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    view.rerender(<Parent value="latest" />);
+    expect(record.mock.calls.map(([value]) => value)).toEqual(['first', 'latest']);
+  });
+
+  it('keeps a retained callback current after an Activity commits new props while hidden', () => {
+    const record = vi.fn<(value: string) => void>();
+    function Editor({
+      value,
+      onRegister,
+    }: {
+      value: string;
+      onRegister: (invoke: () => void) => void;
+    }) {
+      const invoke = useDebouncedCallback(() => record(value), 100, { leading: true });
+      useLayoutEffect(() => {
+        onRegister(invoke);
+      }, [invoke, onRegister]);
+      return <output>{value}</output>;
+    }
+    const register = vi.fn<(invoke: () => void) => void>();
     const view = render(
-      <Suspense fallback="Loading">
-        <Page />
-      </Suspense>
+      <Activity mode="visible">
+        <Editor value="first" onRegister={register} />
+      </Activity>
     );
-    await act(async () => view.getByText('Transition').click());
-    expect(view.getByRole('status').textContent).toBe('committed');
-    act(() => view.getByText('Invoke').click());
-    expect(record).toHaveBeenCalledExactlyOnceWith('committed');
+    const invoke = register.mock.calls[0][0];
+    view.rerender(
+      <Activity mode="hidden">
+        <Editor value="first" onRegister={register} />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Editor value="latest" onRegister={register} />
+      </Activity>
+    );
+    expect(view.container.textContent).toBe('latest');
+    act(() => invoke());
+    expect(record).toHaveBeenCalledExactlyOnceWith('latest');
   });
 
   it('supports flush, cancel and maximum wait without replacing its callback', () => {
