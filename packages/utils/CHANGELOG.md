@@ -1,5 +1,16 @@
 # @shware/utils
 
+## 1.7.0
+
+### Minor Changes
+
+- 91b6d3b: Expose usePrevious from @shware/utils with its effect-updated previous-render snapshot behavior, public type declarations, and targeted React refs exemption.
+
+### Patch Changes
+
+- 91b6d3b: Preserve the synchronous render-time behavior of useDebouncedCallback and useLatestRef while adding precise lint compatibility annotations and documenting their existing concurrent-render boundary.
+- 91b6d3b: Document and preserve hydration-safe persisted hint eligibility and per-mount dismissal sessions.
+
 ## 1.6.3
 
 ### Patch Changes

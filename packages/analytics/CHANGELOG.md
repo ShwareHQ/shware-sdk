@@ -1,5 +1,15 @@
 # @shware/analytics
 
+## 11.13.2
+
+### Patch Changes
+
+- 91b6d3b: Track the previous queued page or screen view inside the sending effect so React Compiler memoization preserves Activity restoration history. Strict Mode effect replay now names the first queued view as its predecessor and flushes its engagement time instead of repeating an empty predecessor.
+- Updated dependencies [91b6d3b]
+- Updated dependencies [91b6d3b]
+- Updated dependencies [91b6d3b]
+  - @shware/utils@1.7.0
+
 ## 11.13.1
 
 ### Patch Changes

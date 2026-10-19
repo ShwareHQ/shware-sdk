@@ -1,5 +1,15 @@
 # @shware/workflow-ui
 
+## 2.0.1
+
+### Patch Changes
+
+- 91b6d3b: Show copy success only after a successful clipboard operation and always remove the fallback textarea and restore focus.
+- 91b6d3b: Hide stale country flags immediately when the selected country changes and ignore outdated asynchronous flag loaders.
+- 91b6d3b: Expose Floating UI ref setters as typed callbacks without changing their identities or interaction behavior.
+- 91b6d3b: Preserve Slack preview text and action component identity when preview settings change.
+- 91b6d3b: Subscribe to system color scheme changes through an external store while preserving explicit saved theme preferences.
+
 ## 2.0.0
 
 ### Major Changes
