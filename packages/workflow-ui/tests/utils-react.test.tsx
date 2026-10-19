@@ -3,7 +3,12 @@ import { Activity, useLayoutEffect, useRef } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useDebouncedCallback, useExponentialHint, useLatestRef } from '../../utils/dist/index.mjs';
+import {
+  useDebouncedCallback,
+  useExponentialHint,
+  useLatestRef,
+  usePrevious,
+} from '../../utils/dist/index.mjs';
 
 afterEach(() => {
   cleanup();
@@ -194,6 +199,21 @@ describe('synchronous debounced callbacks', () => {
     });
     expect(record).toHaveBeenCalledTimes(1);
     visibility.mockRestore();
+  });
+});
+
+describe('usePrevious public contract', () => {
+  it('starts undefined and advances after every committed effect, including equal values', () => {
+    const { result, rerender } = renderHook(({ value }) => usePrevious(value), {
+      initialProps: { value: 'first' },
+    });
+    expect(result.current).toBeUndefined();
+    rerender({ value: 'second' });
+    expect(result.current).toBe('first');
+    rerender({ value: 'second' });
+    expect(result.current).toBe('second');
+    rerender({ value: 'third' });
+    expect(result.current).toBe('second');
   });
 });
 

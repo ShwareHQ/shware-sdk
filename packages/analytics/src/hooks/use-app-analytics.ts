@@ -1,10 +1,10 @@
+import { usePrevious } from '@shware/utils';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { sendPendingEvents, track } from '../track/index';
-import { usePrevious } from './use-previous';
 
 function sendFirstOpen(pathname: string) {
   if (config.storage.getItem(keys.first_open_time)) return;

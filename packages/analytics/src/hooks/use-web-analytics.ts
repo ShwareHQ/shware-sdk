@@ -1,4 +1,4 @@
-import { throttle } from '@shware/utils';
+import { throttle, usePrevious } from '@shware/utils';
 import { useEffect, useRef } from 'react';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
@@ -6,7 +6,6 @@ import { getSession } from '../setup/session';
 import { sendBeacon, sendPendingEvents, track } from '../track/index';
 import { getPageReferrer } from '../web/index';
 import { getPageKey } from '../web/page-key';
-import { usePrevious } from './use-previous';
 
 function sendFirstVisit(pathname: string) {
   if (config.storage.getItem(keys.first_visit_time)) return;

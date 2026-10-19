@@ -155,12 +155,13 @@ const yen = 1999 / stripeMinorUnits('jpy'); // 1999
 
 ## React hooks
 
-| Hook                                       | Description                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| `useDebouncedCallback(fn, delay, options)` | Stable debounced callback, cancelled on unmount                  |
-| `useLatestRef(value)`                      | Ref that always holds the latest value                           |
-| `useIMEGuard()`                            | Tracks IME composition so Enter does not submit mid-composition  |
-| `useExponentialHint(key, options)`         | Shows a hint again after exponentially growing dismiss intervals |
+| Hook                                       | Description                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| `useDebouncedCallback(fn, delay, options)` | Stable debounced callback, cancelled on unmount                                  |
+| `usePrevious(value)`                       | Previous committed-render snapshot; initially `undefined`, updated by the effect |
+| `useLatestRef(value)`                      | Ref that always holds the latest value                                           |
+| `useIMEGuard()`                            | Tracks IME composition so Enter does not submit mid-composition                  |
+| `useExponentialHint(key, options)`         | Shows a hint again after exponentially growing dismiss intervals                 |
 
 ```tsx
 import { useDebouncedCallback, useExponentialHint, useIMEGuard } from '@shware/utils';
