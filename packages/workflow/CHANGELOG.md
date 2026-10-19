@@ -1,5 +1,19 @@
 # @shware/workflow
 
+## 2.0.1
+
+### Patch Changes
+
+- f3114ee: Reject scalar values and undeclared or impossible field references for templates, actions, and emitted events without arguments. Prevent empty event payloads from exposing nonexistent fields in conditions while preserving optional payloads and heterogeneous reference registries.
+- f3114ee: Assert structured schema validation errors and required response fields instead of accepting unrelated exceptions or silently substituting missing test data. No runtime behavior or API dependencies change.
+- f3114ee: Align test mocks and fixtures with their real SDK contracts, exercise TanStack middleware through its actual builder, and remove unused test imports. No runtime behavior or API dependencies change.
+- f3114ee: Stabilize the worker deployment failure regression test by using an unmigrated schema instead of starting a second database within the test timeout.
+- f3114ee: Allow PGlite initialization hooks up to 30 seconds while retaining the default five-second timeout for database behavior tests.
+- f3114ee: Model legacy undefined push checkpoints explicitly so replay never sends an already completed push again.
+- f3114ee: Preserve validation of malformed runtime schema declarations with honest inspection types and remove redundant checks on validated IR values.
+- f3114ee: Model absent SQL result rows explicitly while preserving missing-message and missing-link reporting behavior.
+- f3114ee: Keep incomplete tracking URLs outside tracking handlers by modeling missing path segments explicitly.
+
 ## 2.0.0
 
 ### Major Changes
