@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type CheckoutSession, getPurchaseProperties, mapCancellationDetails } from '../mapper';
+import {
+  type CheckoutSession,
+  getPurchaseProperties,
+  mapCancellationDetails,
+  price,
+} from '../mapper';
 
 function session(id: string): CheckoutSession {
   return {
@@ -105,5 +110,13 @@ describe('mapCancellationDetails', () => {
         },
       })
     ).toMatchObject({ feedback: 'other' });
+  });
+});
+
+describe('price', () => {
+  it('divides by the currency minor unit', () => {
+    expect(price(1999, 'usd')).toBe(19.99);
+    expect(price(500, 'jpy')).toBe(500);
+    expect(price(5120, 'kwd')).toBe(5.12);
   });
 });

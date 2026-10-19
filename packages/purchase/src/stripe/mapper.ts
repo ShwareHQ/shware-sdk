@@ -1,3 +1,4 @@
+import { stripeMinorUnits } from '@shware/utils';
 import type { Stripe } from 'stripe';
 import {
   CANCELLATION_FEEDBACKS,
@@ -206,27 +207,11 @@ export function mapSubscriptionStatus(status: Stripe.Subscription.Status): Subsc
   }
 }
 
-export const ZERO_DECIMAL_CURRENCIES = [
-  'BIF',
-  'CLP',
-  'DJF',
-  'GNF',
-  'JPY',
-  'KMF',
-  'KRW',
-  'MGA',
-  'PYG',
-  'RWF',
-  'UGX',
-  'VND',
-  'VUV',
-  'XAF',
-  'XOF',
-  'XPF',
-];
+export { ZERO_DECIMAL_CURRENCIES } from '@shware/utils';
 
+/** How many Stripe API amount units make one unit of `currency` (1, 100 or 1000). */
 export function minorUnits(currency: string) {
-  return ZERO_DECIMAL_CURRENCIES.includes(currency.toUpperCase()) ? 1 : 100;
+  return stripeMinorUnits(currency);
 }
 
 export function price(value: number, currency: string) {

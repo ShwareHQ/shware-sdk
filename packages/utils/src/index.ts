@@ -8,7 +8,7 @@ export { invariant } from './invariant';
 export { throttle, type ThrottleOptions } from './throttle';
 export { debounce, type DebounceOptions } from './debounce';
 export { expiringStorage } from './storage';
-export { stripeMinorUnits, ZERO_DECIMAL_CURRENCIES } from './stripe';
+export { stripeMinorUnits, THREE_DECIMAL_CURRENCIES, ZERO_DECIMAL_CURRENCIES } from './stripe';
 export { waitForRequestIdleCallback } from './wait-for-request-idle-callback';
 
 // react utils
