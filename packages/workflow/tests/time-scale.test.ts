@@ -5,7 +5,7 @@ import { plainEmail } from './fixtures';
 
 interface Event {
   login: { method: string };
-  purchase: Record<never, never>;
+  purchase: Record<string, never>;
 }
 const e = event<Event>();
 const tpl = plainEmail('t');

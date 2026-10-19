@@ -96,7 +96,7 @@ export interface JourneyConfigDefinition {
   contract?: Contract;
   workflows: readonly WorkflowBuilder[];
   segments?: readonly SegmentRef[];
-  actions?: readonly ActionRef<object>[];
+  actions?: readonly ActionRef[];
   /** The template definitions, per channel; each is identified by its own `id`. */
   templates?: TemplateRegistry;
   /** What every email template shares: the default unsubscribe link, how opens and clicks are judged. */

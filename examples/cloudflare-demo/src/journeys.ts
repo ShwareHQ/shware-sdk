@@ -7,7 +7,7 @@ import { email } from './email';
  * render and send → goal exit.
  */
 
-type Empty = Record<never, never>;
+type Empty = Record<string, never>;
 
 interface DemoEvent {
   demo_signup: Empty;

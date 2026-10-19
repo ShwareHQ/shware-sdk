@@ -24,7 +24,7 @@ import {
   workflow,
 } from '../src/index';
 
-type Empty = Record<never, never>;
+type Empty = Record<string, never>;
 
 export interface TestEvent {
   login: Empty;

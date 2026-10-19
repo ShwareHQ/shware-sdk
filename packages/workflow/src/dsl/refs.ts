@@ -62,12 +62,13 @@ export function event<E extends EventMap>(): EventRefs<E> {
   });
 }
 
-export type PropInput<T> = T | UserPropertyRef<T>;
+/** An impossible field cannot be supplied indirectly through a profile reference either. */
+export type PropInput<T> = [T] extends [never] ? never : T | UserPropertyRef<T>;
 export type PropsInput<P> = { [K in keyof P]: PropInput<P[K]> };
 
 /** Props may be omitted when a template declares none, and are required when it does. */
 export type MessageArgs<P> =
-  Record<never, never> extends P ? [props?: PropsInput<P>] : [props: PropsInput<P>];
+  Record<string, never> extends P ? [props?: PropsInput<P>] : [props: PropsInput<P>];
 
 /* ------------------------------ payload references ----------------------------- */
 
@@ -96,15 +97,23 @@ export interface PayloadRef<T> {
 }
 
 /** A payload field ref that is itself an object also acts as a table of its sub-field refs. */
-export type PayloadRefNode<T> = [NonNullable<T>] extends [object]
-  ? PayloadRef<T> & {
-      readonly [K in keyof NonNullable<T> & string]-?: PayloadRefNode<NonNullable<T>[K]>;
-    }
-  : PayloadRef<T>;
+export type PayloadRefNode<T> = [NonNullable<T>] extends [never]
+  ? PayloadRef<T>
+  : [NonNullable<T>] extends [object]
+    ? PayloadRef<T> & {
+        readonly [
+          K in keyof NonNullable<T> & string as [NonNullable<T>[K]] extends [never] ? never : K
+        ]-?: PayloadRefNode<NonNullable<T>[K]>;
+      }
+    : PayloadRef<T>;
 
 /** Payload reference table for an event's payload P — the `p` in `where: (p) => eq(p.platform, 'web')`. */
 export type PayloadRefs<P> = [P] extends [object]
-  ? { readonly [K in keyof P & string]-?: PayloadRefNode<P[K]> }
+  ? {
+      readonly [K in keyof P & string as [P[K]] extends [never] ? never : K]-?: PayloadRefNode<
+        P[K]
+      >;
+    }
   : Record<string, PayloadRef<unknown>>;
 
 /**
