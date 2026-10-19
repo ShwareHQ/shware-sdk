@@ -1,5 +1,4 @@
-import { usePrevious } from '@shware/utils';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
@@ -19,7 +18,7 @@ function sendUserEngagement() {
 }
 
 export function useAppAnalytics(pathname: string) {
-  const prevPathname = usePrevious(pathname);
+  const lastScreenPath = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const session = getSession();
@@ -48,11 +47,14 @@ export function useAppAnalytics(pathname: string) {
 
   // when the screen is switched, the engagement time of the previous screen is recorded
   useEffect(() => {
+    const prevPathname = lastScreenPath.current;
     track('screen_view', {
       screen_name: pathname,
       screen_class: pathname,
       previous_screen_class: prevPathname ?? undefined,
       engagement_time_msec: prevPathname ? getSession().flush() : undefined,
     });
+    // Keep the history across Activity effect cleanup and restoration.
+    lastScreenPath.current = pathname;
   }, [pathname]);
 }

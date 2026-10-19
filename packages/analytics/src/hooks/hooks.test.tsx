@@ -218,6 +218,34 @@ describe('useWebAnalytics', () => {
     }
   );
 
+  it('uses the last queued page after navigation while Activity effects are hidden', async () => {
+    const { Page } = await mount();
+    const views = () => track.mock.calls.filter(([name]) => name === 'page_view');
+    const view = render(
+      <Activity mode="visible">
+        <Page pathname="/a" />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Page pathname="/b" />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Page pathname="/c" />
+      </Activity>
+    );
+    expect(views()).toHaveLength(1);
+    view.rerender(
+      <Activity mode="visible">
+        <Page pathname="/c" />
+      </Activity>
+    );
+    expect(views()).toHaveLength(2);
+    expect(views()[1][1]).toMatchObject({ page_path: '/c', previous_page_path: '/a' });
+  });
+
   it('does not use a suspended speculative page as the next committed page predecessor', async () => {
     await load();
     const { useWebAnalytics } = await import('./use-web-analytics');
@@ -256,6 +284,8 @@ describe('useWebAnalytics', () => {
 
   it('sends page_view on a query change, but not on a tracking-parameter cleanup', async () => {
     const { Page } = await mount();
+    const { getSession } = await import('../setup/session');
+    const flush = vi.spyOn(getSession(), 'flush').mockReturnValue(1234);
     const pageViews = () => track.mock.calls.filter(([name]) => name === 'page_view');
     const { rerender } = render(<Page pathname="/pricing" search="?utm_source=bing&msclkid=x" />);
     expect(pageViews()).toHaveLength(1);
@@ -263,6 +293,7 @@ describe('useWebAnalytics', () => {
     // The landing page cleaning its URL is the same page.
     rerender(<Page pathname="/pricing" search="" />);
     expect(pageViews()).toHaveLength(1);
+    expect(flush).not.toHaveBeenCalled();
 
     // A real query change is a new page, named by the same path as its predecessor.
     rerender(<Page pathname="/pricing" search="?plan=pro" />);
@@ -270,11 +301,17 @@ describe('useWebAnalytics', () => {
     expect(pageViews()[1][1]).toMatchObject({
       page_path: '/pricing',
       previous_page_path: '/pricing',
+      engagement_time_msec: 1234,
     });
+    rerender(<Page pathname="/pricing" search="?plan=pro" />);
+    expect(pageViews()).toHaveLength(2);
+    expect(flush).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the first view predecessor empty during Strict Mode effect replay', async () => {
+  it('uses the first queued view as predecessor during Strict Mode effect replay', async () => {
     const { Page } = await mount();
+    const { getSession } = await import('../setup/session');
+    const flush = vi.spyOn(getSession(), 'flush').mockReturnValue(1234);
     const view = render(
       <StrictMode>
         <Page pathname="/a" />
@@ -282,8 +319,9 @@ describe('useWebAnalytics', () => {
     );
     const initial = track.mock.calls.filter(([name]) => name === 'page_view');
     expect(initial).toHaveLength(2);
-    expect(initial.map(([, props]) => props.previous_page_path)).toEqual([undefined, undefined]);
-    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, undefined]);
+    expect(initial.map(([, props]) => props.previous_page_path)).toEqual([undefined, '/a']);
+    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, 1234]);
+    expect(flush).toHaveBeenCalledTimes(1);
     view.rerender(
       <StrictMode>
         <Page pathname="/b" />
@@ -322,6 +360,22 @@ describe('useWebAnalytics', () => {
     );
     // first_visit stays a one-time event
     expect(track.mock.calls.filter(([name]) => name === 'first_visit')).toHaveLength(1);
+  });
+
+  it('keeps the last queued page as predecessor through forward and back navigation', async () => {
+    const { Page } = await mount();
+    const view = render(<Page pathname="/a" />);
+    for (const pathname of ['/b', '/c', '/b', '/a']) {
+      view.rerender(<Page pathname={pathname} />);
+    }
+    const views = track.mock.calls.filter(([name]) => name === 'page_view');
+    expect(views.map(([, props]) => [props.page_path, props.previous_page_path])).toEqual([
+      ['/a', undefined],
+      ['/b', '/a'],
+      ['/c', '/b'],
+      ['/b', '/c'],
+      ['/a', '/b'],
+    ]);
   });
 
   it('does not resend first_visit on a later visit', async () => {

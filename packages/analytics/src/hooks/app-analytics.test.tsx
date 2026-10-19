@@ -103,8 +103,53 @@ describe('useAppAnalytics', () => {
     }
   );
 
-  it('keeps the first screen predecessor empty during Strict Mode effect replay', async () => {
+  it('uses the last queued screen after navigation while Activity effects are hidden', async () => {
     const { Screen } = await mount();
+    const views = () => track.mock.calls.filter(([name]) => name === 'screen_view');
+    const view = render(
+      <Activity mode="visible">
+        <Screen pathname="/a" />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Screen pathname="/b" />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Screen pathname="/c" />
+      </Activity>
+    );
+    expect(views()).toHaveLength(1);
+    view.rerender(
+      <Activity mode="visible">
+        <Screen pathname="/c" />
+      </Activity>
+    );
+    expect(views()).toHaveLength(2);
+    expect(views()[1][1]).toMatchObject({ screen_name: '/c', previous_screen_class: '/a' });
+  });
+
+  it('preserves the empty previous screen path without flushing its engagement', async () => {
+    const { Screen, session } = await mount();
+    const flush = vi.spyOn(session, 'flush');
+    const view = render(<Screen pathname="" />);
+    view.rerender(<Screen pathname="/home" />);
+    expect(track).toHaveBeenLastCalledWith(
+      'screen_view',
+      expect.objectContaining({
+        screen_name: '/home',
+        previous_screen_class: '',
+        engagement_time_msec: undefined,
+      })
+    );
+    expect(flush).not.toHaveBeenCalled();
+  });
+
+  it('uses the first queued screen as predecessor during Strict Mode effect replay', async () => {
+    const { Screen, session } = await mount();
+    const flush = vi.spyOn(session, 'flush').mockReturnValue(1234);
     const view = render(
       <StrictMode>
         <Screen pathname="/home" />
@@ -112,8 +157,9 @@ describe('useAppAnalytics', () => {
     );
     const initial = track.mock.calls.filter(([name]) => name === 'screen_view');
     expect(initial).toHaveLength(2);
-    expect(initial.map(([, props]) => props.previous_screen_class)).toEqual([undefined, undefined]);
-    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, undefined]);
+    expect(initial.map(([, props]) => props.previous_screen_class)).toEqual([undefined, '/home']);
+    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, 1234]);
+    expect(flush).toHaveBeenCalledTimes(1);
     view.rerender(
       <StrictMode>
         <Screen pathname="/settings" />
@@ -158,6 +204,22 @@ describe('useAppAnalytics', () => {
       expect.objectContaining({ screen_name: '/settings', previous_screen_class: '/home' })
     );
     expect(track.mock.calls.filter(([name]) => name === 'first_open')).toHaveLength(1);
+  });
+
+  it('keeps the last queued screen as predecessor through forward and back navigation', async () => {
+    const { Screen } = await mount();
+    const view = render(<Screen pathname="/a" />);
+    for (const pathname of ['/b', '/c', '/b', '/a']) {
+      view.rerender(<Screen pathname={pathname} />);
+    }
+    const views = track.mock.calls.filter(([name]) => name === 'screen_view');
+    expect(views.map(([, props]) => [props.screen_name, props.previous_screen_class])).toEqual([
+      ['/a', undefined],
+      ['/b', '/a'],
+      ['/c', '/b'],
+      ['/b', '/c'],
+      ['/a', '/b'],
+    ]);
   });
 
   it('does not resend first_open on a later launch', async () => {

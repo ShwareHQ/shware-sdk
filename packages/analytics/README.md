@@ -80,9 +80,9 @@ setupAnalytics({
 React Native (Expo):
 
 ```ts
-import { Platform } from 'react-native';
 import { setupAnalytics } from '@shware/analytics';
 import { deepLink, getDeviceId, getTags, storage } from '@shware/analytics/native';
+import { Platform } from 'react-native';
 
 setupAnalytics({
   storage,
@@ -157,6 +157,19 @@ line there (`?page=2` is another page to a funnel, `#faq` is not). Tracking para
 and the ad click ids) are ignored when comparing, so a landing page that cleans them out of its
 URL with `replaceState` does not count itself twice. `page_load_id` rotates on exactly the same
 changes. The framework `Analytics` components wire this up.
+
+Mount one analytics reporter per navigation stream. `previous_page_path` and
+`previous_screen_class` identify the preceding view queued by that reporter: for
+`A → B → C → back to B`, the predecessors are `undefined`, `A`, `B`, and `C`. History advances
+when the view is queued, without waiting for delivery, and survives Activity effect cleanup.
+Restoring B emits another view with B as its predecessor and settles engagement time, even
+when React Compiler reuses the page element without rendering it again. Development Strict
+Mode effect replay also queues another view, so its predecessor is the first view itself.
+
+`page_referrer` describes the navigation source instead: the document's initial
+`document.referrer`, then the preceding page URL after an in-app navigation. Restoring the same
+page preserves that navigation referrer and `page_load_id`. Unrelated renders and uncommitted
+navigation do not advance the reporter's view history.
 
 ## Backend API
 
