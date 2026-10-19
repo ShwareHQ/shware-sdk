@@ -1,5 +1,12 @@
 # @shware/security
 
+## 3.4.1
+
+### Patch Changes
+
+- f3114ee: Normalize Tailwind utility ordering and documentation formatting with the repository formatter.
+- f3114ee: Align test mocks and fixtures with their real SDK contracts, exercise TanStack middleware through its actual builder, and remove unused test imports. No runtime behavior or API dependencies change.
+
 ## 3.4.0
 
 ### Minor Changes

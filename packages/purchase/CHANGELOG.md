@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 5.2.1
+
+### Patch Changes
+
+- f3114ee: Normalize Tailwind utility ordering and documentation formatting with the repository formatter.
+
 ## 5.2.0
 
 ### Minor Changes

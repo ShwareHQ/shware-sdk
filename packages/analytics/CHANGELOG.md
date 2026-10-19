@@ -1,5 +1,15 @@
 # @shware/analytics
 
+## 11.13.3
+
+### Patch Changes
+
+- f3114ee: Validate Google click-id cookie segments after checking their arity without redundant undefined checks.
+- f3114ee: Normalize Tailwind utility ordering and documentation formatting with the repository formatter.
+- f3114ee: Document intentional reads and validation of legacy analytics tag names while retaining compatibility with older clients.
+- f3114ee: Assert structured schema validation errors and required response fields instead of accepting unrelated exceptions or silently substituting missing test data. No runtime behavior or API dependencies change.
+- f3114ee: Align test mocks and fixtures with their real SDK contracts, exercise TanStack middleware through its actual builder, and remove unused test imports. No runtime behavior or API dependencies change.
+
 ## 11.13.2
 
 ### Patch Changes

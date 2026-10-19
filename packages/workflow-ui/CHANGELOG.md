@@ -1,5 +1,26 @@
 # @shware/workflow-ui
 
+## 2.0.2
+
+### Patch Changes
+
+- f3114ee: Preserve optional chat markup capture fallbacks while removing redundant fallbacks for required captures.
+- f3114ee: Model missing flag loaders explicitly so unknown country codes continue to render no flag.
+- f3114ee: Normalize Tailwind utility ordering and documentation formatting with the repository formatter.
+- f3114ee: Use the validated push notification title directly in workflow previews.
+- f3114ee: Model absent statistics query rows explicitly while preserving empty-data and null-activity fallbacks.
+- f3114ee: Align test mocks and fixtures with their real SDK contracts, exercise TanStack middleware through its actual builder, and remove unused test imports. No runtime behavior or API dependencies change.
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+- Updated dependencies [f3114ee]
+  - @shware/workflow@2.0.1
+
 ## 2.0.1
 
 ### Patch Changes
