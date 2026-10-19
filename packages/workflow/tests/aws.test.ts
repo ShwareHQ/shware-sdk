@@ -367,7 +367,8 @@ describe('AwsInstances', () => {
         return {};
       },
     };
-    const { store, port } = instances(lambda, () => 1000 + 13 * 3_600_000);
+    // The budget runs from when the start was recorded, not from the event's ts
+    const { store, port } = instances(lambda, () => Date.now() + 13 * 3_600_000);
     const execution = await port.plan({ id: 'i1', params, ts: 1000 });
     await store.enterJourney({
       workflow: 'w',
@@ -783,4 +784,127 @@ describe('journeyLambda entry points', () => {
     expect(result.getInvocations().length).toBeGreaterThan(1);
     expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard', 'Thanks for buying']);
   }, 30_000);
+});
+
+describe('review fixes', () => {
+  const TARGET = 'arn:aws:lambda:us-east-1:1:function:f:7';
+  const HOUR = 3_600_000;
+
+  function port(lambda: LambdaApi, now: () => number = Date.now) {
+    const store = new PostgresJourneyStore(client(pg));
+    return {
+      store,
+      port: new AwsInstances({
+        store,
+        executions: store.executions,
+        lambda,
+        target: async () => TARGET,
+        now,
+      }),
+    };
+  }
+
+  async function enter(
+    store: PostgresJourneyStore,
+    instances: AwsInstances,
+    id: string,
+    ts: number
+  ) {
+    const execution = await instances.plan({ id, params: runParams, ts });
+    await store.enterJourney({
+      workflow: 'welcome',
+      userId: 'u1',
+      instanceId: id,
+      hash: 'h',
+      ts,
+      execution,
+    });
+  }
+
+  test('an execution not visible yet is left running; one missing past the budget is failed', async () => {
+    let clock = Date.now();
+    const lambda: LambdaApi = { ...fakeLambda().lambda, findExecution: async () => undefined };
+    const { store, port: instances } = port(lambda, () => clock);
+    await enter(store, instances, 'i1', clock);
+    // Submitted, but the invoke's response named no ARN and the run has not started yet
+    await store.executions.markSubmitted('i1', undefined, clock);
+    await instances.maintain();
+    const status = async () =>
+      (await pg.query<{ status: string }>(`SELECT status FROM workflow.entry`)).rows[0].status;
+    expect(await status()).toBe('running');
+    expect((await store.executions.get('i1'))?.checkedAt).toBe(clock);
+
+    clock += 13 * HOUR;
+    await instances.maintain();
+    expect(await status()).toBe('failed');
+  });
+
+  test('a succeeded or running execution never fails the entry', async () => {
+    for (const state of ['running', 'succeeded'] as const) {
+      await pg.exec('TRUNCATE workflow.entry, workflow.execution');
+      const lambda: LambdaApi = { ...fakeLambda().lambda, executionState: async () => state };
+      const { store, port: instances } = port(lambda);
+      await enter(store, instances, 'i1', Date.now());
+      await store.executions.markSubmitted('i1', 'arn:x', Date.now());
+      await instances.maintain();
+      const entry = await pg.query<{ status: string }>(`SELECT status FROM workflow.entry`);
+      expect(entry.rows).toEqual([{ status: 'running' }]);
+    }
+  });
+
+  test('stopping an execution not visible yet fails, so the erasure stays pending', async () => {
+    let clock = Date.now();
+    const lambda: LambdaApi = { ...fakeLambda().lambda, findExecution: async () => undefined };
+    const { store, port: instances } = port(lambda, () => clock);
+    await enter(store, instances, 'i1', clock);
+    await store.executions.markSubmitted('i1', undefined, clock);
+    const env = { JOURNEY: instances };
+    expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false, pending: ['i1'] });
+    expect(await store.executions.get('i1')).toBeDefined();
+
+    // Past the budget an execution still nowhere to be seen never started: the erasure finishes
+    clock += 13 * HOUR;
+    expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: true });
+    expect(await store.executions.get('i1')).toBeUndefined();
+  });
+
+  test("a backfilled event's old ts neither ages the start nor anchors the instance", async () => {
+    const sent: { payload: string }[] = [];
+    let failing = true;
+    const lambda: LambdaApi = {
+      ...fakeLambda().lambda,
+      async startExecution(input) {
+        sent.push(input);
+        if (failing) throw new Error('down');
+        return {};
+      },
+    };
+    const { store, port: instances } = port(lambda);
+    const env = { JOURNEY: instances };
+    await deployBundle(env, compileConfig(journeyConfig('1 day')), store);
+    const twoDaysAgo = Date.now() - 48 * HOUR;
+    await expect(
+      ingestEvent(env, { userId: 'u1', event: 'login', ts: twoDaysAgo }, store)
+    ).rejects.toThrow(/down/);
+    failing = false;
+    await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // Retried, not given up on: the start is minutes old, whatever the event's ts
+    expect(sent).toHaveLength(2);
+    const [record] = await pg
+      .query<{ unresolved_at: unknown }>(`SELECT unresolved_at FROM workflow.execution`)
+      .then((r) => r.rows);
+    expect(record.unresolved_at).toBeNull();
+    // Anchored when the instance was created, as on Cloudflare
+    const input = JSON.parse(sent[0].payload) as RunInput;
+    expect(Date.now() - input.enteredAtMs).toBeLessThan(60_000);
+  });
+
+  test('a read is answered without a step; a write runs in one', async () => {
+    const { journeys } = setup();
+    const read = await call(journeys.handler, request('/bundle', undefined, 'GET'));
+    expect(read.result.getResult()).toMatchObject({ statusCode: 200 });
+    expect(read.result.getOperations()).toEqual([]);
+    const write = await call(journeys.handler, request('/bundle/deploy'));
+    expect(write.result.getOperations().map((operation) => operation.getName())).toEqual(['http']);
+  });
 });

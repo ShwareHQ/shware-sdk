@@ -1,5 +1,5 @@
 import type { EmailBindingLike } from '../cloudflare/bindings';
-import { formatEmailAddress } from '../email';
+import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
 
 /**
@@ -68,11 +68,9 @@ export function cloudflareEmailTransport(options: CloudflareEmailTransportOption
             'content-type': 'application/json',
           },
           body: JSON.stringify({
-            from: formatEmailAddress(message.from),
+            from: mimeAddress(message.from),
             to: message.to,
-            ...(message.replyTo === undefined
-              ? {}
-              : { reply_to: formatEmailAddress(message.replyTo) }),
+            ...(message.replyTo === undefined ? {} : { reply_to: mimeAddress(message.replyTo) }),
             subject: message.subject,
             html: message.html,
           }),

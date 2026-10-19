@@ -20,6 +20,8 @@ beforeAll(async () => {
       body += chunk.toString();
     });
     request.on('end', () => {
+      // Never answered: what a session a frozen Lambda left behind looks like
+      if (request.url === '/hang') return;
       if (request.url === '/empty') {
         response.writeHead(200, { 'apns-id': 'abc' });
         response.end();
@@ -91,6 +93,19 @@ describe('http2Fetch', () => {
     const fetch = http2Fetch(pool);
     await Promise.all([1, 2, 3].map((n) => fetch(`${origin}/n${n}`, { method: 'POST', body: '' })));
     expect(sessionsSeen.size).toBe(1);
+    pool.close();
+  });
+
+  test('a request that gets no answer times out, and the next one reconnects', async () => {
+    const pool = http2Sessions();
+    const fetch = http2Fetch(pool, { timeoutMs: 200 });
+    const before = pool.session(origin);
+    await expect(fetch(`${origin}/hang`, { method: 'POST', body: '' })).rejects.toThrow(
+      /timed out after 200 ms/
+    );
+    expect(before.destroyed).toBe(true);
+    const response = await fetch(`${origin}/after`, { method: 'POST', body: '' });
+    expect(response.status).toBe(200);
     pool.close();
   });
 

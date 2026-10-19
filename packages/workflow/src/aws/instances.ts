@@ -1,7 +1,8 @@
-import type {
-  JourneyParams,
-  WorkflowBindingLike,
-  WorkflowInstanceLike,
+import {
+  InstanceNotFoundError,
+  type JourneyParams,
+  type WorkflowBindingLike,
+  type WorkflowInstanceLike,
 } from '../cloudflare/bindings';
 import { murmur3 } from '../engine/bucket';
 import type {
@@ -25,7 +26,7 @@ export interface RunInput {
   type: typeof RUN_EVENT_TYPE;
   instanceId: string;
   params: JourneyParams;
-  /** The trigger's time: the instance's entry anchor, fixed with the start. */
+  /** When the instance was created (as Cloudflare's event timestamp): its entry anchor, fixed with the start. */
   enteredAtMs: number;
 }
 
@@ -97,7 +98,8 @@ export class AwsInstances implements WorkflowBindingLike {
       type: RUN_EVENT_TYPE,
       instanceId: options.id,
       params: options.params,
-      enteredAtMs: options.ts,
+      // The moment the instance is created, like Cloudflare's: an event's own ts may be long past
+      enteredAtMs: this.now(),
     };
     return {
       name: executionName(options.id),
@@ -118,7 +120,7 @@ export class AwsInstances implements WorkflowBindingLike {
   async get(id: string): Promise<WorkflowInstanceLike> {
     // A read of the registry alone: a Lambda failure must never read as "no such instance"
     if ((await this.options.executions.get(id)) === undefined) {
-      throw new Error(`no such instance: ${id}`);
+      throw new InstanceNotFoundError(id);
     }
     return this.instance(id);
   }
@@ -183,10 +185,25 @@ export class AwsInstances implements WorkflowBindingLike {
     return arn;
   }
 
+  /**
+   * Past the start retry budget, an execution still nowhere to be seen never started: any queued
+   * invoke has expired by then. Before that, not finding it says nothing.
+   */
+  private vanished(record: ExecutionRecord): boolean {
+    return this.now() - record.createdAt > this.startRetryMs;
+  }
+
   private async reconcile(record: ExecutionRecord, now: number): Promise<void> {
     const arn = await this.arnOf(record);
     const state = arn === undefined ? undefined : await this.options.lambda.executionState(arn);
-    if (state !== 'running') {
+    // Only a state that will never run another step — or one missing for good — ends the entry;
+    // a run still queued, or not visible yet, is left alone
+    const ended =
+      state === 'failed' ||
+      state === 'stopped' ||
+      state === 'timed_out' ||
+      (state === undefined && this.vanished(record));
+    if (ended) {
       // Ended without its finalize step: the ledger must not show it running forever
       const { store } = this.options;
       await store.setEntryStatus(record.instanceId, 'failed');
@@ -208,7 +225,7 @@ export class AwsInstances implements WorkflowBindingLike {
     const { executions, lambda } = this.options;
     const current = async () => {
       const record = await executions.get(id);
-      if (record === undefined) throw new Error(`no such instance: ${id}`);
+      if (record === undefined) throw new InstanceNotFoundError(id);
       return record;
     };
     return {
@@ -228,13 +245,19 @@ export class AwsInstances implements WorkflowBindingLike {
           await executions.markUnresolved(id, this.now());
         }
         const arn = await this.arnOf(record);
-        if (arn === undefined) return;
+        if (arn === undefined) {
+          // Not visible yet is not stopped: the erasure stays pending, and the sweep retries
+          if (this.vanished(record)) return;
+          throw new Error(`cannot stop ${id} yet: its execution is not visible`);
+        }
         if (!(await lambda.stopExecution(arn))) throw new Error(`stopping ${id} failed`);
       },
       status: async () => {
         const record = await current();
         const arn = await this.arnOf(record);
-        const state = arn === undefined ? undefined : await lambda.executionState(arn);
+        // Not visible yet may still run: only one missing past the budget is gone
+        if (arn === undefined) return { status: this.vanished(record) ? 'terminated' : 'running' };
+        const state = await lambda.executionState(arn);
         // In the router's vocabulary (Cloudflare's): what will never run another step
         if (state === 'succeeded') return { status: 'complete' };
         if (state === 'failed') return { status: 'errored' };

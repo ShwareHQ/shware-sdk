@@ -171,37 +171,39 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
     );
   };
 
-  const http = (event: FunctionUrlEvent, context: DurableContext): Promise<FunctionUrlResult> =>
-    // One step, never retried: the caller is waiting, and retries the request itself
-    context.step(
-      'http',
-      async () => {
-        const method = event.requestContext.http.method;
-        try {
-          const { store, env } = open(context);
-          const request = toRequest(event);
-          // Only the bundle compiled into a version may route: one is never swapped in by hand
-          if (new URL(request.url).pathname === '/deploy') {
-            return await fromResponse(
-              json(
-                {
-                  error:
-                    'deploy by publishing a version (POST /bundle/deploy applies its own bundle)',
-                },
-                409
-              ),
-              method
-            );
-          }
-          await host.applyOwnBundle(env, bundleVersion());
-          return await fromResponse(await host.handle(request, env, store), method);
-        } catch (error) {
-          console.error('[workflow] request failed', error);
-          return fromResponse(json({ error: 'internal error' }, 500), method);
+  const http = (event: FunctionUrlEvent, context: DurableContext): Promise<FunctionUrlResult> => {
+    const serve = async (): Promise<FunctionUrlResult> => {
+      const method = event.requestContext.http.method;
+      try {
+        const { store, env } = open(context);
+        const request = toRequest(event);
+        // Only the bundle compiled into a version may route: one is never swapped in by hand
+        if (new URL(request.url).pathname === '/deploy') {
+          return await fromResponse(
+            json(
+              {
+                error:
+                  'deploy by publishing a version (POST /bundle/deploy applies its own bundle)',
+              },
+              409
+            ),
+            method
+          );
         }
-      },
-      { retryStrategy: () => ({ shouldRetry: false }) }
-    );
+        await host.applyOwnBundle(env, bundleVersion());
+        return await fromResponse(await host.handle(request, env, store), method);
+      } catch (error) {
+        console.error('[workflow] request failed', error);
+        return fromResponse(json({ error: 'internal error' }, 500), method);
+      }
+    };
+    // A read (the bundle, a preview, a tracked link or pixel) answers straight from the handler:
+    // its body can be large, and a step would checkpoint all of it. A write runs in one step,
+    // never retried — the caller is waiting, and retries the request itself
+    const method = event.requestContext.http.method.toUpperCase();
+    if (method === 'GET' || method === 'HEAD') return serve();
+    return context.step('http', serve, { retryStrategy: () => ({ shouldRetry: false }) });
+  };
 
   const sweep = (context: DurableContext): Promise<SweepResult> =>
     context.step(

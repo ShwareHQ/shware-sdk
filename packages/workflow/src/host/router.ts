@@ -4,6 +4,7 @@ import {
   type JourneyParams,
   WAKE_EVENT_TYPE,
   type WorkflowInstanceLike,
+  isInstanceNotFound,
 } from '../cloudflare/bindings';
 import { d1Store } from '../cloudflare/d1-env';
 import { type Contract, type ContractResult, checkEvent } from '../contract';
@@ -116,9 +117,11 @@ async function wakeSubscribers(
     let instance: WorkflowInstanceLike;
     try {
       instance = await env.JOURNEY.get(handle);
-    } catch {
-      // Unknown instance (errored out without cleanup): drop the dangling subscription
-      await store.unsubscribe(handle);
+    } catch (error) {
+      // Unknown instance (errored out without cleanup): drop the dangling subscription. Any
+      // other failure (a database blip) keeps it: deleting would silence the wait for good
+      if (isInstanceNotFound(error)) await store.unsubscribe(handle);
+      else console.warn(`[workflow] looking up ${handle} to wake it failed`, error);
       continue;
     }
     try {
@@ -449,7 +452,7 @@ async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolea
   try {
     instance = await env.JOURNEY.get(instanceId);
   } catch (error) {
-    if (/not[_ ]found/i.test(String(error))) return true;
+    if (isInstanceNotFound(error)) return true;
     console.warn(`[workflow] looking up ${instanceId} to stop it failed`, error);
     return false;
   }

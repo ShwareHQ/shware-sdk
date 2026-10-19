@@ -540,7 +540,8 @@ export class PostgresJourneyStore implements JourneyStore {
         execution.name,
         execution.target,
         execution.input,
-        entry.ts,
+        // The start's own age (the retry budget), not the event's ts, which the producer chose
+        Date.now(),
       ]
     );
   }

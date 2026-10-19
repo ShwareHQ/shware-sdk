@@ -7,7 +7,13 @@ export type {
   WorkflowBindingLike,
   WorkflowInstanceLike,
 } from './bindings';
-export { WAKE_EVENT_TYPE, WAKE_TIMEOUT_TOLERANCE_MS, wakeExpired } from './bindings';
+export {
+  InstanceNotFoundError,
+  WAKE_EVENT_TYPE,
+  WAKE_TIMEOUT_TOLERANCE_MS,
+  isInstanceNotFound,
+  wakeExpired,
+} from './bindings';
 export { d1Store } from './d1-env';
 export {
   BundleIntegrityError,

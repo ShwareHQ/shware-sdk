@@ -133,6 +133,23 @@ export interface JourneyEnv {
   APNS_RELAY_ORIGIN?: string;
 }
 
+/** The runtime does not know the instance: the only failure that lets the router drop its wakes. */
+export class InstanceNotFoundError extends Error {
+  override readonly name = 'InstanceNotFoundError';
+  constructor(readonly instanceId: string) {
+    super(`no such instance: ${instanceId}`);
+  }
+}
+
+/**
+ * Does this lookup failure say the instance is gone, rather than that the lookup failed?
+ * Cloudflare reports an unknown id as `instance.not_found`.
+ */
+export function isInstanceNotFound(error: unknown): boolean {
+  if (error instanceof InstanceNotFoundError) return true;
+  return /not[_ ]found|no such instance/i.test(String(error));
+}
+
 /** The event type the router uses to wake waiting instances (sendEvent's `type`). */
 export const WAKE_EVENT_TYPE = 'wake';
 

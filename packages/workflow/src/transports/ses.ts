@@ -1,4 +1,4 @@
-import type { EmailAddress } from '../email';
+import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
 import { signRequest } from './sigv4';
 
@@ -59,27 +59,6 @@ function environmentCredentials(): AwsCredentials {
   return { accessKeyId, secretAccessKey, sessionToken: env?.AWS_SESSION_TOKEN };
 }
 
-const ASCII = /^[\x20-\x7e]*$/;
-const SPECIALS = /[()<>[\]:;@\\,."]/;
-
-/**
- * An address as SES reads it (RFC 5322): a display name with specials is quoted, one outside
- * ASCII is a MIME encoded-word — SES rejects raw non-ASCII names.
- */
-export function sesAddress(address: EmailAddress): string {
-  if (typeof address === 'string') return address;
-  const { email, name } = address;
-  if (name === undefined || name === '') return email;
-  if (!ASCII.test(name)) {
-    const bytes = new TextEncoder().encode(name);
-    let binary = '';
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return `=?UTF-8?B?${btoa(binary)}?= <${email}>`;
-  }
-  if (SPECIALS.test(name)) return `"${name.replace(/(["\\])/g, '\\$1')}" <${email}>`;
-  return `${name} <${email}>`;
-}
-
 export function sesEmailTransport(options: SesEmailTransportOptions): EmailTransport {
   const endpoint = (options.endpoint ?? `https://email.${options.region}.amazonaws.com`).replace(
     /\/$/,
@@ -95,11 +74,11 @@ export function sesEmailTransport(options: SesEmailTransportOptions): EmailTrans
   return {
     async send(message: EmailMessage) {
       const body = JSON.stringify({
-        FromEmailAddress: sesAddress(message.from),
+        FromEmailAddress: mimeAddress(message.from),
         Destination: { ToAddresses: [message.to] },
         ...(message.replyTo === undefined
           ? {}
-          : { ReplyToAddresses: [sesAddress(message.replyTo)] }),
+          : { ReplyToAddresses: [mimeAddress(message.replyTo)] }),
         Content: {
           Simple: {
             Subject: { Data: message.subject, Charset: 'UTF-8' },

@@ -8,6 +8,8 @@ import { type ClientHttp2Session, connect } from 'node:http2';
 
 export interface Http2Sessions {
   session(origin: string): ClientHttp2Session;
+  /** Drop a session that stopped answering, so the next request reconnects. */
+  discard(origin: string): void;
   close(): void;
 }
 
@@ -27,6 +29,10 @@ export function http2Sessions(): Http2Sessions {
       sessions.set(origin, created);
       return created;
     },
+    discard(origin) {
+      sessions.get(origin)?.destroy();
+      sessions.delete(origin);
+    },
     close() {
       for (const open of sessions.values()) open.close();
       sessions.clear();
@@ -39,7 +45,18 @@ export function http2Sessions(): Http2Sessions {
  * JSON API call needs: a method, string headers, a string or byte body, the status, headers and
  * body back.
  */
-export function http2Fetch(pool: Http2Sessions = http2Sessions()): typeof fetch {
+export function http2Fetch(
+  pool: Http2Sessions = http2Sessions(),
+  options: {
+    /**
+     * How long a request may go without activity: a session a frozen Lambda left half-dead
+     * answers nothing and closes nothing, so without a limit the request hangs until the
+     * function's timeout. 10 seconds by default.
+     */
+    timeoutMs?: number;
+  } = {}
+): typeof fetch {
+  const timeoutMs = options.timeoutMs ?? 10_000;
   return async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -80,6 +97,11 @@ export function http2Fetch(pool: Http2Sessions = http2Sessions()): typeof fetch 
         );
       });
       stream.on('error', reject);
+      stream.setTimeout(timeoutMs, () => {
+        stream.close();
+        pool.discard(url.origin);
+        reject(new Error(`HTTP/2 request to ${url.origin} timed out after ${timeoutMs} ms`));
+      });
       stream.end(body);
     });
   };

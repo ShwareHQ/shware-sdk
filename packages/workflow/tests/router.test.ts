@@ -380,6 +380,24 @@ describe('identify', () => {
     expect(db.profiles.get('u1')).toBe(JSON.stringify({ plan: 'pro' }));
   });
 
+  test('a lookup that fails for another reason keeps the subscription', async () => {
+    const { env, db, journey } = makeEnv();
+    db.subscriptions.push({
+      user_id: 'u1',
+      event: PROFILE_UPDATED_EVENT,
+      wake_handle: 'inst-1',
+      ts: 0,
+    });
+    journey.get = async () => {
+      throw new Error('connection reset by peer');
+    };
+    const response = await handleRequest(identifyRequest('u1', { plan: 'pro' }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ woke: 0 });
+    // A database blip must not silence the wait for good
+    expect(db.subscriptions).toHaveLength(1);
+  });
+
   test('a dangling subscription (unknown instance) is pruned, not fatal', async () => {
     const { env, db } = makeEnv();
     db.subscriptions.push({

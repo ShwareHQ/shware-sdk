@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { stepRetry } from '../src/aws/engine-step';
 import { fromResponse, isFunctionUrlEvent, toRequest } from '../src/aws/function-url';
+import { mimeAddress } from '../src/email';
 import { type EmailMessage, EmailSender } from '../src/email-sender';
 import type { OutboundMessage } from '../src/engine/ports';
 import { CloudflareEmailError, cloudflareEmailTransport } from '../src/transports/cloudflare-email';
-import { SesSendError, sesAddress, sesEmailTransport } from '../src/transports/ses';
+import { SesSendError, sesEmailTransport } from '../src/transports/ses';
 import { signRequest } from '../src/transports/sigv4';
 
 /**
@@ -260,9 +261,9 @@ describe('sesEmailTransport', () => {
   });
 
   test('display names are quoted or encoded the way SES requires', () => {
-    expect(sesAddress('a@b.c')).toBe('a@b.c');
-    expect(sesAddress({ email: 'a@b.c', name: 'Acme, Inc.' })).toBe('"Acme, Inc." <a@b.c>');
-    expect(sesAddress({ email: 'a@b.c', name: '艾克米' })).toBe(
+    expect(mimeAddress('a@b.c')).toBe('a@b.c');
+    expect(mimeAddress({ email: 'a@b.c', name: 'Acme, Inc.' })).toBe('"Acme, Inc." <a@b.c>');
+    expect(mimeAddress({ email: 'a@b.c', name: '艾克米' })).toBe(
       `=?UTF-8?B?${Buffer.from('艾克米').toString('base64')}?= <a@b.c>`
     );
   });
@@ -306,6 +307,22 @@ describe('cloudflareEmailTransport', () => {
       reply_to: 'support@acme.test',
       subject: 'Welcome aboard',
       html: '<p>Hi</p>',
+    });
+  });
+
+  test('display names with specials are quoted for the REST API too', async () => {
+    const { calls, fetchImpl } = recordingFetch(
+      () => new Response(JSON.stringify({ success: true, errors: [] }), { status: 200 })
+    );
+    const transport = cloudflareEmailTransport({ accountId: 'a', apiToken: 't', fetch: fetchImpl });
+    await transport.send({
+      ...email,
+      from: { email: 'hi@acme.test', name: 'Acme, Inc.' },
+      replyTo: { email: 'help@acme.test', name: '艾克米' },
+    });
+    expect(JSON.parse(calls[0].body)).toMatchObject({
+      from: '"Acme, Inc." <hi@acme.test>',
+      reply_to: `=?UTF-8?B?${Buffer.from('艾克米').toString('base64')}?= <help@acme.test>`,
     });
   });
 
