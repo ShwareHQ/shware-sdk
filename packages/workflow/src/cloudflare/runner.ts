@@ -10,6 +10,7 @@ import type {
   MessageSender,
   MessageValidator,
 } from '../engine/ports';
+import { isRetryable } from '../engine/retry';
 import { type JourneyRunParts, executeJourney } from '../host/execute';
 import { LogMessageSender, WebhookMessageSender } from '../host/senders';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
@@ -24,9 +25,6 @@ import { d1Store } from './d1-env';
  * waitForEvent, which signals a timeout by throwing — and so does every other
  * failure in there, so only the clock can tell them apart (see wakeExpired).
  */
-/** Refusals a retry would only repeat: a template's props, an emitted event's payload. */
-const NON_RETRYABLE = new Set(['TemplateValidationError', 'ContractValidationError']);
-
 class CfEngineStep implements EngineStep {
   constructor(
     private readonly step: WorkflowStep,
@@ -36,8 +34,8 @@ class CfEngineStep implements EngineStep {
   ) {}
 
   /**
-   * A template refusing its props, or the contract refusing an emitted event,
-   * is deterministic — a retry hits the same refusal — so it ends the step at
+   * A failure a retry would only repeat (`isRetryable`: a template refusing its props, the
+   * contract refusing an emitted event, a provider rejecting the request) ends the step at
    * once instead of burning the retry budget.
    */
   do<T>(name: string, fn: () => Promise<T>): Promise<T> {
@@ -45,7 +43,7 @@ class CfEngineStep implements EngineStep {
       try {
         return await fn();
       } catch (error) {
-        if (error instanceof Error && NON_RETRYABLE.has(error.name)) {
+        if (error instanceof Error && !isRetryable(error)) {
           throw new NonRetryableError(error.message, error.name);
         }
         throw error;

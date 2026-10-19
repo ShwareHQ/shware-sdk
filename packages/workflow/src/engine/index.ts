@@ -27,3 +27,5 @@ export type {
   PushDevice,
   SendResult,
 } from './ports';
+export { longestJourneyMs } from './duration';
+export { isRetryable, isRetryableStatus } from './retry';

@@ -23,6 +23,9 @@ import { defineConfig, emailTemplate, event, performed, trigger, workflow } from
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
 
+/** An email transport that accepts every email: these hosts are not about delivery. */
+const quietTransport = { send: async () => ({}) };
+
 /**
  * journeyLambda end to end on the official local durable runner: an HTTP request (a Function
  * URL event) enters a user and submits the run as its own execution; the run sends, parks on a
@@ -692,6 +695,7 @@ describe('journeyLambda entry points', () => {
     const control = fakeLambda();
     let failing = true;
     const journeys = journeyLambda({
+      email: () => quietTransport,
       config: journeyConfig('1 day'),
       env: { API_TOKEN: 'secret' },
       store: () => new PostgresJourneyStore(client(pg)),
@@ -727,6 +731,7 @@ describe('journeyLambda entry points', () => {
 
   test('a store without an execution registry is refused with the reason', async () => {
     const journeys = journeyLambda({
+      email: () => quietTransport,
       config: journeyConfig('1 day'),
       env: {},
       store: () => {
@@ -766,6 +771,7 @@ describe('journeyLambda entry points', () => {
     process.env.AWS_LAMBDA_FUNCTION_VERSION = '2';
     const control = fakeLambda();
     const older = journeyLambda({
+      email: () => quietTransport,
       config: defineConfig({
         workflows: [
           workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(emails.thanks, {}),
@@ -986,6 +992,7 @@ describe('second review fixes', () => {
     process.env.AWS_LAMBDA_FUNCTION_VERSION = '2';
     const control = fakeLambda();
     const journeys = journeyLambda({
+      email: () => quietTransport,
       config: defineConfig({
         workflows: [
           workflow({ id: 'other', trigger: trigger.event(e.purchase) }).email(emails.thanks, {}),
@@ -1008,6 +1015,7 @@ describe('second review fixes', () => {
   test('routes from a forced deploy start only workflows this code carries', async () => {
     const control = fakeLambda();
     const journeys = journeyLambda({
+      email: () => quietTransport,
       config: defineConfig({
         workflows: [
           workflow({ id: 'other', trigger: trigger.event(e.purchase) }).email(emails.thanks, {}),

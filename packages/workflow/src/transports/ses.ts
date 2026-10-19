@@ -1,5 +1,6 @@
 import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
+import { isRetryableStatus } from '../engine/retry';
 import { signRequest } from './sigv4';
 
 /**
@@ -36,12 +37,15 @@ export interface SesEmailTransportOptions {
 /** An SES error response: `type` is SES's error code (`MessageRejected`, `TooManyRequestsException`, ...). */
 export class SesSendError extends Error {
   override readonly name = 'SesSendError';
+  /** A rejected request (an unverified sender, a bad address) fails the same way every time. */
+  readonly retryable: boolean;
   constructor(
     readonly status: number,
     readonly type: string | undefined,
     message: string
   ) {
     super(`SES SendEmail failed (${status}${type === undefined ? '' : ` ${type}`}): ${message}`);
+    this.retryable = isRetryableStatus(status);
   }
 }
 

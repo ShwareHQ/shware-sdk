@@ -9,7 +9,7 @@ import type { EmailTransport } from '../email-sender';
 import { RegistryActionInvoker } from '../engine/actions';
 import type { JourneyObserver, MessageSender } from '../engine/ports';
 import { scaleSegmentWindows } from '../engine/time-scale';
-import type { BundleIR, ScalarIR } from '../ir';
+import type { BundleIR, NodeIR, ScalarIR } from '../ir';
 import { registryRenderer } from '../react-email';
 import { reportingObserver } from '../reporting/observer';
 import { handleTracking } from '../reporting/tracking';
@@ -127,6 +127,25 @@ export interface JourneyPlatform {
   apnsFetch?: typeof fetch;
 }
 
+function sendsEmail(nodes: readonly NodeIR[]): boolean {
+  return nodes.some((node) => {
+    switch (node.type) {
+      case 'message':
+        return node.channel === 'email';
+      case 'wait_until':
+        return Array.isArray(node.onTimeout) && sendsEmail(node.onTimeout);
+      case 'branch':
+        return (
+          node.cases.some((branch) => sendsEmail(branch.flow)) || sendsEmail(node.otherwise ?? [])
+        );
+      case 'cohort':
+        return node.arms.some((arm) => sendsEmail(arm.flow));
+      default:
+        return false;
+    }
+  });
+}
+
 export function createJourneyHost<Env extends JourneyEnv>(
   options: JourneyHostOptions<Env>,
   platform: JourneyPlatform = {}
@@ -135,6 +154,18 @@ export function createJourneyHost<Env extends JourneyEnv>(
   const emailIds = indexTemplates('email', config.templates?.email);
   // A config still on `emails` (its sender would be silently dropped) fails here, not at a send
   assertEmailConfig(config, emailIds.values());
+  // A journey that emails with nowhere to send fails here too, not at its first email
+  if (options.email === undefined && options.messages === undefined) {
+    const emailing = compileConfig(config).workflows.filter((workflow) =>
+      sendsEmail(workflow.flow)
+    );
+    if (emailing.length > 0) {
+      throw new TypeError(
+        `workflows ${emailing.map((w) => `'${w.id}'`).join(', ')} send email, but the host has no ` +
+          '`email` transport: pass `email: (env) => cloudflareEmailTransport(...)` or `sesEmailTransport(...)`'
+      );
+    }
+  }
   // Parsed once per env object: the runtime hands the same one to every request of an isolate
   const checked = new WeakMap<object, Env>();
   const checkEnv = (env: Env): Env => {

@@ -5,6 +5,7 @@ import {
   type RetryDecision,
 } from '@aws/durable-execution-sdk-js';
 import type { EngineStep } from '../engine/ports';
+import { isRetryable } from '../engine/retry';
 import type { ExecutionRegistry, JourneyStore } from '../store/index';
 import type { LambdaApi } from './lambda-api';
 
@@ -19,12 +20,9 @@ import type { LambdaApi } from './lambda-api';
  * is only a hint; the facts the wait re-checks are Postgres'.
  */
 
-/** Refusals a retry would only repeat: a template's props, an emitted event's payload. */
-const NON_RETRYABLE = new Set(['TemplateValidationError', 'ContractValidationError']);
-
 /** What the step retries, bounded: 6 attempts with exponential backoff up to a minute. */
 export function stepRetry(error: Error, attempt: number): RetryDecision {
-  if (NON_RETRYABLE.has(error.name) || attempt >= 6) return { shouldRetry: false };
+  if (!isRetryable(error) || attempt >= 6) return { shouldRetry: false };
   return { shouldRetry: true, delay: { seconds: Math.min(60, 2 ** attempt) } };
 }
 
