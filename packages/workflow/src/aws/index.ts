@@ -101,6 +101,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
   const { env: baseEnv, lambda: lambdaOption, startRetryMs, ...hostOptions } = options;
   const host = createJourneyHost<HostEnv>(
     { ...hostOptions, store: (env, database) => options.store(env, database) },
+    // Node 24's fetch cannot reach APNs (HTTP/2 only): see http2-client.ts for when this can go
     { apnsFetch: http2Fetch() }
   );
   const lambda = lambdaOption ?? sdkLambdaApi();
