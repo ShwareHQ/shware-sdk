@@ -106,6 +106,10 @@ export const TABLES = {
       event: text,
       where: nullable(jsonb),
       filter: nullable(jsonb),
+      version: nullable(
+        text,
+        'The code version whose compiled bundle put this route here (null after a forced deploy): an instance it starts runs on that version, so its IR and its code always match.'
+      ),
     },
     primaryKey: ['workflow'],
     indexes: [['event']],
@@ -113,7 +117,15 @@ export const TABLES = {
   segmentTrigger: table({
     name: 'segment_trigger',
     doc: 'Segment-entry trigger routes.',
-    columns: { workflow: text, hash: text, segment: text },
+    columns: {
+      workflow: text,
+      hash: text,
+      segment: text,
+      version: nullable(
+        text,
+        'The code version whose compiled bundle put this route here (null after a forced deploy): an instance it starts runs on that version, so its IR and its code always match.'
+      ),
+    },
     primaryKey: ['workflow'],
     indexes: [['segment']],
   }),
@@ -175,6 +187,10 @@ export const TABLES = {
       checkedAt: nullable(
         ts,
         "When maintenance last compared the runtime's status with the ledger."
+      ),
+      stoppedAt: nullable(
+        ts,
+        'When it was stopped (an erasure): an invocation already running goes on to its next checkpoint, so the data waits until it has drained.'
       ),
     },
     primaryKey: ['instanceId'],

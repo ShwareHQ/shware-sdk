@@ -22,6 +22,11 @@ beforeAll(async () => {
     request.on('end', () => {
       // Never answered: what a session a frozen Lambda left behind looks like
       if (request.url === '/hang') return;
+      // Never answered, and the server retires the session: the client opens a new one
+      if (request.url === '/hang-goaway') {
+        request.stream.session?.goaway();
+        return;
+      }
       if (request.url === '/empty') {
         response.writeHead(200, { 'apns-id': 'abc' });
         response.end();
@@ -106,6 +111,25 @@ describe('http2Fetch', () => {
     expect(before.destroyed).toBe(true);
     const response = await fetch(`${origin}/after`, { method: 'POST', body: '' });
     expect(response.status).toBe(200);
+    pool.close();
+  });
+
+  test('a timed-out request discards only its own session, not the newer one', async () => {
+    const pool = http2Sessions();
+    const fetch = http2Fetch(pool, { timeoutMs: 300 });
+    const old = pool.session(origin);
+    const hanging = fetch(`${origin}/hang-goaway`, { method: 'POST', body: '' });
+    // After the GOAWAY the pool holds a new session for the origin
+    await new Promise<void>((resolve) => {
+      old.once('goaway', () => resolve());
+    });
+    const fresh = pool.session(origin);
+    expect(fresh).not.toBe(old);
+    await expect(hanging).rejects.toThrow(/timed out/);
+    // The old request's timeout left the new session alone
+    expect(fresh.destroyed).toBe(false);
+    expect(pool.session(origin)).toBe(fresh);
+    expect((await fetch(`${origin}/after`, { method: 'POST', body: '' })).status).toBe(200);
     pool.close();
   });
 

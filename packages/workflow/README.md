@@ -791,12 +791,21 @@ no HTTP body can pass for the others:
 A start is recorded with its entry in one transaction (the `execution` table),
 so a lost `Invoke` response is retried with the same name and payload and never
 re-entered as a second execution. Retries stop after 12 hours (`startRetryMs`,
-keep it under the execution retention) and the start is left unresolved.
+keep it under the execution retention) and the start is left unresolved. A
+failed entry that is entered again gets a new execution, never the closed one.
+
+Erasing a user (`POST /users/forget`) stops their executions, then waits
+`stopDrainMs` (15 minutes by default; at least the function's timeout) before
+erasing: a stop does not interrupt an invocation already running, which goes on
+to its next checkpoint. Until then the erasure answers `erased: false` and the
+sweep finishes it.
 
 Deploy one artifact per version: publish a numbered version and point the
 `live` alias, which the Function URL is bound to, at it. Each version carries its
-compiled bundle and makes it live by itself, only over an older one; executions
-stay on the version that started them. `POST /deploy` of an arbitrary bundle is
+compiled bundle and makes it live by itself, only over an older one. Each route
+records the version that applied it, and an instance it starts runs on that
+version, so its IR and its code always match, even while an older version is
+still serving; executions stay on the version that started them. `POST /deploy` of an arbitrary bundle is
 refused.
 
 ```yaml
@@ -807,6 +816,7 @@ Workflow:
     Handler: aws.handler
     Timeout: 60
     AutoPublishAlias: live
+    # ExecutionTimeout: the longest journey (waits, delays and the goal window), up to 366 days
     DurableConfig: { ExecutionTimeout: 2592000, RetentionPeriodInDays: 30 }
     FunctionUrlConfig: { AuthType: NONE, InvokeMode: BUFFERED }
 ```

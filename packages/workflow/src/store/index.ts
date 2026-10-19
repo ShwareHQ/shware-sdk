@@ -36,12 +36,20 @@ export interface TriggerRoute {
   where: ConditionIR | null;
   /** Profile gate, or null. */
   filter: ConditionIR | null;
+  /**
+   * The code version that applied these routes (`replaceRoutesIfNewer`); absent after a forced
+   * deploy, or on a store that keeps none. Read in the same row as the hash, so the pair is
+   * always one deploy's.
+   */
+  version?: string | undefined;
 }
 
 export interface SegmentTriggerRoute {
   workflow: string;
   hash: string;
   segment: string;
+  /** As `TriggerRoute.version`. */
+  version?: string | undefined;
 }
 
 /**
@@ -91,6 +99,7 @@ export interface ExecutionRecord extends ExecutionStart {
   generation: number;
   deadlineAt?: number | undefined;
   checkedAt?: number | undefined;
+  stoppedAt?: number | undefined;
 }
 
 /**
@@ -123,6 +132,8 @@ export interface ExecutionRegistry {
   /** Submitted executions whose entry is still running, least recently checked first. */
   toReconcile(limit: number, checkedBefore: number): Promise<ExecutionRecord[]>;
   markChecked(instanceId: string, at: number): Promise<void>;
+  /** Record the first stop; a later one keeps it. */
+  markStopped(instanceId: string, at: number): Promise<void>;
 }
 
 /**

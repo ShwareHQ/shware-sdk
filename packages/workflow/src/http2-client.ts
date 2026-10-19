@@ -23,8 +23,11 @@ import { type ClientHttp2Session, connect } from 'node:http2';
 
 export interface Http2Sessions {
   session(origin: string): ClientHttp2Session;
-  /** Drop a session that stopped answering, so the next request reconnects. */
-  discard(origin: string): void;
+  /**
+   * Drop a session that stopped answering, so the next request reconnects. Only that session:
+   * the pool may already hold a newer one for the origin (after a GOAWAY), which stays.
+   */
+  discard(origin: string, session: ClientHttp2Session): void;
   close(): void;
 }
 
@@ -44,9 +47,9 @@ export function http2Sessions(): Http2Sessions {
       sessions.set(origin, created);
       return created;
     },
-    discard(origin) {
-      sessions.get(origin)?.destroy();
-      sessions.delete(origin);
+    discard(origin, session) {
+      session.destroy();
+      if (sessions.get(origin) === session) sessions.delete(origin);
     },
     close() {
       for (const open of sessions.values()) open.close();
@@ -84,9 +87,11 @@ export function http2Fetch(
       headers[name] = value;
     });
     return new Promise<Response>((resolve, reject) => {
+      let session: ClientHttp2Session;
       let stream;
       try {
-        stream = pool.session(url.origin).request(headers);
+        session = pool.session(url.origin);
+        stream = session.request(headers);
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
         return;
@@ -114,7 +119,7 @@ export function http2Fetch(
       stream.on('error', reject);
       stream.setTimeout(timeoutMs, () => {
         stream.close();
-        pool.discard(url.origin);
+        pool.discard(url.origin, session);
         reject(new Error(`HTTP/2 request to ${url.origin} timed out after ${timeoutMs} ms`));
       });
       stream.end(body);

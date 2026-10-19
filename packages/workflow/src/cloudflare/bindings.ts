@@ -55,7 +55,13 @@ export interface WorkflowBindingLike {
    * start is retried by the next ingest for the pair (`resume`) or by maintenance, never rolled
    * back and re-entered as a second execution.
    */
-  plan?(options: { id: string; params: JourneyParams; ts: number }): Promise<ExecutionStart>;
+  plan?(options: {
+    id: string;
+    params: JourneyParams;
+    ts: number;
+    /** The code version whose routes named `params.contentHash` (absent after a forced deploy). */
+    version?: string | undefined;
+  }): Promise<ExecutionStart>;
   /** Retry the recorded, unconfirmed start of the (workflow, user) entry still running, if any. */
   resume?(entry: { workflow: string; userId: string }): Promise<void>;
   /**

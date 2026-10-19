@@ -163,7 +163,8 @@ async function startTriggeredJourneys(
       {
         event: input.event,
         payload: input.payload,
-      }
+      },
+      route.version
     );
     if (instanceId !== null) started.push(instanceId);
   }
@@ -203,12 +204,16 @@ async function refreshSegments(
   // A sweep loads each definition once for all its users, not once per user
   definitions = new Map<string, ConditionIR | undefined>()
 ): Promise<string[]> {
-  const bySegment = new Map<string, { workflow: string; hash: string }[]>(
+  const bySegment = new Map<string, { workflow: string; hash: string; version?: string }[]>(
     segments.map((name) => [name, []])
   );
   for (const route of routes) {
     const list = bySegment.get(route.segment) ?? [];
-    list.push({ workflow: route.workflow, hash: route.hash });
+    list.push({
+      workflow: route.workflow,
+      hash: route.hash,
+      ...(route.version === undefined ? {} : { version: route.version }),
+    });
     bySegment.set(route.segment, list);
   }
   if (bySegment.size === 0) return [];
@@ -247,10 +252,16 @@ async function refreshSegments(
     for (const route of segmentRoutes) {
       if (!pending.has(route.workflow)) continue;
       try {
-        const instanceId = await startJourney(env, store, route.workflow, route.hash, userId, ts, {
-          event: '$segment_entry',
-          payload: { segment: segmentId },
-        });
+        const instanceId = await startJourney(
+          env,
+          store,
+          route.workflow,
+          route.hash,
+          userId,
+          ts,
+          { event: '$segment_entry', payload: { segment: segmentId } },
+          route.version
+        );
         if (instanceId !== null) started.push(instanceId);
         await store.completeSegmentStart(segmentId, userId, route.workflow);
       } catch (error) {
@@ -333,11 +344,13 @@ async function startJourney(
   hash: string,
   userId: string,
   ts: number,
-  trigger: { event: string; payload: Record<string, unknown> }
+  trigger: { event: string; payload: Record<string, unknown> },
+  /** The code version whose bundle routed this start, read with the hash (see TriggerRoute). */
+  version?: string
 ): Promise<string | null> {
   const instanceId = buildInstanceId(workflow, hash, userId, ts);
   const params: JourneyParams = { workflowId: workflow, contentHash: hash, userId, trigger };
-  const execution = await env.JOURNEY.plan?.({ id: instanceId, params, ts });
+  const execution = await env.JOURNEY.plan?.({ id: instanceId, params, ts, version });
 
   const outcome = await store.enterJourney({ workflow, userId, instanceId, hash, ts, execution });
   if (outcome === null) {

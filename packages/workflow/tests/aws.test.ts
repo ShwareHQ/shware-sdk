@@ -178,7 +178,10 @@ describe('journeyLambda', () => {
 
     expect(starts).toHaveLength(1);
     const [start] = starts;
-    expect(start.name).toBe(executionName(body.started[0]));
+    // The name recorded with the entry: what every retry of this start resends
+    const recorded = await new PostgresJourneyStore(client(pg)).executions.get(body.started[0]);
+    expect(start.name).toBe(recorded?.name);
+    expect(start.name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     // Pinned to this invocation's version (the local runner invokes $LATEST)
     expect(start.target).toBe(
       'arn:aws:lambda:us-east-2:123456789012:function:my-function-name:$LATEST'
@@ -430,13 +433,16 @@ describe('AwsInstances', () => {
     expect(entry.rows).toEqual([{ status: 'failed' }]);
   });
 
-  test('execution names stay valid and stable for long instance ids', () => {
+  test('execution names stay valid, and differ per instance and per attempt', () => {
     const long = `${'w'.repeat(32)}-abcdef12-${'u'.repeat(24)}-xyz-lmn123`;
-    const name = executionName(long);
+    const name = executionName(long, 'a1b2c3d4');
     expect(name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
-    expect(executionName(long)).toBe(name);
-    expect(executionName(`${long}x`)).not.toBe(name);
-    expect(executionName('short-id')).toBe('short-id');
+    expect(executionName(long, 'a1b2c3d4')).toBe(name);
+    // A cut prefix never makes two instances collide
+    expect(executionName(`${long}x`, 'a1b2c3d4')).not.toBe(name);
+    // A new attempt of the same instance gets a new execution
+    expect(executionName(long, 'e5f6a7b8')).not.toBe(name);
+    expect(executionName('short-id', 'a1b2c3d4')).toMatch(/^short-id-\w+-a1b2c3d4$/);
   });
 });
 
@@ -494,7 +500,7 @@ describe('the router on AwsInstances', () => {
     expect(record).toMatchObject({ arn: 'arn:exec:1', submittedAt: expect.any(Number) });
   });
 
-  test('erasing a user stops the execution first, then forgets its registry row', async () => {
+  test('erasing a user stops the execution, waits for its invocation to drain, then erases', async () => {
     const control = fakeLambda();
     const stopped: string[] = [];
     const lambda: LambdaApi = {
@@ -504,12 +510,40 @@ describe('the router on AwsInstances', () => {
         return true;
       },
     };
-    const { store, env } = await routed(lambda);
+    let clock = Date.now();
+    const { store, env } = await routed(lambda, () => clock);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
-    const result = await forgetUser(env, 'u1', store);
-    expect(result).toMatchObject({ erased: true, pending: [] });
-    expect(stopped).toEqual([expect.stringContaining(executionName(started[0]))]);
+    const name = (await store.executions.get(started[0]))?.name ?? '';
+
+    // Stopped, but an invocation running at the stop goes on to its next checkpoint
+    expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false, pending: started });
+    expect(stopped).toEqual([expect.stringContaining(name)]);
+    expect(await store.executions.get(started[0])).toMatchObject({ stoppedAt: clock });
+
+    // Within the drain: still pending, and not stopped a second time
+    clock += 5 * 60_000;
+    expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false });
+    expect(stopped).toHaveLength(1);
+
+    clock += 11 * 60_000;
+    expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: true, pending: [] });
     expect(await store.executions.get(started[0])).toBeUndefined();
+  });
+
+  test('an execution that already finished on its own is erased at once', async () => {
+    const stopped: string[] = [];
+    const lambda: LambdaApi = {
+      ...fakeLambda().lambda,
+      executionState: async () => 'succeeded',
+      async stopExecution(arn) {
+        stopped.push(arn);
+        return true;
+      },
+    };
+    const { store, env } = await routed(lambda);
+    await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: true });
+    expect(stopped).toEqual([]);
   });
 
   test('an execution that will not stop leaves the erasure pending, data untouched', async () => {
@@ -550,11 +584,12 @@ describe('the router on AwsInstances', () => {
     const [{ instance_id: id }] = (
       await pg.query<{ instance_id: string }>(`SELECT instance_id FROM workflow.entry`)
     ).rows;
-    await (await port.get(id)).terminate?.();
+    // Stopped, and draining: the terminate reports it is not done yet
+    await expect((await port.get(id)).terminate?.()).rejects.toThrow(/may still be finishing/);
     const record = await store.executions.get(id);
     expect(record?.unresolvedAt).toBeTypeOf('number');
-    expect(record?.arn).toBe(`arn:found:${executionName(id)}`);
-    expect(stopped).toEqual([`arn:found:${executionName(id)}`]);
+    expect(record?.arn).toBe(`arn:found:${record?.name}`);
+    expect(stopped).toEqual([`arn:found:${record?.name}`]);
     expect(await store.executions.pendingStarts({ limit: 10 })).toEqual([]);
   });
 
@@ -906,5 +941,120 @@ describe('review fixes', () => {
     expect(read.result.getOperations()).toEqual([]);
     const write = await call(journeys.handler, request('/bundle/deploy'));
     expect(write.result.getOperations().map((operation) => operation.getName())).toEqual(['http']);
+  });
+});
+
+describe('second review fixes', () => {
+  const saved = process.env.AWS_LAMBDA_FUNCTION_VERSION;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AWS_LAMBDA_FUNCTION_VERSION;
+    else process.env.AWS_LAMBDA_FUNCTION_VERSION = saved;
+  });
+
+  test('a release between reading the routes and planning the start cannot repin the IR', async () => {
+    const v3 = journeyConfig('1 day');
+    const v4 = defineConfig({
+      workflows: [
+        workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(emails.thanks, {}),
+      ],
+      templates: { email: emails },
+    });
+    const base = new PostgresJourneyStore(client(pg));
+    await deployBundle({ JOURNEY: {} as never }, compileConfig(v3), base, {
+      id: '3',
+      createdAt: 3,
+    });
+    // The routes are read, then version 4 goes live before the start is planned
+    let released = false;
+    const racing = new Proxy(base, {
+      get(target, property) {
+        if (property !== 'findTriggers') return Reflect.get(target, property, target);
+        return async (event: string) => {
+          const routes = await target.findTriggers(event);
+          if (!released) {
+            released = true;
+            await deployBundle({ JOURNEY: {} as never }, compileConfig(v4), target, {
+              id: '4',
+              createdAt: 4,
+            });
+          }
+          return routes;
+        };
+      },
+    });
+    // An older version still serving: neither bundle is its own
+    process.env.AWS_LAMBDA_FUNCTION_VERSION = '2';
+    const control = fakeLambda();
+    const journeys = journeyLambda({
+      config: defineConfig({
+        workflows: [
+          workflow({ id: 'other', trigger: trigger.event(e.purchase) }).email(emails.thanks, {}),
+        ],
+        templates: { email: emails },
+      }),
+      env: { API_TOKEN: 'secret' },
+      store: () => racing,
+      lambda: control.lambda,
+    });
+    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    expect(released).toBe(true);
+    const [start] = control.starts;
+    const input = JSON.parse(start.payload) as RunInput;
+    // Version 3's IR, on version 3: the version came from the same row as the hash
+    expect(input.params.contentHash).toBe(compileConfig(v3).workflows[0].contentHash);
+    expect(start.target).toBe('arn:aws:lambda:us-east-2:123456789012:function:my-function-name:3');
+  });
+
+  test('routes from a forced deploy start only workflows this code carries', async () => {
+    const control = fakeLambda();
+    const journeys = journeyLambda({
+      config: defineConfig({
+        workflows: [
+          workflow({ id: 'other', trigger: trigger.event(e.purchase) }).email(emails.thanks, {}),
+        ],
+        templates: { email: emails },
+      }),
+      env: { API_TOKEN: 'secret' },
+      store: () => new PostgresJourneyStore(client(pg)),
+      lambda: control.lambda,
+    });
+    // Another bundle forced in: no version recorded on its routes
+    await deployBundle(
+      { JOURNEY: {} as never },
+      compileConfig(journeyConfig('1 day')),
+      new PostgresJourneyStore(client(pg))
+    );
+    const { result } = await call(
+      journeys.handler,
+      request('/events', { userId: 'u1', event: 'login' })
+    );
+    expect(result.getResult()).toMatchObject({ statusCode: 500 });
+    expect(control.starts).toEqual([]);
+  });
+
+  test('a replayed event that reclaims a failed entry starts a new execution', async () => {
+    const control = fakeLambda();
+    const store = new PostgresJourneyStore(client(pg));
+    const port = new AwsInstances({
+      store,
+      executions: store.executions,
+      lambda: control.lambda,
+      target: async () => 'arn:aws:lambda:us-east-1:1:function:f:7',
+    });
+    const env = { JOURNEY: port };
+    await deployBundle(env, compileConfig(journeyConfig('1 day')), store);
+    const ts = Date.now();
+    const first = await ingestEvent(env, { id: 'e1', userId: 'u1', event: 'login', ts }, store);
+    await store.setEntryStatus(first.started[0], 'failed');
+
+    // The same event again, same ts: the same instance id, reclaimed
+    const again = await ingestEvent(env, { id: 'e1', userId: 'u1', event: 'login', ts }, store);
+    expect(again.started).toEqual(first.started);
+    expect(control.starts).toHaveLength(2);
+    // A new name — the old one would only return the closed execution
+    expect(control.starts[1].name).not.toBe(control.starts[0].name);
+    const record = await store.executions.get(first.started[0]);
+    expect(record).toMatchObject({ name: control.starts[1].name, submittedAt: expect.any(Number) });
+    expect(record?.callbackId).toBeUndefined();
   });
 });

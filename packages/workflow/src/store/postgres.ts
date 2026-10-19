@@ -330,8 +330,9 @@ export class PostgresJourneyStore implements JourneyStore {
       hash: string;
       where_clause: unknown;
       filter: unknown;
+      version: string | null;
     }>(
-      `SELECT workflow, hash, "where" AS where_clause, filter FROM ${this.t.trigger} WHERE event = $1`,
+      `SELECT workflow, hash, "where" AS where_clause, filter, version FROM ${this.t.trigger} WHERE event = $1`,
       [event]
     );
     return rows.map((row) => ({
@@ -339,13 +340,23 @@ export class PostgresJourneyStore implements JourneyStore {
       hash: row.hash,
       where: row.where_clause === null ? null : ConditionIR.parse(asJson(row.where_clause)),
       filter: row.filter === null ? null : ConditionIR.parse(asJson(row.filter)),
+      version: row.version ?? undefined,
     }));
   }
 
-  listSegmentTriggers(): Promise<SegmentTriggerRoute[]> {
-    return this.sql.query<SegmentTriggerRoute>(
-      `SELECT workflow, hash, segment FROM ${this.t.segmentTrigger}`
-    );
+  async listSegmentTriggers(): Promise<SegmentTriggerRoute[]> {
+    const rows = await this.sql.query<{
+      workflow: string;
+      hash: string;
+      segment: string;
+      version: string | null;
+    }>(`SELECT workflow, hash, segment, version FROM ${this.t.segmentTrigger}`);
+    return rows.map((row) => ({
+      workflow: row.workflow,
+      hash: row.hash,
+      segment: row.segment,
+      version: row.version ?? undefined,
+    }));
   }
 
   async putWorkflowIR(workflow: WorkflowIR): Promise<void> {
@@ -397,12 +408,13 @@ export class PostgresJourneyStore implements JourneyStore {
         [version.id, version.createdAt, Date.now()]
       );
       if (claimed.length === 0) return false;
-      await this.swapRoutes(tx, bundle);
+      await this.swapRoutes(tx, bundle, version.id);
       return true;
     });
   }
 
-  private async swapRoutes(tx: SqlClientLike, bundle: BundleIR): Promise<void> {
+  /** `version`: the code version applying the bundle, kept on every route it writes. */
+  private async swapRoutes(tx: SqlClientLike, bundle: BundleIR, version?: string): Promise<void> {
     await tx.query(`DELETE FROM ${this.t.trigger}`);
     await tx.query(`DELETE FROM ${this.t.segmentTrigger}`);
     await tx.query(`DELETE FROM ${this.t.segment}`);
@@ -415,19 +427,20 @@ export class PostgresJourneyStore implements JourneyStore {
     for (const workflow of bundle.workflows) {
       if (workflow.trigger.type === 'event') {
         await tx.query(
-          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb)`,
+          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter, version) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb, $6)`,
           [
             workflow.id,
             workflow.contentHash,
             workflow.trigger.event,
             workflow.trigger.where === undefined ? null : JSON.stringify(workflow.trigger.where),
             workflow.trigger.filter === undefined ? null : JSON.stringify(workflow.trigger.filter),
+            version ?? null,
           ]
         );
       } else if (workflow.trigger.type === 'segment') {
         await tx.query(
-          `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment) VALUES ($1, $2, $3)`,
-          [workflow.id, workflow.contentHash, workflow.trigger.segment]
+          `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment, version) VALUES ($1, $2, $3, $4)`,
+          [workflow.id, workflow.contentHash, workflow.trigger.segment, version ?? null]
         );
       }
     }
@@ -525,6 +538,11 @@ export class PostgresJourneyStore implements JourneyStore {
     return claimed.length > 0 ? 'reclaimed' : null;
   }
 
+  /**
+   * Only an entry this call claimed records a start, so a row already there is a previous
+   * attempt's — a failed entry reclaimed under the same instance id (an event replayed with its
+   * ts). It is replaced whole: the new attempt's name and payload, nothing submitted yet.
+   */
   private async recordStart(
     tx: SqlClientLike,
     entry: EntryInput,
@@ -532,7 +550,12 @@ export class PostgresJourneyStore implements JourneyStore {
   ): Promise<void> {
     await tx.query(
       `INSERT INTO ${this.t.execution} (instance_id, workflow, user_id, name, target, input, created_at, generation)
-       VALUES ($1, $2, $3, $4, $5, $6, ${TS('$7')}, 0) ON CONFLICT (instance_id) DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, $6, ${TS('$7')}, 0)
+       ON CONFLICT (instance_id) DO UPDATE SET
+         name = EXCLUDED.name, target = EXCLUDED.target, input = EXCLUDED.input,
+         created_at = EXCLUDED.created_at, generation = 0, submitted_at = NULL, arn = NULL,
+         unresolved_at = NULL, callback_id = NULL, deadline_at = NULL, checked_at = NULL,
+         stopped_at = NULL`,
       [
         entry.instanceId,
         entry.workflow,
@@ -600,11 +623,19 @@ interface ExecutionRow {
   generation: number | string;
   deadline_at: number | string | null;
   checked_at: number | string | null;
+  stopped_at: number | string | null;
 }
 
 const PLAIN_COLUMNS = ['instance_id', 'workflow', 'user_id', 'name', 'target', 'input', 'arn'];
 const MORE_PLAIN = ['callback_id', 'generation'];
-const TIME_COLUMNS = ['created_at', 'submitted_at', 'unresolved_at', 'deadline_at', 'checked_at'];
+const TIME_COLUMNS = [
+  'created_at',
+  'submitted_at',
+  'unresolved_at',
+  'deadline_at',
+  'checked_at',
+  'stopped_at',
+];
 
 /** The execution columns, timestamps as epoch ms; `alias` qualifies them in a join. */
 function executionColumns(alias = ''): string {
@@ -637,6 +668,7 @@ function toRecord(row: ExecutionRow): ExecutionRecord {
     generation: Number(row.generation),
     deadlineAt: ms(row.deadline_at),
     checkedAt: ms(row.checked_at),
+    stoppedAt: ms(row.stopped_at),
   };
 }
 
@@ -740,6 +772,13 @@ class PostgresExecutions implements ExecutionRegistry {
       [checkedBefore, limit]
     );
     return rows.map(toRecord);
+  }
+
+  async markStopped(instanceId: string, at: number): Promise<void> {
+    await this.sql.query(
+      `UPDATE ${this.table} SET stopped_at = COALESCE(stopped_at, ${TS('$2')}) WHERE instance_id = $1`,
+      [instanceId, at]
+    );
   }
 
   async markChecked(instanceId: string, at: number): Promise<void> {
