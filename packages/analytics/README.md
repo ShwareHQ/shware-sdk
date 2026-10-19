@@ -149,6 +149,20 @@ function Button() {
 }
 ```
 
+### Tracking an occurrence once (`trackOnce`)
+
+A payment result page can be reloaded or reopened from history, and a store transaction can be delivered again; each would report the same `purchase` again. `trackOnce` takes the key that identifies the occurrence and tracks it at most once per key:
+
+```ts
+import { trackOnce } from '@shware/analytics';
+
+trackOnce('purchase', properties, { key: checkoutSessionId });
+```
+
+- `key` is required and never derived from the properties; the same key under another event name is a different occurrence. `ttl` (ms, 90 days by default) is how long a sent key is remembered, up to the 20 latest keys per event.
+- The key is stored in the `storage` given to `setupAnalytics` only once the event has been sent, so a failed send is tried again by the next call; within one page a queued key is not queued twice. The record is plain JSON under `track_once.<event>`, e.g. `{"v":1,"entries":[["cs_test_a1B2c3",1799236800000]]}`; a storage that needs escaping (a cookie) escapes it itself.
+- If the storage cannot be read or written the event is tracked anyway: a rare duplicate beats a lost conversion. Deduplication is per device, so exact figures such as revenue belong to server-side records.
+
 ## Page views
 
 `page_view` fires on a path or query change, never on a hash change — GA4's enhanced measurement,
