@@ -25,6 +25,14 @@ function respondWithIds() {
   });
 }
 
+/** The stored record for `purchase`, parsed. */
+function stored(storage: { map: Map<string, string> }) {
+  const raw = storage.map.get('track_once.purchase');
+  return raw === undefined
+    ? undefined
+    : (JSON.parse(raw) as { v: number; entries: [string, number][] });
+}
+
 /** The names of every event sent, session_start left out. */
 function sentNames() {
   return fetchMock.mock.calls.flatMap((call) => {
@@ -55,7 +63,10 @@ describe('trackOnce', () => {
     expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(true);
     expect(storage.map.has('track_once.purchase')).toBe(false);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(storage.map.get('track_once.purchase')).toMatch(/^1\.[0-9a-z]+-cs_1$/);
+    expect(stored(storage)).toEqual({
+      v: 1,
+      entries: [['cs_1', Date.parse('2026-01-01T00:00:02Z') + 90 * 24 * 60 * 60 * 1000]],
+    });
 
     expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(false);
     await vi.advanceTimersByTimeAsync(2000);
@@ -134,10 +145,10 @@ describe('trackOnce', () => {
     expect(trackOnce('purchase', undefined, { key: 'cs_0' })).toBe(true);
   });
 
-  it('round-trips keys with separator characters', async () => {
+  it('round-trips keys with JSON-unfriendly characters', async () => {
     const { trackOnce } = await load();
     respondWithIds();
-    const key = 'order~1-a%b c';
+    const key = 'order~1-a%b c"\\';
 
     trackOnce('purchase', undefined, { key });
     await vi.advanceTimersByTimeAsync(2000);
@@ -165,6 +176,28 @@ describe('trackOnce', () => {
 
     expect(trackOnce('purchase', undefined, { key: 'cs_1' })).toBe(true);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(storage.map.get('track_once.purchase')).toMatch(/^1\.[0-9a-z]+-cs_1$/);
+    expect(stored(storage)?.entries.map(([key]) => key)).toEqual(['cs_1']);
+  });
+
+  it('ignores a record of another version', async () => {
+    const { trackOnce, storage } = await load();
+    respondWithIds();
+    storage.map.set(
+      'track_once.purchase',
+      JSON.stringify({ v: 2, entries: [['cs_1', Date.parse('2027-01-01T00:00:00Z')]] })
+    );
+
+    expect(trackOnce('purchase', undefined, { key: 'cs_1' })).toBe(true);
+  });
+
+  it('keeps insertion order for integer-like keys', async () => {
+    const { trackOnce, storage } = await load();
+    respondWithIds();
+
+    for (const key of ['b', '123', 'a']) {
+      trackOnce('purchase', undefined, { key });
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    expect(stored(storage)?.entries.map(([key]) => key)).toEqual(['b', '123', 'a']);
   });
 });

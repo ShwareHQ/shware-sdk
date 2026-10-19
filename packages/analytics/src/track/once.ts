@@ -18,13 +18,12 @@ const DEFAULT_TTL = 90 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 20;
 
 /**
- * `<version>.<entry>~<entry>…`, each entry `<expiresAt base36>-<encoded key>`: compact and
- * cookie-safe like the session record (see `setup/session.ts`), since a host may hand
- * `setupAnalytics` a cookie-backed `storage`. Keys are percent-encoded with `~` escaped too
- * (`encodeURIComponent` leaves it as is), and the base36 time has no `-`, so a record splits on `~`
- * and an entry on its first dash.
+ * `{"v":1,"entries":[[key, expiresAt], …]}`, oldest first. Entries are tuples in an array rather
+ * than an object keyed by `key`: an object would move integer-like keys ("123") to the front and
+ * lose the order the oldest are dropped by. Escaping the value for the medium is the storage's
+ * job, so this is plain JSON.
  */
-const VERSION = '1';
+const VERSION = 1;
 
 type Entry = { key: string; expiresAt: number };
 
@@ -32,35 +31,33 @@ function storageKey(name: string) {
   return `track_once.${name}`;
 }
 
+/** The stored entries, or none for a record that is missing, of another version or malformed. */
 function read(name: string): Entry[] {
   const raw = config.storage.getItem(storageKey(name));
-  if (!raw?.startsWith(`${VERSION}.`)) return [];
-  return raw
-    .slice(VERSION.length + 1)
-    .split('~')
-    .flatMap((part) => {
-      const dash = part.indexOf('-');
-      if (dash <= 0) return [];
-      const expiresAt = Number.parseInt(part.slice(0, dash), 36);
-      if (!Number.isFinite(expiresAt)) return [];
-      try {
-        return [{ key: decodeURIComponent(part.slice(dash + 1)), expiresAt }];
-      } catch {
-        return [];
-      }
-    });
-}
-
-function encodeKey(key: string) {
-  return encodeURIComponent(key).replaceAll('~', '%7E');
+  if (!raw) return [];
+  let record: unknown;
+  try {
+    record = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (typeof record !== 'object' || record === null) return [];
+  const { v, entries } = record as { v?: unknown; entries?: unknown };
+  if (v !== VERSION || !Array.isArray(entries)) return [];
+  return entries.flatMap((entry: unknown) => {
+    if (!Array.isArray(entry)) return [];
+    const [key, expiresAt] = entry as unknown[];
+    if (typeof key !== 'string' || typeof expiresAt !== 'number') return [];
+    return [{ key, expiresAt }];
+  });
 }
 
 function write(name: string, entries: Entry[]) {
-  const record = entries
-    .slice(-MAX_ENTRIES)
-    .map((entry) => `${entry.expiresAt.toString(36)}-${encodeKey(entry.key)}`)
-    .join('~');
-  config.storage.setItem(storageKey(name), `${VERSION}.${record}`);
+  const record = {
+    v: VERSION,
+    entries: entries.slice(-MAX_ENTRIES).map((entry) => [entry.key, entry.expiresAt]),
+  };
+  config.storage.setItem(storageKey(name), JSON.stringify(record));
 }
 
 function live(entries: Entry[], now: number) {
