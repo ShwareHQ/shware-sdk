@@ -26,7 +26,7 @@ import {
 } from '../src/index';
 
 interface Event {
-  signed_up: Record<never, never>;
+  signed_up: Record<string, never>;
   upgraded: { plan: string };
 }
 

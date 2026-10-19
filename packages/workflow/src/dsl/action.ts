@@ -41,7 +41,7 @@ export type ActionHandler<A extends object> = (args: A, ctx: ActionContext) => P
  * A registered custom action: the named asset `.run()` refers to. Carries the
  * implementation for the runtime registry and the codeHash for the IR pin.
  */
-export interface ActionRef<A extends object = Record<never, never>> {
+export interface ActionRef<A extends object = object> {
   readonly name: string;
   /** Hash of the handler's source text at definition time — the code-identity pin recorded in IR. */
   readonly codeHash: string;
@@ -64,7 +64,7 @@ export interface ActionRef<A extends object = Record<never, never>> {
  * the same function differently (minification), which is why the default
  * runtime policy on mismatch is warn, not fail.
  */
-export function action<A extends object = Record<never, never>>(
+export function action<A extends object = Record<string, never>>(
   name: string,
   handler: ActionHandler<A>
 ): ActionRef<A> {

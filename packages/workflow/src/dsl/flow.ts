@@ -39,7 +39,7 @@ export type EmitPayload<P> = { [K in keyof P]: EmitValue<P[K]> };
 
 /** Payload may be omitted when the event declares no required field. */
 export type EmitArgs<P> =
-  Record<never, never> extends P ? [payload?: EmitPayload<P>] : [payload: EmitPayload<P>];
+  Record<string, never> extends P ? [payload?: EmitPayload<P>] : [payload: EmitPayload<P>];
 
 /** Per-node push options. */
 export interface PushOptions {

@@ -10,10 +10,10 @@ import type { DiscordTemplate, EmailTemplate, PushTemplate, SlackTemplate } from
 
 export type Channel = 'email' | 'sms' | 'push' | 'in_app' | 'slack' | 'discord' | 'survey';
 
-export type EmptyProps = Record<never, never>;
+export type EmptyProps = Record<string, never>;
 
 /** A template by key, its props typed by hand: for the channels without template definitions. */
-export interface TemplateRef<C extends Channel = Channel, P extends object = EmptyProps> {
+export interface TemplateRef<C extends Channel = Channel, P extends object = object> {
   readonly channel: C;
   readonly key: string;
   readonly __props?: P;

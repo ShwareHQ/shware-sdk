@@ -69,7 +69,7 @@ beforeEach(async () => {
 });
 
 interface Event {
-  signed_up: Record<never, never>;
+  signed_up: Record<string, never>;
   purchase: { value: number };
 }
 interface UserProperty {
