@@ -78,7 +78,11 @@ export async function handleTracking(
   options: TrackingOptions = {}
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
-  const [, root, kind, id, position] = url.pathname.split('/');
+  const path = url.pathname.split('/');
+  const root = path.at(1);
+  const kind = path.at(2);
+  const id = path.at(3);
+  const position = path.at(4);
   if (root !== 't' || id === undefined || !UUID.test(id)) return undefined;
   const who = requester(request);
   const read = who.method === 'GET' || who.method === 'HEAD';

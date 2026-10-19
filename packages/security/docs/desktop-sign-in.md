@@ -194,8 +194,8 @@ Hook `maybeRedirectToDesktop` into:
 Main process — loopback server:
 
 ```ts
-import http from 'node:http';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import http from 'node:http';
 import { shell } from 'electron';
 
 const b64url = (buf: Buffer) =>

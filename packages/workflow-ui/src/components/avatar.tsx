@@ -47,7 +47,7 @@ export function Avatar({ picture, label, size = 'md' }: AvatarProps) {
     <div
       aria-hidden
       className={cn(
-        'bg-selected text-secondary flex shrink-0 items-center justify-center rounded-full font-medium',
+        'flex shrink-0 items-center justify-center rounded-full bg-selected font-medium text-secondary',
         SIZES[size]
       )}
     >

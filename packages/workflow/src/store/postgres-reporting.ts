@@ -96,7 +96,7 @@ export class PostgresReporting implements JourneyReporting {
         message.sentAt,
       ]
     );
-    const id = rows[0]?.id;
+    const id = rows.at(0)?.id;
     if (id === undefined) throw new Error(`message ${message.idempotencyKey} was not recorded`);
     return id;
   }
@@ -140,7 +140,7 @@ export class PostgresReporting implements JourneyReporting {
          FROM ${this.t.message} WHERE id = $1`,
         [messageId]
       );
-      const row = rows[0];
+      const row = rows.at(0);
       if (row === undefined) return false;
       const open = judge({ userId: row.user_id, deliveredAt: Number(row.delivered_at) });
       if (open === undefined) return true;
@@ -185,7 +185,7 @@ export class PostgresReporting implements JourneyReporting {
          FROM ${this.t.message} WHERE id = $1 FOR UPDATE`,
         [messageId]
       );
-      const message = messages[0];
+      const message = messages.at(0);
       if (message === undefined) return undefined;
       const links = await tx.query<{ url: string; link_count: number | string }>(
         `SELECT l.url,
@@ -193,7 +193,7 @@ export class PostgresReporting implements JourneyReporting {
          FROM ${this.t.messageLink} l WHERE l.message_id = $1 AND l.position = $2`,
         [messageId, position]
       );
-      const link = links[0];
+      const link = links.at(0);
       if (link === undefined) return undefined;
       const since = at - windowMs;
       const recent = await tx.query<{ position: number; at: number | string }>(
@@ -269,7 +269,7 @@ export class PostgresReporting implements JourneyReporting {
          WHERE id = $1 AND channel = 'email' RETURNING user_id`,
         [messageId, at]
       );
-      const userId = rows[0]?.user_id;
+      const userId = rows.at(0)?.user_id;
       if (userId === undefined) return false;
       // The opt-out itself: the engine sends this user no more email
       await tx.query(

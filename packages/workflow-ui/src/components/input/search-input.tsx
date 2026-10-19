@@ -16,7 +16,7 @@ export function SearchInput({ size = 'sm', className, ...props }: Props) {
         size={16}
         strokeWidth={2}
         aria-hidden
-        className="text-muted pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2"
+        className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted"
       />
       <Input {...props} size={size} type="search" className="w-full rounded-full pl-8" />
     </div>

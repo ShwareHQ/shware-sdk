@@ -93,7 +93,7 @@ function Header({
    * than higher so a drawer's scrim (also z-20, and later in the tree) dims it.
    */
   return (
-    <header className="border-border bg-card sticky top-0 z-20 grid h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b px-4">
+    <header className="sticky top-0 z-20 grid h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border bg-card px-4">
       <div className="flex min-w-0 items-center gap-3">
         {/*
           Two buttons in one slot rather than one button with two behaviours:
@@ -108,7 +108,7 @@ function Header({
           onClick={onOpenNav}
           aria-label={t('nav.menu')}
           title={t('nav.menu')}
-          className="text-muted hover:bg-hover hover:text-primary flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors md:hidden"
+          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-primary md:hidden"
           style={superellipse}
         >
           <Menu className="size-4" strokeWidth={2} />
@@ -118,7 +118,7 @@ function Header({
           onClick={onToggle}
           aria-label={t(collapsed ? 'nav.expand' : 'nav.collapse')}
           title={t(collapsed ? 'nav.expand' : 'nav.collapse')}
-          className="text-muted hover:bg-hover hover:text-primary hidden size-8 shrink-0 items-center justify-center rounded-lg transition-colors md:flex"
+          className="hidden size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-primary md:flex"
           style={superellipse}
         >
           {collapsed ? (
@@ -197,26 +197,26 @@ function Shell() {
    */
   const itemClass = clsx(
     'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm font-medium',
-    'text-secondary hover:bg-hover overflow-hidden whitespace-nowrap transition-colors'
+    'overflow-hidden whitespace-nowrap text-secondary transition-colors hover:bg-hover'
   );
 
   return (
-    <div className="text-primary flex h-full font-sans">
+    <div className="flex h-full font-sans text-primary">
       {/* Gone below `md`, not merely narrowed: 64px of icons is a fifth of a
           phone's width, and the drawer below carries the same items. */}
       <aside
         className={clsx(
-          'border-border bg-card hidden shrink-0 flex-col overflow-hidden border-r md:flex',
+          'hidden shrink-0 flex-col overflow-hidden border-r border-border bg-card md:flex',
           'transition-[width] duration-200 ease-out',
           collapsed ? 'w-16' : 'w-60'
         )}
       >
         <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
           <div
-            className="bg-primary flex size-7 shrink-0 items-center justify-center rounded-lg"
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary"
             style={superellipse}
           >
-            <Workflow className="text-card size-4" strokeWidth={2} />
+            <Workflow className="size-4 text-card" strokeWidth={2} />
           </div>
           {!collapsed && (
             <strong className="text-sm font-semibold whitespace-nowrap">Workflow Studio</strong>
@@ -249,7 +249,7 @@ function Shell() {
         Views must therefore not scroll internally — the canvas is the one
         exception, and it says so at its own root.
       */}
-      <div className="bg-page min-w-0 flex-1 overflow-y-auto">
+      <div className="min-w-0 flex-1 overflow-y-auto bg-page">
         <Header collapsed={collapsed} onToggle={toggle} onOpenNav={() => setNavOpen(true)} />
         {/*
           A short page still has to fill the viewport: empty states centre in

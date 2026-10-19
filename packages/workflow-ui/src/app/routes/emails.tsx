@@ -52,7 +52,7 @@ function EmailsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="text-muted flex flex-1 items-center justify-center text-sm">
+      <div className="flex flex-1 items-center justify-center text-sm text-muted">
         {t('emails.empty')}
       </div>
     );
@@ -77,7 +77,7 @@ function EmailsIndex() {
       </div>
       <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex items-center justify-center py-24 text-sm">
+          <div className="flex items-center justify-center py-24 text-sm text-muted">
             {t('emails.noMatches', { query: query.trim() })}
           </div>
         ) : (

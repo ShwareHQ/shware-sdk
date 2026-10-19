@@ -23,20 +23,20 @@ export function Breadcrumb({ items }: { items: readonly Crumb[] }) {
         return (
           <Fragment key={index}>
             {index > 0 && (
-              <ChevronRight className="text-muted size-3.5 shrink-0" strokeWidth={2} aria-hidden />
+              <ChevronRight className="size-3.5 shrink-0 text-muted" strokeWidth={2} aria-hidden />
             )}
             {item.to !== undefined && !last ? (
               <Link
                 to={item.to as LinkProps['to']}
                 params={item.params as LinkProps['params']}
                 search={item.search as LinkProps['search']}
-                className="text-muted hover:text-primary shrink-0 truncate transition-colors"
+                className="shrink-0 truncate text-muted transition-colors hover:text-primary"
               >
                 {item.label}
               </Link>
             ) : (
               <span
-                className={last ? 'text-primary min-w-0 truncate' : 'text-muted shrink-0 truncate'}
+                className={last ? 'min-w-0 truncate text-primary' : 'shrink-0 truncate text-muted'}
               >
                 {item.label}
               </span>

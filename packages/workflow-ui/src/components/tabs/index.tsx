@@ -24,7 +24,7 @@ interface Props {
 export function Tabs({ items, params, className }: Props) {
   return (
     <nav
-      className={cn('bg-selected flex items-center gap-0.5 rounded-lg p-0.5', className)}
+      className={cn('flex items-center gap-0.5 rounded-lg bg-selected p-0.5', className)}
       style={superellipse}
     >
       {items.map((item) => (
@@ -33,7 +33,7 @@ export function Tabs({ items, params, className }: Props) {
           to={item.to as LinkProps['to']}
           params={params as LinkProps['params']}
           activeOptions={{ exact: item.exact ?? false }}
-          className="text-secondary hover:text-primary rounded-md px-3 py-1 text-sm font-medium transition-colors"
+          className="rounded-md px-3 py-1 text-sm font-medium text-secondary transition-colors hover:text-primary"
           activeProps={{ className: '!bg-card !text-primary shadow-sm' }}
           style={superellipse}
         >

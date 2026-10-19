@@ -29,11 +29,11 @@ function Settings() {
       <PageChrome breadcrumb={<Breadcrumb items={[{ label: t('nav.settings') }]} />} />
 
       <section
-        className="border-border bg-card mt-5 max-w-xl rounded-2xl border p-5"
+        className="mt-5 max-w-xl rounded-2xl border border-border bg-card p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.language')}</h2>
-        <p className="text-muted mt-1 text-xs">{t('settings.languageHint')}</p>
+        <p className="mt-1 text-xs text-muted">{t('settings.languageHint')}</p>
         <div className="mt-3 flex gap-2">
           {supportedLngs.map((lng: SupportedLng) => (
             <Button
@@ -49,11 +49,11 @@ function Settings() {
       </section>
 
       <section
-        className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"
+        className="mt-4 max-w-xl rounded-2xl border border-border bg-card p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.theme')}</h2>
-        <p className="text-muted mt-1 text-xs">{t('settings.themeHint')}</p>
+        <p className="mt-1 text-xs text-muted">{t('settings.themeHint')}</p>
         <div className="mt-3 flex gap-2">
           {themes.map((option: Theme) => (
             <Button
@@ -74,11 +74,11 @@ function Settings() {
       />
 
       <section
-        className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"
+        className="mt-4 max-w-xl rounded-2xl border border-border bg-card p-5"
         style={superellipse}
       >
         <h2 className="text-sm font-medium">{t('settings.statsSource')}</h2>
-        <p className="text-secondary mt-2 font-mono text-xs">
+        <p className="mt-2 font-mono text-xs text-secondary">
           {sources.length > 0 ? sources.join(', ') : t('common.notConfigured')}
         </p>
       </section>

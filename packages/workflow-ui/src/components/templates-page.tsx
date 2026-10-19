@@ -93,8 +93,8 @@ export interface TemplatesPageProps {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <dt className="text-muted whitespace-nowrap">{label}</dt>
-      <dd className="text-secondary min-w-0 break-words">{children}</dd>
+      <dt className="whitespace-nowrap text-muted">{label}</dt>
+      <dd className="min-w-0 break-words text-secondary">{children}</dd>
     </>
   );
 }
@@ -166,9 +166,9 @@ function PreviewPropsEditor({
   const [draft, setDraft] = useState<string | undefined>(undefined);
   const text = draft ?? JSON.stringify(initial, null, 2);
   return (
-    <div className="border-border bg-card border-b px-6 py-4">
+    <div className="border-b border-border bg-card px-6 py-4">
       <div className="flex items-center justify-between">
-        <label htmlFor="preview-props" className="text-muted text-sm">
+        <label htmlFor="preview-props" className="text-sm text-muted">
           {t('emails.previewProps')}
         </label>
         <button
@@ -177,7 +177,7 @@ function PreviewPropsEditor({
             setDraft(undefined);
             onReset();
           }}
-          className="text-muted hover:text-primary text-xs transition-colors"
+          className="text-xs text-muted transition-colors hover:text-primary"
         >
           {t('emails.previewPropsReset')}
         </button>
@@ -206,7 +206,7 @@ function PreviewPropsEditor({
           onChange(parsed as Props);
         }}
       />
-      <p className="text-muted mt-1.5 text-xs">{t('emails.previewPropsHint')}</p>
+      <p className="mt-1.5 text-xs text-muted">{t('emails.previewPropsHint')}</p>
     </div>
   );
 }
@@ -335,9 +335,9 @@ export function TemplatesPage({
   return (
     <div className="flex flex-1">
       {/* Preview; the template list lives on the /emails index and the header dropdown. */}
-      <section className="bg-page flex min-w-0 flex-1 flex-col">
+      <section className="flex min-w-0 flex-1 flex-col bg-page">
         {active === undefined ? (
-          <div className="text-muted flex flex-1 items-center justify-center text-sm">
+          <div className="flex flex-1 items-center justify-center text-sm text-muted">
             {selected === undefined ? t('emails.empty') : t('emails.notFound', { key: selected })}
           </div>
         ) : (
@@ -348,7 +348,7 @@ export function TemplatesPage({
               the project's envelope; a push's "envelope" is its content.
             */}
             {((isEmail && activeEmail !== undefined) || push !== undefined) && (
-              <div className="border-border bg-card border-b px-6 py-4">
+              <div className="border-b border-border bg-card px-6 py-4">
                 <dl className="grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2.5 text-sm">
                   {isEmail && activeEmail !== undefined && resolved !== undefined && (
                     <>
@@ -419,13 +419,13 @@ export function TemplatesPage({
                 {isChat ? (
                   (isDiscord ? activeDiscord : activeSlack) === undefined ? (
                     <div
-                      className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
+                      className="mx-auto max-w-xl rounded-2xl border border-dashed border-border bg-card p-8 text-center"
                       style={superellipse}
                     >
-                      <p className="text-primary text-sm font-medium">
+                      <p className="text-sm font-medium text-primary">
                         {t('emails.notRegistered')}
                       </p>
-                      <p className="text-muted mt-2 text-sm">
+                      <p className="mt-2 text-sm text-muted">
                         {t('emails.chatNotRegisteredHint', {
                           key: active.key,
                           channel: isDiscord ? 'discord' : 'slack',
@@ -452,13 +452,13 @@ export function TemplatesPage({
                 ) : isPush ? (
                   activePush === undefined ? (
                     <div
-                      className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
+                      className="mx-auto max-w-xl rounded-2xl border border-dashed border-border bg-card p-8 text-center"
                       style={superellipse}
                     >
-                      <p className="text-primary text-sm font-medium">
+                      <p className="text-sm font-medium text-primary">
                         {t('emails.notRegistered')}
                       </p>
-                      <p className="text-muted mt-2 text-sm">
+                      <p className="mt-2 text-sm text-muted">
                         {t('emails.pushNotRegisteredHint', { key: active.key })}
                       </p>
                     </div>
@@ -475,18 +475,18 @@ export function TemplatesPage({
                   )
                 ) : activeEmail === undefined ? (
                   <div
-                    className="border-border bg-card mx-auto max-w-xl rounded-2xl border border-dashed p-8 text-center"
+                    className="mx-auto max-w-xl rounded-2xl border border-dashed border-border bg-card p-8 text-center"
                     style={superellipse}
                   >
-                    <p className="text-primary text-sm font-medium">{t('emails.notRegistered')}</p>
-                    <p className="text-muted mt-2 text-sm">
+                    <p className="text-sm font-medium text-primary">{t('emails.notRegistered')}</p>
+                    <p className="mt-2 text-sm text-muted">
                       {t('emails.notRegisteredHint', { key: active.key })}
                     </p>
                   </div>
                 ) : failure !== undefined ? (
                   <TemplateFailurePanel failure={failure} />
                 ) : loading ? (
-                  <div className="text-muted text-center text-sm">{t('emails.rendering')}</div>
+                  <div className="text-center text-sm text-muted">{t('emails.rendering')}</div>
                 ) : error !== undefined ? (
                   <div
                     className="mx-auto max-w-xl rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300"
@@ -546,7 +546,7 @@ export function TemplatesPage({
                     error === undefined &&
                     failure === undefined) && (
                 <div className="pointer-events-none sticky bottom-0 z-10 flex justify-center pt-2 pb-4">
-                  <div className="border-border bg-card pointer-events-auto flex items-center gap-0.5 rounded-full border p-1 shadow-lg">
+                  <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-card p-1 shadow-lg">
                     <ToolButton
                       active={scheme === 'light'}
                       label={t('emails.previewLight')}
@@ -564,7 +564,7 @@ export function TemplatesPage({
                     {/* Device widths are an email concern; a push shows both platforms, a chat message its client. */}
                     {isEmail && (
                       <>
-                        <div className="bg-border mx-1 h-4 w-px" />
+                        <div className="mx-1 h-4 w-px bg-border" />
                         <ToolButton
                           active={device === 'desktop'}
                           label={t('emails.previewDesktop')}
@@ -581,7 +581,7 @@ export function TemplatesPage({
                         </ToolButton>
                       </>
                     )}
-                    <div className="bg-border mx-1 h-4 w-px" />
+                    <div className="mx-1 h-4 w-px bg-border" />
                     <ToolButton
                       label={t('emails.zoomOut')}
                       onClick={() => setZoom((level) => Math.max(0.5, level - 0.25))}
@@ -592,7 +592,7 @@ export function TemplatesPage({
                       type="button"
                       title={t('emails.zoomReset')}
                       onClick={() => setZoom(1)}
-                      className="text-secondary hover:text-primary w-11 text-center text-xs font-medium tabular-nums transition-colors"
+                      className="w-11 text-center text-xs font-medium text-secondary tabular-nums transition-colors hover:text-primary"
                     >
                       {Math.round(zoom * 100)}%
                     </button>

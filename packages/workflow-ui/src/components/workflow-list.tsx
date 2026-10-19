@@ -85,12 +85,12 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
      * the page is the one scroller (see __root). Nothing clips, so the corners
      * are re-cut on the first and last cells below.
      */
-    <div className="border-border bg-card rounded-2xl border" style={superellipse}>
+    <div className="rounded-2xl border border-border bg-card" style={superellipse}>
       {/* Below `md` the table leaves table layout entirely and each row lays
           itself out as a four-column grid — see the row classes. */}
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm max-md:block">
         <thead className="max-md:hidden">
-          <tr className="text-muted text-left text-xs font-medium">
+          <tr className="text-left text-xs font-medium text-muted">
             <th className={clsx(HEAD_CELL, 'min-w-0 px-6')} style={superellipse}>
               {t('common.name')}
             </th>
@@ -126,12 +126,12 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                    * poke square grey corners out of the card. Stacked, the row
                    * is an ordinary grid box and takes fill and radius itself.
                    */
-                  'md:hover:[&>td]:bg-hover md:last:[&>td]:border-b-0',
+                  'md:last:[&>td]:border-b-0 md:hover:[&>td]:bg-hover',
                   'md:last:[&>td:first-child]:rounded-bl-2xl md:last:[&>td:last-child]:rounded-br-2xl',
                   /* Stacked: title / status / the metrics two by two
                      — four across a phone leaves no room for a label, let
                      alone the sparkline under it. */
-                  'border-border max-md:hover:bg-hover max-md:grid max-md:grid-cols-6',
+                  'border-border max-md:grid max-md:grid-cols-6 max-md:hover:bg-hover',
                   'max-md:border-b max-md:px-3 max-md:first:rounded-t-2xl',
                   'max-md:last:rounded-b-2xl max-md:last:border-b-0'
                 )}
@@ -142,7 +142,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                   style={superellipse}
                 >
                   <div className="flex items-start gap-3">
-                    <WorkflowIcon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
+                    <WorkflowIcon className="mt-0.5 size-4 shrink-0 text-muted" strokeWidth={2} />
                     <div className="min-w-0">
                       <div
                         className={clsx(
@@ -159,11 +159,11 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                         so keeping the indent here left a notch down the side.
                       */}
                       {ir.meta?.description !== undefined && (
-                        <p className="text-muted mt-1 truncate text-sm max-md:-ml-7">
+                        <p className="mt-1 truncate text-sm text-muted max-md:-ml-7">
                           {ir.meta.description}
                         </p>
                       )}
-                      <div className="text-muted mt-2 flex items-center gap-3 text-xs max-md:-ml-7">
+                      <div className="mt-2 flex items-center gap-3 text-xs text-muted max-md:-ml-7">
                         <span className="flex items-center gap-1">
                           <Mail className="size-3.5" strokeWidth={2} />
                           {shape.messages}
@@ -214,7 +214,7 @@ export function WorkflowList({ items, reports, onOpen }: WorkflowListProps) {
                     style={superellipse}
                   >
                     {/* The head is gone when stacked, so each figure names itself. */}
-                    <div className="text-muted mb-1 truncate text-xs md:hidden">
+                    <div className="mb-1 truncate text-xs text-muted md:hidden">
                       {t(`workflows.columns.${column}`)}
                     </div>
                     <div className="tabular-nums">{values[column]}</div>

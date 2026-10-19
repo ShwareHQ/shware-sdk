@@ -86,6 +86,7 @@ describe('getServerEvent', () => {
   });
 
   it('falls back to the pre-7.0 source_url for the page URL', () => {
+    // oxlint-disable-next-line typescript/no-deprecated -- Exercise page URL compatibility for pre-7.0 clients.
     const out = getServerEvent(event({ tags: { source_url: 'https://old.test/p' } }));
     expect(out.eventSourceUrl).toBe('https://old.test/p');
   });
