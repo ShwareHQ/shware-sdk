@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { textRequestBody } from '../test/setup';
 import type { TrackEvent } from '../track/types';
 import { getServerEvent, normalizeEmail, sendEvents } from './microsoft-conversions-api';
 
@@ -216,7 +217,9 @@ describe('getServerEvent', () => {
 
 describe('sendEvents', () => {
   it('leaves out an event over 7 days old, which the API would not take', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const stale = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -231,7 +234,7 @@ describe('sendEvents', () => {
 
   it('POSTs a compact batch to the tag endpoint with the token in the Authorization header', async () => {
     const fetchMock = vi
-      .fn()
+      .fn<typeof globalThis.fetch>()
       .mockResolvedValue(new Response(JSON.stringify({ eventsReceived: 1 }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -243,8 +246,8 @@ describe('sendEvents', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://capi.uet.microsoft.com/v1/97267979/events');
-    expect(init.headers.Authorization).toBe('Bearer secret-token');
-    const body = JSON.parse(init.body);
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer secret-token');
+    const body = JSON.parse(textRequestBody(init));
     expect(body).toEqual({
       data: [
         {
@@ -265,7 +268,9 @@ describe('sendEvents', () => {
   });
 
   it('drops page views by default and sends them as pageLoad events on request', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const pageView = event({
       id: 'pv',
@@ -280,7 +285,7 @@ describe('sendEvents', () => {
 
     await sendEvents('t', '1', [pageView, noUrl], {}, { pageLoads: true, dataProvider: 'x' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     // The page view without a URL is skipped rather than rejected by the API.
     expect(body.data.map((e: { eventId: string }) => e.eventId)).toEqual(['pv']);
     expect(body.data[0].eventType).toBe('pageLoad');
@@ -293,7 +298,7 @@ describe('sendEvents', () => {
     vi.stubGlobal(
       'fetch',
       vi
-        .fn()
+        .fn<typeof globalThis.fetch>()
         .mockResolvedValue(
           new Response(JSON.stringify({ eventsReceived: 1, error: { details } }), { status: 200 })
         )
@@ -305,7 +310,9 @@ describe('sendEvents', () => {
   });
 
   it('splits a batch above the API limit into consecutive requests', async () => {
-    const fetchMock = vi.fn().mockImplementation(() => new Response('{}', { status: 200 }));
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const events = Array.from({ length: 1001 }, (_, i) => event({ id: `e-${i}` }));
@@ -313,22 +320,27 @@ describe('sendEvents', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(responses).toHaveLength(2);
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).data).toHaveLength(1000);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).data).toHaveLength(1);
+    expect(JSON.parse(textRequestBody(fetchMock.mock.calls[0][1])).data).toHaveLength(1000);
+    expect(JSON.parse(textRequestBody(fetchMock.mock.calls[1][1])).data).toHaveLength(1);
   });
 
   it('never throws: an HTTP failure is logged without the token, a network error likewise', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response('{"error":{"code":"Unauthorized"}}', { status: 401 }))
+      vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValue(new Response('{"error":{"code":"Unauthorized"}}', { status: 401 }))
     );
     await expect(sendEvents('secret-token', '1', [event()])).resolves.toEqual([]);
     expect(error).toHaveBeenCalledWith(expect.stringContaining('status: 401'));
     expect(error.mock.calls.flat().join(' ')).not.toContain('secret-token');
 
     // The shared fetch wrapper retries a network error with backoff; drive the fake clock past it.
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNRESET')));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error('ECONNRESET'))
+    );
     const pending = sendEvents('secret-token', '1', [event()]);
     await vi.advanceTimersByTimeAsync(10_000);
     await expect(pending).resolves.toEqual([]);

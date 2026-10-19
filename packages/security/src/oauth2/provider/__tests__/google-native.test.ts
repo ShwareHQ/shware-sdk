@@ -2,15 +2,13 @@ import { invariant } from '@shware/utils';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { OAuth2Error } from '../../error';
 import type { NativeCredential } from '../../types';
-import type * as Common from '../common';
 import { createGoogleProvider } from '../google';
 
-vi.mock('../common', async (importOriginal) => ({
-  ...(await importOriginal<typeof Common>()),
-  verifyIdToken: vi
-    .fn<() => Promise<{ sub: string; email: string }>>()
-    .mockResolvedValue({ sub: '10001', email: 'a@example.com' }),
-}));
+vi.mock(import('../common'), async (importOriginal) => {
+  const actual = await importOriginal();
+  vi.spyOn(actual, 'verifyIdToken').mockResolvedValue({ sub: '10001', email: 'a@example.com' });
+  return actual;
+});
 
 const project = '1009324676376';
 const webClient = `${project}-web.apps.googleusercontent.com`;

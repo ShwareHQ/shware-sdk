@@ -2,11 +2,15 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { Activity, StrictMode, Suspense, startTransition, use, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Track from '../track/index';
 
-const track = vi.fn();
-const sendBeacon = vi.fn();
-const sendPendingEvents = vi.fn();
-vi.mock('../track/index', () => ({ track, sendBeacon, sendPendingEvents }));
+const { track, sendBeacon, sendPendingEvents } = vi.mockObject<
+  Pick<typeof Track, 'track' | 'sendBeacon' | 'sendPendingEvents'>
+>({ track() {}, sendBeacon() {}, sendPendingEvents() {} });
+vi.mock<Pick<typeof Track, 'track' | 'sendBeacon' | 'sendPendingEvents'>>(
+  import('../track/index'),
+  () => ({ track, sendBeacon, sendPendingEvents })
+);
 
 async function load() {
   const { baseOptions, memoryStorage } = await import('../test/setup');
@@ -83,7 +87,7 @@ describe('useOutboundClickAnalytics', () => {
     );
 
     getByRole('link').click();
-    expect(track.mock.calls[0][1].link_text).toHaveLength(512);
+    expect(track.mock.calls[0][1]?.link_text).toHaveLength(512);
   });
 
   it('finds the anchor from a nested click target', async () => {
@@ -116,7 +120,7 @@ describe('useOutboundClickAnalytics', () => {
 
 describe('useTrackImpression', () => {
   let intersect!: (isIntersecting: boolean) => void;
-  const disconnect = vi.fn();
+  const disconnect = vi.fn<IntersectionObserver['disconnect']>();
 
   beforeEach(() => {
     vi.stubGlobal(
@@ -125,7 +129,7 @@ describe('useTrackImpression', () => {
         constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
           intersect = (isIntersecting) => cb([{ isIntersecting }]);
         }
-        observe = vi.fn();
+        observe = vi.fn<IntersectionObserver['observe']>();
         disconnect = disconnect;
       }
     );
@@ -318,9 +322,16 @@ describe('useWebAnalytics', () => {
       </StrictMode>
     );
     const initial = track.mock.calls.filter(([name]) => name === 'page_view');
-    expect(initial).toHaveLength(2);
-    expect(initial.map(([, props]) => props.previous_page_path)).toEqual([undefined, '/a']);
-    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, 1234]);
+    expect(initial).toEqual([
+      [
+        'page_view',
+        expect.objectContaining({ previous_page_path: undefined, engagement_time_msec: undefined }),
+      ],
+      [
+        'page_view',
+        expect.objectContaining({ previous_page_path: '/a', engagement_time_msec: 1234 }),
+      ],
+    ]);
     expect(flush).toHaveBeenCalledTimes(1);
     view.rerender(
       <StrictMode>
@@ -369,12 +380,12 @@ describe('useWebAnalytics', () => {
       view.rerender(<Page pathname={pathname} />);
     }
     const views = track.mock.calls.filter(([name]) => name === 'page_view');
-    expect(views.map(([, props]) => [props.page_path, props.previous_page_path])).toEqual([
-      ['/a', undefined],
-      ['/b', '/a'],
-      ['/c', '/b'],
-      ['/b', '/c'],
-      ['/a', '/b'],
+    expect(views).toEqual([
+      ['page_view', expect.objectContaining({ page_path: '/a', previous_page_path: undefined })],
+      ['page_view', expect.objectContaining({ page_path: '/b', previous_page_path: '/a' })],
+      ['page_view', expect.objectContaining({ page_path: '/c', previous_page_path: '/b' })],
+      ['page_view', expect.objectContaining({ page_path: '/b', previous_page_path: '/c' })],
+      ['page_view', expect.objectContaining({ page_path: '/a', previous_page_path: '/b' })],
     ]);
   });
 
@@ -444,7 +455,7 @@ describe('useWebAnalytics', () => {
 
     const first = track.mock.calls.filter(([name]) => name === 'scroll');
     expect(first).toHaveLength(1);
-    expect(first[0][1].engagement_time_msec).toBeGreaterThanOrEqual(3000);
+    expect(first[0][1]?.engagement_time_msec).toBeGreaterThanOrEqual(3000);
 
     // Scrolling again on the same page must not resend.
     vi.advanceTimersByTime(1000);
@@ -511,7 +522,7 @@ describe('useWebAnalytics', () => {
 
     const sent = track.mock.calls.filter(([name]) => name === 'scroll');
     expect(sent).toHaveLength(1);
-    expect(sent[0][1].engagement_time_msec).toBeGreaterThanOrEqual(2000);
+    expect(sent[0][1]?.engagement_time_msec).toBeGreaterThanOrEqual(2000);
 
     // …and it stays a one-shot afterwards.
     vi.advanceTimersByTime(1000);

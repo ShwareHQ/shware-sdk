@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { registryPushRenderer } from '../src/push';
 import { registryRenderer } from '../src/react-email';
 import {
+  type PushContent as PushContentResult,
+  type PushTemplateDefinition,
   TemplateValidationError,
   emailTemplate,
   pushTemplate,
@@ -11,6 +13,8 @@ import {
 } from '../src/templates';
 
 const named = z.strictObject({ name: z.string() });
+type EmailComponent = Parameters<typeof emailTemplate<typeof named>>[0]['component'];
+type PushContent = PushTemplateDefinition<typeof named, PushContentResult>['content'];
 
 describe('emailTemplate / pushTemplate declarations', () => {
   test('accept a strict scalar schema and a matching preview', () => {
@@ -97,8 +101,8 @@ describe('emailTemplate / pushTemplate declarations', () => {
   });
 
   test('declaring never runs the component or the content', () => {
-    const component = vi.fn(() => null);
-    const content = vi.fn(() => ({ title: 't', body: 'b' }));
+    const component = vi.fn<EmailComponent>(() => null);
+    const content = vi.fn<PushContent>(() => ({ title: 't', body: 'b' }));
     emailTemplate({
       id: 'e',
       from: 'noreply@acme.test',
@@ -115,7 +119,9 @@ describe('emailTemplate / pushTemplate declarations', () => {
 });
 
 describe('email rendering', () => {
-  const component = vi.fn(({ name }: { name: string }) => createElement('p', null, `Hi ${name}`));
+  const component = vi.fn<EmailComponent>(({ name }: { name: string }) =>
+    createElement('p', null, `Hi ${name}`)
+  );
   const emails = {
     welcome: emailTemplate({
       id: 'welcome',
@@ -206,7 +212,7 @@ describe('push rendering', () => {
   });
 
   test('an input failure never calls content; a bad result was called but is refused', async () => {
-    const content = vi.fn(() => ({ title: 't', body: 'b' }));
+    const content = vi.fn<PushContent>(() => ({ title: 't', body: 'b' }));
     const pushes = {
       tip: pushTemplate({ id: 'tip', title: 'Tip', props: named, preview: { name: 'A' }, content }),
     };
@@ -231,7 +237,7 @@ describe('push rendering', () => {
 });
 
 describe('registryValidator', () => {
-  const content = vi.fn(({ name }: { name: string }) => ({ title: name, body: 'b' }));
+  const content = vi.fn<PushContent>(({ name }: { name: string }) => ({ title: name, body: 'b' }));
   const validator = registryValidator({
     email: {
       welcome: emailTemplate({

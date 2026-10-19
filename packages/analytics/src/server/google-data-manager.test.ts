@@ -123,7 +123,7 @@ describe('getDataManagerEvent', () => {
 });
 
 describe('sendEvents', () => {
-  const fetchMock = vi.fn();
+  const fetchMock = vi.fn<typeof globalThis.fetch>();
   const auth = {
     accessToken: 'oauth-token',
     operatingAccountId: '123-456-7890',
