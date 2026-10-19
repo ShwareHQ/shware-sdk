@@ -1,20 +1,50 @@
+import type * as Application from 'expo-application';
+import type * as Crypto from 'expo-crypto';
+import type * as Device from 'expo-device';
+import type * as Localization from 'expo-localization';
+import type * as TrackingTransparency from 'expo-tracking-transparency';
+import type * as Native from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Options } from '../setup/index';
 import type { memoryStorage } from '../test/setup';
 
-const getIosIdForVendorAsync = vi.fn(async () => 'ios-vendor-id');
-const getInstallReferrerAsync = vi.fn(
+type LocalizationPort = {
+  getLocales: () => Pick<ReturnType<typeof Localization.getLocales>[number], 'languageTag'>[];
+  getCalendars: () => Pick<ReturnType<typeof Localization.getCalendars>[number], 'timeZone'>[];
+};
+type NativePort = {
+  Platform: Pick<typeof Native.Platform, 'OS'>;
+  Dimensions: {
+    get: (
+      dimension: Parameters<typeof Native.Dimensions.get>[0]
+    ) => Pick<ReturnType<typeof Native.Dimensions.get>, 'width' | 'height'>;
+  };
+  PixelRatio: Pick<typeof Native.PixelRatio, 'get'>;
+};
+type DevicePort = Pick<
+  typeof Device,
+  'DeviceType' | 'deviceType' | 'manufacturer' | 'modelId' | 'modelName' | 'osName' | 'osVersion'
+>;
+
+const getIosIdForVendorAsync = vi.fn<typeof Application.getIosIdForVendorAsync>(
+  async () => 'ios-vendor-id'
+);
+const getInstallReferrerAsync = vi.fn<typeof Application.getInstallReferrerAsync>(
   async () => 'utm_source=google-play&utm_medium=organic&gclid=G1'
 );
 
-vi.mock('expo-sqlite/localStorage/install', () => ({}));
-vi.mock('expo-application', () => ({
+vi.mock(import('expo-sqlite/localStorage/install'), () => ({}));
+vi.mock<
+  Pick<typeof Application, 'getAndroidId' | 'getIosIdForVendorAsync' | 'getInstallReferrerAsync'>
+>(import('expo-application'), () => ({
   getAndroidId: () => 'android-id',
   getIosIdForVendorAsync,
   getInstallReferrerAsync,
 }));
-vi.mock('expo-crypto', () => ({ randomUUID: () => 'random-uuid' }));
-vi.mock('expo-device', () => ({
+vi.mock<Pick<typeof Crypto, 'randomUUID'>>(import('expo-crypto'), () => ({
+  randomUUID: () => 'random-uuid',
+}));
+vi.mock<DevicePort>(import('expo-device'), () => ({
   DeviceType: { PHONE: 1, TABLET: 2, DESKTOP: 3, TV: 4, UNKNOWN: 0 },
   deviceType: 1,
   manufacturer: 'Apple',
@@ -23,12 +53,15 @@ vi.mock('expo-device', () => ({
   osName: 'iOS',
   osVersion: '19.0',
 }));
-vi.mock('expo-localization', () => ({
+vi.mock<LocalizationPort>(import('expo-localization'), () => ({
   getLocales: () => [{ languageTag: 'en-US' }],
   getCalendars: () => [{ timeZone: 'America/New_York' }],
 }));
-vi.mock('expo-tracking-transparency', () => ({ getAdvertisingId: () => 'idfa-1' }));
-vi.mock('react-native', () => ({
+vi.mock<Pick<typeof TrackingTransparency, 'getAdvertisingId'>>(
+  import('expo-tracking-transparency'),
+  () => ({ getAdvertisingId: () => 'idfa-1' })
+);
+vi.mock<NativePort>(import('react-native'), () => ({
   Platform: { OS: 'android' },
   Dimensions: { get: () => ({ width: 390.5, height: 844.4 }) },
   PixelRatio: { get: () => 3 },
@@ -138,11 +171,10 @@ describe('install referrer utm', () => {
     const storage = memoryStorage();
 
     // Right after an install the Play Store service is often not reachable yet: this launch
-    // gets no referrer, attaches no utm, and must leave the claim for a launch that can.
-    getInstallReferrerAsync.mockResolvedValueOnce(undefined as never);
+    // fails to read the referrer and must leave the claim for a launch that can.
+    getInstallReferrerAsync.mockRejectedValueOnce(new Error('play services not ready'));
     const offlineLaunch = await loadWith(storage);
-    const first = await offlineLaunch();
-    expect(first.utm_source).toBeUndefined();
+    await expect(offlineLaunch()).rejects.toThrow('play services not ready');
     expect(storage.map.has('install_referrer_claim_time')).toBe(false);
 
     vi.resetModules();

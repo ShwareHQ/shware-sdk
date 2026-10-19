@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { textRequestBody } from '../test/setup';
 import type { TrackEvent } from '../track/types';
 import { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
 import { getServerEvent as metaServerEvent } from './meta-conversions-api';
@@ -366,7 +367,7 @@ describe('Meta', () => {
 });
 
 describe('LinkedIn', () => {
-  const fetchMock = vi.fn();
+  const fetchMock = vi.fn<typeof globalThis.fetch>();
   const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
   beforeEach(() => {
@@ -387,7 +388,7 @@ describe('LinkedIn', () => {
       { user_id: 'u1' }
     );
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     expect(body.elements).toHaveLength(1);
     expect(body.elements[0]).toMatchObject({
       eventId: 'event-1',
@@ -407,7 +408,7 @@ describe('LinkedIn', () => {
       ],
       { ip_address: '203.0.113.7' }
     );
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     expect(body.elements[0].user.userIds).toEqual([
       { idType: 'GOOGLE_AID', idValue: 'gaid-1' },
       { idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' },
@@ -421,7 +422,7 @@ describe('LinkedIn', () => {
       ip_address: '2001:db8::1', // IPv6 is not taken
       user_id: 'u1',
     });
-    const v6 = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const v6 = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     expect(v6.elements[0].user.userIds).toEqual([]);
   });
 
@@ -433,7 +434,7 @@ describe('LinkedIn', () => {
       { user_id: 'u1', email: 'a@b.co' }
     );
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     const ids = body.elements[0].user.userIds;
     expect(ids[0]).toEqual({
       idType: 'LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID',
@@ -447,7 +448,7 @@ describe('LinkedIn', () => {
       address: { first_name: "O'Brien", last_name: 'Lovelace', country: 'GB' },
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     const { userInfo } = body.elements[0].user;
     expect(userInfo.firstName).toBeUndefined();
     expect(userInfo.lastName).toBeUndefined();
@@ -462,7 +463,7 @@ describe('LinkedIn', () => {
       email: ' Ada@Example.COM ',
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     const [{ idType, idValue }] = body.elements[0].user.userIds;
     expect(idType).toBe('SHA256_EMAIL');
     expect(idValue).toBe(sha256('ada@example.com'));
@@ -475,7 +476,7 @@ describe('LinkedIn', () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     await sendLinkedinEvents('token', { purchase: 123 }, [event()], { user_id: 'u1' });
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     expect(body.elements).toHaveLength(1);
     expect(body.elements[0].user).toMatchObject({ userIds: [], externalIds: ['u1'] });
   });

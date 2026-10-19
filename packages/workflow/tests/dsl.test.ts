@@ -24,7 +24,6 @@ import {
   or,
   performed,
   segment,
-  template,
   trigger,
   workflow,
 } from '../src/index';
@@ -384,13 +383,16 @@ describe('bundle compilation', () => {
       condition: performed(e.purchase),
     });
     expect(bare.id).toBe('vip');
-    const [plain] = compileBundle({ workflows: [], segments: [bare] }).segments;
-    const [named] = compileBundle({ workflows: [], segments: [labeled] }).segments;
-    expect(plain?.meta?.name).toBeUndefined();
-    expect(plain?.meta?.description).toBeUndefined();
-    expect(named?.meta).toMatchObject({ name: 'VIP', description: 'Bought at least once' });
-    expect(named?.id).toBe('vip');
-    expect(named?.contentHash).toBe(plain?.contentHash);
+    const plain = compileBundle({ workflows: [], segments: [bare] }).segments.at(0);
+    const named = compileBundle({ workflows: [], segments: [labeled] }).segments.at(0);
+    expect(plain).toBeDefined();
+    expect(named).toBeDefined();
+    if (!plain || !named) throw new Error('Both segments must be compiled');
+    expect(plain.meta?.name).toBeUndefined();
+    expect(plain.meta?.description).toBeUndefined();
+    expect(named.meta).toMatchObject({ name: 'VIP', description: 'Bought at least once' });
+    expect(named.id).toBe('vip');
+    expect(named.contentHash).toBe(plain.contentHash);
   });
 
   test('segment names must be unique within a bundle', () => {

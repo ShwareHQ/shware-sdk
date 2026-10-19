@@ -315,8 +315,10 @@ describe('tracking', () => {
     const { id } = await sendEmail(['https://app.example.com/unsubscribe']);
     const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
     const click = await handleTracking(get(`/t/l/${id}/0`), reporting(), options);
-    expect(click?.status).toBe(302);
-    expect(click?.headers.get('location')).toBe('https://app.example.com/unsubscribe');
+    expect(click).toBeDefined();
+    if (!click) throw new Error('The tracking URL must return a redirect');
+    expect(click.status).toBe(302);
+    expect(click.headers.get('location')).toBe('https://app.example.com/unsubscribe');
   });
 
   test('an email sent before links carried their purpose: its unsubscribe link still asks', async () => {
@@ -358,7 +360,8 @@ describe('tracking', () => {
     const observer = reportingObserver(reporting(), 'https://wf.example.com');
     const push = email({ channel: 'push', device: { token: 't', platform: 'ios' } });
     const data = (await observer.messagePrepared?.(push))?.data ?? {};
-    const id = data.message_id ?? '';
+    expect(data).toHaveProperty('message_id', expect.any(String));
+    const id = data.message_id;
     expect(data).toEqual({
       message_id: id,
       delivered_url: `https://wf.example.com/t/d/${id}`,

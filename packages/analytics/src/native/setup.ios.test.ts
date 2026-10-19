@@ -1,26 +1,63 @@
+import type * as Application from 'expo-application';
+import type * as Crypto from 'expo-crypto';
+import type * as Device from 'expo-device';
+import type * as Localization from 'expo-localization';
+import type * as TrackingTransparency from 'expo-tracking-transparency';
+import type * as Native from 'react-native';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+type LocalizationPort = {
+  getLocales: () => Pick<ReturnType<typeof Localization.getLocales>[number], 'languageTag'>[];
+  getCalendars: () => Pick<ReturnType<typeof Localization.getCalendars>[number], 'timeZone'>[];
+};
+type NativePort = {
+  Platform: Pick<typeof Native.Platform, 'OS'>;
+  Dimensions: {
+    get: (
+      dimension: Parameters<typeof Native.Dimensions.get>[0]
+    ) => Pick<ReturnType<typeof Native.Dimensions.get>, 'width' | 'height'>;
+  };
+  PixelRatio: Pick<typeof Native.PixelRatio, 'get'>;
+};
+type DevicePort = Pick<
+  typeof Device,
+  'DeviceType' | 'deviceType' | 'manufacturer' | 'modelId' | 'modelName' | 'osName' | 'osVersion'
+>;
 /**
  * The iOS/fallback side of native setup: the android path and the referrer memoization live in
  * setup.test.ts. A hoisted mutable state object backs the mocks so each test can re-shape the
  * device before re-importing the module graph.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({
-  os: 'ios' as string,
-  deviceType: 2, // TABLET
-  vendorId: null as string | null,
-}));
+const state = vi.hoisted(() => {
+  const initial: {
+    os: typeof Native.Platform.OS;
+    deviceType: typeof Device.deviceType;
+    vendorId: Awaited<ReturnType<typeof Application.getIosIdForVendorAsync>>;
+  } = {
+    os: 'ios',
+    deviceType: 2,
+    vendorId: null,
+  };
+  return initial;
+});
 
-const getInstallReferrerAsync = vi.fn(async () => 'utm_source=play');
+const getInstallReferrerAsync = vi.fn<typeof Application.getInstallReferrerAsync>(
+  async () => 'utm_source=play'
+);
 
-vi.mock('expo-sqlite/localStorage/install', () => ({}));
-vi.mock('expo-application', () => ({
+vi.mock(import('expo-sqlite/localStorage/install'), () => ({}));
+vi.mock<
+  Pick<typeof Application, 'getAndroidId' | 'getIosIdForVendorAsync' | 'getInstallReferrerAsync'>
+>(import('expo-application'), () => ({
   getAndroidId: () => 'android-id',
   getIosIdForVendorAsync: async () => state.vendorId,
   getInstallReferrerAsync,
 }));
-vi.mock('expo-crypto', () => ({ randomUUID: () => 'random-uuid' }));
-vi.mock('expo-device', () => ({
+vi.mock<Pick<typeof Crypto, 'randomUUID'>>(import('expo-crypto'), () => ({
+  randomUUID: () => 'random-uuid',
+}));
+vi.mock<DevicePort>(import('expo-device'), () => ({
   DeviceType: { PHONE: 1, TABLET: 2, DESKTOP: 3, TV: 4, UNKNOWN: 0 },
   get deviceType() {
     return state.deviceType;
@@ -31,12 +68,15 @@ vi.mock('expo-device', () => ({
   osName: 'iPadOS',
   osVersion: '19.0',
 }));
-vi.mock('expo-localization', () => ({
+vi.mock<LocalizationPort>(import('expo-localization'), () => ({
   getLocales: () => [],
   getCalendars: () => [],
 }));
-vi.mock('expo-tracking-transparency', () => ({ getAdvertisingId: () => null }));
-vi.mock('react-native', () => ({
+vi.mock<Pick<typeof TrackingTransparency, 'getAdvertisingId'>>(
+  import('expo-tracking-transparency'),
+  () => ({ getAdvertisingId: () => null })
+);
+vi.mock<NativePort>(import('react-native'), () => ({
   Platform: {
     get OS() {
       return state.os;

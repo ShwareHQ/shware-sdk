@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Track from '../track/index';
+import type { ThirdPartyUserSetter } from './types';
 
-const fetchMock = vi.fn();
-const track = vi.fn();
-vi.mock('../track/index', () => ({ track }));
+const fetchMock = vi.fn<typeof globalThis.fetch>();
+const { track } = vi.mockObject<Pick<typeof Track, 'track'>>({ track() {} });
+vi.mock<Pick<typeof Track, 'track'>>(import('../track/index'), () => ({ track }));
 
 async function load(seed: Record<string, string> = {}) {
   vi.stubGlobal('fetch', fetchMock);
@@ -74,7 +76,7 @@ describe('setVisitor', () => {
   });
 
   it('tells the third-party setters at once, with the user as the distinct id', async () => {
-    const setter = vi.fn();
+    const setter = vi.fn<ThirdPartyUserSetter>();
     const { setVisitor, config } = await load();
     config.thirdPartyUserSetters = [setter];
     const user_data = { email: 'a@b.co' };
@@ -85,7 +87,7 @@ describe('setVisitor', () => {
   });
 
   it('identifies nobody without a user id, and still hands user_data to the setters', async () => {
-    const setter = vi.fn();
+    const setter = vi.fn<ThirdPartyUserSetter>();
     const { setVisitor, config } = await load();
     config.thirdPartyUserSetters = [setter];
 
@@ -96,10 +98,10 @@ describe('setVisitor', () => {
   });
 
   it('never throws: a setter that throws does not stop the others', async () => {
-    const bad = vi.fn(() => {
+    const bad = vi.fn<ThirdPartyUserSetter>(() => {
       throw new Error('pixel not loaded');
     });
-    const good = vi.fn();
+    const good = vi.fn<ThirdPartyUserSetter>();
     const { setVisitor, config } = await load();
     config.thirdPartyUserSetters = [bad, good];
     vi.spyOn(console, 'log').mockImplementation(() => {});

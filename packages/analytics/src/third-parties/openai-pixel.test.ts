@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sendOpenAIEvent, setOpenAIUser } from './openai-pixel';
 
-const vendor = window as unknown as { oaiq?: unknown };
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 beforeEach(() => {
@@ -12,14 +11,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete vendor.oaiq;
+  delete window.oaiq;
   vi.restoreAllMocks();
 });
 
 describe('sendOpenAIEvent', () => {
   it('measures a standard event with the event id for deduplication', () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
 
     sendOpenAIEvent(
       'purchase',
@@ -36,8 +35,8 @@ describe('sendOpenAIEvent', () => {
   });
 
   it('measures an unknown name as custom, carrying the original name', () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
 
     sendOpenAIEvent('banner_dismissed', {}, 'event-2');
 
@@ -50,8 +49,8 @@ describe('sendOpenAIEvent', () => {
   });
 
   it('names a custom event as the API allows, and sends none it cannot name', () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
 
     sendOpenAIEvent('Banner.Dismissed' as never, undefined, 'event-3');
     expect(oaiq).toHaveBeenCalledWith('measure', 'custom', expect.anything(), {
@@ -65,8 +64,8 @@ describe('sendOpenAIEvent', () => {
   });
 
   it('leaves the app events to the Conversions API', () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
 
     sendOpenAIEvent('app_open');
     sendOpenAIEvent('first_open', {} as never);
@@ -75,8 +74,8 @@ describe('sendOpenAIEvent', () => {
   });
 
   it('drops web vitals and promotion events', () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
 
     sendOpenAIEvent('CLS', { value: 0.01 });
     sendOpenAIEvent('view_promotion', { items: [] });
@@ -91,8 +90,8 @@ describe('sendOpenAIEvent', () => {
 
 describe('setOpenAIUser', () => {
   it('hashes the identifiers as OpenAI normalizes them, sends geography raw, then re-inits', async () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
 
     setOpenAIUser('pixel-1')({
       user_id: ' u1 ',
@@ -132,8 +131,8 @@ describe('setOpenAIUser', () => {
   });
 
   it('still inits with the raw fields when hashing fails', async () => {
-    const oaiq = vi.fn();
-    vendor.oaiq = oaiq;
+    const { value: oaiq } = vi.mockObject<{ value: NonNullable<Window['oaiq']> }>({ value() {} });
+    window.oaiq = oaiq;
     const digest = vi.spyOn(crypto.subtle, 'digest').mockRejectedValue(new Error('no webcrypto'));
 
     setOpenAIUser('pixel-1')({

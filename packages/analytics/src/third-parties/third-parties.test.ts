@@ -15,8 +15,6 @@ import {
 } from './microsoft-uet';
 import { sendRedditEvent, setRedditUser } from './reddit-pixel';
 
-// The senders already declare typed vendor globals on Window; the mocks are cast into them.
-const vendor = window as unknown as Record<'fbq' | 'rdt' | 'gtag' | 'lintrk' | 'uetq', unknown>;
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 beforeEach(() => {
@@ -24,18 +22,18 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete vendor.fbq;
-  delete vendor.rdt;
-  delete vendor.gtag;
-  delete vendor.lintrk;
-  delete vendor.uetq;
+  delete window.fbq;
+  delete window.rdt;
+  delete window.gtag;
+  delete window.lintrk;
+  delete window.uetq;
   vi.restoreAllMocks();
 });
 
 describe('sendGAEvent', () => {
   it('forwards to gtag when it is present', () => {
-    const gtag = vi.fn();
-    vendor.gtag = gtag;
+    const { value: gtag } = vi.mockObject<{ value: NonNullable<Window['gtag']> }>({ value() {} });
+    window.gtag = gtag;
 
     sendGAEvent('purchase', { value: 1, currency: 'USD', transaction_id: 't1', items: [] });
     expect(gtag).toHaveBeenCalledWith('event', 'purchase', expect.objectContaining({ value: 1 }));
@@ -48,8 +46,8 @@ describe('sendGAEvent', () => {
   });
 
   it('setGAUser sets each field it is given', () => {
-    const gtag = vi.fn();
-    vendor.gtag = gtag;
+    const { value: gtag } = vi.mockObject<{ value: NonNullable<Window['gtag']> }>({ value() {} });
+    window.gtag = gtag;
 
     setGAUser({ user_id: 'u1' });
     expect(gtag).toHaveBeenCalledWith('set', 'user_id', 'u1');
@@ -57,8 +55,8 @@ describe('sendGAEvent', () => {
   });
 
   it('setGAUser forwards user_data when present', () => {
-    const gtag = vi.fn();
-    vendor.gtag = gtag;
+    const { value: gtag } = vi.mockObject<{ value: NonNullable<Window['gtag']> }>({ value() {} });
+    window.gtag = gtag;
 
     const user_data = { email: 'a@b.co' };
     setGAUser({ user_data });
@@ -68,8 +66,8 @@ describe('sendGAEvent', () => {
 
 describe('sendFBEvent', () => {
   it('maps a standard event and passes the event id for deduplication', () => {
-    const fbq = vi.fn();
-    vendor.fbq = fbq;
+    const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
+    window.fbq = fbq;
 
     sendFBEvent(
       'purchase',
@@ -83,16 +81,16 @@ describe('sendFBEvent', () => {
   });
 
   it('sends unknown names through trackCustom', () => {
-    const fbq = vi.fn();
-    vendor.fbq = fbq;
+    const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
+    window.fbq = fbq;
 
     sendFBEvent('my_custom', { a: 1 }, 'event-2');
     expect(fbq).toHaveBeenCalledWith('trackCustom', 'my_custom', { a: 1 }, { eventID: 'event-2' });
   });
 
   it('drops web vitals instead of forwarding them', () => {
-    const fbq = vi.fn();
-    vendor.fbq = fbq;
+    const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
+    window.fbq = fbq;
 
     sendFBEvent('CLS', { value: 0.02 });
     expect(fbq).not.toHaveBeenCalled();
@@ -105,8 +103,8 @@ describe('sendFBEvent', () => {
   });
 
   it('setFBUser re-inits the pixel with advanced matching, st carrying the region', () => {
-    const fbq = vi.fn();
-    vendor.fbq = fbq;
+    const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
+    window.fbq = fbq;
 
     setFBUser('123')({
       user_id: 'u1',
@@ -142,8 +140,8 @@ describe('sendFBEvent', () => {
 
 describe('sendRedditEvent', () => {
   it('tracks with the mapped type', () => {
-    const rdt = vi.fn();
-    vendor.rdt = rdt;
+    const { value: rdt } = vi.mockObject<{ value: NonNullable<Window['rdt']> }>({ value() {} });
+    window.rdt = rdt;
 
     sendRedditEvent(
       'purchase',
@@ -158,8 +156,8 @@ describe('sendRedditEvent', () => {
   });
 
   it('strips undefined values before handing params to the pixel', () => {
-    const rdt = vi.fn();
-    vendor.rdt = rdt;
+    const { value: rdt } = vi.mockObject<{ value: NonNullable<Window['rdt']> }>({ value() {} });
+    window.rdt = rdt;
 
     sendRedditEvent(
       'purchase',
@@ -171,8 +169,8 @@ describe('sendRedditEvent', () => {
   });
 
   it('sends an unknown name as a Custom event', () => {
-    const rdt = vi.fn();
-    vendor.rdt = rdt;
+    const { value: rdt } = vi.mockObject<{ value: NonNullable<Window['rdt']> }>({ value() {} });
+    window.rdt = rdt;
 
     sendRedditEvent('started_trial', { value: 5, currency: 'usd' }, 'event-3');
     expect(rdt).toHaveBeenCalledWith(
@@ -183,8 +181,8 @@ describe('sendRedditEvent', () => {
   });
 
   it('setRedditUser re-inits with the first email and the external id', () => {
-    const rdt = vi.fn();
-    vendor.rdt = rdt;
+    const { value: rdt } = vi.mockObject<{ value: NonNullable<Window['rdt']> }>({ value() {} });
+    window.rdt = rdt;
 
     setRedditUser('a2_pixel')({
       user_id: 'u1',
@@ -202,8 +200,10 @@ describe('sendRedditEvent', () => {
 
 describe('sendLinkedinEvent', () => {
   it('fires only for conversions in the config, by conversion id', () => {
-    const lintrk = vi.fn();
-    vendor.lintrk = lintrk;
+    const { value: lintrk } = vi.mockObject<{ value: NonNullable<Window['lintrk']> }>({
+      value() {},
+    });
+    window.lintrk = lintrk;
     const send = sendLinkedinEvent({ purchase: 123 });
 
     send('purchase', { value: 9, currency: 'USD', transaction_id: 't1', items: [] }, 'event-1');
@@ -214,8 +214,10 @@ describe('sendLinkedinEvent', () => {
   });
 
   it('setLinkedinUser sends the email, and nothing without one', () => {
-    const lintrk = vi.fn();
-    vendor.lintrk = lintrk;
+    const { value: lintrk } = vi.mockObject<{ value: NonNullable<Window['lintrk']> }>({
+      value() {},
+    });
+    window.lintrk = lintrk;
 
     setLinkedinUser({ user_id: 'u1', tags: {} });
     expect(lintrk).not.toHaveBeenCalled();
@@ -236,8 +238,8 @@ describe('user setters before the vendor script loads', () => {
 
 describe('localhost', () => {
   it('the ad pixels stay silent during local development', () => {
-    const fbq = vi.fn();
-    vendor.fbq = fbq;
+    const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
+    window.fbq = fbq;
     const original = window.location.href;
     // jsdom lets tests navigate; the guard reads window.location.host.
     window.history.replaceState(null, '', '/');
@@ -283,8 +285,10 @@ describe('server rendering', () => {
 
 describe('sendUETEvent', () => {
   it('pushes the event under its own name with the id for deduplication, undefined stripped', () => {
-    const push = vi.fn();
-    vendor.uetq = { push };
+    const { value: push } = vi.mockObject<{ value: NonNullable<Window['uetq']>['push'] }>({
+      value() {},
+    });
+    window.uetq = { push };
 
     sendUETEvent(
       'purchase',
@@ -303,25 +307,29 @@ describe('sendUETEvent', () => {
 
   it('queues into the snippet array before bat.js has loaded', () => {
     // The snippet's queue is a plain array bat.js walks flat, so the arguments land as siblings.
-    vendor.uetq = [];
+    window.uetq = [];
     sendUETEvent('sign_up', { method: 'google' }, 'event-2');
-    expect(vendor.uetq).toEqual(['event', 'sign_up', { event_id: 'event-2', method: 'google' }]);
+    expect(window.uetq).toEqual(['event', 'sign_up', { event_id: 'event-2', method: 'google' }]);
   });
 
   it('drops web vitals and page views (the tag owns page loads), and does not throw where the tag never loaded', () => {
-    const push = vi.fn();
-    vendor.uetq = { push };
+    const { value: push } = vi.mockObject<{ value: NonNullable<Window['uetq']>['push'] }>({
+      value() {},
+    });
+    window.uetq = { push };
     sendUETEvent('CLS', { value: 0.02 });
     sendUETEvent('page_view', { page_path: '/', page_title: 'Home' });
     expect(push).not.toHaveBeenCalled();
 
-    delete vendor.uetq;
+    delete window.uetq;
     expect(() => sendUETEvent('login', {})).not.toThrow();
   });
 
   it('setUETUser hands the raw email and phone to the tag, which hashes them itself', () => {
-    const push = vi.fn();
-    vendor.uetq = { push };
+    const { value: push } = vi.mockObject<{ value: NonNullable<Window['uetq']>['push'] }>({
+      value() {},
+    });
+    window.uetq = { push };
 
     setUETUser({
       user_id: 'u1',
@@ -359,7 +367,7 @@ describe('sendUETEvent', () => {
     expect(sources).toEqual(['https://c.bing.com/c.gif?Red3=BACID_255004870&VID=vid-9']);
 
     // A signed-in user through the setter re-syncs with the hashed UID.
-    vendor.uetq = { push: vi.fn() };
+    window.uetq = vi.mockObject<NonNullable<Window['uetq']>>({ push() {} });
     setUETUser({ user_id: 'u1', tags: {} });
     await vi.waitFor(() => expect(sources).toHaveLength(2));
     expect(sources[1]).toBe(
@@ -372,7 +380,7 @@ describe('sendUETEvent', () => {
 
   it('setUETConsent creates the queue when it runs before the snippet', () => {
     setUETConsent('default', { ad_storage: 'denied' });
-    expect(vendor.uetq).toEqual(['consent', 'default', { ad_storage: 'denied' }]);
+    expect(window.uetq).toEqual(['consent', 'default', { ad_storage: 'denied' }]);
   });
 
   it('sendUETIdSync fires the c.gif pixel with the customer id, visitor id and a hashed user id', async () => {

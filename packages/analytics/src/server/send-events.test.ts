@@ -30,7 +30,7 @@ function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {
   };
 }
 
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof globalThis.fetch>();
 let errorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {

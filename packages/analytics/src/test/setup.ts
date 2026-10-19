@@ -38,3 +38,14 @@ export function jsonResponse(data: unknown, status = 200) {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+/** Read the URL passed to the real Fetch API, including Request inputs. */
+export function requestUrl(input: Parameters<typeof globalThis.fetch>[0]): string {
+  return input instanceof Request ? input.url : input.toString();
+}
+
+/** These transports serialize JSON to a text body; an absent or binary body is a test failure. */
+export function textRequestBody(init: RequestInit | undefined): string {
+  if (typeof init?.body !== 'string') throw new Error('Expected a text request body');
+  return init.body;
+}
