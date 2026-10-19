@@ -1,5 +1,6 @@
 export { setupAnalytics } from './setup/index';
 export { track, trackAsync, sendBeacon, sendPendingEvents } from './track/index';
+export { trackOnce, type TrackOnceOptions } from './track/once';
 export { IDENTIFY_EVENT, setVisitor, visitorId } from './visitor/index';
 export { sendFeedback } from './feedback/index';
 export { createLink, getLink, type Link } from './link/index';
