@@ -64,8 +64,25 @@ function live(entries: Entry[], now: number) {
   return entries.filter((entry) => entry.expiresAt > now);
 }
 
-/** Keys queued in this page (or app process) but not confirmed sent yet. */
-const pending = new Set<string>();
+/** Keys queued in this page (or app process) but not confirmed sent yet, per event name. */
+const pending = new Map<string, Set<string>>();
+
+function isPending(name: string, key: string) {
+  return pending.get(name)?.has(key) ?? false;
+}
+
+function markPending(name: string, key: string) {
+  const keys = pending.get(name);
+  if (keys) keys.add(key);
+  else pending.set(name, new Set([key]));
+}
+
+function clearPending(name: string, key: string) {
+  const keys = pending.get(name);
+  if (!keys) return;
+  keys.delete(key);
+  if (keys.size === 0) pending.delete(name);
+}
 
 /**
  * Tracks an event at most once per `key`: a reloaded or revisited payment result page, a
@@ -85,8 +102,7 @@ export function trackOnce<T extends EventName = EventName>(
   properties: TrackProperties<T> | undefined,
   { key, ttl = DEFAULT_TTL, ...options }: TrackOnceOptions
 ): boolean {
-  const id = `${name}\u0000${key}`;
-  if (pending.has(id)) return false;
+  if (isPending(name, key)) return false;
 
   const now = Date.now();
   try {
@@ -95,11 +111,11 @@ export function trackOnce<T extends EventName = EventName>(
     if (e instanceof Error) console.log(e.message);
   }
 
-  pending.add(id);
+  markPending(name, key);
   track(name, properties, {
     ...options,
     onSucceed: (response) => {
-      pending.delete(id);
+      clearPending(name, key);
       try {
         const entries = live(read(name), Date.now()).filter((entry) => entry.key !== key);
         write(name, [...entries, { key, expiresAt: Date.now() + ttl }]);
@@ -110,7 +126,7 @@ export function trackOnce<T extends EventName = EventName>(
     },
     onError: (error) => {
       // Not sent: forget it here so a later call can try again.
-      pending.delete(id);
+      clearPending(name, key);
       options.onError?.(error);
     },
   });
