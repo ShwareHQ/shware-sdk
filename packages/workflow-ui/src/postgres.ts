@@ -84,13 +84,14 @@ export function postgresStats(options: PostgresStatsOptions): StatsSource {
       anchor = Date.now();
       return;
     }
-    const [row] = await sql<{ latest: Date | null }[]>`
+    const rows = await sql<{ latest: Date | null }[]>`
       select greatest(
         (select max(sent_at) from ${t('message')}),
         (select max(node_at) from ${t('instance')}),
         (select max(finished_at) from ${t('instance')}),
         (select max(taken_at) from ${t('segment_snapshot')})
       ) as latest`;
+    const row = rows.at(0);
     const latest =
       row?.latest === null || row?.latest === undefined
         ? Date.now()
@@ -382,8 +383,9 @@ export function postgresStats(options: PostgresStatsOptions): StatsSource {
 
     async profiles(segment, { limit, offset }) {
       await refreshAnchor();
-      const [count] = await sql<{ total: number }[]>`
+      const counts = await sql<{ total: number }[]>`
         select count(*)::int as total from ${t('segment_member')} where segment = ${segment}`;
+      const count = counts.at(0);
       // "Created" is the user's first event: the engine knows nothing older about them
       const rows = await sql<
         { id: string; props: Record<string, unknown> | null; created_at: Date | null }[]

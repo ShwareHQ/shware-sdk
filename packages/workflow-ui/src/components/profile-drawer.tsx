@@ -67,14 +67,14 @@ function Section({
 }) {
   /* Top border, inset by the drawer's padding — the divider stops short of the edges. */
   return (
-    <section className="border-border border-t py-4">
+    <section className="border-t border-border py-4">
       <button
         type="button"
         aria-expanded={open}
         onClick={onToggle}
         className="flex w-full items-center justify-between text-left"
       >
-        <span className="text-primary text-sm font-semibold">{title}</span>
+        <span className="text-sm font-semibold text-primary">{title}</span>
         <ChevronDown
           size={16}
           strokeWidth={2}
@@ -106,8 +106,8 @@ function Row({
 }) {
   return (
     <>
-      <dt className="text-muted whitespace-nowrap">{label}</dt>
-      <dd className="text-secondary flex min-w-0 items-center justify-end gap-1.5">
+      <dt className="whitespace-nowrap text-muted">{label}</dt>
+      <dd className="flex min-w-0 items-center justify-end gap-1.5 text-secondary">
         {leading}
         <span className="min-w-0 truncate text-right" title={formatValue(value)}>
           {formatValue(value)}
@@ -161,7 +161,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
       onClick={() => {
         void copyText(value).then(setCopied);
       }}
-      className="text-muted hover:bg-hover hover:text-primary flex size-6 shrink-0 items-center justify-center rounded-md transition-colors"
+      className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-primary"
       style={superellipse}
     >
       {copied ? (
@@ -228,7 +228,7 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
 
       <aside
         aria-hidden={!open}
-        className={`border-border bg-card fixed inset-y-0 right-0 z-30 flex w-96 max-w-full flex-col border-l shadow-xl transition-transform duration-200 ease-out ${
+        className={`fixed inset-y-0 right-0 z-30 flex w-96 max-w-full flex-col border-l border-border bg-card shadow-xl transition-transform duration-200 ease-out ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -244,7 +244,7 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
             <div className="truncate text-sm font-semibold">
               {name ?? email ?? profile?.id ?? ''}
             </div>
-            <div className="text-muted truncate text-xs">
+            <div className="truncate text-xs text-muted">
               {name !== undefined ? (email ?? profile?.id ?? '') : (profile?.id ?? '')}
             </div>
           </div>
@@ -252,7 +252,7 @@ export function ProfileDrawer({ profile, onClose }: ProfileDrawerProps) {
             type="button"
             onClick={onClose}
             aria-label={t('common.close')}
-            className="text-muted hover:bg-hover hover:text-primary flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-primary"
             style={superellipse}
           >
             <X className="size-4" strokeWidth={2} />

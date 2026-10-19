@@ -70,10 +70,10 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
      * the page is the one scroller (see __root). Nothing clips, so the corners
      * are re-cut on the first and last cells below.
      */
-    <div className="border-border bg-card rounded-2xl border" style={superellipse}>
+    <div className="rounded-2xl border border-border bg-card" style={superellipse}>
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm max-md:block">
         <thead className="max-md:hidden">
-          <tr className="text-muted text-left text-xs font-medium">
+          <tr className="text-left text-xs font-medium text-muted">
             <th className={clsx(HEAD_CELL, 'min-w-0 px-6')} style={superellipse}>
               {t('common.name')}
             </th>
@@ -112,7 +112,7 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                   'max-md:last:border-b-0',
                   'last:[&>td]:border-b-0 md:last:[&>td:first-child]:rounded-bl-2xl',
                   'md:last:[&>td:last-child]:rounded-br-2xl',
-                  onOpen && 'max-md:hover:bg-hover md:hover:[&>td]:bg-hover cursor-pointer'
+                  onOpen && 'cursor-pointer max-md:hover:bg-hover md:hover:[&>td]:bg-hover'
                 )}
                 style={superellipse}
               >
@@ -121,7 +121,7 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                   style={superellipse}
                 >
                   <div className="flex items-start gap-3">
-                    <Users className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />
+                    <Users className="mt-0.5 size-4 shrink-0 text-muted" strokeWidth={2} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 font-medium">
                         {label !== '' ? (
@@ -139,9 +139,9 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                         )}
                       </div>
                       {item.description !== undefined && (
-                        <p className="text-secondary mt-1 truncate text-sm">{item.description}</p>
+                        <p className="mt-1 truncate text-sm text-secondary">{item.description}</p>
                       )}
-                      <div className="text-muted mt-2 truncate text-xs">
+                      <div className="mt-2 truncate text-xs text-muted">
                         {item.usedBy.length === 0
                           ? t('segments.unused')
                           : `${t('segments.usedBy')}: ${item.usedBy.join(', ')}`}
@@ -154,14 +154,14 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                   className={clsx(CELL, 'px-3 max-md:order-2 max-md:pt-0 max-md:pb-4')}
                   style={superellipse}
                 >
-                  <div className="text-muted mb-1 truncate text-xs md:hidden">
+                  <div className="mb-1 truncate text-xs text-muted md:hidden">
                     {t('segments.size')}
                   </div>
                   <div className="tabular-nums">
                     {report === undefined ? '—' : compact(report.size)}
                   </div>
                   {movement !== undefined && (
-                    <div className="text-muted mt-1 text-xs tabular-nums">{movement.text}</div>
+                    <div className="mt-1 text-xs text-muted tabular-nums">{movement.text}</div>
                   )}
                 </td>
 
@@ -169,7 +169,7 @@ export function SegmentList({ items, reports, onOpen }: SegmentListProps) {
                   className={clsx(CELL, 'px-3 max-md:order-3 max-md:pt-0 max-md:pb-4')}
                   style={superellipse}
                 >
-                  <div className="text-muted mb-1 truncate text-xs md:hidden">
+                  <div className="mb-1 truncate text-xs text-muted md:hidden">
                     {t('segments.overTime')}
                   </div>
                   <Sparkline values={report?.series ?? []} />

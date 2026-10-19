@@ -52,7 +52,7 @@ export function Modal({ visible = false, className, disabled = false, children, 
             ref={setFloating}
             style={superellipse}
             className={cn(
-              'bg-card relative max-h-dvh max-w-dvw overflow-y-auto rounded-3xl',
+              'relative max-h-dvh max-w-dvw overflow-y-auto rounded-3xl bg-card',
               'shadow-lg dark:shadow-gray-700',
               className
             )}
@@ -67,5 +67,5 @@ export function Modal({ visible = false, className, disabled = false, children, 
 }
 
 export function ModalTitle({ children }: { children: ReactNode }) {
-  return <h2 className="text-primary text-lg font-semibold">{children}</h2>;
+  return <h2 className="text-lg font-semibold text-primary">{children}</h2>;
 }

@@ -488,7 +488,7 @@ export function assertSupportedSchema(schema: unknown, where: string): void {
   const fail = (reason: string): never => {
     throw new TypeError(`template '${where}': unsupported props schema — ${reason}`);
   };
-  const def = (schema as core.$ZodType | undefined)?._zod?.def;
+  const def = (schema as { _zod?: { def?: core.$ZodTypeDef } } | null | undefined)?._zod?.def;
   if (def?.type !== 'object') fail('props must be a z.strictObject({...})');
   const object = def as core.$ZodObjectDef;
   if (object.catchall?._zod.def.type !== 'never') {

@@ -209,6 +209,7 @@ describe('differential: getCapiEvent === business SDK normalize()', () => {
   });
 
   it('a legacy client still sending source_url keeps its event_source_url', () => {
+    // oxlint-disable-next-line typescript/no-deprecated -- Exercise page URL compatibility for pre-7.0 clients.
     expectSamePayload(event({ tags: { source_url: 'https://shop.example/old-bundle' } }));
   });
 
@@ -367,7 +368,9 @@ describe('differential fuzz: seeded random inputs through both builders', () => 
           _fbc: maybe(`fb.1.1700000000000.${pick(['COOKIE', `CLK${i}`])}`),
           _fbp: maybe('fb.1.1700000000000.987654'),
           // clients older than 9.0.0
+          // oxlint-disable-next-line typescript/no-deprecated -- Include pre-9.0 clients in differential compatibility coverage.
           fbc: maybe('fb.1.1700000000000.LEGACY'),
+          // oxlint-disable-next-line typescript/no-deprecated -- Include pre-9.0 clients in differential compatibility coverage.
           fbp: maybe('fb.1.1700000000000.123456'),
           advertising_id: maybe('IDFA-1'),
           ip_address: maybe('198.51.100.7'),

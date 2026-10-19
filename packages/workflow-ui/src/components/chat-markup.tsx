@@ -31,28 +31,28 @@ const link = (href: string, text: string, key: string, className: string) => (
 
 const RULES: Record<Dialect, Rule[]> = {
   discord: [
-    { pattern: /`([^`]+)`/, render: (m, key) => code(m[1] ?? '', key) },
+    { pattern: /`([^`]+)`/, render: (m, key) => code(m[1], key) },
     {
       pattern: /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/,
-      render: (m, key, linkClass) => link(m[2] ?? '', m[1] ?? '', key, linkClass),
+      render: (m, key, linkClass) => link(m[2], m[1], key, linkClass),
     },
     { pattern: /\*\*([^*]+)\*\*/, render: (m, key) => <strong key={key}>{m[1]}</strong> },
     { pattern: /(?<!\w)__([^_]+)__(?!\w)/, render: (m, key) => <u key={key}>{m[1]}</u> },
     { pattern: /~~([^~]+)~~/, render: (m, key) => <s key={key}>{m[1]}</s> },
     {
       pattern: /\*([^*]+)\*|(?<!\w)_([^_]+)_(?!\w)/,
-      render: (m, key) => <em key={key}>{m[1] ?? m[2]}</em>,
+      render: (m, key) => <em key={key}>{m.at(1) ?? m.at(2)}</em>,
     },
     {
       pattern: /(https?:\/\/[^\s<]+)/,
-      render: (m, key, linkClass) => link(m[1] ?? '', m[1] ?? '', key, linkClass),
+      render: (m, key, linkClass) => link(m[1], m[1], key, linkClass),
     },
   ],
   slack: [
-    { pattern: /`([^`]+)`/, render: (m, key) => code(m[1] ?? '', key) },
+    { pattern: /`([^`]+)`/, render: (m, key) => code(m[1], key) },
     {
       pattern: /<((?:https?:\/\/|mailto:|tel:)[^|>]+)(?:\|([^>]+))?>/,
-      render: (m, key, linkClass) => link(m[1] ?? '', m[2] ?? m[1] ?? '', key, linkClass),
+      render: (m, key, linkClass) => link(m[1], m.at(2) ?? m[1], key, linkClass),
     },
     { pattern: /(?<!\w)\*([^*]+)\*(?!\w)/, render: (m, key) => <strong key={key}>{m[1]}</strong> },
     { pattern: /(?<!\w)_([^_]+)_(?!\w)/, render: (m, key) => <em key={key}>{m[1]}</em> },

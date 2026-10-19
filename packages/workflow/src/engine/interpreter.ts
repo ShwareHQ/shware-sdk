@@ -1,7 +1,13 @@
 import type { NodeIR, PropValueIR, ScalarIR, WorkflowIR } from '../ir';
 import { hashToBucket } from './bucket';
 import { evaluateCondition, relevantEvents } from './condition';
-import type { FactSource, JourneyContext, JourneyOutcome, OutboundMessage } from './ports';
+import type {
+  FactSource,
+  JourneyContext,
+  JourneyOutcome,
+  OutboundMessage,
+  PushDevice,
+} from './ports';
 import { RECIPIENT_PROPERTY } from './recipient';
 import { nextWindowStart } from './time-window';
 
@@ -239,6 +245,8 @@ function validate(
   }
 }
 
+type PushPlan = { props: Record<string, ScalarIR | undefined>; devices: PushDevice[] };
+
 /**
  * A push goes to devices, not to a profile address: one copy per device the
  * host's directory lists (or only the most recent, `devices: 'latest'`). Each
@@ -258,7 +266,7 @@ async function sendPush(
   ir: WorkflowIR,
   ctx: JourneyContext
 ): Promise<void> {
-  const plan = await ctx.step.do(`${node.id}:send`, async () => {
+  const plan = await ctx.step.do<PushPlan | null | undefined>(`${node.id}:send`, async () => {
     const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
     if (await ctx.facts.isSuppressed?.(node.channel)) return null;
     const listed = await ctx.facts.listDevices();

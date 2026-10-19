@@ -71,8 +71,8 @@ const asChannel = (value: string): MetricChannel | undefined =>
  */
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-border bg-card mt-6 rounded-2xl border" style={superellipse}>
-      <div className="border-border border-b px-5 py-3">
+    <section className="mt-6 rounded-2xl border border-border bg-card" style={superellipse}>
+      <div className="border-b border-border px-5 py-3">
         <h2 className="text-sm font-semibold">{title}</h2>
       </div>
       {children}
@@ -87,8 +87,8 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
  */
 function FunnelCell({ rate, count }: { rate: string; count: number }) {
   return (
-    <td className="border-border border-b px-4 py-3 align-top tabular-nums">
-      <div className="text-muted text-xs">{rate}</div>
+    <td className="border-b border-border px-4 py-3 align-top tabular-nums">
+      <div className="text-xs text-muted">{rate}</div>
       <div className="text-sm">{number(count)}</div>
     </td>
   );
@@ -270,11 +270,11 @@ function MetricsTab() {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <div
-          className="border-border bg-card max-w-md rounded-2xl border border-dashed p-8 text-center"
+          className="max-w-md rounded-2xl border border-dashed border-border bg-card p-8 text-center"
           style={superellipse}
         >
           <p className="text-sm font-medium">{t('metrics.noSource')}</p>
-          <p className="text-muted mt-2 text-sm">{t('metrics.noSourceHint')}</p>
+          <p className="mt-2 text-sm text-muted">{t('metrics.noSourceHint')}</p>
         </div>
       </div>
     );
@@ -386,7 +386,7 @@ function MetricsTab() {
       </div>
 
       {buckets.length === 0 ? (
-        <p className="text-muted mt-6 text-sm">{t('metrics.noData')}</p>
+        <p className="mt-6 text-sm text-muted">{t('metrics.noData')}</p>
       ) : (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{CARD_KEYS.map(cardOf)}</div>
       )}
@@ -396,7 +396,7 @@ function MetricsTab() {
           <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold">
-                <th className="border-border border-b px-4 py-2.5">
+                <th className="border-b border-border px-4 py-2.5">
                   <button
                     type="button"
                     className="inline-flex items-center gap-1"
@@ -411,7 +411,7 @@ function MetricsTab() {
                   </button>
                 </th>
                 {MESSAGE_COLUMNS.map((column) => (
-                  <th key={column} className="border-border w-32 border-b px-4 py-2.5">
+                  <th key={column} className="w-32 border-b border-border px-4 py-2.5">
                     {t(`metrics.messages.${column}`)}
                   </th>
                 ))}
@@ -420,14 +420,14 @@ function MetricsTab() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td className="text-muted px-4 py-4 text-sm" colSpan={MESSAGE_COLUMNS.length + 1}>
+                  <td className="px-4 py-4 text-sm text-muted" colSpan={MESSAGE_COLUMNS.length + 1}>
                     {t('metrics.messages.empty')}
                   </td>
                 </tr>
               ) : (
                 <>
                   <tr>
-                    <td className="border-border border-b px-4 py-3 align-top font-semibold">
+                    <td className="border-b border-border px-4 py-3 align-top font-semibold">
                       {t('metrics.messages.allMessages')}
                     </td>
                     <FunnelCell rate={SENT_SHARE} count={totals.sent} />
@@ -456,13 +456,13 @@ function MetricsTab() {
                         key={`${row.nodeId}:${row.template}:${row.channel}`}
                         className="last:[&>td]:border-b-0"
                       >
-                        <td className="border-border border-b px-4 py-3 align-top">
+                        <td className="border-b border-border px-4 py-3 align-top">
                           <span className="flex items-center gap-2">
                             <RowGlyph
                               size={14}
                               strokeWidth={2}
                               aria-hidden
-                              className="text-muted shrink-0"
+                              className="shrink-0 text-muted"
                             />
                             <Link
                               to="/templates/$key"
@@ -470,7 +470,7 @@ function MetricsTab() {
                               search={{
                                 channel: row.channel.startsWith('push') ? 'push' : row.channel,
                               }}
-                              className="text-accent truncate hover:underline"
+                              className="truncate text-accent hover:underline"
                             >
                               {label}
                             </Link>
@@ -499,10 +499,10 @@ function MetricsTab() {
           <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold">
-                <th className="border-border border-b px-5 py-2.5">
+                <th className="border-b border-border px-5 py-2.5">
                   {t('metrics.links.topClicked')}
                 </th>
-                <th className="border-border w-40 border-b px-5 py-2.5 text-right">
+                <th className="w-40 border-b border-border px-5 py-2.5 text-right">
                   {t('metrics.links.totalClicks')}
                 </th>
               </tr>
@@ -510,17 +510,17 @@ function MetricsTab() {
             <tbody>
               {topLinks.length === 0 ? (
                 <tr>
-                  <td className="text-muted px-5 py-4 text-sm" colSpan={2}>
+                  <td className="px-5 py-4 text-sm text-muted" colSpan={2}>
                     {t('metrics.links.empty')}
                   </td>
                 </tr>
               ) : (
                 topLinks.map((link) => (
                   <tr key={link.url} className="last:[&>td]:border-b-0">
-                    <td className="border-border truncate border-b px-5 py-2.5" title={link.url}>
+                    <td className="truncate border-b border-border px-5 py-2.5" title={link.url}>
                       {link.url}
                     </td>
-                    <td className="border-border border-b px-5 py-2.5 text-right tabular-nums">
+                    <td className="border-b border-border px-5 py-2.5 text-right tabular-nums">
                       {number(link.clicks)}
                     </td>
                   </tr>

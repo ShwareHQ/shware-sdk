@@ -30,13 +30,13 @@ export function ToastProvider() {
         classNames: {
           toast: clsx(
             'flex w-90 items-center gap-x-2 font-sans',
-            'bg-card ring-border rounded-2xl py-4 pr-4 pl-3 ring-1',
+            'rounded-2xl bg-card py-4 pr-4 pl-3 ring-1 ring-border',
             'shadow-[0_4px_12px_var(--color-card-shadow)]'
           ),
           title: 'text-sm font-medium text-primary',
           description: 'mt-1 text-xs font-normal text-muted',
           closeButton: clsx(
-            'text-muted hover:text-primary order-last ml-auto size-5 p-0.5',
+            'order-last ml-auto size-5 p-0.5 text-muted hover:text-primary',
             'transition-colors duration-200'
           ),
         },

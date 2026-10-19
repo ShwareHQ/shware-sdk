@@ -28,12 +28,12 @@ const SIZE_STYLE: Record<Size, string> = {
 
 const VARIANT_STYLE = {
   text: clsx(
-    'text-primary border-none bg-transparent',
+    'border-none bg-transparent text-primary',
     'hover:bg-gray-100 focus-visible:ring-black/10 active:bg-gray-200/80',
     'dark:hover:bg-gray-800 dark:focus-visible:ring-white/20 dark:active:bg-gray-700/80'
   ),
   accent: clsx(
-    'bg-accent active:bg-accent/80 text-white',
+    'bg-accent text-white active:bg-accent/80',
     'focus-visible:ring-accent/40 dark:focus-visible:ring-accent/50'
   ),
   default: clsx(
@@ -41,7 +41,7 @@ const VARIANT_STYLE = {
     'active:bg-black/80 dark:focus-visible:ring-white/30 dark:active:bg-white/80'
   ),
   secondary: clsx(
-    'text-primary bg-gray-100 focus-visible:ring-black/10 active:bg-gray-200/80',
+    'bg-gray-100 text-primary focus-visible:ring-black/10 active:bg-gray-200/80',
     'dark:bg-gray-800 dark:focus-visible:ring-white/20 dark:active:bg-gray-700/80'
   ),
   destructive: clsx(
@@ -50,7 +50,7 @@ const VARIANT_STYLE = {
     'dark:bg-red-400/70 dark:active:bg-red-400/90'
   ),
   outline: clsx(
-    'text-primary border',
+    'border text-primary',
     'bg-white focus-visible:ring-black/10 active:bg-gray-100/70',
     'dark:bg-gray-900/70 dark:focus-visible:ring-white/30 dark:active:bg-gray-900'
   ),

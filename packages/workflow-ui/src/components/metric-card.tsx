@@ -165,7 +165,7 @@ export function MetricCard({ label, value, delta, dates, series, format }: Metri
 
   return (
     <section
-      className="border-border bg-card flex flex-col overflow-hidden rounded-2xl border"
+      className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
       style={superellipse}
     >
       <div className="px-4 pt-4">
@@ -224,10 +224,10 @@ export function MetricCard({ label, value, delta, dates, series, format }: Metri
         </svg>
         {all.length > 0 && (
           <>
-            <span className="text-muted pointer-events-none absolute top-0 left-4 text-xs tabular-nums">
+            <span className="pointer-events-none absolute top-0 left-4 text-xs text-muted tabular-nums">
               {format(max)}
             </span>
-            <span className="text-muted pointer-events-none absolute right-4 bottom-1 text-xs tabular-nums">
+            <span className="pointer-events-none absolute right-4 bottom-1 text-xs text-muted tabular-nums">
               {format(min)}
             </span>
           </>
@@ -275,11 +275,11 @@ function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readon
   const left = `${x * 100}%`;
   return (
     <div aria-hidden className="pointer-events-none">
-      <div className="bg-border absolute inset-y-0 w-px" style={{ left }} />
+      <div className="absolute inset-y-0 w-px bg-border" style={{ left }} />
       {rows.map((row) => (
         <div
           key={row.label}
-          className="border-card absolute size-2.5 rounded-full border-2"
+          className="absolute size-2.5 rounded-full border-2 border-card"
           style={{ left, top: row.y, background: row.color, transform: 'translate(-50%, -50%)' }}
         />
       ))}
@@ -296,7 +296,7 @@ function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readon
         the label, which keeps the value flush right.
       */}
       <div
-        className="border-border bg-card shadow-card-shadow absolute top-0 grid w-max items-center gap-x-3 gap-y-1 rounded-lg border px-2.5 py-2 text-xs shadow-md"
+        className="absolute top-0 grid w-max items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-card px-2.5 py-2 text-xs shadow-md shadow-card-shadow"
         style={{
           ...superellipse,
           left,
@@ -311,7 +311,7 @@ function HoverReadout({ x, date, rows }: { x: number; date: string; rows: readon
               className="size-3 rounded-sm"
               style={{ ...superellipse, background: row.color }}
             />
-            <span className="text-secondary whitespace-nowrap">{row.label}</span>
+            <span className="whitespace-nowrap text-secondary">{row.label}</span>
             <span className="text-right font-medium tabular-nums">{row.value}</span>
           </Fragment>
         ))}

@@ -168,9 +168,9 @@ describe('a version applies its own bundle', () => {
   });
 
   beforeAll(async () => {
-    pg = new PGlite();
+    pg = await PGlite.create();
     await pg.exec(renderPostgresDdl());
-  });
+  }, 30_000);
   afterAll(async () => {
     await pg.close();
   });
@@ -209,13 +209,14 @@ describe('a version applies its own bundle', () => {
   });
 
   test('a failed apply is logged and never fails the request', async () => {
-    const empty = new PGlite(); // no migrations: the deployment table is missing
+    // Keep the deployment table missing without another PGlite cold start in the test budget.
+    await pg.exec('CREATE SCHEMA IF NOT EXISTS unmigrated');
     const env = {
       JOURNEY: new FakeJourney(),
       CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
     };
     const worker = journeyWorker<typeof env>({
-      store: () => new PostgresJourneyStore(client(empty)),
+      store: () => new PostgresJourneyStore(client(pg), { schema: 'unmigrated' }),
       config,
     });
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -224,11 +225,10 @@ describe('a version applies its own bundle', () => {
       expect(response.status).toBe(200);
       expect(logged).toHaveBeenCalledWith(
         '[workflow] could not make version v1 live',
-        expect.any(Error)
+        expect.objectContaining({ code: '42P01' })
       );
     } finally {
       logged.mockRestore();
-      await empty.close();
     }
   });
 

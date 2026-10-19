@@ -70,7 +70,9 @@ describe('click ids for the conversion senders', () => {
   });
 
   it('still reads the Reddit browser id from clients older than 9.0.0', () => {
+    // oxlint-disable-next-line typescript/no-deprecated -- Exercise canonical precedence over the pre-9.0 input.
     expect(redditUuid({ _rdt_uuid: 'new', rdt_uuid: 'old' })).toBe('new');
+    // oxlint-disable-next-line typescript/no-deprecated -- Exercise the pre-9.0 client compatibility fallback.
     expect(redditUuid({ rdt_uuid: 'old' })).toBe('old');
   });
 });
