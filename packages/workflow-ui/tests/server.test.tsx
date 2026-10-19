@@ -4,7 +4,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
 import type { Plugin, ViteDevServer } from 'vite';
 import { describe, expect, test } from 'vitest';
 import {

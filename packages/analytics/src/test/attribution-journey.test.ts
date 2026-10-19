@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-// @vitest-environment-options {"url": "https://shop.example/landing"}
 /**
  * Attribution as a business journey, not as units: an ad click lands, the server persists the
  * click id, the page reports a conversion, and the same identity reaches the browser pixel and
@@ -7,12 +5,16 @@
  * travels document.cookie → getTags → the wire → the server event.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+// @vitest-environment-options {"url": "https://shop.example/landing"}
+import type { ObjectProperties, Options as PixelOptions, StandardEvents } from '../track/fbq';
+import { requestUrl } from './setup';
 
 const T0 = new Date('2026-01-01T10:00:00Z');
-const fetchMock = vi.fn();
+const fetchMock = vi.fn<typeof globalThis.fetch>();
 
 function eventsBody(): Record<string, unknown>[] {
-  const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/events'));
+  const call = fetchMock.mock.calls.find(([url]) => requestUrl(url).endsWith('/events'));
   if (!call) throw new Error('no events request went out');
   return JSON.parse((call[1] as RequestInit).body as string);
 }
@@ -45,7 +47,8 @@ beforeEach(() => {
   window.localStorage.clear();
   clearCookies();
 
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+  fetchMock.mockImplementation(async (input, init) => {
+    const url = requestUrl(input);
     if (url.endsWith('/events')) {
       const body = JSON.parse(init?.body as string) as unknown[];
       return new Response(JSON.stringify(body.map((_, i) => ({ id: `event-${i}` }))), {
@@ -85,8 +88,8 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     expect(resolved.fbc).toBe(`fb.1.${T0.getTime()}.CLK99`);
 
     // And: the Meta Pixel script has loaded on the page.
-    const fbq = vi.fn();
-    (window as unknown as { fbq: typeof fbq }).fbq = fbq;
+    const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
+    window.fbq = fbq;
 
     const { track, config } = await launch();
     const { sendFBEvent } = await import('../third-parties/meta-pixel');
@@ -105,9 +108,22 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     expect(tags.page_location).toContain('/landing?fbclid=CLK99');
 
     // And: the pixel fired the mapped event under the server-issued dedupe id.
-    const pixelCall = fbq.mock.calls.find(([, name]) => name === 'Purchase');
+    const trackCalls =
+      vi.mocked<
+        (
+          type: 'track',
+          name: 'Purchase',
+          properties?: StandardEvents['Purchase'] & ObjectProperties,
+          options?: PixelOptions
+        ) => void
+      >(fbq);
+    expect(fbq).toHaveBeenCalledTimes(1);
+    const pixelCall = trackCalls.mock.calls.at(0);
     if (!pixelCall) throw new Error('the pixel never saw the purchase');
-    const pixelEventId = (pixelCall[3] as { eventID: string }).eventID;
+    expect(pixelCall[0]).toBe('track');
+    expect(pixelCall[1]).toBe('Purchase');
+    const pixelEventId = pixelCall[3]?.eventID;
+    if (!pixelEventId) throw new Error('The purchase pixel must carry a deduplication id');
     expect(pixelEventId).toMatch(/^event-\d$/);
 
     // And: the backend forwarding that same stored event to the Conversions API produces a

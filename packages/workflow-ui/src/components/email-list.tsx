@@ -46,7 +46,7 @@ function RowIcon({ channel }: { channel: string | undefined }) {
         : channel === 'slack'
           ? MessagesSquare
           : Mail;
-  return <Icon className="text-muted mt-0.5 size-4 shrink-0" strokeWidth={2} />;
+  return <Icon className="mt-0.5 size-4 shrink-0 text-muted" strokeWidth={2} />;
 }
 
 export function EmailList({ items, onOpen }: EmailListProps) {
@@ -59,10 +59,10 @@ export function EmailList({ items, onOpen }: EmailListProps) {
      * the page is the one scroller (see __root). Nothing clips, so the corners
      * are re-cut on the first and last cells below.
      */
-    <div className="border-border bg-card rounded-2xl border" style={superellipse}>
+    <div className="rounded-2xl border border-border bg-card" style={superellipse}>
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm max-md:block">
         <thead className="max-md:hidden">
-          <tr className="text-muted text-left text-xs font-medium">
+          <tr className="text-left text-xs font-medium text-muted">
             <th className={clsx(HEAD_CELL, 'min-w-0 px-6')} style={superellipse}>
               {t('common.name')}
             </th>
@@ -87,8 +87,8 @@ export function EmailList({ items, onOpen }: EmailListProps) {
                    own grid, so the fill and the radius live on it there. */
                 'max-md:grid max-md:grid-cols-6 max-md:border-b max-md:px-3',
                 'border-border max-md:first:rounded-t-2xl max-md:last:rounded-b-2xl',
-                'max-md:hover:bg-hover max-md:last:border-b-0',
-                'md:hover:[&>td]:bg-hover last:[&>td]:border-b-0',
+                'max-md:last:border-b-0 max-md:hover:bg-hover',
+                'last:[&>td]:border-b-0 md:hover:[&>td]:bg-hover',
                 'md:last:[&>td:first-child]:rounded-bl-2xl',
                 'md:last:[&>td:last-child]:rounded-br-2xl'
               )}
@@ -110,7 +110,7 @@ export function EmailList({ items, onOpen }: EmailListProps) {
                       {displayName(item.name, t('common.untitled'))}
                     </div>
                     {item.description !== undefined && (
-                      <p className="text-muted mt-1 truncate text-sm">{item.description}</p>
+                      <p className="mt-1 truncate text-sm text-muted">{item.description}</p>
                     )}
                   </div>
                 </div>

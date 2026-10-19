@@ -1,22 +1,36 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react';
 import { Activity, StrictMode } from 'react';
+import type { AppStateStatus } from 'react-native';
+import type * as Native from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Track from '../track/index';
 
-const track = vi.fn();
-const sendPendingEvents = vi.fn();
-vi.mock('../track/index', () => ({ track, sendBeacon: vi.fn(), sendPendingEvents }));
+const { track, sendBeacon, sendPendingEvents } = vi.mockObject<
+  Pick<typeof Track, 'track' | 'sendBeacon' | 'sendPendingEvents'>
+>({ track() {}, sendBeacon() {}, sendPendingEvents() {} });
+vi.mock<Pick<typeof Track, 'track' | 'sendBeacon' | 'sendPendingEvents'>>(
+  import('../track/index'),
+  () => ({ track, sendBeacon, sendPendingEvents })
+);
 
 const { appState } = vi.hoisted(() => ({
   appState: {
-    listeners: [] as ((state: string) => void)[],
-    remove: vi.fn(),
+    listeners: [] as ((state: AppStateStatus) => void)[],
+    remove: vi.fn<ReturnType<typeof Native.AppState.addEventListener>['remove']>(),
   },
 }));
 
-vi.mock('react-native', () => ({
+vi.mock<{
   AppState: {
-    addEventListener: (_type: string, listener: (state: string) => void) => {
+    addEventListener: (
+      type: 'change',
+      listener: (state: AppStateStatus) => void
+    ) => ReturnType<typeof Native.AppState.addEventListener>;
+  };
+}>(import('react-native'), () => ({
+  AppState: {
+    addEventListener: (_type, listener) => {
       appState.listeners.push(listener);
       return { remove: appState.remove };
     },
@@ -156,9 +170,19 @@ describe('useAppAnalytics', () => {
       </StrictMode>
     );
     const initial = track.mock.calls.filter(([name]) => name === 'screen_view');
-    expect(initial).toHaveLength(2);
-    expect(initial.map(([, props]) => props.previous_screen_class)).toEqual([undefined, '/home']);
-    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, 1234]);
+    expect(initial).toEqual([
+      [
+        'screen_view',
+        expect.objectContaining({
+          previous_screen_class: undefined,
+          engagement_time_msec: undefined,
+        }),
+      ],
+      [
+        'screen_view',
+        expect.objectContaining({ previous_screen_class: '/home', engagement_time_msec: 1234 }),
+      ],
+    ]);
     expect(flush).toHaveBeenCalledTimes(1);
     view.rerender(
       <StrictMode>
@@ -213,12 +237,15 @@ describe('useAppAnalytics', () => {
       view.rerender(<Screen pathname={pathname} />);
     }
     const views = track.mock.calls.filter(([name]) => name === 'screen_view');
-    expect(views.map(([, props]) => [props.screen_name, props.previous_screen_class])).toEqual([
-      ['/a', undefined],
-      ['/b', '/a'],
-      ['/c', '/b'],
-      ['/b', '/c'],
-      ['/a', '/b'],
+    expect(views).toEqual([
+      [
+        'screen_view',
+        expect.objectContaining({ screen_name: '/a', previous_screen_class: undefined }),
+      ],
+      ['screen_view', expect.objectContaining({ screen_name: '/b', previous_screen_class: '/a' })],
+      ['screen_view', expect.objectContaining({ screen_name: '/c', previous_screen_class: '/b' })],
+      ['screen_view', expect.objectContaining({ screen_name: '/b', previous_screen_class: '/c' })],
+      ['screen_view', expect.objectContaining({ screen_name: '/a', previous_screen_class: '/b' })],
     ]);
   });
 
@@ -241,9 +268,9 @@ describe('useAppAnalytics', () => {
     vi.useRealTimers();
 
     const view = track.mock.calls.find(
-      ([name, props]) => name === 'screen_view' && props.screen_name === '/paywall'
+      ([name, props]) => name === 'screen_view' && props?.screen_name === '/paywall'
     );
-    expect(view?.[1].engagement_time_msec).toBeGreaterThanOrEqual(4000);
+    expect(view?.[1]?.engagement_time_msec).toBeGreaterThanOrEqual(4000);
   });
 
   it('reports engagement when the app goes to background, once', async () => {
@@ -259,7 +286,7 @@ describe('useAppAnalytics', () => {
     const engagements = track.mock.calls.filter(([name]) => name === 'user_engagement');
     expect(engagements).toHaveLength(1);
     expect(engagements[0][1]).toMatchObject({ trigger: 'background' });
-    expect(engagements[0][1].engagement_time_msec).toBeGreaterThanOrEqual(6000);
+    expect(engagements[0][1]?.engagement_time_msec).toBeGreaterThanOrEqual(6000);
     expect(session.isActive()).toBe(false);
 
     // A second background transition without foreground activity adds nothing.
@@ -300,8 +327,8 @@ describe('useAppAnalytics', () => {
 
     const engagements = track.mock.calls.filter(([name]) => name === 'user_engagement');
     expect(engagements).toHaveLength(1);
-    expect(engagements[0][1].engagement_time_msec).toBeLessThan(60_000);
-    expect(engagements[0][1].engagement_time_msec).toBeGreaterThanOrEqual(3000);
+    expect(engagements[0][1]?.engagement_time_msec).toBeLessThan(60_000);
+    expect(engagements[0][1]?.engagement_time_msec).toBeGreaterThanOrEqual(3000);
   });
 
   it('removes the AppState subscription on unmount', async () => {

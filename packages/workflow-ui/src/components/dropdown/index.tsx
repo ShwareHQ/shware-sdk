@@ -104,12 +104,12 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
               size={16}
               strokeWidth={2}
               aria-hidden
-              className="text-secondary shrink-0"
+              className="shrink-0 text-secondary"
             />
           )}
           <span className="truncate">{selected?.label ?? placeholder}</span>
         </span>
-        <ChevronDown size={16} strokeWidth={2} aria-hidden className="text-secondary shrink-0" />
+        <ChevronDown size={16} strokeWidth={2} aria-hidden className="shrink-0 text-secondary" />
       </Button>
       {open && (
         <FloatingFocusManager context={context} modal={false}>
@@ -117,8 +117,8 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
             ref={setFloating}
             style={floatingStyles}
             className={cn(
-              'border-border bg-card z-50 max-w-96 min-w-64 overflow-y-auto rounded-xl border p-1',
-              'shadow-card-shadow shadow-lg'
+              'z-50 max-w-96 min-w-64 overflow-y-auto rounded-xl border border-border bg-card p-1',
+              'shadow-lg shadow-card-shadow'
             )}
             {...getFloatingProps()}
           >
@@ -152,22 +152,22 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
                       size={16}
                       strokeWidth={2}
                       aria-hidden
-                      className="text-secondary shrink-0"
+                      className="shrink-0 text-secondary"
                     />
                   )}
                   <span className="min-w-0 flex-1">
                     {/* One weight for every option: the accent check is what
                         marks the current value, and a bolder label on top of
                         it says the same thing twice. */}
-                    <span className="text-primary block truncate text-sm">{option.label}</span>
+                    <span className="block truncate text-sm text-primary">{option.label}</span>
                     {option.description !== undefined && option.description !== '' && (
-                      <span className="text-muted block truncate text-xs">
+                      <span className="block truncate text-xs text-muted">
                         {option.description}
                       </span>
                     )}
                   </span>
                   {isSelected && (
-                    <Check size={16} strokeWidth={2} aria-hidden className="text-accent shrink-0" />
+                    <Check size={16} strokeWidth={2} aria-hidden className="shrink-0 text-accent" />
                   )}
                 </button>
               );

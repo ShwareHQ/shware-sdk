@@ -14,5 +14,6 @@ import type { TrackTags } from '../track/types';
  * a month of cache lifetime is the usual bound, and stored rows can be checked for it.
  */
 export function pageLocation(tags: TrackTags): string | undefined {
+  // oxlint-disable-next-line typescript/no-deprecated -- Read pre-7.0 clients only when page_location is absent.
   return tags.page_location ?? tags.source_url;
 }

@@ -157,6 +157,7 @@
     "typescript/no-extra-non-null-assertion": "error",
     "typescript/no-floating-promises": "error",
     "typescript/no-for-in-array": "error",
+    "typescript/no-generated-empty-object-type": "error",
     "typescript/no-implied-eval": "error",
     "typescript/no-import-type-side-effects": "error",
     "typescript/no-inferrable-types": "error",
@@ -248,6 +249,9 @@
     "vitest/no-focused-tests": "error",
     "vitest/no-identical-title": "error",
     "vitest/no-standalone-expect": "error",
+    "vitest/prefer-import-in-mock": ["error", { "fixable": false }],
+    "vitest/prefer-snapshot-hint": "error",
+    "vitest/require-mock-type-parameters": "error",
     "vitest/valid-expect": "error",
     "vitest/valid-expect-in-promise": "error"
   },

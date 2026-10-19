@@ -18,6 +18,7 @@ describe('pageLocation', () => {
   });
 
   it('falls back to the name clients used before 7.0.0', () => {
+    // oxlint-disable-next-line typescript/no-deprecated -- Exercise the pre-7.0 client compatibility fallback.
     expect(pageLocation(tags({ source_url: 'https://example.com/old' }))).toBe(
       'https://example.com/old'
     );
@@ -26,6 +27,7 @@ describe('pageLocation', () => {
   it('prefers the current name when a client sends both', () => {
     const both = tags({
       page_location: 'https://example.com/new',
+      // oxlint-disable-next-line typescript/no-deprecated -- Exercise canonical precedence over the pre-7.0 input.
       source_url: 'https://example.com/old',
     });
     expect(pageLocation(both)).toBe('https://example.com/new');

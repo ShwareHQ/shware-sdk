@@ -28,16 +28,16 @@ export function EmailDefaults({ unsubscribeUrl, quickClickMs }: EmailDefaultsPro
 
   return (
     <section
-      className="border-border bg-card mt-4 max-w-xl rounded-2xl border p-5"
+      className="mt-4 max-w-xl rounded-2xl border border-border bg-card p-5"
       style={superellipse}
     >
       <h2 className="text-sm font-medium">{t('settings.emailDefaults')}</h2>
-      <p className="text-muted mt-1 text-xs">{t('settings.emailDefaultsHint')}</p>
+      <p className="mt-1 text-xs text-muted">{t('settings.emailDefaultsHint')}</p>
       <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-8 gap-y-2 text-sm">
         {rows.map((row) => (
           <div key={row.label} className="contents">
             <dt className="text-muted">{row.label}</dt>
-            <dd className="text-secondary min-w-0 truncate">
+            <dd className="min-w-0 truncate text-secondary">
               {row.value ?? t('common.notConfigured')}
             </dd>
           </div>

@@ -53,7 +53,7 @@ function WorkflowsIndex() {
 
   if (items.length === 0) {
     return (
-      <div className="text-muted flex flex-1 items-center justify-center text-sm">
+      <div className="flex flex-1 items-center justify-center text-sm text-muted">
         {t('workflows.empty')}
       </div>
     );
@@ -78,7 +78,7 @@ function WorkflowsIndex() {
       </div>
       <div className="px-6 pb-6">
         {filtered.length === 0 ? (
-          <div className="text-muted flex items-center justify-center py-24 text-sm">
+          <div className="flex items-center justify-center py-24 text-sm text-muted">
             {t('workflows.noMatches', { query: query.trim() })}
           </div>
         ) : (
@@ -129,7 +129,7 @@ function WorkflowDetail() {
 
   if (ir === undefined) {
     return (
-      <div className="text-muted flex flex-1 flex-col items-center justify-center gap-3 text-sm">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted">
         <p>{t('workflows.notFound', { id })}</p>
         <Link to="/workflows" className="text-primary underline">
           {t('common.back')}
@@ -288,7 +288,7 @@ function CanvasTab() {
     preview = (
       <PushThumbnail
         appName={config.title ?? 'App'}
-        title={push?.ok === true ? (push.push.title ?? message.template) : message.template}
+        title={push?.ok === true ? push.push.title : message.template}
         body={push?.ok === true ? push.push.body : ''}
         {...(push?.ok === false ? { error: formatIssues(push.failure) } : {})}
         registered={pushModule !== undefined}
@@ -301,7 +301,7 @@ function CanvasTab() {
   return (
     /* The exception to the shell's one-scrollport rule: this pane is pinned to
        the viewport rather than growing the page. */
-    <div className="border-border relative flex min-h-0 flex-1 flex-col border-t">
+    <div className="relative flex min-h-0 flex-1 flex-col border-t border-border">
       {/*
         Absolute rather than a flex child: the shell's main column is sized by
         min-height, so its height is `auto` and the canvas's own `height: 100%`

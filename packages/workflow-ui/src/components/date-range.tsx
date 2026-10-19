@@ -130,7 +130,7 @@ export function DateRangePicker({ value, onChange, className }: Props) {
         className={cn('gap-2 font-normal', className)}
         {...getReferenceProps()}
       >
-        <Calendar size={16} strokeWidth={2} aria-hidden className="text-secondary shrink-0" />
+        <Calendar size={16} strokeWidth={2} aria-hidden className="shrink-0 text-secondary" />
         <span className="tabular-nums">
           {formatDay(value.from, i18n.language)} – {formatDay(value.to, i18n.language)}
         </span>
@@ -140,14 +140,14 @@ export function DateRangePicker({ value, onChange, className }: Props) {
           <div
             ref={setFloating}
             style={{ ...floatingStyles, ...superellipse }}
-            className="border-border bg-card shadow-card-shadow z-50 w-64 rounded-xl border p-2 shadow-lg"
+            className="z-50 w-64 rounded-xl border border-border bg-card p-2 shadow-lg shadow-card-shadow"
             {...getFloatingProps()}
           >
             {PRESETS.map((days) => (
               <button
                 key={days}
                 type="button"
-                className="hover:bg-hover block w-full rounded-lg px-2.5 py-1.5 text-left text-sm"
+                className="block w-full rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-hover"
                 style={superellipse}
                 onClick={() => {
                   onChange(lastDays(days));
@@ -157,9 +157,9 @@ export function DateRangePicker({ value, onChange, className }: Props) {
                 {t('metrics.range.lastDays', { count: days })}
               </button>
             ))}
-            <div className="border-border mt-2 space-y-2 border-t pt-2">
+            <div className="mt-2 space-y-2 border-t border-border pt-2">
               <label className="block">
-                <span className="text-muted text-xs">{t('metrics.range.from')}</span>
+                <span className="text-xs text-muted">{t('metrics.range.from')}</span>
                 <Input
                   size="sm"
                   type="date"
@@ -170,7 +170,7 @@ export function DateRangePicker({ value, onChange, className }: Props) {
                 />
               </label>
               <label className="block">
-                <span className="text-muted text-xs">{t('metrics.range.to')}</span>
+                <span className="text-xs text-muted">{t('metrics.range.to')}</span>
                 <Input
                   size="sm"
                   type="date"

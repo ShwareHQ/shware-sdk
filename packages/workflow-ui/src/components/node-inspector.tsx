@@ -36,8 +36,8 @@ export interface NodeInspectorProps {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <dt className="text-muted whitespace-nowrap">{label}</dt>
-      <dd className="text-secondary min-w-0 break-words">{children}</dd>
+      <dt className="whitespace-nowrap text-muted">{label}</dt>
+      <dd className="min-w-0 break-words text-secondary">{children}</dd>
     </>
   );
 }
@@ -185,17 +185,17 @@ export function NodeInspector({ node, source, onClose, preview }: NodeInspectorP
 
   return (
     <aside
-      className="border-border bg-card flex max-h-full w-80 flex-col overflow-hidden rounded-2xl border shadow-[0_4px_12px_var(--color-card-shadow)]"
+      className="flex max-h-full w-80 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_4px_12px_var(--color-card-shadow)]"
       style={superellipse}
     >
       <div className="flex h-12 shrink-0 items-center gap-3 pr-2.5 pl-4">
-        <span className="text-primary flex-1 text-sm font-semibold">
+        <span className="flex-1 text-sm font-semibold text-primary">
           {t(`inspector.type.${node.type}`)}
         </span>
         <button
           type="button"
           onClick={onClose}
-          className="text-muted hover:bg-hover hover:text-primary flex size-7 items-center justify-center rounded-lg transition-colors"
+          className="flex size-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-hover hover:text-primary"
           style={superellipse}
           aria-label={t('inspector.close')}
         >

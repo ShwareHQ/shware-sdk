@@ -1,36 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-/**
- * The TanStack wrapper is mocked away so the server handler runs bare: what these tests pin down
- * is the middleware's own behavior — which responses get cookies, the consent gate, and the
- * cache-control guard that keeps a per-user Set-Cookie off shared caches.
- */
-type ServerContext = {
-  request: Request;
-  next: () => Promise<{ response: Response }>;
-  handlerType: 'router' | 'server-fn';
-};
-type ServerFn = (ctx: ServerContext) => Promise<{ response: Response }>;
-
-const { captured } = vi.hoisted(() => ({ captured: { server: null as ServerFn | null } }));
-
-vi.mock('@tanstack/react-start', () => ({
-  createMiddleware: () => ({
-    server: (fn: ServerFn) => {
-      captured.server = fn;
-      return { __middleware: true };
-    },
-  }),
-}));
-
-import { createClickIdMiddleware } from './middleware';
+import { type ClickIdMiddlewareOptions, createClickIdMiddleware } from './middleware';
+type ServerFn = NonNullable<ReturnType<typeof createClickIdMiddleware>['options']['server']>;
 
 const NOW = Date.parse('2026-01-01T00:00:00Z');
 
 type RunInput = {
   url?: string;
   cookieHeader?: string;
-  handlerType?: 'router' | 'server-fn';
+  handlerType?: Parameters<ServerFn>[0]['handlerType'];
   response?: Response;
 };
 
@@ -43,21 +20,23 @@ async function run(
     response = new Response('<html></html>', { status: 200 }),
   }: RunInput = {}
 ) {
-  createClickIdMiddleware({ domain: null, ...options });
-  const server = captured.server;
+  const server = createClickIdMiddleware({ domain: null, ...options }).options.server;
   if (!server) throw new Error('middleware never registered its server fn');
 
   const headers: Record<string, string> = cookieHeader ? { cookie: cookieHeader } : {};
-  const result = await server({
-    request: new Request(url, { headers }),
-    next: async () => ({ response }),
-    handlerType,
+  const request = new Request(url, { headers });
+  const pathname = new URL(request.url).pathname;
+  const { next } = vi.mockObject<{ next: Parameters<typeof server>[0]['next'] }>({
+    next() {
+      throw new Error('The terminal response must be configured');
+    },
   });
-  return result.response;
+  next.mockReturnValue({ request, pathname, context: undefined, response });
+  const result = await server({ request, pathname, context: undefined, next, handlerType });
+  return result instanceof Response ? result : result.response;
 }
 
 beforeEach(() => {
-  captured.server = null;
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
 
@@ -82,7 +61,7 @@ describe('clickIdMiddleware', () => {
   });
 
   it('leaves serverFn RPC responses alone', async () => {
-    const response = await run({}, { handlerType: 'server-fn' });
+    const response = await run({}, { handlerType: 'serverFn' });
     expect(response.headers.get('set-cookie')).toBeNull();
     expect(response.headers.get('cache-control')).toBeNull();
   });
@@ -94,7 +73,9 @@ describe('clickIdMiddleware', () => {
   });
 
   it('honors the consent gate', async () => {
-    const shouldPersist = vi.fn(() => false);
+    const shouldPersist = vi.fn<NonNullable<ClickIdMiddlewareOptions['shouldPersist']>>(
+      () => false
+    );
     const response = await run({ shouldPersist });
 
     expect(shouldPersist).toHaveBeenCalledWith(expect.any(Request));

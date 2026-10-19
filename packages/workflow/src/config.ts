@@ -96,7 +96,7 @@ export interface JourneyConfigDefinition {
   contract?: Contract;
   workflows: readonly WorkflowBuilder[];
   segments?: readonly SegmentRef[];
-  actions?: readonly ActionRef<object>[];
+  actions?: readonly ActionRef[];
   /** The template definitions, per channel; each is identified by its own `id`. */
   templates?: TemplateRegistry;
   /** What every email template shares: the default unsubscribe link, how opens and clicks are judged. */
@@ -284,7 +284,7 @@ function checkMessage(
       problems.push(`'${field}' is not a prop of the template`);
       continue;
     }
-    if (typeof value === 'object' && value !== null && 'type' in value) {
+    if (typeof value === 'object' && 'type' in value) {
       // A user ref's value exists only at send time (parsed then); here its name can be checked
       const profile = config.contract?.schemas.profile._zod.def;
       if (
@@ -337,7 +337,7 @@ function checkEmit(
   const shape = (schema._zod.def as core.$ZodObjectDef).shape;
   const problems: string[] = [];
   for (const [field, value] of Object.entries(node.payload)) {
-    if (typeof value === 'object' && value !== null && 'type' in value) continue; // read at emit time
+    if (typeof value === 'object' && 'type' in value) continue; // read at emit time
     if (!Object.hasOwn(shape, field)) continue; // a loose payload may carry extra fields
     const result = z.safeParse(shape[field], value);
     if (!result.success)

@@ -25,10 +25,10 @@ use the Redis repositories.
 ## Quick start (Hono)
 
 ```ts
-import { Hono } from 'hono';
-import { Redis } from 'ioredis';
 import { Auth, PATH, RedisIndexedSessionRepository, RedisKVRepository } from '@shware/security';
 import { apple, github } from '@shware/security/oauth2/provider';
+import { Hono } from 'hono';
+import { Redis } from 'ioredis';
 import { env } from './env';
 import { onAuthorized } from './services/auth';
 

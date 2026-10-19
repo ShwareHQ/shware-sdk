@@ -129,8 +129,8 @@ export function parseGcl(
   if (parts[0] !== 'GCL' && parts[0] !== '1') return undefined;
   const seconds = parts[1];
   const clickId = parts[2];
-  if (seconds === undefined || !/^\d+$/.test(seconds)) return undefined;
-  if (clickId === undefined || !GCL_CLICK_ID.test(clickId)) return undefined;
+  if (!/^\d+$/.test(seconds)) return undefined;
+  if (!GCL_CLICK_ID.test(clickId)) return undefined;
   const creationTime = Number(seconds) * 1000;
   // Reject millisecond-precision or future-dated values as malformed.
   if (creationTime >= 1e15 || creationTime > now + CLOCK_SKEW_MS) return undefined;

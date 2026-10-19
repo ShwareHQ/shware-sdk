@@ -41,8 +41,8 @@ export function Select({
         value={value}
         className={cn(
           'w-full cursor-pointer appearance-none truncate transition-colors duration-100',
-          'bg-textfield focus-visible:border-accent border focus:outline-none',
-          'dark:focus-visible:ring-accent/50 focus-visible:ring-accent/40',
+          'border bg-textfield focus:outline-none focus-visible:border-accent',
+          'focus-visible:ring-accent/40 dark:focus-visible:ring-accent/50',
           value === '' || value === undefined ? 'text-placeholder' : 'text-primary',
           SIZE_STYLE[size]
         )}
@@ -63,7 +63,7 @@ export function Select({
         size={16}
         strokeWidth={2}
         aria-hidden
-        className="text-secondary pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2"
+        className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-secondary"
       />
     </div>
   );

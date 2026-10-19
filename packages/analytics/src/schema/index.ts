@@ -127,6 +127,7 @@ export const tagsSchema = object({
    * bundle stays cached long after a backend deploys. Remove once those clients are gone;
    * `pageLocation` in `server/page-location.ts` is the only reader.
    */
+  // oxlint-disable-next-line typescript/no-deprecated -- Legacy input from pre-7.0 clients must survive validation.
   source_url: optional(string()),
   // app info
   advertising_id: optional(string()),
@@ -149,6 +150,7 @@ export const tagsSchema = object({
    * senders read them only as a fallback (`server/click-ids.ts`). Remove once those clients are
    * gone.
    */
+  // oxlint-disable-next-line typescript/no-deprecated -- Legacy pre-9.0 click-id fields must survive validation.
   fbc: optional(string()),
   fbp: optional(string()),
   rdt_uuid: optional(string()),

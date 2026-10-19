@@ -30,8 +30,8 @@ export function Input({ size = 'md', type = 'text', htmlSize, className, ...prop
       size={htmlSize}
       className={cn(
         'transition-colors duration-100 focus:outline-none',
-        'placeholder-placeholder bg-textfield focus-visible:border-accent border',
-        'dark:focus-visible:ring-accent/50 focus-visible:ring-accent/40',
+        'border bg-textfield placeholder-placeholder focus-visible:border-accent',
+        'focus-visible:ring-accent/40 dark:focus-visible:ring-accent/50',
         SIZE_STYLE[size],
         className
       )}

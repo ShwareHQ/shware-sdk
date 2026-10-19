@@ -28,7 +28,7 @@ type ObjectSchema = core.$ZodObject;
 /** The declared fields of an object schema — without a loose object's `[key: string]: unknown`, so the DSL only offers fields that were written down. */
 export type DeclaredOutput<S> =
   S extends core.$ZodObject<infer Shape>
-    ? core.$InferObjectOutput<Shape, Record<never, never>>
+    ? core.$InferObjectOutput<Shape, core.$strict['out']>
     : never;
 
 export interface ContractDefinition<
@@ -230,7 +230,7 @@ const ALLOWED = new Set([
 const REFUSED_CHECKS = new Set(['custom', 'overwrite']);
 
 function assertJsonSchema(schema: unknown, where: string, top = false): void {
-  const def = (schema as core.$ZodType | undefined)?._zod?.def;
+  const def = (schema as { _zod?: { def?: core.$ZodTypeDef } } | null | undefined)?._zod?.def;
   if (def === undefined) throw new TypeError(`contract ${where}: not a Zod schema`);
   if (top && def.type !== 'object') {
     throw new TypeError(

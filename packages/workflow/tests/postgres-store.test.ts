@@ -52,9 +52,9 @@ function client(db: {
 }
 
 beforeAll(async () => {
-  pg = new PGlite();
+  pg = await PGlite.create();
   await pg.exec(schemaSql);
-});
+}, 30_000);
 
 afterAll(async () => {
   await pg.close();
@@ -69,7 +69,7 @@ beforeEach(async () => {
 });
 
 interface Event {
-  signed_up: Record<never, never>;
+  signed_up: Record<string, never>;
   purchase: { value: number };
 }
 interface UserProperty {
@@ -359,18 +359,27 @@ describe('checkSchema', () => {
     expect(await store.checkSchema()).toEqual([]);
   });
 
-  test('lists what the live database lacks, without changing it', async () => {
-    const db = await PGlite.create();
-    await db.exec(`CREATE SCHEMA app;
-      CREATE TABLE app.profile (user_id text NOT NULL, props text);`);
-    const store = new PostgresJourneyStore(client(db), { schema: 'app' });
-    const problems = await store.checkSchema();
-    expect(problems).toContain('table "app"."event" is missing');
-    expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
-    expect(problems).toHaveLength(Object.keys(TABLES).length);
-    await db.close();
-    // A PGlite of its own: the WASM cold start alone can take seconds on a CI runner
-  }, 30_000);
+  describe('a partially migrated database', () => {
+    let db: PGlite;
+
+    beforeAll(async () => {
+      db = await PGlite.create();
+      await db.exec(`CREATE SCHEMA app;
+        CREATE TABLE app.profile (user_id text NOT NULL, props text);`);
+    }, 30_000);
+
+    afterAll(async () => {
+      await db.close();
+    });
+
+    test('lists what the live database lacks, without changing it', async () => {
+      const store = new PostgresJourneyStore(client(db), { schema: 'app' });
+      const problems = await store.checkSchema();
+      expect(problems).toContain('table "app"."event" is missing');
+      expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
+      expect(problems).toHaveLength(Object.keys(TABLES).length);
+    });
+  });
 });
 
 describe('renderDrizzleSchema', () => {

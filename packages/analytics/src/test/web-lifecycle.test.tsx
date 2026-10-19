@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 /**
  * End-to-end lifecycle of a web visit, through the real module graph: useWebAnalytics →
  * session → track → the wire. Only the network (fetch / sendBeacon) is mocked, so these tests
@@ -7,18 +6,20 @@
  */
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+import { requestUrl } from './setup';
 
 const MINUTE = 60 * 1000;
 const T0 = new Date('2026-01-01T10:00:00Z');
 
-const fetchMock = vi.fn();
-const beaconMock = vi.fn(() => true);
+const fetchMock = vi.fn<typeof globalThis.fetch>();
+const beaconMock = vi.fn<Navigator['sendBeacon']>(() => true);
 
 type Sent = { url: string; body: Record<string, unknown>[] };
 
 function eventRequests(): Sent[] {
   return fetchMock.mock.calls
-    .filter(([url]) => String(url).endsWith('/events'))
+    .filter(([url]) => requestUrl(url).endsWith('/events'))
     .map((call) => {
       const [url, init] = call as [string, RequestInit];
       return { url, body: JSON.parse(init.body as string) };
@@ -28,7 +29,8 @@ function eventRequests(): Sent[] {
 async function beaconEvents() {
   const bodies = await Promise.all(
     beaconMock.mock.calls.map(async (call) => {
-      const [, blob] = call as unknown as [string, Blob];
+      const [, blob] = call;
+      if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
       return JSON.parse(await blob.text()) as Record<string, unknown>[];
     })
   );
@@ -77,7 +79,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(T0);
 
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+  fetchMock.mockImplementation(async (input, init) => {
+    const url = requestUrl(input);
     if (url.endsWith('/events')) {
       const body = JSON.parse(init?.body as string) as unknown[];
       return new Response(JSON.stringify(body.map((_, i) => ({ id: `event-${i}` }))), {
@@ -129,7 +132,7 @@ describe('a first visit', () => {
     present();
     await vi.advanceTimersByTimeAsync(2000);
 
-    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    const urls = fetchMock.mock.calls.map(([url]) => requestUrl(url));
     expect(urls.some((url) => url.includes('/visitors'))).toBe(false);
     expect(urls.some((url) => url.endsWith('/events'))).toBe(true);
   });
@@ -158,7 +161,8 @@ describe('leaving before the first batch', () => {
 
     const [landing, engagement] = await Promise.all(
       beaconMock.mock.calls.map(async (call) => {
-        const [, blob] = call as unknown as [string, Blob];
+        const [, blob] = call;
+        if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
         return JSON.parse(await blob.text()) as Record<string, unknown>[];
       })
     );
@@ -180,7 +184,8 @@ describe('leaving before the first batch', () => {
 
     const [landing, engagement] = await Promise.all(
       beaconMock.mock.calls.map(async (call) => {
-        const [, blob] = call as unknown as [string, Blob];
+        const [, blob] = call;
+        if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
         return JSON.parse(await blob.text()) as Record<string, unknown>[];
       })
     );

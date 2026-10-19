@@ -50,8 +50,8 @@ import {
 The constants are `as const` arrays, so they can back database enums directly:
 
 ```ts
-import { pgEnum } from 'drizzle-orm/pg-core';
 import { PLATFORMS, SUBSCRIPTION_STATUSES } from '@shware/purchase';
+import { pgEnum } from 'drizzle-orm/pg-core';
 
 export const platform = pgEnum('platform', PLATFORMS);
 export const subscriptionStatus = pgEnum('subscription_status', SUBSCRIPTION_STATUSES);
@@ -136,7 +136,6 @@ per event, so each handler receives the right `event.data.object`; `process` thr
 type with no handler.
 
 ```ts
-import Stripe from 'stripe';
 import {
   METADATA_KEYS,
   StripeEventHandler,
@@ -144,6 +143,7 @@ import {
   mapSubscriptionStatus,
   mapTime,
 } from '@shware/purchase/stripe';
+import Stripe from 'stripe';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 

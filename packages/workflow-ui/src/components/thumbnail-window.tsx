@@ -29,7 +29,7 @@ export function ThumbnailWindow({
     <div className="mb-4">
       <div
         ref={ref}
-        className={cn('border-border h-48 overflow-hidden rounded-xl border', className)}
+        className={cn('h-48 overflow-hidden rounded-xl border border-border', className)}
         style={{ ...superellipse, ...style }}
       >
         {children}
