@@ -750,7 +750,9 @@ the first insert needing a new column fails. Recreate it instead. The demo has
 
 The same config runs as one Lambda durable function behind a Function URL, on
 Postgres. `@aws/durable-execution-sdk-js` and `@aws-sdk/client-lambda` are optional
-peer dependencies, needed only by `@shware/workflow/aws`.
+peer dependencies, needed only by `@shware/workflow/aws`. The durable SDK's own type
+declarations reference `aws-lambda`, so a TypeScript project that type-checks
+dependencies (no `skipLibCheck`) also needs `@types/aws-lambda`.
 
 ```ts
 // src/aws.ts

@@ -5,7 +5,6 @@ import {
   type DurableExecutionInvocationOutput,
   withDurableExecution,
 } from '@aws/durable-execution-sdk-js';
-import type { Context } from 'aws-lambda';
 import type { JourneyEnv } from '../cloudflare/bindings';
 import type { JourneyOutcome } from '../engine/ports';
 import { executeJourney } from '../host/execute';
@@ -63,11 +62,23 @@ export interface JourneyLambdaOptions<Env extends JourneyLambdaEnv> extends Omit
   startRetryMs?: number;
 }
 
+/**
+ * The Lambda invocation context, as far as the handler's signature needs it — declared here so
+ * the package's types do not depend on `@types/aws-lambda`. Lambda passes the full object.
+ */
+export interface LambdaContext {
+  functionName: string;
+  functionVersion: string;
+  invokedFunctionArn: string;
+  awsRequestId: string;
+  getRemainingTimeInMillis(): number;
+}
+
 export interface JourneyLambda {
   /** Export as the function's handler. */
   handler: (
     event: DurableExecutionInvocationInput,
-    context: Context
+    context: LambdaContext
   ) => Promise<DurableExecutionInvocationOutput>;
 }
 
@@ -218,11 +229,14 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
 
   const handler = async (
     event: DurableExecutionInvocationInput,
-    context: Context
+    context: LambdaContext
   ): Promise<DurableExecutionInvocationOutput> => {
     const invocation: Invocation = {};
     try {
-      return await scope.run(invocation, () => durable(event, context));
+      // The durable wrapper reads the whole context Lambda passed, not just the fields above
+      return await scope.run(invocation, () =>
+        durable(event, context as Parameters<typeof durable>[1])
+      );
     } finally {
       // Outside the durable wrapper: a suspended run returns PENDING without unwinding the
       // handler, so a `finally` in there would never release the connection
