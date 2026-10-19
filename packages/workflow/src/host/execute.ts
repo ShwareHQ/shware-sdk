@@ -59,10 +59,6 @@ function logging(sender: MessageSender): MessageSender {
   };
 }
 
-/**
- * The IR is read outside a step: content addressing makes it immutable, so the read is
- * replay-safe.
- */
 export async function executeJourney(
   input: JourneyRunInput,
   parts: JourneyRunParts
@@ -71,13 +67,7 @@ export async function executeJourney(
   const { workflowId, contentHash, userId } = params;
   const { store, env, observer, contract } = parts;
 
-  const stored = await store.getWorkflowIR(contentHash);
-  if (stored === undefined) {
-    throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
-  }
   const runtime = resolveRuntime({ current: parts.runtime }, 'current');
-  // Development runs the journey in fast-forward; the pinned hash still names the version.
-  const ir = scaleDurations(stored, runtime.timeScale);
 
   const finished = (status: JourneyOutcome['status'] | 'failed', convertedAt?: number) =>
     observer?.finished?.({
@@ -109,6 +99,17 @@ export async function executeJourney(
 
   let outcome: JourneyOutcome;
   try {
+    // In a step: a read that fails is retried like any other, and one that keeps failing ends
+    // the instance through the failure path below rather than leaving its entry 'running'.
+    // Content addressing makes the IR immutable, so the checkpointed copy is the one to replay
+    const stored = await step.do('$workflow:ir', async () => {
+      const found = await store.getWorkflowIR(contentHash);
+      if (found === undefined)
+        throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
+      return found;
+    });
+    // Development runs the journey in fast-forward; the pinned hash still names the version.
+    const ir = scaleDurations(stored, runtime.timeScale);
     outcome = await runJourney(ir, {
       userId,
       instanceId,

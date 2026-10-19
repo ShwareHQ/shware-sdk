@@ -60,6 +60,12 @@ export interface JourneyLambdaOptions<Env extends JourneyLambdaEnv> extends Omit
   lambda?: LambdaApi;
   /** How long an unconfirmed start is retried (default 12 hours; keep it under the retention). */
   startRetryMs?: number;
+  /**
+   * How long an erasure waits after stopping an execution before it erases: an invocation
+   * running at the stop goes on to its next checkpoint. Set it to at least the function's
+   * timeout; 15 minutes (Lambda's maximum) by default.
+   */
+  stopDrainMs?: number;
 }
 
 /**
@@ -98,7 +104,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
   options: JourneyLambdaOptions<Env>
 ): JourneyLambda {
   type HostEnv = Env & JourneyEnv;
-  const { env: baseEnv, lambda: lambdaOption, startRetryMs, ...hostOptions } = options;
+  const { env: baseEnv, lambda: lambdaOption, startRetryMs, stopDrainMs, ...hostOptions } = options;
   const host = createJourneyHost<HostEnv>(
     { ...hostOptions, store: (env, database) => options.store(env, database) },
     // Node 24's fetch cannot reach APNs (HTTP/2 only): see http2-client.ts for when this can go
@@ -132,13 +138,14 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       );
     }
     const functionArn = unqualified(context.lambdaContext.invokedFunctionArn);
-    const target = async (contentHash: string): Promise<string> => {
-      // An execution runs the code its IR was compiled with: this version's own workflows here,
-      // anything else on the version whose bundle put it in the routes
+    const target = async (contentHash: string, version?: string): Promise<string> => {
+      // An execution runs the code its IR was compiled with: the version whose bundle put the
+      // route there, read in the same row as the hash — never a separately read "live" version,
+      // which a release between the two reads would make another bundle's
+      if (version !== undefined && /^\d+$/.test(version)) return `${functionArn}:${version}`;
+      // A forced deploy records no version: only this code's own workflows can run here
       if (ownHashes.has(contentHash)) return `${functionArn}:${ownVersion()}`;
-      const live = await store.liveBundleVersion?.();
-      if (live !== undefined && /^\d+$/.test(live.id)) return `${functionArn}:${live.id}`;
-      throw new Error(`no published version carries workflow IR ${contentHash}`);
+      throw new Error(`no published version is known to carry workflow IR ${contentHash}`);
     };
     const instances = new AwsInstances({
       store,
@@ -146,6 +153,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       lambda,
       target,
       ...(startRetryMs === undefined ? {} : { startRetryMs }),
+      ...(stopDrainMs === undefined ? {} : { stopDrainMs }),
     });
     return { store, env: { ...baseEnv, JOURNEY: instances }, executions };
   };

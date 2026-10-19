@@ -50,25 +50,29 @@ export function isRunInput(event: unknown): event is RunInput {
 }
 
 const utf8 = new TextEncoder();
-const NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /**
- * The durable execution name for an instance: the instance id itself when it fits, otherwise a
- * prefix of it with a fingerprint of the whole — stable, so every retry of the start reuses it.
+ * The durable execution name for one start of an instance: the instance id, cut to fit, with a
+ * fingerprint of the whole id (so a cut never makes two instances collide) and the attempt's
+ * token. Every retry of that start reuses the recorded name; a new attempt gets a new token.
  */
-export function executionName(instanceId: string): string {
-  if (NAME.test(instanceId)) return instanceId;
+export function executionName(instanceId: string, attempt: string): string {
   const safe = instanceId.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const token = attempt.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
   const fingerprint = `${murmur3(utf8.encode(instanceId)).toString(36)}${murmur3(utf8.encode(instanceId), 0x9747b28c).toString(36)}`;
-  return `${safe.slice(0, 63 - fingerprint.length)}-${fingerprint}`;
+  const suffix = `-${fingerprint}-${token}`;
+  return `${safe.slice(0, 64 - suffix.length)}${suffix}`;
 }
 
 export interface AwsInstancesOptions {
   store: JourneyStore;
   executions: ExecutionRegistry;
   lambda: LambdaApi;
-  /** The qualified function ARN an execution pinned to `contentHash` must run on. */
-  target(contentHash: string): Promise<string>;
+  /**
+   * The qualified function ARN an execution pinned to `contentHash` must run on; `version` is
+   * the code version whose routes named it.
+   */
+  target(contentHash: string, version?: string): Promise<string>;
   /**
    * How long an unconfirmed start keeps being retried. It must stay shorter than the durable
    * execution retention: past that the platform forgets the name, and a retry would start a
@@ -77,6 +81,12 @@ export interface AwsInstancesOptions {
   startRetryMs?: number;
   /** How stale a running instance's last check must be before maintenance looks again. */
   reconcileEveryMs?: number;
+  /**
+   * How long after a stop an invocation already running may still act: Lambda cannot interrupt
+   * one, and it runs on to its next checkpoint. An erasure waits this long before it erases.
+   * The function's timeout is enough; 15 minutes (Lambda's maximum) by default.
+   */
+  stopDrainMs?: number;
   now?: () => number;
 }
 
@@ -86,14 +96,26 @@ export class AwsInstances implements WorkflowBindingLike {
   private readonly now: () => number;
   private readonly startRetryMs: number;
   private readonly reconcileEveryMs: number;
+  private readonly stopDrainMs: number;
 
   constructor(private readonly options: AwsInstancesOptions) {
     this.now = options.now ?? Date.now;
     this.startRetryMs = options.startRetryMs ?? 12 * 60 * MINUTE;
     this.reconcileEveryMs = options.reconcileEveryMs ?? 15 * MINUTE;
+    this.stopDrainMs = options.stopDrainMs ?? 15 * MINUTE;
   }
 
-  async plan(options: { id: string; params: JourneyParams; ts: number }): Promise<ExecutionStart> {
+  /**
+   * A start, planned for one entry attempt. Its name is new every time: a failed entry reclaimed
+   * under the same instance id (an event replayed with its ts) must start a new execution — the
+   * old name would return the closed one. Retries of this attempt reuse the recorded name.
+   */
+  async plan(options: {
+    id: string;
+    params: JourneyParams;
+    ts: number;
+    version?: string | undefined;
+  }): Promise<ExecutionStart> {
     const input: RunInput = {
       type: RUN_EVENT_TYPE,
       instanceId: options.id,
@@ -102,8 +124,8 @@ export class AwsInstances implements WorkflowBindingLike {
       enteredAtMs: this.now(),
     };
     return {
-      name: executionName(options.id),
-      target: await this.options.target(options.params.contentHash),
+      name: executionName(options.id, crypto.randomUUID().slice(0, 8)),
+      target: await this.options.target(options.params.contentHash, options.version),
       input: JSON.stringify(input),
     };
   }
@@ -193,6 +215,11 @@ export class AwsInstances implements WorkflowBindingLike {
     return this.now() - record.createdAt > this.startRetryMs;
   }
 
+  /** Stopped so recently that an invocation running at the time may still be acting. */
+  private draining(record: ExecutionRecord): boolean {
+    return record.stoppedAt !== undefined && this.now() - record.stoppedAt < this.stopDrainMs;
+  }
+
   private async reconcile(record: ExecutionRecord, now: number): Promise<void> {
     const arn = await this.arnOf(record);
     const state = arn === undefined ? undefined : await this.options.lambda.executionState(arn);
@@ -240,6 +267,13 @@ export class AwsInstances implements WorkflowBindingLike {
       },
       terminate: async () => {
         const record = await current();
+        // Stopped before: done once an invocation that was running then has had time to end
+        if (record.stoppedAt !== undefined) {
+          if (this.draining(record)) {
+            throw new Error(`${id} was stopped; its running invocation may still be finishing`);
+          }
+          return;
+        }
         if (record.submittedAt === undefined && record.unresolvedAt === undefined) {
           // No retry may start it after this
           await executions.markUnresolved(id, this.now());
@@ -250,10 +284,18 @@ export class AwsInstances implements WorkflowBindingLike {
           if (this.vanished(record)) return;
           throw new Error(`cannot stop ${id} yet: its execution is not visible`);
         }
+        // One that finished on its own has no invocation left to drain
+        const state = await lambda.executionState(arn);
+        if (state === 'succeeded' || state === 'failed' || state === 'timed_out') return;
         if (!(await lambda.stopExecution(arn))) throw new Error(`stopping ${id} failed`);
+        // A stop does not interrupt an invocation already running: it goes on to its next
+        // checkpoint, side effects included. The erasure waits (see stopDrainMs)
+        await executions.markStopped(id, this.now());
+        throw new Error(`${id} is stopped; its running invocation may still be finishing`);
       },
       status: async () => {
         const record = await current();
+        if (this.draining(record)) return { status: 'running' };
         const arn = await this.arnOf(record);
         // Not visible yet may still run: only one missing past the budget is gone
         if (arn === undefined) return { status: this.vanished(record) ? 'terminated' : 'running' };
