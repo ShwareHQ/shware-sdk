@@ -16,3 +16,4 @@ export { useIMEGuard } from './react/use-ime-guard';
 export { useLatestRef } from './react/use-latest-ref';
 export { useExponentialHint } from './react/use-exponential-hint';
 export { useDebouncedCallback } from './react/use-debounced-callback';
+export { usePrevious } from './react/use-previous';

@@ -3,6 +3,9 @@ import { type DebounceOptions, debounce } from '../debounce';
 import { useLatestRef } from './use-latest-ref';
 
 /**
+ * Retains the latest render-time callback and exit policy without restarting pending work.
+ * Synchronous updates preserve calls from layout effects and ref callbacks. Like useLatestRef,
+ * this can expose uncommitted values during concurrent rendering; it is not a committed-only snapshot.
  * flushOnExit: flush the debounced callback when the component unmounts, default is false
  */
 export function useDebouncedCallback<Args extends unknown[]>(
@@ -17,6 +20,7 @@ export function useDebouncedCallback<Args extends unknown[]>(
 
   const debounced = useMemo(
     () =>
+      // oxlint-disable-next-line react/refs -- debounce stores this callback; construction never invokes it.
       debounce((...args: Args) => fnRef.current(...args), delay, { maxWait, leading, trailing }),
     [delay, maxWait, leading, trailing]
   );

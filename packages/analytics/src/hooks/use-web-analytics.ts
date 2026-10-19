@@ -6,7 +6,6 @@ import { getSession } from '../setup/session';
 import { sendBeacon, sendPendingEvents, track } from '../track/index';
 import { getPageReferrer } from '../web/index';
 import { getPageKey } from '../web/page-key';
-import { usePrevious } from './use-previous';
 
 function sendFirstVisit(pathname: string) {
   if (config.storage.getItem(keys.first_visit_time)) return;
@@ -68,8 +67,7 @@ function onVisibilityChange() {
  */
 export function useWebAnalytics(pathname: string, search: string) {
   const page = getPageKey(pathname, search);
-  const prevPage = usePrevious(page);
-  const prevPathname = usePrevious(pathname);
+  const lastViewPath = useRef<string | undefined>(undefined);
 
   // reset state when the page changes and send scroll when the user navigates to a new page
   const hasSendScroll = useRef(false);
@@ -126,13 +124,16 @@ export function useWebAnalytics(pathname: string, search: string) {
   useEffect(() => {
     // `page_path` stays the path — the query is in `page_location` — and the previous page is
     // named by its path too, so a query-only change reports the same path as its predecessor.
+    const prevPathname = lastViewPath.current;
     track('page_view', {
       page_path: pathname,
       page_title: document.title,
       page_referrer: getPageReferrer(),
       page_location: window.location.href,
-      previous_page_path: prevPage === undefined ? undefined : prevPathname,
-      engagement_time_msec: prevPage === undefined ? undefined : getSession().flush(),
+      previous_page_path: prevPathname,
+      engagement_time_msec: prevPathname === undefined ? undefined : getSession().flush(),
     });
+    // Advance only after this view is queued; effect restoration also emits a new view.
+    lastViewPath.current = pathname;
   }, [page]);
 }

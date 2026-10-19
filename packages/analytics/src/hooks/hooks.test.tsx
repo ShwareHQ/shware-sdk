@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from '@testing-library/react';
+import { Activity, StrictMode, Suspense, startTransition, use, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const track = vi.fn();
@@ -171,8 +172,120 @@ describe('useWebAnalytics', () => {
     return { Page, storage };
   }
 
+  it.each([false, true])(
+    'preserves the page predecessor and engagement flush on Activity restoration (navigated: %s)',
+    async (navigate) => {
+      const { Page } = await mount();
+      const { getSession } = await import('../setup/session');
+      const flush = vi.spyOn(getSession(), 'flush').mockReturnValue(1234);
+      const view = render(
+        <Activity mode="visible">
+          <Page pathname="/a" />
+        </Activity>
+      );
+      const pathname = navigate ? '/b' : '/a';
+      if (navigate) {
+        view.rerender(
+          <Activity mode="visible">
+            <Page pathname={pathname} />
+          </Activity>
+        );
+      }
+      view.rerender(
+        <Activity mode="hidden">
+          <Page pathname={pathname} />
+        </Activity>
+      );
+      track.mockClear();
+      flush.mockClear();
+
+      view.rerender(
+        <Activity mode="visible">
+          <Page pathname={pathname} />
+        </Activity>
+      );
+
+      expect(flush).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenCalledTimes(1);
+      expect(track).toHaveBeenLastCalledWith(
+        'page_view',
+        expect.objectContaining({
+          page_path: pathname,
+          previous_page_path: pathname,
+          engagement_time_msec: 1234,
+        })
+      );
+    }
+  );
+
+  it('uses the last queued page after navigation while Activity effects are hidden', async () => {
+    const { Page } = await mount();
+    const views = () => track.mock.calls.filter(([name]) => name === 'page_view');
+    const view = render(
+      <Activity mode="visible">
+        <Page pathname="/a" />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Page pathname="/b" />
+      </Activity>
+    );
+    view.rerender(
+      <Activity mode="hidden">
+        <Page pathname="/c" />
+      </Activity>
+    );
+    expect(views()).toHaveLength(1);
+    view.rerender(
+      <Activity mode="visible">
+        <Page pathname="/c" />
+      </Activity>
+    );
+    expect(views()).toHaveLength(2);
+    expect(views()[1][1]).toMatchObject({ page_path: '/c', previous_page_path: '/a' });
+  });
+
+  it('does not use a suspended speculative page as the next committed page predecessor', async () => {
+    await load();
+    const { useWebAnalytics } = await import('./use-web-analytics');
+    const pending = new Promise<void>(() => {});
+    function Page({ pathname }: { pathname: string }) {
+      useWebAnalytics(pathname, '');
+      if (pathname === '/pending') use(pending);
+      return <output>{pathname}</output>;
+    }
+    function App() {
+      const [pathname, setPathname] = useState('/a');
+      return (
+        <>
+          <button type="button" onClick={() => startTransition(() => setPathname('/pending'))}>
+            Suspend
+          </button>
+          <button type="button" onClick={() => setPathname('/b')}>
+            Navigate
+          </button>
+          <Suspense fallback="Loading">
+            <Page pathname={pathname} />
+          </Suspense>
+        </>
+      );
+    }
+    const view = render(<App />);
+    await act(async () => view.getByText('Suspend').click());
+    expect(view.getByRole('status').textContent).toBe('/a');
+    act(() => view.getByText('Navigate').click());
+    expect(track).toHaveBeenLastCalledWith(
+      'page_view',
+      expect.objectContaining({ page_path: '/b', previous_page_path: '/a' })
+    );
+    expect(track.mock.calls.filter(([name]) => name === 'page_view')).toHaveLength(2);
+  });
+
   it('sends page_view on a query change, but not on a tracking-parameter cleanup', async () => {
     const { Page } = await mount();
+    const { getSession } = await import('../setup/session');
+    const flush = vi.spyOn(getSession(), 'flush').mockReturnValue(1234);
     const pageViews = () => track.mock.calls.filter(([name]) => name === 'page_view');
     const { rerender } = render(<Page pathname="/pricing" search="?utm_source=bing&msclkid=x" />);
     expect(pageViews()).toHaveLength(1);
@@ -180,6 +293,7 @@ describe('useWebAnalytics', () => {
     // The landing page cleaning its URL is the same page.
     rerender(<Page pathname="/pricing" search="" />);
     expect(pageViews()).toHaveLength(1);
+    expect(flush).not.toHaveBeenCalled();
 
     // A real query change is a new page, named by the same path as its predecessor.
     rerender(<Page pathname="/pricing" search="?plan=pro" />);
@@ -187,7 +301,45 @@ describe('useWebAnalytics', () => {
     expect(pageViews()[1][1]).toMatchObject({
       page_path: '/pricing',
       previous_page_path: '/pricing',
+      engagement_time_msec: 1234,
     });
+    rerender(<Page pathname="/pricing" search="?plan=pro" />);
+    expect(pageViews()).toHaveLength(2);
+    expect(flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the first queued view as predecessor during Strict Mode effect replay', async () => {
+    const { Page } = await mount();
+    const { getSession } = await import('../setup/session');
+    const flush = vi.spyOn(getSession(), 'flush').mockReturnValue(1234);
+    const view = render(
+      <StrictMode>
+        <Page pathname="/a" />
+      </StrictMode>
+    );
+    const initial = track.mock.calls.filter(([name]) => name === 'page_view');
+    expect(initial).toHaveLength(2);
+    expect(initial.map(([, props]) => props.previous_page_path)).toEqual([undefined, '/a']);
+    expect(initial.map(([, props]) => props.engagement_time_msec)).toEqual([undefined, 1234]);
+    expect(flush).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <StrictMode>
+        <Page pathname="/b" />
+      </StrictMode>
+    );
+    expect(track).toHaveBeenLastCalledWith(
+      'page_view',
+      expect.objectContaining({ page_path: '/b', previous_page_path: '/a' })
+    );
+    view.rerender(
+      <StrictMode>
+        <Page pathname="/a" />
+      </StrictMode>
+    );
+    expect(track).toHaveBeenLastCalledWith(
+      'page_view',
+      expect.objectContaining({ page_path: '/a', previous_page_path: '/b' })
+    );
   });
 
   it('sends first_visit once ever, and page_view per pathname', async () => {
@@ -208,6 +360,22 @@ describe('useWebAnalytics', () => {
     );
     // first_visit stays a one-time event
     expect(track.mock.calls.filter(([name]) => name === 'first_visit')).toHaveLength(1);
+  });
+
+  it('keeps the last queued page as predecessor through forward and back navigation', async () => {
+    const { Page } = await mount();
+    const view = render(<Page pathname="/a" />);
+    for (const pathname of ['/b', '/c', '/b', '/a']) {
+      view.rerender(<Page pathname={pathname} />);
+    }
+    const views = track.mock.calls.filter(([name]) => name === 'page_view');
+    expect(views.map(([, props]) => [props.page_path, props.previous_page_path])).toEqual([
+      ['/a', undefined],
+      ['/b', '/a'],
+      ['/c', '/b'],
+      ['/b', '/c'],
+      ['/a', '/b'],
+    ]);
   });
 
   it('does not resend first_visit on a later visit', async () => {

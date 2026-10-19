@@ -1,5 +1,6 @@
 import {
   FloatingFocusManager,
+  type ReferenceType,
   autoUpdate,
   flip,
   offset,
@@ -63,6 +64,13 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
       }),
     ],
   });
+  const {
+    setFloating,
+    setReference,
+  }: {
+    setFloating: (this: void, node: HTMLElement | null) => void;
+    setReference: (this: void, node: ReferenceType | null) => void;
+  } = refs;
 
   const listRef = useRef<(HTMLElement | null)[]>([]);
   const { getReferenceProps, getFloatingProps, getItemProps } = useInteractions([
@@ -78,7 +86,7 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
   return (
     <>
       <Button
-        ref={refs.setReference}
+        ref={setReference}
         size="sm"
         variant="outline"
         className={cn(
@@ -106,7 +114,7 @@ export function Dropdown({ value, options, onChange, placeholder, className }: P
       {open && (
         <FloatingFocusManager context={context} modal={false}>
           <div
-            ref={refs.setFloating}
+            ref={setFloating}
             style={floatingStyles}
             className={cn(
               'border-border bg-card z-50 max-w-96 min-w-64 overflow-y-auto rounded-xl border p-1',
