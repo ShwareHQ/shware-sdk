@@ -1,5 +1,18 @@
 # @shware/workflow
 
+## 3.0.0
+
+### Major Changes
+
+- 401288f: Run journeys on AWS Lambda durable functions, and choose the email provider independently of the runtime.
+
+  - New `@shware/workflow/aws`: `journeyLambda({ config, env, store, email })` returns one handler for a durable function behind a Function URL. HTTP requests (the same API as the Worker) and internal runs are told apart by the event's top-level shape, so a request body can never pass for a run. Each journey instance is its own durable execution, started by an asynchronous invoke of the function's own numbered version under a stable execution name; steps, delays and waits map onto the durable SDK's `step`, `wait` and callbacks, with each wait parking on a fresh callback recorded in Postgres. A `{ "type": "$workflow.sweep" }` event runs the segment sweep plus maintenance: unconfirmed starts are retried with the same name and payload (until `startRetryMs`, 12 hours by default, then left unresolved), and executions the platform ended on its own are recorded as failed. `POST /deploy` of an arbitrary bundle is refused; each published version makes its own bundle live. `@aws/durable-execution-sdk-js` and `@aws-sdk/client-lambda` are optional peer dependencies.
+  - Email is split into a shared `EmailSender` (render, tracking, tracked-link commit) and a transport: `sesEmailTransport` (`@shware/workflow/transports/ses`, SES v2 over a SigV4-signed `fetch`, Worker and Node alike, credentials read at send time) and `cloudflareEmailTransport` (`@shware/workflow/transports/cloudflare-email`, the `send_email` binding or the REST API). `CfEmailSender` is removed.
+  - `journeyWorker` takes an `email` option and no longer reads `env.EMAIL` by itself. Migrate: add `email: (env) => cloudflareEmailTransport({ binding: env.EMAIL })` to keep Cloudflare Email, or `sesEmailTransport(...)` to send through SES. Without it the email channel fails its sends, saying so.
+  - Postgres gains an `execution` table (the start recorded with its entry, and the callback each wait parks on). Regenerate the drizzle schema (`workflow-ui generate`) and run your migrations before deploying; `POST /bundle/deploy` reports the missing table otherwise.
+  - `EngineStep.subscribe` receives the wait's `{ deadlineMs }`; adapters that do not need it ignore it. A `WorkflowBindingLike` may implement `plan`, `resume` and `maintain` for a runtime whose starts are retryable submits.
+  - APNs pushes from Node go over a built-in HTTP/2 client (shared with `@shware/workflow/apns-relay`).
+
 ## 2.0.1
 
 ### Patch Changes
