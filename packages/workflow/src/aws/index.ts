@@ -1,0 +1,244 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
+import {
+  type DurableContext,
+  type DurableExecutionInvocationInput,
+  type DurableExecutionInvocationOutput,
+  withDurableExecution,
+} from '@aws/durable-execution-sdk-js';
+import type { Context } from 'aws-lambda';
+import type { JourneyEnv } from '../cloudflare/bindings';
+import type { JourneyOutcome } from '../engine/ports';
+import { executeJourney } from '../host/execute';
+import { type JourneyHostOptions, createJourneyHost } from '../host/journey-host';
+import { type SweepResult, sweepSegments } from '../host/router';
+import { http2Fetch } from '../http2-client';
+import type { BundleVersion, ExecutionRegistry, JourneyStore, StoreLease } from '../store/index';
+import { AwsEngineStep } from './engine-step';
+import {
+  type FunctionUrlEvent,
+  type FunctionUrlResult,
+  fromResponse,
+  isFunctionUrlEvent,
+  toRequest,
+} from './function-url';
+import { AwsInstances, type RunInput, isRunInput } from './instances';
+import { type LambdaApi, sdkLambdaApi } from './lambda-api';
+
+/**
+ * `@shware/workflow/aws` — the journey host as one Lambda durable function behind a Function
+ * URL, on Postgres.
+ *
+ * The one handler tells three inputs apart by the event's top-level shape: a Function URL
+ * request (the HTTP API — ingest, identify, devices, tracking, bundle, preview), an internal run
+ * (one journey instance: one durable execution, started by an asynchronous invoke of this
+ * function's own numbered version), and a scheduled maintenance tick. An HTTP body can never
+ * pass for the other two: the Function URL always wraps it.
+ *
+ *   const journeys = journeyLambda({
+ *     config,
+ *     env,                                        // parsed from process.env (zod)
+ *     store: (env, database) => postgresJsStore(env.DATABASE_URL, database),
+ *     email: (env) => sesEmailTransport({ region: env.AWS_REGION }),
+ *   });
+ *   export const handler = journeys.handler;
+ */
+
+/** The scheduled tick (EventBridge Scheduler's payload): the segment sweep and maintenance. */
+export const SWEEP_EVENT_TYPE = '$workflow.sweep';
+
+/** What journeyLambda reads from its env: `JourneyEnv` without the binding it supplies itself. */
+export type JourneyLambdaEnv = Omit<JourneyEnv, 'JOURNEY' | 'DB' | 'WORKFLOW_KV' | 'EMAIL'>;
+
+export interface JourneyLambdaOptions<Env extends JourneyLambdaEnv> extends Omit<
+  JourneyHostOptions<Env & JourneyEnv>,
+  'env' | 'store'
+> {
+  /** The validated environment (parsed from `process.env` with zod by the app). */
+  env: Env;
+  /** The Postgres store: AWS needs its execution registry (`postgresJsStore`). */
+  store: (env: Env, database: { schema: string }) => JourneyStore | StoreLease;
+  /** The Lambda control plane; `@aws-sdk/client-lambda` with the execution role by default. */
+  lambda?: LambdaApi;
+  /** How long an unconfirmed start is retried (default 12 hours; keep it under the retention). */
+  startRetryMs?: number;
+}
+
+export interface JourneyLambda {
+  /** Export as the function's handler. */
+  handler: (
+    event: DurableExecutionInvocationInput,
+    context: Context
+  ) => Promise<DurableExecutionInvocationOutput>;
+}
+
+interface Invocation {
+  lease?: Required<StoreLease>;
+}
+
+/** This function's ARN without its qualifier, from the ARN it was invoked under. */
+function unqualified(invokedFunctionArn: string): string {
+  return invokedFunctionArn.split(':').slice(0, 7).join(':');
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+export function journeyLambda<Env extends JourneyLambdaEnv>(
+  options: JourneyLambdaOptions<Env>
+): JourneyLambda {
+  type HostEnv = Env & JourneyEnv;
+  const { env: baseEnv, lambda: lambdaOption, startRetryMs, ...hostOptions } = options;
+  const host = createJourneyHost<HostEnv>(
+    { ...hostOptions, store: (env, database) => options.store(env, database) },
+    { apnsFetch: http2Fetch() }
+  );
+  const lambda = lambdaOption ?? sdkLambdaApi();
+  const ownHashes = new Set(host.bundle().workflows.map((workflow) => workflow.contentHash));
+  const scope = new AsyncLocalStorage<Invocation>();
+
+  /** The version this code was published as: `$LATEST` while developing. */
+  const ownVersion = () => process.env.AWS_LAMBDA_FUNCTION_VERSION ?? '$LATEST';
+  /** Numbered versions are ordered: the bundle compiled into a later one goes live by itself. */
+  const bundleVersion = (): BundleVersion | undefined => {
+    const version = ownVersion();
+    return /^\d+$/.test(version) ? { id: version, createdAt: Number(version) } : undefined;
+  };
+
+  /** The store and the env (with the instance port) of this invocation, opened on first use. */
+  const open = (
+    context: DurableContext
+  ): { store: JourneyStore; env: HostEnv; executions: ExecutionRegistry } => {
+    const invocation = scope.getStore();
+    if (invocation === undefined) throw new Error('journeyLambda: outside an invocation');
+    const placeholder = { ...baseEnv } as unknown as HostEnv;
+    invocation.lease ??= host.lease(placeholder);
+    const { store } = invocation.lease;
+    const executions = store.executions;
+    if (executions === undefined) {
+      throw new Error(
+        'journeyLambda needs a store with an execution registry (PostgresJourneyStore)'
+      );
+    }
+    const functionArn = unqualified(context.lambdaContext.invokedFunctionArn);
+    const target = async (contentHash: string): Promise<string> => {
+      // An execution runs the code its IR was compiled with: this version's own workflows here,
+      // anything else on the version whose bundle put it in the routes
+      if (ownHashes.has(contentHash)) return `${functionArn}:${ownVersion()}`;
+      const live = await store.liveBundleVersion?.();
+      if (live !== undefined && /^\d+$/.test(live.id)) return `${functionArn}:${live.id}`;
+      throw new Error(`no published version carries workflow IR ${contentHash}`);
+    };
+    const instances = new AwsInstances({
+      store,
+      executions,
+      lambda,
+      target,
+      ...(startRetryMs === undefined ? {} : { startRetryMs }),
+    });
+    return { store, env: { ...baseEnv, JOURNEY: instances }, executions };
+  };
+
+  const run = async (input: RunInput, context: DurableContext): Promise<JourneyOutcome> => {
+    const { store, env, executions } = open(context);
+    const { instanceId, params } = input;
+    // Running is the proof the start got through, whatever became of the invoke's response
+    await context.step('$workflow:started', async () => {
+      await executions.markSubmitted(
+        instanceId,
+        context.executionContext.durableExecutionArn,
+        Date.now()
+      );
+    });
+    return executeJourney(
+      {
+        instanceId,
+        params,
+        enteredAtMs: input.enteredAtMs,
+        step: new AwsEngineStep(context, store, executions, lambda, params.userId, instanceId),
+      },
+      host.runParts(env, store, params)
+    );
+  };
+
+  const http = (event: FunctionUrlEvent, context: DurableContext): Promise<FunctionUrlResult> =>
+    // One step, never retried: the caller is waiting, and retries the request itself
+    context.step(
+      'http',
+      async () => {
+        const method = event.requestContext.http.method;
+        try {
+          const { store, env } = open(context);
+          const request = toRequest(event);
+          // Only the bundle compiled into a version may route: one is never swapped in by hand
+          if (new URL(request.url).pathname === '/deploy') {
+            return await fromResponse(
+              json(
+                {
+                  error:
+                    'deploy by publishing a version (POST /bundle/deploy applies its own bundle)',
+                },
+                409
+              ),
+              method
+            );
+          }
+          await host.applyOwnBundle(env, bundleVersion());
+          return await fromResponse(await host.handle(request, env, store), method);
+        } catch (error) {
+          console.error('[workflow] request failed', error);
+          return fromResponse(json({ error: 'internal error' }, 500), method);
+        }
+      },
+      { retryStrategy: () => ({ shouldRetry: false }) }
+    );
+
+  const sweep = (context: DurableContext): Promise<SweepResult> =>
+    context.step(
+      'sweep',
+      async () => {
+        const { store, env } = open(context);
+        await host.applyOwnBundle(env, bundleVersion());
+        return sweepSegments(env, store);
+      },
+      { retryStrategy: () => ({ shouldRetry: false }) }
+    );
+
+  const durable = withDurableExecution(async (input: unknown, context: DurableContext) => {
+    if (isFunctionUrlEvent(input)) return http(input, context);
+    if (isRunInput(input)) return run(input, context);
+    if (
+      typeof input === 'object' &&
+      input !== null &&
+      (input as { type?: unknown }).type === SWEEP_EVENT_TYPE
+    ) {
+      return sweep(context);
+    }
+    throw new Error('journeyLambda: unrecognized event (not a Function URL request, run or sweep)');
+  });
+
+  const handler = async (
+    event: DurableExecutionInvocationInput,
+    context: Context
+  ): Promise<DurableExecutionInvocationOutput> => {
+    const invocation: Invocation = {};
+    try {
+      return await scope.run(invocation, () => durable(event, context));
+    } finally {
+      // Outside the durable wrapper: a suspended run returns PENDING without unwinding the
+      // handler, so a `finally` in there would never release the connection
+      await invocation.lease?.close().catch((error: unknown) => {
+        console.error('[workflow] closing the store failed', error);
+      });
+    }
+  };
+
+  return { handler };
+}
+
+export { AwsEngineStep, stepRetry } from './engine-step';
+export { AwsInstances, RUN_EVENT_TYPE, executionName, isRunInput } from './instances';
+export type { AwsInstancesOptions, RunInput } from './instances';
+export { sdkLambdaApi } from './lambda-api';
+export type { ExecutionState, LambdaApi } from './lambda-api';
+export { fromResponse, isFunctionUrlEvent, toRequest } from './function-url';
+export type { FunctionUrlEvent, FunctionUrlResult } from './function-url';

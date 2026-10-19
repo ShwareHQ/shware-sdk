@@ -1,10 +1,21 @@
 import { describe, expect, test } from 'vitest';
-import {
-  CfEmailSender,
-  type EmailBindingLike,
-  routeByPlatform,
-  trackEmail,
-} from '../src/cloudflare/senders';
+import type { EmailBindingLike } from '../src/cloudflare/bindings';
+import { EmailSender, trackEmail } from '../src/email-sender';
+import { routeByPlatform } from '../src/host/senders';
+import { cloudflareEmailTransport } from '../src/transports/cloudflare-email';
+
+/** The email channel over the Cloudflare binding transport, as the tests used to build it. */
+class CfEmailSender extends EmailSender {
+  constructor(options: {
+    binding: EmailBindingLike;
+    render: ConstructorParameters<typeof EmailSender>[0]['render'];
+  }) {
+    super({
+      transport: cloudflareEmailTransport({ binding: options.binding }),
+      render: options.render,
+    });
+  }
+}
 import type { MessageSender, OutboundMessage } from '../src/engine/ports';
 
 /** A binding that de-duplicates the way the port asks it to — one delivery per key. */
@@ -43,7 +54,7 @@ const message: OutboundMessage = {
   idempotencyKey: 'inst_1:2',
 };
 
-describe('CfEmailSender', () => {
+describe('EmailSender over the Cloudflare binding', () => {
   test('the idempotency key travels with the binding call; the subject goes out as written', async () => {
     const { binding, calls } = fakeBinding();
 

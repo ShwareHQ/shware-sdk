@@ -533,7 +533,7 @@ async function waitLoop<R>(
     // needs a fresh arm; Cloudflare rows make the repeat call idempotent), and
     // arming first closes the race where the event lands between the check and
     // the registration.
-    await ctx.step.subscribe(`${id}:subscribe:${attempt}`, events);
+    await ctx.step.subscribe(`${id}:subscribe:${attempt}`, events, { deadlineMs: deadline });
 
     const met = await ctx.step.do(`${id}:check:${attempt}`, async () => check(Date.now()));
     // `false` is a checkpoint from before checks answered null for "not yet"

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { WAKE_EVENT_TYPE } from '../src/cloudflare/bindings';
-import { deployBundle, handleRequest, ingestEvent } from '../src/cloudflare/router';
 import { PROFILE_UPDATED_EVENT } from '../src/engine/condition';
+import { deployBundle, handleRequest, ingestEvent } from '../src/host/router';
 import { compileBundle, eq, segment, trigger, workflow } from '../src/index';
 import { makeEnv } from './fake-cloudflare';
 import {

@@ -1,9 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { JourneyEnv } from '../src/cloudflare/bindings';
-import { forgetUser, sweepSegments } from '../src/cloudflare/router';
 import { isUnsubscribeLink } from '../src/email';
 import type { OutboundMessage } from '../src/engine/ports';
+import { forgetUser, sweepSegments } from '../src/host/router';
 import { classifyClick, classifyOpen } from '../src/reporting/classify';
 import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';

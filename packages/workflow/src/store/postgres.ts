@@ -7,6 +7,9 @@ import type {
   EntryOutcome,
   EventInput,
   EventWindow,
+  ExecutionRecord,
+  ExecutionRegistry,
+  ExecutionStart,
   JourneyReporting,
   JourneyStore,
   ProfileProps,
@@ -58,6 +61,7 @@ export class PostgresJourneyStore implements JourneyStore {
   private readonly t: Record<TableKey, string>;
   private readonly schema: string;
   readonly reporting: JourneyReporting;
+  readonly executions: ExecutionRegistry;
 
   constructor(
     private readonly sql: SqlClientLike,
@@ -69,6 +73,7 @@ export class PostgresJourneyStore implements JourneyStore {
       (Object.keys(TABLES) as TableKey[]).map((key) => [key, qualify(TABLES[key].name)])
     ) as Record<TableKey, string>;
     this.reporting = new PostgresReporting(sql, this.t);
+    this.executions = new PostgresExecutions(sql, this.t.execution, this.t.entry);
   }
 
   /**
@@ -257,6 +262,7 @@ export class PostgresJourneyStore implements JourneyStore {
         this.t.message,
         this.t.instance,
         this.t.entry,
+        this.t.execution,
         this.t.subscription,
         this.t.segmentStart,
         this.t.segmentMember,
@@ -485,9 +491,21 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   async enterJourney(entry: EntryInput): Promise<EntryOutcome> {
+    const { execution } = entry;
+    if (execution === undefined) return this.claimEntry(this.sql, entry);
+    // The entry and the start it owes commit together: a crash between them would leave a
+    // running entry no retry could ever start
+    return this.sql.transaction(async (tx) => {
+      const outcome = await this.claimEntry(tx, entry);
+      if (outcome !== null) await this.recordStart(tx, entry, execution);
+      return outcome;
+    });
+  }
+
+  private async claimEntry(sql: SqlClientLike, entry: EntryInput): Promise<EntryOutcome> {
     // The (workflow, user_id) primary key makes the once policy atomic:
     // concurrent ingests race on the insert and exactly one wins.
-    const inserted = await this.sql.query(
+    const inserted = await sql.query(
       `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, hash, status, ts)
        VALUES ($1, $2, $3, $4, 'running', ${TS('$5')})
        ON CONFLICT (workflow, user_id) DO NOTHING RETURNING instance_id`,
@@ -499,12 +517,32 @@ export class PostgresJourneyStore implements JourneyStore {
     // 'failed' is reclaimed rather than barring the user forever over one
     // outage. The status test is inside the UPDATE, so of two concurrent
     // retries exactly one gets a row back.
-    const claimed = await this.sql.query(
+    const claimed = await sql.query(
       `UPDATE ${this.t.entry} SET instance_id = $1, hash = $2, status = 'running', ts = ${TS('$3')}
        WHERE workflow = $4 AND user_id = $5 AND status = 'failed' RETURNING instance_id`,
       [entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId]
     );
     return claimed.length > 0 ? 'reclaimed' : null;
+  }
+
+  private async recordStart(
+    tx: SqlClientLike,
+    entry: EntryInput,
+    execution: ExecutionStart
+  ): Promise<void> {
+    await tx.query(
+      `INSERT INTO ${this.t.execution} (instance_id, workflow, user_id, name, target, input, created_at, generation)
+       VALUES ($1, $2, $3, $4, $5, $6, ${TS('$7')}, 0) ON CONFLICT (instance_id) DO NOTHING`,
+      [
+        entry.instanceId,
+        entry.workflow,
+        entry.userId,
+        execution.name,
+        execution.target,
+        execution.input,
+        entry.ts,
+      ]
+    );
   }
 
   async removeEntry(instanceId: string): Promise<void> {
@@ -542,5 +580,171 @@ export class PostgresJourneyStore implements JourneyStore {
 
   async unsubscribe(handle: string): Promise<void> {
     await this.sql.query(`DELETE FROM ${this.t.subscription} WHERE wake_handle = $1`, [handle]);
+  }
+}
+
+interface ExecutionRow {
+  instance_id: string;
+  workflow: string;
+  user_id: string;
+  name: string;
+  target: string;
+  input: string;
+  // float8 comes back as a number from most drivers, as a string from some
+  created_at: number | string;
+  submitted_at: number | string | null;
+  arn: string | null;
+  unresolved_at: number | string | null;
+  callback_id: string | null;
+  generation: number | string;
+  deadline_at: number | string | null;
+  checked_at: number | string | null;
+}
+
+const PLAIN_COLUMNS = ['instance_id', 'workflow', 'user_id', 'name', 'target', 'input', 'arn'];
+const MORE_PLAIN = ['callback_id', 'generation'];
+const TIME_COLUMNS = ['created_at', 'submitted_at', 'unresolved_at', 'deadline_at', 'checked_at'];
+
+/** The execution columns, timestamps as epoch ms; `alias` qualifies them in a join. */
+function executionColumns(alias = ''): string {
+  const q = alias === '' ? '' : `${alias}.`;
+  return [
+    ...[...PLAIN_COLUMNS, ...MORE_PLAIN].map((column) => `${q}${column}`),
+    ...TIME_COLUMNS.map(
+      (column) => `(extract(epoch from ${q}${column}) * 1000)::double precision AS ${column}`
+    ),
+  ].join(', ');
+}
+
+const optional = <T>(value: T | null): T | undefined => value ?? undefined;
+const ms = (value: number | string | null): number | undefined =>
+  value === null ? undefined : Number(value);
+
+function toRecord(row: ExecutionRow): ExecutionRecord {
+  return {
+    instanceId: row.instance_id,
+    workflow: row.workflow,
+    userId: row.user_id,
+    name: row.name,
+    target: row.target,
+    input: row.input,
+    createdAt: Number(row.created_at),
+    submittedAt: ms(row.submitted_at),
+    arn: optional(row.arn),
+    unresolvedAt: ms(row.unresolved_at),
+    callbackId: optional(row.callback_id),
+    generation: Number(row.generation),
+    deadlineAt: ms(row.deadline_at),
+    checkedAt: ms(row.checked_at),
+  };
+}
+
+/** The execution table (tables.ts): starts to confirm, and the callback each wait parks on. */
+class PostgresExecutions implements ExecutionRegistry {
+  constructor(
+    private readonly sql: SqlClientLike,
+    private readonly table: string,
+    private readonly entry: string
+  ) {}
+
+  async get(instanceId: string): Promise<ExecutionRecord | undefined> {
+    const rows = await this.sql.query<ExecutionRow>(
+      `SELECT ${executionColumns()} FROM ${this.table} WHERE instance_id = $1`,
+      [instanceId]
+    );
+    return rows.length === 0 ? undefined : toRecord(rows[0]);
+  }
+
+  async pendingStarts(filter: {
+    workflow?: string;
+    userId?: string;
+    createdBefore?: number;
+    limit: number;
+  }): Promise<ExecutionRecord[]> {
+    const where = ['x.submitted_at IS NULL', 'x.unresolved_at IS NULL', "e.status = 'running'"];
+    const params: unknown[] = [];
+    if (filter.workflow !== undefined) {
+      params.push(filter.workflow);
+      where.push(`x.workflow = $${params.length}`);
+    }
+    if (filter.userId !== undefined) {
+      params.push(filter.userId);
+      where.push(`x.user_id = $${params.length}`);
+    }
+    if (filter.createdBefore !== undefined) {
+      params.push(filter.createdBefore);
+      where.push(`x.created_at < ${TS(`$${params.length}`)}`);
+    }
+    params.push(filter.limit);
+    // Only the start the entry still names: a reclaimed entry's old start is history
+    const rows = await this.sql.query<ExecutionRow>(
+      `SELECT ${executionColumns('x')}
+       FROM ${this.table} x JOIN ${this.entry} e ON e.instance_id = x.instance_id
+       WHERE ${where.join(' AND ')} ORDER BY x.created_at LIMIT $${params.length}`,
+      params
+    );
+    return rows.map(toRecord);
+  }
+
+  async markSubmitted(instanceId: string, arn: string | undefined, at: number): Promise<void> {
+    await this.sql.query(
+      `UPDATE ${this.table} SET submitted_at = COALESCE(submitted_at, ${TS('$2')}), arn = COALESCE($3, arn) WHERE instance_id = $1`,
+      [instanceId, at, arn ?? null]
+    );
+  }
+
+  async markUnresolved(instanceId: string, at: number): Promise<void> {
+    await this.sql.query(
+      `UPDATE ${this.table} SET unresolved_at = ${TS('$2')} WHERE instance_id = $1 AND submitted_at IS NULL`,
+      [instanceId, at]
+    );
+  }
+
+  async setArn(instanceId: string, arn: string): Promise<void> {
+    await this.sql.query(`UPDATE ${this.table} SET arn = $2 WHERE instance_id = $1`, [
+      instanceId,
+      arn,
+    ]);
+  }
+
+  async armCallback(
+    instanceId: string,
+    callback: { id: string; generation: number; deadlineAt?: number | undefined }
+  ): Promise<boolean> {
+    // The generation test is inside the UPDATE: a retried arm of an older wait cannot overwrite
+    // the callback a newer one parks on
+    const rows = await this.sql.query(
+      `UPDATE ${this.table} SET callback_id = $2, generation = $3,
+         deadline_at = CASE WHEN $4::double precision IS NULL THEN NULL ELSE ${TS('$4')} END
+       WHERE instance_id = $1 AND generation <= $3 RETURNING instance_id`,
+      [instanceId, callback.id, callback.generation, callback.deadlineAt ?? null]
+    );
+    return rows.length > 0;
+  }
+
+  async clearCallback(instanceId: string, generation: number): Promise<void> {
+    await this.sql.query(
+      `UPDATE ${this.table} SET callback_id = NULL, deadline_at = NULL WHERE instance_id = $1 AND generation = $2`,
+      [instanceId, generation]
+    );
+  }
+
+  async toReconcile(limit: number, checkedBefore: number): Promise<ExecutionRecord[]> {
+    const rows = await this.sql.query<ExecutionRow>(
+      `SELECT ${executionColumns('x')}
+       FROM ${this.table} x JOIN ${this.entry} e ON e.instance_id = x.instance_id
+       WHERE e.status = 'running' AND x.submitted_at IS NOT NULL
+         AND (x.checked_at IS NULL OR x.checked_at < ${TS('$1')})
+       ORDER BY x.checked_at NULLS FIRST LIMIT $2`,
+      [checkedBefore, limit]
+    );
+    return rows.map(toRecord);
+  }
+
+  async markChecked(instanceId: string, at: number): Promise<void> {
+    await this.sql.query(
+      `UPDATE ${this.table} SET checked_at = ${TS('$2')} WHERE instance_id = $1`,
+      [instanceId, at]
+    );
   }
 }

@@ -149,6 +149,37 @@ export const TABLES = {
     primaryKey: ['wakeHandle', 'event'],
     indexes: [['userId', 'event']],
   }),
+  execution: table({
+    name: 'execution',
+    doc: 'Durable executions whose start is an asynchronous submit (AWS Lambda durable functions): written with the entry, so a lost submit response is retried with the same name, target and payload instead of starting a second execution; and the wake callback the instance is parked on now. Unused on Cloudflare.',
+    columns: {
+      instanceId: text,
+      workflow: text,
+      userId: text,
+      name: text,
+      target: text,
+      input: text,
+      createdAt: ts,
+      submittedAt: nullable(
+        ts,
+        'The runtime accepted the start; null while it may still have to be retried.'
+      ),
+      arn: nullable(text),
+      unresolvedAt: nullable(
+        ts,
+        'Retries ran out before the runtime confirmed the start: whether it runs is unknown, and nothing retries it.'
+      ),
+      callbackId: nullable(text, 'The callback the current wait parks on; a wake completes it.'),
+      generation: integer,
+      deadlineAt: nullable(ts),
+      checkedAt: nullable(
+        ts,
+        "When maintenance last compared the runtime's status with the ledger."
+      ),
+    },
+    primaryKey: ['instanceId'],
+    indexes: [['workflow', 'userId'], ['submittedAt'], ['userId']],
+  }),
   deployment: table({
     name: 'deployment',
     doc: "The Worker version whose compiled bundle the routes came from, one row (`scope` = 'routes'): journeyWorker applies its own bundle only over an older version, so one still serving during a rollout cannot put its routes back. A forced `POST /bundle/deploy` leaves it as it is.",

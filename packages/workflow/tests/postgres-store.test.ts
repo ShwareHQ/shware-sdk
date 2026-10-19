@@ -8,7 +8,7 @@ import {
   registerDevice,
   removeDevice,
   unbindDevice,
-} from '../src/cloudflare/router';
+} from '../src/host/router';
 import {
   compileBundle,
   eq,

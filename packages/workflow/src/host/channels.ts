@@ -1,5 +1,7 @@
 import { ApnsPushSender, apnsKeyFromBase64 } from '../apns';
+import type { JourneyEnv } from '../cloudflare/bindings';
 import { type JourneyConfig, apnsEnvironment } from '../config';
+import { EmailSender, type EmailTransport } from '../email-sender';
 import type { MessageSender, OutboundMessage } from '../engine/ports';
 import { FcmPushSender, serviceAccountFromBase64 } from '../fcm';
 import { registryPushRenderer } from '../push';
@@ -16,13 +18,12 @@ import {
 } from '../templates';
 import { DiscordWebhookSender, SlackWebhookSender } from '../webhooks';
 import { WebPushSender } from '../webpush';
-import type { JourneyEnv } from './bindings';
 import { removeDevice } from './router';
-import { CfEmailSender, routeByChannel, routeByPlatform } from './senders';
+import { routeByChannel, routeByPlatform } from './senders';
 
 /**
  * The outlets a `JourneyConfig` describes, assembled against the environment:
- * email through the `EMAIL` binding with the configured addresses, iOS pushes
+ * email through the host's transport (SES, Cloudflare Email, ...) with each template's addresses, iOS pushes
  * straight to APNs with the configured key (the `.p8` from
  * `APNS_PRIVATE_KEY_BASE64`), Android pushes through FCM with the service
  * account from `GOOGLE_APPLICATION_CREDENTIALS_BASE64`. A channel the config
@@ -95,7 +96,11 @@ export function channelsFromConfig(
   options: {
     /** The store a token APNs / FCM / a push service reports as gone is removed from. */
     store?: JourneyStore | undefined;
+    /** Where finished emails go — the host's choice, independent of where the workflow runs. */
+    email?: EmailTransport | undefined;
     fetch?: typeof fetch;
+    /** APNs is HTTP/2 only: a Node host passes an HTTP/2 fetch here (its own fetch cannot). */
+    apnsFetch?: typeof fetch | undefined;
   } = {}
 ): MessageSender {
   const mode = journeyMode(env);
@@ -103,12 +108,12 @@ export function channelsFromConfig(
   const email = (): MessageSender => {
     const registry = config.templates?.email;
     if (registry === undefined) return unavailable('no email templates are registered');
-    if (env.EMAIL === undefined) return unavailable('no EMAIL (send_email) binding');
+    const transport = options.email;
+    if (transport === undefined) {
+      return unavailable("no email transport is configured (the host's `email` option)");
+    }
     // Each template names its own sender: there is no global one to require
-    return new CfEmailSender({
-      binding: env.EMAIL,
-      render: registryRenderer(registry, config.email),
-    });
+    return new EmailSender({ transport, render: registryRenderer(registry, config.email) });
   };
 
   const push = (): MessageSender => {
@@ -136,7 +141,9 @@ export function channelsFromConfig(
             render,
             onUnregistered,
             ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
-            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            ...((options.apnsFetch ?? options.fetch) === undefined
+              ? {}
+              : { fetch: options.apnsFetch ?? options.fetch }),
           })
       );
     }

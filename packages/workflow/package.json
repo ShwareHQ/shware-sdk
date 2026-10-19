@@ -43,6 +43,16 @@
         "default": "./dist/cloudflare/index.cjs"
       }
     },
+    "./aws": {
+      "import": {
+        "types": "./dist/aws/index.d.mts",
+        "default": "./dist/aws/index.mjs"
+      },
+      "require": {
+        "types": "./dist/aws/index.d.cts",
+        "default": "./dist/aws/index.cjs"
+      }
+    },
     "./store": {
       "import": {
         "types": "./dist/store/index.d.mts",
@@ -91,6 +101,36 @@
       "require": {
         "types": "./dist/email-context.d.cts",
         "default": "./dist/email-context.cjs"
+      }
+    },
+    "./email-sender": {
+      "import": {
+        "types": "./dist/email-sender.d.mts",
+        "default": "./dist/email-sender.mjs"
+      },
+      "require": {
+        "types": "./dist/email-sender.d.cts",
+        "default": "./dist/email-sender.cjs"
+      }
+    },
+    "./transports/ses": {
+      "import": {
+        "types": "./dist/transports/ses.d.mts",
+        "default": "./dist/transports/ses.mjs"
+      },
+      "require": {
+        "types": "./dist/transports/ses.d.cts",
+        "default": "./dist/transports/ses.cjs"
+      }
+    },
+    "./transports/cloudflare-email": {
+      "import": {
+        "types": "./dist/transports/cloudflare-email.d.mts",
+        "default": "./dist/transports/cloudflare-email.mjs"
+      },
+      "require": {
+        "types": "./dist/transports/cloudflare-email.d.cts",
+        "default": "./dist/transports/cloudflare-email.cjs"
       }
     },
     "./push": {
@@ -170,8 +210,12 @@
     "ms": "^2.1.3"
   },
   "devDependencies": {
+    "@aws-sdk/client-lambda": "^3.1152.0",
+    "@aws/durable-execution-sdk-js": "^2.7.0",
+    "@aws/durable-execution-sdk-js-testing": "^1.3.1",
     "@electric-sql/pglite": "^0.5.10",
     "@repo/typescript-config": "workspace:*",
+    "@types/aws-lambda": "^8.10.164",
     "@types/ms": "^2.1.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
@@ -184,12 +228,20 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
+    "@aws-sdk/client-lambda": "^3.1152.0",
+    "@aws/durable-execution-sdk-js": "^2.7.0",
     "postgres": ">=3.4.0",
     "react": ">=19",
     "react-dom": ">=19",
     "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-lambda": {
+      "optional": true
+    },
+    "@aws/durable-execution-sdk-js": {
+      "optional": true
+    },
     "postgres": {
       "optional": true
     },

@@ -3,15 +3,16 @@ import { createElement } from 'react';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { EmailBindingLike } from '../src/cloudflare/bindings';
-import { type ChannelsConfig, channelsFromConfig } from '../src/cloudflare/channels';
 import type { OutboundMessage } from '../src/engine/ports';
+import { type ChannelsConfig, channelsFromConfig } from '../src/host/channels';
 import { D1JourneyStore } from '../src/store/d1';
 import { emailTemplate, pushTemplate } from '../src/templates';
+import { cloudflareEmailTransport } from '../src/transports/cloudflare-email';
 import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
 
 /**
  * channelsFromConfig: the outlets a workflow.config.ts describes, assembled
- * against the environment — email through the binding, iOS to APNs with the
+ * against the environment — email through the host's transport, iOS to APNs with the
  * configured key, Android through FCM — and clear failures for what is not
  * configured.
  */
@@ -124,7 +125,9 @@ describe('channelsFromConfig', () => {
   test("email goes through the binding from each template's own sender; the subject as written", async () => {
     const { env, sent } = setup();
     // No `email` config at all: every template names its sender
-    const sender = channelsFromConfig({ templates }, env);
+    const sender = channelsFromConfig({ templates }, env, {
+      email: cloudflareEmailTransport({ binding: env.EMAIL }),
+    });
     await sender.send(message('email', 'ada@example.com'));
     await sender.send({ ...message('email', 'ada@example.com'), template: 'digest' });
     await sender.send(message('email', 'bob@example.com'));
@@ -201,10 +204,8 @@ describe('channelsFromConfig', () => {
       /no email templates are registered/
     );
     await expect(
-      channelsFromConfig({ templates }, { ...env, EMAIL: undefined }).send(
-        message('email', 'a@b.c')
-      )
-    ).rejects.toThrow(/no EMAIL \(send_email\) binding/);
+      channelsFromConfig({ templates }, env).send(message('email', 'a@b.c'))
+    ).rejects.toThrow(/no email transport is configured/);
     await expect(
       channelsFromConfig({ templates }, env).send(message('push', 'tok'))
     ).rejects.toThrow(/none of apns, fcm or webPush/);
@@ -217,7 +218,8 @@ describe('channelsFromConfig', () => {
         templates,
         apns: { topic: 't', keyId: 'k', teamId: 't' },
       },
-      { ...env, APNS_PRIVATE_KEY_BASE64: undefined }
+      { ...env, APNS_PRIVATE_KEY_BASE64: undefined },
+      { email: cloudflareEmailTransport({ binding: env.EMAIL }) }
     );
     // An email-only journey is not held hostage by the missing push key
     await sender.send(message('email', 'ada@acme.test'));
