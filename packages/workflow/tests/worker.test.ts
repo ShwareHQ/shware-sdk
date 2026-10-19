@@ -168,9 +168,9 @@ describe('a version applies its own bundle', () => {
   });
 
   beforeAll(async () => {
-    pg = new PGlite();
+    pg = await PGlite.create();
     await pg.exec(renderPostgresDdl());
-  });
+  }, 30_000);
   afterAll(async () => {
     await pg.close();
   });
