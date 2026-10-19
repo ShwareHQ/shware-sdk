@@ -1,4 +1,12 @@
 import * as z from 'zod/mini';
+import {
+  type JourneyEnv,
+  type JourneyParams,
+  WAKE_EVENT_TYPE,
+  type WorkflowInstanceLike,
+  isInstanceNotFound,
+} from '../cloudflare/bindings';
+import { d1Store } from '../cloudflare/d1-env';
 import { type Contract, type ContractResult, checkEvent } from '../contract';
 import { murmur3 } from '../engine/bucket';
 import {
@@ -18,13 +26,6 @@ import {
   SchemaMismatchError,
   type SegmentTriggerRoute,
 } from '../store/index';
-import {
-  type JourneyEnv,
-  type JourneyParams,
-  WAKE_EVENT_TYPE,
-  type WorkflowInstanceLike,
-} from './bindings';
-import { d1Store } from './d1-env';
 
 /**
  * Ingest router. An incoming event does four things: it is stored, it wakes
@@ -116,9 +117,11 @@ async function wakeSubscribers(
     let instance: WorkflowInstanceLike;
     try {
       instance = await env.JOURNEY.get(handle);
-    } catch {
-      // Unknown instance (errored out without cleanup): drop the dangling subscription
-      await store.unsubscribe(handle);
+    } catch (error) {
+      // Unknown instance (errored out without cleanup): drop the dangling subscription. Any
+      // other failure (a database blip) keeps it: deleting would silence the wait for good
+      if (isInstanceNotFound(error)) await store.unsubscribe(handle);
+      else console.warn(`[workflow] looking up ${handle} to wake it failed`, error);
       continue;
     }
     try {
@@ -280,6 +283,12 @@ export async function sweepSegments(
   store: JourneyStore,
   now = Date.now()
 ): Promise<SweepResult> {
+  // The runtime's own upkeep first (AWS: unconfirmed starts, executions that ended unseen)
+  try {
+    await env.JOURNEY.maintain?.();
+  } catch (error) {
+    console.error('[workflow] runtime maintenance failed', error);
+  }
   // Erasures left unfinished (an instance would not stop) first: their users are not evaluated
   const erasing = new Set<string>();
   for (const userId of await store.pendingErasures()) {
@@ -328,13 +337,22 @@ async function startJourney(
 ): Promise<string | null> {
   const instanceId = buildInstanceId(workflow, hash, userId, ts);
   const params: JourneyParams = { workflowId: workflow, contentHash: hash, userId, trigger };
+  const execution = await env.JOURNEY.plan?.({ id: instanceId, params, ts });
 
-  const outcome = await store.enterJourney({ workflow, userId, instanceId, hash, ts });
-  if (outcome === null) return null; // already entered, and still alive
+  const outcome = await store.enterJourney({ workflow, userId, instanceId, hash, ts, execution });
+  if (outcome === null) {
+    // Already entered and still alive — unless its start never got through: this retry is the
+    // first chance to finish it
+    await env.JOURNEY.resume?.({ workflow, userId });
+    return null;
+  }
 
   try {
     await env.JOURNEY.create({ id: instanceId, params });
   } catch (error) {
+    // A recorded start stays: the runtime may have taken it, and a retry with the same name
+    // and payload finds that execution instead of starting a second one
+    if (execution !== undefined) throw error;
     if (outcome === 'reclaimed') {
       // Put the corpse back rather than deleting it: the entry is still a
       // failure, and dropping the row would erase that from the ledger.
@@ -434,7 +452,7 @@ async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolea
   try {
     instance = await env.JOURNEY.get(instanceId);
   } catch (error) {
-    if (/not[_ ]found/i.test(String(error))) return true;
+    if (isInstanceNotFound(error)) return true;
     console.warn(`[workflow] looking up ${instanceId} to stop it failed`, error);
     return false;
   }

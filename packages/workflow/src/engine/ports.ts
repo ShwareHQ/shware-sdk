@@ -35,8 +35,15 @@ export interface EngineStep {
    * delivery) satisfy it with exactly one. Callers therefore re-subscribe on
    * every wait attempt; adapters where registrations persist (Cloudflare rows)
    * make the repeat call idempotent.
+   *
+   * `deadlineMs` is when the wait this arms gives up: an adapter whose wake handle carries its
+   * own timeout (an AWS callback) sets it here, where the handle is created. Others ignore it.
    */
-  subscribe(name: string, events: readonly string[]): Promise<void>;
+  subscribe(
+    name: string,
+    events: readonly string[],
+    options?: { deadlineMs?: number }
+  ): Promise<void>;
 
   /** Durable: drop every registration this instance holds. */
   unsubscribe(name: string): Promise<void>;

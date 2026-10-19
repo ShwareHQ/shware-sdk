@@ -7,7 +7,13 @@ export type {
   WorkflowBindingLike,
   WorkflowInstanceLike,
 } from './bindings';
-export { WAKE_EVENT_TYPE, WAKE_TIMEOUT_TOLERANCE_MS, wakeExpired } from './bindings';
+export {
+  InstanceNotFoundError,
+  WAKE_EVENT_TYPE,
+  WAKE_TIMEOUT_TOLERANCE_MS,
+  isInstanceNotFound,
+  wakeExpired,
+} from './bindings';
 export { d1Store } from './d1-env';
 export {
   BundleIntegrityError,
@@ -21,7 +27,7 @@ export {
   unbindDevice,
   sweepSegments,
   UnversionedStoreError,
-} from './router';
+} from '../host/router';
 export type {
   DeployResult,
   DeviceRegistration,
@@ -29,19 +35,25 @@ export type {
   IdentifyResult,
   IngestInput,
   IngestResult,
-} from './router';
+} from '../host/router';
 export { JourneyRunner } from './runner';
 export {
-  CfEmailSender,
   LogMessageSender,
   WebhookMessageSender,
   routeByChannel,
   routeByPlatform,
-} from './senders';
-export type { CfEmailOptions, EmailAddress, EmailRenderer, RenderedEmail } from './senders';
-export { trackEmail } from './senders';
-export { channelsFromConfig, journeyMode, runtimeFromConfig } from './channels';
-export type { ChannelsConfig } from './channels';
+} from '../host/senders';
+export type { EmailAddress } from '../email';
+export { EmailSender, trackEmail } from '../email-sender';
+export type {
+  EmailMessage,
+  EmailRenderer,
+  EmailSenderOptions,
+  EmailTransport,
+  RenderedEmail,
+} from '../email-sender';
+export { channelsFromConfig, journeyMode, runtimeFromConfig } from '../host/channels';
+export type { ChannelsConfig } from '../host/channels';
 // A push device as the store lists it (`registerDevice` writes them).
 export type { PushDevice } from '../engine/ports';
 // Reporting: what `journeyWorker({ observer })` hears, and the tracking it can attach to a copy.

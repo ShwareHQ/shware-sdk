@@ -18,6 +18,28 @@ export function formatEmailAddress(address: EmailAddress): string {
   return address.name === undefined ? address.email : `${address.name} <${address.email}>`;
 }
 
+const ASCII = /^[\x20-\x7e]*$/;
+const SPECIALS = /[()<>[\]:;@\\,."]/;
+
+/**
+ * An address as a mail API reads it (RFC 5322): a display name with specials is quoted, one
+ * outside ASCII is a MIME encoded-word — raw non-ASCII names are refused (SES), and an unquoted
+ * comma splits the address in two.
+ */
+export function mimeAddress(address: EmailAddress): string {
+  if (typeof address === 'string') return address;
+  const { email, name } = address;
+  if (name === undefined || name === '') return email;
+  if (!ASCII.test(name)) {
+    const bytes = new TextEncoder().encode(name);
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return `=?UTF-8?B?${btoa(binary)}?= <${email}>`;
+  }
+  if (SPECIALS.test(name)) return `"${name.replace(/(["\\])/g, '\\$1')}" <${email}>`;
+  return `${name} <${email}>`;
+}
+
 /** The config's `email`: what every email template shares. */
 export interface EmailConfig {
   /**

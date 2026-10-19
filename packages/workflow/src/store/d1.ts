@@ -326,6 +326,9 @@ export class D1JourneyStore implements JourneyStore {
   }
 
   async enterJourney(entry: EntryInput): Promise<EntryOutcome> {
+    if (entry.execution !== undefined) {
+      throw new Error('D1JourneyStore keeps no execution starts: this runtime needs Postgres');
+    }
     const inserted = await this.db
       .prepare(
         'INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) VALUES (?, ?, ?, ?, ?, ?)'

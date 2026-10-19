@@ -1,25 +1,21 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError } from 'cloudflare:workflows';
-import { type Contract, ContractValidationError, checkEvent } from '../contract';
+import type { Contract } from '../contract';
 import { type RegisteredAction, RegistryActionInvoker } from '../engine/actions';
-import { runJourney } from '../engine/interpreter';
 import type {
   ActionInvoker,
   EngineStep,
-  EventSink,
   JourneyObserver,
   JourneyOutcome,
   MessageSender,
   MessageValidator,
 } from '../engine/ports';
-import { scaleDurations } from '../engine/time-scale';
+import { type JourneyRunParts, executeJourney } from '../host/execute';
+import { LogMessageSender, WebhookMessageSender } from '../host/senders';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
-import { JourneyFactSource } from '../store/facts';
 import type { JourneyStore } from '../store/index';
 import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE, wakeExpired } from './bindings';
 import { d1Store } from './d1-env';
-import { ingestEvent } from './router';
-import { LogMessageSender, WebhookMessageSender } from './senders';
 
 /**
  * Adapts CF's WorkflowStep to EngineStep.
@@ -99,18 +95,6 @@ class CfEngineStep implements EngineStep {
   }
 }
 
-/** Development aid: echo each outbound message before handing it to the real sender. */
-function logging(sender: MessageSender): MessageSender {
-  return {
-    async send(message) {
-      console.log(
-        `[journey] ${message.channel} ${message.template} → ${message.recipient ?? message.userId} ${JSON.stringify(message.props)}`
-      );
-      return sender.send(message);
-    },
-  };
-}
-
 /**
  * The generic journey executor: one class runs every workflow, because IR is
  * data. It is loaded from the store by the contentHash pinned at entry —
@@ -148,7 +132,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
 
   /**
    * Message outlet; an app overrides this to plug in real channels (say
-   * CfEmailSender with a react-email renderer). By default it picks the webhook
+   * an EmailSender over a transport with a react-email renderer). By default it picks the webhook
    * or logging sender based on the environment.
    */
   protected createMessageSender(): MessageSender {
@@ -198,103 +182,39 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
     return new RegistryActionInvoker(this.actions());
   }
 
+  /**
+   * Everything one run is wired to. By default it is composed from the methods above; a host
+   * that assembles the whole set itself (journeyWorker) overrides this one instead.
+   */
+  protected createRunParts(store: JourneyStore, params: JourneyParams): JourneyRunParts {
+    return {
+      store,
+      env: this.env,
+      runtime: this.runtime(params),
+      messages: this.createMessageSender(),
+      actions: this.createActionInvoker(),
+      contract: this.contract(),
+      validator: this.createMessageValidator(),
+      observer: this.createObserver(store),
+    };
+  }
+
   async run(event: WorkflowEvent<JourneyParams>, step: WorkflowStep): Promise<JourneyOutcome> {
     const store = this.createStore();
     try {
-      return await this.execute(event, step, store);
+      const { userId } = event.payload;
+      return await executeJourney(
+        {
+          instanceId: event.instanceId,
+          params: event.payload,
+          // Trigger-event creation time: replay-stable, unlike Date.now() here
+          enteredAtMs: event.timestamp.getTime(),
+          step: new CfEngineStep(step, store, userId, event.instanceId),
+        },
+        this.createRunParts(store, event.payload)
+      );
     } finally {
       await this.closeStore(store);
     }
-  }
-
-  private async execute(
-    event: WorkflowEvent<JourneyParams>,
-    step: WorkflowStep,
-    store: JourneyStore
-  ): Promise<JourneyOutcome> {
-    const { workflowId, contentHash, userId } = event.payload;
-    const env = this.env;
-
-    const stored = await store.getWorkflowIR(contentHash);
-    if (stored === undefined) {
-      throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
-    }
-    const runtime = resolveRuntime({ current: this.runtime(event.payload) }, 'current');
-    // Development runs the journey in fast-forward; the pinned hash still names the version.
-    const ir = scaleDurations(stored, runtime.timeScale);
-
-    const observer = this.createObserver(store);
-    const finished = (status: JourneyOutcome['status'] | 'failed', convertedAt?: number) =>
-      observer?.finished?.({
-        workflow: workflowId,
-        instanceId: event.instanceId,
-        userId,
-        status,
-        at: Date.now(),
-        ...(convertedAt === undefined ? {} : { convertedAt }),
-      });
-
-    const messages = runtime.logMessages
-      ? logging(this.createMessageSender())
-      : this.createMessageSender();
-
-    // send_event feeds straight back into the router logic — an in-Worker call
-    // forming the event edge between workflows. The step's identity travels as
-    // the event id, so a retried emit records the occurrence once.
-    // An emitted event passes the same contract check as one arriving over HTTP.
-    const contract = this.contract();
-    const events: EventSink = {
-      emit: async (name, payload, id) => {
-        let accepted: Record<string, unknown> = payload;
-        if (contract !== undefined) {
-          const verdict = checkEvent(contract, name, payload);
-          if (!verdict.ok) throw new ContractValidationError(name, verdict.issues);
-          accepted = verdict.data;
-        }
-        await ingestEvent(env, { id, userId, event: name, payload: accepted }, store);
-      },
-    };
-
-    let outcome: JourneyOutcome;
-    try {
-      outcome = await runJourney(ir, {
-        userId,
-        instanceId: event.instanceId,
-        // Trigger-event creation time: replay-stable, unlike Date.now() here
-        enteredAtMs: event.timestamp.getTime(),
-        step: new CfEngineStep(step, store, userId, event.instanceId),
-        facts: new JourneyFactSource(store, userId),
-        messages,
-        events,
-        actions: this.createActionInvoker(),
-        validator: this.createMessageValidator(),
-        observer,
-      });
-    } catch (error) {
-      /*
-       * An error escaping run() ends the instance, and the ledger is the only
-       * place anyone looks afterwards: leaving it at 'running' meant a dead
-       * journey stayed indistinguishable from a waiting one, in the dashboard
-       * and in the once-policy, forever.
-       *
-       * Subscriptions are deliberately left in place. They are cleaned up on
-       * every ordinary ending, but here the wake rows are the only evidence of
-       * what the instance was waiting for, and dropping them would also break
-       * the instance if the platform does re-run it.
-       */
-      await step.do('finalize:failed', async () => {
-        await store.setEntryStatus(event.instanceId, 'failed');
-        await finished('failed');
-      });
-      throw error;
-    }
-
-    await step.do('finalize', async () => {
-      await store.setEntryStatus(event.instanceId, outcome.status);
-      await store.unsubscribe(event.instanceId);
-      await finished(outcome.status, outcome.convertedAt);
-    });
-
-    return outcome;
   }
 }

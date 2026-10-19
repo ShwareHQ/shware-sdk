@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { channelsFromConfig } from '../src/cloudflare/channels';
 import { EnvValidationError, journeyWorker } from '../src/cloudflare/worker';
 import { defineConfig } from '../src/config';
 import type { OutboundMessage } from '../src/engine/ports';
+import { channelsFromConfig } from '../src/host/channels';
 import {
   discordTemplate,
   registryValidator,

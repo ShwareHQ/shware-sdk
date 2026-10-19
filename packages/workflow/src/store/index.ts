@@ -60,6 +60,69 @@ export interface EntryInput {
   instanceId: string;
   hash: string;
   ts: number;
+  /**
+   * The instance's start, recorded in the same transaction as the entry — for a runtime whose
+   * start is an asynchronous submit (AWS) that may have to be retried. Only a store with
+   * `executions` accepts it.
+   */
+  execution?: ExecutionStart | undefined;
+}
+
+/** How an instance is started on a runtime that submits it: replayed as is on every retry. */
+export interface ExecutionStart {
+  /** The runtime's idempotency key (the durable execution name). */
+  name: string;
+  /** What is invoked: a qualified function ARN, its version included. */
+  target: string;
+  /** The exact payload: a retried submit must send the same bytes, or the runtime refuses it. */
+  input: string;
+}
+
+export interface ExecutionRecord extends ExecutionStart {
+  instanceId: string;
+  workflow: string;
+  userId: string;
+  createdAt: number;
+  submittedAt?: number | undefined;
+  arn?: string | undefined;
+  unresolvedAt?: number | undefined;
+  callbackId?: string | undefined;
+  /** Bumped by every wait the instance arms: a wake or a cleanup of an older one leaves it alone. */
+  generation: number;
+  deadlineAt?: number | undefined;
+  checkedAt?: number | undefined;
+}
+
+/**
+ * What a runtime that submits its starts and parks waits on one-shot callbacks (AWS) keeps
+ * beside the entry ledger. The runtime holds the execution history; this holds only the
+ * mapping from the engine's instance id to it.
+ */
+export interface ExecutionRegistry {
+  get(instanceId: string): Promise<ExecutionRecord | undefined>;
+  /**
+   * Starts not yet confirmed and not given up on, oldest first: of one (workflow, user) entry
+   * still running, or every one created before `createdBefore`.
+   */
+  pendingStarts(filter: {
+    workflow?: string;
+    userId?: string;
+    createdBefore?: number;
+    limit: number;
+  }): Promise<ExecutionRecord[]>;
+  markSubmitted(instanceId: string, arn: string | undefined, at: number): Promise<void>;
+  markUnresolved(instanceId: string, at: number): Promise<void>;
+  setArn(instanceId: string, arn: string): Promise<void>;
+  /** Record the callback a wait parks on; false when a newer generation is already armed. */
+  armCallback(
+    instanceId: string,
+    callback: { id: string; generation: number; deadlineAt?: number | undefined }
+  ): Promise<boolean>;
+  /** Forget the callback — only if it is still that generation's. */
+  clearCallback(instanceId: string, generation: number): Promise<void>;
+  /** Submitted executions whose entry is still running, least recently checked first. */
+  toReconcile(limit: number, checkedBefore: number): Promise<ExecutionRecord[]>;
+  markChecked(instanceId: string, at: number): Promise<void>;
 }
 
 /**
@@ -329,6 +392,8 @@ export interface JourneyStore {
   enterJourney(entry: EntryInput): Promise<EntryOutcome>;
   removeEntry(instanceId: string): Promise<void>;
   setEntryStatus(instanceId: string, status: string): Promise<void>;
+  /** Execution starts and wake callbacks, for a runtime that needs them (AWS); Postgres only. */
+  readonly executions?: ExecutionRegistry;
 
   /* ------------------------------ wake subscriptions --------------------------- */
   /** Distinct wake handles registered for (user, event). */

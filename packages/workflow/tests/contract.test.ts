@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { JourneyClient, JourneyValidationError } from '../src/client';
-import { deployBundle, handleRequest } from '../src/cloudflare/router';
+import { deployBundle, handleRequest } from '../src/host/router';
 import { compileBundle, defineContract, performed, trigger, workflow } from '../src/index';
 import { D1JourneyStore } from '../src/store/d1';
 import { makeEnv } from './fake-cloudflare';

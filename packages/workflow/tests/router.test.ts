@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { WAKE_EVENT_TYPE } from '../src/cloudflare/bindings';
-import { deployBundle, handleRequest, ingestEvent } from '../src/cloudflare/router';
 import { PROFILE_UPDATED_EVENT } from '../src/engine/condition';
+import { deployBundle, handleRequest, ingestEvent } from '../src/host/router';
 import { compileBundle, eq, segment, trigger, workflow } from '../src/index';
 import { makeEnv } from './fake-cloudflare';
 import {
@@ -378,6 +378,24 @@ describe('identify', () => {
     expect(body.woke).toBe(1);
     expect(journey.wakes).toEqual([{ id: 'inst-wait', type: WAKE_EVENT_TYPE }]);
     expect(db.profiles.get('u1')).toBe(JSON.stringify({ plan: 'pro' }));
+  });
+
+  test('a lookup that fails for another reason keeps the subscription', async () => {
+    const { env, db, journey } = makeEnv();
+    db.subscriptions.push({
+      user_id: 'u1',
+      event: PROFILE_UPDATED_EVENT,
+      wake_handle: 'inst-1',
+      ts: 0,
+    });
+    journey.get = async () => {
+      throw new Error('connection reset by peer');
+    };
+    const response = await handleRequest(identifyRequest('u1', { plan: 'pro' }), env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ woke: 0 });
+    // A database blip must not silence the wait for good
+    expect(db.subscriptions).toHaveLength(1);
   });
 
   test('a dangling subscription (unknown instance) is pruned, not fatal', async () => {

@@ -169,15 +169,18 @@ export default defineConfig({
 // src/index.ts
 import { type JourneyEnv, journeyWorker } from '@shware/workflow/cloudflare';
 import { postgresJsStore } from '@shware/workflow/postgres-js';
+import { cloudflareEmailTransport } from '@shware/workflow/transports/cloudflare-email';
 import config from '../workflow.config';
 
 interface Env extends JourneyEnv {
   HYPERDRIVE: { connectionString: string };
+  EMAIL: NonNullable<JourneyEnv['EMAIL']>;
 }
 
 const journeys = journeyWorker<Env>({
   config,
   store: (env, database) => postgresJsStore(env.HYPERDRIVE.connectionString, database),
+  email: (env) => cloudflareEmailTransport({ binding: env.EMAIL }),
 });
 
 /** The wrangler `workflows` binding's class_name. */
@@ -464,7 +467,7 @@ the compile fails.
 `emailTemplate({ id, from, replyTo?, unsubscribeUrl?, title, description?, props, subject, preview, component })`
 declares one. The Worker renders it with `@shware/workflow/react-email` (React's
 streaming renderer, which waits for react-email's `<Tailwind>`) and sends it
-through the `EMAIL` send_email binding, from the template's own `from`:
+through the host's email transport, from the template's own `from`:
 
 ```ts
 // src/email/welcome.tsx
@@ -502,6 +505,23 @@ email: {
   tracking: { quickClickMs: 1_000 }, // the default
 },
 ```
+
+The transport is the host's `email` option, chosen independently of where the
+workflow runs. Rendering, tracking and the tracked-link commit happen before it,
+the same for every provider (`EmailSender`):
+
+| Transport                                                                  | Import                                         |
+| -------------------------------------------------------------------------- | ---------------------------------------------- |
+| `cloudflareEmailTransport({ binding })` — a Worker's `send_email`          | `@shware/workflow/transports/cloudflare-email` |
+| `cloudflareEmailTransport({ accountId, apiToken })` — REST, anywhere       | `@shware/workflow/transports/cloudflare-email` |
+| `sesEmailTransport({ region, credentials? })` — SES v2, SigV4 over `fetch` | `@shware/workflow/transports/ses`              |
+
+`sesEmailTransport` runs in a Worker and in Node alike. Without `credentials` it
+reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` at send
+time (a Lambda's execution role); a Worker passes them, or a provider, from its
+env. Delivery is at least once: SES has no de-duplication key, so an email the
+provider accepted just before the step's checkpoint failed can go out twice.
+Without an `email` option the email channel fails its sends, saying so.
 
 An email step refuses to send when the profile has no `email`.
 `GET /preview/<id>?props=<JSON>` renders a template, with the subject in the
@@ -705,7 +725,7 @@ The default store needs three bindings, named as in `JourneyEnv`:
 | `JOURNEY`     | Workflow     | The `JourneyRunner` entrypoint            |
 
 A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
-when the config registers email templates, and a `triggers.crons` entry with `scheduled`
+when it sends through Cloudflare Email (`cloudflareEmailTransport({ binding: env.EMAIL })`), and a `triggers.crons` entry with `scheduled`
 exported to run the segment sweep.
 
 Set `API_TOKEN` in production. Without it every mutating endpoint is open, and
@@ -725,6 +745,80 @@ There are no migrations, and re-applying the file is not one: every statement is
 `CREATE TABLE IF NOT EXISTS`, so an existing database keeps its old tables and
 the first insert needing a new column fails. Recreate it instead. The demo has
 `pnpm db:reset`.
+
+## AWS Lambda
+
+The same config runs as one Lambda durable function behind a Function URL, on
+Postgres. `@aws/durable-execution-sdk-js` and `@aws-sdk/client-lambda` are optional
+peer dependencies, needed only by `@shware/workflow/aws`. The durable SDK's own type
+declarations reference `aws-lambda`, so a TypeScript project that type-checks
+dependencies (no `skipLibCheck`) also needs `@types/aws-lambda`.
+
+```ts
+// src/aws.ts
+import { journeyLambda } from '@shware/workflow/aws';
+import { postgresJsStore } from '@shware/workflow/postgres-js';
+import { sesEmailTransport } from '@shware/workflow/transports/ses';
+import config from '../workflow.config';
+import { env } from './env.aws'; // process.env, parsed with zod
+
+const journeys = journeyLambda({
+  config,
+  env,
+  store: (env, database) => postgresJsStore(env.DATABASE_URL, database),
+  email: (env) => sesEmailTransport({ region: env.AWS_REGION }),
+});
+
+export const handler = journeys.handler;
+```
+
+One handler serves three inputs, told apart by the event's top-level shape, so
+no HTTP body can pass for the others:
+
+- **A Function URL request**: the HTTP API, as on Cloudflare. A journey it
+  starts is its own durable execution, submitted with an asynchronous `Invoke`
+  of this function's numbered version under a stable execution name, and the
+  request returns.
+- **A run** (`$workflow.run`): one instance. Steps, delays and waits map onto
+  the durable SDK's `step`, `wait` and callbacks; a wait parks on a fresh
+  callback, recorded in Postgres, which the next relevant event completes.
+- **A sweep** (`{ "type": "$workflow.sweep" }`, from EventBridge Scheduler, or
+  `POST /segments/sweep` from an existing cron): the segment sweep, plus
+  retrying starts whose submit was never confirmed and reconciling executions
+  the platform ended (timeout, stop) into the ledger. Without one, clock-only
+  segments and this upkeep do not happen.
+
+A start is recorded with its entry in one transaction (the `execution` table),
+so a lost `Invoke` response is retried with the same name and payload and never
+re-entered as a second execution. Retries stop after 12 hours (`startRetryMs`,
+keep it under the execution retention) and the start is left unresolved.
+
+Deploy one artifact per version: publish a numbered version and point the
+`live` alias, which the Function URL is bound to, at it. Each version carries its
+compiled bundle and makes it live by itself, only over an older one; executions
+stay on the version that started them. `POST /deploy` of an arbitrary bundle is
+refused.
+
+```yaml
+Workflow:
+  Type: AWS::Serverless::Function
+  Properties:
+    Runtime: nodejs24.x
+    Handler: aws.handler
+    Timeout: 60
+    AutoPublishAlias: live
+    DurableConfig: { ExecutionTimeout: 2592000, RetentionPeriodInDays: 30 }
+    FunctionUrlConfig: { AuthType: NONE, InvokeMode: BUFFERED }
+```
+
+The execution role needs the durable checkpoint permissions,
+`lambda:InvokeFunction` on its own versions, `lambda:SendDurableExecutionCallbackSuccess`,
+`lambda:GetDurableExecution`, `lambda:ListDurableExecutionsByFunction` and
+`lambda:StopDurableExecution`, plus `ses:SendEmail` when it sends through SES.
+With `AuthType: NONE`, scope the public `lambda:InvokeFunction` grant to
+`lambda:InvokedViaFunctionUrl = true` so the URL cannot be used to invoke the
+function directly. APNs goes over Node's HTTP/2 client; a custom domain needs
+CloudFront (or another HTTPS proxy) in front of the Function URL.
 
 ## Postgres
 

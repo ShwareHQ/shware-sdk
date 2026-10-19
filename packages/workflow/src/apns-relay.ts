@@ -1,5 +1,5 @@
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http';
-import { type ClientHttp2Session, connect } from 'node:http2';
+import { http2Sessions } from './http2-client';
 
 /**
  * `@shware/workflow/apns-relay` — a development-only HTTP/1.1 → HTTP/2 relay
@@ -44,20 +44,7 @@ const FORWARDED = [
 
 export function startApnsRelay(options: ApnsRelayOptions): Promise<ApnsRelay> {
   const allow = new Set(options.allow ?? DEFAULT_ALLOW);
-  const sessions = new Map<string, ClientHttp2Session>();
-
-  function session(upstream: string): ClientHttp2Session {
-    const existing = sessions.get(upstream);
-    if (existing !== undefined && !existing.closed && !existing.destroyed) return existing;
-    const created = connect(upstream);
-    const forget = () => {
-      if (sessions.get(upstream) === created) sessions.delete(upstream);
-    };
-    created.on('error', forget);
-    created.on('close', forget);
-    sessions.set(upstream, created);
-    return created;
-  }
+  const sessions = http2Sessions();
 
   function relay(req: IncomingMessage, res: ServerResponse): void {
     const upstreamHeader = req.headers['apns-relay-upstream'];
@@ -81,7 +68,7 @@ export function startApnsRelay(options: ApnsRelayOptions): Promise<ApnsRelay> {
       }
       let stream;
       try {
-        stream = session(upstream).request(headers);
+        stream = sessions.session(upstream).request(headers);
       } catch (error) {
         res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ reason: 'RelayConnectFailed', error: String(error) }));
@@ -116,8 +103,7 @@ export function startApnsRelay(options: ApnsRelayOptions): Promise<ApnsRelay> {
         port,
         close: () =>
           new Promise((done) => {
-            for (const open of sessions.values()) open.close();
-            sessions.clear();
+            sessions.close();
             server.close(() => done());
           }),
       });

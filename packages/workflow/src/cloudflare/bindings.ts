@@ -1,4 +1,5 @@
 import type { EmailAddress } from '../email';
+import type { ExecutionStart } from '../store/index';
 
 /**
  * A minimal structural interface over the Cloudflare bindings.
@@ -41,9 +42,27 @@ export interface WorkflowInstanceLike {
   status?(): Promise<{ status: string }>;
 }
 
+/**
+ * How the router starts, wakes and stops instances: Cloudflare's workflow binding, or the AWS
+ * adapter's equivalent over durable executions.
+ */
 export interface WorkflowBindingLike {
   create(options: { id: string; params: unknown }): Promise<WorkflowInstanceLike>;
   get(id: string): Promise<WorkflowInstanceLike>;
+  /**
+   * For a runtime whose start is a submit that can be lost in flight (AWS): the start to record
+   * with the entry, in one transaction. A failed `create` then keeps the entry — its recorded
+   * start is retried by the next ingest for the pair (`resume`) or by maintenance, never rolled
+   * back and re-entered as a second execution.
+   */
+  plan?(options: { id: string; params: JourneyParams; ts: number }): Promise<ExecutionStart>;
+  /** Retry the recorded, unconfirmed start of the (workflow, user) entry still running, if any. */
+  resume?(entry: { workflow: string; userId: string }): Promise<void>;
+  /**
+   * Maintenance the sweep runs first: old unconfirmed starts retried (or given up on), and
+   * executions the platform ended on its own (timeout, stop, crash) reconciled into the ledger.
+   */
+  maintain?(): Promise<void>;
 }
 
 /**
@@ -112,6 +131,23 @@ export interface JourneyEnv {
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp: string };
   /** Development only: the HTTP/2 relay `wrangler dev` sends APNs requests through (see `@shware/workflow/apns-relay`). */
   APNS_RELAY_ORIGIN?: string;
+}
+
+/** The runtime does not know the instance: the only failure that lets the router drop its wakes. */
+export class InstanceNotFoundError extends Error {
+  override readonly name = 'InstanceNotFoundError';
+  constructor(readonly instanceId: string) {
+    super(`no such instance: ${instanceId}`);
+  }
+}
+
+/**
+ * Does this lookup failure say the instance is gone, rather than that the lookup failed?
+ * Cloudflare reports an unknown id as `instance.not_found`.
+ */
+export function isInstanceNotFound(error: unknown): boolean {
+  if (error instanceof InstanceNotFoundError) return true;
+  return /not[_ ]found|no such instance/i.test(String(error));
 }
 
 /** The event type the router uses to wake waiting instances (sendEvent's `type`). */
