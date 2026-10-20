@@ -10,6 +10,12 @@ export interface OAuth2AuthorizationRequest {
   registrationId: string;
   authorizationRequestUri: string;
   additionalParameters: PkceParameters;
+  /**
+   * What the host attached when the flow started (`oauth2Authorization` options), kept on the
+   * server and handed back to `onAuthorized` once the callback checks out. Never sent to the
+   * provider, unlike `additionalParameters`. Absent on requests stored before this field existed.
+   */
+  attributes?: Record<string, string>;
 }
 
 interface CreateAuthorizationUriParams {

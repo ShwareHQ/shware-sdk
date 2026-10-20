@@ -23,7 +23,14 @@ import {
 } from '../utils/http';
 import { timing } from '../utils/timing';
 import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
-import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from './types';
+import { MAX_ATTRIBUTES_BYTES, attributesSize, bodyAttributes } from './attributes';
+import type {
+  AuthConfig,
+  AuthService,
+  AuthorizedHandler,
+  LoggedHandler,
+  OAuth2AuthorizationOptions,
+} from './types';
 
 // PKCE per RFC 7636: code_verifier / code_challenge are 43-128 chars from
 // the unreserved set. We restrict to base64url (drops "." and "~") since
@@ -31,6 +38,37 @@ import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from '
 // the rest shrinks the accepted input shape without losing legit clients.
 // A 32-byte random verifier base64url-encodes to exactly 43 chars.
 const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
+
+function authorizationAttributes(
+  attributes: OAuth2AuthorizationOptions['attributes']
+): Record<string, string> | undefined {
+  if (!attributes) return undefined;
+  const defined: Record<string, string> = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value !== undefined) defined[key] = value;
+  }
+  if (Object.keys(defined).length === 0) return undefined;
+  // The host's own values, written with the session: oversized is a bug in the host, not a 400.
+  const size = attributesSize(defined);
+  invariant(
+    size <= MAX_ATTRIBUTES_BYTES,
+    `oauth2 authorization attributes are ${size} bytes, at most ${MAX_ATTRIBUTES_BYTES} allowed`
+  );
+  return defined;
+}
+
+/** Sign in with Apple answers with `response_mode=form_post`; a charset parameter may follow. */
+const INVALID_ATTRIBUTES = {
+  error: 'invalid_request',
+  error_description: `attributes must map strings to strings, at most ${MAX_ATTRIBUTES_BYTES} bytes`,
+};
+
+function isFormPost(request: Request) {
+  const contentType = request.headers.get('content-type')?.toLowerCase();
+  return (
+    request.method === 'POST' && !!contentType?.startsWith('application/x-www-form-urlencoded')
+  );
+}
 
 interface DesktopCodeRecord {
   /** principal.name from the upstream cookie session */
@@ -208,8 +246,12 @@ export class Auth implements AuthService {
     return Response.json({ nonce });
   };
 
-  oauth2Authorization = async (request: Request): Promise<Response> => {
+  oauth2Authorization = async (
+    request: Request,
+    options?: OAuth2AuthorizationOptions
+  ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const attributes = authorizationAttributes(options?.attributes);
     const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, PATH.OAUTH2_AUTHORIZATION);
     const state = randomUUID();
@@ -226,6 +268,7 @@ export class Auth implements AuthService {
       registrationId,
       authorizationRequestUri: uri.href,
       additionalParameters: pkce,
+      ...(attributes ? { attributes } : {}),
     };
 
     const value = JSON.stringify(authorizationRequest);
@@ -272,10 +315,7 @@ export class Auth implements AuthService {
     const { registrationId } = param(request, PATH.LOGIN_OAUTH2_CODE);
     let data: Record<string, string>;
     // apple redirect: response_mode=form_post
-    if (
-      request.method === 'POST' &&
-      request.headers.get('content-type')?.toLowerCase() === 'application/x-www-form-urlencoded'
-    ) {
+    if (isFormPost(request)) {
       const params = new URLSearchParams(await request.text());
       data = Object.fromEntries(params.entries());
     } else {
@@ -308,8 +348,13 @@ export class Auth implements AuthService {
     const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
     mark('exchange_code');
 
-    // 5. create or update principal
-    const principal = await handler(request, registrationId, userInfo, token);
+    // 5. create or update principal, with what the host attached when the flow started
+    const principal = await handler(request, {
+      registrationId,
+      userInfo,
+      token,
+      attributes: cached.attributes ?? {},
+    });
     mark('save_principal');
 
     // 6. update session
@@ -335,7 +380,12 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, PATH.LOGIN_OAUTH2_NATIVE);
-    const credentials = (await request.json()) as NativeCredential;
+    const body: unknown = await request.json();
+    // Whatever the app sends besides its credentials for `onAuthorized` (a referral code, ...).
+    const attributes = bodyAttributes(body);
+    if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
+    // Only the credentials go on to the provider client.
+    const { attributes: _, ...credentials } = body as NativeCredential & { attributes?: unknown };
     const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
       registrationId,
       credentials,
@@ -353,7 +403,7 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await handler(request, registrationId, userInfo, token);
+    const principal = await handler(request, { registrationId, userInfo, token, attributes });
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -379,17 +429,22 @@ export class Auth implements AuthService {
     const { mark, setTiming } = timing({ enabled: this.timing });
 
     // should support application/x-www-form-urlencoded and application/json
+    // Google's own form post carries no attributes; an app posting JSON may add them.
     let body: Record<string, string>;
+    let attributes: Record<string, string> | null = {};
     if (request.headers.get('Content-Type')?.includes('application/x-www-form-urlencoded')) {
       const text = await request.text();
       body = Object.fromEntries(new URLSearchParams(text));
     } else if (request.headers.get('Content-Type')?.includes('application/json')) {
-      body = (await request.json()) as Record<string, string>;
+      const json: unknown = await request.json();
+      attributes = bodyAttributes(json);
+      body = json as Record<string, string>;
     } else {
       const json = { error: 'invalid_request', error_description: 'invalid content type' };
       return Response.json(json, { status: 400 });
     }
 
+    if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
     const parsed = googleOneTapSchema.parse(body);
 
     // csrf token is not supported in FedCM mode
@@ -403,14 +458,14 @@ export class Auth implements AuthService {
     let principal: Principal;
     if (parsed.credential) {
       const { token, userInfo } = await google.getTokenInfo(parsed.credential);
-      principal = await handler(request, registrationId, userInfo, token);
+      principal = await handler(request, { registrationId, userInfo, token, attributes });
     } else if (parsed.code) {
       const token = await this.oauth2Client.exchangeAuthorizationCode({
         registrationId,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-      principal = await handler(request, registrationId, userInfo, token);
+      principal = await handler(request, { registrationId, userInfo, token, attributes });
     } else {
       throw new Error('invalid request');
     }
@@ -458,7 +513,7 @@ export class Auth implements AuthService {
   loginEmail = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     const { data, error } = valid(loginEmailSchema, await request.json());
     if (error) return Response.json(error, { status: error.error.code });
-    const { email, verificationCode } = data;
+    const { email, verificationCode, attributes } = data;
 
     const key = this.getEmailVerificationCodeKey(email);
     const stored = await this.kv.getItem(key);
@@ -471,7 +526,11 @@ export class Auth implements AuthService {
     }
     await this.kv.removeItem(key);
     const claims: StandardClaims = { sub: email, email, email_verified: true };
-    const principal = await handler(request, 'EMAIL', { claims, data: {} });
+    const principal = await handler(request, {
+      registrationId: 'EMAIL',
+      userInfo: { claims, data: {} },
+      attributes: attributes ?? {},
+    });
 
     // save session
     const session = this.repository.createSession();

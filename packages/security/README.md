@@ -91,10 +91,11 @@ the key itself is used (`github`). The key is the `:registrationId` in the route
 ### The `onAuthorized` handler
 
 Every login method takes an `AuthorizedHandler`: create or update your user and return the
-`Principal` whose `name` is stored in the session.
+`Principal` whose `name` is stored in the session. It gets the request and an `Authorization`
+object — `{ registrationId, userInfo, token?, attributes }` — so fields are named, not positional.
 
 ```ts
-import type { OAuth2Token, Principal, Provider, UserInfo } from '@shware/security';
+import type { Authorization, Principal, Provider } from '@shware/security';
 
 const PROVIDER_BY_REGISTRATION: Record<string, Provider | undefined> = {
   github: 'GITHUB',
@@ -105,9 +106,7 @@ const PROVIDER_BY_REGISTRATION: Record<string, Provider | undefined> = {
 
 export async function onAuthorized(
   request: Request,
-  registrationId: string,
-  { claims }: UserInfo,
-  token?: OAuth2Token
+  { registrationId, userInfo: { claims } }: Authorization
 ): Promise<Principal> {
   const provider = PROVIDER_BY_REGISTRATION[registrationId];
   if (!provider) throw new Error(`Unknown registration: ${registrationId}`);
@@ -294,6 +293,41 @@ The redirect URI defaults to `${baseUri}/login/oauth2/code/<registrationId>`; se
    so register both). `loginOAuth2Code` checks state, exchanges the code, calls `onAuthorized`
    and redirects to `successUri`, or to `errorUri` with `error` and `error_description`.
 
+#### Carrying data to `onAuthorized` (`attributes`)
+
+Something known when the flow starts may be needed when the user comes back — a referral code in
+a cookie, a `?ref=` parameter, where to go after sign-in. The callback is the wrong place to look
+for it: Apple's `form_post` is a cross-site POST that drops `SameSite=Lax` cookies, and query
+parameters do not survive the provider round trip. Attach it to the authorization request instead
+(like Spring Security's `OAuth2AuthorizationRequest` attributes):
+
+```ts
+app.get(PATH.OAUTH2_AUTHORIZATION, (c) =>
+  auth.oauth2Authorization(c.req.raw, {
+    attributes: { referralCode: getCookie(c, 'REFERRAL_CODE') },
+  })
+);
+
+export async function onAuthorized(request: Request, { attributes }: Authorization) {
+  const referralCode = attributes.referralCode;
+  // ...
+}
+```
+
+- Stored with the authorization request in the session (the same JSON as `state` and the PKCE
+  verifier), never sent to the provider, so no extra storage, expiry or cleanup.
+- Handed to `onAuthorized` as `authorization.attributes` only after the session, `state` and
+  registration check out, and removed with the authorization request after a successful login,
+  so they are used once.
+- String values only; `undefined` values are dropped; at most 2 KB serialized (they are written
+  with the session).
+- Logins that post a body — native, One Tap (JSON) and email — take an optional `attributes`
+  field in that body instead, since the SDK consumes the body before `onAuthorized` runs:
+  `{ "id_token": "…", "attributes": { "referralCode": "abc123" } }`. Same rules (string values,
+  at most 2 KB); an invalid one is a `400`. Without it the handler gets `attributes: {}`.
+- They come from the browser that started the flow: trust them like a cookie — fine for
+  attribution or a post-login destination, not for authorization decisions.
+
 ### Native login
 
 Mobile apps sign in with the platform SDK and post the result to
@@ -345,7 +379,7 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 
 - `POST /auth/sendEmailVerificationCode` with `{ email, turnstileToken }`.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
-  registration id `'EMAIL'` and claims `{ sub: email, email, email_verified: true }`.
+  `registrationId: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 
 `sendPhoneVerificationCode` and `loginPhone` exist but currently answer `501 not_implemented`.
 

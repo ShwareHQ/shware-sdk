@@ -18,4 +18,10 @@ export type {
   StandardClaims,
   UserInfo,
 } from './oauth2/types';
-export type { AuthConfig, AuthService } from './auth/types';
+export type {
+  AuthConfig,
+  AuthService,
+  Authorization,
+  AuthorizedHandler,
+  OAuth2AuthorizationOptions,
+} from './auth/types';

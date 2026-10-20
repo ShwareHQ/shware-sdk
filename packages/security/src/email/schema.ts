@@ -1,4 +1,5 @@
 import { email, maxLength, object, regex, string } from 'zod/mini';
+import { attributesSchema } from '../auth/attributes';
 
 export const sendEmailVerificationCodeSchema = object({
   email: email().check(maxLength(320)),
@@ -8,4 +9,5 @@ export const sendEmailVerificationCodeSchema = object({
 export const loginEmailSchema = object({
   email: email().check(maxLength(320)),
   verificationCode: string().check(regex(/^\d{6}$/)),
+  attributes: attributesSchema,
 });
