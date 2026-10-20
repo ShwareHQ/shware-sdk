@@ -20,13 +20,15 @@ export const cancellationDetailsSchema = object({
   resubscribeIntent: optional(nullable(_enum(RESUBSCRIBE_INTENTS))),
 });
 
+/** At least one origin: an empty list would refuse every return URL. */
+export type AllowedOrigins = readonly [string, ...string[]];
+
 /**
  * Normalizes each allowed origin with `new URL()`, so `https://example.com/` and
  * `https://example.com` are the same entry. Throws on anything that is not an http(s) origin: a
  * misconfigured list must fail at startup, not let every return URL through or refuse them all.
  */
-function normalizeOrigins(origins: readonly string[]): string[] {
-  if (origins.length === 0) throw new Error('returnUrl: allowedOrigins must not be empty');
+function normalizeOrigins(origins: AllowedOrigins): string[] {
   return origins.map((origin) => {
     const parsed = new URL(origin);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
@@ -60,7 +62,7 @@ function isAllowedReturnUrl(value: string, allowedOrigins: readonly string[]): b
  * `checkout.stripe.com` / `billing.stripe.com` link that ends on a page of their choosing: an open
  * redirect behind a trusted domain. `allowedOrigins` is usually just the web app's origin.
  */
-export function returnUrlSchema(allowedOrigins: readonly string[]) {
+export function returnUrlSchema(allowedOrigins: AllowedOrigins) {
   const origins = normalizeOrigins(allowedOrigins);
   return url().check(
     refine((value) => isAllowedReturnUrl(value, origins), {
@@ -71,7 +73,7 @@ export function returnUrlSchema(allowedOrigins: readonly string[]) {
 
 export interface CreateCheckoutSessionSchemaOptions {
   /** Origins (`https://example.com`) `cancelUrl` and `successUrl` may point at; see `returnUrlSchema`. */
-  allowedOrigins: readonly string[];
+  allowedOrigins: AllowedOrigins;
 }
 
 export function createCheckoutSessionSchema(

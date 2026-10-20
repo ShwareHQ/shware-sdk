@@ -41,10 +41,10 @@ describe('returnUrlSchema', () => {
     expect(schema.safeParse('https://example.com/billing').success).toBe(true);
   });
 
-  it.each([[[]], [['not a url']], [['javascript:alert(1)']], [['ftp://example.com']]])(
-    'throws on a misconfigured list %j',
-    (origins) => {
-      expect(() => returnUrlSchema(origins)).toThrow(/returnUrl:|Invalid URL/);
+  it.each([['not a url'], ['javascript:alert(1)'], ['ftp://example.com']])(
+    'throws on a misconfigured origin %s',
+    (origin) => {
+      expect(() => returnUrlSchema([origin])).toThrow(/returnUrl:|Invalid URL/);
     }
   );
 });

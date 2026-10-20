@@ -25,6 +25,7 @@ export {
   cancellationDetailsSchema,
   createCheckoutSessionSchema,
   returnUrlSchema,
+  type AllowedOrigins,
   type CreateCheckoutSessionSchemaOptions,
   type CancellationDetails,
   type CreateCheckoutSessionDTO,
