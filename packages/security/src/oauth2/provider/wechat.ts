@@ -27,6 +27,7 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
       return url;
     },
     async exchangeAuthorizationCode(params) {
+      invariant(params.clientSecret, 'clientSecret is required for wechat');
       const url = new URL(this.tokenUri);
       url.searchParams.set('appid', params.clientId);
       url.searchParams.set('secret', params.clientSecret);

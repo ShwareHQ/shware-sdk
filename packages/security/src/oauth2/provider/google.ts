@@ -8,9 +8,20 @@ import type {
 } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
-/** The Google Cloud project number every client id of a project starts with: `<number>-<hash>.apps.googleusercontent.com`. */
-function projectNumber(clientId: string) {
-  return clientId.split('-', 1)[0];
+/** Google signs id tokens with either `iss`, the URL or the bare host. */
+const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'];
+
+function claims(data: GoogleUserInfo) {
+  return {
+    sub: data.sub,
+    name: data.name,
+    picture: data.picture,
+    email: data.email,
+    email_verified: data.email_verified,
+    given_name: data.given_name,
+    family_name: data.family_name,
+    locale: data.locale,
+  };
 }
 
 export function createGoogleProvider(): OneTapProvider {
@@ -41,23 +52,15 @@ export function createGoogleProvider(): OneTapProvider {
       }
       return (await response.json()) as GoogleToken;
     },
-    async getUserInfo({ id_token }) {
+    async getUserInfo({ id_token }, { clientId }) {
       invariant(id_token, 'id_token is required');
       invariant(this.jwkSetUri, 'jwkSetUri is required');
-      const data = await verifyIdToken<GoogleUserInfo>(id_token, this.jwkSetUri);
-      return {
-        data,
-        claims: {
-          sub: data.sub,
-          name: data.name,
-          picture: data.picture,
-          email: data.email,
-          email_verified: data.email_verified,
-          given_name: data.given_name,
-          family_name: data.family_name,
-          locale: data.locale,
-        },
-      };
+      const data = await verifyIdToken<GoogleUserInfo>(id_token, {
+        jwkSetUri: this.jwkSetUri,
+        issuer: GOOGLE_ISSUERS,
+        audience: clientId,
+      });
+      return { data, claims: claims(data) };
     },
     async loginOAuth2Native({ pkce: _, credentials, ...params }: LoginOAuth2NativeParams) {
       invariant(credentials.code, 'code is required');
@@ -65,19 +68,15 @@ export function createGoogleProvider(): OneTapProvider {
       const { tokenUri } = this;
       // An app signs in as its own installed-app client (the iOS / Android client id, custom-scheme
       // redirect), and Google only exchanges a code for the client it was issued to, so the exchange
-      // uses the client the app names rather than the registration's web client. Installed-app
-      // clients have no secret; the registration's is sent only when the exchange is for that very
-      // client. Every client id carries its project number as prefix, which pins the app's client to
-      // the registration's Google Cloud project — codes from a foreign project's client are refused.
-      const { client_id = params.clientId, redirect_uri = params.redirectUri } = credentials;
-      if (projectNumber(client_id) !== projectNumber(params.clientId)) {
-        throw new OAuth2Error(400, 'invalid_client', 'client_id belongs to another project');
-      }
+      // runs as the client the app names, which the OAuth2 client has already checked is one of this
+      // provider's configured clients. Installed-app clients have no secret. The redirect URI is the
+      // one the app used, which only the app knows.
+      const { redirect_uri = params.redirectUri } = credentials;
       const response = await exchangeAuthorizationCode({
         code,
         tokenUri,
-        clientId: client_id,
-        clientSecret: client_id === params.clientId ? params.clientSecret : '',
+        clientId: params.clientId,
+        clientSecret: params.clientSecret,
         redirectUri: redirect_uri,
       });
       if (!response.ok) {
@@ -85,13 +84,18 @@ export function createGoogleProvider(): OneTapProvider {
         throw new OAuth2Error(response.status, error, error_description);
       }
       const token = (await response.json()) as GoogleToken;
-      const userInfo = await this.getUserInfo(token);
+      const userInfo = await this.getUserInfo(token, { clientId: params.clientId });
       return { token, userInfo };
     },
-    async getTokenInfo(id_token: string) {
+    async getTokenInfo(id_token: string, clientId: string) {
       invariant(id_token, 'id_token is required');
       invariant(this.jwkSetUri, 'jwkSetUri is required');
-      const data = await verifyIdToken<GoogleUserInfo>(id_token, this.jwkSetUri);
+      // One Tap and FedCM issue the credential to the web client.
+      const data = await verifyIdToken<GoogleUserInfo>(id_token, {
+        jwkSetUri: this.jwkSetUri,
+        issuer: GOOGLE_ISSUERS,
+        audience: clientId,
+      });
       return {
         token: {
           id_token,
@@ -101,19 +105,7 @@ export function createGoogleProvider(): OneTapProvider {
           refresh_token: '',
           scope: '',
         },
-        userInfo: {
-          data,
-          claims: {
-            sub: data.sub,
-            name: data.name,
-            picture: data.picture,
-            email: data.email,
-            email_verified: data.email_verified,
-            given_name: data.given_name,
-            family_name: data.family_name,
-            locale: data.locale,
-          },
-        },
+        userInfo: { data, claims: claims(data) },
       };
     },
   };

@@ -7,15 +7,20 @@ export type LoggedHandler = (principal: Principal) => Promise<void>;
 /**
  * Who signed in, and how: what every login method hands to `onAuthorized`.
  *
- * - `registrationId`: the oauth2 registration (`github`, `appleWeb`, ...), or `EMAIL` / `PHONE`.
- * - `userInfo`: the provider's user info, or the verified email / phone as claims.
- * - `token`: the provider's tokens; absent for email and phone sign-in.
+ * - `provider`: the key of the provider in `oauth2.client.providers` (`apple`, `google`, ...), or
+ *   `EMAIL` for email sign-in. With `userInfo.claims.sub` it identifies the user: a provider's
+ *   subjects are the same whichever of its clients the user came through.
+ * - `clientId`: the client the user signed in through (the web client, an app's bundle id, ...),
+ *   telling the surfaces apart; absent for email sign-in.
+ * - `userInfo`: the provider's user info, or the verified email as claims.
+ * - `token`: the provider's tokens; absent for email sign-in.
  * - `attributes`: what the host attached when it started a redirect flow with
- *   `oauth2Authorization(request, { attributes })`; empty for every other login method (native,
- *   One Tap, email), whose request the handler already has.
+ *   `oauth2Authorization(request, { attributes })`, or the `attributes` field of a native, One Tap
+ *   (JSON) or email login body; `{}` when there were none.
  */
 export interface Authorization {
-  registrationId: string;
+  provider: string;
+  clientId?: string;
   userInfo: UserInfo;
   token?: OAuth2Token;
   attributes: Record<string, string>;
@@ -70,7 +75,7 @@ export interface AuthService {
   loginOAuth2Onetap: (
     request: Request,
     onAuthorized: AuthorizedHandler,
-    registrationId?: string
+    provider?: string
   ) => Promise<Response>;
 
   // email & phone

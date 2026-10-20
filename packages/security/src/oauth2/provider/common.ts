@@ -40,7 +40,7 @@ export async function exchangeAuthorizationCode(
     'Content-Type': 'application/x-www-form-urlencoded',
   };
   if (params.authentication === 'basic') {
-    const token = Buffer.from(`${params.clientId}:${params.clientSecret}`).toString('base64');
+    const token = Buffer.from(`${params.clientId}:${params.clientSecret ?? ''}`).toString('base64');
     headers.Authorization = `Basic ${token}`;
   } else {
     body.append('client_id', params.clientId);
@@ -67,11 +67,11 @@ export async function refreshAccessToken(
   };
 
   if (params.authentication === 'basic') {
-    const token = Buffer.from(`${params.clientId}:${params.clientSecret}`).toString('base64');
+    const token = Buffer.from(`${params.clientId}:${params.clientSecret ?? ''}`).toString('base64');
     headers.Authorization = `Basic ${token}`;
   } else {
     body.append('client_id', params.clientId);
-    body.append('client_secret', params.clientSecret);
+    if (params.clientSecret) body.append('client_secret', params.clientSecret);
   }
 
   return fetch(params.tokenUri, { method: 'POST', headers, body });
@@ -80,7 +80,7 @@ export async function refreshAccessToken(
 interface RevokeTokenParams {
   token: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   tokenRevokeUri: string;
   authentication?: 'basic' | 'post';
 }
@@ -94,11 +94,11 @@ export async function revokeToken(params: RevokeTokenParams) {
   };
 
   if (params.authentication === 'basic') {
-    const token = Buffer.from(`${params.clientId}:${params.clientSecret}`).toString('base64');
+    const token = Buffer.from(`${params.clientId}:${params.clientSecret ?? ''}`).toString('base64');
     headers.Authorization = `Basic ${token}`;
   } else {
     body.append('client_id', params.clientId);
-    body.append('client_secret', params.clientSecret);
+    if (params.clientSecret) body.append('client_secret', params.clientSecret);
   }
 
   const response = await fetch(params.tokenRevokeUri, { method: 'POST', headers, body });
@@ -109,13 +109,26 @@ export async function revokeToken(params: RevokeTokenParams) {
   }
 }
 
-export async function verifyIdToken<T>(idToken: string, jwkSetUri: string) {
+export interface VerifyIdTokenOptions {
+  jwkSetUri: string;
+  /** The `iss` values the provider signs with; anything else is refused. */
+  issuer: string | string[];
+  /**
+   * The client the token must be issued to. An id token proves who the user is only to the client
+   * it names in `aud`: any other app on the same identity provider can obtain a validly signed one
+   * for the same user, so a token for a foreign client must never sign anyone in here.
+   */
+  audience: string;
+}
+
+export async function verifyIdToken<T>(idToken: string, options: VerifyIdTokenOptions) {
+  const { jwkSetUri, issuer, audience } = options;
   try {
     const jwks = createRemoteJWKSet(new URL(jwkSetUri));
-    const { payload } = await jwtVerify(idToken, jwks);
+    const { payload } = await jwtVerify(idToken, jwks, { issuer, audience });
     return payload as T;
-  } catch {
-    console.error('Failed to verify id_token');
+  } catch (error) {
+    console.error('Failed to verify id_token', error);
     throw new OAuth2Error(400, 'invalid_request', 'Failed to verify id_token');
   }
 }

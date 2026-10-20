@@ -4,7 +4,6 @@ import type { Principal } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
 import type { OAuth2ErrorType } from '../oauth2/error';
-import { google } from '../oauth2/provider/index';
 import type {
   NativeCredential,
   OAuth2AuthorizationRequest,
@@ -82,11 +81,11 @@ export const PATH = {
   LOGOUT: '/logout',
   LOGGED: '/logged',
 
-  OAUTH2_STATE: '/oauth2/state/:registrationId',
-  OAUTH2_NONCE: '/oauth2/nonce/:registrationId',
-  OAUTH2_AUTHORIZATION: '/oauth2/authorization/:registrationId',
-  LOGIN_OAUTH2_CODE: '/login/oauth2/code/:registrationId',
-  LOGIN_OAUTH2_NATIVE: '/login/oauth2/native/:registrationId',
+  OAUTH2_STATE: '/oauth2/state/:provider',
+  OAUTH2_NONCE: '/oauth2/nonce/:provider',
+  OAUTH2_AUTHORIZATION: '/oauth2/authorization/:provider',
+  LOGIN_OAUTH2_CODE: '/login/oauth2/code/:provider',
+  LOGIN_OAUTH2_NATIVE: '/login/oauth2/native/:provider',
   LOGIN_OAUTH2_ONETAP: '/login/oauth2/onetap/google',
 
   LOGIN_EMAIL: '/login/email',
@@ -233,16 +232,16 @@ export class Auth implements AuthService {
   }
 
   oauth2State = async (request: Request): Promise<Response> => {
-    const { registrationId } = param(request, PATH.OAUTH2_STATE);
+    const { provider } = param(request, PATH.OAUTH2_STATE);
     const state = randomUUID();
-    await this.kv.setItem(this.getOauth2StateKey(state), registrationId, 10 * 60);
+    await this.kv.setItem(this.getOauth2StateKey(state), provider, 10 * 60);
     return Response.json({ state });
   };
 
   oauth2Nonce = async (request: Request): Promise<Response> => {
-    const { registrationId } = param(request, PATH.OAUTH2_NONCE);
+    const { provider } = param(request, PATH.OAUTH2_NONCE);
     const nonce = randomUUID();
-    await this.kv.setItem(this.getOauth2NonceKey(nonce), registrationId, 10 * 60);
+    await this.kv.setItem(this.getOauth2NonceKey(nonce), provider, 10 * 60);
     return Response.json({ nonce });
   };
 
@@ -253,10 +252,10 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const attributes = authorizationAttributes(options?.attributes);
     const { mark, setTiming } = timing({ enabled: this.timing });
-    const { registrationId } = param(request, PATH.OAUTH2_AUTHORIZATION);
+    const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
     const state = randomUUID();
     const pkce = this.createPkceParameters();
-    const uri = await this.oauth2Client.createAuthorizationUri({ registrationId, state, pkce });
+    const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce });
     const sessionId = this.getSessionId(request);
     const session = sessionId
       ? ((await this.repository.findById(sessionId)) ?? this.repository.createSession())
@@ -265,7 +264,7 @@ export class Auth implements AuthService {
 
     const authorizationRequest: OAuth2AuthorizationRequest = {
       state,
-      registrationId,
+      provider,
       authorizationRequestUri: uri.href,
       additionalParameters: pkce,
       ...(attributes ? { attributes } : {}),
@@ -312,7 +311,7 @@ export class Auth implements AuthService {
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
 
     // 3. validate redirect query/formdata
-    const { registrationId } = param(request, PATH.LOGIN_OAUTH2_CODE);
+    const { provider } = param(request, PATH.LOGIN_OAUTH2_CODE);
     let data: Record<string, string>;
     // apple redirect: response_mode=form_post
     if (isFormPost(request)) {
@@ -332,22 +331,23 @@ export class Auth implements AuthService {
     if (parsed.data.state !== cached.state) {
       return this.redirect('invalid_request', 'redirect state mismatch');
     }
-    if (registrationId !== cached.registrationId) {
-      return this.redirect('invalid_request', 'redirect registration mismatch');
+    if (provider !== cached.provider) {
+      return this.redirect('invalid_request', 'redirect provider mismatch');
     }
     mark('validate_session');
 
     // 4. exchange authorization code for token and get user info
     const { code, user } = parsed.data;
 
-    const token = await this.oauth2Client.exchangeAuthorizationCode({
-      registrationId,
+    const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
+      provider,
       code,
       pkce: cached.additionalParameters,
     });
     // Apple posts the user's name alongside the code, once: hand it to the provider with the token.
     const userInfo = await this.oauth2Client.getUserInfo({
-      registrationId,
+      provider,
+      clientId,
       token,
       response: user ? { user } : undefined,
     });
@@ -355,7 +355,8 @@ export class Auth implements AuthService {
 
     // 5. create or update principal, with what the host attached when the flow started
     const principal = await handler(request, {
-      registrationId,
+      provider,
+      clientId,
       userInfo,
       token,
       attributes: cached.attributes ?? {},
@@ -371,7 +372,7 @@ export class Auth implements AuthService {
 
     const uri = new URL(this.oauth2Client.successUri);
     uri.searchParams.set('status', 'success');
-    uri.searchParams.set('registrationId', registrationId);
+    uri.searchParams.set('provider', provider);
 
     const response = new Response(null, { status: 302, headers: { location: uri.href } });
     const maxAge = session.getMaxInactiveInterval();
@@ -384,15 +385,15 @@ export class Auth implements AuthService {
   loginOAuth2Native = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
-    const { registrationId } = param(request, PATH.LOGIN_OAUTH2_NATIVE);
+    const { provider } = param(request, PATH.LOGIN_OAUTH2_NATIVE);
     const body: unknown = await request.json();
     // Whatever the app sends besides its credentials for `onAuthorized` (a referral code, ...).
     const attributes = bodyAttributes(body);
     if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
     // Only the credentials go on to the provider client.
     const { attributes: _, ...credentials } = body as NativeCredential & { attributes?: unknown };
-    const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
-      registrationId,
+    const { clientId, userInfo, token } = await this.oauth2Client.loginOAuth2Native({
+      provider,
       credentials,
     });
     mark('login_oauth2_native');
@@ -400,7 +401,7 @@ export class Auth implements AuthService {
     const { nonce } = userInfo.data as { nonce?: string };
     if (nonce) {
       const value = await this.kv.getItem(this.getOauth2NonceKey(nonce));
-      if (value !== registrationId) {
+      if (value !== provider) {
         const json = { error: 'invalid_request', error_description: 'nonce mismatch' };
         return Response.json(json, { status: 400 });
       }
@@ -408,7 +409,7 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await handler(request, { registrationId, userInfo, token, attributes });
+    const principal = await handler(request, { provider, clientId, userInfo, token, attributes });
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -428,7 +429,7 @@ export class Auth implements AuthService {
   loginOAuth2Onetap = async (
     request: Request,
     handler: AuthorizedHandler,
-    registrationId = 'google'
+    provider = 'google'
   ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
@@ -460,17 +461,21 @@ export class Auth implements AuthService {
     //   return Response.json(json, { status: 400 });
     // }
 
+    // Both the credential and the code are issued to the provider's web client.
     let principal: Principal;
     if (parsed.credential) {
-      const { token, userInfo } = await google.getTokenInfo(parsed.credential);
-      principal = await handler(request, { registrationId, userInfo, token, attributes });
+      const { clientId, token, userInfo } = await this.oauth2Client.getTokenInfo({
+        provider,
+        credential: parsed.credential,
+      });
+      principal = await handler(request, { provider, clientId, userInfo, token, attributes });
     } else if (parsed.code) {
-      const token = await this.oauth2Client.exchangeAuthorizationCode({
-        registrationId,
+      const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
+        provider,
         code: parsed.code,
       });
-      const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-      principal = await handler(request, { registrationId, userInfo, token, attributes });
+      const userInfo = await this.oauth2Client.getUserInfo({ provider, clientId, token });
+      principal = await handler(request, { provider, clientId, userInfo, token, attributes });
     } else {
       throw new Error('invalid request');
     }
@@ -532,7 +537,7 @@ export class Auth implements AuthService {
     await this.kv.removeItem(key);
     const claims: StandardClaims = { sub: email, email, email_verified: true };
     const principal = await handler(request, {
-      registrationId: 'EMAIL',
+      provider: 'EMAIL',
       userInfo: { claims, data: {} },
       attributes: attributes ?? {},
     });

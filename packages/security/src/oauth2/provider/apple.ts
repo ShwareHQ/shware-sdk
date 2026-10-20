@@ -11,6 +11,9 @@ import type {
 } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode, verifyIdToken } from './common';
 
+/** `iss` of every Apple id token (https://appleid.apple.com/.well-known/openid-configuration). */
+const APPLE_ISSUER = 'https://appleid.apple.com';
+
 // ref: https://account.apple.com/.well-known/openid-configuration
 export function createAppleProvider(): Provider {
   return {
@@ -35,10 +38,16 @@ export function createAppleProvider(): Provider {
       }
       return (await response.json()) as AppleToken;
     },
-    async getUserInfo({ id_token }, response) {
+    async getUserInfo({ id_token }, { clientId, response }) {
       invariant(id_token, 'id_token is required');
       invariant(this.jwkSetUri, 'jwkSetUri is required');
-      const token = await verifyIdToken<AppleIdToken>(id_token, this.jwkSetUri);
+      // The audience is the client the code was exchanged as: the bundle id for an app, the
+      // Services ID for the web.
+      const token = await verifyIdToken<AppleIdToken>(id_token, {
+        jwkSetUri: this.jwkSetUri,
+        issuer: APPLE_ISSUER,
+        audience: clientId,
+      });
       // Apple's id token never carries a name; on the first authorization of the web flow the
       // name comes in the form_post `user` instead, unsigned, so only its name parts are used
       // and the signed id token's email always wins over the one beside them.
@@ -67,7 +76,7 @@ export function createAppleProvider(): Provider {
         throw new OAuth2Error(response.status, error);
       }
       const token = (await response.json()) as AppleToken;
-      const { data, claims } = await this.getUserInfo(token);
+      const { data, claims } = await this.getUserInfo(token, { clientId: params.clientId });
       // The app gets the name from Apple on the first authorization only and passes it along in
       // the login body as the platform's `fullName`.
       const fullName = cleanPersonName(credentials.fullName);

@@ -17,8 +17,9 @@ vi.mock(import('../common'), async (importOriginal) => {
   return actual;
 });
 
+const clientId = 'com.example.app';
 const registration = {
-  clientId: 'com.example.app',
+  clientId,
   clientSecret: 'secret',
   redirectUri: 'https://api.example.com/login/oauth2/code/apple',
 };
@@ -72,7 +73,10 @@ describe('apple getUserInfo (web, form_post user)', () => {
       name: { firstName: ' John ', lastName: 'Appleseed' },
       email: 'spoofed@example.com',
     });
-    const { claims, data } = await createAppleProvider().getUserInfo(token, { user });
+    const { claims, data } = await createAppleProvider().getUserInfo(token, {
+      clientId,
+      response: { user },
+    });
 
     expect(claims).toEqual({
       sub: idToken.sub,
@@ -90,7 +94,10 @@ describe('apple getUserInfo (web, form_post user)', () => {
 
   test('ignores a malformed user without failing', async () => {
     for (const user of ['{not json', '"John"', JSON.stringify({ name: { firstName: 42 } })]) {
-      const { claims, data } = await createAppleProvider().getUserInfo(token, { user });
+      const { claims, data } = await createAppleProvider().getUserInfo(token, {
+        clientId,
+        response: { user },
+      });
       expect(claims).toEqual({ sub: idToken.sub, email: idToken.email, email_verified: true });
       expect(data).not.toHaveProperty('user');
     }
@@ -98,12 +105,15 @@ describe('apple getUserInfo (web, form_post user)', () => {
 
   test('caps each name part', async () => {
     const user = JSON.stringify({ name: { firstName: 'x'.repeat(200) } });
-    const { claims } = await createAppleProvider().getUserInfo(token, { user });
+    const { claims } = await createAppleProvider().getUserInfo(token, {
+      clientId,
+      response: { user },
+    });
     expect(claims.given_name).toHaveLength(64);
   });
 
   test('without a user, claims carry no name', async () => {
-    const { claims, data } = await createAppleProvider().getUserInfo(token);
+    const { claims, data } = await createAppleProvider().getUserInfo(token, { clientId });
     expect(claims).toEqual({ sub: idToken.sub, email: idToken.email, email_verified: true });
     expect(data).toEqual(idToken);
   });
