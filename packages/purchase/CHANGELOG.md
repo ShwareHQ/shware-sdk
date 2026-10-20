@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 6.0.0
+
+### Major Changes
+
+- 1b51590: `createCheckoutSessionSchema` now requires `{ allowedOrigins }` and refuses `cancelUrl` / `successUrl` outside those origins, closing an open redirect through Stripe Checkout; the new `returnUrlSchema(allowedOrigins)` covers other return URLs such as the billing portal's.
+
 ## 5.2.2
 
 ### Patch Changes
