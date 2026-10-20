@@ -311,6 +311,39 @@ describe('tracking', () => {
     expect(await store.isSuppressed('u1', 'push')).toBe(false);
   });
 
+  test("the List-Unsubscribe URL: a mail client's one-click POST unsubscribes, a browser asks", async () => {
+    const { id, tracking } = await sendEmail(
+      ['https://app.example.com/unsubscribe'],
+      'https://app.example.com/unsubscribe'
+    );
+    // The copy's one-click endpoint: the message, no link position
+    expect(tracking?.unsubscribe).toBe(`https://wf.example.com/t/u/${id}`);
+    const options = { product: 'Acme' };
+    // Opened in a browser (a client without one-click): the same question, nothing recorded
+    const opened = await handleTracking(get(`/t/u/${id}`), reporting(), options);
+    expect(opened?.status).toBe(200);
+    expect(await opened?.text()).toContain(`action="/t/u/${id}"`);
+    const unsubscribed = () =>
+      pg.query('SELECT unsubscribed_at IS NOT NULL AS u FROM workflow.message');
+    expect((await unsubscribed()).rows).toEqual([{ u: false }]);
+    // RFC 8058: the provider POSTs the form body, with no cookie and no confirmation
+    const oneClick = new Request(`https://wf.example.com/t/u/${id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'List-Unsubscribe=One-Click',
+    });
+    expect((await handleTracking(oneClick, reporting(), options))?.status).toBe(200);
+    expect((await unsubscribed()).rows).toEqual([{ u: true }]);
+    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(true);
+
+    // A copy no longer on record (its user erased): the one-click still succeeds, changing nothing
+    const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
+      method: 'POST',
+      body: 'List-Unsubscribe=One-Click',
+    });
+    expect((await handleTracking(gone, reporting(), options))?.status).toBe(200);
+  });
+
   test('an email sent without an unsubscribe URL has none, whatever the config says now', async () => {
     const { id } = await sendEmail(['https://app.example.com/unsubscribe']);
     const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };

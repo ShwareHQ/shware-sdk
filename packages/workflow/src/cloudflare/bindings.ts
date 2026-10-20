@@ -88,6 +88,8 @@ export interface EmailBindingLike {
     replyTo?: EmailAddress;
     subject: string;
     html: string;
+    /** List-Unsubscribe and List-Unsubscribe-Post, when the email has an unsubscribe link. */
+    headers?: Readonly<Record<string, string>>;
     /** `${instanceId}:${nodeId}`: stable across replays and retries — drop a send whose key was already delivered. */
     idempotencyKey: string;
   }): Promise<unknown>;

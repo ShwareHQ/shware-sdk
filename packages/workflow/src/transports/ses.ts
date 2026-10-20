@@ -87,6 +87,14 @@ export function sesEmailTransport(options: SesEmailTransportOptions): EmailTrans
           Simple: {
             Subject: { Data: message.subject, Charset: 'UTF-8' },
             Body: { Html: { Data: message.html, Charset: 'UTF-8' } },
+            ...(message.headers === undefined
+              ? {}
+              : {
+                  Headers: Object.entries(message.headers).map(([Name, Value]) => ({
+                    Name,
+                    Value,
+                  })),
+                }),
           },
         },
         ...(options.configurationSetName === undefined
