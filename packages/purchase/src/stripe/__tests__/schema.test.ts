@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createCheckoutSessionSchema, isAllowedReturnUrl, returnUrlSchema } from '../schema';
+import { createCheckoutSessionSchema, returnUrlSchema } from '../schema';
 
-describe('isAllowedReturnUrl', () => {
-  const origins = ['https://example.com'];
+describe('returnUrlSchema origins', () => {
+  const schema = returnUrlSchema(['https://example.com']);
 
   it.each([
     'https://example.com',
@@ -10,7 +10,7 @@ describe('isAllowedReturnUrl', () => {
     'https://example.com/billing?session_id={CHECKOUT_SESSION_ID}',
     'https://example.com:443/pricing#plans',
   ])('allows %s', (value) => {
-    expect(isAllowedReturnUrl(value, origins)).toBe(true);
+    expect(schema.safeParse(value).success).toBe(true);
   });
 
   it.each([
@@ -26,13 +26,12 @@ describe('isAllowedReturnUrl', () => {
     'javascript:alert(1)',
     'not a url',
   ])('refuses %s', (value) => {
-    expect(isAllowedReturnUrl(value, origins)).toBe(false);
+    expect(schema.safeParse(value).success).toBe(false);
   });
 
   it('allows http when the origin is http', () => {
-    expect(isAllowedReturnUrl('http://localhost:3000/billing', ['http://localhost:3000'])).toBe(
-      true
-    );
+    const local = returnUrlSchema(['http://localhost:3000']);
+    expect(local.safeParse('http://localhost:3000/billing').success).toBe(true);
   });
 });
 

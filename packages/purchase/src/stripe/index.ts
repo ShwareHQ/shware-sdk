@@ -24,7 +24,6 @@ export { StripeEventHandler } from './handler';
 export {
   cancellationDetailsSchema,
   createCheckoutSessionSchema,
-  isAllowedReturnUrl,
   returnUrlSchema,
   type CreateCheckoutSessionSchemaOptions,
   type CancellationDetails,

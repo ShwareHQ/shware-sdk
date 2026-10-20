@@ -43,7 +43,7 @@ function normalizeOrigins(origins: readonly string[]): string[] {
  * protocol-relative (`//evil.com`) and `javascript:` values are all refused. The scheme is part of
  * the origin, so an https-only list refuses `http:` too.
  */
-export function isAllowedReturnUrl(value: string, allowedOrigins: readonly string[]): boolean {
+function isAllowedReturnUrl(value: string, allowedOrigins: readonly string[]): boolean {
   let parsed: URL;
   try {
     parsed = new URL(value);
