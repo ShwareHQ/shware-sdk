@@ -108,21 +108,17 @@ export type NativeCredential = {
   id_token?: string;
   access_token?: string;
   /**
-   * The user's name as the app received it, for providers whose id token carries none (Apple sends
-   * it to the app on the first authorization only). Standard OIDC claim names; unsigned client
-   * input, so the provider cleans each part and ignores anything that is not a string.
+   * The user's name as the platform hands it to the app, for providers whose id token carries none
+   * (Apple sends it on the first authorization only): iOS
+   * `ASAuthorizationAppleIDCredential.fullName`, expo-apple-authentication's `credential.fullName`.
+   * The snake_case fields above are OAuth / OIDC protocol parameters; this one is not, it is the
+   * platform's object passed through unchanged, so it keeps the platform's own name and apps send
+   * `fullName: credential.fullName` as is. Unsigned client input: the provider cleans each part and
+   * ignores anything that is not a string. Parts with a standard claim become `given_name`,
+   * `family_name`, `middle_name` and `nickname`; `namePrefix` / `nameSuffix` have none and are kept
+   * in `userInfo.data.fullName` only.
    */
-  given_name?: string;
-  family_name?: string;
-  middle_name?: string;
-  nickname?: string;
-  /**
-   * The full name components as the platform hands them over (iOS `PersonNameComponents`, e.g.
-   * expo-apple-authentication's `credential.fullName`). Parts with a standard claim fill in for
-   * the fields above when those are absent; the rest (`namePrefix`, `nameSuffix`) have no
-   * standard claim and are kept in `userInfo.data.full_name` only.
-   */
-  full_name?: PersonNameComponents;
+  fullName?: PersonNameComponents;
 };
 
 /** iOS `PersonNameComponents` as JSON; every part may be missing or `null`. */

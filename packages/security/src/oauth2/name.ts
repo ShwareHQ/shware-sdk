@@ -84,7 +84,7 @@ const PERSON_NAME_KEYS = [
 ] as const satisfies (keyof PersonNameComponents)[];
 
 /**
- * Cleans the `full_name` of a native login body (iOS `PersonNameComponents`): known keys only,
+ * Cleans the `fullName` of a native login body (iOS `PersonNameComponents`): known keys only,
  * each a cleaned string; `undefined` when nothing usable is left.
  */
 export function cleanPersonName(value: unknown): PersonNameComponents | undefined {

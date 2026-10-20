@@ -1,12 +1,6 @@
 import { invariant } from '@shware/utils';
 import { OAuth2Error } from '../error';
-import {
-  type AppleUser,
-  cleanNamePart,
-  cleanPersonName,
-  nameClaims,
-  parseAppleUser,
-} from '../name';
+import { type AppleUser, cleanPersonName, nameClaims, parseAppleUser } from '../name';
 import type {
   LoginOAuth2NativeParams,
   NativeCredential,
@@ -75,16 +69,16 @@ export function createAppleProvider(): Provider {
       const token = (await response.json()) as AppleToken;
       const { data, claims } = await this.getUserInfo(token);
       // The app gets the name from Apple on the first authorization only and passes it along in
-      // the login body. Standard fields win over the platform's components they mirror.
-      const full_name = cleanPersonName(credentials.full_name);
+      // the login body as the platform's `fullName`.
+      const fullName = cleanPersonName(credentials.fullName);
       const name = nameClaims({
-        given_name: cleanNamePart(credentials.given_name) ?? full_name?.givenName ?? undefined,
-        family_name: cleanNamePart(credentials.family_name) ?? full_name?.familyName ?? undefined,
-        middle_name: cleanNamePart(credentials.middle_name) ?? full_name?.middleName ?? undefined,
-        nickname: cleanNamePart(credentials.nickname) ?? full_name?.nickname ?? undefined,
+        given_name: fullName?.givenName ?? undefined,
+        family_name: fullName?.familyName ?? undefined,
+        middle_name: fullName?.middleName ?? undefined,
+        nickname: fullName?.nickname ?? undefined,
       });
       const userInfo: UserInfo<AppleUserInfo> = {
-        data: full_name ? { ...(data as AppleUserInfo), full_name } : (data as AppleUserInfo),
+        data: fullName ? { ...(data as AppleUserInfo), fullName } : (data as AppleUserInfo),
         claims: { ...claims, ...name },
       };
       return { token, userInfo };
@@ -118,8 +112,8 @@ export interface AppleIdToken {
 export interface AppleUserInfo extends AppleIdToken {
   /** Web flow: Apple's form_post `user`, as Apple names it. */
   user?: AppleUser;
-  /** Native flow: the login body's `full_name`, which alone keeps `namePrefix` / `nameSuffix`. */
-  full_name?: PersonNameComponents;
+  /** Native flow: the login body's `fullName`, which alone keeps `namePrefix` / `nameSuffix`. */
+  fullName?: PersonNameComponents;
 }
 
 // https://developer.apple.com/documentation/devicemanagement/implementing-the-oauth2-authentication-user-enrollment-flow

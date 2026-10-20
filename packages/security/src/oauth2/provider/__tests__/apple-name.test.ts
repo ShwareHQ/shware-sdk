@@ -110,12 +110,9 @@ describe('apple getUserInfo (web, form_post user)', () => {
 });
 
 describe('apple loginOAuth2Native', () => {
-  test('maps the standard name fields of the login body to claims', async () => {
+  test('maps fullName to the standard name claims', async () => {
     const { userInfo } = await login({
-      given_name: '小明',
-      family_name: '王',
-      middle_name: '',
-      nickname: 'Ming',
+      fullName: { givenName: '小明', familyName: '王', middleName: '', nickname: 'Ming' },
     });
 
     expect(userInfo.claims).toMatchObject({
@@ -125,12 +122,14 @@ describe('apple loginOAuth2Native', () => {
       name: '王小明',
     });
     expect(userInfo.claims).not.toHaveProperty('middle_name');
-    expect(userInfo.data).not.toHaveProperty('full_name');
+    expect(userInfo.data).toMatchObject({
+      fullName: { givenName: '小明', familyName: '王', nickname: 'Ming' },
+    });
   });
 
-  test('reads full_name, keeping prefix and suffix in data only', async () => {
+  test('keeps prefix and suffix of fullName in data only', async () => {
     const { userInfo } = await login({
-      full_name: {
+      fullName: {
         givenName: 'John',
         familyName: 'Appleseed',
         middleName: 'Q',
@@ -150,7 +149,7 @@ describe('apple loginOAuth2Native', () => {
       name: 'John Appleseed',
     });
     expect(userInfo.data).toMatchObject({
-      full_name: {
+      fullName: {
         givenName: 'John',
         familyName: 'Appleseed',
         middleName: 'Q',
@@ -160,18 +159,26 @@ describe('apple loginOAuth2Native', () => {
     });
   });
 
-  test('prefers the standard fields over full_name', async () => {
-    const { userInfo } = await login({
-      given_name: 'Johnny',
-      full_name: { givenName: 'John', familyName: 'Appleseed' },
-    });
-    expect(userInfo.claims.name).toBe('Johnny Appleseed');
+  test('caps each part of fullName', async () => {
+    const { userInfo } = await login({ fullName: { givenName: 'x'.repeat(200) } });
+    expect(userInfo.claims.given_name).toHaveLength(64);
   });
 
-  test('ignores name fields of the wrong type', async () => {
+  test('ignores a fullName of the wrong type', async () => {
     const { userInfo } = await login({
-      given_name: 42,
-      full_name: 'John Appleseed',
+      fullName: 'John Appleseed',
+    } as unknown as NativeCredential);
+    expect(userInfo.claims).toEqual({
+      sub: idToken.sub,
+      email: idToken.email,
+      email_verified: true,
+    });
+    expect(userInfo.data).toEqual(idToken);
+  });
+
+  test('ignores fullName parts of the wrong type', async () => {
+    const { userInfo } = await login({
+      fullName: { givenName: 42, familyName: ['Appleseed'] },
     } as unknown as NativeCredential);
     expect(userInfo.claims).toEqual({
       sub: idToken.sub,
