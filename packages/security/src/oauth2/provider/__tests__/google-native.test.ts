@@ -1,7 +1,7 @@
 import { invariant } from '@shware/utils';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { OAuth2Error } from '../../error';
 import type { NativeCredential } from '../../types';
+import { verifyIdToken } from '../common';
 import { createGoogleProvider } from '../google';
 
 vi.mock(import('../common'), async (importOriginal) => {
@@ -13,16 +13,13 @@ vi.mock(import('../common'), async (importOriginal) => {
 const project = '1009324676376';
 const webClient = `${project}-web.apps.googleusercontent.com`;
 const iosClient = `${project}-ios.apps.googleusercontent.com`;
-const registration = {
-  clientId: webClient,
-  clientSecret: 'web-secret',
-  redirectUri: 'https://api.example.com/login/oauth2/code/google',
-};
+const redirectUri = 'https://api.example.com/login/oauth2/code/google';
 
-function login(credentials: NativeCredential) {
+/** The client is the one the OAuth2 client resolved; the provider exchanges as exactly that one. */
+function login(client: { clientId: string; clientSecret?: string }, credentials: NativeCredential) {
   const provider = createGoogleProvider();
   invariant(provider.loginOAuth2Native, 'google supports native login');
-  return provider.loginOAuth2Native({ ...registration, credentials });
+  return provider.loginOAuth2Native({ ...client, redirectUri, credentials });
 }
 
 /** Stubs Google's token endpoint; returns a reader for the form body of the exchange request. */
@@ -44,13 +41,16 @@ afterEach(() => {
 });
 
 describe('google loginOAuth2Native', () => {
-  test("exchanges the code for the app's own client, without the web client's secret", async () => {
+  test('exchanges the code as the installed-app client, without a secret', async () => {
     const body = stubTokenEndpoint();
-    const { userInfo } = await login({
-      code: 'c0de',
-      client_id: iosClient,
-      redirect_uri: `com.googleusercontent.apps.${project}-ios://`,
-    });
+    const { userInfo } = await login(
+      { clientId: iosClient },
+      {
+        code: 'c0de',
+        client_id: iosClient,
+        redirect_uri: `com.googleusercontent.apps.${project}-ios://`,
+      }
+    );
 
     expect(userInfo.claims.sub).toBe('10001');
     expect(body().get('client_id')).toBe(iosClient);
@@ -58,23 +58,23 @@ describe('google loginOAuth2Native', () => {
     expect(body().has('client_secret')).toBe(false);
   });
 
-  test('falls back to the registration, secret included, when the app names no client', async () => {
+  test("exchanges as the web client with its secret and the client's redirect URI", async () => {
     const body = stubTokenEndpoint();
-    await login({ code: 'c0de' });
+    await login({ clientId: webClient, clientSecret: 'web-secret' }, { code: 'c0de' });
 
     expect(body().get('client_id')).toBe(webClient);
     expect(body().get('client_secret')).toBe('web-secret');
-    expect(body().get('redirect_uri')).toBe(registration.redirectUri);
+    expect(body().get('redirect_uri')).toBe(redirectUri);
   });
 
-  test('refuses a client from another Google Cloud project', async () => {
+  test('verifies the id token for the client it exchanged as', async () => {
     stubTokenEndpoint();
-    await expect(
-      login({ code: 'c0de', client_id: '999-evil.apps.googleusercontent.com' })
-    ).rejects.toMatchObject({
-      status: 400,
-      error: 'invalid_client',
-    } satisfies Partial<OAuth2Error>);
-    expect(fetch).not.toHaveBeenCalled();
+    await login({ clientId: iosClient }, { code: 'c0de', client_id: iosClient });
+
+    expect(verifyIdToken).toHaveBeenCalledWith('idt', {
+      jwkSetUri: 'https://www.googleapis.com/oauth2/v3/certs',
+      issuer: ['https://accounts.google.com', 'accounts.google.com'],
+      audience: iosClient,
+    });
   });
 });

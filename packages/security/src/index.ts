@@ -13,13 +13,18 @@ export type { DBAdapter } from './session/db';
 export type { Namespace, SessionRepository, Session, KVRepository } from './session/types';
 export type {
   AuthorizationResponse,
+  ClientSecret,
+  NativeClient,
   NativeCredential,
+  OAuth2ClientConfig,
   OAuth2Token,
   OidcToken,
   OidcScope,
   PersonNameComponents,
+  ProviderConfig,
   StandardClaims,
   UserInfo,
+  WebClient,
 } from './oauth2/types';
 export type {
   AuthConfig,

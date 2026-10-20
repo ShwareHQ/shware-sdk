@@ -26,7 +26,7 @@ use the Redis repositories.
 
 ```ts
 import { Auth, PATH, RedisIndexedSessionRepository, RedisKVRepository } from '@shware/security';
-import { apple, github } from '@shware/security/oauth2/provider';
+import { apple, createAppleClientSecret, github, google } from '@shware/security/oauth2/provider';
 import { Hono } from 'hono';
 import { Redis } from 'ioredis';
 import { env } from './env';
@@ -38,6 +38,12 @@ const redis = new Redis(env.REDIS_URL);
 const sessionRepository = new RedisIndexedSessionRepository(redis, 'mywebsite:session');
 sessionRepository.setDefaultMaxInactiveInterval(30 * 24 * 60 * 60); // seconds
 
+const appleClientSecret = createAppleClientSecret({
+  teamId: env.OAUTH2_APPLE_TEAM_ID,
+  keyId: env.OAUTH2_APPLE_KEY_ID,
+  privateKey: env.OAUTH2_APPLE_P8, // PKCS#8 PEM contents of the .p8 key
+});
+
 const auth = new Auth({
   timing: true,
   sessionRepository,
@@ -46,24 +52,30 @@ const auth = new Auth({
     client: {
       baseUri: 'https://api.mywebsite.com', // backend, used to build redirect URIs
       errorUri: 'https://mywebsite.com', // receives ?error=...&error_description=...
-      successUri: 'https://mywebsite.com', // receives ?status=success&registrationId=...
-      provider: { apple, github },
-      registration: async () => ({
-        appleApp: {
-          provider: 'apple',
-          clientId: env.OAUTH2_APPLE_APP_CLIENT_ID,
-          clientSecret: env.OAUTH2_APPLE_APP_CLIENT_SECRET,
+      successUri: 'https://mywebsite.com', // receives ?status=success&provider=...
+      providers: {
+        apple: {
+          provider: apple,
+          web: { clientId: env.OAUTH2_APPLE_SERVICES_ID, clientSecret: appleClientSecret },
+          native: [{ clientId: env.OAUTH2_APPLE_BUNDLE_ID, clientSecret: appleClientSecret }],
         },
-        appleWeb: {
-          provider: 'apple',
-          clientId: env.OAUTH2_APPLE_WEB_CLIENT_ID,
-          clientSecret: env.OAUTH2_APPLE_WEB_CLIENT_SECRET,
+        google: {
+          provider: google,
+          web: {
+            clientId: env.OAUTH2_GOOGLE_WEB_CLIENT_ID,
+            clientSecret: env.OAUTH2_GOOGLE_SECRET,
+          },
+          // installed-app clients are public: no secret
+          native: [
+            { clientId: env.OAUTH2_GOOGLE_IOS_CLIENT_ID },
+            { clientId: env.OAUTH2_GOOGLE_ANDROID_CLIENT_ID },
+          ],
         },
         github: {
-          clientId: env.OAUTH2_GITHUB_CLIENT_ID,
-          clientSecret: env.OAUTH2_GITHUB_CLIENT_SECRET,
+          provider: github,
+          web: { clientId: env.OAUTH2_GITHUB_CLIENT_ID, clientSecret: env.OAUTH2_GITHUB_SECRET },
         },
-      }),
+      },
     },
   },
 });
@@ -85,32 +97,53 @@ app.post(PATH.LOGIN_OAUTH2_ONETAP, (c) => auth.loginOAuth2Onetap(c.req.raw, onAu
 export default app;
 ```
 
-A registration whose key is not a provider name (`appleApp`, `appleWeb`) sets `provider`; otherwise
-the key itself is used (`github`). The key is the `:registrationId` in the routes.
+### Providers and clients
+
+`providers` is keyed by **identity source**: one key per namespace of `sub`. Its key is the
+`:provider` in the routes and `authorization.provider` in `onAuthorized`. Each entry names the
+implementation (`provider`) and the clients users sign in through:
+
+- `web`: the client of the redirect flow and of Google One Tap (a Google web client, an Apple
+  Services ID, a GitHub OAuth app). `redirectUri` defaults to
+  `${baseUri}/login/oauth2/code/<provider key>`; `scope` overrides the implementation's defaults.
+- `native`: the clients apps sign in as on the device (an iOS bundle id, Google's iOS / Android
+  clients). The app sends its `client_id` with the native login, which must be one of the
+  provider's clients (`web` included); without one, the only `native` client is used, or `web`
+  when there is no `native` one. Several `native` clients and no `client_id` is refused.
+
+`clientSecret` is a string, a function `clientId => secret` called on each use with that client's
+id (`createAppleClientSecret` returns one), or absent for a public client. `providers` may also be
+an async function, called per request.
+
+Two keys may share an implementation when their users are separate namespaces, e.g. two Google
+Cloud projects: `{ google: { provider: google, ... }, googleWorkspace: { provider: google, ... } }`.
 
 ### The `onAuthorized` handler
 
 Every login method takes an `AuthorizedHandler`: create or update your user and return the
 `Principal` whose `name` is stored in the session. It gets the request and an `Authorization`
-object — `{ registrationId, userInfo, token?, attributes }` — so fields are named, not positional.
+object — `{ provider, clientId?, userInfo, token?, attributes }` — so fields are named, not
+positional. `provider` plus `userInfo.claims.sub` identify the user, whichever client they came
+through; `clientId` tells the surfaces apart (absent for email sign-in, whose `provider` is
+`EMAIL`).
 
 ```ts
 import type { Authorization, Principal, Provider } from '@shware/security';
 
-const PROVIDER_BY_REGISTRATION: Record<string, Provider | undefined> = {
+const PROVIDERS: Record<string, Provider | undefined> = {
+  apple: 'APPLE',
+  google: 'GOOGLE',
   github: 'GITHUB',
-  appleApp: 'APPLE',
-  appleWeb: 'APPLE',
-  EMAIL: 'EMAIL', // registration id used by loginEmail
+  EMAIL: 'EMAIL', // provider used by loginEmail
 };
 
 export async function onAuthorized(
   request: Request,
-  { registrationId, userInfo: { claims } }: Authorization
+  { provider, userInfo: { claims } }: Authorization
 ): Promise<Principal> {
-  const provider = PROVIDER_BY_REGISTRATION[registrationId];
-  if (!provider) throw new Error(`Unknown registration: ${registrationId}`);
-  const userId = await upsertUser(provider, claims.sub, claims.email);
+  const method = PROVIDERS[provider];
+  if (!method) throw new Error(`Unknown provider: ${provider}`);
+  const userId = await upsertUser(method, claims.sub, claims.email);
   return { name: userId };
 }
 ```
@@ -125,7 +158,7 @@ handy for a database enum.
 | `sessionRepository`  | `SessionRepository`                 | Required. Where sessions live (see below).                                                    |
 | `kvRepository`       | `KVRepository`                      | Required. Short-lived values: OAuth2 state/nonce, verification and desktop codes.             |
 | `cookie`             | `CookieOptions & { name?: string }` | Session cookie. Defaults: name `SESSION`, `path: '/'`, `SameSite=None`, `Secure`, `HttpOnly`. |
-| `oauth2.client`      | `OAuth2ClientConfig`                | `baseUri`, `errorUri`, `successUri`, `provider`, `registration` (object or async function).   |
+| `oauth2.client`      | `OAuth2ClientConfig`                | `baseUri`, `errorUri`, `successUri`, `providers` (object or async function).                  |
 | `turnstileSecretKey` | `string`                            | Cloudflare Turnstile secret; required by `sendEmailVerificationCode`.                         |
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
 
@@ -242,56 +275,34 @@ export const auth = new Auth({ sessionRepository, kvRepository: new DBKVReposito
 | `x`        | X (Twitter) OAuth 2.0                                               |
 
 Apple has no static client secret; `createAppleClientSecret` signs one per client id and caches it
-until shortly before it expires, so you can mint it inside an async `registration` function:
+until shortly before it expires. Pass the function itself as the `clientSecret` of every Apple
+client, as in the quick start: the app's bundle id and the web's Services ID share the key and get
+a secret each.
 
-```ts
-import { apple, createAppleClientSecret, github, google } from '@shware/security/oauth2/provider';
+### Id token verification
 
-const appleClientSecret = createAppleClientSecret({
-  teamId: env.OAUTH2_APPLE_TEAM_ID,
-  keyId: env.OAUTH2_APPLE_KEY_ID,
-  privateKey: env.OAUTH2_APPLE_P8, // PKCS#8 PEM contents of the .p8 key
-});
+Every id token (Apple, Google, Facebook Limited Login) is checked for its signature, expiry,
+issuer and audience. The audience must be the client the token was meant for: the client the
+code was exchanged as, the client the native login resolved, or the web client for One Tap. A
+token issued to any other app on the same identity provider is refused.
 
-const auth = new Auth({
-  sessionRepository,
-  kvRepository,
-  oauth2: {
-    client: {
-      baseUri: 'https://api.mywebsite.com',
-      errorUri: 'https://mywebsite.com?status=error',
-      successUri: 'https://mywebsite.com?status=success',
-      provider: { apple, github, google },
-      registration: async () => ({
-        github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
-        google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
-        // native app: its bundle id
-        apple: {
-          clientId: env.APPLE_APP_CLIENT_ID,
-          clientSecret: await appleClientSecret(env.APPLE_APP_CLIENT_ID),
-        },
-        // web: its Services ID
-        appleWeb: {
-          provider: 'apple',
-          clientId: env.APPLE_WEB_CLIENT_ID,
-          clientSecret: await appleClientSecret(env.APPLE_WEB_CLIENT_ID),
-        },
-      }),
-    },
-  },
-});
-```
+| Implementation | Accepted `iss`                                       |
+| -------------- | ---------------------------------------------------- |
+| `apple`        | `https://appleid.apple.com`                          |
+| `google`       | `https://accounts.google.com`, `accounts.google.com` |
+| `facebook`     | `https://www.facebook.com`                           |
 
-The redirect URI defaults to `${baseUri}/login/oauth2/code/<registrationId>`; set
-`redirectUri` on a registration to override it, and `scope` to override the provider's defaults.
+Facebook's native login also takes a classic `access_token`, which the Graph API would serve to
+any app; it is sent with an `appsecret_proof`, so the client needs its `clientSecret`.
 
 ### Web redirect flow
 
-1. The browser opens `GET /oauth2/authorization/:registrationId`. `oauth2Authorization` stores the
+1. The browser opens `GET /oauth2/authorization/:provider`. `oauth2Authorization` stores the
    state and PKCE verifier in the session and redirects to the provider.
-2. The provider calls back `GET|POST /login/oauth2/code/:registrationId` (Apple uses `form_post`,
-   so register both). `loginOAuth2Code` checks state, exchanges the code, calls `onAuthorized`
-   and redirects to `successUri`, or to `errorUri` with `error` and `error_description`.
+2. The provider calls back `GET|POST /login/oauth2/code/:provider` (Apple uses `form_post`,
+   so register both). `loginOAuth2Code` checks state, exchanges the code as the `web` client,
+   calls `onAuthorized` and redirects to `successUri` with `status=success&provider=<key>`, or to
+   `errorUri` with `error` and `error_description`.
 
 #### Carrying data to `onAuthorized` (`attributes`)
 
@@ -317,7 +328,7 @@ export async function onAuthorized(request: Request, { attributes }: Authorizati
 - Stored with the authorization request in the session (the same JSON as `state` and the PKCE
   verifier), never sent to the provider, so no extra storage, expiry or cleanup.
 - Handed to `onAuthorized` as `authorization.attributes` only after the session, `state` and
-  registration check out, and removed with the authorization request after a successful login,
+  provider check out, and removed with the authorization request after a successful login,
   so they are used once.
 - String values only; `undefined` values are dropped; at most 2 KB serialized (they are written
   with the session).
@@ -331,15 +342,15 @@ export async function onAuthorized(request: Request, { attributes }: Authorizati
 ### Native login
 
 Mobile apps sign in with the platform SDK and post the result to
-`POST /login/oauth2/native/:registrationId`. The body is a `NativeCredential`
-(`{ id_token?, access_token?, code?, state?, client_id?, redirect_uri? }`). `loginOAuth2Native`
+`POST /login/oauth2/native/:provider`. The body is a `NativeCredential`
+(`{ id_token?, access_token?, code?, state?, client_id?, redirect_uri?, fullName? }`); `client_id`
+picks the client (see [Providers and clients](#providers-and-clients)). `loginOAuth2Native`
 verifies it with the provider, calls `onAuthorized`, creates a session and returns the
 `Principal` as JSON with the session cookie.
 
-To bind an Apple `id_token` to this request, fetch a nonce first from
-`GET /oauth2/nonce/:registrationId` (`oauth2Nonce`) and pass it to the Apple SDK; when the token
-carries a `nonce`, `loginOAuth2Native` requires it to match one issued for the same registration
-and consumes it.
+To bind an id token to this request, fetch a nonce first from `GET /oauth2/nonce/:provider`
+(`oauth2Nonce`) and pass it to the platform SDK; when the token carries a `nonce`,
+`loginOAuth2Native` requires it to match one issued for the same provider and consumes it.
 
 ```ts
 const { nonce } = await fetch(`${api}/oauth2/nonce/apple`).then((r) => r.json());
@@ -347,15 +358,15 @@ const { nonce } = await fetch(`${api}/oauth2/nonce/apple`).then((r) => r.json())
 await fetch(`${api}/login/oauth2/native/apple`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ id_token: identityToken }),
+  body: JSON.stringify({ code: authorizationCode, fullName: credential.fullName }),
 });
 ```
 
 ### Google One Tap
 
 `POST /login/oauth2/onetap/google` accepts the One Tap `credential` (an `id_token`) or a `code`,
-as form data or JSON. The third argument of `loginOAuth2Onetap` is the registration id (default
-`'google'`).
+as form data or JSON, both issued to the `web` client of the provider. The third argument of
+`loginOAuth2Onetap` is the provider key (default `'google'`).
 
 ## Email sign-in
 
@@ -379,33 +390,33 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 
 - `POST /auth/sendEmailVerificationCode` with `{ email, turnstileToken }`.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
-  `registrationId: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
+  `provider: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 
 `sendPhoneVerificationCode` and `loginPhone` exist but currently answer `501 not_implemented`.
 
 ## Routes (`PATH`)
 
-`PATH` holds the route patterns the handlers parse `:registrationId` from, so mount each handler on
+`PATH` holds the route patterns the handlers parse `:provider` from, so mount each handler on
 its own constant.
 
-| Constant                       | Path                                    | Handler                                           |
-| ------------------------------ | --------------------------------------- | ------------------------------------------------- |
-| `CSRF`                         | `/csrf`                                 | `csrf` (double-submit `XSRF-TOKEN` cookie)        |
-| `LOGOUT`                       | `/logout`                               | `logout`                                          |
-| `LOGGED`                       | `/logged`                               | `logged` (`{ data: boolean }`, renews the cookie) |
-| `OAUTH2_STATE`                 | `/oauth2/state/:registrationId`         | `oauth2State`                                     |
-| `OAUTH2_NONCE`                 | `/oauth2/nonce/:registrationId`         | `oauth2Nonce`                                     |
-| `OAUTH2_AUTHORIZATION`         | `/oauth2/authorization/:registrationId` | `oauth2Authorization`                             |
-| `LOGIN_OAUTH2_CODE`            | `/login/oauth2/code/:registrationId`    | `loginOAuth2Code` (GET and POST)                  |
-| `LOGIN_OAUTH2_NATIVE`          | `/login/oauth2/native/:registrationId`  | `loginOAuth2Native`                               |
-| `LOGIN_OAUTH2_ONETAP`          | `/login/oauth2/onetap/google`           | `loginOAuth2Onetap`                               |
-| `LOGIN_EMAIL`                  | `/login/email`                          | `loginEmail`                                      |
-| `LOGIN_PHONE`                  | `/login/phone`                          | `loginPhone` (not implemented)                    |
-| `SEND_EMAIL_VERIFICATION_CODE` | `/auth/sendEmailVerificationCode`       | `sendEmailVerificationCode`                       |
-| `SEND_PHONE_VERIFICATION_CODE` | `/auth/sendPhoneVerificationCode`       | `sendPhoneVerificationCode` (not implemented)     |
-| `DESKTOP_AUTHORIZE`            | `/auth/desktop/authorize`               | `desktopAuthorize`                                |
-| `DESKTOP_EXCHANGE`             | `/auth/desktop/exchange`                | `desktopExchange`                                 |
-| `CLEANUP_EXPIRED_SESSIONS`     | `/sessions/expired/cleanup`             | `cleanupExpiredSessions`                          |
+| Constant                       | Path                              | Handler                                           |
+| ------------------------------ | --------------------------------- | ------------------------------------------------- |
+| `CSRF`                         | `/csrf`                           | `csrf` (double-submit `XSRF-TOKEN` cookie)        |
+| `LOGOUT`                       | `/logout`                         | `logout`                                          |
+| `LOGGED`                       | `/logged`                         | `logged` (`{ data: boolean }`, renews the cookie) |
+| `OAUTH2_STATE`                 | `/oauth2/state/:provider`         | `oauth2State`                                     |
+| `OAUTH2_NONCE`                 | `/oauth2/nonce/:provider`         | `oauth2Nonce`                                     |
+| `OAUTH2_AUTHORIZATION`         | `/oauth2/authorization/:provider` | `oauth2Authorization`                             |
+| `LOGIN_OAUTH2_CODE`            | `/login/oauth2/code/:provider`    | `loginOAuth2Code` (GET and POST)                  |
+| `LOGIN_OAUTH2_NATIVE`          | `/login/oauth2/native/:provider`  | `loginOAuth2Native`                               |
+| `LOGIN_OAUTH2_ONETAP`          | `/login/oauth2/onetap/google`     | `loginOAuth2Onetap`                               |
+| `LOGIN_EMAIL`                  | `/login/email`                    | `loginEmail`                                      |
+| `LOGIN_PHONE`                  | `/login/phone`                    | `loginPhone` (not implemented)                    |
+| `SEND_EMAIL_VERIFICATION_CODE` | `/auth/sendEmailVerificationCode` | `sendEmailVerificationCode`                       |
+| `SEND_PHONE_VERIFICATION_CODE` | `/auth/sendPhoneVerificationCode` | `sendPhoneVerificationCode` (not implemented)     |
+| `DESKTOP_AUTHORIZE`            | `/auth/desktop/authorize`         | `desktopAuthorize`                                |
+| `DESKTOP_EXCHANGE`             | `/auth/desktop/exchange`          | `desktopExchange`                                 |
+| `CLEANUP_EXPIRED_SESSIONS`     | `/sessions/expired/cleanup`       | `cleanupExpiredSessions`                          |
 
 `cleanupExpiredSessions` has no authentication of its own; prefer calling it from a scheduled job
 over exposing the route.

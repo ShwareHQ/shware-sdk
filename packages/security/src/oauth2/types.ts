@@ -7,7 +7,8 @@ export interface PkceParameters {
 
 export interface OAuth2AuthorizationRequest {
   state: string;
-  registrationId: string;
+  /** Key of the provider in `OAuth2ClientConfig.providers` the flow was started for. */
+  provider: string;
   authorizationRequestUri: string;
   additionalParameters: PkceParameters;
   /**
@@ -29,26 +30,31 @@ interface CreateAuthorizationUriParams {
 export interface ExchangeCodeParams {
   code: string;
   clientId: string;
-  clientSecret: string;
+  /** Absent for public clients (Google's installed-app clients, PKCE-only clients). */
+  clientSecret?: string;
   redirectUri: string;
   pkce?: Omit<PkceParameters, 'code_challenge' | 'code_challenge_method'>;
 }
 
 export interface RefreshTokenParams {
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   refreshToken: string;
 }
 
 export interface RevokeTokenParams {
   token: string;
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
 }
 
 export interface LoginOAuth2NativeParams {
+  /**
+   * The configured client the app signs in as (its `client_id`, or the provider's default native
+   * client). Id tokens must be issued to it: it is the only audience accepted.
+   */
   clientId: string;
-  clientSecret: string;
+  clientSecret?: string;
   redirectUri: string;
   pkce?: PkceParameters;
   credentials: NativeCredential;
@@ -230,10 +236,11 @@ export interface Provider {
   exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<OAuth2Token>;
 
   /**
-   * step 3: get user info; `response` holds what the authorization response carried besides the
-   * code, for the providers that send user data there (Apple).
+   * step 3: get user info. `context.clientId` is the client the token was issued to, the only
+   * audience an id token may carry; `context.response` holds what the authorization response
+   * carried besides the code, for the providers that send user data there (Apple).
    */
-  getUserInfo: (token: OAuth2Token, response?: AuthorizationResponse) => Promise<UserInfo>;
+  getUserInfo: (token: OAuth2Token, context: UserInfoContext) => Promise<UserInfo>;
 
   /** others: refresh access token */
   refreshAccessToken?: (params: RefreshTokenParams) => Promise<OAuth2Token>;
@@ -246,54 +253,76 @@ export interface Provider {
   ) => Promise<{ token: OAuth2Token; userInfo: UserInfo }>;
 }
 
-export interface OneTapProvider extends Provider {
-  getTokenInfo: (id_token: string) => Promise<{ token: OAuth2Token; userInfo: UserInfo }>;
-}
-
-export interface Registration {
-  /**
-   * Reference to the OAuth 2.0 provider to use. May reference an element from the 'provider'
-   * property or used one of the commonly used providers (google, github, facebook, okta).
-   * */
-  provider?: string;
-
-  /** Client ID for the registration. */
+export interface UserInfoContext {
   clientId: string;
-
-  /** Client secret of the registration. */
-  clientSecret: string;
-
-  /** Client authentication method. May be left blank when using a pre-defined provider. */
-  clientAuthenticationMethod?: string;
-
-  /** Authorization grant type. May be left blank when using a pre-defined provider. */
-  authorizationGrantType?:
-    | 'authorization_code' // default
-    | 'client_credentials'
-    | 'device_code'
-    | 'jwt_bearer'
-    // Deprecated. The latest OAuth 2.0 Security Best Current Practice disallows the use of the
-    // Resource Owner Password Credentials grant.
-    | 'password'
-    | 'refresh_token'
-    | 'token_exchange';
-
-  /** Redirect URI. May be left blank when using a pre-defined provider. */
-  redirectUri?: string;
-
-  /** Authorization scopes. When left blank the provider's default scopes, if any, will be used. */
-  scope?: string[];
-
-  /** Client name. May be left blank when using a pre-defined provider. */
-  clientName?: string;
+  response?: AuthorizationResponse;
 }
+
+export interface OneTapProvider extends Provider {
+  /** Verifies a One Tap / FedCM credential, which must be issued to `clientId` (the web client). */
+  getTokenInfo: (
+    id_token: string,
+    clientId: string
+  ) => Promise<{ token: OAuth2Token; userInfo: UserInfo }>;
+}
+
+/**
+ * A client secret: a fixed string, or a function minting one for the client id it is called with
+ * (Sign in with Apple's signed JWT, see `createAppleClientSecret`), called on every use so it can
+ * cache and renew on its own.
+ */
+export type ClientSecret = string | ((clientId: string) => string | Promise<string>);
+
+/** The client a provider's server-side flows sign in as: the redirect flow and Google One Tap. */
+export interface WebClient {
+  clientId: string;
+  /** Absent for a public client. */
+  clientSecret?: ClientSecret;
+  /** Default: `${baseUri}/login/oauth2/code/<provider key>`. */
+  redirectUri?: string;
+  /** Authorization scopes. Default: the provider's `defaultScope`. */
+  scope?: string[];
+}
+
+/**
+ * A client an app signs in as on the device (an iOS bundle id, a Google iOS / Android client) and
+ * whose code or id token it posts to the native login route.
+ */
+export interface NativeClient {
+  clientId: string;
+  /** Absent for a public client (Google's installed-app clients have none). */
+  clientSecret?: ClientSecret;
+  /**
+   * Redirect URI sent with the code exchange when the app sends no `redirect_uri` of its own.
+   * Default: `${baseUri}/login/oauth2/code/<provider key>`.
+   */
+  redirectUri?: string;
+}
+
+/**
+ * One identity source: every user it signs in has a `sub` unique within it, whichever client they
+ * came through. The key in `OAuth2ClientConfig.providers` names it in the routes and in
+ * `onAuthorized`. Two keys may share an implementation (two Google Cloud projects, one Okta per
+ * tenant) when their subjects are separate namespaces.
+ */
+export interface ProviderConfig {
+  /** The implementation: `apple`, `google`, `github`, ... from `@shware/security/oauth2/provider`. */
+  provider: Provider;
+  /** The redirect flow's and One Tap's client. Required by those flows. */
+  web?: WebClient;
+  /**
+   * Clients the native login accepts besides `web`. An app names its client with `client_id`;
+   * without one, the only native client is used, or `web` when there is none.
+   */
+  native?: NativeClient[];
+}
+
+export type ProvidersConfig = { [key: string]: ProviderConfig | undefined };
 
 export interface OAuth2ClientConfig {
   baseUri: string;
   errorUri: string;
   successUri: string;
-  provider: { [name: string]: Provider | undefined };
-  registration:
-    | { [name: string]: Registration | undefined }
-    | (() => Promise<{ [name: string]: Registration | undefined }>);
+  /** Providers by key; a function is called per request, for secrets read at request time. */
+  providers: ProvidersConfig | (() => Promise<ProvidersConfig>);
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from '../../oauth2/client';
-import { google } from '../../oauth2/provider/index';
+import { apple, google } from '../../oauth2/provider/index';
 import type { OAuth2Token, UserInfo } from '../../oauth2/types';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
@@ -46,6 +46,9 @@ const token: OAuth2Token = {
   id_token: '',
 };
 const userInfo: UserInfo = { data: {}, claims: { sub: 'user-1' } };
+const WEB_CLIENT = 'com.example.web';
+const APP_CLIENT = 'com.example.app';
+const GOOGLE_CLIENT = '1234-web.apps.googleusercontent.com';
 
 function createAuth() {
   return new Auth({
@@ -56,8 +59,10 @@ function createAuth() {
         baseUri: 'https://api.test',
         errorUri: 'https://app.test/?status=error',
         successUri: 'https://app.test/',
-        provider: {},
-        registration: {},
+        providers: {
+          apple: { provider: apple, web: { clientId: WEB_CLIENT } },
+          google: { provider: google, web: { clientId: GOOGLE_CLIENT } },
+        },
       },
     },
   });
@@ -66,7 +71,7 @@ function createAuth() {
 /** Starts a redirect flow and returns the session cookie and the state the provider would echo. */
 async function start(auth: Auth, attributes?: Record<string, string | undefined>) {
   const response = await auth.oauth2Authorization(
-    new Request('https://api.test/oauth2/authorization/appleWeb'),
+    new Request('https://api.test/oauth2/authorization/apple'),
     attributes ? { attributes } : undefined
   );
   const location = new URL(response.headers.get('location') ?? '');
@@ -75,7 +80,7 @@ async function start(auth: Auth, attributes?: Record<string, string | undefined>
 }
 
 function formPost(cookie: string, state: string, contentType: string, user?: string) {
-  return new Request('https://api.test/login/oauth2/code/appleWeb', {
+  return new Request('https://api.test/login/oauth2/code/apple', {
     method: 'POST',
     headers: { cookie, 'content-type': contentType },
     body: new URLSearchParams({ code: 'code-1', state, ...(user ? { user } : {}) }).toString(),
@@ -86,7 +91,10 @@ beforeEach(() => {
   vi.spyOn(OAuth2Client.prototype, 'createAuthorizationUri').mockImplementation(
     async ({ state }) => new URL(`https://provider.test/authorize?state=${state}`)
   );
-  vi.spyOn(OAuth2Client.prototype, 'exchangeAuthorizationCode').mockResolvedValue(token);
+  vi.spyOn(OAuth2Client.prototype, 'exchangeAuthorizationCode').mockResolvedValue({
+    clientId: WEB_CLIENT,
+    token,
+  });
   vi.spyOn(OAuth2Client.prototype, 'getUserInfo').mockResolvedValue(userInfo);
 });
 
@@ -107,7 +115,8 @@ describe('oauth2 authorization attributes', () => {
 
     expect(response.headers.get('location')).toContain('status=success');
     expect(handler).toHaveBeenCalledWith(expect.any(Request), {
-      registrationId: 'appleWeb',
+      provider: 'apple',
+      clientId: WEB_CLIENT,
       userInfo,
       token,
       attributes: { referralCode: 'abc123' },
@@ -120,7 +129,7 @@ describe('oauth2 authorization attributes', () => {
     const { cookie, state } = await start(auth);
 
     const callback = new Request(
-      `https://api.test/login/oauth2/code/appleWeb?code=code-1&state=${state}`,
+      `https://api.test/login/oauth2/code/apple?code=code-1&state=${state}`,
       { headers: { cookie } }
     );
     await auth.loginOAuth2Code(callback, handler);
@@ -195,7 +204,8 @@ describe('form_post callback', () => {
 
     expect(response.headers.get('location')).toContain('status=success');
     expect(getUserInfo).toHaveBeenCalledWith({
-      registrationId: 'appleWeb',
+      provider: 'apple',
+      clientId: WEB_CLIENT,
       token,
       response: { user },
     });
@@ -228,12 +238,12 @@ describe('attributes sent with a login body', () => {
   it('native: hands them to onAuthorized and keeps them out of the credentials', async () => {
     const native = vi
       .spyOn(OAuth2Client.prototype, 'loginOAuth2Native')
-      .mockResolvedValue({ userInfo, token });
+      .mockResolvedValue({ clientId: APP_CLIENT, userInfo, token });
     const auth = createAuth();
     const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
 
     const response = await auth.loginOAuth2Native(
-      postJson('/login/oauth2/native/appleApp', {
+      postJson('/login/oauth2/native/apple', {
         id_token: 'id-token',
         attributes: { referralCode: 'abc123' },
       }),
@@ -248,7 +258,7 @@ describe('attributes sent with a login body', () => {
   it('native: passes fullName on to the provider with the credentials', async () => {
     const native = vi
       .spyOn(OAuth2Client.prototype, 'loginOAuth2Native')
-      .mockResolvedValue({ userInfo, token });
+      .mockResolvedValue({ clientId: APP_CLIENT, userInfo, token });
     const auth = createAuth();
     const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
     const name = {
@@ -256,7 +266,7 @@ describe('attributes sent with a login body', () => {
     };
 
     const response = await auth.loginOAuth2Native(
-      postJson('/login/oauth2/native/appleApp', { code: 'code-1', ...name }),
+      postJson('/login/oauth2/native/apple', { code: 'code-1', ...name }),
       handler
     );
 
@@ -265,12 +275,16 @@ describe('attributes sent with a login body', () => {
   });
 
   it('native: refuses attributes that are not strings', async () => {
-    vi.spyOn(OAuth2Client.prototype, 'loginOAuth2Native').mockResolvedValue({ userInfo, token });
+    vi.spyOn(OAuth2Client.prototype, 'loginOAuth2Native').mockResolvedValue({
+      clientId: APP_CLIENT,
+      userInfo,
+      token,
+    });
     const auth = createAuth();
     const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
 
     const response = await auth.loginOAuth2Native(
-      postJson('/login/oauth2/native/appleApp', { id_token: 'x', attributes: { n: 1 } }),
+      postJson('/login/oauth2/native/apple', { id_token: 'x', attributes: { n: 1 } }),
       handler
     );
 
@@ -312,7 +326,7 @@ describe('attributes sent with a login body', () => {
     );
 
     expect(handler.mock.calls[0]?.[1]).toMatchObject({
-      registrationId: 'EMAIL',
+      provider: 'EMAIL',
       attributes: { referralCode: 'abc123' },
     });
     expect(handler.mock.calls[1]?.[1].attributes).toEqual({});
