@@ -23,7 +23,14 @@ import {
 } from '../utils/http';
 import { timing } from '../utils/timing';
 import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
-import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from './types';
+import type {
+  AuthConfig,
+  AuthService,
+  AuthorizedContext,
+  AuthorizedHandler,
+  LoggedHandler,
+  OAuth2AuthorizationOptions,
+} from './types';
 
 // PKCE per RFC 7636: code_verifier / code_challenge are 43-128 chars from
 // the unreserved set. We restrict to base64url (drops "." and "~") since
@@ -31,6 +38,39 @@ import type { AuthConfig, AuthService, AuthorizedHandler, LoggedHandler } from '
 // the rest shrinks the accepted input shape without losing legit clients.
 // A 32-byte random verifier base64url-encodes to exactly 43 chars.
 const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
+
+/** Upper bound on serialized authorization attributes: they are written with the session. */
+const MAX_AUTHORIZATION_ATTRIBUTES_BYTES = 2048;
+
+/** No attributes: every login method but the redirect flow. A fresh object per call. */
+function noAttributes(): AuthorizedContext {
+  return { attributes: {} };
+}
+
+function authorizationAttributes(
+  attributes: OAuth2AuthorizationOptions['attributes']
+): Record<string, string> | undefined {
+  if (!attributes) return undefined;
+  const defined: Record<string, string> = {};
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value !== undefined) defined[key] = value;
+  }
+  if (Object.keys(defined).length === 0) return undefined;
+  const size = new TextEncoder().encode(JSON.stringify(defined)).length;
+  invariant(
+    size <= MAX_AUTHORIZATION_ATTRIBUTES_BYTES,
+    `oauth2 authorization attributes are ${size} bytes, at most ${MAX_AUTHORIZATION_ATTRIBUTES_BYTES} allowed`
+  );
+  return defined;
+}
+
+/** Sign in with Apple answers with `response_mode=form_post`; a charset parameter may follow. */
+function isFormPost(request: Request) {
+  const contentType = request.headers.get('content-type')?.toLowerCase();
+  return (
+    request.method === 'POST' && !!contentType?.startsWith('application/x-www-form-urlencoded')
+  );
+}
 
 interface DesktopCodeRecord {
   /** principal.name from the upstream cookie session */
@@ -208,8 +248,12 @@ export class Auth implements AuthService {
     return Response.json({ nonce });
   };
 
-  oauth2Authorization = async (request: Request): Promise<Response> => {
+  oauth2Authorization = async (
+    request: Request,
+    options?: OAuth2AuthorizationOptions
+  ): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    const attributes = authorizationAttributes(options?.attributes);
     const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, PATH.OAUTH2_AUTHORIZATION);
     const state = randomUUID();
@@ -226,6 +270,7 @@ export class Auth implements AuthService {
       registrationId,
       authorizationRequestUri: uri.href,
       additionalParameters: pkce,
+      ...(attributes ? { attributes } : {}),
     };
 
     const value = JSON.stringify(authorizationRequest);
@@ -272,10 +317,7 @@ export class Auth implements AuthService {
     const { registrationId } = param(request, PATH.LOGIN_OAUTH2_CODE);
     let data: Record<string, string>;
     // apple redirect: response_mode=form_post
-    if (
-      request.method === 'POST' &&
-      request.headers.get('content-type')?.toLowerCase() === 'application/x-www-form-urlencoded'
-    ) {
+    if (isFormPost(request)) {
       const params = new URLSearchParams(await request.text());
       data = Object.fromEntries(params.entries());
     } else {
@@ -308,8 +350,10 @@ export class Auth implements AuthService {
     const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
     mark('exchange_code');
 
-    // 5. create or update principal
-    const principal = await handler(request, registrationId, userInfo, token);
+    // 5. create or update principal, with what the host attached when the flow started
+    const principal = await handler(request, registrationId, userInfo, token, {
+      attributes: cached.attributes ?? {},
+    });
     mark('save_principal');
 
     // 6. update session
@@ -353,7 +397,7 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await handler(request, registrationId, userInfo, token);
+    const principal = await handler(request, registrationId, userInfo, token, noAttributes());
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -403,14 +447,14 @@ export class Auth implements AuthService {
     let principal: Principal;
     if (parsed.credential) {
       const { token, userInfo } = await google.getTokenInfo(parsed.credential);
-      principal = await handler(request, registrationId, userInfo, token);
+      principal = await handler(request, registrationId, userInfo, token, noAttributes());
     } else if (parsed.code) {
       const token = await this.oauth2Client.exchangeAuthorizationCode({
         registrationId,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-      principal = await handler(request, registrationId, userInfo, token);
+      principal = await handler(request, registrationId, userInfo, token, noAttributes());
     } else {
       throw new Error('invalid request');
     }
@@ -471,7 +515,13 @@ export class Auth implements AuthService {
     }
     await this.kv.removeItem(key);
     const claims: StandardClaims = { sub: email, email, email_verified: true };
-    const principal = await handler(request, 'EMAIL', { claims, data: {} });
+    const principal = await handler(
+      request,
+      'EMAIL',
+      { claims, data: {} },
+      undefined,
+      noAttributes()
+    );
 
     // save session
     const session = this.repository.createSession();

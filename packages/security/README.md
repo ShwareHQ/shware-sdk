@@ -294,6 +294,39 @@ The redirect URI defaults to `${baseUri}/login/oauth2/code/<registrationId>`; se
    so register both). `loginOAuth2Code` checks state, exchanges the code, calls `onAuthorized`
    and redirects to `successUri`, or to `errorUri` with `error` and `error_description`.
 
+#### Carrying data through the flow (`attributes`)
+
+Something known when the flow starts may be needed when the user comes back — a referral code in
+a cookie, a `?ref=` parameter, where to go after sign-in. The callback is the wrong place to look
+for it: Apple's `form_post` is a cross-site POST that drops `SameSite=Lax` cookies, and query
+parameters do not survive the provider round trip. Attach it to the authorization request instead
+(like Spring Security's `OAuth2AuthorizationRequest` attributes):
+
+```ts
+app.get(PATH.OAUTH2_AUTHORIZATION, (c) =>
+  auth.oauth2Authorization(c.req.raw, {
+    attributes: { referralCode: getCookie(c, 'REFERRAL_CODE') },
+  })
+);
+
+export async function onAuthorized(request, registrationId, userInfo, token, context) {
+  const referralCode = context?.attributes.referralCode;
+  // ...
+}
+```
+
+- Stored with the authorization request in the session (the same JSON as `state` and the PKCE
+  verifier), never sent to the provider, so no extra storage, expiry or cleanup.
+- Handed to `onAuthorized` as `context.attributes` only after the session, `state` and
+  registration check out, and removed with the authorization request after a successful login,
+  so they are used once.
+- String values only; `undefined` values are dropped; at most 2 KB serialized (they are written
+  with the session).
+- Other login methods (native, One Tap, email) get `{ attributes: {} }`: their request is the one
+  the handler already has.
+- They come from the browser that started the flow: trust them like a cookie — fine for
+  attribution or a post-login destination, not for authorization decisions.
+
 ### Native login
 
 Mobile apps sign in with the platform SDK and post the result to
