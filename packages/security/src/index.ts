@@ -6,15 +6,18 @@ export { DBIndexedSessionRepository } from './session/db';
 export { PRINCIPAL_NAME_INDEX_NAME } from './session/common';
 export { PROVIDERS, type Provider } from './core/index';
 export { OIDC_SCOPES } from './oauth2/types';
+export { composeName, MAX_NAME_PART_LENGTH } from './oauth2/name';
 
 export type { Principal, CsrfToken } from './core/index';
 export type { DBAdapter } from './session/db';
 export type { Namespace, SessionRepository, Session, KVRepository } from './session/types';
 export type {
+  AuthorizationResponse,
   NativeCredential,
   OAuth2Token,
   OidcToken,
   OidcScope,
+  PersonNameComponents,
   StandardClaims,
   UserInfo,
 } from './oauth2/types';
