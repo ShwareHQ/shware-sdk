@@ -524,6 +524,15 @@ provider accepted just before the step's checkpoint failed can go out twice.
 A host whose workflows send email but that has no `email` option (nor a
 `messages` override) fails when it is created, naming those workflows.
 
+An email with an unsubscribe link also carries `List-Unsubscribe` (RFC 2369), so
+a mail client's own unsubscribe button works. With reporting on (a Postgres store and
+`WORKFLOW_ORIGIN`), it names the copy's one-click endpoint `/t/u/<message>`, together with
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). Gmail and Yahoo require
+one-click unsubscribe for bulk senders. The provider's POST there unsubscribes at once, and the
+same URL opened in a browser asks first. Without reporting, the header names the template's own
+unsubscribe link, with no one-click claim. Only https URLs are named, so a local `http://`
+origin sends no header.
+
 An email step refuses to send when the profile has no `email`.
 `GET /preview/<id>?props=<JSON>` renders a template, with the subject in the
 `x-subject` header.

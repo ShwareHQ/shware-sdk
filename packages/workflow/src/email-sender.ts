@@ -35,6 +35,11 @@ export interface EmailMessage {
   subject: string;
   html: string;
   /**
+   * Extra headers, already formatted: `List-Unsubscribe` and `List-Unsubscribe-Post` for an
+   * email that has an unsubscribe link (see `unsubscribeHeaders`).
+   */
+  headers?: Readonly<Record<string, string>>;
+  /**
    * `${instanceId}:${nodeId}`: the copy's identity, stable across retries and replays. A provider
    * that de-duplicates on a key receives it; one that cannot (SES) still sends at least once —
    * the window between the provider accepting the email and the step's checkpoint stays open.
@@ -77,15 +82,45 @@ export class EmailSender implements MessageSender {
     const tracked =
       message.tracking === undefined ? html : trackEmail(html, message.tracking, unsubscribeUrl);
     await message.tracking?.commit?.();
+    const headers = unsubscribeHeaders(unsubscribeUrl, message.tracking?.unsubscribe);
     await this.options.transport.send({
       from,
       to: message.recipient,
       ...(replyTo === undefined ? {} : { replyTo }),
       subject,
       html: tracked,
+      ...(headers === undefined ? {} : { headers }),
       idempotencyKey: message.idempotencyKey,
     });
   }
+}
+
+/**
+ * The list-unsubscribe headers of an email with an unsubscribe link (RFC 2369, RFC 8058), so a
+ * mail client's own unsubscribe button works — Gmail and Yahoo require one-click for bulk mail:
+ *
+ * - With a one-click endpoint (`MessageTracking.unsubscribe`, which reporting provides): the
+ *   header names it, and `List-Unsubscribe-Post` says a POST there unsubscribes at once.
+ * - Without one: the header names the email's own unsubscribe link, with no one-click claim —
+ *   whether that page takes a POST is the app's.
+ * - An email without an unsubscribe link (a receipt) gets neither.
+ *
+ * Only an https URL is named: mail clients and Cloudflare Email refuse any other.
+ */
+export function unsubscribeHeaders(
+  unsubscribeUrl: string | undefined,
+  oneClick: string | undefined
+): Record<string, string> | undefined {
+  if (unsubscribeUrl === undefined) return undefined;
+  const https = (url: string | undefined) => url?.startsWith('https://') === true;
+  if (https(oneClick)) {
+    return {
+      'List-Unsubscribe': `<${oneClick}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    };
+  }
+  if (https(unsubscribeUrl)) return { 'List-Unsubscribe': `<${unsubscribeUrl}>` };
+  return undefined;
 }
 
 const LINK = /(<a\b[^>]*?\shref\s*=\s*)(["'])(https?:\/\/[^"']+)\2/gi;

@@ -78,6 +78,7 @@ export function cloudflareEmailTransport(options: CloudflareEmailTransportOption
             ...(message.replyTo === undefined ? {} : { reply_to: mimeAddress(message.replyTo) }),
             subject: message.subject,
             html: message.html,
+            ...(message.headers === undefined ? {} : { headers: message.headers }),
           }),
         }
       );

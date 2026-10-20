@@ -125,6 +125,12 @@ export interface MessageTracking {
   link?: (url: string, purpose: LinkPurpose) => string;
   /** Loaded when the email is opened. */
   pixel?: string;
+  /**
+   * This copy's one-click unsubscribe endpoint (RFC 8058): a POST there, with no confirmation
+   * and no session, unsubscribes the recipient. The email sender puts it in the
+   * `List-Unsubscribe` header, so a mail client's own unsubscribe button works.
+   */
+  unsubscribe?: string;
   /** Extra string keys in the push payload. */
   data?: Record<string, string>;
   /**

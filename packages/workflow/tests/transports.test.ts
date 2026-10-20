@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { stepRetry } from '../src/aws/engine-step';
 import { fromResponse, isFunctionUrlEvent, toRequest } from '../src/aws/function-url';
 import { mimeAddress } from '../src/email';
-import { type EmailMessage, EmailSender } from '../src/email-sender';
+import { type EmailMessage, EmailSender, unsubscribeHeaders } from '../src/email-sender';
 import type { OutboundMessage } from '../src/engine/ports';
 import { CloudflareEmailError, cloudflareEmailTransport } from '../src/transports/cloudflare-email';
 import { SesSendError, sesEmailTransport } from '../src/transports/ses';
@@ -387,6 +387,100 @@ describe('EmailSender', () => {
     expect(sent[0]).toMatchObject({ from: 'hi@acme.test', replyTo: 'support@acme.test' });
     expect(sent[0].html).toContain('https://t.test/unsubscribe?u=');
     expect(sent[0].html).toContain('<img src="https://t.test/o.gif"');
+  });
+});
+
+describe('List-Unsubscribe headers', () => {
+  const page = 'https://app.example.com/unsubscribe';
+  const oneClick = 'https://wf.example.com/t/u/0190f000-0000-7000-8000-000000000000';
+
+  test("one-click when reporting provides the copy's endpoint", () => {
+    expect(unsubscribeHeaders(page, oneClick)).toEqual({
+      'List-Unsubscribe': `<${oneClick}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+  });
+
+  test("the email's own unsubscribe page, without a one-click claim, when there is no endpoint", () => {
+    expect(unsubscribeHeaders(page, undefined)).toEqual({ 'List-Unsubscribe': `<${page}>` });
+  });
+
+  test('none for an email without an unsubscribe link, or with no https URL to name', () => {
+    expect(unsubscribeHeaders(undefined, oneClick)).toBeUndefined();
+    // A local Worker origin: Cloudflare Email would refuse the whole send over an http URI
+    expect(
+      unsubscribeHeaders('http://localhost:8787/u', 'http://localhost:8787/t/u/x')
+    ).toBeUndefined();
+    expect(unsubscribeHeaders(page, 'http://localhost:8787/t/u/x')).toEqual({
+      'List-Unsubscribe': `<${page}>`,
+    });
+  });
+
+  test('the sender adds them to the email it hands the transport', async () => {
+    const sent: EmailMessage[] = [];
+    const transport = {
+      async send(m: EmailMessage) {
+        sent.push(m);
+        return {};
+      },
+    };
+    const newsletter = new EmailSender({
+      render: async () => ({ from: 'hi@acme.test', unsubscribeUrl: page, subject: 'S', html: '' }),
+      transport,
+    });
+    const receipt = new EmailSender({
+      render: async () => ({ from: 'hi@acme.test', subject: 'Receipt', html: '' }),
+      transport,
+    });
+    const copy = {
+      workflow: 'w',
+      instanceId: 'i',
+      nodeId: '0',
+      channel: 'email' as const,
+      template: 't',
+      props: {},
+      userId: 'u1',
+      recipient: 'ada@example.com',
+      idempotencyKey: 'i:0',
+      tracking: { unsubscribe: oneClick },
+    };
+    await newsletter.send(copy);
+    expect(sent[0].headers).toEqual({
+      'List-Unsubscribe': `<${oneClick}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+    // No unsubscribe link in the email, no list headers either
+    await receipt.send(copy);
+    expect(sent[1]).not.toHaveProperty('headers');
+  });
+
+  test('SES gets them as Content.Simple.Headers; Cloudflare REST as a headers map', async () => {
+    const headers = unsubscribeHeaders(page, oneClick);
+    const ses = recordingFetch(() => new Response('{}', { status: 200 }));
+    await sesEmailTransport({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'a', secretAccessKey: 'b' },
+      fetch: ses.fetchImpl,
+    }).send({ ...email, headers });
+    expect(JSON.parse(ses.calls[0].body).Content.Simple.Headers).toEqual([
+      { Name: 'List-Unsubscribe', Value: `<${oneClick}>` },
+      { Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' },
+    ]);
+    const cf = recordingFetch(
+      () => new Response(JSON.stringify({ success: true, errors: [] }), { status: 200 })
+    );
+    await cloudflareEmailTransport({ accountId: 'a', apiToken: 't', fetch: cf.fetchImpl }).send({
+      ...email,
+      headers,
+    });
+    expect(JSON.parse(cf.calls[0].body).headers).toEqual(headers);
+    // Without headers neither request carries the field
+    await sesEmailTransport({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'a', secretAccessKey: 'b' },
+      fetch: ses.fetchImpl,
+    }).send(email);
+    expect(JSON.parse(ses.calls[1].body).Content.Simple).not.toHaveProperty('Headers');
   });
 });
 

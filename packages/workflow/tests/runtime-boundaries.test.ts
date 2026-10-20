@@ -58,7 +58,8 @@ describe('SQL row boundaries', () => {
   });
 });
 
-test.each(['/', '/t', '/t/l', `/t/l/${MESSAGE_ID}`, `/t/u/${MESSAGE_ID}`, `/t/c/${MESSAGE_ID}`])(
+// `/t/u/<message>` alone is the List-Unsubscribe URL (a confirmation page), not an incomplete path
+test.each(['/', '/t', '/t/l', `/t/l/${MESSAGE_ID}`, `/t/c/${MESSAGE_ID}`])(
   'an incomplete tracking path %s passes through without querying',
   async (path) => {
     const { query, reporting } = emptyReporting();

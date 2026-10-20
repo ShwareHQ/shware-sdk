@@ -43,6 +43,7 @@ export function reportingObserver(
             return `${base}/t/${purpose === 'unsubscribe' ? 'u' : 'l'}/${id}/${urls.length - 1}`;
           },
           pixel: `${base}/t/o/${id}`,
+          unsubscribe: `${base}/t/u/${id}`,
           // Before the transport takes it, so no click can reach a link not yet recorded
           commit: () => reporting.recordLinks(id, urls),
         };
