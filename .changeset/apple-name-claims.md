@@ -1,0 +1,5 @@
+---
+'@shware/security': minor
+---
+
+Sign in with Apple now keeps the user's name, which Apple sends only on the first authorization and never in the id token: the web callback reads the form_post `user` field and the native login body accepts optional `given_name`, `family_name`, `middle_name`, `nickname` and a raw `full_name` (iOS `PersonNameComponents`), mapped to the standard `given_name` / `family_name` / `middle_name` / `nickname` claims with `name` composed by the new exported `composeName` helper (CJK family name first without a space, otherwise given name first); the cleaned raw payloads land in `userInfo.data.user` (web) and `userInfo.data.full_name` (native, the only place `namePrefix` / `nameSuffix` are kept), and since the name is unsigned client input each part is trimmed and capped at 64 characters while anything malformed is ignored rather than failing the login. `Provider.getUserInfo` takes an optional second `AuthorizationResponse` argument, and the Apple provider no longer reads the `name` / `picture` / `user` id-token fields that Apple never sends.

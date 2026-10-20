@@ -338,14 +338,19 @@ export class Auth implements AuthService {
     mark('validate_session');
 
     // 4. exchange authorization code for token and get user info
-    const { code } = parsed.data;
+    const { code, user } = parsed.data;
 
     const token = await this.oauth2Client.exchangeAuthorizationCode({
       registrationId,
       code,
       pkce: cached.additionalParameters,
     });
-    const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
+    // Apple posts the user's name alongside the code, once: hand it to the provider with the token.
+    const userInfo = await this.oauth2Client.getUserInfo({
+      registrationId,
+      token,
+      response: user ? { user } : undefined,
+    });
     mark('exchange_code');
 
     // 5. create or update principal, with what the host attached when the flow started

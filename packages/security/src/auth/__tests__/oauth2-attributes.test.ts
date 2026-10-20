@@ -74,11 +74,11 @@ async function start(auth: Auth, attributes?: Record<string, string | undefined>
   return { cookie, state: location.searchParams.get('state') ?? '' };
 }
 
-function formPost(cookie: string, state: string, contentType: string) {
+function formPost(cookie: string, state: string, contentType: string, user?: string) {
   return new Request('https://api.test/login/oauth2/code/appleWeb', {
     method: 'POST',
     headers: { cookie, 'content-type': contentType },
-    body: new URLSearchParams({ code: 'code-1', state }).toString(),
+    body: new URLSearchParams({ code: 'code-1', state, ...(user ? { user } : {}) }).toString(),
   });
 }
 
@@ -180,6 +180,40 @@ describe('form_post callback', () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(response.headers.get('location')).toContain('status=success');
   });
+
+  it("hands Apple's first-authorization user to the provider with the token", async () => {
+    const getUserInfo = vi.spyOn(OAuth2Client.prototype, 'getUserInfo').mockResolvedValue(userInfo);
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+    const { cookie, state } = await start(auth);
+    const user = JSON.stringify({ name: { firstName: 'John', lastName: 'Appleseed' } });
+
+    const response = await auth.loginOAuth2Code(
+      formPost(cookie, state, 'application/x-www-form-urlencoded', user),
+      handler
+    );
+
+    expect(response.headers.get('location')).toContain('status=success');
+    expect(getUserInfo).toHaveBeenCalledWith({
+      registrationId: 'appleWeb',
+      token,
+      response: { user },
+    });
+  });
+
+  it('passes no authorization response when the callback carries no user', async () => {
+    const getUserInfo = vi.spyOn(OAuth2Client.prototype, 'getUserInfo').mockResolvedValue(userInfo);
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+    const { cookie, state } = await start(auth);
+
+    await auth.loginOAuth2Code(
+      formPost(cookie, state, 'application/x-www-form-urlencoded'),
+      handler
+    );
+
+    expect(getUserInfo.mock.calls[0]?.[0].response).toBeUndefined();
+  });
 });
 
 function postJson(path: string, body: unknown) {
@@ -209,6 +243,27 @@ describe('attributes sent with a login body', () => {
     expect(response.status).toBe(200);
     expect(native.mock.calls[0]?.[0].credentials).toEqual({ id_token: 'id-token' });
     expect(handler.mock.calls[0]?.[1].attributes).toEqual({ referralCode: 'abc123' });
+  });
+
+  it('native: passes the name fields on to the provider with the credentials', async () => {
+    const native = vi
+      .spyOn(OAuth2Client.prototype, 'loginOAuth2Native')
+      .mockResolvedValue({ userInfo, token });
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+    const name = {
+      given_name: 'John',
+      family_name: 'Appleseed',
+      full_name: { givenName: 'John', familyName: 'Appleseed', namePrefix: 'Dr.' },
+    };
+
+    const response = await auth.loginOAuth2Native(
+      postJson('/login/oauth2/native/appleApp', { code: 'code-1', ...name }),
+      handler
+    );
+
+    expect(response.status).toBe(200);
+    expect(native.mock.calls[0]?.[0].credentials).toEqual({ code: 'code-1', ...name });
   });
 
   it('native: refuses attributes that are not strings', async () => {

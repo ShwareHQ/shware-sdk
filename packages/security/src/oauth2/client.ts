@@ -1,6 +1,7 @@
 import { invariant } from '@shware/utils';
 import { object, optional, string } from 'zod/v4-mini';
 import type {
+  AuthorizationResponse,
   NativeCredential,
   OAuth2ClientConfig,
   OAuth2Token,
@@ -14,6 +15,8 @@ export const oauth2RedirectQuerySchema = object({
   error: optional(string()),
   error_description: optional(string()),
   error_uri: optional(string()),
+  // Apple's form_post: the user's name as JSON, first authorization only.
+  user: optional(string()),
 });
 
 export const googleOneTapSchema = object({
@@ -109,12 +112,14 @@ export class OAuth2Client {
   async getUserInfo({
     registrationId,
     token,
+    response,
   }: {
     registrationId: string;
     token: OAuth2Token | OidcToken;
+    response?: AuthorizationResponse;
   }) {
     const { provider } = await this.getClientConfig(registrationId);
-    return provider.getUserInfo(token);
+    return provider.getUserInfo(token, response);
   }
 
   async refreshAccessToken({

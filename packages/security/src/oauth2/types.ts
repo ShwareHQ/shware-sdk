@@ -107,7 +107,42 @@ export type NativeCredential = {
   redirect_uri?: string;
   id_token?: string;
   access_token?: string;
+  /**
+   * The user's name as the app received it, for providers whose id token carries none (Apple sends
+   * it to the app on the first authorization only). Standard OIDC claim names; unsigned client
+   * input, so the provider cleans each part and ignores anything that is not a string.
+   */
+  given_name?: string;
+  family_name?: string;
+  middle_name?: string;
+  nickname?: string;
+  /**
+   * The full name components as the platform hands them over (iOS `PersonNameComponents`, e.g.
+   * expo-apple-authentication's `credential.fullName`). Parts with a standard claim fill in for
+   * the fields above when those are absent; the rest (`namePrefix`, `nameSuffix`) have no
+   * standard claim and are kept in `userInfo.data.full_name` only.
+   */
+  full_name?: PersonNameComponents;
 };
+
+/** iOS `PersonNameComponents` as JSON; every part may be missing or `null`. */
+export interface PersonNameComponents {
+  givenName?: string | null;
+  familyName?: string | null;
+  middleName?: string | null;
+  namePrefix?: string | null;
+  nameSuffix?: string | null;
+  nickname?: string | null;
+}
+
+/**
+ * Fields of the authorization response besides `code` and `state` that a provider uses to fill in
+ * the user info: Apple posts the user's name as `user` (JSON) with the first authorization only,
+ * since its id token never carries one. Unsigned, so treated as untrusted input.
+ */
+export interface AuthorizationResponse {
+  user?: string;
+}
 
 export const OIDC_SCOPES = [
   'openid',
@@ -198,8 +233,11 @@ export interface Provider {
   /** step 2: exchange code for token */
   exchangeAuthorizationCode: (params: ExchangeCodeParams) => Promise<OAuth2Token>;
 
-  /** step 3: get user info */
-  getUserInfo: (token: OAuth2Token) => Promise<UserInfo>;
+  /**
+   * step 3: get user info; `response` holds what the authorization response carried besides the
+   * code, for the providers that send user data there (Apple).
+   */
+  getUserInfo: (token: OAuth2Token, response?: AuthorizationResponse) => Promise<UserInfo>;
 
   /** others: refresh access token */
   refreshAccessToken?: (params: RefreshTokenParams) => Promise<OAuth2Token>;
