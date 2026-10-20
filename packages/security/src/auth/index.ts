@@ -23,6 +23,7 @@ import {
 } from '../utils/http';
 import { timing } from '../utils/timing';
 import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
+import { MAX_ATTRIBUTES_BYTES, attributesSize, bodyAttributes } from './attributes';
 import type {
   AuthConfig,
   AuthService,
@@ -38,9 +39,6 @@ import type {
 // A 32-byte random verifier base64url-encodes to exactly 43 chars.
 const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
 
-/** Upper bound on serialized authorization attributes: they are written with the session. */
-const MAX_AUTHORIZATION_ATTRIBUTES_BYTES = 2048;
-
 function authorizationAttributes(
   attributes: OAuth2AuthorizationOptions['attributes']
 ): Record<string, string> | undefined {
@@ -50,15 +48,21 @@ function authorizationAttributes(
     if (value !== undefined) defined[key] = value;
   }
   if (Object.keys(defined).length === 0) return undefined;
-  const size = new TextEncoder().encode(JSON.stringify(defined)).length;
+  // The host's own values, written with the session: oversized is a bug in the host, not a 400.
+  const size = attributesSize(defined);
   invariant(
-    size <= MAX_AUTHORIZATION_ATTRIBUTES_BYTES,
-    `oauth2 authorization attributes are ${size} bytes, at most ${MAX_AUTHORIZATION_ATTRIBUTES_BYTES} allowed`
+    size <= MAX_ATTRIBUTES_BYTES,
+    `oauth2 authorization attributes are ${size} bytes, at most ${MAX_ATTRIBUTES_BYTES} allowed`
   );
   return defined;
 }
 
 /** Sign in with Apple answers with `response_mode=form_post`; a charset parameter may follow. */
+const INVALID_ATTRIBUTES = {
+  error: 'invalid_request',
+  error_description: `attributes must map strings to strings, at most ${MAX_ATTRIBUTES_BYTES} bytes`,
+};
+
 function isFormPost(request: Request) {
   const contentType = request.headers.get('content-type')?.toLowerCase();
   return (
@@ -376,7 +380,12 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const { mark, setTiming } = timing({ enabled: this.timing });
     const { registrationId } = param(request, PATH.LOGIN_OAUTH2_NATIVE);
-    const credentials = (await request.json()) as NativeCredential;
+    const body: unknown = await request.json();
+    // Whatever the app sends besides its credentials for `onAuthorized` (a referral code, ...).
+    const attributes = bodyAttributes(body);
+    if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
+    // Only the credentials go on to the provider client.
+    const { attributes: _, ...credentials } = body as NativeCredential & { attributes?: unknown };
     const { userInfo, token } = await this.oauth2Client.loginOAuth2Native({
       registrationId,
       credentials,
@@ -394,7 +403,7 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await handler(request, { registrationId, userInfo, token, attributes: {} });
+    const principal = await handler(request, { registrationId, userInfo, token, attributes });
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -420,17 +429,22 @@ export class Auth implements AuthService {
     const { mark, setTiming } = timing({ enabled: this.timing });
 
     // should support application/x-www-form-urlencoded and application/json
+    // Google's own form post carries no attributes; an app posting JSON may add them.
     let body: Record<string, string>;
+    let attributes: Record<string, string> | null = {};
     if (request.headers.get('Content-Type')?.includes('application/x-www-form-urlencoded')) {
       const text = await request.text();
       body = Object.fromEntries(new URLSearchParams(text));
     } else if (request.headers.get('Content-Type')?.includes('application/json')) {
-      body = (await request.json()) as Record<string, string>;
+      const json: unknown = await request.json();
+      attributes = bodyAttributes(json);
+      body = json as Record<string, string>;
     } else {
       const json = { error: 'invalid_request', error_description: 'invalid content type' };
       return Response.json(json, { status: 400 });
     }
 
+    if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
     const parsed = googleOneTapSchema.parse(body);
 
     // csrf token is not supported in FedCM mode
@@ -444,14 +458,14 @@ export class Auth implements AuthService {
     let principal: Principal;
     if (parsed.credential) {
       const { token, userInfo } = await google.getTokenInfo(parsed.credential);
-      principal = await handler(request, { registrationId, userInfo, token, attributes: {} });
+      principal = await handler(request, { registrationId, userInfo, token, attributes });
     } else if (parsed.code) {
       const token = await this.oauth2Client.exchangeAuthorizationCode({
         registrationId,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-      principal = await handler(request, { registrationId, userInfo, token, attributes: {} });
+      principal = await handler(request, { registrationId, userInfo, token, attributes });
     } else {
       throw new Error('invalid request');
     }
@@ -499,7 +513,7 @@ export class Auth implements AuthService {
   loginEmail = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     const { data, error } = valid(loginEmailSchema, await request.json());
     if (error) return Response.json(error, { status: error.error.code });
-    const { email, verificationCode } = data;
+    const { email, verificationCode, attributes } = data;
 
     const key = this.getEmailVerificationCodeKey(email);
     const stored = await this.kv.getItem(key);
@@ -515,7 +529,7 @@ export class Auth implements AuthService {
     const principal = await handler(request, {
       registrationId: 'EMAIL',
       userInfo: { claims, data: {} },
-      attributes: {},
+      attributes: attributes ?? {},
     });
 
     // save session

@@ -293,7 +293,7 @@ The redirect URI defaults to `${baseUri}/login/oauth2/code/<registrationId>`; se
    so register both). `loginOAuth2Code` checks state, exchanges the code, calls `onAuthorized`
    and redirects to `successUri`, or to `errorUri` with `error` and `error_description`.
 
-#### Carrying data through the flow (`attributes`)
+#### Carrying data to `onAuthorized` (`attributes`)
 
 Something known when the flow starts may be needed when the user comes back — a referral code in
 a cookie, a `?ref=` parameter, where to go after sign-in. The callback is the wrong place to look
@@ -321,8 +321,10 @@ export async function onAuthorized(request: Request, { attributes }: Authorizati
   so they are used once.
 - String values only; `undefined` values are dropped; at most 2 KB serialized (they are written
   with the session).
-- Other login methods (native, One Tap, email) get `attributes: {}`: their request is the one the
-  handler already has.
+- Logins that post a body — native, One Tap (JSON) and email — take an optional `attributes`
+  field in that body instead, since the SDK consumes the body before `onAuthorized` runs:
+  `{ "id_token": "…", "attributes": { "referralCode": "abc123" } }`. Same rules (string values,
+  at most 2 KB); an invalid one is a `400`. Without it the handler gets `attributes: {}`.
 - They come from the browser that started the flow: trust them like a cookie — fine for
   attribution or a post-login destination, not for authorization decisions.
 

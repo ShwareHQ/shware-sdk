@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from '../../oauth2/client';
+import { google } from '../../oauth2/provider/index';
 import type { OAuth2Token, UserInfo } from '../../oauth2/types';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
@@ -27,9 +28,12 @@ function memorySessions(): SessionRepository<MapSession> {
   };
 }
 
+/** Holds one emailed verification code, so loginEmail can be driven end to end. */
+const EMAIL = 'user@example.com';
+const CODE = '123456';
 const kv: KVRepository = {
   setItem: async () => {},
-  getItem: async () => null,
+  getItem: async (key) => (key.includes(EMAIL) ? CODE : null),
   removeItem: async () => {},
 };
 
@@ -175,5 +179,106 @@ describe('form_post callback', () => {
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(response.headers.get('location')).toContain('status=success');
+  });
+});
+
+function postJson(path: string, body: unknown) {
+  return new Request(`https://api.test${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+describe('attributes sent with a login body', () => {
+  it('native: hands them to onAuthorized and keeps them out of the credentials', async () => {
+    const native = vi
+      .spyOn(OAuth2Client.prototype, 'loginOAuth2Native')
+      .mockResolvedValue({ userInfo, token });
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+
+    const response = await auth.loginOAuth2Native(
+      postJson('/login/oauth2/native/appleApp', {
+        id_token: 'id-token',
+        attributes: { referralCode: 'abc123' },
+      }),
+      handler
+    );
+
+    expect(response.status).toBe(200);
+    expect(native.mock.calls[0]?.[0].credentials).toEqual({ id_token: 'id-token' });
+    expect(handler.mock.calls[0]?.[1].attributes).toEqual({ referralCode: 'abc123' });
+  });
+
+  it('native: refuses attributes that are not strings', async () => {
+    vi.spyOn(OAuth2Client.prototype, 'loginOAuth2Native').mockResolvedValue({ userInfo, token });
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+
+    const response = await auth.loginOAuth2Native(
+      postJson('/login/oauth2/native/appleApp', { id_token: 'x', attributes: { n: 1 } }),
+      handler
+    );
+
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('one tap: hands JSON attributes over', async () => {
+    vi.spyOn(google, 'getTokenInfo').mockResolvedValue({ token, userInfo });
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+
+    await auth.loginOAuth2Onetap(
+      postJson('/login/oauth2/onetap/google', {
+        credential: 'jwt',
+        attributes: { referralCode: 'abc123' },
+      }),
+      handler
+    );
+
+    expect(handler.mock.calls[0]?.[1].attributes).toEqual({ referralCode: 'abc123' });
+  });
+
+  it('email: hands them over, and passes {} when absent', async () => {
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+
+    await auth.loginEmail(
+      postJson('/login/email', {
+        email: EMAIL,
+        verificationCode: CODE,
+        attributes: { referralCode: 'abc123' },
+      }),
+      handler
+    );
+    await auth.loginEmail(
+      postJson('/login/email', { email: EMAIL, verificationCode: CODE }),
+      handler
+    );
+
+    expect(handler.mock.calls[0]?.[1]).toMatchObject({
+      registrationId: 'EMAIL',
+      attributes: { referralCode: 'abc123' },
+    });
+    expect(handler.mock.calls[1]?.[1].attributes).toEqual({});
+  });
+
+  it('email: refuses attributes over 2 KB', async () => {
+    const auth = createAuth();
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+
+    const response = await auth.loginEmail(
+      postJson('/login/email', {
+        email: EMAIL,
+        verificationCode: CODE,
+        attributes: { blob: 'x'.repeat(2100) },
+      }),
+      handler
+    );
+
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
   });
 });
