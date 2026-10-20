@@ -18,6 +18,9 @@ import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres'
 import { renderPostgresDdl } from '../src/store/tables';
 import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
 
+/** An email transport that accepts every email: these hosts are not about delivery. */
+const quietTransport = { send: async () => ({}) };
+
 /**
  * journeyWorker: the fetch handler around the ingest router (deploying the
  * config's compiled bundle, template preview, auth) and the store lease
@@ -50,6 +53,7 @@ function setup(token?: string) {
   const closes: number[] = [];
   const env = { JOURNEY: journey, ...(token === undefined ? {} : { API_TOKEN: token }) };
   const worker = journeyWorker<typeof env>({
+    email: () => quietTransport,
     store: () => ({
       store: new D1JourneyStore(db, kv),
       close: async () => {
@@ -132,6 +136,7 @@ describe('sweep', () => {
     const journey = new FakeJourney();
     const env = { JOURNEY: journey };
     const worker = journeyWorker<typeof env>({
+      email: () => quietTransport,
       store: () => new D1JourneyStore(db, kv),
       config: defineConfig({
         workflows: [comeBack],
@@ -184,6 +189,7 @@ describe('a version applies its own bundle', () => {
       CF_VERSION_METADATA: { id, timestamp },
     };
     const worker = journeyWorker<typeof env>({
+      email: () => quietTransport,
       store: () => new PostgresJourneyStore(client(pg)),
       config: defineConfig({ workflows, templates: { email: emails } }),
     });
@@ -216,6 +222,7 @@ describe('a version applies its own bundle', () => {
       CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
     };
     const worker = journeyWorker<typeof env>({
+      email: () => quietTransport,
       store: () => new PostgresJourneyStore(client(pg), { schema: 'unmigrated' }),
       config,
     });
@@ -239,6 +246,7 @@ describe('a version applies its own bundle', () => {
     };
     const db = new FakeD1();
     const worker = journeyWorker<typeof env>({
+      email: () => quietTransport,
       store: () => new D1JourneyStore(db, new FakeKV()),
       config,
     });

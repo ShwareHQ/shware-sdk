@@ -1,6 +1,7 @@
 import type { EmailBindingLike } from '../cloudflare/bindings';
 import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
+import { isRetryableStatus } from '../engine/retry';
 
 /**
  * `@shware/workflow/transports/cloudflare-email` — Cloudflare Email Service, through the
@@ -28,12 +29,16 @@ export type CloudflareEmailTransportOptions =
 /** The REST API refused the email: `errors` are Cloudflare's `{ code, message }` pairs. */
 export class CloudflareEmailError extends Error {
   override readonly name = 'CloudflareEmailError';
+  /** A refused request (bad token, invalid schema) fails the same way every time. */
+  readonly retryable: boolean;
   constructor(
     readonly status: number,
     readonly errors: readonly { code?: number; message?: string }[]
   ) {
     const said = errors.map((e) => `${e.code ?? '?'} ${e.message ?? ''}`.trim()).join('; ');
     super(`Cloudflare Email send failed (${status})${said === '' ? '' : `: ${said}`}`);
+    // A 200 with `success: false` says nothing about retrying: treat it as transient
+    this.retryable = status < 400 || isRetryableStatus(status);
   }
 }
 

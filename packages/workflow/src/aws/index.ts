@@ -6,6 +6,7 @@ import {
   withDurableExecution,
 } from '@aws/durable-execution-sdk-js';
 import type { JourneyEnv } from '../cloudflare/bindings';
+import { longestJourneyMs } from '../engine/duration';
 import type { JourneyOutcome } from '../engine/ports';
 import { executeJourney } from '../host/execute';
 import { type JourneyHostOptions, createJourneyHost } from '../host/journey-host';
@@ -66,6 +67,12 @@ export interface JourneyLambdaOptions<Env extends JourneyLambdaEnv> extends Omit
    * timeout; 15 minutes (Lambda's maximum) by default.
    */
   stopDrainMs?: number;
+  /**
+   * The function's `DurableConfig.ExecutionTimeout`, in milliseconds. With it, a workflow that
+   * can outlive it (`longestJourneyMs`) fails the handler's creation — a deploy's smoke test —
+   * instead of being stopped by the platform midway and recorded as failed.
+   */
+  executionTimeoutMs?: number;
 }
 
 /**
@@ -104,12 +111,31 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
   options: JourneyLambdaOptions<Env>
 ): JourneyLambda {
   type HostEnv = Env & JourneyEnv;
-  const { env: baseEnv, lambda: lambdaOption, startRetryMs, stopDrainMs, ...hostOptions } = options;
+  const {
+    env: baseEnv,
+    lambda: lambdaOption,
+    startRetryMs,
+    stopDrainMs,
+    executionTimeoutMs,
+    ...hostOptions
+  } = options;
   const host = createJourneyHost<HostEnv>(
     { ...hostOptions, store: (env, database) => options.store(env, database) },
     // Node 24's fetch cannot reach APNs (HTTP/2 only): see http2-client.ts for when this can go
     { apnsFetch: http2Fetch() }
   );
+  if (executionTimeoutMs !== undefined) {
+    const tooLong = host
+      .bundle()
+      .workflows.filter((workflow) => longestJourneyMs(workflow) > executionTimeoutMs);
+    if (tooLong.length > 0) {
+      const days = (ms: number) => `${Math.ceil(ms / 86_400_000)} days`;
+      throw new RangeError(
+        `${tooLong.map((w) => `'${w.id}' can run ${days(longestJourneyMs(w))}`).join(', ')}, ` +
+          `longer than the execution timeout (${days(executionTimeoutMs)}): raise ExecutionTimeout (up to 366 days)`
+      );
+    }
+  }
   const lambda = lambdaOption ?? sdkLambdaApi();
   const ownHashes = new Set(host.bundle().workflows.map((workflow) => workflow.contentHash));
   const scope = new AsyncLocalStorage<Invocation>();

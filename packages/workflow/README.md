@@ -521,7 +521,8 @@ reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` at sen
 time (a Lambda's execution role); a Worker passes them, or a provider, from its
 env. Delivery is at least once: SES has no de-duplication key, so an email the
 provider accepted just before the step's checkpoint failed can go out twice.
-Without an `email` option the email channel fails its sends, saying so.
+A host whose workflows send email but that has no `email` option (nor a
+`messages` override) fails when it is created, naming those workflows.
 
 An email step refuses to send when the profile has no `email`.
 `GET /preview/<id>?props=<JSON>` renders a template, with the subject in the
@@ -816,7 +817,8 @@ Workflow:
     Handler: aws.handler
     Timeout: 60
     AutoPublishAlias: live
-    # ExecutionTimeout: the longest journey (waits, delays and the goal window), up to 366 days
+    # ExecutionTimeout: the longest journey (waits, delays and the goal window), up to 366 days;
+    # pass the same value to journeyLambda({ executionTimeoutMs }) to check it at startup
     DurableConfig: { ExecutionTimeout: 2592000, RetentionPeriodInDays: 30 }
     FunctionUrlConfig: { AuthType: NONE, InvokeMode: BUFFERED }
 ```

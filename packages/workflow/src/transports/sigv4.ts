@@ -55,7 +55,12 @@ function encode(value: string): string {
   );
 }
 
-/** Each path segment encoded once (the URL already decoded it). */
+/**
+ * Each path segment encoded once (the URL already decoded it). SigV4 asks non-S3 services to
+ * encode the path twice; for the fixed, plain paths signed here (SES's
+ * `/v2/email/outbound-emails`) the two agree. A path with reserved characters would need the
+ * second pass before this signer could be used for it.
+ */
 function canonicalPath(pathname: string): string {
   return pathname
     .split('/')

@@ -262,7 +262,7 @@ describe('compileConfig', () => {
 describe('journeyWorker({ config })', () => {
   test('serves the compiled config as its bundle and validates ingest with its contract', async () => {
     const { env } = makeEnv();
-    const worker = journeyWorker({ config: config() });
+    const worker = journeyWorker({ config: config(), email: () => ({ send: async () => ({}) }) });
     const bundle = await (await worker.fetch(new Request('https://w.test/bundle'), env)).json();
     expect(bundle).toEqual(JSON.parse(JSON.stringify(compileConfig(config()))));
     const refused = await worker.fetch(
