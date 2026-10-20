@@ -245,16 +245,14 @@ describe('attributes sent with a login body', () => {
     expect(handler.mock.calls[0]?.[1].attributes).toEqual({ referralCode: 'abc123' });
   });
 
-  it('native: passes the name fields on to the provider with the credentials', async () => {
+  it('native: passes fullName on to the provider with the credentials', async () => {
     const native = vi
       .spyOn(OAuth2Client.prototype, 'loginOAuth2Native')
       .mockResolvedValue({ userInfo, token });
     const auth = createAuth();
     const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
     const name = {
-      given_name: 'John',
-      family_name: 'Appleseed',
-      full_name: { givenName: 'John', familyName: 'Appleseed', namePrefix: 'Dr.' },
+      fullName: { givenName: 'John', familyName: 'Appleseed', namePrefix: 'Dr.' },
     };
 
     const response = await auth.loginOAuth2Native(
