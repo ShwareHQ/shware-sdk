@@ -22,6 +22,7 @@ import {
 } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
 import { TemplateValidationError, indexTemplates, registryValidator } from '../templates';
+import { type Authorize, apiTokenBearer } from './authorize';
 import { channelsFromConfig, runtimeFromConfig } from './channels';
 import type { JourneyRunParts } from './execute';
 import {
@@ -89,6 +90,15 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
   env?: core.$ZodType<object>;
   /** 'enforce' (default) answers an event or patch the contract refuses with a 400; 'report' only logs it. */
   contractMode?: 'enforce' | 'report';
+  /**
+   * Who may call the protected routes, in whatever form the host chooses: a bearer, an HMAC over
+   * the body, a JWT, a platform's identity. Receives a copy of the request; true lets it through,
+   * false answers 401, a throw answers 500. The tracking routes and `/health` stay public. By
+   * default, the env's `API_TOKEN` as a bearer (compared in constant time).
+   *
+   *   authorize: async (request, env) => verifyHmac(env.WEBHOOK_SECRET, request)
+   */
+  authorize?: Authorize<Env>;
 }
 
 /** The host's environment failed its schema (`env` option). */
@@ -232,9 +242,10 @@ export function createJourneyHost<Env extends JourneyEnv>(
       headers: { 'content-type': 'application/json' },
     });
 
-  const authorized = (request: Request, env: Env): boolean =>
-    env.API_TOKEN === undefined ||
-    request.headers.get('authorization') === `Bearer ${env.API_TOKEN}`;
+  const authorizer: Authorize<Env> = options.authorize ?? apiTokenBearer;
+  /** The host's authorizer on a copy of the request (the route still reads the original). */
+  const authorized = async (request: Request, env: Env): Promise<boolean> =>
+    authorizer(request.clone(), env);
 
   const preview = emails === undefined ? undefined : registryRenderer(emails, config.email);
 
@@ -275,17 +286,17 @@ export function createJourneyHost<Env extends JourneyEnv>(
       if (tracked !== undefined) return tracked;
     }
     if (url.pathname === '/segments/sweep') {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
+      if (!(await authorized(request, env))) return json({ error: 'unauthorized' }, 401);
       if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
       return json(await sweepSegments(env, store));
     }
     if (url.pathname === '/bundle') {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
+      if (!(await authorized(request, env))) return json({ error: 'unauthorized' }, 401);
       if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
       return json(bundle());
     }
     if (url.pathname === '/bundle/deploy') {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
+      if (!(await authorized(request, env))) return json({ error: 'unauthorized' }, 401);
       if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
       try {
         return json(await deployBundle(env, bundle(), store));
@@ -295,7 +306,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
       }
     }
     if (emails !== undefined && preview !== undefined && url.pathname.startsWith('/preview/')) {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
+      if (!(await authorized(request, env))) return json({ error: 'unauthorized' }, 401);
       if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
       const key = url.pathname.slice('/preview/'.length);
       if (!emailIds.has(key)) return json({ error: `unknown email template: ${key}` }, 404);
@@ -325,6 +336,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
     return handleRequest(request, env, store, {
       contract: config.contract,
       mode: options.contractMode,
+      authorize: (copy) => authorizer(copy, env),
     });
   };
 

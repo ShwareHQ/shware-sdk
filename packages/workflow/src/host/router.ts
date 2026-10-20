@@ -26,6 +26,7 @@ import {
   SchemaMismatchError,
   type SegmentTriggerRoute,
 } from '../store/index';
+import { apiTokenBearer } from './authorize';
 
 /**
  * Ingest router. An incoming event does four things: it is stored, it wakes
@@ -680,6 +681,8 @@ function isNonEmptyString(value: unknown): value is string {
 export interface IngestValidation {
   contract?: Contract | undefined;
   mode?: 'enforce' | 'report' | undefined;
+  /** Who may call the API (see `Authorize`); the env's `API_TOKEN` as a bearer by default. */
+  authorize?: ((request: Request) => boolean | Promise<boolean>) | undefined;
 }
 
 export async function handleRequest(
@@ -717,13 +720,18 @@ export async function handleRequest(
     return json({ ok: true });
   }
 
-  // Bearer auth on everything mutating. An unset token means an open dev
-  // instance (see JourneyEnv.API_TOKEN) — production must configure it.
-  if (env.API_TOKEN !== undefined) {
-    if (request.headers.get('authorization') !== `Bearer ${env.API_TOKEN}`) {
-      return json({ error: 'unauthorized' }, 401);
-    }
+  // Everything but /health is the caller's to authenticate: the host's authorizer, or the env's
+  // API_TOKEN as a bearer (unset means an open dev instance — production must configure it).
+  // It reads a copy, so a body it verifies is still there for the route.
+  let allowed: boolean;
+  try {
+    allowed = await (validation.authorize ?? ((r) => apiTokenBearer(r, env)))(request.clone());
+  } catch (error) {
+    // A failing authorizer never lets a request in
+    console.error('[workflow router] authorize failed', error);
+    return json({ error: 'internal error' }, 500);
   }
+  if (!allowed) return json({ error: 'unauthorized' }, 401);
 
   try {
     if (request.method === 'POST' && url.pathname === '/events') {
