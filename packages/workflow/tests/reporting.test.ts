@@ -335,6 +335,13 @@ describe('tracking', () => {
     expect((await handleTracking(oneClick, reporting(), options))?.status).toBe(200);
     expect((await unsubscribed()).rows).toEqual([{ u: true }]);
     expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(true);
+
+    // A copy no longer on record (its user erased): the one-click still succeeds, changing nothing
+    const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
+      method: 'POST',
+      body: 'List-Unsubscribe=One-Click',
+    });
+    expect((await handleTracking(gone, reporting(), options))?.status).toBe(200);
   });
 
   test('an email sent without an unsubscribe URL has none, whatever the config says now', async () => {

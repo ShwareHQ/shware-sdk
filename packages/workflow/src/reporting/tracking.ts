@@ -99,25 +99,11 @@ export async function handleTracking(
     if (target === undefined) return page(options, 'This link has expired.', 404);
     const unsubscribe =
       kind === 'u' || (kind === 'c' && isUnsubscribeLink(target, options.legacyUnsubscribeUrl));
-    if (unsubscribe) {
-      return page(
-        options,
-        `Unsubscribe from ${escape(options.product ?? 'these')} emails?`,
-        200,
-        `<form method="post" action="/t/u/${id}"><button type="submit">Unsubscribe</button></form>`
-      );
-    }
+    if (unsubscribe) return confirmUnsubscribe(options, id);
     return Response.redirect(target, 302);
   }
   // The List-Unsubscribe URL opened in a browser (a client without one-click): the same question
-  if (kind === 'u' && position === undefined && read) {
-    return page(
-      options,
-      `Unsubscribe from ${escape(options.product ?? 'these')} emails?`,
-      200,
-      `<form method="post" action="/t/u/${id}"><button type="submit">Unsubscribe</button></form>`
-    );
-  }
+  if (kind === 'u' && position === undefined && read) return confirmUnsubscribe(options, id);
   if (kind === 'd' && who.method === 'POST') {
     const known = await reporting.recordDeviceDelivered(id, Date.now());
     return new Response(null, { status: known ? 204 : 404 });
@@ -142,7 +128,9 @@ export async function handleTracking(
   }
   if (kind === 'u' && who.method === 'POST') {
     const known = await reporting.recordUnsubscribe(id, Date.now());
-    if (!known) return page(options, 'This link has expired.', 404);
+    // A mail client's one-click POST must succeed: for a copy no longer on record (its user
+    // erased) there is nothing left to send to, so the answer is the same
+    if (!known) return page(options, "You won't get these emails anymore.");
     return page(
       options,
       options.product === undefined
@@ -151,6 +139,16 @@ export async function handleTracking(
     );
   }
   return undefined;
+}
+
+/** The question an unsubscribe link, or the List-Unsubscribe URL opened in a browser, asks. */
+function confirmUnsubscribe(options: TrackingOptions, id: string): Response {
+  return page(
+    options,
+    `Unsubscribe from ${escape(options.product ?? 'these')} emails?`,
+    200,
+    `<form method="post" action="/t/u/${id}"><button type="submit">Unsubscribe</button></form>`
+  );
 }
 
 /**

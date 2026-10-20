@@ -474,6 +474,17 @@ describe('List-Unsubscribe headers', () => {
       headers,
     });
     expect(JSON.parse(cf.calls[0].body).headers).toEqual(headers);
+    // The Worker binding gets the same map
+    const bound: unknown[] = [];
+    await cloudflareEmailTransport({
+      binding: {
+        async send(m) {
+          bound.push(m);
+          return {};
+        },
+      },
+    }).send({ ...email, headers });
+    expect(bound[0]).toMatchObject({ headers });
     // Without headers neither request carries the field
     await sesEmailTransport({
       region: 'us-east-1',
