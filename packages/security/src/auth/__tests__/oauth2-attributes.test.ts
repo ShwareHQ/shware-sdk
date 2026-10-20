@@ -102,7 +102,10 @@ describe('oauth2 authorization attributes', () => {
     );
 
     expect(response.headers.get('location')).toContain('status=success');
-    expect(handler).toHaveBeenCalledWith(expect.any(Request), 'appleWeb', userInfo, token, {
+    expect(handler).toHaveBeenCalledWith(expect.any(Request), {
+      registrationId: 'appleWeb',
+      userInfo,
+      token,
       attributes: { referralCode: 'abc123' },
     });
   });
@@ -118,7 +121,7 @@ describe('oauth2 authorization attributes', () => {
     );
     await auth.loginOAuth2Code(callback, handler);
 
-    expect(handler.mock.calls[0]?.[4]).toEqual({ attributes: {} });
+    expect(handler.mock.calls[0]?.[1].attributes).toEqual({});
   });
 
   it('uses the attributes once: a replayed callback finds no authorization request', async () => {

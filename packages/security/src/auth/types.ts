@@ -5,20 +5,26 @@ import type { CookieOptions } from '../utils/http';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
 /**
- * What `onAuthorized` gets besides the user: the `attributes` the host attached when it started a
- * redirect flow with `oauth2Authorization(request, { attributes })` — empty for every other login
- * method (native, One Tap, email), whose request the handler can read directly.
+ * Who signed in, and how: what every login method hands to `onAuthorized`.
+ *
+ * - `registrationId`: the oauth2 registration (`github`, `appleWeb`, ...), or `EMAIL` / `PHONE`.
+ * - `userInfo`: the provider's user info, or the verified email / phone as claims.
+ * - `token`: the provider's tokens; absent for email and phone sign-in.
+ * - `attributes`: what the host attached when it started a redirect flow with
+ *   `oauth2Authorization(request, { attributes })`; empty for every other login method (native,
+ *   One Tap, email), whose request the handler already has.
  */
-export interface AuthorizedContext {
+export interface Authorization {
+  registrationId: string;
+  userInfo: UserInfo;
+  token?: OAuth2Token;
   attributes: Record<string, string>;
 }
 
+/** Creates or updates the user and returns the principal whose `name` the session stores. */
 export type AuthorizedHandler = (
   request: Request,
-  registrationId: string,
-  userInfo: UserInfo,
-  token?: OAuth2Token,
-  context?: AuthorizedContext
+  authorization: Authorization
 ) => Promise<Principal>;
 
 export interface OAuth2AuthorizationOptions {
@@ -26,7 +32,7 @@ export interface OAuth2AuthorizationOptions {
    * Values to carry from the start of a redirect flow to its callback, e.g. a referral code read
    * from a cookie or query parameter of the authorization request. Stored with the authorization
    * request in the session (never sent to the provider), returned to `onAuthorized` as
-   * `context.attributes` once state and session check out, and removed with the request after a
+   * `authorization.attributes` once state and session check out, and removed with the request after a
    * successful login. `undefined` values are dropped. At most 2 KB serialized.
    *
    * They come from the browser that started the flow, so trust them like a cookie: fine for

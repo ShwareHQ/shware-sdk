@@ -26,7 +26,6 @@ import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
 import type {
   AuthConfig,
   AuthService,
-  AuthorizedContext,
   AuthorizedHandler,
   LoggedHandler,
   OAuth2AuthorizationOptions,
@@ -41,11 +40,6 @@ const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
 
 /** Upper bound on serialized authorization attributes: they are written with the session. */
 const MAX_AUTHORIZATION_ATTRIBUTES_BYTES = 2048;
-
-/** No attributes: every login method but the redirect flow. A fresh object per call. */
-function noAttributes(): AuthorizedContext {
-  return { attributes: {} };
-}
 
 function authorizationAttributes(
   attributes: OAuth2AuthorizationOptions['attributes']
@@ -351,7 +345,10 @@ export class Auth implements AuthService {
     mark('exchange_code');
 
     // 5. create or update principal, with what the host attached when the flow started
-    const principal = await handler(request, registrationId, userInfo, token, {
+    const principal = await handler(request, {
+      registrationId,
+      userInfo,
+      token,
       attributes: cached.attributes ?? {},
     });
     mark('save_principal');
@@ -397,7 +394,7 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await handler(request, registrationId, userInfo, token, noAttributes());
+    const principal = await handler(request, { registrationId, userInfo, token, attributes: {} });
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -447,14 +444,14 @@ export class Auth implements AuthService {
     let principal: Principal;
     if (parsed.credential) {
       const { token, userInfo } = await google.getTokenInfo(parsed.credential);
-      principal = await handler(request, registrationId, userInfo, token, noAttributes());
+      principal = await handler(request, { registrationId, userInfo, token, attributes: {} });
     } else if (parsed.code) {
       const token = await this.oauth2Client.exchangeAuthorizationCode({
         registrationId,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ registrationId, token });
-      principal = await handler(request, registrationId, userInfo, token, noAttributes());
+      principal = await handler(request, { registrationId, userInfo, token, attributes: {} });
     } else {
       throw new Error('invalid request');
     }
@@ -515,13 +512,11 @@ export class Auth implements AuthService {
     }
     await this.kv.removeItem(key);
     const claims: StandardClaims = { sub: email, email, email_verified: true };
-    const principal = await handler(
-      request,
-      'EMAIL',
-      { claims, data: {} },
-      undefined,
-      noAttributes()
-    );
+    const principal = await handler(request, {
+      registrationId: 'EMAIL',
+      userInfo: { claims, data: {} },
+      attributes: {},
+    });
 
     // save session
     const session = this.repository.createSession();

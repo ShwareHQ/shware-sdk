@@ -21,7 +21,7 @@ export type {
 export type {
   AuthConfig,
   AuthService,
-  AuthorizedContext,
+  Authorization,
   AuthorizedHandler,
   OAuth2AuthorizationOptions,
 } from './auth/types';

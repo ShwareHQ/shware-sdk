@@ -91,10 +91,11 @@ the key itself is used (`github`). The key is the `:registrationId` in the route
 ### The `onAuthorized` handler
 
 Every login method takes an `AuthorizedHandler`: create or update your user and return the
-`Principal` whose `name` is stored in the session.
+`Principal` whose `name` is stored in the session. It gets the request and an `Authorization`
+object — `{ registrationId, userInfo, token?, attributes }` — so fields are named, not positional.
 
 ```ts
-import type { OAuth2Token, Principal, Provider, UserInfo } from '@shware/security';
+import type { Authorization, Principal, Provider } from '@shware/security';
 
 const PROVIDER_BY_REGISTRATION: Record<string, Provider | undefined> = {
   github: 'GITHUB',
@@ -105,9 +106,7 @@ const PROVIDER_BY_REGISTRATION: Record<string, Provider | undefined> = {
 
 export async function onAuthorized(
   request: Request,
-  registrationId: string,
-  { claims }: UserInfo,
-  token?: OAuth2Token
+  { registrationId, userInfo: { claims } }: Authorization
 ): Promise<Principal> {
   const provider = PROVIDER_BY_REGISTRATION[registrationId];
   if (!provider) throw new Error(`Unknown registration: ${registrationId}`);
@@ -309,21 +308,21 @@ app.get(PATH.OAUTH2_AUTHORIZATION, (c) =>
   })
 );
 
-export async function onAuthorized(request, registrationId, userInfo, token, context) {
-  const referralCode = context?.attributes.referralCode;
+export async function onAuthorized(request: Request, { attributes }: Authorization) {
+  const referralCode = attributes.referralCode;
   // ...
 }
 ```
 
 - Stored with the authorization request in the session (the same JSON as `state` and the PKCE
   verifier), never sent to the provider, so no extra storage, expiry or cleanup.
-- Handed to `onAuthorized` as `context.attributes` only after the session, `state` and
+- Handed to `onAuthorized` as `authorization.attributes` only after the session, `state` and
   registration check out, and removed with the authorization request after a successful login,
   so they are used once.
 - String values only; `undefined` values are dropped; at most 2 KB serialized (they are written
   with the session).
-- Other login methods (native, One Tap, email) get `{ attributes: {} }`: their request is the one
-  the handler already has.
+- Other login methods (native, One Tap, email) get `attributes: {}`: their request is the one the
+  handler already has.
 - They come from the browser that started the flow: trust them like a cookie — fine for
   attribution or a post-login destination, not for authorization decisions.
 
@@ -378,7 +377,7 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 
 - `POST /auth/sendEmailVerificationCode` with `{ email, turnstileToken }`.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
-  registration id `'EMAIL'` and claims `{ sub: email, email, email_verified: true }`.
+  `registrationId: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 
 `sendPhoneVerificationCode` and `loginPhone` exist but currently answer `501 not_implemented`.
 
