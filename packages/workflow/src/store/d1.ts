@@ -1,6 +1,7 @@
-import type { D1DatabaseLike } from '../cloudflare/bindings';
+import type { D1DatabaseLike, D1RunResultLike } from '../cloudflare/bindings';
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
+import { type ErasureState, UserErasedError } from './erasure';
 import type {
   DeviceInput,
   EntryInput,
@@ -14,11 +15,21 @@ import type {
 } from './index';
 
 /**
- * The original data plane: D1 for everything (see ../cloudflare/schema.sql),
- * the content-addressed workflow bodies included — they used to live in KV,
- * whose eventual consistency let a route name a body that was not readable
- * yet. The SQL below is exactly what the router and fact source used to
- * inline; the in-memory FakeD1 in the tests dispatches on these statements.
+ * The condition every write about a user carries, as the last bound parameter: no erasure
+ * tombstone for the user. Inside the statement, so the check and the write share one snapshot.
+ */
+const NOT_ERASED = 'WHERE NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)';
+
+/**
+ * The D1 data plane: one database for everything (see ../cloudflare/schema.sql),
+ * the content-addressed workflow bodies included — beside the routes that name
+ * them, so a deploy is read-your-writes (KV's eventual consistency would let a
+ * route name a body that is not readable yet). The in-memory FakeD1 in the
+ * tests dispatches on these statements.
+ *
+ * Every write about a user is one statement conditional on their erasure tombstone not
+ * existing (`INSERT ... SELECT ... WHERE NOT EXISTS`): a write that changed nothing is then
+ * read back once to tell a refusal (`UserErasedError`) from a plain no-op.
  */
 export class D1JourneyStore implements JourneyStore {
   constructor(private readonly db: D1DatabaseLike) {}
@@ -27,11 +38,29 @@ export class D1JourneyStore implements JourneyStore {
     // The key is (user_id, id): the sender's occurrence id, per user
     const written = await this.db
       .prepare(
-        'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)'
+        `INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) SELECT ?, ?, ?, ?, ? ${NOT_ERASED}`
       )
-      .bind(input.id, input.userId, input.event, input.ts, JSON.stringify(input.payload))
+      .bind(
+        input.id,
+        input.userId,
+        input.event,
+        input.ts,
+        JSON.stringify(input.payload),
+        input.userId
+      )
       .run();
-    return (written.meta?.changes ?? 1) > 0;
+    if ((written.meta?.changes ?? 1) > 0) return true;
+    // Nothing written: a duplicate, unless the tombstone refused it
+    await this.refuseIfErased(input.userId);
+    return false;
+  }
+
+  /**
+   * A conditional write changed nothing: on that path only, read why. Throws when the tombstone
+   * refused it; returns when the statement had another reason (a duplicate, an entry taken).
+   */
+  private async refuseIfErased(userId: string): Promise<void> {
+    if ((await this.erasureState(userId)) !== 'none') throw new UserErasedError(userId);
   }
 
   /** The event rows of one user and name, within the window's bounds (both inclusive). */
@@ -98,15 +127,18 @@ export class D1JourneyStore implements JourneyStore {
       replaced.length === 0
         ? 'profiles.props'
         : `json_remove(profiles.props, ${replaced.map(() => '?').join(', ')})`;
+    // The SELECT keeps a WHERE clause, which is also what disambiguates the upsert for SQLite
     const row = await this.db
       .prepare(
-        `INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(${stored}, ?) RETURNING props`
+        `INSERT INTO profiles (user_id, props) SELECT ?, json_patch('{}', ?) ${NOT_ERASED} ON CONFLICT(user_id) DO UPDATE SET props = json_patch(${stored}, ?) RETURNING props`
       )
-      .bind(userId, patch, ...replaced.map(jsonPath), patch)
+      .bind(userId, patch, userId, ...replaced.map(jsonPath), patch)
       .first<{ props: string }>();
-    // RETURNING always yields the row it just wrote; the fallback only covers a
-    // driver that declines to return one, and reports what was asked for.
-    return row === null ? stripNulls(props) : (JSON.parse(row.props) as ProfileProps);
+    if (row !== null) return JSON.parse(row.props) as ProfileProps;
+    // No row: the tombstone refused the write — or a driver declined to return one, in which
+    // case the merge went through and the answer is what was asked for
+    await this.refuseIfErased(userId);
+    return stripNulls(props);
   }
 
   async listUserIds(page?: {
@@ -143,12 +175,14 @@ export class D1JourneyStore implements JourneyStore {
   }
 
   async upsertDevice(device: DeviceInput): Promise<void> {
-    await this.db
+    const written = await this.db
       .prepare(
-        'INSERT INTO devices (token, user_id, platform, ts) VALUES (?, ?, ?, ?) ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, ts = excluded.ts'
+        `INSERT INTO devices (token, user_id, platform, ts) SELECT ?, ?, ?, ? ${NOT_ERASED} ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, ts = excluded.ts`
       )
-      .bind(device.token, device.userId, device.platform, device.ts)
+      .bind(device.token, device.userId, device.platform, device.ts, device.userId)
       .run();
+    // The upsert always changes its row — unless the tombstone refused it
+    if ((written.meta?.changes ?? 1) === 0) throw new UserErasedError(device.userId);
   }
 
   async requestErasure(userId: string, at: number): Promise<void> {
@@ -160,18 +194,19 @@ export class D1JourneyStore implements JourneyStore {
 
   async pendingErasures(): Promise<string[]> {
     const { results } = await this.db
-      .prepare('SELECT user_id FROM erasures ORDER BY ts')
+      .prepare('SELECT user_id FROM erasures WHERE erased_at IS NULL ORDER BY ts')
       .bind()
       .all<{ user_id: string }>();
     return results.map((row) => row.user_id);
   }
 
-  async erasurePending(userId: string): Promise<boolean> {
+  async erasureState(userId: string): Promise<ErasureState> {
     const row = await this.db
-      .prepare('SELECT 1 AS x FROM erasures WHERE user_id = ?')
+      .prepare('SELECT erased_at FROM erasures WHERE user_id = ?')
       .bind(userId)
-      .first<{ x: number }>();
-    return row !== null;
+      .first<{ erased_at: number | null }>();
+    if (row === null) return 'none';
+    return row.erased_at === null ? 'erasing' : 'erased';
   }
 
   async runningInstances(userId: string): Promise<string[]> {
@@ -182,10 +217,11 @@ export class D1JourneyStore implements JourneyStore {
     return results.map((row) => row.instance_id);
   }
 
-  async forgetUser(userId: string): Promise<void> {
-    // One batch: D1 runs it as a transaction; the request goes last, with the data it erases
-    await this.db.batch(
-      [
+  async forgetUser(userId: string, at: number): Promise<void> {
+    // One batch: D1 runs it as a transaction. The tombstone stays, marked erased last; a repeat
+    // keeps the first erase's time
+    await this.db.batch([
+      ...[
         'entries',
         'subscriptions',
         'segment_starts',
@@ -193,9 +229,11 @@ export class D1JourneyStore implements JourneyStore {
         'devices',
         'events',
         'profiles',
-        'erasures',
-      ].map((table) => this.db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(userId))
-    );
+      ].map((table) => this.db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(userId)),
+      this.db
+        .prepare('UPDATE erasures SET erased_at = COALESCE(erased_at, ?) WHERE user_id = ?')
+        .bind(at, userId),
+    ]);
   }
 
   async removeDevice(token: string): Promise<string | undefined> {
@@ -330,18 +368,22 @@ export class D1JourneyStore implements JourneyStore {
     ts: number,
     workflows: readonly string[]
   ): Promise<void> {
-    await this.db.batch([
+    const [member] = (await this.db.batch([
       this.db
-        .prepare('INSERT OR IGNORE INTO segment_members (segment, user_id, ts) VALUES (?, ?, ?)')
-        .bind(segment, userId, ts),
+        .prepare(
+          `INSERT OR IGNORE INTO segment_members (segment, user_id, ts) SELECT ?, ?, ? ${NOT_ERASED}`
+        )
+        .bind(segment, userId, ts, userId),
       ...workflows.map((workflow) =>
         this.db
           .prepare(
-            'INSERT OR IGNORE INTO segment_starts (segment, workflow, user_id, ts) VALUES (?, ?, ?, ?)'
+            `INSERT OR IGNORE INTO segment_starts (segment, workflow, user_id, ts) SELECT ?, ?, ?, ? ${NOT_ERASED}`
           )
-          .bind(segment, workflow, userId, ts)
+          .bind(segment, workflow, userId, ts, userId)
       ),
-    ]);
+    ])) as D1RunResultLike[];
+    // Already a member, or refused: either way the starts wrote nothing new
+    if ((member.meta?.changes ?? 1) === 0) await this.refuseIfErased(userId);
   }
 
   async pendingSegmentStarts(segment: string, userId: string): Promise<string[]> {
@@ -376,9 +418,17 @@ export class D1JourneyStore implements JourneyStore {
     }
     const inserted = await this.db
       .prepare(
-        'INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) VALUES (?, ?, ?, ?, ?, ?)'
+        `INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) SELECT ?, ?, ?, ?, ?, ? ${NOT_ERASED}`
       )
-      .bind(entry.workflow, entry.userId, entry.instanceId, entry.hash, 'running', entry.ts)
+      .bind(
+        entry.workflow,
+        entry.userId,
+        entry.instanceId,
+        entry.hash,
+        'running',
+        entry.ts,
+        entry.userId
+      )
       .run();
     if ((inserted.meta?.changes ?? 1) !== 0) return 'entered';
 
@@ -388,11 +438,14 @@ export class D1JourneyStore implements JourneyStore {
     // retries exactly one sees a change.
     const claimed = await this.db
       .prepare(
-        "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed'"
+        "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)"
       )
-      .bind(entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId)
+      .bind(entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId, entry.userId)
       .run();
-    return (claimed.meta?.changes ?? 0) > 0 ? 'reclaimed' : null;
+    if ((claimed.meta?.changes ?? 0) > 0) return 'reclaimed';
+    // Taken by a live instance, or refused by the tombstone: tell them apart
+    await this.refuseIfErased(entry.userId);
+    return null;
   }
 
   async removeEntry(instanceId: string): Promise<void> {
@@ -422,16 +475,20 @@ export class D1JourneyStore implements JourneyStore {
     events: readonly string[],
     ts: number
   ): Promise<void> {
+    let skipped = false;
     for (const event of events) {
       // OR IGNORE on the (wake_handle, event) PK: the interpreter re-subscribes on
       // every wait attempt (one-shot-callback contract) and rows persist here.
-      await this.db
+      const written = await this.db
         .prepare(
-          'INSERT OR IGNORE INTO subscriptions (user_id, event, wake_handle, ts) VALUES (?, ?, ?, ?)'
+          `INSERT OR IGNORE INTO subscriptions (user_id, event, wake_handle, ts) SELECT ?, ?, ?, ? ${NOT_ERASED}`
         )
-        .bind(userId, event, handle, ts)
+        .bind(userId, event, handle, ts, userId)
         .run();
+      if ((written.meta?.changes ?? 1) === 0) skipped = true;
     }
+    // A registration already there, or refused: one read tells which
+    if (skipped) await this.refuseIfErased(userId);
   }
 
   async unsubscribe(handle: string): Promise<void> {

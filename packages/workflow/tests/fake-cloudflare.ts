@@ -1,15 +1,14 @@
-import type {
-  D1DatabaseLike,
-  D1PreparedStatementLike,
-  D1RunResultLike,
-  JourneyEnv,
-  WorkflowBindingLike,
-  WorkflowInstanceLike,
+import {
+  type D1DatabaseLike,
+  type D1PreparedStatementLike,
+  type D1RunResultLike,
+  cloudflareJourneyBinding,
 } from '../src/cloudflare/bindings';
+import type { JourneyEnv, WorkflowBindingLike, WorkflowInstanceLike } from '../src/host/platform';
 
 /**
- * In-memory fakes for the Cloudflare bindings, so the ingest router is tested
- * through the same structural interfaces the real bindings satisfy. The fake
+ * In-memory fakes for the Cloudflare bindings, so the host is tested through
+ * the same structural interfaces the real bindings satisfy. The fake
  * D1 dispatches on the SQL the D1 store issues — exact statements, plus a few
  * patterns for the ones the store assembles (event windows, user pages, the
  * profile merge) — and throws on anything else. Editing a query means updating
@@ -55,6 +54,14 @@ interface DeviceRow {
   platform: string;
   ts: number;
 }
+/** An erasure tombstone: `erased_at` null while the erasure is under way. */
+export interface ErasureRow {
+  ts: number;
+  erased_at: number | null;
+}
+
+/** The condition every write about a user carries in the D1 store, its user id bound last. */
+const NOT_ERASED = 'WHERE NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)';
 
 /**
  * SQLite's json_patch, which is RFC 7386 merge-patch: objects merge key by key,
@@ -92,7 +99,6 @@ const USER_TABLES = new Set([
   'devices',
   'events',
   'profiles',
-  'erasures',
 ]);
 
 const EVENT_QUERY =
@@ -100,7 +106,7 @@ const EVENT_QUERY =
 const USER_PAGE =
   /^SELECT user_id FROM \(SELECT user_id FROM profiles UNION SELECT user_id FROM events\)( WHERE user_id > \?)? ORDER BY user_id( LIMIT \?)?$/;
 const PROFILE_MERGE =
-  /^INSERT INTO profiles \(user_id, props\) VALUES \(\?, json_patch\('\{\}', \?\)\) ON CONFLICT\(user_id\) DO UPDATE SET props = json_patch\((?:profiles\.props|json_remove\(profiles\.props, ((?:\?, )*\?)\)), \?\) RETURNING props$/;
+  /^INSERT INTO profiles \(user_id, props\) SELECT \?, json_patch\('\{\}', \?\) WHERE NOT EXISTS \(SELECT 1 FROM erasures WHERE user_id = \?\) ON CONFLICT\(user_id\) DO UPDATE SET props = json_patch\((?:profiles\.props|json_remove\(profiles\.props, ((?:\?, )*\?)\)), \?\) RETURNING props$/;
 const USER_DELETE = /^DELETE FROM (\w+) WHERE user_id = \?$/;
 
 type Result = { rows: Record<string, unknown>[]; changes: number };
@@ -113,7 +119,7 @@ export class FakeD1 implements D1DatabaseLike {
   segmentTriggers: SegmentTriggerRow[] = [];
   readonly segmentMembers = new Map<string, number>(); // `${segment}\n${user}` → ts
   readonly segmentStarts = new Set<string>(); // `${segment}\n${workflow}\n${user}`
-  readonly erasures = new Map<string, number>(); // user → ts
+  readonly erasures = new Map<string, ErasureRow>(); // user →
   readonly devices = new Map<string, DeviceRow>(); // token →
   /** workflow_ir: content hash → WorkflowIR JSON. */
   readonly ir = new Map<string, string>();
@@ -174,13 +180,14 @@ export class FakeD1 implements D1DatabaseLike {
     const merge = PROFILE_MERGE.exec(sql);
     if (merge !== null) {
       const userId = p[0] as string;
+      if (this.erased(p[2])) return { rows: [], changes: 0 };
       const patch = JSON.parse(p[1] as string) as Record<string, unknown>;
       const existing = this.profiles.get(userId);
       let base: Record<string, unknown> = {};
       if (existing !== undefined) {
         base = JSON.parse(existing) as Record<string, unknown>;
         const removed = merge[1] ? merge[1].split(', ').length : 0;
-        for (const path of p.slice(2, 2 + removed)) delete base[pathKey(path as string)];
+        for (const path of p.slice(3, 3 + removed)) delete base[pathKey(path as string)];
       }
       const props = JSON.stringify(jsonPatch(base, patch));
       this.profiles.set(userId, props);
@@ -191,6 +198,11 @@ export class FakeD1 implements D1DatabaseLike {
       return { rows: [], changes: this.deleteUser(userDelete[1], p[0] as string) };
     }
     return undefined;
+  }
+
+  /** Whether the user (a bound parameter) has an erasure tombstone, erasing or erased. */
+  private erased(userId: unknown): boolean {
+    return this.erasures.has(userId as string);
   }
 
   private deleteUser(table: string, userId: string): number {
@@ -236,8 +248,6 @@ export class FakeD1 implements D1DatabaseLike {
       }
       case 'profiles':
         return this.profiles.delete(userId) ? 1 : 0;
-      case 'erasures':
-        return this.erasures.delete(userId) ? 1 : 0;
       default:
         throw new Error(`FakeD1: no user rows in ${table}`);
     }
@@ -246,9 +256,10 @@ export class FakeD1 implements D1DatabaseLike {
   // oxlint-disable-next-line eslint/max-lines-per-function -- one arm per SQL statement is the point
   private exec(sql: string, p: unknown[]): Result {
     switch (sql) {
-      case 'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)': {
+      case `INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) SELECT ?, ?, ?, ?, ? ${NOT_ERASED}`: {
         const id = p[0] as string;
         const userId = p[1] as string;
+        if (this.erased(p[5])) return { rows: [], changes: 0 };
         // The key is (user_id, id)
         if (this.events.some((e) => e.id === id && e.user_id === userId))
           return { rows: [], changes: 0 };
@@ -287,7 +298,8 @@ export class FakeD1 implements D1DatabaseLike {
           .map(([token, d]) => ({ token, platform: d.platform }));
         return { rows, changes: 0 };
       }
-      case 'INSERT INTO devices (token, user_id, platform, ts) VALUES (?, ?, ?, ?) ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, ts = excluded.ts': {
+      case `INSERT INTO devices (token, user_id, platform, ts) SELECT ?, ?, ?, ? ${NOT_ERASED} ON CONFLICT (token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, ts = excluded.ts`: {
+        if (this.erased(p[4])) return { rows: [], changes: 0 };
         this.devices.set(p[0] as string, {
           user_id: p[1] as string,
           platform: p[2] as string,
@@ -380,15 +392,15 @@ export class FakeD1 implements D1DatabaseLike {
         const key = `${p[0] as string}\n${p[1] as string}`;
         return { rows: this.segmentMembers.has(key) ? [{ x: 1 }] : [], changes: 0 };
       }
-      case 'INSERT OR IGNORE INTO segment_members (segment, user_id, ts) VALUES (?, ?, ?)': {
+      case `INSERT OR IGNORE INTO segment_members (segment, user_id, ts) SELECT ?, ?, ? ${NOT_ERASED}`: {
         const key = `${p[0] as string}\n${p[1] as string}`;
-        if (this.segmentMembers.has(key)) return { rows: [], changes: 0 };
+        if (this.erased(p[3]) || this.segmentMembers.has(key)) return { rows: [], changes: 0 };
         this.segmentMembers.set(key, p[2] as number);
         return { rows: [], changes: 1 };
       }
-      case 'INSERT OR IGNORE INTO segment_starts (segment, workflow, user_id, ts) VALUES (?, ?, ?, ?)': {
+      case `INSERT OR IGNORE INTO segment_starts (segment, workflow, user_id, ts) SELECT ?, ?, ?, ? ${NOT_ERASED}`: {
         const key = `${p[0] as string}\n${p[1] as string}\n${p[2] as string}`;
-        if (this.segmentStarts.has(key)) return { rows: [], changes: 0 };
+        if (this.erased(p[4]) || this.segmentStarts.has(key)) return { rows: [], changes: 0 };
         this.segmentStarts.add(key);
         return { rows: [], changes: 1 };
       }
@@ -420,22 +432,30 @@ export class FakeD1 implements D1DatabaseLike {
       case 'INSERT OR IGNORE INTO erasures (user_id, ts) VALUES (?, ?)': {
         const userId = p[0] as string;
         if (this.erasures.has(userId)) return { rows: [], changes: 0 };
-        this.erasures.set(userId, p[1] as number);
+        this.erasures.set(userId, { ts: p[1] as number, erased_at: null });
         return { rows: [], changes: 1 };
       }
-      case 'SELECT user_id FROM erasures ORDER BY ts': {
+      case 'SELECT user_id FROM erasures WHERE erased_at IS NULL ORDER BY ts': {
         const rows = [...this.erasures]
-          .sort(([, a], [, b]) => a - b)
+          .filter(([, row]) => row.erased_at === null)
+          .sort(([, a], [, b]) => a.ts - b.ts)
           .map(([user_id]) => ({ user_id }));
         return { rows, changes: 0 };
       }
-      case 'SELECT 1 AS x FROM erasures WHERE user_id = ?': {
-        return { rows: this.erasures.has(p[0] as string) ? [{ x: 1 }] : [], changes: 0 };
+      case 'SELECT erased_at FROM erasures WHERE user_id = ?': {
+        const row = this.erasures.get(p[0] as string);
+        return { rows: row === undefined ? [] : [{ erased_at: row.erased_at }], changes: 0 };
+      }
+      case 'UPDATE erasures SET erased_at = COALESCE(erased_at, ?) WHERE user_id = ?': {
+        const row = this.erasures.get(p[1] as string);
+        if (row === undefined) return { rows: [], changes: 0 };
+        row.erased_at ??= p[0] as number;
+        return { rows: [], changes: 1 };
       }
 
-      case 'INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) VALUES (?, ?, ?, ?, ?, ?)': {
+      case `INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) SELECT ?, ?, ?, ?, ?, ? ${NOT_ERASED}`: {
         const exists = this.entries.some((e) => e.workflow === p[0] && e.user_id === p[1]);
-        if (exists) return { rows: [], changes: 0 };
+        if (this.erased(p[6]) || exists) return { rows: [], changes: 0 };
         this.entries.push({
           workflow: p[0] as string,
           user_id: p[1] as string,
@@ -446,7 +466,8 @@ export class FakeD1 implements D1DatabaseLike {
         });
         return { rows: [], changes: 1 };
       }
-      case "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed'": {
+      case "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)": {
+        if (this.erased(p[5])) return { rows: [], changes: 0 };
         const target = this.entries.find(
           (e) => e.workflow === p[3] && e.user_id === p[4] && e.status === 'failed'
         );
@@ -487,7 +508,8 @@ export class FakeD1 implements D1DatabaseLike {
         );
         return { rows: [...handles].map((handle) => ({ handle })), changes: 0 };
       }
-      case 'INSERT OR IGNORE INTO subscriptions (user_id, event, wake_handle, ts) VALUES (?, ?, ?, ?)': {
+      case `INSERT OR IGNORE INTO subscriptions (user_id, event, wake_handle, ts) SELECT ?, ?, ?, ? ${NOT_ERASED}`: {
+        if (this.erased(p[4])) return { rows: [], changes: 0 };
         // The (wake_handle, event) primary key
         if (this.subscriptions.some((s) => s.wake_handle === p[2] && s.event === p[1]))
           return { rows: [], changes: 0 };
@@ -514,6 +536,10 @@ export class FakeD1 implements D1DatabaseLike {
   }
 }
 
+/**
+ * The Workflow binding as Cloudflare offers it: `get` of an unknown id fails with Cloudflare's
+ * own error, which `cloudflareJourneyBinding` maps to the port's `InstanceNotFoundError`.
+ */
 export class FakeJourney implements WorkflowBindingLike {
   readonly created: { id: string; params: unknown }[] = [];
   readonly wakes: { id: string; type: string }[] = [];
@@ -529,7 +555,7 @@ export class FakeJourney implements WorkflowBindingLike {
   }
 
   async get(id: string): Promise<WorkflowInstanceLike> {
-    if (!this.known.has(id)) throw new Error(`no such instance: ${id}`);
+    if (!this.known.has(id)) throw new Error('instance.not_found');
     return this.instance(id);
   }
 
@@ -551,6 +577,7 @@ export function makeEnv(overrides?: Partial<JourneyEnv>): {
 } {
   const db = new FakeD1();
   const journey = new FakeJourney();
-  const env: JourneyEnv = { DB: db, JOURNEY: journey, ...overrides };
+  // Through the Cloudflare adapter, as journeyWorker hands the binding to the host
+  const env: JourneyEnv = { DB: db, JOURNEY: cloudflareJourneyBinding(journey), ...overrides };
   return { env, db, journey };
 }

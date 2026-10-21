@@ -11,8 +11,7 @@
 --
 -- The id is per user: the key is (user_id, id), so one sender's id can never
 -- block another user's event, and a producer only has to keep its ids unique
--- within a user. A database created while `id` alone was the key needs the
--- table rebuilt (4.0).
+-- within a user.
 --
 -- Only the sender knows whether two deliveries describe one occurrence or two,
 -- so the engine never invents that answer: an ingest that arrives without an id
@@ -35,8 +34,8 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 -- Workflow bodies (WorkflowIR JSON), content-addressed. They live beside the
 -- routes that point at them so a deploy is read-your-writes: the trigger row
--- and the body it names are in one strongly consistent database, with no
--- eventually consistent namespace (KV, before 4.0) to lag behind it.
+-- and the body it names are in one strongly consistent database, and a route
+-- never names a body another store has yet to catch up on.
 CREATE TABLE IF NOT EXISTS workflow_ir (
   content_hash TEXT PRIMARY KEY,
   ir           TEXT NOT NULL
@@ -102,11 +101,14 @@ CREATE TABLE IF NOT EXISTS segment_starts (
   PRIMARY KEY (segment, workflow, user_id)
 );
 
--- Erasures in progress (forgetUser): the user's data stays until every running
--- instance is stopped, and the scheduled sweep retries what is left.
+-- Erasure tombstones (forgetUser): every write about a user is conditional on
+-- no row here. While erased_at is null the user's data stays until every
+-- running instance is stopped, and the scheduled sweep retries what is left;
+-- once set, the data is gone and the row stays so the id is never written again.
 CREATE TABLE IF NOT EXISTS erasures (
-  user_id TEXT PRIMARY KEY,
-  ts      INTEGER NOT NULL
+  user_id   TEXT PRIMARY KEY,
+  ts        INTEGER NOT NULL,
+  erased_at INTEGER
 );
 
 -- Entry ledger: the once-per-user policy, instance addressing, and the audit

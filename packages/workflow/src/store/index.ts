@@ -158,6 +158,10 @@ export interface StoreLease {
   close?: () => Promise<void>;
 }
 
+import type { ErasureState } from './erasure';
+
+export { type ErasureState, UserErasedError } from './erasure';
+
 /**
  * The live database lacks tables or columns the engine reads (an SDK upgrade added them, or the
  * host never ran the migration). Raised before a deploy writes anything.
@@ -274,8 +278,12 @@ export interface JourneyReporting {
     windowMs: number,
     judge: (link: ClickContext) => { engagement: Engagement; backdate: boolean }
   ): Promise<{ url: string; engagement: Engagement } | undefined>;
-  /** The email copy's recipient opted out of email: recorded on the copy and as a suppression. False for an unknown copy. */
-  recordUnsubscribe(messageId: string, at: number): Promise<boolean>;
+  /**
+   * The email copy's recipient opted out of email: recorded on the copy and as a suppression, in
+   * one transaction, which also yields who the recipient is — so the caller acts on the
+   * unsubscribe without a second read. Undefined for an unknown copy.
+   */
+  recordUnsubscribe(messageId: string, at: number): Promise<{ userId: string } | undefined>;
   /** A push copy the device reported it received. False for an unknown copy. */
   recordDeviceDelivered(messageId: string, at: number): Promise<boolean>;
   /** Drop members of segments no longer deployed, then record every deployed segment's size. */
@@ -287,27 +295,32 @@ export interface JourneyStore {
   readonly reporting?: JourneyReporting;
 
   /**
-   * Record that the user's data must go (a deleted account), before anything is erased: the
-   * request outlives a failure to stop their instances, and the sweep retries it.
+   * Record that the user's data must go (a deleted account): the tombstone every write about
+   * the user is conditional on, from here on and for good. Committed before anything is
+   * stopped or erased, so an entry that got in before it is found by the erasure and none gets
+   * in after it. Idempotent: a second request, or one for a user already erased, changes nothing.
    */
   requestErasure(userId: string, at: number): Promise<void>;
-  /** Users whose erasure was requested and not finished yet. */
+  /** Users whose erasure was requested and not carried out yet (`'erasing'`), oldest first. */
   pendingErasures(): Promise<string[]>;
   /**
-   * Whether the user's erasure was requested and not finished yet: ingest, identify and device
-   * registration refuse the user meanwhile, so nothing is written back between the stop of their
-   * instances and the erase.
+   * Where the user stands: `'none'` (no tombstone), `'erasing'` (requested, their instances
+   * being stopped, data still there) or `'erased'` (`forgetUser` went through). Both
+   * tombstone states refuse every write about the user; the entry points read this for a fast
+   * answer, and the store's conditional writes are the gate itself.
    */
-  erasurePending(userId: string): Promise<boolean>;
+  erasureState(userId: string): Promise<ErasureState>;
   /** The user's journey instances still running, by the entry ledger. */
   runningInstances(userId: string): Promise<string[]>;
   /**
    * Erase everything kept about the user — profile, devices, events, wake subscriptions, segment
-   * memberships, entries and reporting — and the erasure request last. Suppressions stay: an
-   * opt-out is a compliance record keyed by an opaque id, and it outlives the erasure. Run only
-   * once no instance of theirs runs any more, or one could write some of it back.
+   * memberships, entries and reporting — and mark the tombstone erased (`erased_at`), which
+   * stays: a write that was in flight when the data went cannot bring the user back, and the
+   * same id is never reactivated by ingest. Suppressions stay too: an opt-out is a compliance
+   * record keyed by an opaque id, and it outlives the erasure. Run only once no instance of
+   * theirs runs any more, or one could write some of it back. Idempotent.
    */
-  forgetUser(userId: string): Promise<void>;
+  forgetUser(userId: string, at: number): Promise<void>;
 
   /** The user opted out of the channel (recorded by an unsubscribe); stores without reporting omit it. */
   isSuppressed?(userId: string, channel: string): Promise<boolean>;
@@ -319,7 +332,10 @@ export interface JourneyStore {
   checkSchema?(): Promise<string[]>;
 
   /* ---------------------------------- events --------------------------------- */
-  /** Append the occurrence; false when its id was already in the log (nothing written). */
+  /**
+   * Append the occurrence; false when its id was already in the log (nothing written). Throws
+   * `UserErasedError` for a user with a tombstone, like every write about a user below.
+   */
   insertEvent(input: EventInput): Promise<boolean>;
   /** Occurrences of `event` for the user, optionally only those within the window. */
   countEvents(userId: string, event: string, window?: EventWindow): Promise<number>;

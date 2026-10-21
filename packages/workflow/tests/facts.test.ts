@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { evaluateCondition } from '../src/engine/condition';
 import { event, trigger, workflow } from '../src/index';
 import type { ConditionIR } from '../src/ir';
-import { D1JourneyStore, JourneyFactSource } from '../src/store/index';
+import { D1JourneyStore, JourneyFactSource, UserErasedError } from '../src/store/index';
 import { FakeD1 } from './fake-cloudflare';
 import { plainEmail } from './fixtures';
 
@@ -190,7 +190,7 @@ describe('D1JourneyStore on FakeD1', () => {
     expect(await store.findWakeHandles('u1', 'a')).toEqual(['i2']);
   });
 
-  test('an erasure is pending from the request until forgetUser, which takes everything', async () => {
+  test('an erasure is erasing from the request until forgetUser, which takes everything but the tombstone', async () => {
     const db = new FakeD1();
     const store = new D1JourneyStore(db);
     await store.mergeProfile('u1', { a: 1 });
@@ -201,15 +201,17 @@ describe('D1JourneyStore on FakeD1', () => {
     await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
     await store.mergeProfile('u2', { a: 1 });
 
-    expect(await store.erasurePending('u1')).toBe(false);
+    expect(await store.erasureState('u1')).toBe('none');
     await store.requestErasure('u1', 5);
     await store.requestErasure('u1', 6);
-    expect(await store.erasurePending('u1')).toBe(true);
+    expect(await store.erasureState('u1')).toBe('erasing');
     expect(await store.pendingErasures()).toEqual(['u1']);
     expect(await store.runningInstances('u1')).toEqual(['i1']);
 
-    await store.forgetUser('u1');
-    expect(await store.erasurePending('u1')).toBe(false);
+    await store.forgetUser('u1', 7);
+    expect(await store.erasureState('u1')).toBe('erased');
+    expect(await store.pendingErasures()).toEqual([]);
+    expect(db.erasures.get('u1')).toEqual({ ts: 5, erased_at: 7 });
     expect(await store.getProfile('u1')).toBeUndefined();
     expect(await store.countEvents('u1', 'x')).toBe(0);
     expect(await store.listDevices('u1')).toEqual([]);
@@ -218,5 +220,30 @@ describe('D1JourneyStore on FakeD1', () => {
     expect(await store.pendingSegmentStarts('s', 'u1')).toEqual([]);
     expect(await store.runningInstances('u1')).toEqual([]);
     expect(await store.listUserIds()).toEqual(['u2']);
+
+    // A repeat keeps the first erase's time; a late write of any kind is refused
+    await store.forgetUser('u1', 9);
+    expect(db.erasures.get('u1')).toEqual({ ts: 5, erased_at: 7 });
+    await expect(store.mergeProfile('u1', { a: 2 })).rejects.toBeInstanceOf(UserErasedError);
+    await expect(
+      store.insertEvent({ id: 'e2', userId: 'u1', event: 'x', ts: 9, payload: {} })
+    ).rejects.toBeInstanceOf(UserErasedError);
+    expect(await store.listUserIds()).toEqual(['u2']);
+  });
+
+  test('a failed entry of a user being erased cannot be reclaimed', async () => {
+    const db = new FakeD1();
+    const store = new D1JourneyStore(db);
+    const entry = { workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 };
+    expect(await store.enterJourney(entry)).toBe('entered');
+    await store.setEntryStatus('i1', 'failed');
+    await store.requestErasure('u1', 2);
+    await expect(store.enterJourney({ ...entry, instanceId: 'i2', ts: 3 })).rejects.toBeInstanceOf(
+      UserErasedError
+    );
+    expect(db.entries).toMatchObject([{ instance_id: 'i1', status: 'failed' }]);
+    // Without a tombstone the reclaim goes through
+    db.erasures.delete('u1');
+    expect(await store.enterJourney({ ...entry, instanceId: 'i2', ts: 3 })).toBe('reclaimed');
   });
 });

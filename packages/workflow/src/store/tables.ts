@@ -81,8 +81,12 @@ export const TABLES = {
   }),
   erasure: table({
     name: 'erasure',
-    doc: "Erasures in progress (`forgetUser`): the user's data stays until every running instance is stopped, and the scheduled sweep retries what is left.",
-    columns: { userId: text, requestedAt: ts },
+    doc: "Erasure tombstones (`forgetUser`): every write about a user is conditional on no row here. While `erased_at` is null the user's data stays until every running instance is stopped, and the scheduled sweep retries what is left; once set, the data is gone and the row stays so the user id is never written again.",
+    columns: {
+      userId: text,
+      requestedAt: ts,
+      erasedAt: nullable(ts, 'When the data was erased; null while the erasure is under way.'),
+    },
     primaryKey: ['userId'],
   }),
   suppression: table({

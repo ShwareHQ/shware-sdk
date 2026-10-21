@@ -1,5 +1,6 @@
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
+import { type ErasureState, UserErasedError } from './erasure';
 import type {
   BundleVersion,
   DeviceInput,
@@ -56,6 +57,14 @@ function asJson<T>(value: unknown): T {
  * guarantees come from the database: ON CONFLICT for the once policy and
  * idempotent subscriptions, a transaction for the route swap, a jsonb merge
  * for /identify. The tables are declared in tables.ts.
+ *
+ * Every write about a user is one statement conditional on their erasure tombstone not
+ * existing (`INSERT ... SELECT ... WHERE NOT EXISTS`, see `notErased`): the check and the write
+ * share the statement's snapshot, so a tombstone committed before the statement is always
+ * honoured, without a lock. A write whose snapshot predates the tombstone by less than its own
+ * run time can still land, and the erase that follows the stop and drain of the user's
+ * instances — seconds to minutes later — takes it with the rest. Suppressions are the one
+ * exception: an opt-out is written whatever the user's state.
  */
 export class PostgresJourneyStore implements JourneyStore {
   private readonly t: Record<TableKey, string>;
@@ -143,7 +152,7 @@ export class PostgresJourneyStore implements JourneyStore {
     // reports which of the two happened without a second round trip.
     const rows = await this.sql.query(
       `INSERT INTO ${this.t.event} (id, event_id, user_id, name, ts, payload)
-       VALUES ($1, $2, $3, $4, ${TS('$5')}, $6::text::jsonb)
+       SELECT $1::uuid, $2, $3, $4, ${TS('$5')}, $6::text::jsonb ${this.notErased('$3')}
        ON CONFLICT (user_id, event_id) DO NOTHING RETURNING id`,
       [
         uuidv7(input.ts),
@@ -154,7 +163,26 @@ export class PostgresJourneyStore implements JourneyStore {
         JSON.stringify(input.payload),
       ]
     );
-    return rows.length > 0;
+    if (rows.length > 0) return true;
+    // Nothing written: a duplicate, unless the tombstone refused it
+    await this.refuseIfErased(this.sql, input.userId);
+    return false;
+  }
+
+  /** The condition every write about a user carries: no erasure tombstone for `$user`. */
+  private notErased(user: string): string {
+    return `WHERE NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = ${user})`;
+  }
+
+  /**
+   * A conditional write wrote nothing: on that path only, read why. Throws when the tombstone
+   * refused it; returns when the statement had another reason (a duplicate, an entry taken).
+   */
+  private async refuseIfErased(sql: SqlClientLike, userId: string): Promise<void> {
+    const rows = await sql.query(`SELECT 1 AS x FROM ${this.t.erasure} WHERE user_id = $1`, [
+      userId,
+    ]);
+    if (rows.length > 0) throw new UserErasedError(userId);
   }
 
   /** The event rows of one user and name, within the window's bounds (both inclusive). */
@@ -209,13 +237,16 @@ export class PostgresJourneyStore implements JourneyStore {
     // API's only way to unset a property). Atomic in the database, so two
     // concurrent identifies cannot lose each other's keys.
     const rows = await this.sql.query<{ props: unknown }>(
-      `INSERT INTO ${this.t.profile} (user_id, props) VALUES ($1, jsonb_strip_nulls($2::text::jsonb))
+      `INSERT INTO ${this.t.profile} (user_id, props)
+       SELECT $1, jsonb_strip_nulls($2::text::jsonb) ${this.notErased('$1')}
        ON CONFLICT (user_id) DO UPDATE SET props = jsonb_strip_nulls(${this.t.profile}.props || $3::text::jsonb)
        RETURNING props`,
       // EXCLUDED.props would be the stripped insert value, so the update merges the raw patch again
       [userId, JSON.stringify(props), JSON.stringify(props)]
     );
-    return asJson<ProfileProps>(rows.at(0)?.props ?? {});
+    // The upsert always yields its row — unless the tombstone refused it
+    if (rows.length === 0) throw new UserErasedError(userId);
+    return asJson<ProfileProps>(rows[0].props);
   }
 
   async listUserIds(page?: {
@@ -249,11 +280,14 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   async upsertDevice(device: DeviceInput): Promise<void> {
-    await this.sql.query(
-      `INSERT INTO ${this.t.device} (token, user_id, platform, ts) VALUES ($1, $2, $3, ${TS('$4')})
-       ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, ts = EXCLUDED.ts`,
+    const rows = await this.sql.query(
+      `INSERT INTO ${this.t.device} (token, user_id, platform, ts)
+       SELECT $1, $2, $3, ${TS('$4')} ${this.notErased('$2')}
+       ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, ts = EXCLUDED.ts
+       RETURNING token`,
       [device.token, device.userId, device.platform, device.ts]
     );
+    if (rows.length === 0) throw new UserErasedError(device.userId);
   }
 
   async requestErasure(userId: string, at: number): Promise<void> {
@@ -266,16 +300,19 @@ export class PostgresJourneyStore implements JourneyStore {
 
   async pendingErasures(): Promise<string[]> {
     const rows = await this.sql.query<{ user_id: string }>(
-      `SELECT user_id FROM ${this.t.erasure} ORDER BY requested_at`
+      `SELECT user_id FROM ${this.t.erasure} WHERE erased_at IS NULL ORDER BY requested_at`
     );
     return rows.map((row) => row.user_id);
   }
 
-  async erasurePending(userId: string): Promise<boolean> {
-    const rows = await this.sql.query(`SELECT 1 AS x FROM ${this.t.erasure} WHERE user_id = $1`, [
-      userId,
-    ]);
-    return rows.length > 0;
+  async erasureState(userId: string): Promise<ErasureState> {
+    const rows = await this.sql.query<{ erased: boolean }>(
+      `SELECT erased_at IS NOT NULL AS erased FROM ${this.t.erasure} WHERE user_id = $1`,
+      [userId]
+    );
+    const row = rows.at(0);
+    if (row === undefined) return 'none';
+    return row.erased ? 'erased' : 'erasing';
   }
 
   async runningInstances(userId: string): Promise<string[]> {
@@ -286,7 +323,7 @@ export class PostgresJourneyStore implements JourneyStore {
     return rows.map((row) => row.instance_id);
   }
 
-  async forgetUser(userId: string): Promise<void> {
+  async forgetUser(userId: string, at: number): Promise<void> {
     await this.sql.transaction(async (tx) => {
       // Children before the copies they belong to
       for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
@@ -308,11 +345,14 @@ export class PostgresJourneyStore implements JourneyStore {
         this.t.device,
         this.t.event,
         this.t.profile,
-        // The request goes with the data it asked to erase
-        this.t.erasure,
       ]) {
         await tx.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
       }
+      // The tombstone stays, now marked erased; the first erase's time is kept by a repeat
+      await tx.query(
+        `UPDATE ${this.t.erasure} SET erased_at = COALESCE(erased_at, ${TS('$2')}) WHERE user_id = $1`,
+        [userId, at]
+      );
     });
   }
 
@@ -499,14 +539,19 @@ export class PostgresJourneyStore implements JourneyStore {
     workflows: readonly string[]
   ): Promise<void> {
     await this.sql.transaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO ${this.t.segmentMember} (segment, user_id, ts) VALUES ($1, $2, ${TS('$3')}) ON CONFLICT DO NOTHING`,
+      const member = await tx.query(
+        `INSERT INTO ${this.t.segmentMember} (segment, user_id, ts)
+         SELECT $1, $2, ${TS('$3')} ${this.notErased('$2')}
+         ON CONFLICT DO NOTHING RETURNING segment`,
         [segment, userId, ts]
       );
+      // Already a member, or refused: either way the starts below write nothing new
+      if (member.length === 0) await this.refuseIfErased(tx, userId);
       for (const workflow of workflows) {
         await tx.query(
           `INSERT INTO ${this.t.segmentStart} (segment, workflow, user_id, ts)
-           VALUES ($1, $2, $3, ${TS('$4')}) ON CONFLICT DO NOTHING`,
+           SELECT $1, $2, $3, ${TS('$4')} ${this.notErased('$3')}
+           ON CONFLICT DO NOTHING`,
           [segment, workflow, userId, ts]
         );
       }
@@ -558,7 +603,7 @@ export class PostgresJourneyStore implements JourneyStore {
     // concurrent ingests race on the insert and exactly one wins.
     const inserted = await sql.query(
       `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, hash, status, ts)
-       VALUES ($1, $2, $3, $4, 'running', ${TS('$5')})
+       SELECT $1, $2, $3, $4, 'running', ${TS('$5')} ${this.notErased('$2')}
        ON CONFLICT (workflow, user_id) DO NOTHING RETURNING instance_id`,
       [entry.workflow, entry.userId, entry.instanceId, entry.hash, entry.ts]
     );
@@ -570,10 +615,15 @@ export class PostgresJourneyStore implements JourneyStore {
     // retries exactly one gets a row back.
     const claimed = await sql.query(
       `UPDATE ${this.t.entry} SET instance_id = $1, hash = $2, status = 'running', ts = ${TS('$3')}
-       WHERE workflow = $4 AND user_id = $5 AND status = 'failed' RETURNING instance_id`,
+       WHERE workflow = $4 AND user_id = $5 AND status = 'failed'
+         AND NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = $5)
+       RETURNING instance_id`,
       [entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId]
     );
-    return claimed.length > 0 ? 'reclaimed' : null;
+    if (claimed.length > 0) return 'reclaimed';
+    // Taken by a live instance, or refused by the tombstone: tell them apart
+    await this.refuseIfErased(sql, entry.userId);
+    return null;
   }
 
   /**
@@ -586,14 +636,15 @@ export class PostgresJourneyStore implements JourneyStore {
     entry: EntryInput,
     execution: ExecutionStart
   ): Promise<void> {
-    await tx.query(
+    const rows = await tx.query(
       `INSERT INTO ${this.t.execution} (instance_id, workflow, user_id, name, target, input, created_at, generation)
-       VALUES ($1, $2, $3, $4, $5, $6, ${TS('$7')}, 0)
+       SELECT $1, $2, $3, $4, $5, $6, ${TS('$7')}, 0 ${this.notErased('$3')}
        ON CONFLICT (instance_id) DO UPDATE SET
          name = EXCLUDED.name, target = EXCLUDED.target, input = EXCLUDED.input,
          created_at = EXCLUDED.created_at, generation = 0, submitted_at = NULL, arn = NULL,
          unresolved_at = NULL, callback_id = NULL, deadline_at = NULL, checked_at = NULL,
-         stopped_at = NULL`,
+         stopped_at = NULL
+       RETURNING instance_id`,
       [
         entry.instanceId,
         entry.workflow,
@@ -605,6 +656,8 @@ export class PostgresJourneyStore implements JourneyStore {
         Date.now(),
       ]
     );
+    // Refused between the claim and this: the throw rolls the claimed entry back with it
+    if (rows.length === 0) throw new UserErasedError(entry.userId);
   }
 
   async removeEntry(instanceId: string): Promise<void> {
@@ -632,12 +685,18 @@ export class PostgresJourneyStore implements JourneyStore {
     events: readonly string[],
     ts: number
   ): Promise<void> {
+    let skipped = false;
     for (const event of events) {
-      await this.sql.query(
-        `INSERT INTO ${this.t.subscription} (user_id, event, wake_handle, ts) VALUES ($1, $2, $3, ${TS('$4')}) ON CONFLICT DO NOTHING`,
+      const rows = await this.sql.query(
+        `INSERT INTO ${this.t.subscription} (user_id, event, wake_handle, ts)
+         SELECT $1, $2, $3, ${TS('$4')} ${this.notErased('$1')}
+         ON CONFLICT DO NOTHING RETURNING event`,
         [userId, event, handle, ts]
       );
+      if (rows.length === 0) skipped = true;
     }
+    // A registration already there, or refused: one read tells which
+    if (skipped) await this.refuseIfErased(this.sql, userId);
   }
 
   async unsubscribe(handle: string): Promise<void> {
