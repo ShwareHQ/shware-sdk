@@ -27,6 +27,8 @@ export async function exchangeAuthorizationCode(
   params: ExchangeCodeParams & {
     tokenUri: string;
     authentication?: 'basic' | 'post';
+    /** Extra request headers some providers require, e.g. GitHub's `User-Agent`. */
+    headers?: Record<string, string>;
   }
 ) {
   const body = new URLSearchParams();
@@ -36,6 +38,7 @@ export async function exchangeAuthorizationCode(
   if (params.pkce) body.append('code_verifier', params.pkce.code_verifier);
 
   const headers: Record<string, string> = {
+    ...params.headers,
     Accept: 'application/json',
     'Content-Type': 'application/x-www-form-urlencoded',
   };

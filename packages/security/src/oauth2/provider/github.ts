@@ -3,6 +3,20 @@ import { OAuth2Error } from '../error';
 import type { OAuth2Token, Provider } from '../types';
 import { createAuthorizationUri, exchangeAuthorizationCode } from './common';
 
+/**
+ * GitHub's REST API rejects any request without a `User-Agent` header with a 403. Node's fetch sends
+ * a default one, but Cloudflare Workers' fetch sends none, so every GitHub request sets it explicitly.
+ * reference: https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api#user-agent-required
+ */
+const USER_AGENT = '@shware/security';
+
+/** A short slice of an error response body, enough to tell GitHub's failures apart in logs. */
+async function describeFailure(response: Response, message: string) {
+  const body = await response.text().catch(() => '');
+  const detail = body ? `: ${body.slice(0, 200)}` : '';
+  return `${message} (HTTP ${response.status})${detail}`;
+}
+
 export function createGithubProvider(): Provider {
   return {
     authorizationUri: 'https://github.com/login/oauth/authorize',
@@ -18,29 +32,39 @@ export function createGithubProvider(): Provider {
       });
     },
     async exchangeAuthorizationCode({ pkce: _, ...params }) {
-      const response = await exchangeAuthorizationCode({ ...params, tokenUri: this.tokenUri });
+      const response = await exchangeAuthorizationCode({
+        ...params,
+        tokenUri: this.tokenUri,
+        headers: { 'User-Agent': USER_AGENT },
+      });
       if (!response.ok) {
         const { error, error_description } = (await response.json()) as GithubErrorResponse;
         throw new OAuth2Error(response.status, error, error_description);
       }
-      return (await response.json()) as GithubToken;
+      // GitHub answers a failed exchange (bad_verification_code, incorrect_client_credentials, ...)
+      // with HTTP 200 and an error body, so a 200 alone does not mean a token was issued.
+      const body = (await response.json()) as GithubToken & Partial<GithubErrorResponse>;
+      if (body.error) throw new OAuth2Error(400, body.error, body.error_description);
+      return body;
     },
     async getUserInfo({ access_token }) {
       invariant(access_token, 'access_token is required');
       invariant(this.userInfoUri, 'userInfoUri is required');
-      const headers = { Accept: 'application/json', Authorization: `Bearer ${access_token}` };
+      const headers = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${access_token}`,
+        'User-Agent': USER_AGENT,
+      };
       const response = await fetch(this.userInfoUri, { headers });
       if (!response.ok) {
-        throw new OAuth2Error(response.status, 'invalid_request', 'Failed to fetch user info');
+        const message = await describeFailure(response, 'Failed to fetch user info');
+        throw new OAuth2Error(response.status, 'invalid_request', message);
       }
       const data = (await response.json()) as GithubUserInfo;
       const emailResponse = await fetch('https://api.github.com/user/emails', { headers });
       if (!emailResponse.ok) {
-        throw new OAuth2Error(
-          emailResponse.status,
-          'invalid_request',
-          'Failed to fetch user email'
-        );
+        const message = await describeFailure(emailResponse, 'Failed to fetch user email');
+        throw new OAuth2Error(emailResponse.status, 'invalid_request', message);
       }
       const emails = (await emailResponse.json()) as GithubEmail[];
       data.email = emails.find((email) => email.primary)?.email || data.email;
