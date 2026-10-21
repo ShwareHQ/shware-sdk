@@ -4,11 +4,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Plugin, ViteDevServer } from 'vite';
+import {
+  type Plugin,
+  type ViteDevServer,
+  isFileLoadingAllowed,
+  normalizePath,
+  resolveConfig,
+} from 'vite';
 import { describe, expect, test } from 'vitest';
 import {
   isInsideDir,
   isInsideProject,
+  projectFileDeny,
   studioApiPlugin,
   studioRequestRejection,
 } from '../src/server';
@@ -305,5 +312,72 @@ describe('the node endpoint refuses a file outside the project', () => {
     });
 
     expect(answer).toEqual({ status: 422, body: { error: 'source file is outside the project' } });
+  });
+});
+
+/* ------------------------ What /@fs/ may hand the page ------------------------ */
+
+describe('the config and the stats file are not served to the page', () => {
+  /** Vite's real file-serving verdict for `deny` as the studio sets it. */
+  async function allowed(cwd: string, deny: string[]) {
+    const config = await resolveConfig(
+      { root: cwd, configFile: false, envDir: false, server: { fs: { allow: [cwd], deny } } },
+      'serve'
+    );
+    return (file: string) => isFileLoadingAllowed(config, normalizePath(resolve(file)));
+  }
+
+  function project(dir: string) {
+    mkdirSync(resolve(dir, 'src/email'), { recursive: true });
+    const configPath = resolve(dir, 'workflow.config.ts');
+    const statsPath = resolve(dir, 'workflow.stats.ts');
+    const registry = resolve(dir, 'src/email/index.ts');
+    writeFileSync(configPath, CONFIG);
+    writeFileSync(statsPath, 'export default {};\n');
+    writeFileSync(registry, EMAILS);
+    return { configPath, statsPath, registry };
+  }
+
+  test('both files are denied; the registry the browser imports is still served', async () => {
+    const cwd = tempProject();
+    const { configPath, statsPath, registry } = project(cwd);
+    const serves = await allowed(cwd, projectFileDeny([configPath, statsPath]));
+
+    expect(serves(statsPath)).toBe(false);
+    expect(serves(configPath)).toBe(false);
+    expect(serves(registry)).toBe(true);
+  });
+
+  test('a missing stats file is simply left out', () => {
+    const cwd = tempProject();
+    const { configPath } = project(cwd);
+    /* The config under its own name and, where tmpdir is itself a symlink, its real one; nothing else. */
+    const deny = projectFileDeny([configPath, undefined]);
+    expect(deny.length).toBeGreaterThanOrEqual(1);
+    expect(deny.every((pattern) => pattern.endsWith('/workflow.config.ts'))).toBe(true);
+  });
+
+  test('a project path with glob characters in it is matched literally', async () => {
+    const cwd = resolve(tempProject(), 'acme (1) [beta]+{x}');
+    mkdirSync(cwd, { recursive: true });
+    const { configPath, statsPath, registry } = project(cwd);
+    const serves = await allowed(cwd, projectFileDeny([configPath, statsPath]));
+
+    expect(serves(statsPath)).toBe(false);
+    expect(serves(registry)).toBe(true);
+  });
+
+  test('a symlinked stats file is denied under its real name too', async () => {
+    const cwd = tempProject();
+    const real = resolve(tempProject(), 'stats.real.ts');
+    writeFileSync(real, 'export default {};\n');
+    const { configPath } = project(cwd);
+    const link = resolve(cwd, 'workflow.stats.link.ts');
+    symlinkSync(real, link);
+    const deny = projectFileDeny([configPath, link]);
+    const serves = await allowed(cwd, deny);
+
+    expect(serves(link)).toBe(false);
+    expect(serves(real)).toBe(false);
   });
 });

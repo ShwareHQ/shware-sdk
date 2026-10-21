@@ -190,3 +190,14 @@ describe('the template list', () => {
     ]);
   });
 });
+
+describe('the full-page preview is a picture of a document', () => {
+  test('its iframe runs no script: same-origin for the height, nothing else', () => {
+    // Without a sandbox a <script> in a template ran as the studio page and
+    // could POST /__studio/stats for profiles. The thumbnail always had one.
+    setup({ preview: { loading: false, html: '<p>hello</p><script>document.title="x"</script>' } });
+    const frame = document.querySelector('iframe');
+    expect(frame).not.toBeNull();
+    expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin');
+  });
+});

@@ -94,14 +94,24 @@ as real numbers.
 A journeyWorker on Postgres keeps the reporting itself, and
 `@shware/workflow-ui/postgres` reads it: every view, human and machine opens
 and clicks included, on the journey's clock when the environment runs in
-fast-forward.
+fast-forward. `environment` names the `runtime` entry the database was written
+under — `production` by default, so a production database is read at its real
+pace; pass the fast-forwarded one (`development`) to read a local run.
 
 ```ts
 import { postgresStats } from '@shware/workflow-ui/postgres';
 import config from './workflow.config';
 
-export default postgresStats({ config, connectionString: process.env.STATS_DATABASE_URL! });
+export default postgresStats({
+  config,
+  connectionString: process.env.STATS_DATABASE_URL!,
+  environment: process.env.ENVIRONMENT ?? 'production',
+});
 ```
+
+The dev server serves the project's source to the page (Vite's `/@fs/`), except
+`workflow.config.ts` and the stats file, which the page never imports; still,
+keep credentials in environment variables rather than literals.
 
 ## generate
 
