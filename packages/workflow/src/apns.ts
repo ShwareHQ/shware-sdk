@@ -16,13 +16,19 @@ import type { PushRenderer } from './push';
  * host points `origin` at the Node relay in `@shware/workflow/apns-relay`.
  */
 
-export interface ApnsPushOptions {
+/** The APNs auth key — the `.p8` file from the developer portal, and the ids that name it. */
+export interface ApnsProviderTokenOptions {
   /** The key's 10-character id, shown next to it in the developer portal. */
   keyId: string;
   /** The Apple Developer team id. */
   teamId: string;
   /** The `.p8` file's contents: PEM, `-----BEGIN PRIVATE KEY-----` (PKCS #8, P-256). */
   privateKey: string;
+}
+
+export interface ApnsPushOptions {
+  /** The provider token the requests are signed with — shared by every sender on the same key. */
+  credentials: ApnsProviderToken;
   /** The app's bundle id — APNs's `apns-topic`. */
   topic: string;
   /**
@@ -41,12 +47,6 @@ export interface ApnsPushOptions {
   origin?: string;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /**
-   * Called for a token APNs reports as gone (a `DEAD_TOKEN_REASONS` answer) before the send
-   * settles `{ delivered: false, reason }`. A host that caches the sender across runs leaves this
-   * unset and reads the settled reason instead (`channelsFromConfig` does).
-   */
-  onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
 
 export const APNS_HOSTS = {
@@ -89,19 +89,11 @@ const CONFIGURATION_REASONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `apns-collapse-id` is limited to 64 bytes: the idempotency key cut at a character boundary so
- * the encoded header stays within it.
- */
-export function apnsCollapseId(idempotencyKey: string): string {
-  let value = idempotencyKey;
-  while (new TextEncoder().encode(value).length > 64) value = value.slice(0, -1);
-  return value;
-}
-
-/**
- * `apns-id` must be a canonical UUID. One derived from the idempotency key (SHA-256, the first 16
- * bytes laid out as an RFC 9562 v8 UUID) is the same on every attempt, so a resend of the same copy
- * carries the same id and the two attempts can be told apart from two copies in APNs's logs.
+ * The copy's identity on the wire: a canonical UUID derived from the idempotency key (SHA-256, the
+ * first 16 bytes laid out as an RFC 9562 v8 UUID). The same on every attempt, so a resend of the
+ * same copy carries the same `apns-id` and — as `apns-collapse-id`, which is limited to 64 bytes —
+ * collapses onto the first notification. The whole key is hashed: cut to 64 bytes it would lose
+ * the node id at its end, and two nodes of one instance would collapse into one notification.
  */
 export async function apnsIdFromKey(idempotencyKey: string): Promise<string> {
   const digest = new Uint8Array(
@@ -117,9 +109,42 @@ export async function apnsIdFromKey(idempotencyKey: string): Promise<string> {
 /** Apple: reuse a provider token for at least 20 minutes, never past 60. */
 const TOKEN_TTL_MS = 50 * 60_000;
 
-export class ApnsPushSender implements MessageSender {
-  private token: { value: string; issuedAt: number } | undefined;
+/**
+ * The provider JWT for one APNs auth key, signed once and reused for `TOKEN_TTL_MS`: Apple
+ * answers a sender that re-signs on every push with 429 `TooManyProviderTokenUpdates`. Concurrent
+ * callers on a fresh or aged token share the one signing in flight, and a signing that failed is
+ * not kept, so the next call tries again. One instance serves every sender built on the key — a
+ * host keeps it across runs, and builds the senders per run.
+ */
+export class ApnsProviderToken {
+  private signed: { value: string; issuedAt: number } | undefined;
+  private signing: Promise<string> | undefined;
 
+  constructor(private readonly options: ApnsProviderTokenOptions) {}
+
+  /** The current token, signed now if there is none or it has aged out. */
+  async token(now = Date.now()): Promise<string> {
+    if (this.signed !== undefined && now - this.signed.issuedAt < TOKEN_TTL_MS) {
+      return this.signed.value;
+    }
+    this.signing ??= signApnsJwt(this.options, now)
+      .then((value) => {
+        this.signed = { value, issuedAt: now };
+        return value;
+      })
+      .finally(() => {
+        this.signing = undefined;
+      });
+    return this.signing;
+  }
+
+  /** Forget the token: APNs refused it (`ExpiredProviderToken`), so the next call signs a new one. */
+  invalidate(): void {
+    this.signed = undefined;
+  }
+}
+
+export class ApnsPushSender implements MessageSender {
   constructor(private readonly options: ApnsPushOptions) {}
 
   async send(message: OutboundMessage): Promise<void | SendResult> {
@@ -137,17 +162,18 @@ export class ApnsPushSender implements MessageSender {
     const origin = this.options.origin ?? upstream;
     const doFetch = this.options.fetch ?? fetch;
 
+    const copyId = await apnsIdFromKey(message.idempotencyKey);
     const response = await doFetch(`${origin}/3/device/${message.recipient}`, {
       method: 'POST',
       headers: {
-        authorization: `bearer ${await this.providerToken()}`,
+        authorization: `bearer ${await this.options.credentials.token()}`,
         'apns-topic': this.options.topic,
         'apns-push-type': 'alert',
         'apns-priority': '10',
         // A resend of the same copy (an at-least-once retry after APNs accepted the first attempt)
         // carries the same id and collapses onto the first notification instead of showing twice
-        'apns-id': await apnsIdFromKey(message.idempotencyKey),
-        'apns-collapse-id': apnsCollapseId(message.idempotencyKey),
+        'apns-id': copyId,
+        'apns-collapse-id': copyId,
         'content-type': 'application/json',
         ...(this.options.origin === undefined ? {} : { 'apns-relay-upstream': upstream }),
       },
@@ -176,7 +202,6 @@ export class ApnsPushSender implements MessageSender {
       // A dead token is a fact about the recipient, not a transient failure:
       // report it and move on, so the step does not retry into the same wall.
       console.warn(`[apns] token gone for user ${message.userId}: ${reason}`);
-      await this.options.onUnregistered?.(message);
       return { delivered: false, reason };
     }
     if (reason === 'BadDeviceToken') {
@@ -185,8 +210,8 @@ export class ApnsPushSender implements MessageSender {
       return { delivered: false, reason };
     }
     if (reason === 'ExpiredProviderToken') {
-      // The cached token aged out (clock skew, a long-lived isolate): sign a new one on the retry
-      this.token = undefined;
+      // The token aged out (clock skew, a long-lived isolate): sign a new one on the retry
+      this.options.credentials.invalidate();
       throw new Error(
         `APNs send failed: ${status} ${reason} (provider token renewed for the retry)`
       );
@@ -200,16 +225,6 @@ export class ApnsPushSender implements MessageSender {
       throw new Error(`APNs send failed: ${status} ${reason || text}`);
     }
     throw new PermanentError(`APNs refused the request: ${status} ${reason || text}`);
-  }
-
-  private async providerToken(): Promise<string> {
-    const now = Date.now();
-    if (this.token !== undefined && now - this.token.issuedAt < TOKEN_TTL_MS) {
-      return this.token.value;
-    }
-    const value = await signApnsJwt(this.options, now);
-    this.token = { value, issuedAt: now };
-    return value;
   }
 }
 
@@ -225,7 +240,7 @@ export function apnsReason(body: string): string {
 
 /** ES256-sign the APNs provider token: header `kid`, claims `iss` (team) and `iat`. */
 export async function signApnsJwt(
-  key: Pick<ApnsPushOptions, 'keyId' | 'teamId' | 'privateKey'>,
+  key: ApnsProviderTokenOptions,
   nowMs = Date.now()
 ): Promise<string> {
   const header = base64url(JSON.stringify({ alg: 'ES256', kid: key.keyId }));

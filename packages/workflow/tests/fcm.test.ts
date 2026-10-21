@@ -1,7 +1,9 @@
 import { webcrypto } from 'node:crypto';
-import { beforeAll, describe, expect, test } from 'vitest';
+import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import { PermanentError, isRetryable } from '../src/engine/retry';
 import {
+  DEAD_TOKEN_REASONS,
+  FcmAccessToken,
   FcmPushSender,
   type FcmServiceAccount,
   fcmErrorCode,
@@ -35,6 +37,10 @@ beforeAll(async () => {
   };
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const decode = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
 
 describe('signJwt', () => {
@@ -64,6 +70,10 @@ describe('signJwt', () => {
   });
 });
 
+/**
+ * A fetch standing in for both Google endpoints: the token exchange mints `at-1`, `at-2`, … (or
+ * answers `token.status`), and FCM answers `fcmStatus` with `fcmBody`.
+ */
 function fakeFetch(fcmStatus: number, fcmBody: unknown, token: { status?: number } = {}) {
   const calls: { url: string; body: string; auth: string | null }[] = [];
   let minted = 0;
@@ -82,7 +92,9 @@ function fakeFetch(fcmStatus: number, fcmBody: unknown, token: { status?: number
     }
     return new Response(JSON.stringify(fcmBody), { status: fcmStatus });
   };
-  return { calls, fetchFn };
+  const exchanges = () => calls.filter((c) => c.url.endsWith('/token'));
+  const sends = () => calls.filter((c) => c.url.includes('/messages:send'));
+  return { calls, fetchFn, exchanges, sends };
 }
 
 /** An FCM v1 error body: the gRPC status, and the messaging error code when there is one. */
@@ -107,25 +119,108 @@ const message = {
   idempotencyKey: 'inst:0',
 };
 
+const render = async (key: string, props: Record<string, unknown>) => ({
+  title: `${key} ${String(props.name)}`,
+  body: 'b',
+});
+
+/**
+ * The access token: one exchange for the account, reused by every sender built on it until it is
+ * about to expire or FCM refuses it.
+ */
+describe('FcmAccessToken', () => {
+  test('exchanges once and hands the same token to every caller until a minute before expiry', async () => {
+    const { fetchFn, exchanges } = fakeFetch(200, {});
+    const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+    expect(credentials.projectId).toBe('demo');
+    expect(await credentials.token(0)).toBe('at-1');
+    expect(await credentials.token(3600_000 - 60_001)).toBe('at-1');
+    expect(exchanges()).toHaveLength(1);
+  });
+
+  test('exchanges again once the token is within a minute of expiring', async () => {
+    vi.useFakeTimers({ now: 1_000_000_000_000 });
+    const { fetchFn, exchanges } = fakeFetch(200, {});
+    const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+    expect(await credentials.token()).toBe('at-1');
+    vi.advanceTimersByTime(3600_000 - 60_000);
+    expect(await credentials.token()).toBe('at-2');
+    expect(exchanges()).toHaveLength(2);
+  });
+
+  test('invalidate() forces a new exchange on the next call', async () => {
+    const { fetchFn } = fakeFetch(200, {});
+    const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+    expect(await credentials.token(0)).toBe('at-1');
+    credentials.invalidate();
+    expect(await credentials.token(0)).toBe('at-2');
+  });
+
+  test('concurrent first calls share one exchange', async () => {
+    const { fetchFn, exchanges } = fakeFetch(200, {});
+    const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+    const tokens = await Promise.all([
+      credentials.token(0),
+      credentials.token(0),
+      credentials.token(0),
+    ]);
+    expect(tokens).toEqual(['at-1', 'at-1', 'at-1']);
+    expect(exchanges()).toHaveLength(1);
+  });
+
+  test('a failed exchange is not kept: the next call tries again', async () => {
+    const status = { status: 503 };
+    const { fetchFn, exchanges } = fakeFetch(200, {}, status);
+    const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+    const error = await credentials.token(0).catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(PermanentError);
+    expect(isRetryable(error)).toBe(true);
+    status.status = 200;
+    expect(await credentials.token(0)).toBe('at-1');
+    expect(exchanges()).toHaveLength(2);
+  });
+
+  test('an exchange the endpoint refuses is permanent; a failing endpoint is retried', async () => {
+    const refused = new FcmAccessToken({
+      serviceAccount: account,
+      fetch: fakeFetch(200, {}, { status: 400 }).fetchFn,
+    });
+    await expect(refused.token()).rejects.toThrow(PermanentError);
+    const down = new FcmAccessToken({
+      serviceAccount: account,
+      fetch: fakeFetch(200, {}, { status: 503 }).fetchFn,
+    });
+    const error = await down.token().catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(PermanentError);
+    expect(isRetryable(error)).toBe(true);
+  });
+});
+
+function sender(
+  fetchFn: typeof fetch,
+  extra: Partial<ConstructorParameters<typeof FcmPushSender>[0]> = {}
+) {
+  return new FcmPushSender({
+    credentials: new FcmAccessToken({ serviceAccount: account, fetch: fetchFn }),
+    render,
+    fetch: fetchFn,
+    ...extra,
+  });
+}
+
 describe('FcmPushSender', () => {
   test('mints one access token, then posts the rendered notification to FCM v1', async () => {
-    const { calls, fetchFn } = fakeFetch(200, { name: 'projects/demo/messages/1' });
-    const sender = new FcmPushSender({
-      serviceAccount: account,
-      render: async (key, props) => ({ title: `${key} ${String(props.name)}`, body: 'b' }),
-      android: { channel_id: 'default' },
-      fetch: fetchFn,
-    });
+    const { fetchFn, exchanges, sends } = fakeFetch(200, { name: 'projects/demo/messages/1' });
+    const s = sender(fetchFn, { android: { channel_id: 'default' } });
 
-    await sender.send(message);
-    await sender.send({ ...message, idempotencyKey: 'inst:1' });
+    await s.send(message);
+    await s.send({ ...message, idempotencyKey: 'inst:1' });
 
-    expect(calls.filter((c) => c.url.endsWith('/token'))).toHaveLength(1);
-    const sends = calls.filter((c) => c.url.includes('/messages:send'));
-    expect(sends).toHaveLength(2);
-    expect(sends[0]?.url).toBe('https://fcm.googleapis.com/v1/projects/demo/messages:send');
-    expect(sends[0]?.auth).toBe('Bearer at-1');
-    expect(JSON.parse(sends[0]?.body ?? '')).toEqual({
+    expect(exchanges()).toHaveLength(1);
+    expect(sends()).toHaveLength(2);
+    expect(sends()[0]?.url).toBe('https://fcm.googleapis.com/v1/projects/demo/messages:send');
+    expect(sends()[0]?.auth).toBe('Bearer at-1');
+    expect(JSON.parse(sends()[0]?.body ?? '')).toEqual({
       message: {
         token: 'fcm-token-1',
         notification: { title: 'comeback Ada', body: 'b' },
@@ -136,39 +231,31 @@ describe('FcmPushSender', () => {
     });
   });
 
+  test('two senders on one credential carry the same access token', async () => {
+    const { fetchFn, exchanges, sends } = fakeFetch(200, {});
+    const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+    await sender(fetchFn, { credentials }).send(message);
+    await sender(fetchFn, { credentials, android: { channel_id: 'other' } }).send(message);
+    expect(exchanges()).toHaveLength(1);
+    expect(sends().map((c) => c.auth)).toEqual(['Bearer at-1', 'Bearer at-1']);
+  });
+
   test('a dead token is reported, not retried; other failures throw', async () => {
-    const dead = fakeFetch(404, {
-      error: { status: 'NOT_FOUND', details: [{ errorCode: 'UNREGISTERED' }] },
-    });
-    const gone: string[] = [];
-    const sender = new FcmPushSender({
-      serviceAccount: account,
-      render: async () => ({ title: 't', body: 'b' }),
-      fetch: dead.fetchFn,
-      onUnregistered: (m) => {
-        gone.push(m.userId);
-      },
-    });
-    await expect(sender.send(message)).resolves.toEqual({
+    const dead = fakeFetch(404, fcmError('NOT_FOUND', 'UNREGISTERED'));
+    await expect(sender(dead.fetchFn).send(message)).resolves.toEqual({
       delivered: false,
       reason: 'UNREGISTERED',
     });
-    expect(gone).toEqual(['u1']);
-
-    const flaky = fakeFetch(503, { error: { status: 'UNAVAILABLE' } });
-    const retrying = new FcmPushSender({
-      serviceAccount: account,
-      render: async () => ({ title: 't', body: 'b' }),
-      fetch: flaky.fetchFn,
-    });
-    await expect(retrying.send(message)).rejects.toThrow('FCM send failed: 503');
+    const flaky = fakeFetch(503, fcmError('UNAVAILABLE'));
+    await expect(sender(flaky.fetchFn).send(message)).rejects.toThrow('FCM send failed: 503');
     expect(fcmErrorCode('not json')).toBe('');
   });
 
   /**
-   * How each FCM answer ends the copy: a dead token settles it and forgets the device, a refused
-   * argument settles it with the device kept (it may be the payload, not the token), a
-   * configuration problem fails it for good, throttling and outages retry.
+   * How each FCM answer ends the copy: a dead token settles it under a `DEAD_TOKEN_REASONS`
+   * reason (the host forgets the device), a refused argument settles it with the device kept (it
+   * may be the payload, not the token), a configuration problem fails it for good, throttling and
+   * outages retry.
    */
   describe('classification', () => {
     type Outcome = 'settled-dead-token' | 'settled-undelivered' | 'PermanentError' | 'retryable';
@@ -203,24 +290,19 @@ describe('FcmPushSender', () => {
       [429, 'slow down', '', 'retryable'],
       [502, 'bad gateway', '', 'retryable'],
     ];
-    /** What the send did, in the table's terms: how it ended, and whether the device was forgotten. */
+    /** What the send did, in the table's terms: how it ended, and whether the device is dead. */
     const observe = async (status: number, body: unknown) => {
       const { fetchFn } = fakeFetch(status, body);
-      const gone: string[] = [];
-      const sender = new FcmPushSender({
-        serviceAccount: account,
-        render: async () => ({ title: 't', body: 'b' }),
-        fetch: fetchFn,
-        onUnregistered: (m) => void gone.push(m.userId),
-      });
-      const result = await sender.send(message).then(
-        (value) => ({ value, error: undefined }),
-        (error: unknown) => ({ value: undefined, error })
-      );
+      const result = await sender(fetchFn)
+        .send(message)
+        .then(
+          (value) => ({ value, error: undefined }),
+          (error: unknown) => ({ value: undefined, error })
+        );
       const { error } = result;
       const outcome: Outcome | undefined =
         error === undefined
-          ? gone.length > 0
+          ? DEAD_TOKEN_REASONS.has(result.value?.reason ?? '')
             ? 'settled-dead-token'
             : 'settled-undelivered'
           : error instanceof PermanentError
@@ -243,45 +325,23 @@ describe('FcmPushSender', () => {
       });
     });
 
-    test('a 401 drops the cached access token, so the retry mints a new one', async () => {
+    test('a 401 invalidates the credential, so the retry carries a new access token', async () => {
       let status = 401;
-      const { calls, fetchFn } = fakeFetch(200, {});
-      const sender = new FcmPushSender({
-        serviceAccount: account,
-        render: async () => ({ title: 't', body: 'b' }),
-        fetch: async (url, init) => {
+      const { fetchFn, sends } = fakeFetch(200, {});
+      const credentials = new FcmAccessToken({ serviceAccount: account, fetch: fetchFn });
+      const s = sender(
+        async (url, init) => {
           const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
           if (href.endsWith('/token')) return fetchFn(url, init);
-          calls.push({
-            url: href,
-            body: '',
-            auth: new Headers(init?.headers).get('authorization'),
-          });
+          await fetchFn(url, init);
           return new Response(JSON.stringify(fcmError('UNAUTHENTICATED')), { status });
         },
-      });
-      await expect(sender.send(message)).rejects.toThrow(/401/);
+        { credentials }
+      );
+      await expect(s.send(message)).rejects.toThrow(/401/);
       status = 200;
-      await sender.send(message);
-      const sends = calls.filter((c) => c.url.includes('/messages:send'));
-      expect(sends.map((c) => c.auth)).toEqual(['Bearer at-1', 'Bearer at-2']);
-    });
-
-    test('a token exchange the endpoint refuses is permanent; a failing endpoint is retried', async () => {
-      const refused = new FcmPushSender({
-        serviceAccount: account,
-        render: async () => ({ title: 't', body: 'b' }),
-        fetch: fakeFetch(200, {}, { status: 400 }).fetchFn,
-      });
-      await expect(refused.send(message)).rejects.toThrow(PermanentError);
-      const down = new FcmPushSender({
-        serviceAccount: account,
-        render: async () => ({ title: 't', body: 'b' }),
-        fetch: fakeFetch(200, {}, { status: 503 }).fetchFn,
-      });
-      const error = await down.send(message).catch((e: unknown) => e);
-      expect(error).not.toBeInstanceOf(PermanentError);
-      expect(isRetryable(error)).toBe(true);
+      await s.send(message);
+      expect(sends().map((c) => c.auth)).toEqual(['Bearer at-1', 'Bearer at-2']);
     });
   });
 
@@ -293,15 +353,13 @@ describe('FcmPushSender', () => {
   });
 
   test('rejects other channels and missing tokens', async () => {
-    const sender = new FcmPushSender({
-      serviceAccount: account,
-      render: async () => ({ title: 't', body: 'b' }),
+    const s = new FcmPushSender({
+      credentials: new FcmAccessToken({ serviceAccount: account }),
+      render,
     });
-    await expect(sender.send({ ...message, channel: 'email' })).rejects.toThrow(
+    await expect(s.send({ ...message, channel: 'email' })).rejects.toThrow(
       "unsupported channel 'email'"
     );
-    await expect(sender.send({ ...message, recipient: undefined })).rejects.toThrow(
-      'no push token'
-    );
+    await expect(s.send({ ...message, recipient: undefined })).rejects.toThrow('no push token');
   });
 });

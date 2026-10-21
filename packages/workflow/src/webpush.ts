@@ -21,22 +21,19 @@ export interface VapidKeys {
   privateKey: string;
 }
 
+export interface VapidSignerOptions extends VapidKeys {
+  /** Who to contact about this sender: `mailto:` or an `https:` URL (RFC 8292). */
+  subject: string;
+}
+
 export interface WebPushOptions {
-  vapid: VapidKeys & {
-    /** Who to contact about this sender: `mailto:` or an `https:` URL (RFC 8292). */
-    subject: string;
-  };
+  /** The VAPID signer the requests are authorized with — shared by every sender on the same key pair. */
+  credentials: VapidSigner;
   render: PushRenderer;
   /** Seconds the push service keeps an undelivered message; a day by default. */
   ttl?: number;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /**
-   * Called for a subscription that will never deliver again (a `DEAD_TOKEN_REASONS` answer)
-   * before the send settles `{ delivered: false, reason }`. A host that caches the sender across
-   * runs leaves this unset and reads the settled reason instead (`channelsFromConfig` does).
-   */
-  onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
 
 /**
@@ -168,39 +165,86 @@ export async function encryptPayload(
   return concat(header, senderPublic, sealed);
 }
 
-/** The VAPID `Authorization` header for one push service (RFC 8292 §3). */
-export async function vapidAuthorization(
-  endpoint: string,
-  vapid: WebPushOptions['vapid'],
-  now = Date.now()
-): Promise<string> {
-  const publicKey = fromBase64url(vapid.publicKey);
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    {
-      kty: 'EC',
-      crv: 'P-256',
-      d: vapid.privateKey,
-      x: base64url(publicKey.slice(1, 33)),
-      y: base64url(publicKey.slice(33, 65)),
-      ext: true,
-    },
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    false,
-    ['sign']
-  );
-  const header = base64url(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const claims = base64url(
-    JSON.stringify({
-      aud: new URL(endpoint).origin,
-      exp: Math.floor(now / 1000) + 12 * 3600,
-      sub: vapid.subject,
-    })
-  );
-  const signature = new Uint8Array(
-    await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, utf8(`${header}.${claims}`))
-  );
-  return `vapid t=${header}.${claims}.${base64url(signature)}, k=${vapid.publicKey}`;
+/** How long a VAPID token is good for: RFC 8292 §2 allows at most 24 hours. */
+const VAPID_EXP_S = 24 * 3600;
+/** How long a signed token is reused: half its life, so it is never sent near expiry. */
+const VAPID_TTL_MS = 12 * 3600_000;
+
+/**
+ * The VAPID `Authorization` header (RFC 8292 §3) for one key pair. The private key is imported
+ * once; the JWT is signed per push service (its `aud` is the service's origin) and reused for
+ * `VAPID_TTL_MS`. Concurrent callers for one origin share the one signing in flight, and a signing
+ * that failed is not kept. One instance serves every sender built on the pair — a host keeps it
+ * across runs, and builds the senders per run.
+ */
+export class VapidSigner {
+  private key: Promise<CryptoKey> | undefined;
+  private readonly signed = new Map<string, { value: string; issuedAt: number }>();
+  private readonly signing = new Map<string, Promise<string>>();
+
+  constructor(private readonly options: VapidSignerOptions) {}
+
+  /** The header value for the push service at `audience` — its origin, or any URL on it. */
+  async authorization(audience: string, now = Date.now()): Promise<string> {
+    const origin = new URL(audience).origin;
+    const current = this.signed.get(origin);
+    if (current !== undefined && now - current.issuedAt < VAPID_TTL_MS) return current.value;
+    let pending = this.signing.get(origin);
+    if (pending === undefined) {
+      pending = this.sign(origin, now)
+        .then((value) => {
+          this.signed.set(origin, { value, issuedAt: now });
+          return value;
+        })
+        .finally(() => {
+          this.signing.delete(origin);
+        });
+      this.signing.set(origin, pending);
+    }
+    return pending;
+  }
+
+  private privateKey(): Promise<CryptoKey> {
+    if (this.key === undefined) {
+      const publicKey = fromBase64url(this.options.publicKey);
+      this.key = crypto.subtle
+        .importKey(
+          'jwk',
+          {
+            kty: 'EC',
+            crv: 'P-256',
+            d: this.options.privateKey,
+            x: base64url(publicKey.slice(1, 33)),
+            y: base64url(publicKey.slice(33, 65)),
+            ext: true,
+          },
+          { name: 'ECDSA', namedCurve: 'P-256' },
+          false,
+          ['sign']
+        )
+        .catch((error: unknown) => {
+          this.key = undefined;
+          throw error;
+        });
+    }
+    return this.key;
+  }
+
+  private async sign(origin: string, now: number): Promise<string> {
+    const key = await this.privateKey();
+    const header = base64url(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+    const claims = base64url(
+      JSON.stringify({
+        aud: origin,
+        exp: Math.floor(now / 1000) + VAPID_EXP_S,
+        sub: this.options.subject,
+      })
+    );
+    const signature = new Uint8Array(
+      await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, utf8(`${header}.${claims}`))
+    );
+    return `vapid t=${header}.${claims}.${base64url(signature)}, k=${this.options.publicKey}`;
+  }
 }
 
 /**
@@ -238,7 +282,6 @@ export class WebPushSender implements MessageSender {
     const subscription = parseSubscription(message.recipient);
     if (subscription === undefined) {
       // Not a usable subscription: nothing will ever deliver to it, so do not retry into it
-      await this.options.onUnregistered?.(message);
       return { delivered: false, reason: 'InvalidSubscription' };
     }
     const content = await this.options.render(message.template, message.props);
@@ -261,7 +304,7 @@ export class WebPushSender implements MessageSender {
     const response = await doFetch(subscription.endpoint, {
       method: 'POST',
       headers: {
-        authorization: await vapidAuthorization(subscription.endpoint, this.options.vapid),
+        authorization: await this.options.credentials.authorization(subscription.endpoint),
         'content-encoding': 'aes128gcm',
         'content-type': 'application/octet-stream',
         ttl: String(this.options.ttl ?? 86_400),
@@ -277,7 +320,6 @@ export class WebPushSender implements MessageSender {
     if (status === 404 || status === 410) {
       // The browser unsubscribed or the subscription expired: it will never deliver again
       console.warn(`[webpush] subscription gone for user ${message.userId}: ${status}`);
-      await this.options.onUnregistered?.(message);
       return { delivered: false, reason: status === 410 ? 'Gone' : 'NotFound' };
     }
     const text = await response.text();

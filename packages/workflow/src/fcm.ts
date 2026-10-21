@@ -22,8 +22,15 @@ export interface FcmServiceAccount {
   token_uri?: string;
 }
 
-export interface FcmPushOptions {
+export interface FcmAccessTokenOptions {
   serviceAccount: FcmServiceAccount;
+  /** Fetch implementation for the token exchange (defaults to the global one). */
+  fetch?: typeof fetch;
+}
+
+export interface FcmPushOptions {
+  /** The access token the requests carry — shared by every sender on the same service account. */
+  credentials: FcmAccessToken;
   render: PushRenderer;
   /** Android-specific delivery options, e.g. `{ channel_id: 'default' }` (FCM v1 `android.notification`). */
   android?: Record<string, unknown>;
@@ -31,12 +38,6 @@ export interface FcmPushOptions {
   apns?: Record<string, unknown>;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /**
-   * Called for a token FCM reports as gone (a `DEAD_TOKEN_REASONS` answer) before the send
-   * settles `{ delivered: false, reason }`. A host that caches the sender across runs leaves this
-   * unset and reads the settled reason instead (`channelsFromConfig` does).
-   */
-  onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
 
 /**
@@ -67,9 +68,73 @@ const TRANSIENT_CODES: ReadonlySet<string> = new Set(['QUOTA_EXCEEDED', 'UNAVAIL
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 
-export class FcmPushSender implements MessageSender {
-  private token: { value: string; expiresAt: number } | undefined;
+/**
+ * The OAuth2 access token for one service account, exchanged once and reused until a minute
+ * before it expires. Concurrent callers without a usable token share the one exchange in flight,
+ * and an exchange that failed is not kept, so the next call tries again. One instance serves every
+ * sender built on the account — a host keeps it across runs, and builds the senders per run.
+ */
+export class FcmAccessToken {
+  /** The Firebase project the account belongs to — the `messages:send` URL names it. */
+  readonly projectId: string;
+  private minted: { value: string; expiresAt: number } | undefined;
+  private minting: Promise<string> | undefined;
 
+  constructor(private readonly options: FcmAccessTokenOptions) {
+    this.projectId = options.serviceAccount.project_id;
+  }
+
+  /** The current token, exchanged now if there is none or it is about to expire. */
+  async token(now = Date.now()): Promise<string> {
+    if (this.minted !== undefined && this.minted.expiresAt - 60_000 > now) {
+      return this.minted.value;
+    }
+    this.minting ??= this.exchange(now)
+      .then((minted) => {
+        this.minted = minted;
+        return minted.value;
+      })
+      .finally(() => {
+        this.minting = undefined;
+      });
+    return this.minting;
+  }
+
+  /** Forget the token: FCM refused it (401), so the next call exchanges a new one. */
+  invalidate(): void {
+    this.minted = undefined;
+  }
+
+  private async exchange(now: number): Promise<{ value: string; expiresAt: number }> {
+    const { serviceAccount } = this.options;
+    const tokenUri = serviceAccount.token_uri ?? 'https://oauth2.googleapis.com/token';
+    const assertion = await signJwt(serviceAccount, tokenUri, SCOPE, now);
+    const doFetch = this.options.fetch ?? fetch;
+    const response = await doFetch(tokenUri, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+    });
+    if (!response.ok) {
+      const detail = `${response.status} ${await response.text()}`;
+      // A 4xx from the token endpoint (`invalid_grant`: the key was revoked, `invalid_client`)
+      // is the service account itself; only a throttled or failing endpoint is worth a retry
+      if (isRetryableStatus(response.status)) {
+        throw new Error(`FCM token exchange failed: ${detail}`);
+      }
+      throw new PermanentError(
+        `FCM token exchange refused for '${serviceAccount.client_email}': ${detail}`
+      );
+    }
+    const json = (await response.json()) as { access_token: string; expires_in: number };
+    return { value: json.access_token, expiresAt: now + json.expires_in * 1000 };
+  }
+}
+
+export class FcmPushSender implements MessageSender {
   constructor(private readonly options: FcmPushOptions) {}
 
   async send(message: OutboundMessage): Promise<void | SendResult> {
@@ -80,15 +145,15 @@ export class FcmPushSender implements MessageSender {
       throw new Error(`FcmPushSender: no push token for user '${message.userId}'`);
     }
     const { title, body, image, url } = await this.options.render(message.template, message.props);
-    const { serviceAccount, android, apns } = this.options;
+    const { credentials, android, apns } = this.options;
     const doFetch = this.options.fetch ?? fetch;
 
     const response = await doFetch(
-      `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`,
+      `https://fcm.googleapis.com/v1/projects/${credentials.projectId}/messages:send`,
       {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${await this.accessToken()}`,
+          authorization: `Bearer ${await credentials.token()}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -118,7 +183,6 @@ export class FcmPushSender implements MessageSender {
       // A dead token is a fact about the recipient, not a transient failure:
       // report it and move on, so the step does not retry into the same wall.
       console.warn(`[fcm] token gone for user ${message.userId}: ${code}`);
-      await this.options.onUnregistered?.(message);
       return { delivered: false, reason: code };
     }
     if (code === 'INVALID_ARGUMENT') {
@@ -128,12 +192,12 @@ export class FcmPushSender implements MessageSender {
     }
     if (CONFIGURATION_CODES.has(code)) {
       throw new PermanentError(
-        `FCM refused the request for project '${serviceAccount.project_id}': ${status} ${code}`
+        `FCM refused the request for project '${credentials.projectId}': ${status} ${code}`
       );
     }
     if (status === 401 || code === 'UNAUTHENTICATED') {
       // The access token was revoked before it expired: mint a new one on the retry
-      this.token = undefined;
+      credentials.invalidate();
       throw new Error(
         `FCM send failed: ${status} ${code || text} (access token renewed for the retry)`
       );
@@ -142,38 +206,6 @@ export class FcmPushSender implements MessageSender {
       throw new Error(`FCM send failed: ${status} ${code || text}`);
     }
     throw new PermanentError(`FCM refused the request: ${status} ${code || text}`);
-  }
-
-  private async accessToken(): Promise<string> {
-    const now = Date.now();
-    if (this.token !== undefined && this.token.expiresAt - 60_000 > now) return this.token.value;
-
-    const { serviceAccount } = this.options;
-    const tokenUri = serviceAccount.token_uri ?? 'https://oauth2.googleapis.com/token';
-    const assertion = await signJwt(serviceAccount, tokenUri, SCOPE, now);
-    const doFetch = this.options.fetch ?? fetch;
-    const response = await doFetch(tokenUri, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion,
-      }),
-    });
-    if (!response.ok) {
-      const detail = `${response.status} ${await response.text()}`;
-      // A 4xx from the token endpoint (`invalid_grant`: the key was revoked, `invalid_client`)
-      // is the service account itself; only a throttled or failing endpoint is worth a retry
-      if (isRetryableStatus(response.status)) {
-        throw new Error(`FCM token exchange failed: ${detail}`);
-      }
-      throw new PermanentError(
-        `FCM token exchange refused for '${serviceAccount.client_email}': ${detail}`
-      );
-    }
-    const json = (await response.json()) as { access_token: string; expires_in: number };
-    this.token = { value: json.access_token, expiresAt: now + json.expires_in * 1000 };
-    return json.access_token;
   }
 }
 
