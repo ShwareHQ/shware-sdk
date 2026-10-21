@@ -769,10 +769,12 @@ running. The erasure stops the admitted instances (`terminate`), and only once
 each is known stopped deletes the data; `erased: true` means every admitted
 runner was confirmed stopped, the entries never admitted can never run, and
 the data is gone. An admitted instance that will not stop answers
-`erased: false` and the scheduled sweep retries it. The tombstone stays, so a
-write that was in flight when the data went cannot bring the user back, and
-the sweep runs the erase once more within the hour to take any row committed
-in the same instant.
+`erased: false` and the scheduled sweep retries it. Every write about the user
+runs in the user's locked transaction, the lock the tombstone itself takes: a
+write either committed before the tombstone and is deleted by the erase, or
+waited for the lock and is refused by the tombstone it then sees. There is no
+window to come back for and no second pass; the tombstone stays, so a late
+write cannot bring the user back.
 
 One database per host. The routing tables are global (`triggers`, `segments`, the live
 `deployment` row), so two Workers on one D1 database or one Postgres schema would swap each
@@ -846,9 +848,14 @@ Erasing a user (`POST /users/forget`) commits the tombstone, stops their
 admitted executions, then waits `stopDrainMs` (15 minutes by default; at least
 the function's timeout) before erasing: a stop does not interrupt an invocation
 already running, which goes on to its next checkpoint. Until then the erasure
-answers `erased: false` and the sweep finishes it. An execution whose runner
-never admitted itself needs no stop: its run entry meets the tombstone and
-exits, and so does a wake of a stopped one.
+answers `erased: false` and the sweep finishes it; the drain is one judgment
+for every path — the sweep's reconcile keeps a stopped execution's entry
+`running` until the drain has passed, and an execution the platform reports
+stopped before the stop was recorded is dated at its first sighting, never
+later. An execution whose runner never admitted itself needs no stop: its run
+entry meets the tombstone and exits, and so does a wake of a stopped one. The
+tombstone takes the user's lock, which every write about the user also takes,
+so nothing of theirs lands after it and no second pass is needed.
 
 Deploy one artifact per version: publish a numbered version and point the
 `live` alias, which the Function URL is bound to, at it. Each version carries its
