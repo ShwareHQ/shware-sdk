@@ -28,11 +28,21 @@ export type Props = {
   use_fedcm_for_prompt?: boolean;
 };
 
-export type PromptMoment = {
-  skipped: boolean;
-  dismissed: boolean;
-  dismissedReason: ReturnType<PromptMomentNotification['getDismissedReason']>;
-};
+/**
+ * Why One Tap was skipped, from `getSkippedReason()`. Under FedCM this is only
+ * partially supported: `user_cancel` is never reported and the reason is often
+ * absent altogether.
+ */
+export type SkippedReason = 'auto_cancel' | 'user_cancel' | 'tap_outside' | 'issuing_failed';
+
+/**
+ * Why One Tap was dismissed without a credential, from `getDismissedReason()`.
+ * `credential_returned` is the success path and is reported as `authorized: true` instead.
+ */
+export type DismissedReason = Exclude<
+  ReturnType<PromptMomentNotification['getDismissedReason']>,
+  'credential_returned'
+>;
 
 /**
  * Why prompt() could not run One Tap, so the caller can decide to fall back
@@ -45,7 +55,9 @@ export type UnsupportedReason = 'fedcm_unsupported' | 'script_load_failed' | 'pr
 
 export type PromptResult =
   | { authorized: true; credential: CredentialResponse }
-  | { authorized: false; moment: PromptMoment }
+  // `reason` is often absent under FedCM, which only partially reports skipped reasons.
+  | { authorized: false; skipped: true; reason?: SkippedReason }
+  | { authorized: false; dismissed: true; reason: DismissedReason }
   | { authorized: false; unsupported: true; reason: UnsupportedReason };
 
 let script: HTMLScriptElement | null = null;
@@ -83,6 +95,29 @@ function loadScript(): Promise<void> {
 /** FedCM feature detection — `IdentityCredential` is absent on Safari, Firefox and pre-117 Chrome. */
 function isFedcmSupported(): boolean {
   return typeof window !== 'undefined' && 'IdentityCredential' in window;
+}
+
+const SKIPPED_REASONS: readonly SkippedReason[] = [
+  'auto_cancel',
+  'user_cancel',
+  'tap_outside',
+  'issuing_failed',
+];
+
+/**
+ * `getSkippedReason()` is only partially supported under FedCM: it may be
+ * missing, throw, or return nothing, so keep known values only.
+ */
+function readSkippedReason(notification: PromptMomentNotification): SkippedReason | undefined {
+  try {
+    // `Partial`: the method may be missing under FedCM.
+    const moment: Partial<PromptMomentNotification> = notification;
+    // oxlint-disable-next-line typescript/no-deprecated -- GSI's only source of the skipped reason.
+    const reason: unknown = moment.getSkippedReason?.();
+    return SKIPPED_REASONS.find((known) => known === reason);
+  } catch {
+    return undefined;
+  }
 }
 
 /** debug: chrome://settings/content/federatedIdentityApi */
@@ -138,16 +173,16 @@ export async function prompt({
       accounts.id.prompt((notification) => {
         if (settled) return;
 
-        const skipped = notification.isSkippedMoment();
-        const dismissed = notification.isDismissedMoment();
-        const dismissedReason = notification.getDismissedReason();
-
-        if (skipped || (dismissed && dismissedReason !== 'credential_returned')) {
-          settle({
-            authorized: false,
-            moment: { skipped, dismissed, dismissedReason },
-          });
+        if (notification.isSkippedMoment()) {
+          settle({ authorized: false, skipped: true, reason: readSkippedReason(notification) });
+          return;
         }
+
+        if (!notification.isDismissedMoment()) return;
+        const reason = notification.getDismissedReason();
+        // credential_returned: the callback above settles with the credential.
+        if (reason === 'credential_returned') return;
+        settle({ authorized: false, dismissed: true, reason });
       });
     } catch {
       settle({ authorized: false, unsupported: true, reason: 'prompt_error' });

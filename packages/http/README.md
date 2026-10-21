@@ -396,12 +396,20 @@ const result = await prompt({ client_id: GOOGLE_CLIENT_ID });
 
 if (result.authorized) {
   await api.auth.loginOAuth2Onetap(result.credential); // { credential: ID token, select_by }
-} else if ('unsupported' in result) {
+} else if ('skipped' in result) {
+  track('one_tap_skipped', { reason: result.reason }); // SkippedReason | undefined
+} else if ('dismissed' in result) {
+  track('one_tap_dismissed', { reason: result.reason }); // 'cancel_called' | 'flow_restarted'
+} else {
+  track('one_tap_unsupported', { reason: result.reason }); // UnsupportedReason
   // later, on a button click:
   const code = await requestCode({ client_id: GOOGLE_CLIENT_ID });
   if (code.ok) await exchangeCodeOnBackend(code.response.code);
 }
 ```
+
+Skipped reasons are only partially reported under FedCM, so `reason` is often absent on the
+`skipped` branch.
 
 ## Webhooks (`@shware/http/webhook`)
 
