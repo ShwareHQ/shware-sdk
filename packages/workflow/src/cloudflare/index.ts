@@ -3,7 +3,6 @@ export type {
   EmailBindingLike,
   JourneyEnv,
   JourneyParams,
-  KVNamespaceLike,
   WorkflowBindingLike,
   WorkflowInstanceLike,
 } from './bindings';
@@ -25,12 +24,18 @@ export {
   registerDevice,
   removeDevice,
   unbindDevice,
+  sweepMaintenance,
   sweepSegments,
+  sweepSegmentsPaged,
+  SWEEP_PAGE_SIZE,
   UnversionedStoreError,
+  UserErasedError,
 } from '../host/router';
+export { authorized, bearerMatches } from '../host/auth';
 export type {
   DeployResult,
   DeviceRegistration,
+  SweepPage,
   SweepResult,
   IdentifyResult,
   IngestInput,

@@ -87,7 +87,6 @@ describe('running the compiled IR on in-memory ports', () => {
     const step: EngineStep = {
       do: (_name, fn) => fn(),
       sleep: async () => {},
-      sleepUntil: async () => {},
       subscribe: async () => {},
       unsubscribe: async () => {},
       waitForWake: async () => 'timeout',

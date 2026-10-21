@@ -10,11 +10,6 @@ import type { ExecutionStart } from '../store/index';
  * and the real bindings satisfy it structurally at runtime.
  */
 
-export interface KVNamespaceLike {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
-}
-
 /** Structural subset of D1Result: `meta.changes` is how INSERT OR IGNORE reports whether it inserted. */
 export interface D1RunResultLike {
   meta?: { changes?: number };
@@ -98,11 +93,10 @@ export interface EmailBindingLike {
 /** Every binding the journey engine needs (names match the wrangler config). */
 export interface JourneyEnv {
   /**
-   * BundleIR storage for the default D1 store (`wf:${contentHash}` → WorkflowIR JSON). Optional:
-   * a Worker on another JourneyStore (Postgres, say) does not declare it.
+   * The default D1 store's database (events / profiles / segments / triggers / entries /
+   * subscriptions / workflow IR). Optional: a Worker on another JourneyStore (Postgres, say)
+   * does not declare it.
    */
-  WORKFLOW_KV?: KVNamespaceLike;
-  /** Tables of the default D1 store (events / profiles / segments / triggers / entries / subscriptions). Optional, as above. */
   DB?: D1DatabaseLike;
   /** JourneyRunner's workflow binding (creating instances and waking them). */
   JOURNEY: WorkflowBindingLike;
@@ -185,8 +179,11 @@ export const WAKE_TIMEOUT_TOLERANCE_MS = 5_000;
  * there — a broken binding, an evicted instance, a malformed timeout. The
  * adapter used to read them all as timeouts, which made an infrastructure
  * fault indistinguishable from "the user never did it": the journey took its
- * onTimeout branch, early and silently. Only the clock can tell them apart.
+ * onTimeout branch, early and silently. Only the clock can tell them apart,
+ * and only against the absolute deadline: measured from when the wait was
+ * parked, a replay after an eviction would start the measure over and read a
+ * genuine expiry as a failure.
  */
-export function wakeExpired(startedAt: number, timeoutMs: number, now: number): boolean {
-  return now - startedAt >= Math.max(0, timeoutMs - WAKE_TIMEOUT_TOLERANCE_MS);
+export function wakeExpired(deadlineMs: number, now: number): boolean {
+  return now >= deadlineMs - WAKE_TIMEOUT_TOLERANCE_MS;
 }

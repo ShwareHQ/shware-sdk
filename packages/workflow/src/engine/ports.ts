@@ -19,11 +19,11 @@ export interface EngineStep {
   /** Durable step: fn's return value is checkpointed; on replay the result is reused without re-running. */
   do<T>(name: string, fn: () => Promise<T>): Promise<T>;
 
-  /** Durable sleep: suspended time is not billed. */
+  /**
+   * Durable sleep: suspended time is not billed. The only sleep primitive — a wait until an
+   * absolute instant is the interpreter checkpointing the remaining time, then sleeping it.
+   */
   sleep(name: string, ms: number): Promise<void>;
-
-  /** Sleep until an absolute instant (used by time_window). */
-  sleepUntil(name: string, timestampMs: number): Promise<void>;
 
   /**
    * Durable: register interest in the named events (Cloudflare: write the
@@ -51,8 +51,18 @@ export interface EngineStep {
   /**
    * Wait for a wake-up or a timeout. A registration from `subscribe` must
    * already exist — this call only parks the instance.
+   *
+   * Both numbers are checkpointed by the interpreter, so they are replay-stable: `timeoutMs`
+   * is how long this attempt may park (the remaining time when it was computed), `deadlineMs`
+   * the absolute instant the whole wait gives up. An adapter that learns of a timeout only by
+   * a thrown error (Cloudflare) decides against `deadlineMs` — the clock at the replay that
+   * first runs that decision is what matters, not when the park began; one whose wake handle
+   * carries its own timeout (AWS) set it from `deadlineMs` at subscribe and ignores both here.
    */
-  waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'>;
+  waitForWake(
+    name: string,
+    wait: { timeoutMs: number; deadlineMs: number }
+  ): Promise<'event' | 'timeout'>;
 }
 
 /** One device a push can go to: the provider token (APNs device token, FCM registration token) and the platform that picks the provider. */

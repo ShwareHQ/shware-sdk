@@ -79,7 +79,6 @@ test('a pre-per-device push checkpoint skips delivery rather than sending the pu
       return run();
     },
     sleep: async () => {},
-    sleepUntil: async () => {},
     subscribe: async () => {},
     unsubscribe: async () => {},
     waitForWake: async () => 'timeout',

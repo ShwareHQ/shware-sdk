@@ -113,15 +113,14 @@ export function journeyWorker<Env extends JourneyEnv>(
 
   const sweep = (rawEnv: Env) => host.sweep(host.checkEnv(rawEnv));
 
-  const scheduled = async (_controller: unknown, env: Env, ctx: ExecutionContextLike) => {
-    // A version with no traffic yet goes live here; the sweep then reads its segments
-    ctx.waitUntil(
-      (async () => {
-        const checked = host.checkEnv(env);
-        await host.applyOwnBundle(checked, ownVersion(checked));
-        await sweep(env);
-      })()
-    );
+  const scheduled = async (_controller: unknown, env: Env, _ctx: ExecutionContextLike) => {
+    // Awaited, not handed to waitUntil: the runtime keeps a scheduled handler alive for as long
+    // as its promise runs, while a sweep only parked in waitUntil can be cut off by the
+    // handler returning, and its failure would surface nowhere. A version with no traffic yet
+    // goes live here; the sweep then reads its segments.
+    const checked = host.checkEnv(env);
+    await host.applyOwnBundle(checked, ownVersion(checked));
+    await sweep(env);
   };
 
   return { Runner, fetch, sweep, scheduled };

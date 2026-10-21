@@ -6,6 +6,7 @@ export {
   PROFILE_UPDATED_EVENT,
   evaluateCondition,
   matchesWhere,
+  profileUpdatedEvent,
   relevantEvents,
 } from './condition';
 export { runJourney } from './interpreter';
@@ -28,4 +29,4 @@ export type {
   SendResult,
 } from './ports';
 export { longestJourneyMs } from './duration';
-export { isRetryable, isRetryableStatus } from './retry';
+export { PermanentError, isRetryable, isRetryableStatus } from './retry';

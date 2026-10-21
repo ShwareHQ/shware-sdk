@@ -62,7 +62,6 @@ function retryingStep(retries: number): EngineStep & { names: string[] } {
       }
     },
     async sleep() {},
-    async sleepUntil() {},
     async subscribe() {},
     async unsubscribe() {},
     async waitForWake() {
@@ -72,7 +71,7 @@ function retryingStep(retries: number): EngineStep & { names: string[] } {
 }
 
 async function setup(failures: number) {
-  await pg.exec('TRUNCATE workflow.entry, workflow.ir');
+  await pg.exec('TRUNCATE workflow.entry, workflow.ir, workflow.subscription');
   const store = new PostgresJourneyStore(client(pg));
   const [ir] = compileConfig(config).workflows;
   await store.putWorkflowIR(ir);
@@ -95,6 +94,7 @@ async function setup(failures: number) {
   });
   const parts = {
     store: flaky,
+    plain: store,
     env: { JOURNEY: {} as never },
     runtime: {},
     messages: new LogMessageSender(),
@@ -134,5 +134,20 @@ describe('executeJourney', () => {
       )
     ).rejects.toThrow(/connection terminated/);
     expect(await status()).toBe('failed');
+  });
+
+  test('the failure path drops the subscriptions: nothing left to poke a dead instance', async () => {
+    const { parts, params } = await setup(10);
+    // What a wait would have left behind had the instance died parked on it
+    await parts.plain.subscribe('i1', 'u1', ['login'], Date.now());
+    expect(await parts.plain.findWakeHandles('u1', 'login')).toEqual(['i1']);
+    await expect(
+      executeJourney(
+        { instanceId: 'i1', params, enteredAtMs: Date.now(), step: retryingStep(2) },
+        parts
+      )
+    ).rejects.toThrow(/connection terminated/);
+    expect(await status()).toBe('failed');
+    expect(await parts.plain.findWakeHandles('u1', 'login')).toEqual([]);
   });
 });

@@ -16,7 +16,7 @@ import {
 import { D1JourneyStore } from '../src/store/d1';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { renderPostgresDdl } from '../src/store/tables';
-import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
+import { FakeD1, FakeJourney } from './fake-cloudflare';
 
 /** An email transport that accepts every email: these hosts are not about delivery. */
 const quietTransport = { send: async () => ({}) };
@@ -48,14 +48,18 @@ const config = defineConfig({ workflows: [flow], templates: { email: emails } })
 
 function setup(token?: string) {
   const db = new FakeD1();
-  const kv = new FakeKV();
   const journey = new FakeJourney();
   const closes: number[] = [];
-  const env = { JOURNEY: journey, ...(token === undefined ? {} : { API_TOKEN: token }) };
+  // Development mode: these hosts are about routing and leases, not the production token gate
+  const env = {
+    JOURNEY: journey,
+    ENVIRONMENT: 'development',
+    ...(token === undefined ? {} : { API_TOKEN: token }),
+  };
   const worker = journeyWorker<typeof env>({
     email: () => quietTransport,
     store: () => ({
-      store: new D1JourneyStore(db, kv),
+      store: new D1JourneyStore(db),
       close: async () => {
         closes.push(1);
       },
@@ -64,7 +68,7 @@ function setup(token?: string) {
   });
   const call = (path: string, init?: RequestInit) =>
     worker.fetch(new Request(`http://worker${path}`, init), env);
-  return { worker, env, db, kv, journey, closes, call };
+  return { worker, env, db, journey, closes, call };
 }
 
 describe('journeyWorker fetch', () => {
@@ -102,7 +106,7 @@ describe('journeyWorker fetch', () => {
     const preview = await call(`/preview/welcome?props=${encodeURIComponent('{"name":"Ada"}')}`, {
       headers: { authorization: 'Bearer secret' },
     });
-    expect(preview.headers.get('x-subject')).toBe('Welcome aboard');
+    expect(preview.headers.get('x-subject')).toBe(encodeURIComponent('Welcome aboard'));
     expect(await preview.text()).toMatch(/<p>Hi Ada<\/p>$/);
 
     expect((await call('/health')).status).toBe(200);
@@ -132,12 +136,11 @@ describe('sweep', () => {
       { name: 'friend' }
     );
     const db = new FakeD1();
-    const kv = new FakeKV();
     const journey = new FakeJourney();
-    const env = { JOURNEY: journey };
+    const env = { JOURNEY: journey, ENVIRONMENT: 'development' };
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new D1JourneyStore(db, kv),
+      store: () => new D1JourneyStore(db),
       config: defineConfig({
         workflows: [comeBack],
         segments: [dormant],
@@ -145,7 +148,7 @@ describe('sweep', () => {
       }),
     });
     // Known users, written straight to the store: identify would already evaluate the trigger
-    const store = new D1JourneyStore(db, kv);
+    const store = new D1JourneyStore(db);
     await store.mergeProfile('u1', { plan: 'free' });
     await store.mergeProfile('u2', { plan: 'free' });
     await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
@@ -156,6 +159,53 @@ describe('sweep', () => {
     expect(journey.created).toHaveLength(2);
     // Already members: a second sweep starts nothing
     expect((await worker.sweep(env)).started).toEqual([]);
+  });
+
+  test('the cron handler awaits the sweep: it is done when the handler returns, and a failure surfaces', async () => {
+    const te = event<{ login: { method: string } }>();
+    const dormant = segment({
+      id: 'dormant',
+      condition: not(performed(te.login, { within: '7 days' })),
+    });
+    const comeBack = workflow({ id: 'come_back', trigger: trigger.segment(dormant) }).email(
+      emails.welcome,
+      { name: 'friend' }
+    );
+    const db = new FakeD1();
+    const journey = new FakeJourney();
+    const env = { JOURNEY: journey, ENVIRONMENT: 'development' };
+    const worker = journeyWorker<typeof env>({
+      email: () => quietTransport,
+      store: () => new D1JourneyStore(db),
+      config: defineConfig({
+        workflows: [comeBack],
+        segments: [dormant],
+        templates: { email: emails },
+      }),
+    });
+    await new D1JourneyStore(db).mergeProfile('u1', { plan: 'free' });
+    await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
+
+    // Nothing is parked in waitUntil: a runtime that cut the handler off there would lose the sweep
+    const parked: Promise<unknown>[] = [];
+    const ctx = { waitUntil: (p: Promise<unknown>) => void parked.push(p) };
+    await worker.scheduled(undefined, env, ctx);
+    expect(journey.created).toHaveLength(1);
+    expect(parked).toEqual([]);
+
+    // A sweep that fails fails the handler, where the runtime logs it — not a swallowed promise
+    const broken = journeyWorker<typeof env>({
+      email: () => quietTransport,
+      store: () => {
+        throw new Error('store is down');
+      },
+      config: defineConfig({
+        workflows: [comeBack],
+        segments: [dormant],
+        templates: { email: emails },
+      }),
+    });
+    await expect(broken.scheduled(undefined, env, ctx)).rejects.toThrow('store is down');
   });
 });
 
@@ -186,6 +236,7 @@ describe('a version applies its own bundle', () => {
   const versioned = (workflows: (typeof flow)[], id: string, timestamp: string) => {
     const env = {
       JOURNEY: new FakeJourney(),
+      ENVIRONMENT: 'development',
       CF_VERSION_METADATA: { id, timestamp },
     };
     const worker = journeyWorker<typeof env>({
@@ -219,6 +270,7 @@ describe('a version applies its own bundle', () => {
     await pg.exec('CREATE SCHEMA IF NOT EXISTS unmigrated');
     const env = {
       JOURNEY: new FakeJourney(),
+      ENVIRONMENT: 'development',
       CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
     };
     const worker = journeyWorker<typeof env>({
@@ -242,12 +294,13 @@ describe('a version applies its own bundle', () => {
   test('a store that records no version (D1) leaves deploying to POST /bundle/deploy', async () => {
     const env = {
       JOURNEY: new FakeJourney(),
+      ENVIRONMENT: 'development',
       CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
     };
     const db = new FakeD1();
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new D1JourneyStore(db, new FakeKV()),
+      store: () => new D1JourneyStore(db),
       config,
     });
     await worker.fetch(new Request('http://worker/health'), env);

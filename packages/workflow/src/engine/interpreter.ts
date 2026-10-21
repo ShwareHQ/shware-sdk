@@ -30,10 +30,11 @@ import { nextWindowStart } from './time-window';
  */
 
 /**
- * Cap on wait_until re-evaluations: beyond it we treat the wait as timed out,
- * so a wake-up storm cannot exhaust the platform's step budget. Each loop
- * iteration costs a handful of steps, so 64 checks stay well inside the
- * platform step budgets while absorbing far more wake churn than 16 did.
+ * Cap on wait_until re-evaluations, so a wake-up storm cannot exhaust the platform's step
+ * budget. Each loop iteration costs a handful of steps, so 64 checks stay well inside the
+ * platform step budgets while absorbing far more wake churn than 16 did. Past the cap the wait
+ * is not given up: it sleeps to its deadline and checks once more there (see waitLoop) — the
+ * answer is still right at the deadline, it just stops being event-driven in between.
  */
 const MAX_WAIT_CHECKS = 64;
 
@@ -357,7 +358,10 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         return nextWindowStart(Date.now(), node.days, node.between, tz);
       });
       if (target === null) return FALL_THROUGH; // already inside the window: no suspension, no guard
-      await ctx.step.sleepUntil(`${node.id}:sleep`, target);
+      // The remaining time is checkpointed: a replay must not recompute it from a later clock
+      // (the target has passed by then, and a negative sleep is an error on some runtimes)
+      const ms = await ctx.step.do(`${node.id}:remaining`, async () => target - Date.now());
+      if (ms > 0) await ctx.step.sleep(`${node.id}:sleep`, ms);
       return (await checkGuards(node.id, ir, ctx)) ?? FALL_THROUGH;
     }
 
@@ -518,7 +522,8 @@ async function awaitTail(ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSigna
 /**
  * Wait until `check` finds something or the deadline passes: subscribe, check, sleep until a
  * relevant event wakes the instance or time runs out. `check` runs inside a step, so its result
- * must be serializable; null means "not yet".
+ * must be serializable; null means "not yet". Null from here means the deadline passed with
+ * nothing found — never a failure, and never a wait given up on early.
  */
 async function waitLoop<R>(
   id: string,
@@ -548,15 +553,38 @@ async function waitLoop<R>(
     // The condition was checked just above — expiring here needs no extra final check
     if (remaining <= 0) return null;
 
-    const wake = await ctx.step.waitForWake(`${id}:wait:${attempt}`, remaining);
-    if (wake === 'timeout') {
-      // Final check after timeout: in a tight race the event may land exactly as the timer fires
-      const final = await ctx.step.do(`${id}:final`, async () => check(Date.now()));
-      return (final as unknown) === false ? null : final;
-    }
+    const wake = await ctx.step.waitForWake(`${id}:wait:${attempt}`, {
+      timeoutMs: remaining,
+      deadlineMs: deadline,
+    });
+    // Final check after timeout: in a tight race the event may land exactly as the timer fires
+    if (wake === 'timeout') return finalCheck(id, ctx, check);
     // Woken → back to the top of the loop to re-evaluate (at-least-once wake-up semantics)
   }
-  return null; // check budget exhausted → treated as timed out (see MAX_WAIT_CHECKS)
+  // Check budget exhausted (see MAX_WAIT_CHECKS). Not a timeout: the wait keeps its deadline,
+  // only the wake-ups are given up — sleep to the deadline, then check once more there. The
+  // subscription rows stay until the caller's unsubscribe; a wake landing meanwhile is dropped
+  // by the runtime (nothing is parked on it), which is the point.
+  console.warn(
+    `[journey] ${ctx.instanceId} ${id}: ${MAX_WAIT_CHECKS} wake-ups without the condition holding — sleeping to the deadline`
+  );
+  const budgetRemaining = await ctx.step.do(
+    `${id}:budget:remaining`,
+    async () => deadline - Date.now()
+  );
+  if (budgetRemaining > 0) await ctx.step.sleep(`${id}:budget:sleep`, budgetRemaining);
+  return finalCheck(id, ctx, check);
+}
+
+/** The check once the deadline is reached — one step for all the ways of getting there. */
+async function finalCheck<R>(
+  id: string,
+  ctx: JourneyContext,
+  check: (now: number) => Promise<R | null>
+): Promise<R | null> {
+  const final = await ctx.step.do(`${id}:final`, async () => check(Date.now()));
+  // `false` is a checkpoint from before checks answered null for "not yet"
+  return (final as unknown) === false ? null : final;
 }
 
 async function resolveValues(

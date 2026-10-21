@@ -129,16 +129,16 @@ export async function executeJourney(
      * journey stayed indistinguishable from a waiting one, in the dashboard
      * and in the once-policy, forever.
      *
-     * Subscriptions are deliberately left in place. They are cleaned up on
-     * every ordinary ending, but here the wake rows are the only evidence of
-     * what the instance was waiting for, and dropping them would also break
-     * the instance if the platform does re-run it.
+     * Subscriptions go too, as on every ordinary ending: left behind, the
+     * rows would only make every later event of the user poke a dead
+     * instance (one wake call to the runtime each, refused every time).
      *
      * A paused instance never gets here: a durable wait suspends the run
      * without throwing through it.
      */
     await step.do('finalize:failed', async () => {
       await store.setEntryStatus(instanceId, 'failed');
+      await store.unsubscribe(instanceId);
       await finished('failed');
     });
     throw error;
