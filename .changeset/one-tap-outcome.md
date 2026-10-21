@@ -1,5 +1,5 @@
 ---
-'@shware/http': minor
+'@shware/http': major
 ---
 
-Google One Tap `prompt()` now reports a typed `outcome` when no credential is returned: `skipped` with an optional `SkippedReason` (often absent under FedCM) or `dismissed` with `cancel_called` / `flow_restarted`. The `moment` fields are deprecated, and `moment.dismissedReason` is now only set for dismissed moments.
+Google One Tap `prompt()` now reports why no credential was returned as flat, narrowable results: `{ authorized: false, skipped: true, reason?: SkippedReason }` (the reason is often absent under FedCM) and `{ authorized: false, dismissed: true, reason: DismissedReason }` (`cancel_called` | `flow_restarted`), next to the unchanged `unsupported` result. Breaking: `result.moment` and the `PromptMoment` type are removed. Callers that read `result.moment` should narrow with `'skipped' in result` / `'dismissed' in result` and read `result.reason`; callers that only read `authorized` / `credential` need no change.

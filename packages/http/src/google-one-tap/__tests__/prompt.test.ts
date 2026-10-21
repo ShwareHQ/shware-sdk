@@ -1,6 +1,12 @@
 // oxlint-disable typescript/no-deprecated -- getSkippedReason is deprecated but still stubbed here.
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { prompt } from '../index';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from 'vitest';
+import {
+  type DismissedReason,
+  type PromptResult,
+  type SkippedReason,
+  type UnsupportedReason,
+  prompt,
+} from '../index';
 import type { PromptMomentNotification } from '../types';
 
 type Moment = Partial<PromptMomentNotification>;
@@ -36,18 +42,14 @@ function stubGoogle(moments: Moment[], credential?: { credential: string }) {
   });
 }
 
-describe('google one tap prompt outcome', () => {
+describe('google one tap prompt result', () => {
   beforeEach(() => vi.unstubAllGlobals());
   afterEach(() => vi.unstubAllGlobals());
 
   test('skipped with reason', async () => {
     stubGoogle([{ isSkippedMoment: () => true, getSkippedReason: () => 'tap_outside' }]);
     const result = await prompt({ client_id: 'client' });
-    expect(result).toEqual({
-      authorized: false,
-      outcome: { type: 'skipped', reason: 'tap_outside' },
-      moment: { skipped: true, dismissed: false, dismissedReason: undefined },
-    });
+    expect(result).toEqual({ authorized: false, skipped: true, reason: 'tap_outside' });
   });
 
   test('skipped reason is undefined when getSkippedReason throws', async () => {
@@ -60,13 +62,13 @@ describe('google one tap prompt outcome', () => {
       },
     ]);
     const result = await prompt({ client_id: 'client' });
-    expect(result).toMatchObject({ outcome: { type: 'skipped', reason: undefined } });
+    expect(result).toEqual({ authorized: false, skipped: true, reason: undefined });
   });
 
   test('skipped reason is undefined when getSkippedReason is missing', async () => {
     stubGoogle([{ isSkippedMoment: () => true }]);
     const result = await prompt({ client_id: 'client' });
-    expect(result).toMatchObject({ outcome: { type: 'skipped', reason: undefined } });
+    expect(result).toEqual({ authorized: false, skipped: true, reason: undefined });
   });
 
   test('skipped reason drops unknown values', async () => {
@@ -77,7 +79,7 @@ describe('google one tap prompt outcome', () => {
       },
     ]);
     const result = await prompt({ client_id: 'client' });
-    expect(result).toMatchObject({ outcome: { type: 'skipped', reason: undefined } });
+    expect(result).toEqual({ authorized: false, skipped: true, reason: undefined });
   });
 
   test('skipped moment never carries a dismissed reason', async () => {
@@ -89,23 +91,18 @@ describe('google one tap prompt outcome', () => {
     ]);
     const result = await prompt({ client_id: 'client' });
     expect(getDismissedReason).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      outcome: { type: 'skipped', reason: 'auto_cancel' },
-      moment: { dismissedReason: undefined },
-    });
+    expect(result).toEqual({ authorized: false, skipped: true, reason: 'auto_cancel' });
+    expect(result).not.toHaveProperty('dismissed');
   });
 
   test('dismissed cancel_called', async () => {
     stubGoogle([{ isDismissedMoment: () => true, getDismissedReason: () => 'cancel_called' }]);
     const result = await prompt({ client_id: 'client' });
-    expect(result).toEqual({
-      authorized: false,
-      outcome: { type: 'dismissed', reason: 'cancel_called' },
-      moment: { skipped: false, dismissed: true, dismissedReason: 'cancel_called' },
-    });
+    expect(result).toEqual({ authorized: false, dismissed: true, reason: 'cancel_called' });
+    expect(result).not.toHaveProperty('skipped');
   });
 
-  test('credential_returned is not reported as an outcome', async () => {
+  test('credential_returned is the success path, not a dismissal', async () => {
     stubGoogle(
       [{ isDismissedMoment: () => true, getDismissedReason: () => 'credential_returned' }],
       {
@@ -117,5 +114,27 @@ describe('google one tap prompt outcome', () => {
       authorized: true,
       credential: { credential: 'id-token', select_by: 'auto' },
     });
+  });
+
+  test('`in` narrows reason per branch', () => {
+    expectTypeOf<Extract<PromptResult, { skipped: true }>['reason']>().toEqualTypeOf<
+      SkippedReason | undefined
+    >();
+    expectTypeOf<
+      Extract<PromptResult, { dismissed: true }>['reason']
+    >().toEqualTypeOf<DismissedReason>();
+    expectTypeOf<DismissedReason>().toEqualTypeOf<'cancel_called' | 'flow_restarted'>();
+
+    const check = (result: PromptResult) => {
+      if (result.authorized) return;
+      if ('skipped' in result) {
+        expectTypeOf(result.reason).toEqualTypeOf<SkippedReason | undefined>();
+      } else if ('dismissed' in result) {
+        expectTypeOf(result.reason).toEqualTypeOf<DismissedReason>();
+      } else {
+        expectTypeOf(result.reason).toEqualTypeOf<UnsupportedReason>();
+      }
+    };
+    expectTypeOf(check).toBeFunction();
   });
 });
