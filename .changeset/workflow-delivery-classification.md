@@ -1,0 +1,5 @@
+---
+'@shware/workflow': patch
+---
+
+Classify delivery failures the way the providers document them. Only a token APNs (`Unregistered`, `ExpiredToken`, 410) or FCM (`UNREGISTERED`) reports as gone removes the device; a configuration error (`DeviceTokenNotForTopic`, `SENDER_ID_MISMATCH`, a bad topic) fails the step without retrying and keeps the device, and APNs' `BadDeviceToken` (a token, or the other environment) and FCM's `INVALID_ARGUMENT` settle the copy undelivered with the device kept. Other 4xx answers from APNs, FCM, Web Push, a message webhook, or a missing channel configuration are `PermanentError`s the step does not retry; 429 and 5xx still are. SES throttling reported as a 400 (`Throttling`) is retried. An expired APNs provider token or FCM access token is refreshed instead of reused on the retry. APNs requests carry `apns-id` and `apns-collapse-id`, Web Push a `Topic`, so a resend after a lost checkpoint collapses on the device. A Web Push payload over 3993 bytes (RFC 8291 §4, one 4096-byte record) is refused before it is encrypted. Provider senders are kept per isolate, so the APNs JWT and the FCM access token are reused across runs.

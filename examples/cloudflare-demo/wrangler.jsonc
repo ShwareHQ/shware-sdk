@@ -19,10 +19,5 @@
     },
   ],
   "send_email": [{ "name": "EMAIL" }],
-  "kv_namespaces": [
-    {
-      "binding": "WORKFLOW_KV",
-      "id": "workflow_kv_local",
-    },
-  ],
+  "triggers": { "crons": ["*/15 * * * *"] },
 }

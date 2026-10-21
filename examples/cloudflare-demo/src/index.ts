@@ -3,7 +3,7 @@ import { cloudflareEmailTransport } from '@shware/workflow/transports/cloudflare
 import config from '../workflow.config';
 
 /**
- * The whole host in one call: D1 + KV store from the bindings (the default),
+ * The whole host in one call: the D1 store from the `DB` binding (the default),
  * emails through the `EMAIL` send_email binding (local dev writes them to
  * files), the demo's custom action, and the bundle deployed with
  * `POST /bundle/deploy`. Email previews: `GET /preview/<key>?props=<JSON>`.
@@ -18,4 +18,4 @@ const journeys = journeyWorker<JourneyEnv & { EMAIL: NonNullable<JourneyEnv['EMA
 
 export const DemoJourneyRunner = journeys.Runner;
 
-export default { fetch: journeys.fetch };
+export default { fetch: journeys.fetch, scheduled: journeys.scheduled };
