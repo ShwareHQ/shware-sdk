@@ -57,6 +57,19 @@ describe('semanticHash / fullHash', () => {
     expect(fullHash(decorated)).not.toBe(fullHash(bare));
     expect(stripMeta(decorated)).toEqual(bare);
   });
+
+  test('an action node from a pre-4.0 bundle hashes the same with its codeHash as without', () => {
+    // codeHash was a hash of the handler's printed source, which the bundler
+    // decides: the same code hashed differently per toolchain, so it is
+    // stripped like metadata and an old IR repins nothing on recompile.
+    const bare = { id: '0', type: 'action', action: 'sync_crm', args: { plan: 'pro' } };
+    const old = { ...bare, codeHash: 'f00dbabe' };
+    expect(semanticHash(old)).toBe(semanticHash(bare));
+    expect(fullHash(old)).not.toBe(fullHash(bare));
+    // but an *argument* named codeHash is the author's data and still counts
+    const withArg = { ...bare, args: { plan: 'pro', codeHash: 'x' } };
+    expect(semanticHash(withArg)).not.toBe(semanticHash(bare));
+  });
 });
 
 describe('metadata is stripped by position, not by name', () => {

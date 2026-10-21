@@ -51,7 +51,7 @@ export interface WorkflowChange {
 }
 
 export interface ResourceChange {
-  /** The resource's identity: a segment's id, a template's key, an action's name. */
+  /** The resource's identity: a segment's id, a template's `channel:key`, an action's name. */
   id: string;
   status: ChangeStatus;
   before?: string;
@@ -228,40 +228,43 @@ function diffSegments(
   return changes.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/**
+ * A template's identity is its key *within its channel* — an email and a push
+ * of one nudge share a key — so the diff is keyed, and reported, by
+ * `channel:key`. Keyed by bare key, two channels sharing one collapsed into a
+ * single entry that flipped between `changed` and `unchanged` depending on
+ * which came first.
+ */
 function diffTemplates(local: BundleIR['templates'], deployed: BundleIR['templates']) {
-  const deployedByKey = new Map(deployed.map((item) => [item.key, item]));
-  const changes: ResourceChange[] = local.map((item) => {
-    const before = deployedByKey.get(item.key);
-    if (!before) return { id: item.key, status: 'added' as const };
-    return { id: item.key, status: before.channel === item.channel ? 'unchanged' : 'changed' };
-  });
+  const idOf = (item: BundleIR['templates'][number]) => `${item.channel}:${item.key}`;
+  const deployedIds = new Set(deployed.map(idOf));
+  const changes: ResourceChange[] = local.map((item) => ({
+    id: idOf(item),
+    status: deployedIds.has(idOf(item)) ? ('unchanged' as const) : ('added' as const),
+  }));
 
-  const localKeys = new Set(local.map((item) => item.key));
+  const localIds = new Set(local.map(idOf));
   for (const item of deployed) {
-    if (!localKeys.has(item.key)) changes.push({ id: item.key, status: 'removed' });
+    if (!localIds.has(idOf(item))) changes.push({ id: idOf(item), status: 'removed' });
   }
   return changes.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** Actions diff on codeHash — the manifest's only semantic content (the code itself lives in the Worker bundle). */
+/**
+ * Actions diff by name only: the manifest records identity, and the code
+ * itself lives in the Worker bundle. (Before 4.0 a codeHash made this report
+ * `changed`; it depended on the bundler, so it reported changes nobody made.)
+ */
 function diffActions(local: BundleIR['actions'], deployed: BundleIR['actions']) {
-  const deployedByName = new Map(deployed.map((item) => [item.name, item]));
-  const changes: ResourceChange[] = local.map((item) => {
-    const before = deployedByName.get(item.name);
-    if (!before) return { id: item.name, status: 'added' as const, after: item.codeHash };
-    return {
-      id: item.name,
-      status: before.codeHash === item.codeHash ? ('unchanged' as const) : ('changed' as const),
-      before: before.codeHash,
-      after: item.codeHash,
-    };
-  });
+  const deployedNames = new Set(deployed.map((item) => item.name));
+  const changes: ResourceChange[] = local.map((item) => ({
+    id: item.name,
+    status: deployedNames.has(item.name) ? ('unchanged' as const) : ('added' as const),
+  }));
 
   const localNames = new Set(local.map((item) => item.name));
   for (const item of deployed) {
-    if (!localNames.has(item.name)) {
-      changes.push({ id: item.name, status: 'removed', before: item.codeHash });
-    }
+    if (!localNames.has(item.name)) changes.push({ id: item.name, status: 'removed' });
   }
   return changes.sort((a, b) => a.id.localeCompare(b.id));
 }

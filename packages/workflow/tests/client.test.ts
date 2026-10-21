@@ -33,6 +33,30 @@ describe('JourneyClient', () => {
     });
   });
 
+  test('registerDevice posts the token, the platform and, when given, the registration time', async () => {
+    const { calls, fetchFn } = stub(200, { ok: true, woke: 0 });
+    const client = new JourneyClient({ origin: 'https://wf.example', fetch: fetchFn });
+
+    await client.registerDevice('u1', { token: 'tok', platform: 'ios' });
+    await client.registerDevice('u1', { token: 'tok', platform: 'ios', ts: 1_700_000_000_000 });
+
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://wf.example/devices',
+      'https://wf.example/devices',
+    ]);
+    expect(JSON.parse(calls[0]?.init.body as string)).toEqual({
+      userId: 'u1',
+      token: 'tok',
+      platform: 'ios',
+    });
+    expect(JSON.parse(calls[1]?.init.body as string)).toEqual({
+      userId: 'u1',
+      token: 'tok',
+      platform: 'ios',
+      ts: 1_700_000_000_000,
+    });
+  });
+
   test('a non-2xx answer becomes an error carrying status and body', async () => {
     const { fetchFn } = stub(401, { error: 'unauthorized' });
     const client = new JourneyClient({ origin: 'https://wf.example', fetch: fetchFn });

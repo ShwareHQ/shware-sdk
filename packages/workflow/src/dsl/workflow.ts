@@ -9,8 +9,8 @@ import {
   WorkflowIR as WorkflowIRSchema,
 } from '../ir';
 import { captureLoc } from '../provenance';
-import { type Duration, durationIR } from './base';
-import { type Condition, condIR } from './condition';
+import type { Duration } from './base';
+import { type Condition, condIR, positiveDurationIR } from './condition';
 import { type FlowBuilder, FlowBuilderImpl } from './flow';
 import type { TriggerInternal, TriggerRef } from './trigger';
 
@@ -145,7 +145,9 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
     }
     return {
       condition: condIR(goal.condition),
-      ...(goal.within !== undefined ? { within: durationIR(goal.within) } : {}),
+      ...(goal.within !== undefined
+        ? { within: positiveDurationIR(goal.within, 'goal.within') }
+        : {}),
       exitOnMatch: goal.exitOnMatch ?? true,
     };
   }

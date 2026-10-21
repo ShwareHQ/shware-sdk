@@ -87,6 +87,31 @@ describe('compile: workflow -> IR', () => {
     expect(() => flow((w) => w.delay('1 huor' as Duration))).toThrow(/Invalid duration/);
   });
 
+  test('a wait, a goal window or a performed window of zero is refused at definition', () => {
+    // '0 seconds' parses, but a wait that never waits and a window that admits
+    // nothing are never what the author meant.
+    expect(() => flow((w) => w.waitUntil(purchaser, { timeout: '0 seconds' }))).toThrow(
+      /waitUntil\(\): timeout must be positive/
+    );
+    expect(() =>
+      workflow({
+        id: 'g',
+        trigger: trigger.event(e.login),
+        goal: { condition: purchaser, within: '0 days' },
+      }).toIR()
+    ).toThrow(/goal\.within must be positive/);
+    expect(() => performed(e.login, { within: '0 hours' })).toThrow(
+      /performed\(\): within must be positive/
+    );
+  });
+
+  test('performed count must be a positive integer', () => {
+    expect(() => performed(e.login, { count: 0 })).toThrow(/count must be a positive integer/);
+    expect(() => performed(e.login, { count: 1.5 })).toThrow(/count must be a positive integer/);
+    expect(() => performed(e.login, { count: -1 })).toThrow(/count must be a positive integer/);
+    expect(() => performed(e.login, { count: 2 })).not.toThrow();
+  });
+
   test('rejects cohort weights not summing to 100', () => {
     expect(() => flow((w) => w.cohort({ a: { weight: 60 }, b: { weight: 60 } }))).toThrow(
       /sum to 100/
@@ -168,6 +193,19 @@ describe('compile: workflow -> IR', () => {
     expect(() => flow((w) => w.timeWindow({ between: ['17:00', '09:00'] }))).toThrow(
       /overnight windows/
     );
+  });
+
+  test('a time window must name at least one day, each once', () => {
+    // No days is a window that never opens: the node would hold the user forever
+    expect(() => flow((w) => w.timeWindow({ days: [], between: ['09:00', '17:00'] }))).toThrow(
+      /'days' must name at least one day/
+    );
+    expect(() =>
+      flow((w) => w.timeWindow({ days: ['mon', 'mon'], between: ['09:00', '17:00'] }))
+    ).toThrow(/lists 'mon' twice/);
+    expect(() =>
+      flow((w) => w.timeWindow({ days: ['sat', 'sun'], between: ['09:00', '17:00'] }))
+    ).not.toThrow();
   });
 
   test('rejects misplaced default branch arm', () => {

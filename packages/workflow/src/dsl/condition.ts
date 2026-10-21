@@ -1,4 +1,4 @@
-import type { ConditionIR, SourceLocIR } from '../ir';
+import type { ConditionIR, DurationIR, SourceLocIR } from '../ir';
 import { captureLoc } from '../provenance';
 import { type Duration, durationIR } from './base';
 import {
@@ -161,8 +161,21 @@ export function notContains<T extends string>(ref: CondRef<T>, value: string): C
 }
 
 export interface PerformedOptions {
+  /** Only occurrences this recent count; must be a positive duration. */
   within?: Duration;
+  /** At least this many occurrences; a positive integer (1 is the default). */
   count?: number;
+}
+
+/**
+ * @internal A duration that has to elapse — a wait's timeout, a goal's window, a performed
+ * window. Zero parses as a valid duration but means "never" or "always" depending on the node,
+ * and either way it is not what the author meant.
+ */
+export function positiveDurationIR(value: Duration, what: string): DurationIR {
+  const ir = durationIR(value);
+  if (ir.ms <= 0) throw new Error(`${what} must be positive, got '${value}'`);
+  return ir;
 }
 
 /** A payload where clause: an arrow taking the typed payload-ref table. Runs once at construction — the result is a serializable condition tree in IR, never a closure. */
@@ -202,12 +215,18 @@ export function performed<P>(
 ): Condition {
   const where = typeof whereOrOpts === 'function' ? whereOrOpts : undefined;
   const opts = typeof whereOrOpts === 'function' ? maybeOpts : whereOrOpts;
+  // count: 0 is satisfied by nobody having done anything, and a fraction is never reached
+  if (opts?.count !== undefined && (!Number.isInteger(opts.count) || opts.count < 1)) {
+    throw new Error(`performed(): count must be a positive integer, got ${String(opts.count)}`);
+  }
   return cond(
     {
       type: 'performed',
       event: event.name,
       ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
-      ...(opts?.within !== undefined ? { within: durationIR(opts.within) } : {}),
+      ...(opts?.within !== undefined
+        ? { within: positiveDurationIR(opts.within, 'performed(): within') }
+        : {}),
       ...(opts?.count !== undefined ? { count: opts.count } : {}),
     },
     captureLoc(performed)

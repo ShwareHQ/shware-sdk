@@ -24,12 +24,18 @@
  *   the same test as a description, so rewording one must not repin in-flight
  *   journeys or report as a semantic change in plan.
  * - contentHash: the hash itself
+ * - codeHash: the pre-4.0 pin of an action handler's printed source. It
+ *   depended on the bundler — minification, helper injection — so every
+ *   toolchain produced a different "version" of unchanged code, and a
+ *   deploy from CI repinned every journey a laptop deploy had started. An
+ *   old IR still carries it; stripping it here hashes that IR the same as a
+ *   fresh compile of the same definition.
  *
  * Note that a cohort arm's `name` IS hashed: it becomes part of the node id
  * (`{id}.{armName}.{j}`), and node ids are durable step names — renaming an arm
  * changes execution identity.
  */
-const UNHASHED_KEYS = new Set(['meta', 'label', 'reason', 'contentHash']);
+const UNHASHED_KEYS = new Set(['meta', 'label', 'reason', 'contentHash', 'codeHash']);
 
 /**
  * Provenance only. `loc` is a source map, not content: it moves with the

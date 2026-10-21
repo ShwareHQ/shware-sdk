@@ -11,6 +11,7 @@ import {
 import { type AnyTemplate, CHANNEL_OF } from '../templates';
 import type { ActionRef } from './action';
 import type { SegmentInternal, SegmentRef } from './condition';
+import { actionUses } from './flow';
 import type { WorkflowBuilder } from './workflow';
 
 /**
@@ -49,12 +50,8 @@ export function compileBundle(input: {
     channel: CHANNEL_OF[template.kind],
   }));
 
-  // Manifest only — name and code-identity hash; the implementation ships in the Worker bundle, never in IR
-  const actions = (input.actions ?? []).map((a) => ({
-    irVersion: IR_VERSION,
-    name: a.name,
-    codeHash: a.codeHash,
-  }));
+  // Manifest only — names; the implementation ships in the Worker bundle, never in IR
+  const actions = (input.actions ?? []).map((a) => ({ irVersion: IR_VERSION, name: a.name }));
 
   const workflows = input.workflows.map((builder) => builder.toIR());
 
@@ -84,15 +81,21 @@ export function compileBundle(input: {
   // segment" in some user's journey into a compile error.
   assertSegmentRefsResolve(workflows, segments);
 
+  // A segment is evaluated by evaluating the segments it names; a cycle among
+  // them has no evaluation order and would recurse until the stack ran out —
+  // at run time, in some user's journey. Caught here, with the cycle spelled out.
+  assertNoSegmentCycles(segments);
+
   // Payload predicates and profile predicates share the Condition type, so
   // placement is checked here: payload only inside where-trees, and where-trees
   // contain nothing but payload predicates and combinators.
   assertConditionPlacement(workflows, segments);
 
   // Same rationale as segments: the runtime registry is looked up by name, so
-  // an action a workflow runs must be in the bundle — and its codeHash must
-  // agree, or two same-named definitions are competing for one identity.
-  assertActionRefsResolve(workflows, actions);
+  // an action a workflow runs must be in the bundle — and it must be the very
+  // definition listed there, or two same-named definitions are competing for
+  // one identity (the IR names it; only the compile can tell them apart).
+  assertActionRefsResolve(workflows, input.workflows, input.actions ?? []);
 
   return BundleIRSchema.parse({ irVersion: IR_VERSION, workflows, segments, templates, actions });
 }
@@ -187,60 +190,53 @@ function collectNodeRefs(nodes: readonly NodeIR[], into: Set<string>): void {
 
 function assertActionRefsResolve(
   workflows: readonly WorkflowIR[],
-  actions: readonly { name: string; codeHash: string }[]
+  builders: readonly WorkflowBuilder[],
+  actions: readonly ActionRef[]
 ): void {
-  const defined = new Map(actions.map((a) => [a.name, a.codeHash]));
-  for (const workflow of workflows) {
-    const used = new Map<string, Set<string | undefined>>();
-    collectActionRefs(workflow.flow, used);
-    for (const [name, codeHashes] of used) {
-      const manifestHash = defined.get(name);
-      if (manifestHash === undefined) {
+  const listed = new Map(actions.map((a) => [a.name, a]));
+  workflows.forEach((workflow, i) => {
+    for (const used of actionUses(builders[i])) {
+      const manifest = listed.get(used.name);
+      if (manifest === undefined) {
         throw new Error(
-          `compileBundle: workflow '${workflow.id}' runs action '${name}' that is not in the bundle — pass it in 'actions'`
+          `compileBundle: workflow '${workflow.id}' runs action '${used.name}' that is not in the bundle — pass it in 'actions'`
         );
       }
-      // Every node's hash is checked, not just one per name: with two
-      // definitions under one name, whichever the manifest holds, the *other*
-      // node is the one that would meet a mismatched implementation at run time.
-      for (const codeHash of codeHashes) {
-        if (codeHash !== undefined && codeHash !== manifestHash) {
-          throw new Error(
-            `compileBundle: workflow '${workflow.id}' runs action '${name}' whose code differs from the one in 'actions' — two definitions are sharing that name`
-          );
-        }
+      // Identity, not source text: the printed handler depends on the bundler.
+      // Every use is checked, not one per name — with two definitions under one
+      // name, whichever is listed, the *other* node would run the wrong code.
+      if (manifest !== used && manifest.handler !== used.handler) {
+        throw new Error(
+          `compileBundle: workflow '${workflow.id}' runs action '${used.name}' that is not the definition listed in 'actions' — two definitions are sharing that name`
+        );
       }
     }
-  }
+  });
 }
 
-/** name → every codeHash seen under it; a name with two is exactly the case worth failing on. */
-function collectActionRefs(
-  nodes: readonly NodeIR[],
-  into: Map<string, Set<string | undefined>>
-): void {
-  for (const node of nodes) {
-    switch (node.type) {
-      case 'action': {
-        const seen = into.get(node.action) ?? new Set<string | undefined>();
-        seen.add(node.codeHash);
-        into.set(node.action, seen);
-        break;
-      }
-      case 'wait_until':
-        if (Array.isArray(node.onTimeout)) collectActionRefs(node.onTimeout, into);
-        break;
-      case 'branch':
-        for (const branchCase of node.cases) collectActionRefs(branchCase.flow, into);
-        if (node.otherwise) collectActionRefs(node.otherwise, into);
-        break;
-      case 'cohort':
-        for (const arm of node.arms) collectActionRefs(arm.flow, into);
-        break;
-      default:
-        break;
-    }
+/** Walk segment → segment references depth-first; the first back edge is reported as the cycle path. */
+function assertNoSegmentCycles(segments: readonly SegmentIR[]): void {
+  const refsOf = new Map<string, Set<string>>();
+  for (const segment of segments) {
+    const refs = new Set<string>();
+    collectConditionRefs(segment.condition, refs);
+    refsOf.set(segment.id, refs);
   }
+  const done = new Set<string>();
+  const path: string[] = [];
+  const visit = (id: string): void => {
+    const at = path.indexOf(id);
+    if (at !== -1) {
+      const cycle = [...path.slice(at), id].join(' → ');
+      throw new Error(`compileBundle: segments reference each other in a cycle: ${cycle}`);
+    }
+    if (done.has(id)) return;
+    path.push(id);
+    for (const ref of refsOf.get(id) ?? []) visit(ref);
+    path.pop();
+    done.add(id);
+  };
+  for (const id of refsOf.keys()) visit(id);
 }
 
 /* --------------------- payload / profile placement checks --------------------- */
