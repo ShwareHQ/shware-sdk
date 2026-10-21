@@ -304,8 +304,6 @@ export interface SweepResult {
 
 /** How many users one sweep page evaluates: a unit of resumable work (AWS checkpoints each). */
 export const SWEEP_PAGE_SIZE = 500;
-/** How long after an erasure the sweep re-runs it, to take any straggler of the same instant. */
-const ERASE_RECLEAN_WINDOW_MS = 60 * 60_000;
 
 /**
  * What the sweep does before it looks at any user: the runtime's own upkeep (AWS: unconfirmed
@@ -319,23 +317,8 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
   } catch (error) {
     console.error('[workflow] runtime maintenance failed', error);
   }
-  const now = Date.now();
-  /*
-   * The second pass over recent erasures. A write about the user whose statement — or whose
-   * transaction, a journey entry committing late — was already past the tombstone's check when
-   * the tombstone committed can land after the first `forgetUser` deleted everything: it then
-   * sits there as a row of an erased user. The tombstone keeps it harmless (no runner admits it,
-   * no further write joins it), and running `forgetUser` once more, well after any such
-   * statement has finished, deletes it; the tombstone is idempotent, so the repeat costs nothing
-   * for a user with nothing left.
-   */
-  for (const userId of await store.erasedSince(now - ERASE_RECLEAN_WINDOW_MS)) {
-    try {
-      await store.forgetUser(userId, now);
-    } catch (error) {
-      console.error(`[workflow] second pass over the erasure of ${userId} failed`, error);
-    }
-  }
+  // Erasures left pending (an admitted instance would not stop, or is still draining): retried
+  // until every one of them is confirmed stopped and the data is gone
   for (const userId of await store.pendingErasures()) {
     try {
       await eraseUser(env, userId, store, Date.now());
@@ -600,8 +583,10 @@ async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolea
  *
  * Erasing nothing until then keeps the entries that name the instances still to stop, so a
  * retry can finish the job. The tombstone outlives the erase (`erased_at`), which is what makes
- * a repeat idempotent and a late write harmless; a straggler committed in the same instant as
- * the tombstone is taken by the sweep's second pass (`sweepMaintenance`).
+ * a repeat idempotent and a late write harmless. There is no straggler to come back for: every
+ * write about a user runs in the user's locked transaction, the same lock the tombstone takes,
+ * so a write either committed before the tombstone — and `forgetUser` deletes it here — or
+ * waited for the lock and is refused by the tombstone it then sees.
  */
 async function eraseUser(
   env: JourneyEnv,
@@ -622,10 +607,11 @@ async function eraseUser(
 /**
  * Forget a user (a deleted account): the tombstone is committed first, then the erasure carried
  * out. `erased: true` means every admitted runner of theirs was confirmed stopped, the entries
- * never admitted can never run, and the data is deleted. An admitted instance that will not
- * stop leaves it pending — nothing erased yet — and the scheduled sweep retries it;
- * `erased: false` says so. A user already erased answers `erased: true` again, with nothing to
- * do.
+ * never admitted can never run, and the data is deleted — for good, with no time window and no
+ * second pass: the tombstone commits under the user's lock, which every write about the user
+ * also takes, so nothing of theirs can land after it. An admitted instance that will not stop
+ * leaves it pending — nothing erased yet — and the scheduled sweep retries it; `erased: false`
+ * says so. A user already erased answers `erased: true` again, with nothing to do.
  */
 export async function forgetUser(
   env: JourneyEnv,

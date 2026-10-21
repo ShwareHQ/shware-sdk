@@ -719,20 +719,54 @@ describe('erasing a user whose instance is still being created', () => {
     }
   });
 
-  test("the sweep's second pass takes a row committed in the erase's instant", async () => {
-    const h = lateCreateHost();
-    await post('/bundle/deploy', h);
-    await h.post('/events', { userId: 'u1', event: 'login', payload: {} });
-    expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toMatchObject({
-      erased: true,
-    });
-    // A straggler: a statement that was past the tombstone's check when the tombstone committed
-    await pg.query(`INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{}')`);
-    expect(await h.rows('profile', 'u1')).toBe(1);
+  test('a failed instance reclaimed by a new one: the old admission is gone, and the new runner meets the tombstone', async () => {
+    const warned = quiet();
+    try {
+      const h = lateCreateHost();
+      await post('/bundle/deploy', h);
+      await h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+      const [{ id: old }] = h.journey.created;
+      expect(await h.store.admitInstance(old, 'u1')).toBe(true);
+      // The instance died: its entry failed, the admission still on the row
+      await h.store.setEntryStatus(old, 'failed');
 
-    await h.worker.sweep(h.env);
-    expect(await h.rows('profile', 'u1')).toBe(0);
-    expect(await h.store.erasureState('u1')).toBe('erased');
+      // The next event reclaims the entry under a new instance id: a fresh attempt, not admitted
+      const again = await (
+        await h.post('/events', { userId: 'u1', event: 'login', payload: {} })
+      ).json();
+      const fresh = h.journey.created[1].id;
+      expect(fresh).not.toBe(old);
+      expect(again).toMatchObject({ started: [fresh] });
+      expect(await h.store.runningInstances('u1')).toEqual([
+        { instanceId: fresh, admitted: false },
+      ]);
+      // The old id cannot run under the reclaimed entry
+      expect(await h.store.admitInstance(old, 'u1')).toBe(false);
+
+      // Nothing to stop: the erasure completes at once
+      expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toEqual({
+        ok: true,
+        erased: true,
+        pending: [],
+      });
+      expect(h.journey.terminated).toEqual([]);
+      expect(await h.rows('entry', 'u1')).toBe(0);
+      expect(await h.rows('event', 'u1')).toBe(0);
+
+      // A late run of the new instance exits without an effect
+      const step = new FakeCfStep();
+      await expect(h.run(h.journey.created[1], step)).resolves.toEqual({
+        status: 'exited',
+        reason: 'erased',
+      });
+      expect(step.names).toEqual([]);
+      expect(h.actions).toEqual([]);
+      expect(h.sent).toEqual([]);
+      expect(await h.rows('entry', 'u1')).toBe(0);
+      expect(await h.store.erasureState('u1')).toBe('erased');
+    } finally {
+      warned.mockRestore();
+    }
   });
 });
 

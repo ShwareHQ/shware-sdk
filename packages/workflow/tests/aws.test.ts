@@ -23,7 +23,7 @@ import { compileConfig } from '../src/config';
 import type { EmailMessage } from '../src/email-sender';
 import { PermanentError } from '../src/engine/retry';
 import type { FcmServiceAccount } from '../src/fcm';
-import { deployBundle, forgetUser, ingestEvent } from '../src/host/ingest';
+import { deployBundle, forgetUser, ingestEvent, sweepMaintenance } from '../src/host/ingest';
 import {
   defineConfig,
   emailTemplate,
@@ -639,29 +639,27 @@ describe('the router on AwsInstances', () => {
   test("status speaks the router's vocabulary", async () => {
     let state: Awaited<ReturnType<LambdaApi['executionState']>> = 'running';
     const lambda: LambdaApi = { ...fakeLambda().lambda, executionState: async () => state };
-    const { store, port, env } = await routed(lambda);
+    let clock = Date.now();
+    const { store, port, env } = await routed(lambda, () => clock);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
     const instance = await port.get(started[0]);
     const statuses: string[] = [];
-    for (const next of [
-      'running',
-      'succeeded',
-      'failed',
-      'stopped',
-      'timed_out',
-      undefined,
-    ] as const) {
+    for (const next of ['running', 'succeeded', 'failed', 'timed_out', undefined] as const) {
       state = next;
       statuses.push((await instance.status?.())?.status ?? '?');
     }
-    expect(statuses).toEqual([
-      'running',
-      'complete',
-      'errored',
-      'terminated',
-      'terminated',
-      'terminated',
-    ]);
+    expect(statuses).toEqual(['running', 'complete', 'errored', 'terminated', 'terminated']);
+
+    // A stop seen here first is dated now, and running until its drain has passed; the record
+    // does not drift with each look
+    state = 'stopped';
+    expect(await instance.status?.()).toEqual({ status: 'running' });
+    expect(await store.executions.get(started[0])).toMatchObject({ stoppedAt: clock });
+    clock += 14 * 60_000;
+    expect(await instance.status?.()).toEqual({ status: 'running' });
+    clock += 60_000;
+    expect(await instance.status?.()).toEqual({ status: 'terminated' });
+    expect((await store.executions.get(started[0]))?.stoppedAt).toBe(clock - 15 * 60_000);
   });
 
   test('a running execution is only marked checked, and not looked at again too soon', async () => {
@@ -721,6 +719,251 @@ describe('the router on AwsInstances', () => {
       limit: 10,
     });
     expect(pending.map((record) => record.instanceId)).toEqual(['new']);
+  });
+});
+
+describe('every stop judgment obeys one drain', () => {
+  const TARGET = 'arn:aws:lambda:us-east-1:1:function:f:7';
+  const DRAIN = 900_000;
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  /**
+   * A control plane that remembers each execution's state: a stop makes it `stopped`, as the
+   * platform reports one, and a test may set a state by hand (a natural end, an operator's stop).
+   */
+  function platform() {
+    const states = new Map<string, Awaited<ReturnType<LambdaApi['executionState']>>>();
+    const stopped: string[] = [];
+    const control = fakeLambda();
+    const lambda: LambdaApi = {
+      ...control.lambda,
+      async executionState(arn) {
+        return states.get(arn) ?? 'running';
+      },
+      async stopExecution(arn) {
+        stopped.push(arn);
+        states.set(arn, 'stopped');
+        return true;
+      },
+    };
+    return { lambda, states, stopped, starts: control.starts };
+  }
+
+  async function host(options: {
+    lambda: LambdaApi;
+    now: () => number;
+    executions?: (
+      registry: PostgresJourneyStore['executions']
+    ) => PostgresJourneyStore['executions'];
+    reconcileEveryMs?: number;
+  }) {
+    const store = new PostgresJourneyStore(client(pg));
+    const port = new AwsInstances({
+      store,
+      executions: options.executions?.(store.executions) ?? store.executions,
+      lambda: options.lambda,
+      target: async () => TARGET,
+      now: options.now,
+      stopDrainMs: DRAIN,
+      ...(options.reconcileEveryMs === undefined
+        ? {}
+        : { reconcileEveryMs: options.reconcileEveryMs }),
+    });
+    const env = { JOURNEY: port };
+    await deployBundle(env, compileConfig(journeyConfig('1 day')), store);
+    const entry = async (userId: string) =>
+      (
+        await pg.query<{ status: string }>(`SELECT status FROM workflow.entry WHERE user_id = $1`, [
+          userId,
+        ])
+      ).rows.map((row) => row.status);
+    /** An admitted start of the user: what the erasure has to stop. */
+    const admitted = async (userId: string) => {
+      const { started } = await ingestEvent(env, { userId, event: 'login' }, store);
+      expect(await store.admitInstance(started[0], 'u1' === userId ? 'u1' : userId)).toBe(true);
+      const arn = (await store.executions.get(started[0]))?.arn ?? '';
+      return { id: started[0], arn };
+    };
+    return { store, port, env, entry, admitted, sweep: () => sweepMaintenance(env, store) };
+  }
+
+  test('the erasure waits out the drain through every sweep, then completes, and stays done', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      const h = await host({ lambda: control.lambda, now: () => clock });
+      const { id } = await h.admitted('u1');
+      const stoppedAt = clock;
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({
+        erased: false,
+        pending: [id],
+      });
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt });
+
+      // A full sweep a second later: maintenance sees the platform's STOPPED, and keeps the
+      // entry running for the erasure to wait on
+      clock += 1_000;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt, checkedAt: clock });
+      expect(control.stopped).toHaveLength(1);
+
+      clock = stoppedAt + DRAIN - 1;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect((await h.store.executions.get(id))?.stoppedAt).toBe(stoppedAt);
+
+      clock = stoppedAt + DRAIN;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erased');
+      expect(await h.entry('u1')).toEqual([]);
+      expect(await h.store.executions.get(id)).toBeUndefined();
+
+      clock += DRAIN;
+      await h.sweep();
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(control.stopped).toHaveLength(1);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('a reconcile that read its record before another path stopped it judges the fresh record', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      let interposed = false;
+      const lambda: LambdaApi = {
+        ...control.lambda,
+        async executionState(arn) {
+          // The sweep's reconcile has its snapshot (stoppedAt: none); an erasure stops the
+          // execution now, before the reconcile reads the platform's state
+          if (!interposed) {
+            interposed = true;
+            await forgetUser(h.env, 'u1', h.store);
+          }
+          return control.states.get(arn) ?? 'running';
+        },
+      };
+      const h = await host({ lambda, now: () => clock, reconcileEveryMs: 0 });
+      const { id } = await h.admitted('u1');
+      clock += 1_000;
+      await h.port.maintain();
+      expect(interposed).toBe(true);
+      expect(control.stopped).toHaveLength(1);
+      // Not finalized on the stale record: the stop is in the drain
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt: clock });
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+
+      // Past the drain the reconcile finalizes, as it always did, and the erasure completes
+      clock += DRAIN;
+      await h.port.maintain();
+      expect(await h.entry('u1')).toEqual(['failed']);
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: true });
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('STOPPED before the stop is recorded: not stopped until the time lands, then one drain from it', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      let failing = true;
+      const h = await host({
+        lambda: control.lambda,
+        now: () => clock,
+        executions: (registry) =>
+          new Proxy(registry, {
+            get(target, property) {
+              if (property !== 'markStopped') return Reflect.get(target, property, target);
+              return async (instanceId: string, at: number) => {
+                if (failing) throw new Error('connection terminated unexpectedly');
+                return target.markStopped(instanceId, at);
+              };
+            },
+          }),
+        reconcileEveryMs: 0,
+      });
+      const { id, arn } = await h.admitted('u1');
+      // Stopped by an operator: the platform says so before any record of it
+      control.states.set(arn, 'stopped');
+
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({
+        erased: false,
+        pending: [id],
+      });
+      expect(control.stopped).toEqual([]);
+      expect((await h.store.executions.get(id))?.stoppedAt).toBeUndefined();
+      // Maintenance cannot date the stop either: nothing is finalized
+      await expect(h.port.maintain()).rejects.toThrow(/connection terminated/);
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.pendingErasures()).toEqual(['u1']);
+
+      // The write recovers: the first sighting is dated now, and the drain runs from it
+      failing = false;
+      clock += 5_000;
+      const sighted = clock;
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({
+        erased: false,
+        pending: [id],
+      });
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt: sighted });
+      expect(control.stopped).toEqual([]);
+
+      clock += 60_000;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect((await h.store.executions.get(id))?.stoppedAt).toBe(sighted);
+
+      clock = sighted + DRAIN;
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(await h.store.executions.get(id)).toBeUndefined();
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('a start never admitted is cancelled at once; natural ends and other users are as before', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      const h = await host({ lambda: control.lambda, now: () => clock, reconcileEveryMs: 0 });
+      // u1: admitted and stopped, in its drain
+      const u1 = await h.admitted('u1');
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: false });
+      // u2: admitted, and finished on its own
+      const u2 = await h.admitted('u2');
+      control.states.set(u2.arn, 'succeeded');
+      // u3: never admitted
+      const { started: u3 } = await ingestEvent(h.env, { userId: 'u3', event: 'login' }, h.store);
+      // u4: admitted, failed on its own; the sweep records it without any drain
+      const u4 = await h.admitted('u4');
+      control.states.set(u4.arn, 'failed');
+
+      clock += 1_000;
+      expect(await forgetUser(h.env, 'u2', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(await forgetUser(h.env, 'u3', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(control.stopped).toEqual([u1.arn]);
+      expect(await h.store.executions.get(u3[0])).toBeUndefined();
+      await h.sweep();
+      expect(await h.entry('u4')).toEqual(['failed']);
+      expect((await h.store.executions.get(u4.id))?.stoppedAt).toBeUndefined();
+      // u1 is still draining, its data untouched
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.executions.get(u1.id)).toMatchObject({ stoppedAt: clock - 1_000 });
+    } finally {
+      warned.mockRestore();
+    }
   });
 });
 

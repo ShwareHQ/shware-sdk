@@ -508,3 +508,178 @@ describe('a runner refuses an erased user before its first effect', () => {
     }
   });
 });
+
+/* ------------------------- finalize replay on the adapter ------------------------- */
+
+/** A step whose checkpoint for `lost` is never committed: the body runs, then the isolate dies. */
+class UncommittedStep extends FakeCfStep {
+  constructor(
+    private readonly lost: string,
+    recorded?: ReadonlyMap<string, unknown>
+  ) {
+    super(recorded);
+  }
+
+  override async do<T>(name: string, callback: () => Promise<T>): Promise<T> {
+    const result = await super.do(name, callback);
+    if (name === this.lost) {
+      this.results.delete(name);
+      throw new EvictionError(name);
+    }
+    return result;
+  }
+}
+
+/**
+ * Runners whose observer reports into one log, with the faults a test arms: `finished` fails
+ * once per count, and a sender that is down fails every send.
+ */
+function reporting() {
+  const finished: string[] = [];
+  const faults = { finished: 0, senderDown: false };
+  class Reporting extends JourneyRunner {
+    readonly sent: OutboundMessage[] = [];
+    protected override createMessageSender(): MessageSender {
+      return {
+        send: async (message) => {
+          if (faults.senderDown) throw new Error('sender is down');
+          this.sent.push(message);
+        },
+      };
+    }
+    protected override createObserver(): JourneyObserver {
+      return {
+        finished: async ({ status }) => {
+          if (faults.finished-- > 0) throw new Error('reporting is down');
+          finished.push(status);
+        },
+      };
+    }
+  }
+  return { Reporting, finished, faults };
+}
+
+describe('a finalize interrupted on Cloudflare is replayed by the same instance', () => {
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  /** `nudge` entered for u1, with a subscription left behind for the finalize to clear. */
+  async function entered(instanceId: string) {
+    const { env, db } = makeEnv();
+    const ir = compileBundle({ workflows: [nudge] }).workflows[0];
+    await d1Store(env).putWorkflowIR(ir);
+    db.entries.push({
+      workflow: ir.id,
+      user_id: 'u1',
+      instance_id: instanceId,
+      hash: ir.contentHash,
+      status: 'running',
+      ts: Date.now(),
+      admitted_at: null,
+    });
+    db.subscriptions.push({ user_id: 'u1', event: 'login', wake_handle: instanceId, ts: 1 });
+    const event = {
+      payload: {
+        workflowId: ir.id,
+        contentHash: ir.contentHash,
+        userId: 'u1',
+        trigger: { event: 'sign_up', payload: {} },
+      },
+      timestamp: new Date(),
+      instanceId,
+    };
+    return { env, db, event };
+  }
+
+  test('interrupted after the unsubscribe, before finished: the rebuilt instance finishes it', async () => {
+    const { env, db, event } = await entered('inst-f1');
+    const { Reporting, finished, faults } = reporting();
+    faults.finished = 1;
+    const first = new FakeCfStep();
+    const runner = new Reporting({}, env);
+    await expect(runner.run(event as never, first as never)).rejects.toThrow(/reporting is down/);
+    expect(runner.sent).toHaveLength(1);
+    expect(db.entries[0].status).toBe('completed');
+    expect(db.subscriptions).toEqual([]);
+    expect(finished).toEqual([]);
+    const admittedAt = db.entries[0].admitted_at;
+    expect(admittedAt).toEqual(expect.any(Number));
+
+    // Rebuilt on its checkpoints, much later: admitted as the same instance, nothing resent
+    const again = new Reporting({}, env);
+    await expect(again.run(event as never, first.replay() as never)).resolves.toMatchObject({
+      status: 'completed',
+    });
+    expect(again.sent).toEqual([]);
+    expect(finished).toEqual(['completed']);
+    expect(db.entries[0]).toMatchObject({ status: 'completed', admitted_at: admittedAt });
+    expect(db.erasures.size).toBe(0);
+  });
+
+  test('every write done, the checkpoint lost: the replay is idempotent', async () => {
+    const { env, db, event } = await entered('inst-f2');
+    const { Reporting, finished } = reporting();
+    const first = new UncommittedStep('finalize');
+    await expect(new Reporting({}, env).run(event as never, first as never)).rejects.toThrow(
+      EvictionError
+    );
+    expect(db.entries[0].status).toBe('completed');
+    expect(finished).toEqual(['completed']);
+
+    const again = new Reporting({}, env);
+    await expect(again.run(event as never, first.replay() as never)).resolves.toMatchObject({
+      status: 'completed',
+    });
+    expect(again.sent).toEqual([]);
+    expect(db.entries[0].status).toBe('completed');
+    expect(db.subscriptions).toEqual([]);
+    // Never checkpointed, the hook ran again with the same result: the ledger is what counts
+    expect(finished.every((status) => status === 'completed')).toBe(true);
+  });
+
+  test('a failed finalize replays as a failure: not erased, the send not retried past it', async () => {
+    const { env, db, event } = await entered('inst-f3');
+    const { Reporting, finished, faults } = reporting();
+    faults.senderDown = true;
+    const first = new UncommittedStep('finalize:failed');
+    await expect(new Reporting({}, env).run(event as never, first as never)).rejects.toThrow(
+      EvictionError
+    );
+    expect(db.entries[0].status).toBe('failed');
+    expect(finished).toEqual(['failed']);
+
+    await expect(
+      new Reporting({}, env).run(event as never, first.replay() as never)
+    ).rejects.toThrow('sender is down');
+    expect(db.entries[0].status).toBe('failed');
+    expect(db.subscriptions).toEqual([]);
+    expect(finished.every((status) => status === 'failed')).toBe(true);
+    expect(db.erasures.size).toBe(0);
+  });
+
+  test('a tombstone before the replay: refused, the entry left as it was, nothing reported', async () => {
+    const warned = quiet();
+    try {
+      const { env, db, event } = await entered('inst-f4');
+      const { Reporting, finished, faults } = reporting();
+      faults.finished = 1;
+      const first = new FakeCfStep();
+      await expect(new Reporting({}, env).run(event as never, first as never)).rejects.toThrow(
+        /reporting is down/
+      );
+      db.erasures.set('u1', { ts: Date.now(), erased_at: null });
+
+      const replay = first.replay();
+      const again = new Reporting({}, env);
+      await expect(again.run(event as never, replay as never)).resolves.toEqual({
+        status: 'exited',
+        reason: 'erased',
+      });
+      expect(replay.names).toEqual([]);
+      expect(again.sent).toEqual([]);
+      expect(finished).toEqual([]);
+      expect(db.entries[0].status).toBe('completed');
+    } finally {
+      warned.mockRestore();
+    }
+  });
+});
