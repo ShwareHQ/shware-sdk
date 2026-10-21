@@ -759,6 +759,21 @@ Set `API_TOKEN` in production: a host whose `ENVIRONMENT` resolves to `productio
 request but `GET /health` and `/t/...` with a 503 until it is set. Any other mode (`development`,
 say) runs open, for local work only — `/deploy` rewrites the whole routing table.
 
+Erasing a user (`POST /users/forget`) commits an erasure tombstone first,
+which every write about the user is conditional on from then on. A runner
+admits itself against that tombstone before its first effect — before the
+observer hears of it, before any action or send — on every invocation and on
+every replay after an eviction, never from a checkpoint: an instance whose
+`create` lands after the tombstone, or that wakes after it, exits without
+running. The erasure stops the admitted instances (`terminate`), and only once
+each is known stopped deletes the data; `erased: true` means every admitted
+runner was confirmed stopped, the entries never admitted can never run, and
+the data is gone. An admitted instance that will not stop answers
+`erased: false` and the scheduled sweep retries it. The tombstone stays, so a
+write that was in flight when the data went cannot bring the user back, and
+the sweep runs the erase once more within the hour to take any row committed
+in the same instant.
+
 One database per host. The routing tables are global (`triggers`, `segments`, the live
 `deployment` row), so two Workers on one D1 database or one Postgres schema would swap each
 other's routes on every deploy: give staging and production their own database or schema
@@ -827,11 +842,13 @@ re-entered as a second execution. Retries stop after 12 hours (`startRetryMs`,
 keep it under the execution retention) and the start is left unresolved. A
 failed entry that is entered again gets a new execution, never the closed one.
 
-Erasing a user (`POST /users/forget`) stops their executions, then waits
-`stopDrainMs` (15 minutes by default; at least the function's timeout) before
-erasing: a stop does not interrupt an invocation already running, which goes on
-to its next checkpoint. Until then the erasure answers `erased: false` and the
-sweep finishes it.
+Erasing a user (`POST /users/forget`) commits the tombstone, stops their
+admitted executions, then waits `stopDrainMs` (15 minutes by default; at least
+the function's timeout) before erasing: a stop does not interrupt an invocation
+already running, which goes on to its next checkpoint. Until then the erasure
+answers `erased: false` and the sweep finishes it. An execution whose runner
+never admitted itself needs no stop: its run entry meets the tombstone and
+exits, and so does a wake of a stopped one.
 
 Deploy one artifact per version: publish a numbered version and point the
 `live` alias, which the Function URL is bound to, at it. Each version carries its
@@ -949,9 +966,10 @@ On Postgres the engine also keeps:
   profile. Values are scalars (string, number, boolean); a property set to
   `null` is removed, which is the only way to unset one. Nested objects are
   refused with a 400.
-- A user whose erasure (`POST /users/forget`) has not finished yet is refused on
-  `/events`, `/identify` and `/devices` with a 410, so nothing is written back
-  between the stop of their journeys and the erase.
+- A user with an erasure tombstone (`POST /users/forget`, finished or not) is
+  refused on `/events`, `/identify` and `/devices` with a 410: nothing is
+  written about them between the stop of their journeys and the erase, and the
+  id is never reactivated after it.
 - A body that is not JSON answers 400, never 500.
 - `POST /devices` takes `{ userId, token, platform, ts? }`;
   `POST /devices/unbind` and `POST /devices/remove` take `{ token }`.

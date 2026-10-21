@@ -427,3 +427,84 @@ describe('a time window', () => {
     expect(db.entries[0].status).toBe('completed');
   });
 });
+
+/* ------------------------------- admission ------------------------------- */
+
+/** A collecting runner that also hears `started`: the first observable effect of a run. */
+class HearingRunner extends CollectingRunner {
+  readonly started: string[] = [];
+  protected override createObserver(): JourneyObserver {
+    return {
+      started: async ({ instanceId }) => {
+        this.started.push(instanceId);
+      },
+    };
+  }
+}
+
+describe('a runner refuses an erased user before its first effect', () => {
+  const T0 = new Date('2026-10-19T12:00:00Z');
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  test('on a fresh invocation: no started, no step, no send, and the entry is left alone', async () => {
+    const warned = quiet();
+    try {
+      const { env, db, event } = await seeded(waiter, 'inst-e1');
+      db.erasures.set('u1', { ts: 1, erased_at: null });
+      const runner = new HearingRunner({}, env);
+      const step = new FakeCfStep();
+
+      await expect(runner.run(event as never, step as never)).resolves.toEqual({
+        status: 'exited',
+        reason: 'erased',
+      });
+      expect(runner.started).toEqual([]);
+      expect(step.names).toEqual([]);
+      expect(runner.sent).toEqual([]);
+      expect(db.entries[0].status).toBe('running');
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('on a replay after an eviction: the admission is read fresh, not from a checkpoint', async () => {
+    const warned = quiet();
+    vi.useFakeTimers({ toFake: ['Date'], now: T0 });
+    try {
+      const { env, db, event } = await seeded(waiter, 'inst-e2');
+      const runner = new HearingRunner({}, env);
+      const first = new FakeCfStep();
+      first.evictAt = '0:wait:0';
+      await expect(runner.run(event as never, first as never)).rejects.toBeInstanceOf(
+        EvictionError
+      );
+      expect(runner.started).toEqual(['inst-e2']);
+      expect(await d1Store(env).runningInstances('u1')).toEqual([
+        { instanceId: 'inst-e2', admitted: true },
+      ]);
+
+      // The user is erased while the instance is parked; the hour passes and it is rebuilt
+      db.erasures.set('u1', { ts: Date.now(), erased_at: null });
+      vi.setSystemTime(new Date(T0.getTime() + 61 * 60_000));
+      const replay = first.replay();
+      replay.wakes = ['timeout'];
+      const again = new HearingRunner({}, env);
+
+      await expect(again.run(event as never, replay as never)).resolves.toEqual({
+        status: 'exited',
+        reason: 'erased',
+      });
+      expect(again.started).toEqual([]);
+      expect(replay.names).toEqual([]);
+      expect(again.sent).toEqual([]);
+      expect(db.entries[0].status).toBe('running');
+    } finally {
+      warned.mockRestore();
+    }
+  });
+});

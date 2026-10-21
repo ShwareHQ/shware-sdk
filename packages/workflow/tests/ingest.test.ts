@@ -1,8 +1,29 @@
-import { describe, expect, test } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
+import { createElement } from 'react';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { z } from 'zod';
 import { d1Store } from '../src/cloudflare/d1-env';
+import type { JourneyRunner } from '../src/cloudflare/runner';
+import { journeyWorker } from '../src/cloudflare/worker';
 import { handleRequest } from '../src/host/http';
 import { deployBundle, ingestEvent, sweepSegments, sweepSegmentsPaged } from '../src/host/ingest';
-import { compileBundle, eq, trigger, workflow } from '../src/index';
+import type {
+  JourneyParams,
+  WorkflowBindingLike,
+  WorkflowInstanceLike,
+} from '../src/host/platform';
+import {
+  action,
+  compileBundle,
+  defineConfig,
+  emailTemplate,
+  eq,
+  event,
+  trigger,
+  workflow,
+} from '../src/index';
+import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
+import { renderPostgresDdl } from '../src/store/tables';
 import { makeEnv } from './fake-cloudflare';
 import {
   allSegments,
@@ -13,6 +34,7 @@ import {
   reengagement,
   u,
 } from './fixtures';
+import { FakeCfStep } from './stubs/cf-step';
 
 /**
  * Ingest over in-memory bindings: deploy routing, event triggers with where/filter gates,
@@ -440,3 +462,281 @@ describe('the sweep walks users page by page', () => {
     );
   });
 });
+
+/* ------------------------- erasure against a late create ------------------------- */
+
+/**
+ * The erasure protocol against the runtime, through the real `journeyWorker` (its router and
+ * its generated Runner) on a Postgres store (PGlite). The ledger entry is committed before the
+ * platform is asked to create the instance, so an erasure can land between the two: the entry
+ * is not admitted, `forgetUser` finishes without a stop, and the runner that the late `create`
+ * eventually produces meets the tombstone at admission and runs nothing.
+ */
+
+let pg: PGlite;
+const client = (db: { query: PGlite['query'] }): SqlClientLike => ({
+  query: async <T>(text: string, params: readonly unknown[] = []) =>
+    (await db.query<T>(text, [...params])).rows,
+  transaction: (fn) => fn(client(db)),
+});
+
+beforeAll(async () => {
+  pg = await PGlite.create();
+}, 30_000);
+afterAll(async () => {
+  await pg.close();
+});
+
+/** A Workflow binding whose `create` can be parked, and whose instances can be terminated. */
+class LateJourney implements WorkflowBindingLike {
+  readonly created: { id: string; params: JourneyParams }[] = [];
+  readonly known = new Set<string>();
+  readonly terminated: string[] = [];
+  /** Whether instances offer `terminate` (Cloudflare's do; a binding without it cannot stop). */
+  canTerminate = true;
+  private gate: { entered: () => void; released: Promise<void> } | undefined;
+
+  /** Park the next `create` after the router committed the entry: `entered` resolves once it is in. */
+  park(): { entered: Promise<void>; release: () => void } {
+    let entered!: () => void;
+    let release!: () => void;
+    const arrived = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.gate = { entered, released };
+    return { entered: arrived, release };
+  }
+
+  async create(options: { id: string; params: JourneyParams }): Promise<WorkflowInstanceLike> {
+    const gate = this.gate;
+    if (gate !== undefined) {
+      this.gate = undefined;
+      gate.entered();
+      await gate.released;
+    }
+    this.created.push(options);
+    this.known.add(options.id);
+    return this.instance(options.id);
+  }
+
+  async get(id: string): Promise<WorkflowInstanceLike> {
+    if (!this.known.has(id)) throw new Error('instance.not_found');
+    return this.instance(id);
+  }
+
+  private instance(id: string): WorkflowInstanceLike {
+    return {
+      id,
+      sendEvent: async () => {},
+      ...(this.canTerminate
+        ? {
+            terminate: async () => {
+              this.terminated.push(id);
+            },
+          }
+        : {}),
+    };
+  }
+}
+
+const te = event<{ login: Record<string, never> }>();
+const hi = emailTemplate({
+  id: 'hi',
+  from: 'hi@acme.test',
+  title: 'Hi',
+  props: z.strictObject({}),
+  subject: 'Hi',
+  preview: {},
+  component: () => createElement('p', null, 'hi'),
+});
+
+function lateCreateHost() {
+  const actions: string[] = [];
+  const record = action('record', async (_args, { userId }) => {
+    actions.push(userId);
+  });
+  const flow = workflow({ id: 'w', trigger: trigger.event(te.login) })
+    .run(record)
+    .email(hi);
+  const config = defineConfig({
+    workflows: [flow],
+    actions: [record],
+    templates: { email: { hi } },
+  });
+  const sent: string[] = [];
+  const journey = new LateJourney();
+  const env = { JOURNEY: journey, ENVIRONMENT: 'development' };
+  const store = new PostgresJourneyStore(client(pg));
+  const worker = journeyWorker<typeof env>({
+    email: () => ({
+      send: async (email: { subject: string }) => {
+        sent.push(email.subject);
+        return {};
+      },
+    }),
+    store: () => store,
+    config,
+  });
+  const post = (path: string, body?: unknown) =>
+    worker.fetch(
+      new Request(`http://worker${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+      env
+    );
+  const Runner = worker.Runner as unknown as new (ctx: unknown, env: unknown) => JourneyRunner;
+  const run = (created: { id: string; params: JourneyParams }, step = new FakeCfStep()) =>
+    new Runner({}, env).run(
+      { payload: created.params, instanceId: created.id, timestamp: new Date() },
+      step as never
+    );
+  const rows = async (table: string, userId: string) =>
+    (
+      await pg.query<{ c: number }>(
+        `SELECT COUNT(*)::int AS c FROM workflow.${table} WHERE user_id = $1`,
+        [userId]
+      )
+    ).rows[0].c;
+  return { worker, env, journey, store, post, run, rows, actions, sent };
+}
+
+describe('erasing a user whose instance is still being created', () => {
+  beforeEach(async () => {
+    await pg.exec('DROP SCHEMA IF EXISTS workflow CASCADE');
+    await pg.exec(renderPostgresDdl());
+  });
+
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  test('the entry is committed, the create lands after the erase, and the runner runs nothing', async () => {
+    const warned = quiet();
+    try {
+      const h = lateCreateHost();
+      await post('/bundle/deploy', h);
+
+      const gate = h.journey.park();
+      const ingesting = h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+      await gate.entered;
+      // The entry is in and not admitted; the platform does not know the instance yet
+      const running = await h.store.runningInstances('u1');
+      expect(running).toEqual([{ instanceId: expect.any(String), admitted: false }]);
+      await expect(h.env.JOURNEY.get(running[0].instanceId)).rejects.toThrow('instance.not_found');
+
+      // Nothing to stop: the entry can never be admitted now
+      const forget = await h.post('/users/forget', { userId: 'u1' });
+      expect(await forget.json()).toEqual({ ok: true, erased: true, pending: [] });
+      expect(h.journey.terminated).toEqual([]);
+      expect(await h.store.erasureState('u1')).toBe('erased');
+      expect(await h.rows('instance', 'u1')).toBe(0);
+      expect(await h.rows('entry', 'u1')).toBe(0);
+
+      // The create lands, the router reports the start, and the runtime runs the instance
+      gate.release();
+      expect(await (await ingesting).json()).toMatchObject({ started: [running[0].instanceId] });
+      expect(h.journey.created.map((c) => c.id)).toEqual([running[0].instanceId]);
+      const step = new FakeCfStep();
+      await expect(h.run(h.journey.created[0], step)).resolves.toEqual({
+        status: 'exited',
+        reason: 'erased',
+      });
+      expect(step.names).toEqual([]);
+      expect(h.actions).toEqual([]);
+      expect(h.sent).toEqual([]);
+      expect(await h.rows('instance', 'u1')).toBe(0);
+      expect(await h.rows('entry', 'u1')).toBe(0);
+      expect(await h.store.erasureState('u1')).toBe('erased');
+
+      // Another user runs as ever
+      await h.post('/identify', { userId: 'u2', props: { email: 'u2@acme.test' } });
+      await h.post('/events', { userId: 'u2', event: 'login', payload: {} });
+      await expect(h.run(h.journey.created[1])).resolves.toMatchObject({ status: 'completed' });
+      expect(h.actions).toEqual(['u2']);
+      expect(h.sent).toEqual(['Hi']);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('an admitted instance is stopped before the erase; one the platform forgot counts as stopped', async () => {
+    const warned = quiet();
+    try {
+      const h = lateCreateHost();
+      await post('/bundle/deploy', h);
+      await h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+      const [{ id }] = h.journey.created;
+      // What the runner does first
+      expect(await h.store.admitInstance(id, 'u1')).toBe(true);
+      expect(await h.store.runningInstances('u1')).toEqual([{ instanceId: id, admitted: true }]);
+
+      // The binding cannot terminate: nothing is erased, the instance is pending
+      h.journey.canTerminate = false;
+      expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toEqual({
+        ok: true,
+        erased: false,
+        pending: [id],
+      });
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.rows('event', 'u1')).toBe(1);
+      expect(await h.rows('entry', 'u1')).toBe(1);
+
+      // Terminated, then erased; a repeat has nothing left to do
+      h.journey.canTerminate = true;
+      expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toEqual({
+        ok: true,
+        erased: true,
+        pending: [],
+      });
+      expect(h.journey.terminated).toEqual([id]);
+      expect(await h.store.erasureState('u1')).toBe('erased');
+      expect(await h.rows('event', 'u1')).toBe(0);
+      expect(await h.rows('entry', 'u1')).toBe(0);
+      expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toEqual({
+        ok: true,
+        erased: true,
+        pending: [],
+      });
+      expect(h.journey.terminated).toEqual([id]);
+
+      // An admitted instance the platform no longer knows did reach it and finished since
+      await h.post('/events', { userId: 'u2', event: 'login', payload: {} });
+      const second = h.journey.created[1].id;
+      expect(await h.store.admitInstance(second, 'u2')).toBe(true);
+      h.journey.known.delete(second);
+      expect(await (await h.post('/users/forget', { userId: 'u2' })).json()).toEqual({
+        ok: true,
+        erased: true,
+        pending: [],
+      });
+      expect(h.journey.terminated).toEqual([id]);
+      expect(await h.store.erasureState('u2')).toBe('erased');
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test("the sweep's second pass takes a row committed in the erase's instant", async () => {
+    const h = lateCreateHost();
+    await post('/bundle/deploy', h);
+    await h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+    expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toMatchObject({
+      erased: true,
+    });
+    // A straggler: a statement that was past the tombstone's check when the tombstone committed
+    await pg.query(`INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{}')`);
+    expect(await h.rows('profile', 'u1')).toBe(1);
+
+    await h.worker.sweep(h.env);
+    expect(await h.rows('profile', 'u1')).toBe(0);
+    expect(await h.store.erasureState('u1')).toBe('erased');
+  });
+});
+
+async function post(path: string, h: ReturnType<typeof lateCreateHost>) {
+  const response = await h.post(path);
+  expect(response.status).toBe(200);
+}

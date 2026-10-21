@@ -13,14 +13,15 @@ import { scaleDurations } from '../engine/time-scale';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import { JourneyFactSource } from '../store/facts';
 import type { JourneyStore } from '../store/index';
+import { readWithRetry } from './fresh-read';
 import { ingestEvent } from './ingest';
 import type { JourneyEnv, JourneyParams } from './platform';
 
 /**
  * One journey instance run to its end, on whatever durable runtime supplies the `EngineStep`:
- * the IR loaded by the hash pinned at entry, the outlets wired, the interpreter run, and the
- * ledger finalized. Cloudflare's runner and the Lambda handler both come through here; only
- * their EngineStep differs.
+ * the runner admitted against the user's erasure tombstone, the IR loaded by the hash pinned at
+ * entry, the outlets wired, the interpreter run, and the ledger finalized. Cloudflare's runner
+ * and the Lambda handler both come through here; only their EngineStep differs.
  */
 
 /** Everything a run is wired to, assembled by the host. */
@@ -96,6 +97,38 @@ export async function executeJourney(
       await ingestEvent(env, { id, userId, event: name, payload: accepted }, store);
     },
   };
+
+  /*
+   * Admission: the ledger entry was committed before the runtime was asked to create this
+   * instance, so an erasure can land in between (the entry is not found by `get`, the erase
+   * goes through, and then the create lands). The runner is the only one who can refuse that
+   * late run, and it must do so before its first observable effect — `observer.started`, the
+   * IR read, any action or send.
+   *
+   * Outside any durable step, on purpose: a step would checkpoint the first invocation's
+   * "admitted" and replay it on every wake and every rebuild after an eviction, which is
+   * exactly when the tombstone may have arrived since. `admitInstance` is idempotent — the
+   * entry's `admitted_at` keeps its first value — so a replay re-admits the same instance, and
+   * the store makes the admission mutually exclusive with the erasure: either the entry is
+   * admitted first and the erasure finds it and stops it, or the tombstone commits first and
+   * this read answers false. Only the read itself is retried, briefly, when the database
+   * stumbled; one that keeps failing throws, so the instance errors without running anything,
+   * its entry stays, and the erasure protocol (or a later wake) decides what becomes of it.
+   */
+  const admitted = await readWithRetry(() => store.admitInstance(instanceId, userId), {
+    what: 'admission',
+    instanceId,
+  });
+  if (!admitted) {
+    /*
+     * No finalize either way: the entry is gone (erased, or never ours to run) or is being
+     * erased, and the finalize steps would write it back — a status on an entry the erasure
+     * deletes, a `finished` the reporting records as a new row of an erased user. The
+     * subscriptions, if any, go with the user's data.
+     */
+    console.warn(`[workflow] instance ${instanceId} of ${userId} refused admission: not running`);
+    return { status: 'exited', reason: 'erased' };
+  }
 
   let outcome: JourneyOutcome;
   try {

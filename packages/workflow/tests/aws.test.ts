@@ -535,6 +535,8 @@ describe('the router on AwsInstances', () => {
     const { store, env } = await routed(lambda, () => clock);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
     const name = (await store.executions.get(started[0]))?.name ?? '';
+    // The run admitted itself (its first act): from here on the erasure has to stop it
+    expect(await store.admitInstance(started[0], 'u1')).toBe(true);
 
     // Stopped, but an invocation running at the stop goes on to its next checkpoint
     expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false, pending: started });
@@ -549,6 +551,25 @@ describe('the router on AwsInstances', () => {
     clock += 11 * 60_000;
     expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: true, pending: [] });
     expect(await store.executions.get(started[0])).toBeUndefined();
+  });
+
+  test('a start whose run never admitted itself is erased at once, without a stop', async () => {
+    const stopped: string[] = [];
+    const lambda: LambdaApi = {
+      ...fakeLambda().lambda,
+      async stopExecution(arn) {
+        stopped.push(arn);
+        return true;
+      },
+    };
+    const { store, env } = await routed(lambda);
+    const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // Nothing of it ran: the tombstone commits first, and the run's admission is refused (the
+    // registry guard refuses it too, its start no longer recorded)
+    expect(await forgetUser(env, 'u1', store)).toEqual({ ok: true, erased: true, pending: [] });
+    expect(stopped).toEqual([]);
+    expect(await store.executions.get(started[0])).toBeUndefined();
+    expect(await store.admitInstance(started[0], 'u1')).toBe(false);
   });
 
   test('an execution that already finished on its own is erased at once', async () => {
@@ -576,6 +597,7 @@ describe('the router on AwsInstances', () => {
     };
     const { store, env } = await routed(lambda);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    expect(await store.admitInstance(started[0], 'u1')).toBe(true);
     const result = await forgetUser(env, 'u1', store);
     expect(result).toMatchObject({ erased: false, pending: started });
     expect(await store.executions.get(started[0])).toBeDefined();
@@ -917,6 +939,7 @@ describe('review fixes', () => {
     const { store, port: instances } = port(lambda, () => clock);
     await enter(store, instances, 'i1', clock);
     await store.executions.markSubmitted('i1', undefined, clock);
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
     const env = { JOURNEY: instances };
     expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false, pending: ['i1'] });
     expect(await store.executions.get('i1')).toBeDefined();

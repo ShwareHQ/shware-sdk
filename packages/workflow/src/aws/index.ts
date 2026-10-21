@@ -7,8 +7,9 @@ import {
 } from '@aws/durable-execution-sdk-js';
 import { longestJourneyMs } from '../engine/duration';
 import type { JourneyOutcome } from '../engine/ports';
-import { PermanentError, isRetryable } from '../engine/retry';
+import { PermanentError } from '../engine/retry';
 import { executeJourney } from '../host/execute';
+import { readWithRetry } from '../host/fresh-read';
 import {
   SWEEP_PAGE_SIZE,
   type SweepResult,
@@ -113,34 +114,6 @@ function unqualified(invokedFunctionArn: string): string {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-/**
- * A read that runs outside any durable step — the registry check at a run's entry, which must
- * see the record as it is now (a stop during a wait) and so cannot be checkpointed — retried a
- * bounded number of times on a transient failure (a dropped connection, a timeout). What the
- * read returns is never retried: a refusal is the caller's. A `PermanentError` ends it at once.
- */
-async function readWithRetry<T>(
-  fn: () => Promise<T>,
-  about: { instanceId: string; phase: string },
-  budget: { attempts: number; delaysMs: readonly number[] } = { attempts: 3, delaysMs: [100, 300] }
-): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt >= budget.attempts || !isRetryable(error)) throw error;
-      const delayMs = budget.delaysMs[Math.min(attempt, budget.delaysMs.length) - 1] ?? 0;
-      console.warn(
-        `[workflow] ${about.phase}: read failed for instance ${about.instanceId} (attempt ${attempt} of ${budget.attempts}), retrying in ${delayMs} ms`,
-        error
-      );
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, delayMs);
-      });
-    }
-  }
-}
-
 export function journeyLambda<Env extends JourneyLambdaEnv>(
   options: JourneyLambdaOptions<Env>
 ): JourneyLambda {
@@ -228,8 +201,8 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
     // execution fails at once on a refusal; only the read itself is retried, briefly, when the
     // database stumbled.
     const record = await readWithRetry(() => executions.get(instanceId), {
+      what: 'run entry',
       instanceId,
-      phase: 'run entry',
     });
     if (
       record === undefined ||
