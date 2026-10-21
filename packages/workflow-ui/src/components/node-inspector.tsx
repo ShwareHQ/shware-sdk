@@ -169,12 +169,7 @@ function summary(node: NodeIR): { label: string; value: string }[] {
     case 'send_event':
       return [{ label: 'event', value: node.event }];
     case 'action':
-      return [
-        { label: 'action', value: node.action },
-        ...(node.codeHash !== undefined
-          ? [{ label: 'code', value: node.codeHash.slice(0, 12) }]
-          : []),
-      ];
+      return [{ label: 'action', value: node.action }];
     default:
       return [];
   }

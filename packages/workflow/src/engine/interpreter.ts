@@ -209,16 +209,8 @@ async function checkGuards(
     return { goalAt: goalHit?.at ?? null, exitMet };
   });
 
-  // A checkpoint from before conversions carried a time held `goalMet` instead: met at entry's anchor
-  const legacy = result as { goalMet?: boolean };
-  const goalAt =
-    typeof result.goalAt === 'number'
-      ? result.goalAt
-      : legacy.goalMet === true
-        ? ctx.enteredAtMs
-        : null;
-  if (goalAt !== null) {
-    state.convertedAt ??= goalAt;
+  if (result.goalAt !== null) {
+    state.convertedAt ??= result.goalAt;
     if (goal?.exitOnMatch ?? true) return { kind: 'goal' };
   }
   if (result.exitMet) return { kind: 'exit_when' };
@@ -267,16 +259,15 @@ async function sendPush(
   ir: WorkflowIR,
   ctx: JourneyContext
 ): Promise<void> {
-  const plan = await ctx.step.do<PushPlan | null | undefined>(`${node.id}:send`, async () => {
+  const plan = await ctx.step.do<PushPlan | null>(`${node.id}:send`, async () => {
     const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
     if (await ctx.facts.isSuppressed?.(node.channel)) return null;
     const listed = await ctx.facts.listDevices();
     const devices = node.devices === 'latest' ? listed.slice(0, 1) : listed;
     return { props, devices };
   });
-  // null: the channel is opted out. Undefined: a checkpoint from before per-device steps, whose
-  // single step already sent to every device.
-  if (plan === null || plan === undefined) return;
+  // null: the channel is opted out
+  if (plan === null) return;
   if (plan.devices.length === 0) {
     console.log(`[journey] push ${node.template} skipped: no device for user ${ctx.userId}`);
     return;
@@ -446,7 +437,6 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         const args = await resolveValues(node.args, ctx.facts);
         await invoker.invoke({
           action: node.action,
-          codeHash: node.codeHash,
           args,
           userId: ctx.userId,
           idempotencyKey: `${ctx.instanceId}:${node.id}`,
@@ -511,9 +501,8 @@ async function awaitTail(ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSigna
   });
   await ctx.step.unsubscribe('goal:unsubscribe');
   if (hit === null) return null;
-  // A checkpoint from before the tail watched exitWhen recorded a plain `true`: the goal
-  if ((hit as unknown) === true || hit.kind === 'goal') {
-    state.convertedAt ??= (hit as { at?: number }).at ?? deadline;
+  if (hit.kind === 'goal') {
+    state.convertedAt ??= hit.at;
     return { kind: 'goal' };
   }
   return { kind: 'exit_when' };
@@ -541,8 +530,7 @@ async function waitLoop<R>(
     await ctx.step.subscribe(`${id}:subscribe:${attempt}`, events, { deadlineMs: deadline });
 
     const met = await ctx.step.do(`${id}:check:${attempt}`, async () => check(Date.now()));
-    // `false` is a checkpoint from before checks answered null for "not yet"
-    if (met !== null && (met as unknown) !== false) return met;
+    if (met !== null) return met;
 
     // Checkpointed: replay re-runs this control flow with wall-clock time far
     // ahead of the original run, so the branch must come from a persisted value.
@@ -582,9 +570,7 @@ async function finalCheck<R>(
   ctx: JourneyContext,
   check: (now: number) => Promise<R | null>
 ): Promise<R | null> {
-  const final = await ctx.step.do(`${id}:final`, async () => check(Date.now()));
-  // `false` is a checkpoint from before checks answered null for "not yet"
-  return (final as unknown) === false ? null : final;
+  return ctx.step.do(`${id}:final`, async () => check(Date.now()));
 }
 
 async function resolveValues(

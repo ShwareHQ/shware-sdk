@@ -309,12 +309,6 @@ export type NodeIR =
       action: string;
       /** Argument values; user_property references are resolved at run time, like message props. */
       args: Record<string, PropValueIR>;
-      /**
-       * No longer written. Bundles compiled before 4.0 pinned a hash of the
-       * handler's printed source here; it depended on the bundler, so it is
-       * only read back for old IR and ignored by the hash (see hash.ts).
-       */
-      codeHash?: string | undefined;
     });
 
 const nodeBase = { id: z.string(), label: z.optional(z.string()), meta: z.optional(NodeMetaIR) };
@@ -381,7 +375,6 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
       type: z.literal('action'),
       action: z.string(),
       args: z.record(z.string(), PropValueIR),
-      codeHash: z.optional(z.string()),
     }),
   ])
 );
@@ -448,13 +441,11 @@ export type TemplateIR = z.infer<typeof TemplateIR>;
 /**
  * Action manifest entry: IR records the name; the implementation solidifies
  * into the Worker bundle at deploy time, never into IR (custom code stays out
- * of the data plane by design). `codeHash` is read for bundles compiled before
- * 4.0 and never written anymore.
+ * of the data plane by design).
  */
 export const ActionIR = z.object({
   irVersion: z.literal(IR_VERSION),
   name: z.string(),
-  codeHash: z.optional(z.string()),
 });
 export type ActionIR = z.infer<typeof ActionIR>;
 

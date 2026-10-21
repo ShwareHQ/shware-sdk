@@ -262,22 +262,23 @@ export class PostgresReporting implements JourneyReporting {
     return rows.length > 0;
   }
 
-  async recordUnsubscribe(messageId: string, at: number): Promise<boolean> {
+  async recordUnsubscribe(messageId: string, at: number): Promise<{ userId: string } | undefined> {
     return this.sql.transaction(async (tx) => {
+      // The first unsubscribe sets the time; a later one keeps it and still names the recipient
       const rows = await tx.query<{ user_id: string }>(
         `UPDATE ${this.t.message} SET unsubscribed_at = coalesce(unsubscribed_at, ${TS('$2')})
          WHERE id = $1 AND channel = 'email' RETURNING user_id`,
         [messageId, at]
       );
       const userId = rows.at(0)?.user_id;
-      if (userId === undefined) return false;
+      if (userId === undefined) return undefined;
       // The opt-out itself: the engine sends this user no more email
       await tx.query(
         `INSERT INTO ${this.t.suppression} (user_id, channel, ts) VALUES ($1, 'email', ${TS('$2')})
          ON CONFLICT DO NOTHING`,
         [userId, at]
       );
-      return true;
+      return { userId };
     });
   }
 

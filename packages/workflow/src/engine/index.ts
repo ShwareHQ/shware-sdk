@@ -1,4 +1,4 @@
-export { type ActionVersionPolicy, type RegisteredAction, RegistryActionInvoker } from './actions';
+export { type RegisteredAction, RegistryActionInvoker } from './actions';
 export { hashToBucket, murmur3 } from './bucket';
 export {
   DEVICES_UPDATED_EVENT,
@@ -10,7 +10,7 @@ export {
   relevantEvents,
 } from './condition';
 export { runJourney } from './interpreter';
-export { scaleDurations, scaleSegmentWindows } from './time-scale';
+export { scaleCondition, scaleDurations, scaleSegmentWindows } from './time-scale';
 export { nextWindowStart, resolveTimeZone } from './time-window';
 export type {
   ActionInvocation,

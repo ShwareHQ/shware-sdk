@@ -204,8 +204,7 @@ export const PROFILE_UPDATED_EVENT = '$profile_updated';
 /**
  * The wake-up channel for one profile property: `$profile_updated:<path>`. A property predicate
  * subscribes to its own property's channel, and `/identify` fires one per property it patched —
- * so an identify that touches `plan` does not wake a wait on `email`. (The unscoped
- * PROFILE_UPDATED_EVENT is still fired for instances that subscribed before 4.0.)
+ * so an identify that touches `plan` does not wake a wait on `email`.
  */
 export function profileUpdatedEvent(path: string): string {
   return `${PROFILE_UPDATED_EVENT}:${path}`;

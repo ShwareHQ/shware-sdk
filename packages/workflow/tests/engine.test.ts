@@ -323,13 +323,12 @@ describe('RegistryActionInvoker', () => {
     const invoker = new RegistryActionInvoker([
       {
         name: 'sync_crm',
-        codeHash: 'h1',
         handler: async (args, ctx) => {
           calls.push([args, ctx]);
         },
       },
     ]);
-    await invoker.invoke({ ...base, action: 'sync_crm', codeHash: 'h1', args: { plan: 'pro' } });
+    await invoker.invoke({ ...base, action: 'sync_crm', args: { plan: 'pro' } });
     expect(calls).toEqual([[{ plan: 'pro' }, { userId: 'u_1', idempotencyKey: 'inst_1:0' }]]);
   });
 
@@ -341,14 +340,13 @@ describe('RegistryActionInvoker', () => {
     const invoker = new RegistryActionInvoker([
       {
         name: 'grant_coupon',
-        codeHash: 'h1',
         handler: async (_args, ctx) => {
           seen.push(ctx.idempotencyKey);
           delivered.add(ctx.idempotencyKey);
         },
       },
     ]);
-    const invocation = { ...base, action: 'grant_coupon', codeHash: 'h1' };
+    const invocation = { ...base, action: 'grant_coupon' };
 
     await invoker.invoke(invocation);
     await invoker.invoke(invocation); // the replay
@@ -360,27 +358,6 @@ describe('RegistryActionInvoker', () => {
   test('an unregistered action fails the step', async () => {
     const invoker = new RegistryActionInvoker([]);
     await expect(invoker.invoke({ ...base, action: 'ghost' })).rejects.toThrow(/not registered/);
-  });
-
-  test('code skew warns by default and fails under strict', async () => {
-    const entry = { name: 'sync_crm', codeHash: 'deployed', handler: async () => {} };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await new RegistryActionInvoker([entry]).invoke({
-      ...base,
-      action: 'sync_crm',
-      codeHash: 'pinned',
-    });
-    expect(warn).toHaveBeenCalledOnce();
-    warn.mockRestore();
-
-    await expect(
-      new RegistryActionInvoker([entry], 'strict').invoke({
-        ...base,
-        action: 'sync_crm',
-        codeHash: 'pinned',
-      })
-    ).rejects.toThrow(/differs from the version pinned/);
   });
 });
 
@@ -652,32 +629,6 @@ describe('conversion apart from the ending', () => {
     expect(started).toEqual([
       expect.objectContaining({ instanceId: 'inst_1', at: ctx.enteredAtMs }),
     ]);
-  });
-});
-
-describe('checkpoints written before conversions were recorded apart', () => {
-  test('replay neither invents a conversion nor cuts a wait short', async () => {
-    const wf = workflow({
-      id: 'legacy_replay',
-      trigger: trigger.event(e.begin_checkout),
-      goal: { condition: performed(e.purchase), within: '3 days' },
-    })
-      .waitUntil(performed(e.login), { timeout: '1 day' })
-      .email(firstTimeRecovery);
-    const { ctx, step, sent } = makeContext();
-    // What the old code checkpointed: the guard's booleans, a wait check's `false`
-    const legacy: Record<string, unknown> = {
-      'entry:guard': { goalMet: false, exitMet: false },
-      '0:check:0': false,
-    };
-    step.do = async <T>(name: string, fn: () => Promise<T>): Promise<T> =>
-      name in legacy ? (legacy[name] as T) : fn();
-    step.wakeScript = ['timeout'];
-
-    const outcome = await runJourney(wf.toIR(), ctx);
-
-    expect(outcome).toEqual({ status: 'completed' });
-    expect(sent).toHaveLength(1);
   });
 });
 

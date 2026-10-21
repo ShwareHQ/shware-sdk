@@ -235,8 +235,6 @@ export interface EventSink {
 export interface ActionInvocation {
   /** Registry name; the code itself lives in the deployed bundle (dual-plane model, see dsl/action.ts). */
   action: string;
-  /** Code-identity pin from the IR the journey is running; adapters compare it against the registered implementation. */
-  codeHash?: string | undefined;
   /** Already resolved: user_property references have been replaced by actual values (same contract as message props). */
   args: Record<string, ScalarIR | undefined>;
   userId: string;

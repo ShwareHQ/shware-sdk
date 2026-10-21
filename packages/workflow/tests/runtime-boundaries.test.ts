@@ -2,13 +2,10 @@ import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import * as mini from 'zod/mini';
 import { defineContract } from '../src/contract';
-import { trigger, workflow } from '../src/dsl';
-import { type EngineStep, type FactSource, type JourneyContext, runJourney } from '../src/engine';
 import { handleTracking } from '../src/reporting/tracking';
 import type { JourneyReporting } from '../src/store';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { assertSupportedSchema } from '../src/templates';
-import { e, namedPush } from './fixtures';
 
 const MESSAGE_ID = '0190f000-0000-7000-8000-000000000000';
 
@@ -26,7 +23,7 @@ describe('SQL row boundaries', () => {
 
     expect(await reporting.recordOpen(MESSAGE_ID, open)).toBe(false);
     expect(await reporting.recordClick(MESSAGE_ID, 0, 1000, 100, click)).toBeUndefined();
-    expect(await reporting.recordUnsubscribe(MESSAGE_ID, 1000)).toBe(false);
+    expect(await reporting.recordUnsubscribe(MESSAGE_ID, 1000)).toBeUndefined();
     expect(open).not.toHaveBeenCalled();
     expect(click).not.toHaveBeenCalled();
   });
@@ -59,7 +56,7 @@ describe('SQL row boundaries', () => {
 });
 
 // `/t/u/<message>` alone is the List-Unsubscribe URL (a confirmation page), not an incomplete path
-test.each(['/', '/t', '/t/l', `/t/l/${MESSAGE_ID}`, `/t/c/${MESSAGE_ID}`])(
+test.each(['/', '/t', '/t/l', `/t/l/${MESSAGE_ID}`])(
   'an incomplete tracking path %s passes through without querying',
   async (path) => {
     const { query, reporting } = emptyReporting();
@@ -69,46 +66,6 @@ test.each(['/', '/t', '/t/l', `/t/l/${MESSAGE_ID}`, `/t/c/${MESSAGE_ID}`])(
     expect(query).not.toHaveBeenCalled();
   }
 );
-
-test('a pre-per-device push checkpoint skips delivery rather than sending the push again', async () => {
-  const checkpoints = new Map<string, unknown>([['0:send', undefined]]);
-  const step: EngineStep = {
-    async do<T>(name: string, run: () => Promise<T>): Promise<T> {
-      // A durable store decodes historical JSON before the current callback's type exists.
-      if (checkpoints.has(name)) return checkpoints.get(name) as T;
-      return run();
-    },
-    sleep: async () => {},
-    subscribe: async () => {},
-    unsubscribe: async () => {},
-    waitForWake: async () => 'timeout',
-  };
-  const listDevices = vi.fn<FactSource['listDevices']>(async () => [
-    { token: 'phone', platform: 'ios' },
-  ]);
-  const send = vi.fn<JourneyContext['messages']['send']>(async () => {});
-  const context: JourneyContext = {
-    userId: 'user-1',
-    instanceId: 'instance-1',
-    enteredAtMs: 0,
-    step,
-    facts: {
-      countEvents: async () => 0,
-      getProperty: async () => undefined,
-      getSegmentCondition: async () => undefined,
-      listDevices,
-    },
-    messages: { send },
-    events: { emit: async () => {} },
-  };
-  const ir = workflow({ id: 'legacy', trigger: trigger.event(e.login) })
-    .push(namedPush('hello'), { name: 'Ada' })
-    .toIR();
-
-  expect(await runJourney(ir, context)).toEqual({ status: 'completed' });
-  expect(listDevices).not.toHaveBeenCalled();
-  expect(send).not.toHaveBeenCalled();
-});
 
 describe('unknown schema declarations', () => {
   test.each([undefined, null, 42, 'not a schema', {}, { _zod: {} }])(

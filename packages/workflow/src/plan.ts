@@ -252,8 +252,8 @@ function diffTemplates(local: BundleIR['templates'], deployed: BundleIR['templat
 
 /**
  * Actions diff by name only: the manifest records identity, and the code
- * itself lives in the Worker bundle. (Before 4.0 a codeHash made this report
- * `changed`; it depended on the bundler, so it reported changes nobody made.)
+ * itself lives in the Worker bundle. A hash of the handler's printed source
+ * would depend on the bundler and report changes nobody made.
  */
 function diffActions(local: BundleIR['actions'], deployed: BundleIR['actions']) {
   const deployedNames = new Set(deployed.map((item) => item.name));

@@ -1,9 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { JourneyEnv } from '../src/cloudflare/bindings';
 import { isUnsubscribeLink } from '../src/email';
 import type { OutboundMessage } from '../src/engine/ports';
-import { forgetUser, sweepSegments } from '../src/host/router';
+import { forgetUser, sweepSegments } from '../src/host/ingest';
+import { InstanceNotFoundError, type JourneyEnv } from '../src/host/platform';
 import { classifyClick, classifyOpen } from '../src/reporting/classify';
 import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';
@@ -346,30 +346,92 @@ describe('tracking', () => {
 
   test('an email sent without an unsubscribe URL has none, whatever the config says now', async () => {
     const { id } = await sendEmail(['https://app.example.com/unsubscribe']);
-    const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
-    const click = await handleTracking(get(`/t/l/${id}/0`), reporting(), options);
-    expect(click).toBeDefined();
-    if (!click) throw new Error('The tracking URL must return a redirect');
-    expect(click.status).toBe(302);
-    expect(click.headers.get('location')).toBe('https://app.example.com/unsubscribe');
+    const click = await handleTracking(get(`/t/l/${id}/0`), reporting(), { product: 'Acme' });
+    expect(click?.status).toBe(302);
+    expect(click?.headers.get('location')).toBe('https://app.example.com/unsubscribe');
   });
 
-  test('an email sent before links carried their purpose: its unsubscribe link still asks', async () => {
-    // Recorded as the earlier versions did, the links behind `/t/c/<message>/<position>`
+  test('an unsubscribe yields the recipient from its own transaction, the same one every time', async () => {
     const { id } = await sendEmail([]);
-    await reporting().recordLinks(id, [
-      'https://app.example.com/a',
-      'https://app.example.com/unsubscribe?list=journeys',
-    ]);
-    const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
-    const link = await handleTracking(get(`/t/c/${id}/0`), reporting(), options);
-    expect(link?.headers.get('location')).toBe('https://app.example.com/a');
-    const confirm = await handleTracking(get(`/t/c/${id}/1`), reporting(), options);
-    expect(confirm?.status).toBe(200);
-    expect(await confirm?.text()).toContain(`action="/t/u/${id}"`);
-    // Without the URL those emails were sent with, it is a plain link
-    const plain = await handleTracking(get(`/t/c/${id}/1`), reporting());
-    expect(plain?.status).toBe(302);
+    expect(await reporting().recordUnsubscribe(id, 5_000)).toEqual({ userId: 'u1' });
+    // Repeated: the first time stands, the recipient is still named
+    expect(await reporting().recordUnsubscribe(id, 9_000)).toEqual({ userId: 'u1' });
+    const [row] = (
+      await pg.query(
+        'SELECT (extract(epoch from unsubscribed_at) * 1000)::int AS at FROM workflow.message'
+      )
+    ).rows;
+    expect(row).toEqual({ at: 5_000 });
+    expect(
+      await reporting().recordUnsubscribe('0190f000-0000-7000-8000-00000000dead', 5_000)
+    ).toBeUndefined();
+  });
+
+  test('the host hears the unsubscribe with its recipient; its failure never fails the page', async () => {
+    const { id } = await sendEmail([]);
+    const heard: { messageId: string; userId: string; at: number }[] = [];
+    const post = () => new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
+    // The recipient comes from the unsubscribe itself: no read of the copy on the side
+    const noReads = reporting();
+    vi.spyOn(noReads, 'recordOpen').mockRejectedValue(
+      new Error('recordOpen must not be called on the unsubscribe path')
+    );
+    const first = await handleTracking(post(), noReads, {
+      onUnsubscribed: async (unsubscribe) => void heard.push(unsubscribe),
+    });
+    expect(first?.status).toBe(200);
+    expect(heard).toEqual([{ messageId: id, userId: 'u1', at: expect.any(Number) }]);
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const second = await handleTracking(post(), noReads, {
+      onUnsubscribed: async () => {
+        throw new Error('wake failed');
+      },
+    });
+    expect(second?.status).toBe(200);
+    expect(error).toHaveBeenCalledOnce();
+    error.mockRestore();
+    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(true);
+
+    // An unknown copy: nothing to tell the host, the page still answers success
+    const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
+      method: 'POST',
+    });
+    expect((await handleTracking(gone, noReads, { onUnsubscribed: async () => {} }))?.status).toBe(
+      200
+    );
+    expect(heard).toHaveLength(1);
+  });
+
+  test('a suppression that fails to write rolls the unsubscribe back with it', async () => {
+    const { id } = await sendEmail([]);
+    // One transaction: the suppression insert fails, so the copy is not marked either
+    const failing: SqlClientLike = {
+      query: async (text, params) => {
+        if (text.includes('suppression')) throw new Error('suppression table unavailable');
+        return client(pg).query(text, params);
+      },
+      transaction: (fn) =>
+        pg.transaction((tx) =>
+          fn({
+            query: async <T>(text: string, params: readonly unknown[] = []) => {
+              if (text.includes('suppression')) throw new Error('suppression table unavailable');
+              return (await tx.query<T>(text, [...params])).rows;
+            },
+            transaction: async () => {
+              throw new Error('nested');
+            },
+          })
+        ),
+    };
+    const broken = new PostgresJourneyStore(failing).reporting;
+    const post = new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
+    await expect(handleTracking(post, broken)).rejects.toThrow('suppression table unavailable');
+    const [row] = (
+      await pg.query('SELECT unsubscribed_at IS NULL AS untouched FROM workflow.message')
+    ).rows;
+    expect(row).toEqual({ untouched: true });
+    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(false);
   });
 
   test('a scanner following every link at once: clicks judged one after another', async () => {
@@ -459,7 +521,7 @@ describe('forgetUser', () => {
           throw new Error('unused');
         },
         get: async (id: string) => {
-          if (behaviour === 'unknown') throw new Error('instance.not_found');
+          if (behaviour === 'unknown') throw new InstanceNotFoundError(id);
           return {
             id,
             sendEvent: async () => undefined,
@@ -492,9 +554,11 @@ describe('forgetUser', () => {
 
     expect(await forgetUser(env, 'u1', store)).toEqual({ ok: true, erased: true, pending: [] });
     expect(terminated).toEqual(['i9']);
-    for (const table of ['profile', 'device', 'entry', 'message', 'message_link', 'erasure']) {
+    for (const table of ['profile', 'device', 'entry', 'message', 'message_link']) {
       expect(await rowsOf(table)).toBe(0);
     }
+    // The tombstone stays, marked erased: a later write about u1 is refused for good
+    expect(await store.erasureState('u1')).toBe('erased');
   });
 
   test('an instance that will not stop keeps everything, and a retry finishes the job', async () => {

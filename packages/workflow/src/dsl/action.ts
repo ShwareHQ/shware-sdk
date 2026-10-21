@@ -7,11 +7,11 @@
  * solidifies into IR as `{ type: 'action', action: name, args }`. The runtime
  * resolves the name against a registry (see engine/actions.ts).
  *
- * The IR used to carry a hash of `handler.toString()` as a code-identity pin.
- * It is gone: the printed source depends on the bundler (minification, helper
- * injection, source maps), so every toolchain produced a different "version"
- * of unchanged code, and `plan` reported changes nobody made. Code identity is
- * the deployed bundle's, not the IR's.
+ * The IR carries no hash of `handler.toString()`: the printed source depends
+ * on the bundler (minification, helper injection, source maps), so every
+ * toolchain would produce a different "version" of unchanged code and `plan`
+ * would report changes nobody made. Code identity is the deployed bundle's,
+ * not the IR's.
  *
  * Deliberately NOT supported: custom *conditions*. Branching stays declarative
  * so the canvas can always explain why a user took a path — an action that

@@ -24,18 +24,12 @@
  *   the same test as a description, so rewording one must not repin in-flight
  *   journeys or report as a semantic change in plan.
  * - contentHash: the hash itself
- * - codeHash: the pre-4.0 pin of an action handler's printed source. It
- *   depended on the bundler — minification, helper injection — so every
- *   toolchain produced a different "version" of unchanged code, and a
- *   deploy from CI repinned every journey a laptop deploy had started. An
- *   old IR still carries it; stripping it here hashes that IR the same as a
- *   fresh compile of the same definition.
  *
  * Note that a cohort arm's `name` IS hashed: it becomes part of the node id
  * (`{id}.{armName}.{j}`), and node ids are durable step names — renaming an arm
  * changes execution identity.
  */
-const UNHASHED_KEYS = new Set(['meta', 'label', 'reason', 'contentHash', 'codeHash']);
+const UNHASHED_KEYS = new Set(['meta', 'label', 'reason', 'contentHash']);
 
 /**
  * Provenance only. `loc` is a source map, not content: it moves with the
@@ -51,12 +45,12 @@ const PROVENANCE_KEYS = new Set(['loc']);
  * send_event payloads and action args. Everything inside them is execution
  * data and is hashed whole.
  *
- * This is what keeps the exclusion above positional. Stripping by name at every
- * depth used to reach inside these maps, so a prop or payload field that
- * happened to be called `label` (or `meta`) vanished from the hash: two sends
- * carrying different values hashed identically, `plan` reported a real change
- * as metadata-only, and the deploy wrote different content under the same KV
- * key that in-flight journeys are pinned to.
+ * This is what keeps the exclusion above positional: stripping by name at every
+ * depth would reach inside these maps, and a prop or payload field that happens
+ * to be called `label` (or `meta`) would vanish from the hash — two sends
+ * carrying different values would hash identically, `plan` would report a real
+ * change as metadata-only, and the deploy would write different content under
+ * the same key that in-flight journeys are pinned to.
  *
  * These three are the only `z.record` fields in the IR (see ir.ts). A new one
  * has to be added here, or its contents become strippable by name again.

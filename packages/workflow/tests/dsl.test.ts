@@ -409,16 +409,6 @@ describe('bundle compilation', () => {
     expect(bundle.actions).toEqual([{ irVersion: 2, name: 'sync_crm' }]);
   });
 
-  test('a bundle compiled before 4.0 still parses: codeHash is optional on nodes and in the manifest', () => {
-    const sync = action('sync_crm', async () => {});
-    const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).run(sync);
-    const bundle = compileBundle({ workflows: [wf], actions: [sync] });
-    const old = structuredClone(bundle) as { actions: object[]; workflows: { flow: object[] }[] };
-    old.actions[0] = { ...old.actions[0], codeHash: 'abc' };
-    old.workflows[0].flow[0] = { ...old.workflows[0].flow[0], codeHash: 'abc' };
-    expect(() => BundleIR.parse(old)).not.toThrow();
-  });
-
   test('an action a workflow runs must be in the bundle, even inside a branch arm', () => {
     const sync = action('sync_crm', async () => {});
     const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).branch([

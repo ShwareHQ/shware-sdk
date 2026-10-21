@@ -1,4 +1,3 @@
-import { isUnsubscribeLink } from '../email';
 import type { JourneyReporting } from '../store';
 import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
 
@@ -12,7 +11,6 @@ import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
  *   GET  /t/u/<message>            the List-Unsubscribe header's URL, opened: asks to confirm
  *   POST /t/u/<message>            the unsubscribe confirmation, and the header's one-click
  *                                  unsubscribe (RFC 8058: a mail client's button posts here)
- *   GET /t/c/<message>/<position>  a link of an email sent before links carried their purpose
  *   POST /t/d/<message>            a push the device received (iOS's notification service
  *                                  extension, a browser's service worker)
  *   POST /t/p/<message>            a push opened, reported by a browser's service worker
@@ -24,18 +22,9 @@ import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
  * sent (its route): following it shows a confirmation page, and only the confirmation — a POST,
  * which no link scanner sends — counts. Changing a template's or the config's unsubscribe URL, or
  * removing the template, changes nothing for emails already sent.
- *
- * Emails sent before that carry `/t/c/` links, which say nothing of their purpose: one is the
- * unsubscribe link when its recorded URL is `legacyUnsubscribeUrl` (the global unsubscribe URL
- * those emails were all sent with), as it was then.
  */
 
 export interface TrackingOptions {
-  /**
-   * The unsubscribe URL emails sent with `/t/c/` links carried (the config's `email.unsubscribeUrl`
-   * by default): following such a link to it asks for confirmation instead of redirecting.
-   */
-  legacyUnsubscribeUrl?: string | undefined;
   /** The name the confirmation pages show (the config's `title`). */
   product?: string | undefined;
   /** `email.tracking.quickClickMs`: how soon after delivery an open or click is a weak machine signal. */
@@ -102,12 +91,10 @@ export async function handleTracking(
       headers: { 'content-type': 'image/gif', 'cache-control': 'no-store, max-age=0' },
     });
   }
-  if ((kind === 'l' || kind === 'u' || kind === 'c') && position !== undefined && read) {
+  if ((kind === 'l' || kind === 'u') && position !== undefined && read) {
     const target = await recordClick(reporting, id, Number(position), who, options);
     if (target === undefined) return page(options, 'This link has expired.', 404);
-    const unsubscribe =
-      kind === 'u' || (kind === 'c' && isUnsubscribeLink(target, options.legacyUnsubscribeUrl));
-    if (unsubscribe) return confirmUnsubscribe(options, id);
+    if (kind === 'u') return confirmUnsubscribe(options, id);
     return Response.redirect(target, 302);
   }
   // The List-Unsubscribe URL opened in a browser (a client without one-click): the same question
@@ -136,18 +123,15 @@ export async function handleTracking(
   }
   if (kind === 'u' && who.method === 'POST') {
     const at = Date.now();
-    const known = await reporting.recordUnsubscribe(id, at);
+    const unsubscribed = await reporting.recordUnsubscribe(id, at);
     // A mail client's one-click POST must succeed: for a copy no longer on record (its user
     // erased) there is nothing left to send to, so the answer is the same
-    if (!known) return page(options, "You won't get these emails anymore.");
+    if (unsubscribed === undefined) return page(options, "You won't get these emails anymore.");
     if (options.onUnsubscribed !== undefined) {
-      const userId = await messageOwner(reporting, id);
-      if (userId !== undefined) {
-        try {
-          await options.onUnsubscribed({ messageId: id, userId, at });
-        } catch (error) {
-          console.error(`[workflow] acting on the unsubscribe of ${id} failed`, error);
-        }
+      try {
+        await options.onUnsubscribed({ messageId: id, userId: unsubscribed.userId, at });
+      } catch (error) {
+        console.error(`[workflow] acting on the unsubscribe of ${id} failed`, error);
       }
     }
     return page(
@@ -158,19 +142,6 @@ export async function handleTracking(
     );
   }
   return undefined;
-}
-
-/**
- * Whose copy a message is. Reporting keeps no lookup of its own: `recordOpen` hands the copy to
- * its judge and records nothing when the judge declines, which reads the owner without writing.
- */
-async function messageOwner(reporting: JourneyReporting, id: string): Promise<string | undefined> {
-  let userId: string | undefined;
-  await reporting.recordOpen(id, (message) => {
-    userId = message.userId;
-    return undefined;
-  });
-  return userId;
 }
 
 /** The question an unsubscribe link, or the List-Unsubscribe URL opened in a browser, asks. */
