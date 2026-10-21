@@ -213,14 +213,6 @@ export class D1JourneyStore implements JourneyStore {
     return row.erased_at === null ? 'erasing' : 'erased';
   }
 
-  async erasedSince(since: number): Promise<string[]> {
-    const { results } = await this.db
-      .prepare('SELECT user_id FROM erasures WHERE erased_at >= ? ORDER BY erased_at')
-      .bind(since)
-      .all<{ user_id: string }>();
-    return results.map((row) => row.user_id);
-  }
-
   async runningInstances(userId: string): Promise<RunningInstance[]> {
     const { results } = await this.db
       .prepare(
@@ -232,10 +224,13 @@ export class D1JourneyStore implements JourneyStore {
   }
 
   async admitInstance(instanceId: string, userId: string): Promise<boolean> {
-    // One statement: the first admission's time is kept on replay, the tombstone refuses it
+    // One statement. A first admission needs a running entry; an instance once admitted may
+    // replay its finalisation after the entry reached a terminal status, under its own instance
+    // id (a reclaim resets admitted_at, so a superseded attempt cannot). The first admission's
+    // time is kept, the status never touched, and the tombstone refuses both
     const row = await this.db
       .prepare(
-        "UPDATE entries SET admitted_at = COALESCE(admitted_at, ?) WHERE instance_id = ? AND user_id = ? AND status = 'running' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?) RETURNING instance_id"
+        "UPDATE entries SET admitted_at = COALESCE(admitted_at, ?) WHERE instance_id = ? AND user_id = ? AND (status = 'running' OR admitted_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?) RETURNING instance_id"
       )
       .bind(Date.now(), instanceId, userId, userId)
       .first<{ instance_id: string }>();
@@ -460,10 +455,12 @@ export class D1JourneyStore implements JourneyStore {
     // A row already there blocks the entry, unless it records an instance that
     // died: 'failed' is reclaimed rather than barring the user forever over one
     // outage. The status test lives inside the UPDATE, so of two concurrent
-    // retries exactly one sees a change.
+    // retries exactly one sees a change. The reclaim is a new attempt: it starts
+    // unadmitted, even under the same instance id, so the previous attempt's
+    // admission is not inherited.
     const claimed = await this.db
       .prepare(
-        "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)"
+        "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ?, admitted_at = NULL WHERE workflow = ? AND user_id = ? AND status = 'failed' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)"
       )
       .bind(entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId, entry.userId)
       .run();

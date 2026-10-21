@@ -448,13 +448,6 @@ export class FakeD1 implements D1DatabaseLike {
         const row = this.erasures.get(p[0] as string);
         return { rows: row === undefined ? [] : [{ erased_at: row.erased_at }], changes: 0 };
       }
-      case 'SELECT user_id FROM erasures WHERE erased_at >= ? ORDER BY erased_at': {
-        const rows = [...this.erasures]
-          .filter(([, row]) => row.erased_at !== null && row.erased_at >= (p[0] as number))
-          .sort(([, a], [, b]) => (a.erased_at as number) - (b.erased_at as number))
-          .map(([user_id]) => ({ user_id }));
-        return { rows, changes: 0 };
-      }
       case 'UPDATE erasures SET erased_at = COALESCE(erased_at, ?) WHERE user_id = ?': {
         const row = this.erasures.get(p[1] as string);
         if (row === undefined) return { rows: [], changes: 0 };
@@ -476,7 +469,7 @@ export class FakeD1 implements D1DatabaseLike {
         });
         return { rows: [], changes: 1 };
       }
-      case "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ? WHERE workflow = ? AND user_id = ? AND status = 'failed' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)": {
+      case "UPDATE entries SET instance_id = ?, hash = ?, status = 'running', ts = ?, admitted_at = NULL WHERE workflow = ? AND user_id = ? AND status = 'failed' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)": {
         if (this.erased(p[5])) return { rows: [], changes: 0 };
         const target = this.entries.find(
           (e) => e.workflow === p[3] && e.user_id === p[4] && e.status === 'failed'
@@ -486,6 +479,7 @@ export class FakeD1 implements D1DatabaseLike {
         target.hash = p[1] as string;
         target.status = 'running';
         target.ts = p[2] as number;
+        target.admitted_at = null;
         return { rows: [], changes: 1 };
       }
       case 'DELETE FROM entries WHERE instance_id = ?': {
@@ -513,10 +507,13 @@ export class FakeD1 implements D1DatabaseLike {
           }));
         return { rows, changes: 0 };
       }
-      case "UPDATE entries SET admitted_at = COALESCE(admitted_at, ?) WHERE instance_id = ? AND user_id = ? AND status = 'running' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?) RETURNING instance_id": {
+      case "UPDATE entries SET admitted_at = COALESCE(admitted_at, ?) WHERE instance_id = ? AND user_id = ? AND (status = 'running' OR admitted_at IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?) RETURNING instance_id": {
         if (this.erased(p[3])) return { rows: [], changes: 0 };
         const entry = this.entries.find(
-          (e) => e.instance_id === p[1] && e.user_id === p[2] && e.status === 'running'
+          (e) =>
+            e.instance_id === p[1] &&
+            e.user_id === p[2] &&
+            (e.status === 'running' || (e.admitted_at !== null && e.admitted_at !== undefined))
         );
         if (entry === undefined) return { rows: [], changes: 0 };
         entry.admitted_at ??= p[0] as number;

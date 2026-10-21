@@ -317,13 +317,6 @@ export interface JourneyStore {
    * answer, and the store's conditional writes are the gate itself.
    */
   erasureState(userId: string): Promise<ErasureState>;
-  /**
-   * Users whose erasure was carried out at or after `since`, for the sweep's second pass: a
-   * write whose transaction straddled the tombstone's commit (a single statement, or a journey
-   * entry committing late) can land after the first erase; running `forgetUser` once more, a
-   * little later, takes it too. Idempotent on the tombstone (`erased_at` keeps its first value).
-   */
-  erasedSince(since: number): Promise<string[]>;
   /** The user's journey instances still running, by the entry ledger. */
   runningInstances(userId: string): Promise<RunningInstance[]>;
   /**
@@ -332,7 +325,15 @@ export interface JourneyStore {
    * nothing is recorded and the runner must not run. Mutually exclusive with `requestErasure`
    * and `forgetUser` for that user (Postgres: the user's advisory lock), so an erasure either
    * finds the instance admitted and stops it, or commits its tombstone first and the admission
-   * is refused — never neither. False also for an entry no longer in the ledger.
+   * is refused — never neither.
+   *
+   * A first admission needs the entry running. An instance already admitted is admitted again
+   * whatever the entry's status — the legitimate replay of an instance whose finalisation was
+   * cut short after the entry reached its terminal status, which resumes on its own checkpoint
+   * and finishes what is left. Never a new attempt's way in: false for a terminal entry never
+   * admitted, for an entry no longer in the ledger, for another user's entry, and for an
+   * instance whose entry was reclaimed since (`enterJourney` resets the admission with the
+   * instance id, so a superseded attempt cannot pass under the id it lost).
    */
   admitInstance(instanceId: string, userId: string): Promise<boolean>;
   /**
@@ -341,7 +342,9 @@ export interface JourneyStore {
    * stays: a write that was in flight when the data went cannot bring the user back, and the
    * same id is never reactivated by ingest. Suppressions stay too: an opt-out is a compliance
    * record keyed by an opaque id, and it outlives the erasure. Run only once no instance of
-   * theirs runs any more, or one could write some of it back. Idempotent.
+   * theirs runs any more, or one could write some of it back. Idempotent. Mutually exclusive
+   * with every write about the user (Postgres: the user's advisory lock; D1: one writer), so
+   * the data is gone when this returns — nothing of theirs lands afterwards.
    */
   forgetUser(userId: string, at: number): Promise<void>;
 

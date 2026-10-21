@@ -491,24 +491,21 @@ describe('erasure', () => {
     }
   );
 
-  test('a straggler that landed after the erase is taken by a second forgetUser, the first time kept', async () => {
+  test('forgetUser twice is idempotent: the data is gone at once, the first time kept', async () => {
     const { store } = setup();
     await store.mergeProfile('u1', { plan: 'pro' });
+    await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
+    await store.reporting.instanceStarted({ workflow: 'w', instanceId: 'i1', userId: 'u1', at: 1 });
     await store.requestErasure('u1', 5);
     await store.forgetUser('u1', 7);
-    expect(await store.getProfile('u1')).toBeUndefined();
-    // A single-statement write whose snapshot predated the tombstone commits after the erase
-    await pg.query(
-      `INSERT INTO workflow.event (id, event_id, user_id, name, ts, payload)
-       VALUES ($1, 'e', 'u1', 'x', now(), '{}')`,
-      [uuidv7()]
-    );
-    await pg.query("INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{}')");
-    expect(await store.listUserIds()).toEqual(['u1']);
+    // Every write ran under the user's lock, so nothing of theirs can land after this
+    expect(await store.listUserIds()).toEqual([]);
+    expect(await store.countEvents('u1', 'x')).toBe(0);
+    expect((await pg.query('SELECT 1 FROM workflow.instance')).rows).toEqual([]);
+    expect(await store.erasureState('u1')).toBe('erased');
 
     await store.forgetUser('u1', 9);
     expect(await store.listUserIds()).toEqual([]);
-    expect(await store.countEvents('u1', 'x')).toBe(0);
     expect(await store.erasureState('u1')).toBe('erased');
     const [row] = (
       await pg.query<{ at: string }>(
@@ -516,23 +513,6 @@ describe('erasure', () => {
       )
     ).rows;
     expect(row.at).toBe('7');
-  });
-
-  test('erasedSince lists the users erased at or after the instant, for the second pass', async () => {
-    const { store } = setup();
-    for (const [user, at] of [
-      ['u1', 100],
-      ['u2', 200],
-      ['u3', 300],
-    ] as const) {
-      await store.requestErasure(user, at - 1);
-      await store.forgetUser(user, at);
-    }
-    // Requested, not erased yet: not in the window
-    await store.requestErasure('u4', 400);
-    expect(await store.erasedSince(200)).toEqual(['u2', 'u3']);
-    expect(await store.erasedSince(301)).toEqual([]);
-    expect(await store.erasedSince(0)).toEqual(['u1', 'u2', 'u3']);
   });
 
   test('a duplicate event and a taken entry stay plain no-ops without a tombstone', async () => {
@@ -592,10 +572,56 @@ describe('admitInstance', () => {
     await store.enterJourney({ workflow: 'w', userId: 'u2', instanceId: 'i2', hash: 'h', ts: 1 });
     expect(await store.admitInstance('i2', 'u3')).toBe(false);
     expect(await store.admitInstance('i2', 'u2')).toBe(true);
-    // Nor one no longer running
-    await store.setEntryStatus('i2', 'completed');
-    expect(await store.admitInstance('i2', 'u2')).toBe(false);
+    // Nor a terminal entry never admitted
+    await store.enterJourney({ workflow: 'w', userId: 'u4', instanceId: 'i4', hash: 'h', ts: 1 });
+    await store.setEntryStatus('i4', 'completed');
+    expect(await store.admitInstance('i4', 'u4')).toBe(false);
+    expect(await admittedAt('i4')).toBeNull();
   });
+
+  test.each(['completed', 'failed'] as const)(
+    'an admitted instance replays its finalisation after the entry is %s; the status is kept',
+    async (status) => {
+      const { store } = setup();
+      await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+      expect(await store.admitInstance('i1', 'u1')).toBe(true);
+      const first = await admittedAt('i1');
+      await store.setEntryStatus('i1', status);
+      // The runner rebuilt after the status update: its admission is the same instance's replay
+      expect(await store.admitInstance('i1', 'u1')).toBe(true);
+      expect(await admittedAt('i1')).toBe(first);
+      const rows = await pg.query<{ status: string }>('SELECT status FROM workflow.entry');
+      expect(rows.rows).toEqual([{ status }]);
+      // The replay is refused once the user has a tombstone, like a first admission
+      await store.requestErasure('u1', 2);
+      expect(await store.admitInstance('i1', 'u1')).toBe(false);
+    }
+  );
+
+  test.each([
+    ['another', 'i2'],
+    ['the same', 'i1'],
+  ])(
+    'a reclaim by %s instance id resets the admission: the new attempt admits itself',
+    async (_, next) => {
+      const { store } = setup();
+      const entry = { workflow: 'w', userId: 'u1', hash: 'h' };
+      await store.enterJourney({ ...entry, instanceId: 'i1', ts: 1 });
+      expect(await store.admitInstance('i1', 'u1')).toBe(true);
+      await store.setEntryStatus('i1', 'failed');
+
+      expect(await store.enterJourney({ ...entry, instanceId: next, ts: 2 })).toBe('reclaimed');
+      // Nothing of the new attempt has run: the erasure must not wait for a runner that does not exist
+      expect(await store.runningInstances('u1')).toEqual([{ instanceId: next, admitted: false }]);
+      expect(await admittedAt(next)).toBeNull();
+      // The superseded attempt's id lost its admission with the entry (a same-id reclaim re-admits it below)
+      expect(await store.admitInstance('i1', 'u1')).toBe(next === 'i1');
+
+      expect(await store.admitInstance(next, 'u1')).toBe(true);
+      expect(await store.runningInstances('u1')).toEqual([{ instanceId: next, admitted: true }]);
+      expect(await admittedAt(next)).toEqual(expect.any(String));
+    }
+  );
 });
 
 describe('uuidv7', () => {

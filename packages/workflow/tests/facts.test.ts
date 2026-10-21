@@ -262,23 +262,55 @@ describe('D1JourneyStore on FakeD1', () => {
     expect(await store.runningInstances('u3')).toEqual([{ instanceId: 'i3', admitted: false }]);
   });
 
-  test('erasedSince lists the users erased at or after the instant', async () => {
-    const store = new D1JourneyStore(new FakeD1());
-    for (const [user, at] of [
-      ['u1', 100],
-      ['u2', 200],
-      ['u3', 300],
-    ] as const) {
-      await store.requestErasure(user, at - 1);
-      await store.forgetUser(user, at);
+  test.each(['completed', 'failed'] as const)(
+    'an admitted instance replays its finalisation after the entry is %s; the status is kept',
+    async (status) => {
+      const db = new FakeD1();
+      const store = new D1JourneyStore(db);
+      await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+      expect(await store.admitInstance('i1', 'u1')).toBe(true);
+      const first = db.entries[0].admitted_at;
+      await store.setEntryStatus('i1', status);
+      // The runner rebuilt after the status update: its admission is the same instance's replay
+      expect(await store.admitInstance('i1', 'u1')).toBe(true);
+      expect(db.entries).toMatchObject([{ instance_id: 'i1', status, admitted_at: first }]);
+      // A terminal entry never admitted stays refused
+      await store.enterJourney({ workflow: 'w', userId: 'u2', instanceId: 'i2', hash: 'h', ts: 1 });
+      await store.setEntryStatus('i2', status);
+      expect(await store.admitInstance('i2', 'u2')).toBe(false);
+      // The replay is refused once the user has a tombstone, like a first admission
+      await store.requestErasure('u1', 2);
+      expect(await store.admitInstance('i1', 'u1')).toBe(false);
     }
-    await store.requestErasure('u4', 400);
-    expect(await store.erasedSince(200)).toEqual(['u2', 'u3']);
-    expect(await store.erasedSince(301)).toEqual([]);
-    // A repeat keeps the first time, so the window does not move
-    await store.forgetUser('u1', 500);
-    expect(await store.erasedSince(400)).toEqual([]);
-  });
+  );
+
+  test.each([
+    ['another', 'i2'],
+    ['the same', 'i1'],
+  ])(
+    'a reclaim by %s instance id resets the admission: the new attempt admits itself',
+    async (_, next) => {
+      const db = new FakeD1();
+      const store = new D1JourneyStore(db);
+      const entry = { workflow: 'w', userId: 'u1', hash: 'h' };
+      await store.enterJourney({ ...entry, instanceId: 'i1', ts: 1 });
+      expect(await store.admitInstance('i1', 'u1')).toBe(true);
+      await store.setEntryStatus('i1', 'failed');
+
+      expect(await store.enterJourney({ ...entry, instanceId: next, ts: 2 })).toBe('reclaimed');
+      // Nothing of the new attempt has run: the erasure must not wait for a runner that does not exist
+      expect(await store.runningInstances('u1')).toEqual([{ instanceId: next, admitted: false }]);
+      expect(db.entries).toMatchObject([
+        { instance_id: next, status: 'running', admitted_at: null },
+      ]);
+      // The superseded attempt's id lost its admission with the entry (a same-id reclaim re-admits it below)
+      expect(await store.admitInstance('i1', 'u1')).toBe(next === 'i1');
+
+      expect(await store.admitInstance(next, 'u1')).toBe(true);
+      expect(await store.runningInstances('u1')).toEqual([{ instanceId: next, admitted: true }]);
+      expect(db.entries[0].admitted_at).toEqual(expect.any(Number));
+    }
+  );
 
   test('a failed entry of a user being erased cannot be reclaimed', async () => {
     const db = new FakeD1();

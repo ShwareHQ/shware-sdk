@@ -7,7 +7,7 @@ import { InstanceNotFoundError, type JourneyEnv } from '../src/host/platform';
 import { classifyClick, classifyOpen } from '../src/reporting/classify';
 import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';
-import { UserErasedError } from '../src/store/index';
+import { type Engagement, UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
 
@@ -652,6 +652,47 @@ describe('reporting after a tombstone', () => {
 
     await store.forgetUser('u1', 6);
     await expect(store.reporting.recordMessage(copy)).rejects.toBeInstanceOf(UserErasedError);
+    expect((await pg.query('SELECT 1 FROM workflow.message')).rows).toEqual([]);
+  });
+
+  test('the paths that know only the copy re-check its owner: a tombstone makes them no-ops', async () => {
+    const store = new PostgresJourneyStore(client(pg));
+    const { id } = await sendEmail(['https://example.com/a']);
+    const person = (at: number): Engagement => ({
+      at,
+      machine: false,
+      reason: null,
+      userAgent: null,
+      asn: null,
+      organization: null,
+      country: null,
+    });
+    const links = async () =>
+      (await pg.query('SELECT position FROM workflow.message_link')).rows.length;
+    await store.requestErasure('u1', 5);
+
+    // The copy is still there while the erasure is under way; nothing more is recorded under it
+    await store.reporting.recordLinks(id, ['https://example.com/b']);
+    expect(await links()).toBe(1);
+    expect(await store.reporting.recordOpen(id, () => person(6))).toBe(false);
+    expect(await store.reporting.recordDeviceDelivered(id, 6)).toBe(false);
+    expect(
+      await store.reporting.recordClick(id, 0, 6, 1_000, () => ({
+        engagement: person(6),
+        backdate: false,
+      }))
+    ).toBeUndefined();
+    expect((await pg.query('SELECT 1 FROM workflow.message_open')).rows).toEqual([]);
+    expect((await pg.query('SELECT 1 FROM workflow.message_click')).rows).toEqual([]);
+    // The unsubscribe is the compliance exception: recorded whatever the user's state
+    expect(await store.reporting.recordUnsubscribe(id, 6)).toEqual({ userId: 'u1' });
+    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+
+    await store.forgetUser('u1', 7);
+    await store.reporting.recordLinks(id, ['https://example.com/c']);
+    expect(await links()).toBe(0);
+    expect(await store.reporting.recordOpen(id, () => person(8))).toBe(false);
+    expect(await store.reporting.recordUnsubscribe(id, 8)).toBeUndefined();
     expect((await pg.query('SELECT 1 FROM workflow.message')).rows).toEqual([]);
   });
 });

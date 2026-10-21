@@ -49,16 +49,29 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 ## Integration tests (real Postgres)
 
 `tests/integration/postgres-locks.test.ts` proves what PGlite cannot: that two transactions on
-separate connections order themselves under the store's per-user advisory lock (an entry
-committing late is found by the erasure; an erasure committed first refuses the entry and the
-runner's admission; a rollback releases the lock; one user's lock holds no other user). It needs
-a real server, named by `WORKFLOW_TEST_DATABASE_URL`; a plain `postgres:16` with default
-settings is enough, and the run creates and drops a schema of its own:
+separate connections order themselves under the store's per-user advisory lock
+(`src/store/user-lock.ts`). The control points: an entry committing late is found by the
+erasure; an erasure committed first refuses the entry and the runner's admission; a rollback
+releases the lock; one user's lock holds no other user. The plain writes, parameterised over
+`insertEvent`, `mergeProfile`, `upsertDevice`, `addSegmentMember`, `subscribe`,
+`reporting.instanceStarted` and `reporting.recordMessage`: written first, the erasure waits
+and then takes the rows, with no second pass; erased first, the write waits for the lock,
+reads the tombstone on a fresh snapshot and writes nothing (connection A defaults to
+REPEATABLE READ, so these cases fail if the store stops pinning its transactions to READ
+COMMITTED). The copy's child rows (links, opens, clicks) take the user lock before the copy's
+row, so an erasure racing them leaves no orphan and no revived copy; after `forgetUser` every
+table is empty at once and a repeat is idempotent. It needs a real server, named by
+`WORKFLOW_TEST_DATABASE_URL`; a plain `postgres:17` with default settings is enough, and the
+run creates and drops a schema of its own:
 
 ```sh
-docker run --rm -d --name workflow-pg -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:16
+docker run --rm -d --name workflow-pg -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:17
 WORKFLOW_TEST_DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres pnpm exec vitest run tests/integration
 ```
+
+Every interleaving is driven by barriers the test releases, never by sleeps. Each connection has
+one socket: while a transaction on it waits for the lock, nothing else may be sent to that
+connection's store until the gate holding the lock is released.
 
 Without the variable the file still runs under `pnpm test`, skips its suite and warns
 (`[integration] WORKFLOW_TEST_DATABASE_URL unset`) — never silently.
