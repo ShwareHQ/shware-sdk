@@ -268,7 +268,6 @@ class DurableStep implements EngineStep {
   async sleep(): Promise<void> {
     this.onSleep();
   }
-  async sleepUntil(): Promise<void> {}
   async subscribe(): Promise<void> {}
   async unsubscribe(): Promise<void> {}
   async waitForWake(): Promise<'event' | 'timeout'> {

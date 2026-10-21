@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { scaleDurations, scaleSegmentWindows } from '../src/engine/time-scale';
 import { event, not, performed, trigger, workflow } from '../src/index';
+import type { ConditionIR } from '../src/ir';
 import { plainEmail } from './fixtures';
 
 interface Event {
@@ -41,6 +42,24 @@ describe('scaleDurations', () => {
     expect(scaled.id).toBe(ir.id);
   });
 
+  test('a message prop or an emitted payload shaped like a duration is not a duration', () => {
+    const ir = flow.toIR();
+    const lookalike = { value: '2 days', ms: 2 * DAY };
+    const first = ir.flow[0];
+    if (first.type !== 'message') throw new Error('fixture: first node is the email');
+    const decoy: typeof ir = {
+      ...ir,
+      flow: [
+        { ...first, props: { ...first.props, window: lookalike as never } },
+        ...ir.flow.slice(1),
+      ],
+    };
+    const scaled = scaleDurations(decoy, 3600);
+    const node = scaled.flow[0];
+    if (node.type !== 'message') throw new Error('scaled: first node is the email');
+    expect(node.props.window).toEqual(lookalike);
+  });
+
   test('a factor of 1 (or an invalid one) returns the IR as is', () => {
     const ir = flow.toIR();
     expect(scaleDurations(ir, 1)).toBe(ir);
@@ -50,7 +69,7 @@ describe('scaleDurations', () => {
 });
 
 describe('scaleSegmentWindows', () => {
-  const condition = {
+  const condition: ConditionIR = {
     type: 'performed',
     event: 'login',
     within: { value: '7 days', ms: 604_800_000 },

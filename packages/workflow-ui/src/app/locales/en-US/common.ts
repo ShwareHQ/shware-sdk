@@ -58,6 +58,8 @@ export default {
     noSourceHint:
       'Add a stats.metrics function to workflow.config.ts to chart the funnel over time.',
     noData: 'No data for this workflow in this range.',
+    loading: 'Loading…',
+    error: 'Could not load metrics: {{message}}',
     sent: 'Sent',
     delivered: 'Delivered',
     opened: 'Opened',

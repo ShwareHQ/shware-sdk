@@ -57,6 +57,8 @@ export default {
     noSource: '未配置数据源',
     noSourceHint: '在 workflow.config.ts 里加上 stats.metrics 即可展示随时间变化的漏斗数据。',
     noData: '该区间内没有数据。',
+    loading: '加载中…',
+    error: '数据加载失败：{{message}}',
     sent: '已发送',
     delivered: '已送达',
     opened: '已打开',

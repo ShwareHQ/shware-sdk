@@ -1,10 +1,10 @@
+import { murmur3 } from '../engine/bucket';
 import {
   InstanceNotFoundError,
   type JourneyParams,
   type WorkflowBindingLike,
   type WorkflowInstanceLike,
-} from '../cloudflare/bindings';
-import { murmur3 } from '../engine/bucket';
+} from '../host/platform';
 import type {
   ExecutionRecord,
   ExecutionRegistry,
@@ -220,6 +220,20 @@ export class AwsInstances implements WorkflowBindingLike {
     return record.stoppedAt !== undefined && this.now() - record.stoppedAt < this.stopDrainMs;
   }
 
+  /**
+   * The one judgment every path makes of an execution the platform reports stopped — by
+   * `terminate`, by an operator, or seen by `reconcile` before the stop was recorded: the first
+   * sighting is recorded (`markStopped` keeps an earlier time, so no poll ever extends the
+   * drain), and the record is read again so the verdict rests on what is committed now, not on
+   * the snapshot a caller read before its API calls. A write or read that fails throws: an
+   * unknown stop time is never taken for "safely stopped". Undefined means the record is gone —
+   * the erasure finished with it meanwhile.
+   */
+  private async observeStop(instanceId: string): Promise<ExecutionRecord | undefined> {
+    await this.options.executions.markStopped(instanceId, this.now());
+    return this.options.executions.get(instanceId);
+  }
+
   private async reconcile(record: ExecutionRecord, now: number): Promise<void> {
     const arn = await this.arnOf(record);
     const state = arn === undefined ? undefined : await this.options.lambda.executionState(arn);
@@ -231,6 +245,20 @@ export class AwsInstances implements WorkflowBindingLike {
       state === 'timed_out' ||
       (state === undefined && this.vanished(record));
     if (ended) {
+      // The verdict is taken on the record as it is now: `toReconcile` handed over a snapshot,
+      // and a stop may have been recorded since — by `terminate`, or here, at its first sighting
+      const fresh =
+        state === 'stopped'
+          ? await this.observeStop(record.instanceId)
+          : await this.options.executions.get(record.instanceId);
+      if (fresh === undefined) return;
+      if (this.draining(fresh)) {
+        // Stopped, but an invocation running at the stop may still be acting: the entry stays
+        // running until the drain has passed, so an erasure keeps waiting for it (`status`
+        // says running too), and the next look finalizes it
+        await this.options.executions.markChecked(record.instanceId, now);
+        return;
+      }
       // Ended without its finalize step: the ledger must not show it running forever
       const { store } = this.options;
       await store.setEntryStatus(record.instanceId, 'failed');
@@ -287,11 +315,17 @@ export class AwsInstances implements WorkflowBindingLike {
         // One that finished on its own has no invocation left to drain
         const state = await lambda.executionState(arn);
         if (state === 'succeeded' || state === 'failed' || state === 'timed_out') return;
-        if (!(await lambda.stopExecution(arn))) throw new Error(`stopping ${id} failed`);
         // A stop does not interrupt an invocation already running: it goes on to its next
-        // checkpoint, side effects included. The erasure waits (see stopDrainMs)
-        await executions.markStopped(id, this.now());
-        throw new Error(`${id} is stopped; its running invocation may still be finishing`);
+        // checkpoint, side effects included. The erasure waits (see stopDrainMs). One already
+        // stopped (by an operator, or a stop whose record did not land) is not stopped again:
+        // its first sighting is recorded and the same drain judged
+        if (state !== 'stopped' && !(await lambda.stopExecution(arn))) {
+          throw new Error(`stopping ${id} failed`);
+        }
+        const fresh = await this.observeStop(id);
+        if (fresh !== undefined && this.draining(fresh)) {
+          throw new Error(`${id} is stopped; its running invocation may still be finishing`);
+        }
       },
       status: async () => {
         const record = await current();
@@ -304,6 +338,11 @@ export class AwsInstances implements WorkflowBindingLike {
         if (state === 'succeeded') return { status: 'complete' };
         if (state === 'failed') return { status: 'errored' };
         if (state === 'running') return { status: 'running' };
+        if (state === 'stopped') {
+          // Stopped, seen here first or recorded since this read: the drain is the judgment
+          const fresh = await this.observeStop(id);
+          if (fresh !== undefined && this.draining(fresh)) return { status: 'running' };
+        }
         return { status: 'terminated' };
       },
     };

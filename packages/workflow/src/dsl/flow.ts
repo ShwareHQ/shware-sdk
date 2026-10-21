@@ -12,7 +12,7 @@ import {
 } from '../templates';
 import type { ActionRef } from './action';
 import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
-import { type Condition, condIR } from './condition';
+import { type Condition, condIR, positiveDurationIR } from './condition';
 import type { EventRef, MessageArgs, PropInput, PropsInput } from './refs';
 import type { PropsOf, TemplateRef } from './template';
 
@@ -112,6 +112,7 @@ export interface Flow {
 interface FlowInternal extends Flow {
   readonly nodes: NodeIR[];
   readonly uses: readonly TemplateUse[];
+  readonly actions: readonly ActionRef[];
 }
 
 /**
@@ -127,6 +128,15 @@ export interface TemplateUse {
 /** @internal The template definitions a workflow sends, sub-flows and fragments included. */
 export function templateUses(builder: FlowBuilder): readonly TemplateUse[] {
   return builder instanceof FlowBuilderImpl ? builder.uses : [];
+}
+
+/**
+ * @internal The action definitions a workflow runs, sub-flows and fragments included. The IR
+ * names an action only; compileBundle checks that each ref is the very object listed in
+ * `actions`, which is what keeps two definitions from sharing one name. Never part of the IR.
+ */
+export function actionUses(builder: FlowBuilder): readonly ActionRef[] {
+  return builder instanceof FlowBuilderImpl ? builder.actions : [];
 }
 
 /** Sub-flow: a named fragment, or an inline callback (runs once at construction — builder in, builder out). */
@@ -154,8 +164,8 @@ export type BranchArm = BranchCase | SubFlow;
  */
 const ARM_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
-/** A sub-flow's nodes; the template definitions it sends are added to `uses`. */
-function resolveSubFlow(sub: SubFlow, uses: TemplateUse[]): NodeIR[] {
+/** A sub-flow's nodes; the template definitions it sends and the actions it runs are added to `uses` / `actions`. */
+function resolveSubFlow(sub: SubFlow, uses: TemplateUse[], actions: ActionRef[]): NodeIR[] {
   if (typeof sub === 'function') {
     const builder = new FlowBuilderImpl();
     const returned: unknown = sub(builder);
@@ -166,9 +176,11 @@ function resolveSubFlow(sub: SubFlow, uses: TemplateUse[]): NodeIR[] {
       );
     }
     uses.push(...builder.uses);
+    actions.push(...builder.actions);
     return builder.nodes;
   }
   uses.push(...(sub as FlowInternal).uses);
+  actions.push(...(sub as FlowInternal).actions);
   /*
    * A named fragment is a value, and the convention is to reuse it — two branch
    * arms may hold the same one. Handing out its own nodes aliases them into
@@ -333,7 +345,7 @@ export interface FlowBuilder {
 
   /**
    * Run a custom action (see dsl/action.ts for the model). The chain records
-   * identity only — name, args, codeHash — never the code: the implementation
+   * identity only — name and args — never the code: the implementation
    * ships inside the deployed Worker bundle and is resolved by name from the
    * runtime registry. Args are typed by the ActionRef and may reference u.xxx,
    * resolved at run time exactly like message props. Executed inside a durable
@@ -383,6 +395,8 @@ export class FlowBuilderImpl implements FlowBuilder {
   readonly nodes: NodeIR[] = [];
   /** The template definitions sent, with where: compile-time only, never in the IR. */
   readonly uses: TemplateUse[] = [];
+  /** The action definitions run: compile-time identity only, never in the IR. */
+  readonly actions: ActionRef[] = [];
 
   /** Provenance: the callsite (captured in the public method) lands in meta.loc, outside the hash. */
   private pushNode(node: NodeIR, loc: SourceLocIR | undefined): this {
@@ -491,6 +505,17 @@ export class FlowBuilderImpl implements FlowBuilder {
     tz?: 'user' | (string & {});
   }): this {
     const loc = captureLoc(this.timeWindow);
+    if (opts.days !== undefined) {
+      // An empty list is a window that never opens: the node would hold the user forever
+      if (opts.days.length === 0) {
+        throw new Error("timeWindow(): 'days' must name at least one day");
+      }
+      const seen = new Set<Weekday>();
+      for (const day of opts.days) {
+        if (seen.has(day)) throw new Error(`timeWindow(): 'days' lists '${day}' twice`);
+        seen.add(day);
+      }
+    }
     const start = timeOfDayMinutes(opts.between[0]);
     const end = timeOfDayMinutes(opts.between[1]);
     if (end <= start) {
@@ -521,11 +546,11 @@ export class FlowBuilderImpl implements FlowBuilder {
         id: '',
         type: 'wait_until',
         condition: condIR(condition),
-        timeout: durationIR(opts.timeout),
+        timeout: positiveDurationIR(opts.timeout, 'waitUntil(): timeout'),
         onTimeout:
           onTimeout === 'continue' || onTimeout === 'exit'
             ? onTimeout
-            : resolveSubFlow(onTimeout, this.uses),
+            : resolveSubFlow(onTimeout, this.uses, this.actions),
       },
       loc
     );
@@ -533,7 +558,7 @@ export class FlowBuilderImpl implements FlowBuilder {
 
   use(fragment: SubFlow): this {
     // The fragment's nodes carry their own provenance (where the fragment was written)
-    this.nodes.push(...resolveSubFlow(fragment, this.uses));
+    this.nodes.push(...resolveSubFlow(fragment, this.uses, this.actions));
     return this;
   }
 
@@ -552,7 +577,10 @@ export class FlowBuilderImpl implements FlowBuilder {
           throw new Error('branch(): default arm (bare sub-flow) must be the last argument');
         }
         const [condition, sub] = arm as BranchCase;
-        cases.push({ condition: condIR(condition), flow: resolveSubFlow(sub, this.uses) });
+        cases.push({
+          condition: condIR(condition),
+          flow: resolveSubFlow(sub, this.uses, this.actions),
+        });
       } else {
         if (otherwise !== undefined) {
           throw new Error('branch(): only one default arm (bare sub-flow) is allowed');
@@ -560,7 +588,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         if (i !== arms.length - 1) {
           throw new Error('branch(): default arm (bare sub-flow) must be the last argument');
         }
-        otherwise = resolveSubFlow(arm as SubFlow, this.uses);
+        otherwise = resolveSubFlow(arm as SubFlow, this.uses, this.actions);
       }
     });
 
@@ -632,7 +660,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         arms: entries.map(([name, a]) => ({
           name,
           weight: a.weight,
-          flow: a.flow ? resolveSubFlow(a.flow, this.uses) : [],
+          flow: a.flow ? resolveSubFlow(a.flow, this.uses, this.actions) : [],
         })),
       },
       loc
@@ -671,13 +699,13 @@ export class FlowBuilderImpl implements FlowBuilder {
   }
 
   run<A extends object>(a: ActionRef<A>, ...args: MessageArgs<A>): this {
+    this.actions.push(a);
     return this.pushNode(
       {
         id: '',
         type: 'action',
         action: a.name,
         args: (args[0] ?? {}) as Record<string, PropValueIR>,
-        codeHash: a.codeHash,
       },
       captureLoc(this.run)
     );
@@ -692,6 +720,11 @@ export class FlowBuilderImpl implements FlowBuilder {
 export function flow(build: (w: FlowBuilder) => FlowBuilder): Flow {
   const builder = new FlowBuilderImpl();
   build(builder);
-  const impl: FlowInternal = { __flow: true, nodes: builder.nodes, uses: builder.uses };
+  const impl: FlowInternal = {
+    __flow: true,
+    nodes: builder.nodes,
+    uses: builder.uses,
+    actions: builder.actions,
+  };
   return impl;
 }

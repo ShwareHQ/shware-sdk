@@ -499,6 +499,13 @@ export function TemplatesPage({
                     title={`${active.key} preview`}
                     srcDoc={`${html ?? ''}${NO_SCROLL}${scheme === 'dark' ? DARK_SIMULATION : ''}`}
                     /*
+                     * Same-origin so the document's height is readable below;
+                     * no allow-scripts, so nothing in the email runs — a script
+                     * in a template would otherwise run as the studio page and
+                     * could read /__studio/stats. Same as the thumbnail.
+                     */
+                    sandbox="allow-same-origin"
+                    /*
                      * Sized to its document rather than the pane, so long emails
                      * scroll in the outer container — which can pad past the
                      * floating toolbar; an iframe scrolling internally cannot.

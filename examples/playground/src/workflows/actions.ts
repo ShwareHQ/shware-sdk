@@ -2,7 +2,7 @@ import { action } from '@shware/workflow';
 
 /**
  * A custom action: plain code for what the built-in nodes do not cover. The
- * chain records only its identity (name + args + codeHash); this function
+ * chain records only its identity (name + args); this function
  * ships with the deployed Worker and runs inside a durable step — retried on
  * throw, so keep it idempotent. Custom *conditions* stay unsupported by
  * design: an action writes data, and branching reads it declaratively.

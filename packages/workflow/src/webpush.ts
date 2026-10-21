@@ -1,4 +1,5 @@
 import type { MessageSender, OutboundMessage, SendResult } from './engine';
+import { PermanentError, isRetryableStatus } from './engine/retry';
 import { base64url } from './jwt';
 import type { PushRenderer } from './push';
 
@@ -20,19 +21,38 @@ export interface VapidKeys {
   privateKey: string;
 }
 
+export interface VapidSignerOptions extends VapidKeys {
+  /** Who to contact about this sender: `mailto:` or an `https:` URL (RFC 8292). */
+  subject: string;
+}
+
 export interface WebPushOptions {
-  vapid: VapidKeys & {
-    /** Who to contact about this sender: `mailto:` or an `https:` URL (RFC 8292). */
-    subject: string;
-  };
+  /** The VAPID signer the requests are authorized with — shared by every sender on the same key pair. */
+  credentials: VapidSigner;
   render: PushRenderer;
   /** Seconds the push service keeps an undelivered message; a day by default. */
   ttl?: number;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /** Called for a subscription the push service reports as gone (404 / 410). */
-  onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
+
+/**
+ * How a push service's answer is classified (RFC 8030 §7 and §8.1, with the browsers' services
+ * answering as documented there):
+ *
+ * - dead subscription: 404 and 410 — the browser unsubscribed or the subscription expired
+ *   (RFC 8030 §7.3: 410 Gone for an expired subscription) — and a subscription the sender
+ *   cannot parse (`InvalidSubscription`). The copy settles undelivered and the host forgets it.
+ * - transient: 429 Too Many Requests (§8.4) and 5xx.
+ * - everything else is this request or this sender: 400 (a bad header or body), 401 / 403 (the
+ *   VAPID key pair or subject, §8.2 of RFC 8292), 413 (the payload, RFC 8030 §7.2) and any other
+ *   4xx are a `PermanentError`.
+ */
+export const DEAD_TOKEN_REASONS: ReadonlySet<string> = new Set([
+  'Gone',
+  'NotFound',
+  'InvalidSubscription',
+]);
 
 interface Subscription {
   endpoint: string;
@@ -50,8 +70,15 @@ export async function generateVapidKeys(): Promise<VapidKeys> {
   return { publicKey: base64url(raw), privateKey: jwk.d ?? '' };
 }
 
-/** Records are one per message here: the payload stays far below the 4096-byte record size. */
+/** The record size the header announces: RFC 8291 §4 fixes it at 4096 and one record per push. */
 const RECORD_SIZE = 4096;
+/**
+ * The largest plaintext one record carries. A push message body is at most 4096 octets (RFC 8030
+ * §7.2); the aes128gcm header takes 86 of them (16 salt + 4 rs + 1 idlen + 65 key), the record its
+ * 16-octet tag and the 1-octet delimiter — 3993 octets of plaintext (RFC 8291 §4). Anything past
+ * that is either an invalid record or a 413 from the push service.
+ */
+export const MAX_PLAINTEXT_BYTES = 3993;
 /** Bytes WebCrypto accepts (backed by a plain ArrayBuffer). */
 type Bytes = Uint8Array<ArrayBuffer>;
 const encoder = new TextEncoder();
@@ -138,39 +165,86 @@ export async function encryptPayload(
   return concat(header, senderPublic, sealed);
 }
 
-/** The VAPID `Authorization` header for one push service (RFC 8292 §3). */
-export async function vapidAuthorization(
-  endpoint: string,
-  vapid: WebPushOptions['vapid'],
-  now = Date.now()
-): Promise<string> {
-  const publicKey = fromBase64url(vapid.publicKey);
-  const key = await crypto.subtle.importKey(
-    'jwk',
-    {
-      kty: 'EC',
-      crv: 'P-256',
-      d: vapid.privateKey,
-      x: base64url(publicKey.slice(1, 33)),
-      y: base64url(publicKey.slice(33, 65)),
-      ext: true,
-    },
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    false,
-    ['sign']
-  );
-  const header = base64url(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
-  const claims = base64url(
-    JSON.stringify({
-      aud: new URL(endpoint).origin,
-      exp: Math.floor(now / 1000) + 12 * 3600,
-      sub: vapid.subject,
-    })
-  );
-  const signature = new Uint8Array(
-    await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, utf8(`${header}.${claims}`))
-  );
-  return `vapid t=${header}.${claims}.${base64url(signature)}, k=${vapid.publicKey}`;
+/** How long a VAPID token is good for: RFC 8292 §2 allows at most 24 hours. */
+const VAPID_EXP_S = 24 * 3600;
+/** How long a signed token is reused: half its life, so it is never sent near expiry. */
+const VAPID_TTL_MS = 12 * 3600_000;
+
+/**
+ * The VAPID `Authorization` header (RFC 8292 §3) for one key pair. The private key is imported
+ * once; the JWT is signed per push service (its `aud` is the service's origin) and reused for
+ * `VAPID_TTL_MS`. Concurrent callers for one origin share the one signing in flight, and a signing
+ * that failed is not kept. One instance serves every sender built on the pair — a host keeps it
+ * across runs, and builds the senders per run.
+ */
+export class VapidSigner {
+  private key: Promise<CryptoKey> | undefined;
+  private readonly signed = new Map<string, { value: string; issuedAt: number }>();
+  private readonly signing = new Map<string, Promise<string>>();
+
+  constructor(private readonly options: VapidSignerOptions) {}
+
+  /** The header value for the push service at `audience` — its origin, or any URL on it. */
+  async authorization(audience: string, now = Date.now()): Promise<string> {
+    const origin = new URL(audience).origin;
+    const current = this.signed.get(origin);
+    if (current !== undefined && now - current.issuedAt < VAPID_TTL_MS) return current.value;
+    let pending = this.signing.get(origin);
+    if (pending === undefined) {
+      pending = this.sign(origin, now)
+        .then((value) => {
+          this.signed.set(origin, { value, issuedAt: now });
+          return value;
+        })
+        .finally(() => {
+          this.signing.delete(origin);
+        });
+      this.signing.set(origin, pending);
+    }
+    return pending;
+  }
+
+  private privateKey(): Promise<CryptoKey> {
+    if (this.key === undefined) {
+      const publicKey = fromBase64url(this.options.publicKey);
+      this.key = crypto.subtle
+        .importKey(
+          'jwk',
+          {
+            kty: 'EC',
+            crv: 'P-256',
+            d: this.options.privateKey,
+            x: base64url(publicKey.slice(1, 33)),
+            y: base64url(publicKey.slice(33, 65)),
+            ext: true,
+          },
+          { name: 'ECDSA', namedCurve: 'P-256' },
+          false,
+          ['sign']
+        )
+        .catch((error: unknown) => {
+          this.key = undefined;
+          throw error;
+        });
+    }
+    return this.key;
+  }
+
+  private async sign(origin: string, now: number): Promise<string> {
+    const key = await this.privateKey();
+    const header = base64url(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+    const claims = base64url(
+      JSON.stringify({
+        aud: origin,
+        exp: Math.floor(now / 1000) + VAPID_EXP_S,
+        sub: this.options.subject,
+      })
+    );
+    const signature = new Uint8Array(
+      await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, utf8(`${header}.${claims}`))
+    );
+    return `vapid t=${header}.${claims}.${base64url(signature)}, k=${this.options.publicKey}`;
+  }
 }
 
 /**
@@ -208,7 +282,6 @@ export class WebPushSender implements MessageSender {
     const subscription = parseSubscription(message.recipient);
     if (subscription === undefined) {
       // Not a usable subscription: nothing will ever deliver to it, so do not retry into it
-      await this.options.onUnregistered?.(message);
       return { delivered: false, reason: 'InvalidSubscription' };
     }
     const content = await this.options.render(message.template, message.props);
@@ -220,26 +293,46 @@ export class WebPushSender implements MessageSender {
         ...message.tracking?.data,
       })
     );
+    if (payload.length > MAX_PLAINTEXT_BYTES) {
+      // The same template renders the same size on every attempt: settle it before encrypting
+      throw new PermanentError(
+        `[webpush] payload for template '${message.template}' is ${payload.length} bytes; a push message carries at most ${MAX_PLAINTEXT_BYTES}`
+      );
+    }
     const body = await encryptPayload(payload, subscription.p256dh, subscription.auth);
     const doFetch = this.options.fetch ?? fetch;
     const response = await doFetch(subscription.endpoint, {
       method: 'POST',
       headers: {
-        authorization: await vapidAuthorization(subscription.endpoint, this.options.vapid),
+        authorization: await this.options.credentials.authorization(subscription.endpoint),
         'content-encoding': 'aes128gcm',
         'content-type': 'application/octet-stream',
         ttl: String(this.options.ttl ?? 86_400),
         urgency: 'normal',
+        // A resend of the same copy replaces the first one while it is still queued (RFC 8030
+        // §5.4), so an at-least-once retry does not show the notification twice
+        topic: await webPushTopic(message.idempotencyKey),
       },
       body,
     });
     if (response.ok) return;
-    if (response.status === 404 || response.status === 410) {
+    const { status } = response;
+    if (status === 404 || status === 410) {
       // The browser unsubscribed or the subscription expired: it will never deliver again
-      console.warn(`[webpush] subscription gone for user ${message.userId}: ${response.status}`);
-      await this.options.onUnregistered?.(message);
-      return { delivered: false, reason: response.status === 410 ? 'Gone' : 'NotFound' };
+      console.warn(`[webpush] subscription gone for user ${message.userId}: ${status}`);
+      return { delivered: false, reason: status === 410 ? 'Gone' : 'NotFound' };
     }
-    throw new Error(`[webpush] ${response.status}: ${await response.text()}`);
+    const text = await response.text();
+    if (isRetryableStatus(status)) throw new Error(`[webpush] ${status}: ${text}`);
+    throw new PermanentError(`[webpush] push service refused the request: ${status} ${text}`);
   }
+}
+
+/**
+ * The `Topic` header for one copy: RFC 8030 §5.4 allows at most 32 characters of the URL-safe
+ * base64 alphabet, so the idempotency key goes through SHA-256 and is cut to size.
+ */
+export async function webPushTopic(idempotencyKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', utf8(idempotencyKey));
+  return base64url(new Uint8Array(digest)).slice(0, 32);
 }

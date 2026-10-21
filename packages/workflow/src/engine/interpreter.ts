@@ -30,10 +30,11 @@ import { nextWindowStart } from './time-window';
  */
 
 /**
- * Cap on wait_until re-evaluations: beyond it we treat the wait as timed out,
- * so a wake-up storm cannot exhaust the platform's step budget. Each loop
- * iteration costs a handful of steps, so 64 checks stay well inside the
- * platform step budgets while absorbing far more wake churn than 16 did.
+ * Cap on wait_until re-evaluations, so a wake-up storm cannot exhaust the platform's step
+ * budget. Each loop iteration costs a handful of steps, so 64 checks stay well inside the
+ * platform step budgets while absorbing far more wake churn than 16 did. Past the cap the wait
+ * is not given up: it sleeps to its deadline and checks once more there (see waitLoop) — the
+ * answer is still right at the deadline, it just stops being event-driven in between.
  */
 const MAX_WAIT_CHECKS = 64;
 
@@ -208,16 +209,8 @@ async function checkGuards(
     return { goalAt: goalHit?.at ?? null, exitMet };
   });
 
-  // A checkpoint from before conversions carried a time held `goalMet` instead: met at entry's anchor
-  const legacy = result as { goalMet?: boolean };
-  const goalAt =
-    typeof result.goalAt === 'number'
-      ? result.goalAt
-      : legacy.goalMet === true
-        ? ctx.enteredAtMs
-        : null;
-  if (goalAt !== null) {
-    state.convertedAt ??= goalAt;
+  if (result.goalAt !== null) {
+    state.convertedAt ??= result.goalAt;
     if (goal?.exitOnMatch ?? true) return { kind: 'goal' };
   }
   if (result.exitMet) return { kind: 'exit_when' };
@@ -266,16 +259,15 @@ async function sendPush(
   ir: WorkflowIR,
   ctx: JourneyContext
 ): Promise<void> {
-  const plan = await ctx.step.do<PushPlan | null | undefined>(`${node.id}:send`, async () => {
+  const plan = await ctx.step.do<PushPlan | null>(`${node.id}:send`, async () => {
     const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
     if (await ctx.facts.isSuppressed?.(node.channel)) return null;
     const listed = await ctx.facts.listDevices();
     const devices = node.devices === 'latest' ? listed.slice(0, 1) : listed;
     return { props, devices };
   });
-  // null: the channel is opted out. Undefined: a checkpoint from before per-device steps, whose
-  // single step already sent to every device.
-  if (plan === null || plan === undefined) return;
+  // null: the channel is opted out
+  if (plan === null) return;
   if (plan.devices.length === 0) {
     console.log(`[journey] push ${node.template} skipped: no device for user ${ctx.userId}`);
     return;
@@ -357,7 +349,10 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         return nextWindowStart(Date.now(), node.days, node.between, tz);
       });
       if (target === null) return FALL_THROUGH; // already inside the window: no suspension, no guard
-      await ctx.step.sleepUntil(`${node.id}:sleep`, target);
+      // The remaining time is checkpointed: a replay must not recompute it from a later clock
+      // (the target has passed by then, and a negative sleep is an error on some runtimes)
+      const ms = await ctx.step.do(`${node.id}:remaining`, async () => target - Date.now());
+      if (ms > 0) await ctx.step.sleep(`${node.id}:sleep`, ms);
       return (await checkGuards(node.id, ir, ctx)) ?? FALL_THROUGH;
     }
 
@@ -442,7 +437,6 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         const args = await resolveValues(node.args, ctx.facts);
         await invoker.invoke({
           action: node.action,
-          codeHash: node.codeHash,
           args,
           userId: ctx.userId,
           idempotencyKey: `${ctx.instanceId}:${node.id}`,
@@ -507,9 +501,8 @@ async function awaitTail(ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSigna
   });
   await ctx.step.unsubscribe('goal:unsubscribe');
   if (hit === null) return null;
-  // A checkpoint from before the tail watched exitWhen recorded a plain `true`: the goal
-  if ((hit as unknown) === true || hit.kind === 'goal') {
-    state.convertedAt ??= (hit as { at?: number }).at ?? deadline;
+  if (hit.kind === 'goal') {
+    state.convertedAt ??= hit.at;
     return { kind: 'goal' };
   }
   return { kind: 'exit_when' };
@@ -518,7 +511,8 @@ async function awaitTail(ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSigna
 /**
  * Wait until `check` finds something or the deadline passes: subscribe, check, sleep until a
  * relevant event wakes the instance or time runs out. `check` runs inside a step, so its result
- * must be serializable; null means "not yet".
+ * must be serializable; null means "not yet". Null from here means the deadline passed with
+ * nothing found — never a failure, and never a wait given up on early.
  */
 async function waitLoop<R>(
   id: string,
@@ -536,8 +530,7 @@ async function waitLoop<R>(
     await ctx.step.subscribe(`${id}:subscribe:${attempt}`, events, { deadlineMs: deadline });
 
     const met = await ctx.step.do(`${id}:check:${attempt}`, async () => check(Date.now()));
-    // `false` is a checkpoint from before checks answered null for "not yet"
-    if (met !== null && (met as unknown) !== false) return met;
+    if (met !== null) return met;
 
     // Checkpointed: replay re-runs this control flow with wall-clock time far
     // ahead of the original run, so the branch must come from a persisted value.
@@ -548,15 +541,36 @@ async function waitLoop<R>(
     // The condition was checked just above — expiring here needs no extra final check
     if (remaining <= 0) return null;
 
-    const wake = await ctx.step.waitForWake(`${id}:wait:${attempt}`, remaining);
-    if (wake === 'timeout') {
-      // Final check after timeout: in a tight race the event may land exactly as the timer fires
-      const final = await ctx.step.do(`${id}:final`, async () => check(Date.now()));
-      return (final as unknown) === false ? null : final;
-    }
+    const wake = await ctx.step.waitForWake(`${id}:wait:${attempt}`, {
+      timeoutMs: remaining,
+      deadlineMs: deadline,
+    });
+    // Final check after timeout: in a tight race the event may land exactly as the timer fires
+    if (wake === 'timeout') return finalCheck(id, ctx, check);
     // Woken → back to the top of the loop to re-evaluate (at-least-once wake-up semantics)
   }
-  return null; // check budget exhausted → treated as timed out (see MAX_WAIT_CHECKS)
+  // Check budget exhausted (see MAX_WAIT_CHECKS). Not a timeout: the wait keeps its deadline,
+  // only the wake-ups are given up — sleep to the deadline, then check once more there. The
+  // subscription rows stay until the caller's unsubscribe; a wake landing meanwhile is dropped
+  // by the runtime (nothing is parked on it), which is the point.
+  console.warn(
+    `[journey] ${ctx.instanceId} ${id}: ${MAX_WAIT_CHECKS} wake-ups without the condition holding — sleeping to the deadline`
+  );
+  const budgetRemaining = await ctx.step.do(
+    `${id}:budget:remaining`,
+    async () => deadline - Date.now()
+  );
+  if (budgetRemaining > 0) await ctx.step.sleep(`${id}:budget:sleep`, budgetRemaining);
+  return finalCheck(id, ctx, check);
+}
+
+/** The check once the deadline is reached — one step for all the ways of getting there. */
+async function finalCheck<R>(
+  id: string,
+  ctx: JourneyContext,
+  check: (now: number) => Promise<R | null>
+): Promise<R | null> {
+  return ctx.step.do(`${id}:final`, async () => check(Date.now()));
 }
 
 async function resolveValues(

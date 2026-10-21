@@ -45,12 +45,12 @@ const PROVENANCE_KEYS = new Set(['loc']);
  * send_event payloads and action args. Everything inside them is execution
  * data and is hashed whole.
  *
- * This is what keeps the exclusion above positional. Stripping by name at every
- * depth used to reach inside these maps, so a prop or payload field that
- * happened to be called `label` (or `meta`) vanished from the hash: two sends
- * carrying different values hashed identically, `plan` reported a real change
- * as metadata-only, and the deploy wrote different content under the same KV
- * key that in-flight journeys are pinned to.
+ * This is what keeps the exclusion above positional: stripping by name at every
+ * depth would reach inside these maps, and a prop or payload field that happens
+ * to be called `label` (or `meta`) would vanish from the hash — two sends
+ * carrying different values would hash identically, `plan` would report a real
+ * change as metadata-only, and the deploy would write different content under
+ * the same key that in-flight journeys are pinned to.
  *
  * These three are the only `z.record` fields in the IR (see ir.ts). A new one
  * has to be added here, or its contents become strippable by name again.

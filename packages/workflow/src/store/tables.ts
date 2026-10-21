@@ -59,11 +59,11 @@ const nullable = <C extends ColumnSpec>(column: C, doc?: string): ColumnSpec => 
 export const TABLES = {
   event: table({
     name: 'event',
-    doc: "Every ingested event, the fact base for `performed(...)` conditions. `event_id` is the occurrence's identity as the sender chose it (a retrying producer sends the same one again); its unique index makes a second delivery a no-op.",
+    doc: "Every ingested event, the fact base for `performed(...)` conditions. `event_id` is the occurrence's identity as the sender chose it (a retrying producer sends the same one again), scoped to the user: the (user_id, event_id) unique index makes a second delivery a no-op, and one sender's id can never block another user's event.",
     columns: { id: uuid, eventId: text, userId: text, name: text, ts, payload: jsonb },
     primaryKey: ['id'],
     uuidV7: 'id',
-    uniqueIndexes: [['eventId']],
+    uniqueIndexes: [['userId', 'eventId']],
     indexes: [['userId', 'name', 'ts']],
   }),
   profile: table({
@@ -81,8 +81,12 @@ export const TABLES = {
   }),
   erasure: table({
     name: 'erasure',
-    doc: "Erasures in progress (`forgetUser`): the user's data stays until every running instance is stopped, and the scheduled sweep retries what is left.",
-    columns: { userId: text, requestedAt: ts },
+    doc: "Erasure tombstones (`forgetUser`): every write about a user is conditional on no row here. While `erased_at` is null the user's data stays until every running instance is stopped, and the scheduled sweep retries what is left; once set, the data is gone and the row stays so the user id is never written again.",
+    columns: {
+      userId: text,
+      requestedAt: ts,
+      erasedAt: nullable(ts, 'When the data was erased; null while the erasure is under way.'),
+    },
     primaryKey: ['userId'],
   }),
   suppression: table({
@@ -150,7 +154,18 @@ export const TABLES = {
   entry: table({
     name: 'entry',
     doc: 'Entry ledger: the (workflow, user) primary key is the once policy.',
-    columns: { workflow: text, userId: text, instanceId: text, hash: text, status: text, ts },
+    columns: {
+      workflow: text,
+      userId: text,
+      instanceId: text,
+      hash: text,
+      status: text,
+      ts,
+      admittedAt: nullable(
+        ts,
+        'When the runner admitted itself (`admitInstance`), before its first observable effect; null until then, so an erasure knows nothing of the instance has run yet.'
+      ),
+    },
     primaryKey: ['workflow', 'userId'],
     indexes: [['instanceId']],
   }),

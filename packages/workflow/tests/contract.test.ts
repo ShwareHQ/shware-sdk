@@ -1,7 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { JourneyClient, JourneyValidationError } from '../src/client';
-import { deployBundle, handleRequest } from '../src/host/router';
+import { handleRequest } from '../src/host/http';
+import { deployBundle } from '../src/host/ingest';
 import { compileBundle, defineContract, performed, trigger, workflow } from '../src/index';
 import { D1JourneyStore } from '../src/store/d1';
 import { makeEnv } from './fake-cloudflare';
@@ -143,8 +144,8 @@ describe('JourneyClient with a contract', () => {
 
 describe('ingest validation in the Worker', () => {
   async function setup() {
-    const { env, db, kv, journey } = makeEnv();
-    const store = new D1JourneyStore(db, kv);
+    const { env, db, journey } = makeEnv();
+    const store = new D1JourneyStore(db);
     const welcome = workflow({
       id: 'welcome',
       trigger: trigger.event(contract.events.login),

@@ -33,7 +33,12 @@ export interface PostgresStatsOptions {
   /** The project's `workflow.config.ts`: its database schema, and the runtime's time scale. */
   config: JourneyConfig;
   connectionString: string;
-  /** Which `runtime` entry the data was written under; `development` by default. */
+  /**
+   * Which `runtime` entry the data was written under; `production` by default. A fast-forwarded
+   * environment stretches every date by its `timeScale`, so name the environment the database
+   * belongs to: a production database read as `development` had every journey day plotted as
+   * minutes.
+   */
   environment?: string;
   /** The zone the Studio's days are cut in; this machine's by default. */
   timeZone?: string;
@@ -60,15 +65,21 @@ function pool(connectionString: string): postgres.Sql {
   return sql;
 }
 
+/**
+ * The time scale the data was written at: the config's `runtime` entry for `environment`,
+ * `production` when none is named. The old default, `development`, read a production database
+ * at the fast-forwarded scale and plotted every journey day as minutes.
+ */
+export function statsTimeScale(config: JourneyConfig, environment = 'production'): number {
+  return resolveRuntime(config.runtime, environment).timeScale;
+}
+
 export function postgresStats(options: PostgresStatsOptions): StatsSource {
   const sql = pool(options.connectionString);
   const schema = options.config.database?.schema ?? DEFAULT_SCHEMA;
   /** A table of the engine's schema. */
   const t = (name: string) => sql(`${schema}.${name}`);
-  const scale = resolveRuntime(
-    options.config.runtime,
-    options.environment ?? 'development'
-  ).timeScale;
+  const scale = statsTimeScale(options.config, options.environment);
   const timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   /**

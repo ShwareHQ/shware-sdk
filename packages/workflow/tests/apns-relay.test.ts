@@ -1,7 +1,7 @@
 import { webcrypto } from 'node:crypto';
 import { type Http2Server, type ServerHttp2Stream, createServer } from 'node:http2';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { ApnsPushSender } from '../src/apns';
+import { ApnsProviderToken, ApnsPushSender } from '../src/apns';
 import { type ApnsRelay, startApnsRelay } from '../src/apns-relay';
 
 /**
@@ -99,9 +99,11 @@ describe('startApnsRelay', () => {
     await relay.close();
     relay = await startApnsRelay({ port: 0, allow: [upstreamOrigin] });
     const sender = new ApnsPushSender({
-      keyId: 'K',
-      teamId: 'T',
-      privateKey: `-----BEGIN PRIVATE KEY-----\n${der}\n-----END PRIVATE KEY-----`,
+      credentials: new ApnsProviderToken({
+        keyId: 'K',
+        teamId: 'T',
+        privateKey: `-----BEGIN PRIVATE KEY-----\n${der}\n-----END PRIVATE KEY-----`,
+      }),
       topic: 'io.example.app',
       environment: 'sandbox',
       render: async () => ({ title: 't', body: 'b' }),

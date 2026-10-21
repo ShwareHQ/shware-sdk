@@ -1,6 +1,6 @@
 import type * as core from 'zod/v4/core';
-import type { DeployResult, IdentifyResult, IngestResult } from './cloudflare';
 import type { Contract, ContractIssue, ProfilePatch } from './contract';
+import type { DeployResult, IdentifyResult, IngestResult } from './host/ingest';
 import type { ProfileProps } from './store';
 
 /**
@@ -120,9 +120,15 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
    */
   registerDevice(
     userId: string,
-    device: { token: string; platform: 'ios' | 'android' | 'web' }
+    device: { token: string; platform: 'ios' | 'android' | 'web'; ts?: number }
   ): Promise<{ ok: true; woke: number }> {
-    return this.post('/devices', { userId, ...device });
+    const { token, platform, ts } = device;
+    return this.post('/devices', {
+      userId,
+      token,
+      platform,
+      ...(ts === undefined ? {} : { ts }),
+    });
   }
 
   /**

@@ -1,12 +1,13 @@
 import type { JourneyRunParts } from '../host/execute';
+import type { SweepResult } from '../host/ingest';
 import {
   EnvValidationError,
   type JourneyHostOptions,
   createJourneyHost,
 } from '../host/journey-host';
-import type { SweepResult } from '../host/router';
+import type { JourneyEnv, JourneyParams } from '../host/platform';
 import type { BundleVersion, JourneyStore } from '../store/index';
-import type { JourneyEnv, JourneyParams } from './bindings';
+import { cloudflareJourneyBinding } from './bindings';
 import { JourneyRunner } from './runner';
 
 export { EnvValidationError } from '../host/journey-host';
@@ -71,9 +72,18 @@ export function journeyWorker<Env extends JourneyEnv>(
     }
 
     protected override createRunParts(store: JourneyStore, params: JourneyParams): JourneyRunParts {
-      return host.runParts(host.checkEnv(this.env as Env), store, params);
+      return host.runParts(host.checkEnv(this.hostEnv() as Env), store, params);
     }
   }
+
+  /**
+   * The validated environment, its Workflow binding behind the host's port (an unknown instance
+   * answers `InstanceNotFoundError`). Everything below reads this one, never the raw env.
+   */
+  const hostEnv = (rawEnv: Env): Env => {
+    const env = host.checkEnv(rawEnv);
+    return { ...env, JOURNEY: cloudflareJourneyBinding(env.JOURNEY) };
+  };
 
   /** CF's version metadata: the bundle compiled into each new version goes live by itself. */
   const ownVersion = (env: Env): BundleVersion | undefined => {
@@ -83,10 +93,9 @@ export function journeyWorker<Env extends JourneyEnv>(
   };
 
   const fetch = async (request: Request, rawEnv: Env, ctx?: ExecutionContextLike) => {
-    // Everything below reads the validated environment (the schema's defaults applied)
     let env: Env;
     try {
-      env = host.checkEnv(rawEnv);
+      env = hostEnv(rawEnv);
     } catch (error) {
       if (!(error instanceof EnvValidationError)) throw error;
       console.error(`[workflow] ${error.message}`);
@@ -111,17 +120,16 @@ export function journeyWorker<Env extends JourneyEnv>(
     }
   };
 
-  const sweep = (rawEnv: Env) => host.sweep(host.checkEnv(rawEnv));
+  const sweep = (rawEnv: Env) => host.sweep(hostEnv(rawEnv));
 
-  const scheduled = async (_controller: unknown, env: Env, ctx: ExecutionContextLike) => {
-    // A version with no traffic yet goes live here; the sweep then reads its segments
-    ctx.waitUntil(
-      (async () => {
-        const checked = host.checkEnv(env);
-        await host.applyOwnBundle(checked, ownVersion(checked));
-        await sweep(env);
-      })()
-    );
+  const scheduled = async (_controller: unknown, rawEnv: Env, _ctx: ExecutionContextLike) => {
+    // Awaited, not handed to waitUntil: the runtime keeps a scheduled handler alive for as long
+    // as its promise runs, while a sweep only parked in waitUntil can be cut off by the
+    // handler returning, and its failure would surface nowhere. A version with no traffic yet
+    // goes live here; the sweep then reads its segments.
+    const env = hostEnv(rawEnv);
+    await host.applyOwnBundle(env, ownVersion(env));
+    await host.sweep(env);
   };
 
   return { Runner, fetch, sweep, scheduled };

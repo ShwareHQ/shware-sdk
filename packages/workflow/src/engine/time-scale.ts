@@ -1,3 +1,5 @@
+import type { ConditionIR, DurationIR, NodeIR, WorkflowIR } from '../ir';
+
 /**
  * Debug time scale: divide every duration in a workflow's IR by a factor so a
  * journey written in days plays out in seconds — with a factor of 3600, a
@@ -11,25 +13,102 @@
  * live in the store rather than the workflow body; `scaleSegmentWindows`
  * scales them as they are read, so a segment's `within` keeps pace too.
  *
- * Durations are recognised structurally — an object whose only keys are
- * `value` (the source text) and `ms` — which is the DurationIR shape and
- * nothing else in the IR. The text is kept so the studio still shows what was
- * written.
+ * The walk follows the IR's own structure — the fields that hold a Duration
+ * are known — so a message prop or an event payload that happens to look like
+ * one (`{ value, ms }`) is left alone. The source text is kept so the studio
+ * still shows what was written.
  */
-export function scaleDurations<T>(ir: T, factor: number): T {
+export function scaleDurations(ir: WorkflowIR, factor: number): WorkflowIR {
   if (!(factor > 0) || factor === 1) return ir;
-  return walk(ir, factor) as T;
+  return {
+    ...ir,
+    trigger:
+      ir.trigger.type === 'event'
+        ? {
+            ...ir.trigger,
+            ...(ir.trigger.filter === undefined
+              ? {}
+              : { filter: scaleCondition(ir.trigger.filter, factor) }),
+          }
+        : ir.trigger,
+    ...(ir.goal === undefined
+      ? {}
+      : {
+          goal: {
+            ...ir.goal,
+            condition: scaleCondition(ir.goal.condition, factor),
+            ...(ir.goal.within === undefined ? {} : { within: scale(ir.goal.within, factor) }),
+          },
+        }),
+    ...(ir.exitWhen === undefined ? {} : { exitWhen: scaleCondition(ir.exitWhen, factor) }),
+    flow: scaleFlow(ir.flow, factor),
+  };
 }
 
-function walk(value: unknown, factor: number): unknown {
-  if (Array.isArray(value)) return value.map((item) => walk(item, factor));
-  if (value === null || typeof value !== 'object') return value;
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record);
-  if (keys.length === 2 && typeof record.value === 'string' && typeof record.ms === 'number') {
-    return { value: record.value, ms: Math.max(0, Math.round(record.ms / factor)) };
+/** A condition with its `performed(... within)` windows divided by `factor`. */
+export function scaleCondition(condition: ConditionIR, factor: number): ConditionIR {
+  if (!(factor > 0) || factor === 1) return condition;
+  switch (condition.type) {
+    case 'and':
+    case 'or':
+      return {
+        ...condition,
+        conditions: condition.conditions.map((child) => scaleCondition(child, factor)),
+      };
+    case 'not':
+      return { ...condition, condition: scaleCondition(condition.condition, factor) };
+    case 'performed':
+      return condition.within === undefined
+        ? condition
+        : { ...condition, within: scale(condition.within, factor) };
+    default:
+      return condition;
   }
-  return Object.fromEntries(keys.map((key) => [key, walk(record[key], factor)]));
+}
+
+function scaleFlow(nodes: readonly NodeIR[], factor: number): NodeIR[] {
+  return nodes.map((node) => scaleNode(node, factor));
+}
+
+function scaleNode(node: NodeIR, factor: number): NodeIR {
+  switch (node.type) {
+    case 'delay':
+      return { ...node, duration: scale(node.duration, factor) };
+    case 'random_delay':
+      return { ...node, min: scale(node.min, factor), max: scale(node.max, factor) };
+    case 'wait_until':
+      return {
+        ...node,
+        condition: scaleCondition(node.condition, factor),
+        timeout: scale(node.timeout, factor),
+        onTimeout: Array.isArray(node.onTimeout)
+          ? scaleFlow(node.onTimeout, factor)
+          : node.onTimeout,
+      };
+    case 'branch':
+      return {
+        ...node,
+        cases: node.cases.map((branch) => ({
+          ...branch,
+          condition: scaleCondition(branch.condition, factor),
+          flow: scaleFlow(branch.flow, factor),
+        })),
+        ...(node.otherwise === undefined ? {} : { otherwise: scaleFlow(node.otherwise, factor) }),
+      };
+    case 'filter':
+      return { ...node, condition: scaleCondition(node.condition, factor) };
+    case 'cohort':
+      return {
+        ...node,
+        arms: node.arms.map((arm) => ({ ...arm, flow: scaleFlow(arm.flow, factor) })),
+      };
+    default:
+      return node;
+  }
+}
+
+function scale(duration: DurationIR, factor: number): DurationIR {
+  return { value: duration.value, ms: Math.max(0, Math.round(duration.ms / factor)) };
 }
 
 /**
@@ -39,14 +118,16 @@ function walk(value: unknown, factor: number): unknown {
  * other method is the store's own.
  */
 export function scaleSegmentWindows<
-  S extends { getSegmentCondition(name: string): Promise<unknown> },
+  S extends { getSegmentCondition(name: string): Promise<ConditionIR | undefined> },
 >(store: S, factor: number): S {
   if (!(factor > 0) || factor === 1) return store;
   return new Proxy(store, {
     get(target, property) {
       if (property === 'getSegmentCondition') {
-        return async (name: string) =>
-          scaleDurations(await target.getSegmentCondition(name), factor);
+        return async (name: string) => {
+          const condition = await target.getSegmentCondition(name);
+          return condition === undefined ? undefined : scaleCondition(condition, factor);
+        };
       }
       const value: unknown = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;

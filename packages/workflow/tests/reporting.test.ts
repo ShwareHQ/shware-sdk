@@ -1,12 +1,13 @@
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { JourneyEnv } from '../src/cloudflare/bindings';
 import { isUnsubscribeLink } from '../src/email';
 import type { OutboundMessage } from '../src/engine/ports';
-import { forgetUser, sweepSegments } from '../src/host/router';
+import { forgetUser, sweepSegments } from '../src/host/ingest';
+import { InstanceNotFoundError, type JourneyEnv } from '../src/host/platform';
 import { classifyClick, classifyOpen } from '../src/reporting/classify';
 import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';
+import { type Engagement, UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
 
@@ -346,30 +347,92 @@ describe('tracking', () => {
 
   test('an email sent without an unsubscribe URL has none, whatever the config says now', async () => {
     const { id } = await sendEmail(['https://app.example.com/unsubscribe']);
-    const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
-    const click = await handleTracking(get(`/t/l/${id}/0`), reporting(), options);
-    expect(click).toBeDefined();
-    if (!click) throw new Error('The tracking URL must return a redirect');
-    expect(click.status).toBe(302);
-    expect(click.headers.get('location')).toBe('https://app.example.com/unsubscribe');
+    const click = await handleTracking(get(`/t/l/${id}/0`), reporting(), { product: 'Acme' });
+    expect(click?.status).toBe(302);
+    expect(click?.headers.get('location')).toBe('https://app.example.com/unsubscribe');
   });
 
-  test('an email sent before links carried their purpose: its unsubscribe link still asks', async () => {
-    // Recorded as the earlier versions did, the links behind `/t/c/<message>/<position>`
+  test('an unsubscribe yields the recipient from its own transaction, the same one every time', async () => {
     const { id } = await sendEmail([]);
-    await reporting().recordLinks(id, [
-      'https://app.example.com/a',
-      'https://app.example.com/unsubscribe?list=journeys',
-    ]);
-    const options = { legacyUnsubscribeUrl: 'https://app.example.com/unsubscribe' };
-    const link = await handleTracking(get(`/t/c/${id}/0`), reporting(), options);
-    expect(link?.headers.get('location')).toBe('https://app.example.com/a');
-    const confirm = await handleTracking(get(`/t/c/${id}/1`), reporting(), options);
-    expect(confirm?.status).toBe(200);
-    expect(await confirm?.text()).toContain(`action="/t/u/${id}"`);
-    // Without the URL those emails were sent with, it is a plain link
-    const plain = await handleTracking(get(`/t/c/${id}/1`), reporting());
-    expect(plain?.status).toBe(302);
+    expect(await reporting().recordUnsubscribe(id, 5_000)).toEqual({ userId: 'u1' });
+    // Repeated: the first time stands, the recipient is still named
+    expect(await reporting().recordUnsubscribe(id, 9_000)).toEqual({ userId: 'u1' });
+    const [row] = (
+      await pg.query(
+        'SELECT (extract(epoch from unsubscribed_at) * 1000)::int AS at FROM workflow.message'
+      )
+    ).rows;
+    expect(row).toEqual({ at: 5_000 });
+    expect(
+      await reporting().recordUnsubscribe('0190f000-0000-7000-8000-00000000dead', 5_000)
+    ).toBeUndefined();
+  });
+
+  test('the host hears the unsubscribe with its recipient; its failure never fails the page', async () => {
+    const { id } = await sendEmail([]);
+    const heard: { messageId: string; userId: string; at: number }[] = [];
+    const post = () => new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
+    // The recipient comes from the unsubscribe itself: no read of the copy on the side
+    const noReads = reporting();
+    vi.spyOn(noReads, 'recordOpen').mockRejectedValue(
+      new Error('recordOpen must not be called on the unsubscribe path')
+    );
+    const first = await handleTracking(post(), noReads, {
+      onUnsubscribed: async (unsubscribe) => void heard.push(unsubscribe),
+    });
+    expect(first?.status).toBe(200);
+    expect(heard).toEqual([{ messageId: id, userId: 'u1', at: expect.any(Number) }]);
+
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const second = await handleTracking(post(), noReads, {
+      onUnsubscribed: async () => {
+        throw new Error('wake failed');
+      },
+    });
+    expect(second?.status).toBe(200);
+    expect(error).toHaveBeenCalledOnce();
+    error.mockRestore();
+    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(true);
+
+    // An unknown copy: nothing to tell the host, the page still answers success
+    const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
+      method: 'POST',
+    });
+    expect((await handleTracking(gone, noReads, { onUnsubscribed: async () => {} }))?.status).toBe(
+      200
+    );
+    expect(heard).toHaveLength(1);
+  });
+
+  test('a suppression that fails to write rolls the unsubscribe back with it', async () => {
+    const { id } = await sendEmail([]);
+    // One transaction: the suppression insert fails, so the copy is not marked either
+    const failing: SqlClientLike = {
+      query: async (text, params) => {
+        if (text.includes('suppression')) throw new Error('suppression table unavailable');
+        return client(pg).query(text, params);
+      },
+      transaction: (fn) =>
+        pg.transaction((tx) =>
+          fn({
+            query: async <T>(text: string, params: readonly unknown[] = []) => {
+              if (text.includes('suppression')) throw new Error('suppression table unavailable');
+              return (await tx.query<T>(text, [...params])).rows;
+            },
+            transaction: async () => {
+              throw new Error('nested');
+            },
+          })
+        ),
+    };
+    const broken = new PostgresJourneyStore(failing).reporting;
+    const post = new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
+    await expect(handleTracking(post, broken)).rejects.toThrow('suppression table unavailable');
+    const [row] = (
+      await pg.query('SELECT unsubscribed_at IS NULL AS untouched FROM workflow.message')
+    ).rows;
+    expect(row).toEqual({ untouched: true });
+    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(false);
   });
 
   test('a scanner following every link at once: clicks judged one after another', async () => {
@@ -459,7 +522,7 @@ describe('forgetUser', () => {
           throw new Error('unused');
         },
         get: async (id: string) => {
-          if (behaviour === 'unknown') throw new Error('instance.not_found');
+          if (behaviour === 'unknown') throw new InstanceNotFoundError(id);
           return {
             id,
             sendEvent: async () => undefined,
@@ -480,6 +543,8 @@ describe('forgetUser', () => {
     await store.mergeProfile('u1', { email: 'ada@example.com' });
     await store.upsertDevice({ userId: 'u1', token: 't', platform: 'ios', ts: 1 });
     await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i9', hash: 'h', ts: 1 });
+    // Its runner reached the runtime: the erasure has to stop it
+    expect(await store.admitInstance('i9', 'u1')).toBe(true);
   }
 
   const rowsOf = async (table: string) =>
@@ -492,9 +557,11 @@ describe('forgetUser', () => {
 
     expect(await forgetUser(env, 'u1', store)).toEqual({ ok: true, erased: true, pending: [] });
     expect(terminated).toEqual(['i9']);
-    for (const table of ['profile', 'device', 'entry', 'message', 'message_link', 'erasure']) {
+    for (const table of ['profile', 'device', 'entry', 'message', 'message_link']) {
       expect(await rowsOf(table)).toBe(0);
     }
+    // The tombstone stays, marked erased: a later write about u1 is refused for good
+    expect(await store.erasureState('u1')).toBe('erased');
   });
 
   test('an instance that will not stop keeps everything, and a retry finishes the job', async () => {
@@ -513,6 +580,120 @@ describe('forgetUser', () => {
     expect(await store.pendingErasures()).toEqual([]);
     expect(await rowsOf('entry')).toBe(0);
     expect(await rowsOf('profile')).toBe(0);
+  });
+});
+
+describe('reporting after a tombstone', () => {
+  const instanceRows = async () =>
+    (await pg.query('SELECT instance_id, status FROM workflow.instance')).rows;
+  const instance = { workflow: 'w', instanceId: 'i1', userId: 'u1' };
+
+  test.each(['erasing', 'erased'] as const)(
+    'a late start, node or finish of a user %s leaves no instance row',
+    async (state) => {
+      const store = new PostgresJourneyStore(client(pg));
+      await store.requestErasure('u1', 5);
+      if (state === 'erased') await store.forgetUser('u1', 6);
+      const reporting = store.reporting;
+
+      await reporting.instanceStarted({ ...instance, at: 7 });
+      await reporting.nodeReached({ ...instance, nodeId: 'n1', at: 8 });
+      await reporting.instanceFinished({ ...instance, status: 'completed', at: 9 });
+      await reporting.instanceFinished({ ...instance, status: 'failed', at: 9 });
+      expect(await instanceRows()).toEqual([]);
+
+      // Another user's reporting is untouched
+      await reporting.instanceStarted({ ...instance, instanceId: 'i2', userId: 'u2', at: 7 });
+      await reporting.instanceFinished({
+        ...instance,
+        instanceId: 'i2',
+        userId: 'u2',
+        status: 'completed',
+        at: 9,
+      });
+      expect(await instanceRows()).toEqual([{ instance_id: 'i2', status: 'completed' }]);
+    }
+  );
+
+  test('a finish arriving after the erase does not put the instance back', async () => {
+    const store = new PostgresJourneyStore(client(pg));
+    await store.reporting.instanceStarted({ ...instance, at: 1 });
+    await store.reporting.nodeReached({ ...instance, nodeId: 'n1', at: 2 });
+    await store.requestErasure('u1', 5);
+    await store.forgetUser('u1', 6);
+    expect(await instanceRows()).toEqual([]);
+    await store.reporting.instanceFinished({ ...instance, status: 'completed', at: 9 });
+    await store.reporting.nodeReached({ ...instance, nodeId: 'n2', at: 9 });
+    expect(await instanceRows()).toEqual([]);
+  });
+
+  test('a copy for a user with a tombstone is refused for good, so it is never sent', async () => {
+    const store = new PostgresJourneyStore(client(pg));
+    const copy = {
+      idempotencyKey: 'i1:n1',
+      workflow: 'w',
+      instanceId: 'i1',
+      nodeId: 'n1',
+      template: 'welcome',
+      channel: 'email',
+      userId: 'u1',
+      sentAt: 1,
+    };
+    expect(await store.reporting.recordMessage(copy)).toEqual(expect.any(String));
+    await store.requestErasure('u1', 5);
+
+    const refused = store.reporting.recordMessage({ ...copy, idempotencyKey: 'i1:n2' });
+    await expect(refused).rejects.toBeInstanceOf(UserErasedError);
+    await expect(refused).rejects.toMatchObject({ userId: 'u1', retryable: false });
+    // A retry of the copy already recorded is refused too: nothing of theirs goes out
+    await expect(store.reporting.recordMessage(copy)).rejects.toBeInstanceOf(UserErasedError);
+    const rows = await pg.query('SELECT idempotency_key FROM workflow.message');
+    expect(rows.rows).toEqual([{ idempotency_key: 'i1:n1' }]);
+
+    await store.forgetUser('u1', 6);
+    await expect(store.reporting.recordMessage(copy)).rejects.toBeInstanceOf(UserErasedError);
+    expect((await pg.query('SELECT 1 FROM workflow.message')).rows).toEqual([]);
+  });
+
+  test('the paths that know only the copy re-check its owner: a tombstone makes them no-ops', async () => {
+    const store = new PostgresJourneyStore(client(pg));
+    const { id } = await sendEmail(['https://example.com/a']);
+    const person = (at: number): Engagement => ({
+      at,
+      machine: false,
+      reason: null,
+      userAgent: null,
+      asn: null,
+      organization: null,
+      country: null,
+    });
+    const links = async () =>
+      (await pg.query('SELECT position FROM workflow.message_link')).rows.length;
+    await store.requestErasure('u1', 5);
+
+    // The copy is still there while the erasure is under way; nothing more is recorded under it
+    await store.reporting.recordLinks(id, ['https://example.com/b']);
+    expect(await links()).toBe(1);
+    expect(await store.reporting.recordOpen(id, () => person(6))).toBe(false);
+    expect(await store.reporting.recordDeviceDelivered(id, 6)).toBe(false);
+    expect(
+      await store.reporting.recordClick(id, 0, 6, 1_000, () => ({
+        engagement: person(6),
+        backdate: false,
+      }))
+    ).toBeUndefined();
+    expect((await pg.query('SELECT 1 FROM workflow.message_open')).rows).toEqual([]);
+    expect((await pg.query('SELECT 1 FROM workflow.message_click')).rows).toEqual([]);
+    // The unsubscribe is the compliance exception: recorded whatever the user's state
+    expect(await store.reporting.recordUnsubscribe(id, 6)).toEqual({ userId: 'u1' });
+    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+
+    await store.forgetUser('u1', 7);
+    await store.reporting.recordLinks(id, ['https://example.com/c']);
+    expect(await links()).toBe(0);
+    expect(await store.reporting.recordOpen(id, () => person(8))).toBe(false);
+    expect(await store.reporting.recordUnsubscribe(id, 8)).toBeUndefined();
+    expect((await pg.query('SELECT 1 FROM workflow.message')).rows).toEqual([]);
   });
 });
 

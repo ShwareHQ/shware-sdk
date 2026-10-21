@@ -309,13 +309,6 @@ export type NodeIR =
       action: string;
       /** Argument values; user_property references are resolved at run time, like message props. */
       args: Record<string, PropValueIR>;
-      /**
-       * Hash of the action's source at compile time — the code-identity pin.
-       * IR carries identity only (dual-plane model): the runtime looks the
-       * action up by name and compares this hash against the registered
-       * implementation to detect version skew (warn by default).
-       */
-      codeHash?: string | undefined;
     });
 
 const nodeBase = { id: z.string(), label: z.optional(z.string()), meta: z.optional(NodeMetaIR) };
@@ -382,7 +375,6 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
       type: z.literal('action'),
       action: z.string(),
       args: z.record(z.string(), PropValueIR),
-      codeHash: z.optional(z.string()),
     }),
   ])
 );
@@ -447,14 +439,13 @@ export const TemplateIR = z.object({
 export type TemplateIR = z.infer<typeof TemplateIR>;
 
 /**
- * Action manifest entry: IR records the name and the code-identity hash; the
- * implementation solidifies into the Worker bundle at deploy time, never into
- * IR (custom code stays out of the data plane by design).
+ * Action manifest entry: IR records the name; the implementation solidifies
+ * into the Worker bundle at deploy time, never into IR (custom code stays out
+ * of the data plane by design).
  */
 export const ActionIR = z.object({
   irVersion: z.literal(IR_VERSION),
   name: z.string(),
-  codeHash: z.string(),
 });
 export type ActionIR = z.infer<typeof ActionIR>;
 

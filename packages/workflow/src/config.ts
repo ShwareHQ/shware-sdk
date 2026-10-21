@@ -315,10 +315,22 @@ function checkMessage(
 }
 
 /**
+ * Whether an object schema refuses keys it does not declare: `z.strictObject`
+ * sets its catchall to `never`; `z.object` strips unknown keys and
+ * `z.looseObject` passes them through, and neither refuses.
+ */
+function refusesUnknownKeys(schema: core.$ZodType): boolean {
+  return (schema._zod.def as core.$ZodObjectDef).catchall?._zod.def.type === 'never';
+}
+
+/**
  * An emitted event against the contract, as far as compile time can see: the
- * event is declared, literal payload values parse against their field, and no
- * required field is missing. Values read from the profile are checked when the
- * event is emitted, by the same contract.
+ * event is declared, literal payload values parse against their field, no
+ * required field is missing, and — when the event's schema is strict — no
+ * literal field is undeclared (the Worker would refuse the whole event at
+ * emit time, failing the journey where the compile could have failed the
+ * build). Values read from the profile are checked when the event is emitted,
+ * by the same contract.
  */
 function checkEmit(
   workflow: WorkflowIR,
@@ -335,10 +347,15 @@ function checkEmit(
   }
   const schema = contract.schemas.events[node.event];
   const shape = (schema._zod.def as core.$ZodObjectDef).shape;
+  const strict = refusesUnknownKeys(schema);
   const problems: string[] = [];
   for (const [field, value] of Object.entries(node.payload)) {
     if (typeof value === 'object' && 'type' in value) continue; // read at emit time
-    if (!Object.hasOwn(shape, field)) continue; // a loose payload may carry extra fields
+    if (!Object.hasOwn(shape, field)) {
+      // A loose or stripping payload may carry extra fields; a strict one refuses them
+      if (strict) problems.push(`'${field}' is not a field the contract declares for the event`);
+      continue;
+    }
     const result = z.safeParse(shape[field], value);
     if (!result.success)
       problems.push(`'${field}' = ${JSON.stringify(value)} is refused by the contract`);

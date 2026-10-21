@@ -4,7 +4,13 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { type Plugin, type ViteDevServer, createServer, searchForWorkspaceRoot } from 'vite';
+import {
+  type Plugin,
+  type ViteDevServer,
+  createServer,
+  normalizePath,
+  searchForWorkspaceRoot,
+} from 'vite';
 import svgr from 'vite-plugin-svgr';
 import {
   STATS_METHODS,
@@ -428,6 +434,35 @@ function sourcePosition(cwd: string, rawFile: string, line: number): Located {
   return { file: path, line };
 }
 
+/** Vite's own `server.fs.deny` default; setting the option replaces it, so it is spelled out. */
+const VITE_DEFAULT_DENY = ['.env', '.env.*', '*.{crt,pem}', '**/.git/**'];
+
+/**
+ * `server.fs.deny` patterns for files the page must never be served.
+ *
+ * `fs.allow` covers the whole workspace so the browser can import the
+ * template registries, which also made `GET /@fs/<cwd>/workflow.stats.ts`
+ * answer with the stats source — a file the README calls server-only, and the
+ * one place a connection string is likely to be written as a literal. The
+ * browser never imports the config or the stats file (the virtual module
+ * imports the registries by their own paths; a registry written inline in the
+ * config is refused for this reason), so both are denied outright.
+ *
+ * Patterns go through picomatch, so the path is spelled literally: its glob
+ * characters escaped, slashes normalized the way Vite normalizes the file it
+ * checks. A symlinked file is denied under both of its names.
+ */
+export function projectFileDeny(paths: readonly (string | undefined)[]): string[] {
+  const deny = new Set<string>();
+  for (const path of paths) {
+    if (path === undefined) continue;
+    const literal = resolve(path);
+    deny.add(normalizePath(literal));
+    if (existsSync(literal)) deny.add(normalizePath(realpathSync(literal)));
+  }
+  return [...deny].map((path) => path.replace(/[\\*?[\]{}()!+@]/g, '\\$&'));
+}
+
 export interface StartOptions {
   cwd?: string;
   config?: string;
@@ -474,6 +509,7 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
           searchForWorkspaceRoot(packageRoot),
           appRoot,
         ],
+        deny: [...VITE_DEFAULT_DENY, ...projectFileDeny([configPath, statsPath])],
       },
     },
     // The app and the user's project each have their own react; one copy only. One

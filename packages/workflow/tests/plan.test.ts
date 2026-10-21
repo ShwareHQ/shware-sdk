@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { compileBundle, eq, plan, segment, trigger, workflow } from '../src/index';
+import { action, compileBundle, eq, plan, segment, trigger, workflow } from '../src/index';
 import {
   activeSubscriber,
   checkoutRecovery,
   e,
   gettingStarted,
   inactive30d,
+  plainEmail,
+  plainPush,
   proTips,
   purchaser,
   reengagement,
@@ -257,5 +259,46 @@ describe('plan smoke test across a realistic bundle', () => {
       winback: 'removed',
     });
     expect(result.hasChanges).toBe(true);
+  });
+});
+
+describe('templates and actions in the plan', () => {
+  test('a template is identified by channel and key: an email and a push of one nudge are two entries', () => {
+    const deployed = compileBundle({ workflows: [], templates: [plainEmail('offer')] });
+    const local = compileBundle({
+      workflows: [],
+      templates: [plainEmail('offer'), plainPush('offer')],
+    });
+
+    expect(plan(local, deployed).templates).toEqual([
+      { id: 'email:offer', status: 'unchanged' },
+      { id: 'push:offer', status: 'added' },
+    ]);
+    // Keyed by bare key, the push used to shadow the email and report it as changed
+    expect(plan(local, local).templates.map((t) => t.status)).toEqual(['unchanged', 'unchanged']);
+    expect(plan(deployed, local).templates).toEqual([
+      { id: 'email:offer', status: 'unchanged' },
+      { id: 'push:offer', status: 'removed' },
+    ]);
+  });
+
+  test('actions are added or removed by name; a rewritten handler is not a plan change', () => {
+    const sync = action('sync_crm', async () => {});
+    const rewritten = action('sync_crm', async () => {
+      await Promise.resolve();
+    });
+    const coupon = action('grant_coupon', async () => {});
+    const deployed = compileBundle({ workflows: [], actions: [sync] });
+    const local = compileBundle({ workflows: [], actions: [rewritten, coupon] });
+
+    expect(plan(local, deployed).actions).toEqual([
+      { id: 'grant_coupon', status: 'added' },
+      { id: 'sync_crm', status: 'unchanged' },
+    ]);
+    expect(plan(deployed, local).actions).toEqual([
+      { id: 'grant_coupon', status: 'removed' },
+      { id: 'sync_crm', status: 'unchanged' },
+    ]);
+    expect(plan(local, local).hasChanges).toBe(false);
   });
 });

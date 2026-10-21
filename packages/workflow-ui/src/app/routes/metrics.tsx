@@ -61,6 +61,64 @@ function trendOf(delta: number): Trend {
 const asChannel = (value: string): MetricChannel | undefined =>
   METRIC_CHANNELS.find((channel) => channel === value);
 
+/* ------------------------------- Query state ------------------------------- */
+
+export type StatsStatus = 'pending' | 'error' | 'empty' | 'ready';
+
+/**
+ * What a stats-driven panel is looking at. The three non-ready states used to
+ * collapse into one "No data": a slow source showed it while loading, and a
+ * failing one showed it for good once the toast had gone.
+ */
+export function statsStatus(
+  query: { isPending: boolean; isError: boolean },
+  count: number
+): StatsStatus {
+  if (query.isPending) return 'pending';
+  if (query.isError) return 'error';
+  return count === 0 ? 'empty' : 'ready';
+}
+
+/** The message of a failed query, for a line the toast's disappearance does not take away. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The one line a panel shows instead of its data: loading, the failure, or
+ * that the range is empty. `role` lets a screen reader tell the three apart
+ * the way the copy does.
+ */
+export function StatsNotice({
+  status,
+  error,
+  empty,
+  className = 'mt-6 text-sm',
+}: {
+  status: Exclude<StatsStatus, 'ready'>;
+  error?: unknown;
+  /** The empty-state copy: panels word theirs differently. */
+  empty: string;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  if (status === 'pending') {
+    return (
+      <p role="status" className={`${className} text-muted`}>
+        {t('metrics.loading')}
+      </p>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <p role="alert" className={`${className} text-red-700 dark:text-red-300`}>
+        {t('metrics.error', { message: errorMessage(error) })}
+      </p>
+    );
+  }
+  return <p className={`${className} text-muted`}>{empty}</p>;
+}
+
 /* --------------------------------- Layout --------------------------------- */
 
 /**
@@ -206,12 +264,13 @@ function MetricsTab() {
   const ir = lookup(config.workflows, id);
   const workflowName = ir?.id ?? '';
 
-  const { data: points } = useQuery({
+  const pointsQuery = useQuery({
     queryKey: ['metrics', workflowName, range.from, range.to, granularity, channel ?? ALL],
     queryFn: async () =>
       (await config.stats?.metrics?.(workflowName, { ...range, granularity, channel })) ?? [],
     enabled: ir !== undefined && config.stats?.metrics !== undefined,
   });
+  const points = pointsQuery.data;
 
   const previous = previousRange(range);
   const { data: previousPoints } = useQuery({
@@ -221,18 +280,20 @@ function MetricsTab() {
     enabled: ir !== undefined && config.stats?.metrics !== undefined,
   });
 
-  const { data: links } = useQuery({
+  const linksQuery = useQuery({
     queryKey: ['links', workflowName, range.from, range.to, channel ?? ALL],
     queryFn: async () => (await config.stats?.links?.(workflowName, { ...range, channel })) ?? [],
     enabled: ir !== undefined && config.stats?.links !== undefined,
   });
+  const links = linksQuery.data;
 
-  const { data: messages } = useQuery({
+  const messagesQuery = useQuery({
     queryKey: ['message-stats', workflowName, range.from, range.to, channel ?? ALL],
     queryFn: async () =>
       (await config.stats?.messages?.(workflowName, { ...range, channel })) ?? [],
     enabled: ir !== undefined && config.stats?.messages !== undefined,
   });
+  const messages = messagesQuery.data;
 
   /* The same glyphs the message table puts in front of its rows: a channel has
      to read the same in the picker as it does in the data it filters. */
@@ -364,6 +425,10 @@ function MetricsTab() {
   const topLinks = [...(links ?? [])].sort((a, b) => b.clicks - a.clicks).slice(0, LINK_LIMIT);
   const totals = totalsOf(rows.map((entry) => entry.row));
 
+  const cardsStatus = statsStatus(pointsQuery, buckets.length);
+  const messagesStatus = statsStatus(messagesQuery, rows.length);
+  const linksStatus = statsStatus(linksQuery, topLinks.length);
+
   return (
     <div className="flex-1 p-6">
       <div className="flex flex-wrap items-center gap-2">
@@ -385,10 +450,10 @@ function MetricsTab() {
         />
       </div>
 
-      {buckets.length === 0 ? (
-        <p className="mt-6 text-sm text-muted">{t('metrics.noData')}</p>
-      ) : (
+      {cardsStatus === 'ready' ? (
         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{CARD_KEYS.map(cardOf)}</div>
+      ) : (
+        <StatsNotice status={cardsStatus} error={pointsQuery.error} empty={t('metrics.noData')} />
       )}
 
       {config.stats.messages !== undefined && (
@@ -418,10 +483,15 @@ function MetricsTab() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {messagesStatus !== 'ready' ? (
                 <tr>
-                  <td className="px-4 py-4 text-sm text-muted" colSpan={MESSAGE_COLUMNS.length + 1}>
-                    {t('metrics.messages.empty')}
+                  <td className="px-4 py-4" colSpan={MESSAGE_COLUMNS.length + 1}>
+                    <StatsNotice
+                      status={messagesStatus}
+                      error={messagesQuery.error}
+                      empty={t('metrics.messages.empty')}
+                      className="text-sm"
+                    />
                   </td>
                 </tr>
               ) : (
@@ -508,10 +578,15 @@ function MetricsTab() {
               </tr>
             </thead>
             <tbody>
-              {topLinks.length === 0 ? (
+              {linksStatus !== 'ready' ? (
                 <tr>
-                  <td className="px-5 py-4 text-sm text-muted" colSpan={2}>
-                    {t('metrics.links.empty')}
+                  <td className="px-5 py-4" colSpan={2}>
+                    <StatsNotice
+                      status={linksStatus}
+                      error={linksQuery.error}
+                      empty={t('metrics.links.empty')}
+                      className="text-sm"
+                    />
                   </td>
                 </tr>
               ) : (

@@ -1,9 +1,19 @@
-import { ApnsPushSender, apnsKeyFromBase64 } from '../apns';
-import type { JourneyEnv } from '../cloudflare/bindings';
+import {
+  DEAD_TOKEN_REASONS as APNS_DEAD_TOKEN_REASONS,
+  ApnsProviderToken,
+  ApnsPushSender,
+  apnsKeyFromBase64,
+} from '../apns';
 import { type JourneyConfig, apnsEnvironment } from '../config';
 import { EmailSender, type EmailTransport } from '../email-sender';
-import type { MessageSender, OutboundMessage } from '../engine/ports';
-import { FcmPushSender, serviceAccountFromBase64 } from '../fcm';
+import type { MessageSender } from '../engine/ports';
+import { PermanentError } from '../engine/retry';
+import {
+  DEAD_TOKEN_REASONS as FCM_DEAD_TOKEN_REASONS,
+  FcmAccessToken,
+  FcmPushSender,
+  serviceAccountFromBase64,
+} from '../fcm';
 import { registryPushRenderer } from '../push';
 import { registryRenderer } from '../react-email';
 import { type JourneyMode, type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
@@ -17,8 +27,13 @@ import {
   renderSlackContent,
 } from '../templates';
 import { DiscordWebhookSender, SlackWebhookSender } from '../webhooks';
-import { WebPushSender } from '../webpush';
-import { removeDevice } from './router';
+import {
+  VapidSigner,
+  DEAD_TOKEN_REASONS as WEB_PUSH_DEAD_TOKEN_REASONS,
+  WebPushSender,
+} from '../webpush';
+import { removeDevice } from './ingest';
+import type { JourneyEnv } from './platform';
 import { routeByChannel, routeByPlatform } from './senders';
 
 /**
@@ -45,11 +60,16 @@ export function runtimeFromConfig(
   return resolveRuntime(config?.runtime, journeyMode(env));
 }
 
-/** A sender that fails every message with the reason the channel cannot deliver. */
+/**
+ * A sender that fails every message with the reason the channel cannot deliver — for good: the
+ * configuration is the same on every attempt, so the step does not retry into it.
+ */
 function unavailable(reason: string): MessageSender {
   return {
     async send(message) {
-      throw new Error(`cannot send '${message.template}' on ${message.channel}: ${reason}`);
+      throw new PermanentError(
+        `cannot send '${message.template}' on ${message.channel}: ${reason}`
+      );
     },
   };
 }
@@ -64,22 +84,81 @@ function requireSecret(
 ): string {
   const value = env[name];
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${name} is not set: the environment must hold it for the configured channel`);
+    // Missing on this attempt, missing on the next: the deployment has to change, not the step
+    throw new PermanentError(
+      `${name} is not set: the environment must hold it for the configured channel`
+    );
   }
   return value;
 }
 
 /**
- * A sender built on its first message. A platform's secret is only required
- * when something is actually sent there: a journey that only emails must not
- * fail because the APNs key is missing from a local `.dev.vars`.
+ * The provider credentials — `ApnsProviderToken`, `FcmAccessToken`, `VapidSigner` — for as long
+ * as the host lives. `channelsFromConfig` runs once per workflow run (every wake of every
+ * instance) and builds the senders anew each time; what must outlive the run is the credential
+ * state they hold: the APNs provider JWT must be reused for at least 20 minutes (Apple answers a
+ * sender that re-signs on every push with 429 `TooManyProviderTokenUpdates`), the FCM access
+ * token is good for an hour, the VAPID key import is wasted work twice.
+ *
+ * The cache is the host's (`createJourneyHost` makes one and hands it to every run), not the
+ * run's `env`: a Lambda invocation builds a fresh env object for each run (its instance port is
+ * in it), so a cache keyed on env would miss on every wake. Inside, the key names the provider,
+ * the ids that identify the key and a digest of the secret — so a rotated secret or a reloaded
+ * host mints a new credential instead of reusing the old, and the secret itself is in no key and
+ * no log. Nothing that shapes the sender (topic, environment, relay, registry, store) is in it:
+ * the sender is built per call around the shared credential.
  */
-function lazy(build: () => MessageSender): MessageSender {
-  let sender: MessageSender | undefined;
+export interface ProviderCache {
+  /** The credential under `key`, built on the first call and returned as is after that. */
+  get<T>(key: string, build: () => T): T;
+}
+
+export function createProviderCache(): ProviderCache {
+  const credentials = new Map<string, unknown>();
+  return {
+    get<T>(key: string, build: () => T): T {
+      if (!credentials.has(key)) credentials.set(key, build());
+      return credentials.get(key) as T;
+    },
+  };
+}
+
+/** A number for each fetch implementation, so a credential minted through one is not reused with another. */
+const identities = new WeakMap<object, number>();
+let nextIdentity = 1;
+function identity(value: object | undefined): string {
+  if (value === undefined) return 'global';
+  let id = identities.get(value);
+  if (id === undefined) {
+    id = nextIdentity++;
+    identities.set(value, id);
+  }
+  return String(id);
+}
+
+/** The first 8 hex of the secret's SHA-256: enough to tell a rotation apart, nothing of the secret. */
+async function secretDigest(secret: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return Array.from(new Uint8Array(digest).slice(0, 4), (b) =>
+    b.toString(16).padStart(2, '0')
+  ).join('');
+}
+
+/**
+ * A sender built on its first message, then kept for this call. `build` reads the secrets (and
+ * so may throw a `PermanentError` naming the missing variable): a platform's secret is only
+ * required when something is actually sent there, so a journey that only emails must not fail
+ * because the APNs key is missing from a local `.dev.vars`. A build that failed is not kept.
+ */
+function lazy(build: () => Promise<MessageSender>): MessageSender {
+  let sender: Promise<MessageSender> | undefined;
   return {
     async send(message) {
-      sender ??= build();
-      return sender.send(message);
+      sender ??= build().catch((error: unknown) => {
+        sender = undefined;
+        throw error;
+      });
+      return (await sender).send(message);
     },
   };
 }
@@ -101,9 +180,15 @@ export function channelsFromConfig(
     fetch?: typeof fetch;
     /** APNs is HTTP/2 only: a Node host passes an HTTP/2 fetch here (its own fetch cannot). */
     apnsFetch?: typeof fetch | undefined;
+    /**
+     * Where the provider credentials live across runs (`createProviderCache`): the host's, made
+     * once with it. Without one, this call's credentials are its own — nothing is reused.
+     */
+    providers?: ProviderCache | undefined;
   } = {}
 ): MessageSender {
   const mode = journeyMode(env);
+  const providers = options.providers ?? createProviderCache();
 
   const email = (): MessageSender => {
     const registry = config.templates?.email;
@@ -120,64 +205,108 @@ export function channelsFromConfig(
     const registry = config.templates?.push;
     if (registry === undefined) return unavailable('no push templates are registered');
     const render = registryPushRenderer(registry);
-    // A token the provider reports as gone is forgotten (nothing left to deliver to), waking the
-    // waits that read devices, as a removal through the API does
-    const onUnregistered = async (message: OutboundMessage) => {
-      if (message.device !== undefined && options.store !== undefined) {
-        await removeDevice(env, message.device.token, options.store);
-      }
-    };
+    /**
+     * A token the provider reports as gone is forgotten (nothing left to deliver to), waking the
+     * waits that read devices, as a removal through the API does. Done here, per run, on the
+     * settled result, so the credential cached across runs (see `ProviderCache`) never holds a
+     * run's store.
+     */
+    const dropDeadTokens = (
+      provider: MessageSender,
+      deadTokenReasons: ReadonlySet<string>
+    ): MessageSender => ({
+      async send(message) {
+        const result = await provider.send(message);
+        if (
+          result !== undefined &&
+          deadTokenReasons.has(result.reason) &&
+          message.device !== undefined &&
+          options.store !== undefined
+        ) {
+          await removeDevice(env, message.device.token, options.store);
+        }
+        return result;
+      },
+    });
     const platforms: Record<string, MessageSender> = {};
     const apns = config.apns;
     if (apns !== undefined) {
-      platforms.ios = lazy(
-        () =>
-          new ApnsPushSender({
-            keyId: apns.keyId,
-            teamId: apns.teamId,
-            privateKey: apnsKeyFromBase64(requireSecret(env, 'APNS_PRIVATE_KEY_BASE64')),
+      const apnsFetch = options.apnsFetch ?? options.fetch;
+      const environment = apnsEnvironment(apns, mode);
+      platforms.ios = dropDeadTokens(
+        lazy(async () => {
+          const secret = requireSecret(env, 'APNS_PRIVATE_KEY_BASE64');
+          const credentials = providers.get(
+            JSON.stringify(['apns', apns.keyId, apns.teamId, await secretDigest(secret)]),
+            () =>
+              new ApnsProviderToken({
+                keyId: apns.keyId,
+                teamId: apns.teamId,
+                privateKey: apnsKeyFromBase64(secret),
+              })
+          );
+          return new ApnsPushSender({
+            credentials,
             topic: apns.topic,
-            environment: apnsEnvironment(apns, mode),
+            environment,
             render,
-            onUnregistered,
             ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
-            ...((options.apnsFetch ?? options.fetch) === undefined
-              ? {}
-              : { fetch: options.apnsFetch ?? options.fetch }),
-          })
+            ...(apnsFetch === undefined ? {} : { fetch: apnsFetch }),
+          });
+        }),
+        APNS_DEAD_TOKEN_REASONS
       );
     }
     const fcm = config.fcm;
     if (fcm !== undefined) {
-      platforms.android = lazy(
-        () =>
-          new FcmPushSender({
-            serviceAccount: serviceAccountFromBase64(
-              requireSecret(env, 'GOOGLE_APPLICATION_CREDENTIALS_BASE64')
-            ),
+      platforms.android = dropDeadTokens(
+        lazy(async () => {
+          const secret = requireSecret(env, 'GOOGLE_APPLICATION_CREDENTIALS_BASE64');
+          const serviceAccount = serviceAccountFromBase64(secret);
+          // The token endpoint is called through the fetch: another fetch is another credential
+          const credentials = providers.get(
+            JSON.stringify([
+              'fcm',
+              serviceAccount.client_email,
+              serviceAccount.project_id,
+              identity(options.fetch),
+              await secretDigest(secret),
+            ]),
+            () =>
+              new FcmAccessToken({
+                serviceAccount,
+                ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+              })
+          );
+          return new FcmPushSender({
+            credentials,
             render,
-            onUnregistered,
             ...(fcm.androidChannelId === undefined
               ? {}
               : { android: { channel_id: fcm.androidChannelId } }),
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-          })
+          });
+        }),
+        FCM_DEAD_TOKEN_REASONS
       );
     }
     const webPush = config.webPush;
     if (webPush !== undefined) {
-      platforms.web = lazy(
-        () =>
-          new WebPushSender({
-            vapid: {
-              subject: webPush.subject,
-              publicKey: requireSecret(env, 'VAPID_PUBLIC_KEY'),
-              privateKey: requireSecret(env, 'VAPID_PRIVATE_KEY'),
-            },
+      platforms.web = dropDeadTokens(
+        lazy(async () => {
+          const publicKey = requireSecret(env, 'VAPID_PUBLIC_KEY');
+          const privateKey = requireSecret(env, 'VAPID_PRIVATE_KEY');
+          const credentials = providers.get(
+            JSON.stringify(['vapid', webPush.subject, publicKey, await secretDigest(privateKey)]),
+            () => new VapidSigner({ subject: webPush.subject, publicKey, privateKey })
+          );
+          return new WebPushSender({
+            credentials,
             render,
-            onUnregistered,
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-          })
+          });
+        }),
+        WEB_PUSH_DEAD_TOKEN_REASONS
       );
     }
     if (Object.keys(platforms).length === 0)
@@ -192,7 +321,7 @@ export function channelsFromConfig(
   const webhookUrl = (channel: 'discord' | 'slack', template: DiscordTemplate | SlackTemplate) => {
     const url = template.webhook(env as unknown as Record<string, unknown>);
     if (typeof url !== 'string' || url === '') {
-      throw new Error(
+      throw new PermanentError(
         `${channel} template '${template.id}': its webhook URL is not set in the environment`
       );
     }

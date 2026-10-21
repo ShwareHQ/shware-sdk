@@ -8,11 +8,11 @@ import {
   type FactSource,
   type JourneyContext,
   type OutboundMessage,
-  PROFILE_UPDATED_EVENT,
   type PushDevice,
   RegistryActionInvoker,
   evaluateCondition,
   matchesWhere,
+  profileUpdatedEvent,
   relevantEvents,
   runJourney,
 } from '../src/engine/index';
@@ -20,6 +20,7 @@ import { nextWindowStart } from '../src/engine/time-window';
 import {
   type FlowBuilder,
   action,
+  and,
   compileBundle,
   eq,
   performed,
@@ -58,9 +59,6 @@ class FakeStep implements EngineStep {
   }
   async sleep(name: string, ms: number): Promise<void> {
     this.sleeps.push({ name, ms });
-  }
-  async sleepUntil(name: string, timestampMs: number): Promise<void> {
-    this.sleeps.push({ name, ms: timestampMs });
   }
   async subscribe(name: string, events: readonly string[]): Promise<void> {
     this.stepNames.push(name);
@@ -283,7 +281,7 @@ describe('runJourney: action', () => {
     plan: u.subscription_plan,
   });
 
-  test('invokes through the port with resolved args, code pin and idempotency key', async () => {
+  test('invokes through the port with resolved args and idempotency key', async () => {
     const { ctx, step, facts } = makeContext();
     facts.props.subscription_plan = 'pro';
     const invoked: ActionInvocation[] = [];
@@ -299,7 +297,6 @@ describe('runJourney: action', () => {
     expect(invoked).toEqual([
       {
         action: 'sync_crm',
-        codeHash: sync.codeHash,
         args: { plan: 'pro' },
         userId: 'u_1',
         idempotencyKey: 'inst_1:0',
@@ -326,13 +323,12 @@ describe('RegistryActionInvoker', () => {
     const invoker = new RegistryActionInvoker([
       {
         name: 'sync_crm',
-        codeHash: 'h1',
         handler: async (args, ctx) => {
           calls.push([args, ctx]);
         },
       },
     ]);
-    await invoker.invoke({ ...base, action: 'sync_crm', codeHash: 'h1', args: { plan: 'pro' } });
+    await invoker.invoke({ ...base, action: 'sync_crm', args: { plan: 'pro' } });
     expect(calls).toEqual([[{ plan: 'pro' }, { userId: 'u_1', idempotencyKey: 'inst_1:0' }]]);
   });
 
@@ -344,14 +340,13 @@ describe('RegistryActionInvoker', () => {
     const invoker = new RegistryActionInvoker([
       {
         name: 'grant_coupon',
-        codeHash: 'h1',
         handler: async (_args, ctx) => {
           seen.push(ctx.idempotencyKey);
           delivered.add(ctx.idempotencyKey);
         },
       },
     ]);
-    const invocation = { ...base, action: 'grant_coupon', codeHash: 'h1' };
+    const invocation = { ...base, action: 'grant_coupon' };
 
     await invoker.invoke(invocation);
     await invoker.invoke(invocation); // the replay
@@ -363,27 +358,6 @@ describe('RegistryActionInvoker', () => {
   test('an unregistered action fails the step', async () => {
     const invoker = new RegistryActionInvoker([]);
     await expect(invoker.invoke({ ...base, action: 'ghost' })).rejects.toThrow(/not registered/);
-  });
-
-  test('code skew warns by default and fails under strict', async () => {
-    const entry = { name: 'sync_crm', codeHash: 'deployed', handler: async () => {} };
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    await new RegistryActionInvoker([entry]).invoke({
-      ...base,
-      action: 'sync_crm',
-      codeHash: 'pinned',
-    });
-    expect(warn).toHaveBeenCalledOnce();
-    warn.mockRestore();
-
-    await expect(
-      new RegistryActionInvoker([entry], 'strict').invoke({
-        ...base,
-        action: 'sync_crm',
-        codeHash: 'pinned',
-      })
-    ).rejects.toThrow(/differs from the version pinned/);
   });
 });
 
@@ -410,7 +384,7 @@ describe('waitUntil subscriptions', () => {
     const outcome = await runJourney(propWait.toIR(), ctx);
 
     expect(outcome).toEqual({ status: 'completed' }); // timeout -> continue
-    expect(step.subscriptions).toEqual([[PROFILE_UPDATED_EVENT]]);
+    expect(step.subscriptions).toEqual([[profileUpdatedEvent('subscription_status')]]);
   });
 
   test('the subscription is registered before the first condition check', async () => {
@@ -428,6 +402,90 @@ describe('waitUntil subscriptions', () => {
     expect(subscribeAt).toBeGreaterThanOrEqual(0);
     expect(subscribeAt).toBeLessThan(firstCheckAt);
     expect(step.stepNames).toContain('0:unsubscribe');
+  });
+});
+
+describe('the wake budget (MAX_WAIT_CHECKS)', () => {
+  const waiter = workflow({ id: 'budget', trigger: trigger.event(e.sign_up) })
+    .waitUntil(performed(e.login), { timeout: '1 hour', onTimeout: 'exit' })
+    .email(proTips);
+
+  /** A wake storm: every wait is woken at once, the condition never holding on its own. */
+  const storm = () => {
+    const made = makeContext();
+    made.step.waitForWake = async () => 'event';
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    return { ...made, warned };
+  };
+
+  test('exhausted, the wait sleeps to its deadline and checks there: not met → onTimeout', async () => {
+    const { ctx, step, warned } = storm();
+    try {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-08-16T00:00:00Z') });
+      const outcome = await runJourney(waiter.toIR(), ctx);
+      expect(outcome).toEqual({ status: 'exited', reason: '0:timeout' });
+      // The checks stop at the budget, the wait does not: it sleeps what is left of the hour
+      expect(step.stepNames.filter((n) => n.startsWith('0:check:'))).toHaveLength(64);
+      expect(step.stepNames).toContain('0:budget:remaining');
+      expect(step.sleeps).toEqual([{ name: '0:budget:sleep', ms: 60 * 60_000 }]);
+      expect(step.stepNames.indexOf('0:final')).toBeGreaterThan(
+        step.stepNames.indexOf('0:budget:remaining')
+      );
+      expect(step.stepNames).toContain('0:unsubscribe');
+      expect(warned).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      warned.mockRestore();
+    }
+  });
+
+  test('met by the deadline → the flow goes on', async () => {
+    const { ctx, step, facts, sent, warned } = storm();
+    try {
+      // The login lands during the long sleep: the final check at the deadline sees it
+      step.sleep = async (name, ms) => {
+        step.sleeps.push({ name, ms });
+        facts.events.push({ name: 'login', ts: Date.now() });
+      };
+      const outcome = await runJourney(waiter.toIR(), ctx);
+      expect(outcome).toEqual({ status: 'completed' });
+      expect(sent.map((m) => m.template)).toEqual(['pro_tips']);
+      expect(step.sleeps.map((s) => s.name)).toEqual(['0:budget:sleep']);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+});
+
+describe('time_window', () => {
+  const windowed = workflow({ id: 'tw', trigger: trigger.event(e.sign_up) })
+    .timeWindow({ days: ['fri'], between: ['09:00', '17:00'], tz: 'UTC' })
+    .email(proTips);
+
+  test('checkpoints the remaining time, then sleeps it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-19T12:00:00Z') }); // Monday
+    try {
+      const { ctx, step, sent } = makeContext();
+      expect(await runJourney(windowed.toIR(), ctx)).toEqual({ status: 'completed' });
+      const expected = Date.parse('2026-10-23T09:00:00Z') - Date.now();
+      expect(step.stepNames).toContain('0:remaining');
+      expect(step.sleeps).toEqual([{ name: '0:sleep', ms: expected }]);
+      expect(sent).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('already inside the window, nothing is slept', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T10:00:00Z') }); // Friday
+    try {
+      const { ctx, step } = makeContext();
+      expect(await runJourney(windowed.toIR(), ctx)).toEqual({ status: 'completed' });
+      expect(step.sleeps).toEqual([]);
+      expect(step.stepNames).not.toContain('0:remaining');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -571,32 +629,6 @@ describe('conversion apart from the ending', () => {
     expect(started).toEqual([
       expect.objectContaining({ instanceId: 'inst_1', at: ctx.enteredAtMs }),
     ]);
-  });
-});
-
-describe('checkpoints written before conversions were recorded apart', () => {
-  test('replay neither invents a conversion nor cuts a wait short', async () => {
-    const wf = workflow({
-      id: 'legacy_replay',
-      trigger: trigger.event(e.begin_checkout),
-      goal: { condition: performed(e.purchase), within: '3 days' },
-    })
-      .waitUntil(performed(e.login), { timeout: '1 day' })
-      .email(firstTimeRecovery);
-    const { ctx, step, sent } = makeContext();
-    // What the old code checkpointed: the guard's booleans, a wait check's `false`
-    const legacy: Record<string, unknown> = {
-      'entry:guard': { goalMet: false, exitMet: false },
-      '0:check:0': false,
-    };
-    step.do = async <T>(name: string, fn: () => Promise<T>): Promise<T> =>
-      name in legacy ? (legacy[name] as T) : fn();
-    step.wakeScript = ['timeout'];
-
-    const outcome = await runJourney(wf.toIR(), ctx);
-
-    expect(outcome).toEqual({ status: 'completed' });
-    expect(sent).toHaveLength(1);
   });
 });
 
@@ -1158,7 +1190,23 @@ describe('push goes to devices', () => {
     expect(await evaluateCondition(condition, facts, Date.now())).toBe(false);
     facts.props.email = 'ada@acme.test';
     expect(await evaluateCondition(condition, facts, Date.now())).toBe(true);
-    expect(await relevantEvents(condition, facts)).toEqual([PROFILE_UPDATED_EVENT]);
+    expect(await relevantEvents(condition, facts)).toEqual([profileUpdatedEvent('email')]);
+  });
+
+  test('relevantEvents scopes profile wake-ups to the property each predicate reads', async () => {
+    const facts = new FakeFacts();
+    const props = condIR(and(eq(u.subscription_plan, 'pro'), reachable('sms')));
+    expect(await relevantEvents(props, facts)).toEqual([
+      profileUpdatedEvent('subscription_plan'),
+      profileUpdatedEvent('phone'),
+    ]);
+    // A survey goes to the email address; in_app, slack and discord have no address to wait on
+    expect(await relevantEvents(condIR(reachable('survey')), facts)).toEqual([
+      profileUpdatedEvent('email'),
+    ]);
+    expect(await relevantEvents(condIR(reachable('in_app')), facts)).toEqual([]);
+    expect(await relevantEvents(condIR(reachable('slack')), facts)).toEqual([]);
+    expect(await relevantEvents(condIR(reachable('discord')), facts)).toEqual([]);
   });
 });
 

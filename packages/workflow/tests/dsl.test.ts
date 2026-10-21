@@ -250,26 +250,25 @@ describe('flow nodes', () => {
     ).toMatchObject({ type: 'cohort', key: 'exp_coupon' });
   });
 
-  test('run compiles identity only: action name, args and codeHash — never the code', () => {
+  test('run compiles identity only: action name and args — never the code, and no code hash', () => {
     const sync = action<{ plan: string }>('sync_crm', async () => {});
     const node = nodeOf((w) => w.run(sync, { plan: u.subscription_plan }));
-    expect(node).toMatchObject({
+    expect(node).toEqual({
+      id: '0',
       type: 'action',
       action: 'sync_crm',
       args: { plan: { type: 'user_property', path: 'subscription_plan' } },
-      codeHash: sync.codeHash,
+      meta: expect.anything(),
     });
+    expect(node).not.toHaveProperty('codeHash');
     expect(JSON.stringify(node)).not.toContain('=>');
   });
 
-  test('codeHash follows the handler source: same code same hash, different code different hash', () => {
+  test('action() records no hash of its source: the printed handler depends on the bundler', () => {
+    // Two toolchains print one function differently (minification, helpers), so a hash of
+    // handler.toString() reported a "changed" action on every build. Identity is the ref.
     const a = action('a', async () => {});
-    const b = action('b', async () => {});
-    const c = action('c', async () => {
-      await Promise.resolve();
-    });
-    expect(a.codeHash).toBe(b.codeHash);
-    expect(a.codeHash).not.toBe(c.codeHash);
+    expect(Object.keys(a).sort()).toEqual(['handler', 'name']);
   });
 
   test('waitUntil defaults onTimeout to continue', () => {
@@ -402,12 +401,12 @@ describe('bundle compilation', () => {
     );
   });
 
-  test('actions form a manifest of name and codeHash', () => {
+  test('actions form a manifest of names', () => {
     const sync = action('sync_crm', async () => {});
     const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).run(sync);
     const bundle = compileBundle({ workflows: [wf], actions: [sync] });
     expect(() => BundleIR.parse(bundle)).not.toThrow();
-    expect(bundle.actions).toEqual([{ irVersion: 2, name: 'sync_crm', codeHash: sync.codeHash }]);
+    expect(bundle.actions).toEqual([{ irVersion: 2, name: 'sync_crm' }]);
   });
 
   test('an action a workflow runs must be in the bundle, even inside a branch arm', () => {
@@ -421,25 +420,50 @@ describe('bundle compilation', () => {
     );
   });
 
-  test('two same-named actions with different code cannot share one identity', () => {
+  test('two same-named actions cannot share one identity, even with identical source', () => {
+    // Identity is the ref, not the printed source: two definitions whose handlers
+    // happen to print the same are still two implementations behind one name.
     const used = action('sync_crm', async () => {});
-    const listed = action('sync_crm', async () => {
-      await Promise.resolve();
-    });
+    const listed = action('sync_crm', async () => {});
     const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).run(used);
     expect(() => compileBundle({ workflows: [wf], actions: [listed] })).toThrow(
-      /whose code differs/
+      /not the definition listed in 'actions'/
     );
+  });
+
+  test('an action is found inside branch arms, cohort arms, timeout flows and fragments', () => {
+    const listed = action('sync_crm', async () => {});
+    const other = action('sync_crm', async () => {});
+    const fragment = flow((w) => w.run(other));
+    const inBranch = workflow({ id: 'w', trigger: trigger.event(e.login) }).branch([
+      activeSubscriber,
+      fragment,
+    ]);
+    const inCohort = workflow({ id: 'w', trigger: trigger.event(e.login) }).cohort({
+      a: { weight: 50, flow: (w) => w.run(other) },
+      b: { weight: 50 },
+    });
+    const inTimeout = workflow({ id: 'w', trigger: trigger.event(e.login) }).waitUntil(purchaser, {
+      timeout: '1 day',
+      onTimeout: (w) => w.run(other),
+    });
+    for (const wf of [inBranch, inCohort, inTimeout]) {
+      expect(() =>
+        compileBundle({
+          workflows: [wf],
+          segments: [activeSubscriber, purchaser],
+          actions: [listed],
+        })
+      ).toThrow(/not the definition listed in 'actions'/);
+    }
   });
 
   test('two same-named actions inside one workflow are caught whichever runs last', () => {
     // Only one of the two can be the bundled implementation; the other node
-    // would run against code that never matched it (the runtime's codeHash-skew
-    // path), so the order they appear in must not decide whether it compiles.
+    // would run against code that never matched it, so the order they appear
+    // in must not decide whether it compiles.
     const listed = action('sync_crm', async () => {});
-    const other = action('sync_crm', async () => {
-      await Promise.resolve();
-    });
+    const other = action('sync_crm', async () => {});
     const listedLast = workflow({ id: 'w', trigger: trigger.event(e.login) })
       .run(other)
       .run(listed);
@@ -448,11 +472,37 @@ describe('bundle compilation', () => {
       .run(other);
 
     expect(() => compileBundle({ workflows: [listedLast], actions: [listed] })).toThrow(
-      /whose code differs/
+      /not the definition listed in 'actions'/
     );
     expect(() => compileBundle({ workflows: [listedFirst], actions: [listed] })).toThrow(
-      /whose code differs/
+      /not the definition listed in 'actions'/
     );
+  });
+
+  test('segments that reference each other in a cycle fail to compile with the path', () => {
+    const a = segment({ id: 'a', condition: not(performed(e.login)) });
+    const b = segment({ id: 'b', condition: a });
+    const c = segment({ id: 'c', condition: and(b, performed(e.login)) });
+    // a → b → c → a is not a valid definition of any of them
+    (a as unknown as { definition: ConditionIR }).definition = { type: 'segment', segment: 'c' };
+    expect(() => compileBundle({ workflows: [], segments: [a, b, c] })).toThrow(
+      /cycle: a → c → b → a|cycle: b → a → c → b|cycle: c → b → a → c/
+    );
+    // A segment referencing itself is the shortest cycle
+    const self = segment({ id: 'self', condition: performed(e.login) });
+    (self as unknown as { definition: ConditionIR }).definition = {
+      type: 'segment',
+      segment: 'self',
+    };
+    expect(() => compileBundle({ workflows: [], segments: [self] })).toThrow(/cycle: self → self/);
+    // A diamond (two paths to one segment) is not a cycle
+    const leaf = segment({ id: 'leaf', condition: performed(e.login) });
+    const left = segment({ id: 'left', condition: leaf });
+    const right = segment({ id: 'right', condition: leaf });
+    const top = segment({ id: 'top', condition: and(left, right) });
+    expect(() =>
+      compileBundle({ workflows: [], segments: [top, left, right, leaf] })
+    ).not.toThrow();
   });
 });
 

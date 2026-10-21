@@ -5,12 +5,19 @@ import {
   type DurableExecutionInvocationOutput,
   withDurableExecution,
 } from '@aws/durable-execution-sdk-js';
-import type { JourneyEnv } from '../cloudflare/bindings';
 import { longestJourneyMs } from '../engine/duration';
 import type { JourneyOutcome } from '../engine/ports';
+import { PermanentError } from '../engine/retry';
 import { executeJourney } from '../host/execute';
+import { readWithRetry } from '../host/fresh-read';
+import {
+  SWEEP_PAGE_SIZE,
+  type SweepResult,
+  sweepMaintenance,
+  sweepSegmentsPaged,
+} from '../host/ingest';
 import { type JourneyHostOptions, createJourneyHost } from '../host/journey-host';
-import { type SweepResult, sweepSegments } from '../host/router';
+import type { JourneyEnv } from '../host/platform';
 import { http2Fetch } from '../http2-client';
 import type { BundleVersion, ExecutionRegistry, JourneyStore, StoreLease } from '../store/index';
 import { AwsEngineStep } from './engine-step';
@@ -47,7 +54,7 @@ import { type LambdaApi, sdkLambdaApi } from './lambda-api';
 export const SWEEP_EVENT_TYPE = '$workflow.sweep';
 
 /** What journeyLambda reads from its env: `JourneyEnv` without the binding it supplies itself. */
-export type JourneyLambdaEnv = Omit<JourneyEnv, 'JOURNEY' | 'DB' | 'WORKFLOW_KV' | 'EMAIL'>;
+export type JourneyLambdaEnv = Omit<JourneyEnv, 'JOURNEY' | 'DB' | 'EMAIL'>;
 
 export interface JourneyLambdaOptions<Env extends JourneyLambdaEnv> extends Omit<
   JourneyHostOptions<Env & JourneyEnv>,
@@ -187,6 +194,23 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
   const run = async (input: RunInput, context: DurableContext): Promise<JourneyOutcome> => {
     const { store, env, executions } = open(context);
     const { instanceId, params } = input;
+    // Only a start the router recorded may run, byte for byte: the function can be invoked by
+    // anything its policy lets through, and an input of this shape would otherwise run any
+    // workflow for any user. A stopped execution (an erasure) may not come back either. Outside
+    // any step — a step would replay the first invocation's "not stopped" on every wake — so the
+    // execution fails at once on a refusal; only the read itself is retried, briefly, when the
+    // database stumbled.
+    const record = await readWithRetry(() => executions.get(instanceId), {
+      what: 'run entry',
+      instanceId,
+    });
+    if (
+      record === undefined ||
+      record.stoppedAt !== undefined ||
+      record.input !== JSON.stringify(input)
+    ) {
+      throw new PermanentError('journeyLambda: run input is not a recorded start');
+    }
     // Running is the proof the start got through, whatever became of the invoke's response
     await context.step('$workflow:started', async () => {
       await executions.markSubmitted(
@@ -240,16 +264,50 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
     return context.step('http', serve, { retryStrategy: () => ({ shouldRetry: false }) });
   };
 
-  const sweep = (context: DurableContext): Promise<SweepResult> =>
-    context.step(
-      'sweep',
+  /**
+   * The sweep as durable steps, one per page of users: an invocation cut short (the function's
+   * timeout) is re-invoked, and the re-invocation replays the pages already checkpointed
+   * instead of evaluating everyone again. No step retries on its own — a page that failed is
+   * evaluated again by the next tick.
+   */
+  const sweep = async (context: DurableContext): Promise<SweepResult> => {
+    const once = { retryStrategy: () => ({ shouldRetry: false }) };
+    await context.step(
+      'sweep:maintain',
       async () => {
         const { store, env } = open(context);
         await host.applyOwnBundle(env, bundleVersion());
-        return sweepSegments(env, store);
+        await sweepMaintenance(env, store);
       },
-      { retryStrategy: () => ({ shouldRetry: false }) }
+      once
     );
+    let users = 0;
+    const started: string[] = [];
+    let after: string | undefined;
+    for (let n = 0; ; n++) {
+      const page = await context.step(
+        `sweep:page:${n}`,
+        async () => {
+          const { store, env } = open(context);
+          return sweepSegmentsPaged(env, store, { after, limit: SWEEP_PAGE_SIZE });
+        },
+        once
+      );
+      users += page.users;
+      started.push(...page.started);
+      if (!page.more || page.lastUserId === undefined) break;
+      after = page.lastUserId;
+    }
+    const sizes = await context.step(
+      'sweep:snapshot',
+      async () => {
+        const { store } = open(context);
+        return (await store.reporting?.snapshotSegments(Date.now())) ?? [];
+      },
+      once
+    );
+    return { users, started, sizes };
+  };
 
   const durable = withDurableExecution(async (input: unknown, context: DurableContext) => {
     if (isFunctionUrlEvent(input)) return http(input, context);

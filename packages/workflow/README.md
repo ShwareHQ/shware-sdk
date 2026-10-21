@@ -564,9 +564,23 @@ with its secret in the environment:
 | `android` | `fcm: { androidChannelId? }`                   | `GOOGLE_APPLICATION_CREDENTIALS_BASE64` | `@shware/workflow/fcm`     |
 | `web`     | `webPush: { subject, openedEvent? }`           | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `@shware/workflow/webpush` |
 
-A secret is only read when something is sent on that platform. Tokens APNs,
-FCM or a push service report as gone are removed, and waits on
-`reachable('push')` wake on every device change.
+A secret is only read when something is sent on that platform. Only a token
+the provider reports as gone is removed (and waits on `reachable('push')` wake
+on every device change); a configuration error keeps the device and fails the
+step without retrying, and a transient answer is retried:
+
+| Provider | Token removed, copy settled         | Settled, device kept                          | Failed, no retry (`PermanentError`)                                                                                   | Retried                                                                 |
+| -------- | ----------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| APNs     | 410; `Unregistered`, `ExpiredToken` | `BadDeviceToken` (a token or the environment) | `DeviceTokenNotForTopic`, `TopicDisallowed`, `BadTopic`, `MissingTopic`, bad certificate or provider token, other 4xx | 403 `ExpiredProviderToken` (re-signed), 429, 5xx                        |
+| FCM      | `UNREGISTERED`; 404 `NOT_FOUND`     | `INVALID_ARGUMENT`                            | `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR`, other 4xx                                                             | 401 (access token re-minted), `QUOTA_EXCEEDED`, `UNAVAILABLE`, 429, 5xx |
+| Web Push | 404, 410                            | —                                             | payload over 3993 bytes (refused before sending), 400, 401, 403, 413, other 4xx                                       | 429, 5xx                                                                |
+
+Every APNs request carries `apns-id` and `apns-collapse-id`, and every web
+push a `Topic`, derived from the copy's idempotency key, so a copy sent again
+after a lost checkpoint collapses on the device. Provider credentials are kept
+per host (`ApnsProviderToken`, `FcmAccessToken`, `VapidSigner`): the APNs
+provider token, the FCM access token and the VAPID key are reused across runs,
+while the senders themselves are built per run.
 
 `apns.environment` maps a mode to `sandbox` or `production`; unlisted modes use
 `production` in production and `sandbox` otherwise. Generate a VAPID pair once
@@ -726,20 +740,46 @@ backward-compatible changes, so a new required prop means a new id.
 
 ## Cloudflare setup
 
-The default store needs three bindings, named as in `JourneyEnv`:
+The default store needs two bindings, named as in `JourneyEnv`:
 
-| Binding       | Type         | Holds                                     |
-| ------------- | ------------ | ----------------------------------------- |
-| `WORKFLOW_KV` | KV namespace | Compiled IR, content-addressed by hash    |
-| `DB`          | D1 database  | Events, profiles, routing, entries, wakes |
-| `JOURNEY`     | Workflow     | The `JourneyRunner` entrypoint            |
+| Binding   | Type        | Holds                                                  |
+| --------- | ----------- | ------------------------------------------------------ |
+| `DB`      | D1 database | Events, profiles, routing, compiled IR, entries, wakes |
+| `JOURNEY` | Workflow    | The `JourneyRunner` entrypoint                         |
+
+The compiled IR lives in D1 with the routes, never in a KV namespace: KV is eventually consistent
+while the routes in D1 are not, so an instance started in another colo right after a deploy could
+miss its IR.
 
 A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
 when it sends through Cloudflare Email (`cloudflareEmailTransport({ binding: env.EMAIL })`), and a `triggers.crons` entry with `scheduled`
 exported to run the segment sweep.
 
-Set `API_TOKEN` in production. Without it every mutating endpoint is open, and
-`/deploy` rewrites the whole routing table.
+Set `API_TOKEN` in production: a host whose `ENVIRONMENT` resolves to `production` refuses every
+request but `GET /health` and `/t/...` with a 503 until it is set. Any other mode (`development`,
+say) runs open, for local work only — `/deploy` rewrites the whole routing table.
+
+Erasing a user (`POST /users/forget`) commits an erasure tombstone first,
+which every write about the user is conditional on from then on. A runner
+admits itself against that tombstone before its first effect — before the
+observer hears of it, before any action or send — on every invocation and on
+every replay after an eviction, never from a checkpoint: an instance whose
+`create` lands after the tombstone, or that wakes after it, exits without
+running. The erasure stops the admitted instances (`terminate`), and only once
+each is known stopped deletes the data; `erased: true` means every admitted
+runner was confirmed stopped, the entries never admitted can never run, and
+the data is gone. An admitted instance that will not stop answers
+`erased: false` and the scheduled sweep retries it. Every write about the user
+runs in the user's locked transaction, the lock the tombstone itself takes: a
+write either committed before the tombstone and is deleted by the erase, or
+waited for the lock and is refused by the tombstone it then sees. There is no
+window to come back for and no second pass; the tombstone stays, so a late
+write cannot bring the user back.
+
+One database per host. The routing tables are global (`triggers`, `segments`, the live
+`deployment` row), so two Workers on one D1 database or one Postgres schema would swap each
+other's routes on every deploy: give staging and production their own database or schema
+(`database: { schema }`).
 
 The D1 schema ships with the package. Apply it before the first deploy:
 
@@ -754,7 +794,7 @@ the single source for both.
 There are no migrations, and re-applying the file is not one: every statement is
 `CREATE TABLE IF NOT EXISTS`, so an existing database keeps its old tables and
 the first insert needing a new column fails. Recreate it instead. The demo has
-`pnpm db:reset`.
+`pnpm db:reset`. The `events` key is `(user_id, id)`, and `workflow_ir` holds the compiled IR.
 
 ## AWS Lambda
 
@@ -804,11 +844,18 @@ re-entered as a second execution. Retries stop after 12 hours (`startRetryMs`,
 keep it under the execution retention) and the start is left unresolved. A
 failed entry that is entered again gets a new execution, never the closed one.
 
-Erasing a user (`POST /users/forget`) stops their executions, then waits
-`stopDrainMs` (15 minutes by default; at least the function's timeout) before
-erasing: a stop does not interrupt an invocation already running, which goes on
-to its next checkpoint. Until then the erasure answers `erased: false` and the
-sweep finishes it.
+Erasing a user (`POST /users/forget`) commits the tombstone, stops their
+admitted executions, then waits `stopDrainMs` (15 minutes by default; at least
+the function's timeout) before erasing: a stop does not interrupt an invocation
+already running, which goes on to its next checkpoint. Until then the erasure
+answers `erased: false` and the sweep finishes it; the drain is one judgment
+for every path — the sweep's reconcile keeps a stopped execution's entry
+`running` until the drain has passed, and an execution the platform reports
+stopped before the stop was recorded is dated at its first sighting, never
+later. An execution whose runner never admitted itself needs no stop: its run
+entry meets the tombstone and exits, and so does a wake of a stopped one. The
+tombstone takes the user's lock, which every write about the user also takes,
+so nothing of theirs lands after it and no second pass is needed.
 
 Deploy one artifact per version: publish a numbered version and point the
 `live` alias, which the Function URL is bound to, at it. Each version carries its
@@ -844,7 +891,10 @@ CloudFront (or another HTTPS proxy) in front of the Function URL.
 ## Postgres
 
 A host on Postgres (through Hyperdrive, say) keeps Cloudflare Workflows for
-execution and the data in its own database:
+execution and the data in its own database. Turn Hyperdrive's query caching off for this
+database (`caching: { disabled: true }` on the Hyperdrive config): the engine reads wake
+subscriptions, profiles and segment membership right after writing them, and a cached answer
+up to 60 seconds old misses wakes and decides on stale data.
 
 ```ts
 const journeys = journeyWorker<Env>({
@@ -859,7 +909,10 @@ says `database: { schema }`, so their short names never meet the app's. The
 host owns the migrations. `npx workflow-ui generate --out <file>` (from
 `@shware/workflow-ui`) writes the tables as one drizzle file on that schema;
 re-export it from your drizzle schema and let drizzle-kit write the migration.
-Run `--check` in CI to catch an SDK upgrade that changed them. Without drizzle,
+Run `--check` in CI to catch an SDK upgrade that changed them. The unique index
+on `event` is on `(user_id, event_id)`: regenerate and migrate before deploying —
+the deploy check verifies the unique indexes as well as the columns, and refuses
+to run until they match. Without drizzle,
 `renderPostgresDdl()` returns the same tables as plain DDL. Nothing creates or
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
@@ -910,13 +963,21 @@ On Postgres the engine also keeps:
 
 `handleRequest` serves the ingest API:
 
-- `GET /health` is the only unauthenticated one.
+- `GET /health` is the only unauthenticated one. The bearer scheme is matched
+  case-insensitively and compared in constant time.
 - `POST /events` takes `{ userId, event, payload?, ts?, id? }` and answers with
   the id the occurrence was recorded under. Event names beginning with `$` are
-  reserved for internal use.
+  reserved for internal use. `ts` is epoch milliseconds: a non-negative integer
+  no later than five minutes ahead of the host's clock (400 otherwise).
 - `POST /identify` takes `{ userId, props }` and merges the properties into the
-  profile. A property set to `null` is removed, which is the only way to unset
-  one.
+  profile. Values are scalars (string, number, boolean); a property set to
+  `null` is removed, which is the only way to unset one. Nested objects are
+  refused with a 400.
+- A user with an erasure tombstone (`POST /users/forget`, finished or not) is
+  refused on `/events`, `/identify` and `/devices` with a 410: nothing is
+  written about them between the stop of their journeys and the erase, and the
+  id is never reactivated after it.
+- A body that is not JSON answers 400, never 500.
 - `POST /devices` takes `{ userId, token, platform, ts? }`;
   `POST /devices/unbind` and `POST /devices/remove` take `{ token }`.
 - `POST /messages/opened` takes `{ userId, messageId }`.
@@ -931,8 +992,8 @@ anything is stored, woken or started.
 
 ### Give each event an `id`
 
-`id` is the occurrence's identity, and sending the same one twice records it
-once. This matters because every count- and window-based condition reads the
+`id` is the occurrence's identity **for that user**, and sending the same one
+twice records it once. This matters because every count- and window-based condition reads the
 event log, so a second copy of one event silently changes what a journey
 decides.
 
@@ -947,7 +1008,8 @@ you can reproduce and the retry costs nothing.
 
 Use something that identifies the occurrence, not the event name: a row id from
 your own system, an upstream webhook's delivery id, or a message id from your
-queue. Workflows emitting events through `.sendEvent()` already do this, passing
+queue. The id is scoped to the user (the unique key is `(user_id, event_id)`),
+so two users may reuse one id without one of them losing their event. Workflows emitting events through `.sendEvent()` already do this, passing
 the node's identity within the running instance.
 
 ## Entry policy
@@ -970,10 +1032,10 @@ is a design question this package does not yet answer.
 | `@shware/workflow/postgres-js` | `postgresJsStore`, the Postgres store over postgres.js (peer `postgres`)                           |
 | `@shware/workflow/react-email` | `registryRenderer`, the email renderer over the registry (peers `react`, `react-dom`)              |
 | `@shware/workflow/push`        | `registryPushRenderer`, push content from the registry                                             |
-| `@shware/workflow/apns`        | `ApnsPushSender`, token-based APNs over HTTP/2                                                     |
+| `@shware/workflow/apns`        | `ApnsPushSender` over an `ApnsProviderToken`, token-based APNs over HTTP/2                         |
 | `@shware/workflow/apns-relay`  | `startApnsRelay`, the Node HTTP/1.1 to HTTP/2 relay for `wrangler dev`                             |
-| `@shware/workflow/fcm`         | `FcmPushSender`, FCM HTTP v1 for Android                                                           |
-| `@shware/workflow/webpush`     | `WebPushSender` and `generateVapidKeys`, standard Web Push with VAPID                              |
+| `@shware/workflow/fcm`         | `FcmPushSender` over an `FcmAccessToken`, FCM HTTP v1 for Android                                  |
+| `@shware/workflow/webpush`     | `WebPushSender` over a `VapidSigner`, `generateVapidKeys`; standard Web Push with VAPID            |
 | `@shware/workflow/webhooks`    | `SlackWebhookSender` and `DiscordWebhookSender`                                                    |
 | `@shware/workflow/schema.sql`  | The D1 schema file                                                                                 |
 

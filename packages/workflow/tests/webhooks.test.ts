@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { EnvValidationError, journeyWorker } from '../src/cloudflare/worker';
 import { defineConfig } from '../src/config';
 import type { OutboundMessage } from '../src/engine/ports';
+import { PermanentError } from '../src/engine/retry';
 import { channelsFromConfig } from '../src/host/channels';
 import {
   discordTemplate,
@@ -137,6 +138,8 @@ describe('webhook senders', () => {
     await expect(sender.send(message('discord', 'churn'))).rejects.toThrow(
       "discord template 'churn': its webhook URL is not set"
     );
+    // The environment is the same on every attempt: not retried
+    await expect(sender.send(message('discord', 'churn'))).rejects.toThrow(PermanentError);
   });
 
   test('a webhook that is gone settles undelivered; a rate limit throws to retry', async () => {

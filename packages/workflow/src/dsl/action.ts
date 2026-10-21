@@ -1,15 +1,17 @@
-import { sha256Hex } from '../hash';
-
 /**
  * Custom actions — the escape hatch for side effects the built-in nodes do not
  * cover (CRM sync, coupon issuing, outbound webhooks with custom auth, …).
  *
  * Dual-plane model: the *code* solidifies into the Worker bundle at deploy
  * time (it ships with the app, like any other module), while the *identity*
- * solidifies into IR as `{ type: 'action', action: name, args, codeHash }`.
- * The runtime resolves the name against a registry (see engine/actions.ts) and
- * compares codeHash to detect version skew between a pinned IR and the
- * currently deployed implementation.
+ * solidifies into IR as `{ type: 'action', action: name, args }`. The runtime
+ * resolves the name against a registry (see engine/actions.ts).
+ *
+ * The IR carries no hash of `handler.toString()`: the printed source depends
+ * on the bundler (minification, helper injection, source maps), so every
+ * toolchain would produce a different "version" of unchanged code and `plan`
+ * would report changes nobody made. Code identity is the deployed bundle's,
+ * not the IR's.
  *
  * Deliberately NOT supported: custom *conditions*. Branching stays declarative
  * so the canvas can always explain why a user took a path — an action that
@@ -39,12 +41,10 @@ export type ActionHandler<A extends object> = (args: A, ctx: ActionContext) => P
 
 /**
  * A registered custom action: the named asset `.run()` refers to. Carries the
- * implementation for the runtime registry and the codeHash for the IR pin.
+ * name the IR records and the implementation for the runtime registry.
  */
 export interface ActionRef<A extends object = object> {
   readonly name: string;
-  /** Hash of the handler's source text at definition time — the code-identity pin recorded in IR. */
-  readonly codeHash: string;
   /** Method syntax on purpose: bivariant args let refs with different arg shapes share one list (compileBundle, registries). */
   handler(args: A, ctx: ActionContext): Promise<void> | void;
 }
@@ -59,14 +59,13 @@ export interface ActionRef<A extends object = object> {
  *
  *   workflow(...).run(syncCrm, { plan: u.subscription_plan })
  *
- * codeHash comes from `handler.toString()`, so it changes when the code
- * changes and stays put when it does not. Different build pipelines can print
- * the same function differently (minification), which is why the default
- * runtime policy on mismatch is warn, not fail.
+ * The returned object is the action's identity at compile time: compileBundle
+ * checks that the one a workflow runs is the very one listed in `actions`, so
+ * two definitions cannot share a name by accident.
  */
 export function action<A extends object = Record<string, never>>(
   name: string,
   handler: ActionHandler<A>
 ): ActionRef<A> {
-  return { name, codeHash: sha256Hex(handler.toString()).slice(0, 32), handler };
+  return { name, handler };
 }

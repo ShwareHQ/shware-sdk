@@ -57,6 +57,18 @@ describe('semanticHash / fullHash', () => {
     expect(fullHash(decorated)).not.toBe(fullHash(bare));
     expect(stripMeta(decorated)).toEqual(bare);
   });
+
+  test('a field the author calls codeHash is ordinary data: it counts in the hash', () => {
+    const bare = { id: '0', type: 'action', action: 'sync_crm', args: { plan: 'pro' } };
+    const withArg = { ...bare, args: { plan: 'pro', codeHash: 'x' } };
+    expect(semanticHash(withArg)).not.toBe(semanticHash(bare));
+    const props = { id: '1', type: 'message', channel: 'email', template: 't', props: {} };
+    const withProp = { ...props, props: { codeHash: 'x' } };
+    expect(semanticHash(withProp)).not.toBe(semanticHash(props));
+    const payload = { id: '2', type: 'send_event', event: 'e', payload: {} };
+    const withPayload = { ...payload, payload: { codeHash: 'x' } };
+    expect(semanticHash(withPayload)).not.toBe(semanticHash(payload));
+  });
 });
 
 describe('metadata is stripped by position, not by name', () => {

@@ -6,6 +6,19 @@
  * one rule.
  */
 
+/**
+ * A failure a retry would only repeat: a missing or malformed configuration, a provider refusing
+ * the request itself, an input the runtime cannot act on. Thrown inside a durable step, it ends
+ * the step at once (`isRetryable` is false) instead of burning the retry budget.
+ */
+export class PermanentError extends Error {
+  override readonly name: string = 'PermanentError';
+  readonly retryable = false;
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+  }
+}
+
 /** Errors the engine raises that are deterministic by construction. */
 const DETERMINISTIC = new Set(['TemplateValidationError', 'ContractValidationError']);
 

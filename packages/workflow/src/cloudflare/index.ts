@@ -1,41 +1,40 @@
+export type { D1DatabaseLike, EmailBindingLike } from './bindings';
+export { WAKE_TIMEOUT_TOLERANCE_MS, cloudflareJourneyBinding, wakeExpired } from './bindings';
 export type {
-  D1DatabaseLike,
-  EmailBindingLike,
   JourneyEnv,
   JourneyParams,
-  KVNamespaceLike,
   WorkflowBindingLike,
   WorkflowInstanceLike,
-} from './bindings';
-export {
-  InstanceNotFoundError,
-  WAKE_EVENT_TYPE,
-  WAKE_TIMEOUT_TOLERANCE_MS,
-  isInstanceNotFound,
-  wakeExpired,
-} from './bindings';
+} from '../host/platform';
+export { InstanceNotFoundError, WAKE_EVENT_TYPE } from '../host/platform';
 export { d1Store } from './d1-env';
 export {
   BundleIntegrityError,
   deployBundle,
-  handleRequest,
   identifyUser,
   ingestEvent,
   forgetUser,
   registerDevice,
   removeDevice,
   unbindDevice,
+  sweepMaintenance,
   sweepSegments,
+  sweepSegmentsPaged,
+  SWEEP_PAGE_SIZE,
   UnversionedStoreError,
-} from '../host/router';
+} from '../host/ingest';
+export { handleRequest } from '../host/http';
+export type { IngestValidation } from '../host/http';
+export { authorized, bearerMatches } from '../host/auth';
 export type {
   DeployResult,
   DeviceRegistration,
+  SweepPage,
   SweepResult,
   IdentifyResult,
   IngestInput,
   IngestResult,
-} from '../host/router';
+} from '../host/ingest';
 export { JourneyRunner } from './runner';
 export {
   LogMessageSender,
@@ -84,6 +83,7 @@ export {
   PostgresJourneyStore,
   PostgresReporting,
   SchemaMismatchError,
+  UserErasedError,
 } from '../store/index';
 export type {
   BundleVersion,

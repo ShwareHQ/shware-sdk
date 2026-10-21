@@ -202,6 +202,15 @@ function isBetween(actual: ScalarIR | undefined, values: ScalarIR[] | undefined)
 export const PROFILE_UPDATED_EVENT = '$profile_updated';
 
 /**
+ * The wake-up channel for one profile property: `$profile_updated:<path>`. A property predicate
+ * subscribes to its own property's channel, and `/identify` fires one per property it patched —
+ * so an identify that touches `plan` does not wake a wait on `email`.
+ */
+export function profileUpdatedEvent(path: string): string {
+  return `${PROFILE_UPDATED_EVENT}:${path}`;
+}
+
+/**
  * Wake-up channel for device changes: a device registered for the user, moved to another account
  * or was unbound or removed (`POST /devices`, `/devices/unbind`, `/devices/remove`). `reachable('push')` subscribes to it.
  */
@@ -210,9 +219,12 @@ export const DEVICES_UPDATED_EVENT = '$devices_updated';
 /**
  * The set of event names a condition cares about — what wait_until subscribes
  * to for wake-ups. `performed` contributes its event; a property predicate
- * contributes PROFILE_UPDATED_EVENT (so /identify wakes the wait). Segment
- * references are expanded, which is why a FactSource is needed to resolve
- * their definitions.
+ * contributes its property's channel (`profileUpdatedEvent(path)`, so an
+ * /identify touching that property wakes the wait and one touching another
+ * does not); `reachable` contributes the recipient property's channel, or the
+ * device channel for push (in_app, slack and discord have no address to wait
+ * on). Segment references are expanded, which is why a FactSource is needed to
+ * resolve their definitions.
  */
 export async function relevantEvents(condition: ConditionIR, facts: FactSource): Promise<string[]> {
   const found = new Set<string>();
@@ -240,11 +252,17 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
         break;
       }
       case 'property':
-        found.add(PROFILE_UPDATED_EVENT);
+        found.add(profileUpdatedEvent(c.path));
         break;
-      case 'reachable':
-        found.add(c.channel === 'push' ? DEVICES_UPDATED_EVENT : PROFILE_UPDATED_EVENT);
+      case 'reachable': {
+        if (c.channel === 'push') {
+          found.add(DEVICES_UPDATED_EVENT);
+          break;
+        }
+        const path = RECIPIENT_PROPERTY[c.channel];
+        if (path !== undefined) found.add(profileUpdatedEvent(path));
         break;
+      }
       case 'payload':
         break; // only appears inside performed.where, which is not walked
     }

@@ -57,15 +57,6 @@ export class AwsEngineStep implements EngineStep {
     await this.context.wait(name, { seconds: Math.ceil(ms / 1000) });
   }
 
-  async sleepUntil(name: string, timestampMs: number): Promise<void> {
-    // The remaining time is checkpointed: a replay must not recompute it from a later clock
-    const remaining = await this.context.step(
-      `${name}:remaining`,
-      async () => timestampMs - Date.now()
-    );
-    await this.sleep(name, remaining);
-  }
-
   async subscribe(
     name: string,
     events: readonly string[],
@@ -124,7 +115,14 @@ export class AwsEngineStep implements EngineStep {
     this.armed = undefined;
   }
 
-  async waitForWake(name: string, _timeoutMs: number): Promise<'event' | 'timeout'> {
+  /**
+   * The timeout is ignored on purpose: the callback's own timeout was set from the deadline
+   * when it was armed (`subscribe`), and only its expiry says the wait timed out.
+   */
+  async waitForWake(
+    name: string,
+    _wait: { timeoutMs: number; deadlineMs: number }
+  ): Promise<'event' | 'timeout'> {
     const armed = this.armed;
     if (armed === undefined) {
       throw new Error(`waitForWake '${name}' without a subscribe: nothing is armed to wake it`);

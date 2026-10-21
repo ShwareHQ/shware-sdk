@@ -12,10 +12,11 @@ import type {
 } from '../engine/ports';
 import { isRetryable } from '../engine/retry';
 import { type JourneyRunParts, executeJourney } from '../host/execute';
+import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE } from '../host/platform';
 import { LogMessageSender, WebhookMessageSender } from '../host/senders';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import type { JourneyStore } from '../store/index';
-import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE, wakeExpired } from './bindings';
+import { cloudflareJourneyBinding, wakeExpired } from './bindings';
 import { d1Store } from './d1-env';
 
 /**
@@ -23,7 +24,8 @@ import { d1Store } from './d1-env';
  * subscribe/unsubscribe write the subscription table inside durable steps (the
  * router wakes instances from that table); waitForWake parks on CF's
  * waitForEvent, which signals a timeout by throwing — and so does every other
- * failure in there, so only the clock can tell them apart (see wakeExpired).
+ * failure in there, so only the clock, against the checkpointed deadline, can
+ * tell them apart (see wakeExpired).
  */
 class CfEngineStep implements EngineStep {
   constructor(
@@ -36,7 +38,8 @@ class CfEngineStep implements EngineStep {
   /**
    * A failure a retry would only repeat (`isRetryable`: a template refusing its props, the
    * contract refusing an emitted event, a provider rejecting the request) ends the step at
-   * once instead of burning the retry budget.
+   * once instead of burning the retry budget. The engine recognizes a NonRetryableError by its
+   * `name`, so the original's name is not written over it — the original travels as `cause`.
    */
   do<T>(name: string, fn: () => Promise<T>): Promise<T> {
     return this.step.do(name, async () => {
@@ -44,7 +47,9 @@ class CfEngineStep implements EngineStep {
         return await fn();
       } catch (error) {
         if (error instanceof Error && !isRetryable(error)) {
-          throw new NonRetryableError(error.message, error.name);
+          const permanent = new NonRetryableError(error.message);
+          permanent.cause = error;
+          throw permanent;
         }
         throw error;
       }
@@ -53,10 +58,6 @@ class CfEngineStep implements EngineStep {
 
   sleep(name: string, ms: number): Promise<void> {
     return this.step.sleep(name, ms);
-  }
-
-  sleepUntil(name: string, timestampMs: number): Promise<void> {
-    return this.step.sleepUntil(name, timestampMs);
   }
 
   subscribe(name: string, events: readonly string[]): Promise<void> {
@@ -71,21 +72,23 @@ class CfEngineStep implements EngineStep {
     return this.step.do(name, () => this.store.unsubscribe(this.instanceId));
   }
 
-  async waitForWake(name: string, timeoutMs: number): Promise<'event' | 'timeout'> {
-    const startedAt = Date.now();
+  async waitForWake(
+    name: string,
+    { timeoutMs, deadlineMs }: { timeoutMs: number; deadlineMs: number }
+  ): Promise<'event' | 'timeout'> {
     try {
       await this.step.waitForEvent(name, { type: WAKE_EVENT_TYPE, timeout: timeoutMs });
       return 'event';
     } catch (error) {
       /*
-       * Only the deadline can tell a real timeout from a failure (see
-       * wakeExpired). `startedAt` is not replay-stable, but it is read only
-       * inside the step body below, and a step body runs on the live attempt
-       * alone — a replay returns the persisted verdict without touching the
-       * clock.
+       * Only the deadline can tell a real timeout from a failure (see wakeExpired). The
+       * deadline is the interpreter's checkpoint, so the verdict is the same on the attempt
+       * that parked and on a replay after an eviction — which is where the wait usually
+       * resurfaces: the instance is rebuilt, the wait is already over, and the first thing to
+       * run is this step. The verdict is checkpointed too, so later replays reuse it.
        */
       const timedOut = await this.step.do(`${name}:timed-out`, async () =>
-        wakeExpired(startedAt, timeoutMs, Date.now())
+        wakeExpired(deadlineMs, Date.now())
       );
       if (timedOut) return 'timeout';
       throw error;
@@ -101,7 +104,7 @@ class CfEngineStep implements EngineStep {
  */
 export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams> {
   /**
-   * The data plane. D1 + KV from the env by default; an app on Postgres
+   * The data plane. D1 from the env by default; an app on Postgres
    * overrides this (and `closeStore` if its client needs closing):
    *
    *   protected override createStore() { return new PostgresJourneyStore(client(this.env)); }
@@ -112,6 +115,17 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
 
   /** Called once `run` is over, success or not — release whatever `createStore` opened. */
   protected async closeStore(_store: JourneyStore): Promise<void> {}
+
+  private adapted: JourneyEnv | undefined;
+
+  /**
+   * The env a run ingests its emitted events with: the Workflow binding behind the host's port,
+   * so an instance the platform no longer knows answers `InstanceNotFoundError` (what lets the
+   * host drop its wakes). Built once per instance.
+   */
+  protected hostEnv(): JourneyEnv {
+    return (this.adapted ??= { ...this.env, JOURNEY: cloudflareJourneyBinding(this.env.JOURNEY) });
+  }
 
   /**
    * Runtime options for this instance — typed configuration, resolved by the app (typically
@@ -187,7 +201,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
   protected createRunParts(store: JourneyStore, params: JourneyParams): JourneyRunParts {
     return {
       store,
-      env: this.env,
+      env: this.hostEnv(),
       runtime: this.runtime(params),
       messages: this.createMessageSender(),
       actions: this.createActionInvoker(),

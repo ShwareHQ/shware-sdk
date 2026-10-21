@@ -161,19 +161,15 @@ function summary(node: NodeIR): { label: string; value: string }[] {
         value: branchCase.label ?? '—',
       }));
     case 'cohort':
+      // Weights are percentages in the IR (they sum to 100), as the canvas prints them
       return node.arms.map((arm) => ({
         label: arm.name,
-        value: `${arm.weight / 100}%`,
+        value: `${arm.weight}%`,
       }));
     case 'send_event':
       return [{ label: 'event', value: node.event }];
     case 'action':
-      return [
-        { label: 'action', value: node.action },
-        ...(node.codeHash !== undefined
-          ? [{ label: 'code', value: node.codeHash.slice(0, 12) }]
-          : []),
-      ];
+      return [{ label: 'action', value: node.action }];
     default:
       return [];
   }

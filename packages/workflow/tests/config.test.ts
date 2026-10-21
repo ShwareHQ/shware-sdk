@@ -261,7 +261,7 @@ describe('compileConfig', () => {
 
 describe('journeyWorker({ config })', () => {
   test('serves the compiled config as its bundle and validates ingest with its contract', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const worker = journeyWorker({ config: config(), email: () => ({ send: async () => ({}) }) });
     const bundle = await (await worker.fetch(new Request('https://w.test/bundle'), env)).json();
     expect(bundle).toEqual(JSON.parse(JSON.stringify(compileConfig(config()))));
@@ -290,6 +290,8 @@ describe('emitted events against the contract', () => {
     events: {
       login: z.looseObject({ method: z.string() }),
       purchase: z.looseObject({ transaction_id: z.string(), value: z.number().positive() }),
+      refunded: z.strictObject({ transaction_id: z.string() }),
+      stripped: z.object({ transaction_id: z.string() }),
     },
     profile: z.strictObject({ name: z.string() }),
   });
@@ -318,6 +320,24 @@ describe('emitted events against the contract', () => {
     expect(() => compileConfig(emitting({ transaction_id: 't', value: 1 }))).not.toThrow();
   });
 
+  test('a strict event refuses an undeclared literal field at compile time, naming it', () => {
+    // The Worker would refuse the whole event when emitted — in some user's
+    // journey; the compile can name the workflow, the node and the field now.
+    expect(() =>
+      compileConfig(emitting({ transaction_id: 't', reason: 'damaged' }, 'refunded'))
+    ).toThrow(
+      /workflow 'emit' node 0: event 'refunded': 'reason' is not a field the contract declares/
+    );
+    expect(() => compileConfig(emitting({ transaction_id: 't' }, 'refunded'))).not.toThrow();
+    // A loose event passes extras through and a plain object strips them: neither refuses
+    expect(() =>
+      compileConfig(emitting({ transaction_id: 't', value: 1, reason: 'x' }, 'purchase'))
+    ).not.toThrow();
+    expect(() =>
+      compileConfig(emitting({ transaction_id: 't', reason: 'x' }, 'stripped'))
+    ).not.toThrow();
+  });
+
   test('a nested payload is refused where the workflow is written', () => {
     expect(() =>
       workflow({ id: 'nested', trigger: trigger.event(shop.events.login) }).sendEvent(
@@ -344,7 +364,7 @@ test('/preview takes typed JSON props, so number and boolean fields can be previ
   const worker = journeyWorker({
     config: defineConfig({ workflows: [], templates: { email: typed } }),
   });
-  const { env } = makeEnv();
+  const { env } = makeEnv({ ENVIRONMENT: 'development' });
   const get = (query: string) =>
     worker.fetch(new Request(`https://w.test/preview/credits${query}`), env);
   const ok = await get(`?props=${encodeURIComponent(JSON.stringify({ credits: 3, trial: true }))}`);

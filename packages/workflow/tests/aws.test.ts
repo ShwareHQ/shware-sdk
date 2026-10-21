@@ -1,10 +1,13 @@
+import { webcrypto } from 'node:crypto';
+import { type Http2Server, createServer } from 'node:http2';
+import type { AddressInfo } from 'node:net';
 import {
   LocalDurableTestRunner,
   WaitingOperationStatus,
 } from '@aws/durable-execution-sdk-js-testing';
 import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import {
   AwsInstances,
@@ -18,8 +21,19 @@ import {
 } from '../src/aws';
 import { compileConfig } from '../src/config';
 import type { EmailMessage } from '../src/email-sender';
-import { deployBundle, forgetUser, ingestEvent } from '../src/host/router';
-import { defineConfig, emailTemplate, event, performed, trigger, workflow } from '../src/index';
+import { PermanentError } from '../src/engine/retry';
+import type { FcmServiceAccount } from '../src/fcm';
+import { deployBundle, forgetUser, ingestEvent, sweepMaintenance } from '../src/host/ingest';
+import {
+  defineConfig,
+  emailTemplate,
+  event,
+  performed,
+  pushTemplate,
+  trigger,
+  workflow,
+} from '../src/index';
+import type { JourneyStore } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
 
@@ -215,7 +229,9 @@ describe('journeyLambda', () => {
     );
     const run = JSON.parse(starts[0].payload) as RunInput;
 
-    const runner = new LocalDurableTestRunner({ handlerFunction: journeys.handler });
+    const runner = new LocalDurableTestRunner({
+      handlerFunction: (...args) => journeys.handler(...args),
+    });
     const running = runner.run({ payload: run });
 
     // Parked: the callback is armed in Postgres, and the welcome email went out once
@@ -266,7 +282,9 @@ describe('journeyLambda', () => {
     );
     const run = JSON.parse(starts[0].payload) as RunInput;
 
-    const runner = new LocalDurableTestRunner({ handlerFunction: journeys.handler });
+    const runner = new LocalDurableTestRunner({
+      handlerFunction: (...args) => journeys.handler(...args),
+    });
     const result = await runner.run({ payload: run });
     expect(result.getResult()).toMatchObject({ status: 'completed' });
     expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard', 'Thanks for buying']);
@@ -517,6 +535,8 @@ describe('the router on AwsInstances', () => {
     const { store, env } = await routed(lambda, () => clock);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
     const name = (await store.executions.get(started[0]))?.name ?? '';
+    // The run admitted itself (its first act): from here on the erasure has to stop it
+    expect(await store.admitInstance(started[0], 'u1')).toBe(true);
 
     // Stopped, but an invocation running at the stop goes on to its next checkpoint
     expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false, pending: started });
@@ -531,6 +551,25 @@ describe('the router on AwsInstances', () => {
     clock += 11 * 60_000;
     expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: true, pending: [] });
     expect(await store.executions.get(started[0])).toBeUndefined();
+  });
+
+  test('a start whose run never admitted itself is erased at once, without a stop', async () => {
+    const stopped: string[] = [];
+    const lambda: LambdaApi = {
+      ...fakeLambda().lambda,
+      async stopExecution(arn) {
+        stopped.push(arn);
+        return true;
+      },
+    };
+    const { store, env } = await routed(lambda);
+    const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // Nothing of it ran: the tombstone commits first, and the run's admission is refused (the
+    // registry guard refuses it too, its start no longer recorded)
+    expect(await forgetUser(env, 'u1', store)).toEqual({ ok: true, erased: true, pending: [] });
+    expect(stopped).toEqual([]);
+    expect(await store.executions.get(started[0])).toBeUndefined();
+    expect(await store.admitInstance(started[0], 'u1')).toBe(false);
   });
 
   test('an execution that already finished on its own is erased at once', async () => {
@@ -558,6 +597,7 @@ describe('the router on AwsInstances', () => {
     };
     const { store, env } = await routed(lambda);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    expect(await store.admitInstance(started[0], 'u1')).toBe(true);
     const result = await forgetUser(env, 'u1', store);
     expect(result).toMatchObject({ erased: false, pending: started });
     expect(await store.executions.get(started[0])).toBeDefined();
@@ -599,29 +639,27 @@ describe('the router on AwsInstances', () => {
   test("status speaks the router's vocabulary", async () => {
     let state: Awaited<ReturnType<LambdaApi['executionState']>> = 'running';
     const lambda: LambdaApi = { ...fakeLambda().lambda, executionState: async () => state };
-    const { store, port, env } = await routed(lambda);
+    let clock = Date.now();
+    const { store, port, env } = await routed(lambda, () => clock);
     const { started } = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
     const instance = await port.get(started[0]);
     const statuses: string[] = [];
-    for (const next of [
-      'running',
-      'succeeded',
-      'failed',
-      'stopped',
-      'timed_out',
-      undefined,
-    ] as const) {
+    for (const next of ['running', 'succeeded', 'failed', 'timed_out', undefined] as const) {
       state = next;
       statuses.push((await instance.status?.())?.status ?? '?');
     }
-    expect(statuses).toEqual([
-      'running',
-      'complete',
-      'errored',
-      'terminated',
-      'terminated',
-      'terminated',
-    ]);
+    expect(statuses).toEqual(['running', 'complete', 'errored', 'terminated', 'terminated']);
+
+    // A stop seen here first is dated now, and running until its drain has passed; the record
+    // does not drift with each look
+    state = 'stopped';
+    expect(await instance.status?.()).toEqual({ status: 'running' });
+    expect(await store.executions.get(started[0])).toMatchObject({ stoppedAt: clock });
+    clock += 14 * 60_000;
+    expect(await instance.status?.()).toEqual({ status: 'running' });
+    clock += 60_000;
+    expect(await instance.status?.()).toEqual({ status: 'terminated' });
+    expect((await store.executions.get(started[0]))?.stoppedAt).toBe(clock - 15 * 60_000);
   });
 
   test('a running execution is only marked checked, and not looked at again too soon', async () => {
@@ -681,6 +719,251 @@ describe('the router on AwsInstances', () => {
       limit: 10,
     });
     expect(pending.map((record) => record.instanceId)).toEqual(['new']);
+  });
+});
+
+describe('every stop judgment obeys one drain', () => {
+  const TARGET = 'arn:aws:lambda:us-east-1:1:function:f:7';
+  const DRAIN = 900_000;
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  /**
+   * A control plane that remembers each execution's state: a stop makes it `stopped`, as the
+   * platform reports one, and a test may set a state by hand (a natural end, an operator's stop).
+   */
+  function platform() {
+    const states = new Map<string, Awaited<ReturnType<LambdaApi['executionState']>>>();
+    const stopped: string[] = [];
+    const control = fakeLambda();
+    const lambda: LambdaApi = {
+      ...control.lambda,
+      async executionState(arn) {
+        return states.get(arn) ?? 'running';
+      },
+      async stopExecution(arn) {
+        stopped.push(arn);
+        states.set(arn, 'stopped');
+        return true;
+      },
+    };
+    return { lambda, states, stopped, starts: control.starts };
+  }
+
+  async function host(options: {
+    lambda: LambdaApi;
+    now: () => number;
+    executions?: (
+      registry: PostgresJourneyStore['executions']
+    ) => PostgresJourneyStore['executions'];
+    reconcileEveryMs?: number;
+  }) {
+    const store = new PostgresJourneyStore(client(pg));
+    const port = new AwsInstances({
+      store,
+      executions: options.executions?.(store.executions) ?? store.executions,
+      lambda: options.lambda,
+      target: async () => TARGET,
+      now: options.now,
+      stopDrainMs: DRAIN,
+      ...(options.reconcileEveryMs === undefined
+        ? {}
+        : { reconcileEveryMs: options.reconcileEveryMs }),
+    });
+    const env = { JOURNEY: port };
+    await deployBundle(env, compileConfig(journeyConfig('1 day')), store);
+    const entry = async (userId: string) =>
+      (
+        await pg.query<{ status: string }>(`SELECT status FROM workflow.entry WHERE user_id = $1`, [
+          userId,
+        ])
+      ).rows.map((row) => row.status);
+    /** An admitted start of the user: what the erasure has to stop. */
+    const admitted = async (userId: string) => {
+      const { started } = await ingestEvent(env, { userId, event: 'login' }, store);
+      expect(await store.admitInstance(started[0], 'u1' === userId ? 'u1' : userId)).toBe(true);
+      const arn = (await store.executions.get(started[0]))?.arn ?? '';
+      return { id: started[0], arn };
+    };
+    return { store, port, env, entry, admitted, sweep: () => sweepMaintenance(env, store) };
+  }
+
+  test('the erasure waits out the drain through every sweep, then completes, and stays done', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      const h = await host({ lambda: control.lambda, now: () => clock });
+      const { id } = await h.admitted('u1');
+      const stoppedAt = clock;
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({
+        erased: false,
+        pending: [id],
+      });
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt });
+
+      // A full sweep a second later: maintenance sees the platform's STOPPED, and keeps the
+      // entry running for the erasure to wait on
+      clock += 1_000;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt, checkedAt: clock });
+      expect(control.stopped).toHaveLength(1);
+
+      clock = stoppedAt + DRAIN - 1;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect((await h.store.executions.get(id))?.stoppedAt).toBe(stoppedAt);
+
+      clock = stoppedAt + DRAIN;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erased');
+      expect(await h.entry('u1')).toEqual([]);
+      expect(await h.store.executions.get(id)).toBeUndefined();
+
+      clock += DRAIN;
+      await h.sweep();
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(control.stopped).toHaveLength(1);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('a reconcile that read its record before another path stopped it judges the fresh record', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      let interposed = false;
+      const lambda: LambdaApi = {
+        ...control.lambda,
+        async executionState(arn) {
+          // The sweep's reconcile has its snapshot (stoppedAt: none); an erasure stops the
+          // execution now, before the reconcile reads the platform's state
+          if (!interposed) {
+            interposed = true;
+            await forgetUser(h.env, 'u1', h.store);
+          }
+          return control.states.get(arn) ?? 'running';
+        },
+      };
+      const h = await host({ lambda, now: () => clock, reconcileEveryMs: 0 });
+      const { id } = await h.admitted('u1');
+      clock += 1_000;
+      await h.port.maintain();
+      expect(interposed).toBe(true);
+      expect(control.stopped).toHaveLength(1);
+      // Not finalized on the stale record: the stop is in the drain
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt: clock });
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+
+      // Past the drain the reconcile finalizes, as it always did, and the erasure completes
+      clock += DRAIN;
+      await h.port.maintain();
+      expect(await h.entry('u1')).toEqual(['failed']);
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: true });
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('STOPPED before the stop is recorded: not stopped until the time lands, then one drain from it', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      let failing = true;
+      const h = await host({
+        lambda: control.lambda,
+        now: () => clock,
+        executions: (registry) =>
+          new Proxy(registry, {
+            get(target, property) {
+              if (property !== 'markStopped') return Reflect.get(target, property, target);
+              return async (instanceId: string, at: number) => {
+                if (failing) throw new Error('connection terminated unexpectedly');
+                return target.markStopped(instanceId, at);
+              };
+            },
+          }),
+        reconcileEveryMs: 0,
+      });
+      const { id, arn } = await h.admitted('u1');
+      // Stopped by an operator: the platform says so before any record of it
+      control.states.set(arn, 'stopped');
+
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({
+        erased: false,
+        pending: [id],
+      });
+      expect(control.stopped).toEqual([]);
+      expect((await h.store.executions.get(id))?.stoppedAt).toBeUndefined();
+      // Maintenance cannot date the stop either: nothing is finalized
+      await expect(h.port.maintain()).rejects.toThrow(/connection terminated/);
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.pendingErasures()).toEqual(['u1']);
+
+      // The write recovers: the first sighting is dated now, and the drain runs from it
+      failing = false;
+      clock += 5_000;
+      const sighted = clock;
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({
+        erased: false,
+        pending: [id],
+      });
+      expect(await h.store.executions.get(id)).toMatchObject({ stoppedAt: sighted });
+      expect(control.stopped).toEqual([]);
+
+      clock += 60_000;
+      await h.sweep();
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect((await h.store.executions.get(id))?.stoppedAt).toBe(sighted);
+
+      clock = sighted + DRAIN;
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(await h.store.executions.get(id)).toBeUndefined();
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('a start never admitted is cancelled at once; natural ends and other users are as before', async () => {
+    const warned = quiet();
+    try {
+      const control = platform();
+      let clock = 1_700_000_000_000;
+      const h = await host({ lambda: control.lambda, now: () => clock, reconcileEveryMs: 0 });
+      // u1: admitted and stopped, in its drain
+      const u1 = await h.admitted('u1');
+      expect(await forgetUser(h.env, 'u1', h.store)).toMatchObject({ erased: false });
+      // u2: admitted, and finished on its own
+      const u2 = await h.admitted('u2');
+      control.states.set(u2.arn, 'succeeded');
+      // u3: never admitted
+      const { started: u3 } = await ingestEvent(h.env, { userId: 'u3', event: 'login' }, h.store);
+      // u4: admitted, failed on its own; the sweep records it without any drain
+      const u4 = await h.admitted('u4');
+      control.states.set(u4.arn, 'failed');
+
+      clock += 1_000;
+      expect(await forgetUser(h.env, 'u2', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(await forgetUser(h.env, 'u3', h.store)).toMatchObject({ erased: true, pending: [] });
+      expect(control.stopped).toEqual([u1.arn]);
+      expect(await h.store.executions.get(u3[0])).toBeUndefined();
+      await h.sweep();
+      expect(await h.entry('u4')).toEqual(['failed']);
+      expect((await h.store.executions.get(u4.id))?.stoppedAt).toBeUndefined();
+      // u1 is still draining, its data untouched
+      expect(await h.store.erasureState('u1')).toBe('erasing');
+      expect(await h.entry('u1')).toEqual(['running']);
+      expect(await h.store.executions.get(u1.id)).toMatchObject({ stoppedAt: clock - 1_000 });
+    } finally {
+      warned.mockRestore();
+    }
   });
 });
 
@@ -899,6 +1182,7 @@ describe('review fixes', () => {
     const { store, port: instances } = port(lambda, () => clock);
     await enter(store, instances, 'i1', clock);
     await store.executions.markSubmitted('i1', undefined, clock);
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
     const env = { JOURNEY: instances };
     expect(await forgetUser(env, 'u1', store)).toMatchObject({ erased: false, pending: ['i1'] });
     expect(await store.executions.get('i1')).toBeDefined();
@@ -1065,4 +1349,430 @@ describe('second review fixes', () => {
     expect(record).toMatchObject({ name: control.starts[1].name, submittedAt: expect.any(Number) });
     expect(record?.callbackId).toBeUndefined();
   });
+});
+
+describe('4.0: the run is bound to the registry', () => {
+  async function recordedRun() {
+    const { journeys, starts, sent } = setup();
+    await call(journeys.handler, request('/bundle/deploy'));
+    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await pg.query(
+      `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
+    );
+    return { journeys, sent, run: JSON.parse(starts[0].payload) as RunInput };
+  }
+
+  test('an input that is not byte for byte a recorded start is refused, before any step', async () => {
+    const { journeys, sent, run } = await recordedRun();
+    const forged: RunInput = { ...run, params: { ...run.params, userId: 'u2' } };
+    const { result } = await call(journeys.handler, forged);
+    expect(result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(result.getOperations()).toEqual([]);
+    expect(sent).toEqual([]);
+    // A reordered copy of the same fields is another byte string too
+    const reordered = {
+      params: run.params,
+      instanceId: run.instanceId,
+      type: run.type,
+      enteredAtMs: run.enteredAtMs,
+    };
+    const again = await call(journeys.handler, reordered);
+    expect(again.result.getError().errorMessage).toMatch(/not a recorded start/);
+  });
+
+  test('an instance with no record, or one that was stopped, does not run', async () => {
+    const { journeys, sent, run } = await recordedRun();
+    const unknown = await call(journeys.handler, { ...run, instanceId: 'never-planned' });
+    expect(unknown.result.getError().errorMessage).toMatch(/not a recorded start/);
+    await new PostgresJourneyStore(client(pg)).executions.markStopped(run.instanceId, Date.now());
+    const stopped = await call(journeys.handler, run);
+    expect(stopped.result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('4.0: the sweep is resumable, one durable step per page', () => {
+  /** A Postgres store with every listUserIds call recorded, and page 0 slowed down by `delayMs`. */
+  function pagedStore(delayMs = 0) {
+    const pages: (string | undefined)[] = [];
+    const store = () => {
+      const base = new PostgresJourneyStore(client(pg));
+      return new Proxy(base, {
+        get(target, property, receiver) {
+          if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
+          return async (page?: { after?: string; limit?: number }) => {
+            pages.push(page?.after);
+            if (page?.after === undefined && delayMs > 0) {
+              await new Promise<void>((resolve) => {
+                setTimeout(resolve, delayMs);
+              });
+            }
+            return target.listUserIds(page);
+          };
+        },
+      });
+    };
+    return { store, pages };
+  }
+
+  function sweeper(store: () => JourneyStore) {
+    return journeyLambda({
+      email: () => quietTransport,
+      config: journeyConfig('1 day'),
+      env: { API_TOKEN: 'secret' },
+      store,
+      lambda: fakeLambda().lambda,
+    });
+  }
+
+  const seedUsers = (count: number) =>
+    pg.query(
+      `INSERT INTO workflow.profile (user_id, props)
+       SELECT 'u' || lpad(i::text, 4, '0'), '{}' FROM generate_series(1, ${count}) i`
+    );
+
+  test('501 users are two page steps between maintenance and the snapshot', async () => {
+    await seedUsers(501);
+    const { store, pages } = pagedStore();
+    const { result } = await call(sweeper(store).handler, { type: SWEEP_EVENT_TYPE });
+    expect(result.getResult()).toMatchObject({ users: 501, started: [] });
+    expect(result.getOperations().map((operation) => operation.getName())).toEqual([
+      'sweep:maintain',
+      'sweep:page:0',
+      'sweep:page:1',
+      'sweep:snapshot',
+    ]);
+    expect(pages).toEqual([undefined, 'u0500']);
+  });
+
+  test('an invocation cut short replays its checkpointed pages instead of re-evaluating them', async () => {
+    await seedUsers(501);
+    const { store, pages } = pagedStore(300);
+    const runner = new LocalDurableTestRunner({ handlerFunction: sweeper(store).handler });
+    const running = runner.run({ payload: { type: SWEEP_EVENT_TYPE } });
+    // Cut the invocation at page 0's checkpoint: the page is kept, the rest replays on resume
+    await runner.getOperation('sweep:page:0').waitForData(WaitingOperationStatus.STARTED);
+    await runner.pauseExecution();
+    await runner.resumeExecution();
+    const result = await running;
+    expect(result.getResult()).toMatchObject({ users: 501 });
+    expect(result.getInvocations().length).toBeGreaterThan(1);
+    // Page 0 was listed once across both invocations: the replay took its checkpoint
+    expect(pages.filter((after) => after === undefined)).toHaveLength(1);
+    expect(pages.filter((after) => after === 'u0500')).toHaveLength(1);
+  }, 30_000);
+});
+
+describe('the registry read at the entry of a run is retried, briefly, never its verdict', () => {
+  /** The store with every `executions.get` counted, and failed when `failNext` says so. */
+  function flakyRegistry() {
+    const reads: string[] = [];
+    let failNext: (() => Error | undefined) | undefined;
+    const store = () => {
+      const base = new PostgresJourneyStore(client(pg));
+      const executions = new Proxy(base.executions, {
+        get(target, property, receiver) {
+          if (property !== 'get') return Reflect.get(target, property, receiver);
+          return async (instanceId: string) => {
+            reads.push(instanceId);
+            const error = failNext?.();
+            if (error !== undefined) throw error;
+            return target.get(instanceId);
+          };
+        },
+      });
+      return new Proxy(base, {
+        get(target, property, receiver) {
+          if (property === 'executions') return executions;
+          return Reflect.get(target, property, receiver);
+        },
+      });
+    };
+    return {
+      store,
+      reads,
+      /** Fail the next `count` reads with `error`, then answer normally. */
+      failReads: (count: number, error = new Error('transient: connection reset')) => {
+        let left = count;
+        failNext = () => (left-- > 0 ? error : undefined);
+      },
+    };
+  }
+
+  function host(timeout: '1 day' | '2 seconds' = '1 day') {
+    const flaky = flakyRegistry();
+    const sent: EmailMessage[] = [];
+    const control = fakeLambda();
+    const journeys = journeyLambda({
+      config: journeyConfig(timeout),
+      env: { ENVIRONMENT: 'production', API_TOKEN: 'secret' },
+      store: flaky.store,
+      email: () => ({
+        async send(message) {
+          sent.push(message);
+          return {};
+        },
+      }),
+      lambda: control.lambda,
+    });
+    return { ...flaky, journeys, sent, starts: control.starts };
+  }
+
+  async function recorded(timeout: '1 day' | '2 seconds' = '1 day') {
+    const h = host(timeout);
+    await call(h.journeys.handler, request('/bundle/deploy'));
+    await call(h.journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await pg.query(
+      `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
+    );
+    h.reads.length = 0;
+    return { ...h, run: JSON.parse(h.starts[0].payload) as RunInput };
+  }
+
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  test('a read that stumbles once is tried again: the run goes on, its steps once', async () => {
+    const warned = quiet();
+    try {
+      const { journeys, sent, reads, failReads, run } = await recorded('2 seconds');
+      failReads(1);
+      const { result } = await call((...args) => journeys.handler(...args), run);
+      expect(result.getResult()).toMatchObject({ status: 'exited' });
+      expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
+      // The failed read, its retry, then the wake after the timeout read once more
+      expect(reads.slice(0, 2)).toEqual([run.instanceId, run.instanceId]);
+      expect(warned).toHaveBeenCalledWith(
+        expect.stringMatching(
+          new RegExp(`run entry: read failed for instance ${run.instanceId} \\(attempt 1 of 3\\)`)
+        ),
+        expect.any(Error)
+      );
+    } finally {
+      warned.mockRestore();
+    }
+  }, 30_000);
+
+  test('a stumble on the wake after a wait continues the run without repeating its steps', async () => {
+    const warned = quiet();
+    try {
+      const { journeys, sent, failReads, run } = await recorded();
+      const runner = new LocalDurableTestRunner({
+        handlerFunction: (...args) => journeys.handler(...args),
+      });
+      const running = runner.run({ payload: run });
+      const callback = runner.getOperation('1:subscribe:0:callback');
+      await callback.waitForData(WaitingOperationStatus.STARTED);
+      await runner.getOperation('1:remaining:0').waitForData(WaitingOperationStatus.COMPLETED);
+      expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
+      await call(
+        journeys.handler,
+        request('/events', { userId: 'u1', event: 'purchase', payload: { value: 1 } })
+      );
+      // The wake's invocation: its first read fails, the retry sees the record
+      failReads(1);
+      await callback.sendCallbackSuccess('{}');
+      const result = await running;
+      expect(result.getResult()).toMatchObject({ status: 'completed' });
+      expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard', 'Thanks for buying']);
+    } finally {
+      warned.mockRestore();
+    }
+  }, 30_000);
+
+  test('a stop during the wait is seen on the wake: refused, nothing more sent', async () => {
+    const { journeys, sent, run } = await recorded();
+    const runner = new LocalDurableTestRunner({
+      handlerFunction: (...args) => journeys.handler(...args),
+    });
+    const running = runner.run({ payload: run });
+    const callback = runner.getOperation('1:subscribe:0:callback');
+    await callback.waitForData(WaitingOperationStatus.STARTED);
+    await runner.getOperation('1:remaining:0').waitForData(WaitingOperationStatus.COMPLETED);
+    await new PostgresJourneyStore(client(pg)).executions.markStopped(run.instanceId, Date.now());
+    await callback.sendCallbackSuccess('{}');
+    const result = await running;
+    expect(result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
+  }, 30_000);
+
+  test('a missing record or a mismatched input is refused on the first read, no retry', async () => {
+    const { journeys, sent, reads, run } = await recorded();
+    const forged = await call(journeys.handler, {
+      ...run,
+      params: { ...run.params, userId: 'u2' },
+    });
+    expect(forged.result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(reads).toEqual([run.instanceId]);
+    const unknown = await call(journeys.handler, { ...run, instanceId: 'never-planned' });
+    expect(unknown.result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(reads).toEqual([run.instanceId, 'never-planned']);
+    expect(sent).toEqual([]);
+  });
+
+  test('a database that keeps failing fails the execution after three reads; a permanent error after one', async () => {
+    const warned = quiet();
+    try {
+      const { journeys, sent, reads, failReads, run } = await recorded();
+      failReads(Number.POSITIVE_INFINITY);
+      const startedAt = Date.now();
+      const { result } = await call((...args) => journeys.handler(...args), run);
+      expect(result.getError().errorMessage).toMatch(/connection reset/);
+      expect(reads).toHaveLength(3);
+      // The two pauses between the attempts, and no durable step before the refusal
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(390);
+      expect(result.getOperations()).toEqual([]);
+      expect(warned).toHaveBeenCalledTimes(2);
+
+      reads.length = 0;
+      failReads(Number.POSITIVE_INFINITY, new PermanentError('registry schema is missing'));
+      const permanent = await call(journeys.handler, run);
+      expect(permanent.result.getError().errorMessage).toMatch(/schema is missing/);
+      expect(reads).toHaveLength(1);
+      expect(sent).toEqual([]);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+});
+
+describe('the provider clients live with the host, across invocations', () => {
+  /** An APNs stand-in the Lambda's own HTTP/2 fetch reaches (the relay origin): records each bearer. */
+  let apns: Http2Server;
+  let apnsOrigin: string;
+  const apnsAuths: (string | undefined)[] = [];
+  let p8Base64: string;
+  let serviceAccountBase64: string;
+  const fcmTokenCalls: string[] = [];
+  const fcmSends: string[] = [];
+
+  beforeAll(async () => {
+    apns = createServer((request, response) => {
+      apnsAuths.push(request.headers.authorization);
+      response.writeHead(200, { 'apns-id': 'id-1' });
+      response.end();
+    });
+    await new Promise<void>((resolve) => {
+      apns.listen(0, '127.0.0.1', resolve);
+    });
+    apnsOrigin = `http://127.0.0.1:${(apns.address() as AddressInfo).port}`;
+    const ec = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+    ]);
+    const ecDer = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', ec.privateKey)).toString(
+      'base64'
+    );
+    p8Base64 = Buffer.from(
+      `-----BEGIN PRIVATE KEY-----\n${ecDer}\n-----END PRIVATE KEY-----\n`
+    ).toString('base64');
+    const rsa = await webcrypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify']
+    );
+    const rsaDer = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', rsa.privateKey)).toString(
+      'base64'
+    );
+    const account: FcmServiceAccount = {
+      project_id: 'acme',
+      client_email: 'sa@acme.iam.gserviceaccount.com',
+      private_key: `-----BEGIN PRIVATE KEY-----\n${rsaDer.match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----\n`,
+    };
+    serviceAccountBase64 = Buffer.from(JSON.stringify(account)).toString('base64');
+    // FCM goes through the platform fetch: Google's endpoints are answered here, the rest passes
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const href =
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (href === 'https://oauth2.googleapis.com/token') {
+        fcmTokenCalls.push(href);
+        return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }), {
+          status: 200,
+        });
+      }
+      if (href.startsWith('https://fcm.googleapis.com/')) {
+        fcmSends.push(new Headers(init?.headers).get('authorization') ?? '');
+        return new Response('{}', { status: 200 });
+      }
+      return realFetch(input, init);
+    });
+  }, 30_000);
+
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    await new Promise<void>((resolve) => {
+      apns.close(() => resolve());
+    });
+  });
+
+  const pushes = {
+    nudge: pushTemplate({
+      id: 'nudge',
+      title: 'Nudge',
+      props: z.strictObject({}),
+      preview: {},
+      content: () => ({ title: 'Hi', body: 'come back' }),
+    }),
+  };
+
+  function pushHost() {
+    const control = fakeLambda();
+    const flow = workflow({ id: 'nudge', trigger: trigger.event(e.login) }).push(pushes.nudge, {});
+    const journeys = journeyLambda({
+      config: defineConfig({
+        workflows: [flow],
+        templates: { push: pushes },
+        apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' },
+        fcm: {},
+      }),
+      env: {
+        ENVIRONMENT: 'production',
+        API_TOKEN: 'secret',
+        APNS_PRIVATE_KEY_BASE64: p8Base64,
+        APNS_RELAY_ORIGIN: apnsOrigin,
+        GOOGLE_APPLICATION_CREDENTIALS_BASE64: serviceAccountBase64,
+      },
+      store: () => new PostgresJourneyStore(client(pg)),
+      lambda: control.lambda,
+    });
+    return { journeys, starts: control.starts };
+  }
+
+  /** Enter `userId` with an iOS and an Android device, and run its instance as its own invocation. */
+  async function runFor(host: ReturnType<typeof pushHost>, userId: string) {
+    const store = new PostgresJourneyStore(client(pg));
+    await store.upsertDevice({ userId, token: `${userId}-ios`, platform: 'ios', ts: 1 });
+    await store.upsertDevice({ userId, token: `${userId}-android`, platform: 'android', ts: 2 });
+    const before = host.starts.length;
+    await call(host.journeys.handler, request('/events', { userId, event: 'login' }));
+    const { result } = await call(
+      host.journeys.handler,
+      JSON.parse(host.starts[before].payload) as RunInput
+    );
+    expect(result.getResult()).toMatchObject({ status: 'completed' });
+  }
+
+  test('two invocations of one host sign one APNs token and exchange one FCM token; another host signs its own', async () => {
+    const host = pushHost();
+    await call(host.journeys.handler, request('/bundle/deploy'));
+    await runFor(host, 'u1');
+    await runFor(host, 'u2');
+    expect(apnsAuths).toHaveLength(2);
+    expect(apnsAuths[0]).toMatch(/^bearer /);
+    // One provider JWT across two invocations, each with its own run env
+    expect(apnsAuths[1]).toBe(apnsAuths[0]);
+    expect(fcmTokenCalls).toHaveLength(1);
+    expect(fcmSends).toEqual(['Bearer at', 'Bearer at']);
+
+    // Another host instance (a cold start): its own clients, its own tokens
+    const other = pushHost();
+    await runFor(other, 'u3');
+    expect(apnsAuths).toHaveLength(3);
+    expect(apnsAuths[2]).not.toBe(apnsAuths[0]);
+    expect(fcmTokenCalls).toHaveLength(2);
+  }, 60_000);
 });
