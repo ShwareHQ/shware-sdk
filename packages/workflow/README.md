@@ -577,8 +577,10 @@ step without retrying, and a transient answer is retried:
 
 Every APNs request carries `apns-id` and `apns-collapse-id`, and every web
 push a `Topic`, derived from the copy's idempotency key, so a copy sent again
-after a lost checkpoint collapses on the device. Provider senders are kept per
-isolate: the APNs provider token and the FCM access token are reused across runs.
+after a lost checkpoint collapses on the device. Provider credentials are kept
+per host (`ApnsProviderToken`, `FcmAccessToken`, `VapidSigner`): the APNs
+provider token, the FCM access token and the VAPID key are reused across runs,
+while the senders themselves are built per run.
 
 `apns.environment` maps a mode to `sandbox` or `production`; unlisted modes use
 `production` in production and `sandbox` otherwise. Generate a VAPID pair once
@@ -745,9 +747,9 @@ The default store needs two bindings, named as in `JourneyEnv`:
 | `DB`      | D1 database | Events, profiles, routing, compiled IR, entries, wakes |
 | `JOURNEY` | Workflow    | The `JourneyRunner` entrypoint                         |
 
-(Before 4.0 the compiled IR lived in a `WORKFLOW_KV` namespace. KV is eventually consistent while
-the routes in D1 are not, so an instance started in another colo right after a deploy could
-miss its IR; the IR now lives in D1 too, and the KV binding is gone.)
+The compiled IR lives in D1 with the routes, never in a KV namespace: KV is eventually consistent
+while the routes in D1 are not, so an instance started in another colo right after a deploy could
+miss its IR.
 
 A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
 when it sends through Cloudflare Email (`cloudflareEmailTransport({ binding: env.EMAIL })`), and a `triggers.crons` entry with `scheduled`
@@ -775,8 +777,7 @@ the single source for both.
 There are no migrations, and re-applying the file is not one: every statement is
 `CREATE TABLE IF NOT EXISTS`, so an existing database keeps its old tables and
 the first insert needing a new column fails. Recreate it instead. The demo has
-`pnpm db:reset`. 4.0 changed `events` (its key is now `(user_id, id)`) and added
-`workflow_ir`: a database from 3.x must be recreated.
+`pnpm db:reset`. The `events` key is `(user_id, id)`, and `workflow_ir` holds the compiled IR.
 
 ## AWS Lambda
 
@@ -884,10 +885,10 @@ says `database: { schema }`, so their short names never meet the app's. The
 host owns the migrations. `npx workflow-ui generate --out <file>` (from
 `@shware/workflow-ui`) writes the tables as one drizzle file on that schema;
 re-export it from your drizzle schema and let drizzle-kit write the migration.
-Run `--check` in CI to catch an SDK upgrade that changed them. 4.0 replaced the
-unique index on `event.event_id` with one on `(user_id, event_id)`: regenerate
-and migrate before deploying — the deploy check now verifies the unique
-indexes as well as the columns, and refuses to run until they match. Without drizzle,
+Run `--check` in CI to catch an SDK upgrade that changed them. The unique index
+on `event` is on `(user_id, event_id)`: regenerate and migrate before deploying —
+the deploy check verifies the unique indexes as well as the columns, and refuses
+to run until they match. Without drizzle,
 `renderPostgresDdl()` returns the same tables as plain DDL. Nothing creates or
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
@@ -1006,10 +1007,10 @@ is a design question this package does not yet answer.
 | `@shware/workflow/postgres-js` | `postgresJsStore`, the Postgres store over postgres.js (peer `postgres`)                           |
 | `@shware/workflow/react-email` | `registryRenderer`, the email renderer over the registry (peers `react`, `react-dom`)              |
 | `@shware/workflow/push`        | `registryPushRenderer`, push content from the registry                                             |
-| `@shware/workflow/apns`        | `ApnsPushSender`, token-based APNs over HTTP/2                                                     |
+| `@shware/workflow/apns`        | `ApnsPushSender` over an `ApnsProviderToken`, token-based APNs over HTTP/2                         |
 | `@shware/workflow/apns-relay`  | `startApnsRelay`, the Node HTTP/1.1 to HTTP/2 relay for `wrangler dev`                             |
-| `@shware/workflow/fcm`         | `FcmPushSender`, FCM HTTP v1 for Android                                                           |
-| `@shware/workflow/webpush`     | `WebPushSender` and `generateVapidKeys`, standard Web Push with VAPID                              |
+| `@shware/workflow/fcm`         | `FcmPushSender` over an `FcmAccessToken`, FCM HTTP v1 for Android                                  |
+| `@shware/workflow/webpush`     | `WebPushSender` over a `VapidSigner`, `generateVapidKeys`; standard Web Push with VAPID            |
 | `@shware/workflow/webhooks`    | `SlackWebhookSender` and `DiscordWebhookSender`                                                    |
 | `@shware/workflow/schema.sql`  | The D1 schema file                                                                                 |
 
