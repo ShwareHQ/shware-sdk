@@ -16,7 +16,7 @@ import {
 } from '../src/index';
 import { registryRenderer } from '../src/react-email';
 import { D1JourneyStore } from '../src/store/d1';
-import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
+import { FakeD1, FakeJourney } from './fake-cloudflare';
 
 /**
  * Email metadata: each template's own `from` / `replyTo`, and the unsubscribe link resolved
@@ -212,9 +212,10 @@ describe("the Worker's preview", () => {
       templates: { email: { welcomeAlias: welcome } },
       email: { unsubscribeUrl: 'https://acme.test/unsubscribe' },
     });
-    const env = { JOURNEY: new FakeJourney() };
+    // Development: a production host refuses to serve without API_TOKEN
+    const env = { JOURNEY: new FakeJourney(), ENVIRONMENT: 'development' };
     const worker = journeyWorker<typeof env>({
-      store: () => new D1JourneyStore(new FakeD1(), new FakeKV()),
+      store: () => new D1JourneyStore(new FakeD1()),
       config,
     });
     const props = encodeURIComponent('{"name":"Ada"}');

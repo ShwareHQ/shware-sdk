@@ -1,4 +1,4 @@
-import type { D1DatabaseLike, KVNamespaceLike } from '../cloudflare/bindings';
+import type { D1DatabaseLike } from '../cloudflare/bindings';
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import type {
@@ -14,18 +14,17 @@ import type {
 } from './index';
 
 /**
- * The original data plane: D1 for the tables (see ../cloudflare/schema.sql)
- * and KV for the content-addressed workflow bodies (`wf:${contentHash}`).
- * The SQL below is exactly what the router and fact source used to inline —
- * the in-memory FakeD1 in the tests dispatches on these strings verbatim.
+ * The original data plane: D1 for everything (see ../cloudflare/schema.sql),
+ * the content-addressed workflow bodies included — they used to live in KV,
+ * whose eventual consistency let a route name a body that was not readable
+ * yet. The SQL below is exactly what the router and fact source used to
+ * inline; the in-memory FakeD1 in the tests dispatches on these statements.
  */
 export class D1JourneyStore implements JourneyStore {
-  constructor(
-    private readonly db: D1DatabaseLike,
-    private readonly kv: KVNamespaceLike
-  ) {}
+  constructor(private readonly db: D1DatabaseLike) {}
 
   async insertEvent(input: EventInput): Promise<boolean> {
+    // The key is (user_id, id): the sender's occurrence id, per user
     const written = await this.db
       .prepare(
         'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)'
@@ -84,22 +83,53 @@ export class D1JourneyStore implements JourneyStore {
     // SQLite's json_patch is RFC 7386 merge-patch: a null removes its key. The
     // merge happens in the statement, so two concurrent identifies cannot lose
     // each other's fields the way a read-modify-write did.
+    //
+    // The merge is top-level only, as Postgres's `||` is: a key whose value is
+    // an object replaces the stored value whole instead of being deep-merged
+    // into it (json_patch's own behaviour), so the two stores agree. Those keys
+    // are removed first, in the same statement; a patch of scalars — all the
+    // API admits — needs no removal and is the plain json_patch.
     const patch = JSON.stringify(props);
+    // Typed as scalars, but a caller outside the API may still hand an object: replace it whole
+    const replaced = Object.entries(props as Record<string, unknown>)
+      .filter(([, value]) => typeof value === 'object' && value !== null)
+      .map(([key]) => key);
+    const stored =
+      replaced.length === 0
+        ? 'profiles.props'
+        : `json_remove(profiles.props, ${replaced.map(() => '?').join(', ')})`;
     const row = await this.db
       .prepare(
-        "INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(profiles.props, ?) RETURNING props"
+        `INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(${stored}, ?) RETURNING props`
       )
-      .bind(userId, patch, patch)
+      .bind(userId, patch, ...replaced.map(jsonPath), patch)
       .first<{ props: string }>();
     // RETURNING always yields the row it just wrote; the fallback only covers a
     // driver that declines to return one, and reports what was asked for.
     return row === null ? stripNulls(props) : (JSON.parse(row.props) as ProfileProps);
   }
 
-  async listUserIds(): Promise<string[]> {
+  async listUserIds(page?: {
+    after?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<string[]> {
+    // Ascending user_id with a keyset bound, so a sweep can resume past the last id it saw
+    const params: unknown[] = [];
+    let where = '';
+    if (page?.after !== undefined) {
+      where = ' WHERE user_id > ?';
+      params.push(page.after);
+    }
+    let limit = '';
+    if (page?.limit !== undefined) {
+      limit = ' LIMIT ?';
+      params.push(page.limit);
+    }
     const { results } = await this.db
-      .prepare('SELECT user_id FROM profiles UNION SELECT DISTINCT user_id FROM events')
-      .bind()
+      .prepare(
+        `SELECT user_id FROM (SELECT user_id FROM profiles UNION SELECT user_id FROM events)${where} ORDER BY user_id${limit}`
+      )
+      .bind(...params)
       .all<{ user_id: string }>();
     return results.map((row) => row.user_id);
   }
@@ -134,6 +164,14 @@ export class D1JourneyStore implements JourneyStore {
       .bind()
       .all<{ user_id: string }>();
     return results.map((row) => row.user_id);
+  }
+
+  async erasurePending(userId: string): Promise<boolean> {
+    const row = await this.db
+      .prepare('SELECT 1 AS x FROM erasures WHERE user_id = ?')
+      .bind(userId)
+      .first<{ x: number }>();
+    return row !== null;
   }
 
   async runningInstances(userId: string): Promise<string[]> {
@@ -219,12 +257,19 @@ export class D1JourneyStore implements JourneyStore {
   }
 
   async putWorkflowIR(workflow: WorkflowIR): Promise<void> {
-    await this.kv.put(`wf:${workflow.contentHash}`, JSON.stringify(workflow));
+    // Content-addressed: a hash already there names the same body, so replacing is harmless
+    await this.db
+      .prepare('INSERT OR REPLACE INTO workflow_ir (content_hash, ir) VALUES (?, ?)')
+      .bind(workflow.contentHash, JSON.stringify(workflow))
+      .run();
   }
 
   async getWorkflowIR(contentHash: string): Promise<WorkflowIR | undefined> {
-    const raw = await this.kv.get(`wf:${contentHash}`);
-    return raw === null ? undefined : WorkflowIR.parse(JSON.parse(raw));
+    const row = await this.db
+      .prepare('SELECT ir FROM workflow_ir WHERE content_hash = ?')
+      .bind(contentHash)
+      .first<{ ir: string }>();
+    return row === null ? undefined : WorkflowIR.parse(JSON.parse(row.ir));
   }
 
   async replaceRoutes(bundle: BundleIR): Promise<void> {
@@ -397,4 +442,15 @@ export class D1JourneyStore implements JourneyStore {
 /** What a merge-patch of `props` into an empty profile yields: the patch minus its nulls. */
 function stripNulls(props: ProfileProps): ProfileProps {
   return Object.fromEntries(Object.entries(props).filter(([, value]) => value !== null));
+}
+
+/**
+ * The SQLite JSON path of a top-level key. Quoted, so dots and brackets in the key are literal;
+ * a double quote has no escape in SQLite's path syntax, so such a key cannot be addressed.
+ */
+function jsonPath(key: string): string {
+  if (key.includes('"')) {
+    throw new Error(`profile property "${key}" cannot hold an object: its name contains a quote`);
+  }
+  return `$."${key}"`;
 }

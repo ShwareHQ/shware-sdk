@@ -59,11 +59,11 @@ const nullable = <C extends ColumnSpec>(column: C, doc?: string): ColumnSpec => 
 export const TABLES = {
   event: table({
     name: 'event',
-    doc: "Every ingested event, the fact base for `performed(...)` conditions. `event_id` is the occurrence's identity as the sender chose it (a retrying producer sends the same one again); its unique index makes a second delivery a no-op.",
+    doc: "Every ingested event, the fact base for `performed(...)` conditions. `event_id` is the occurrence's identity as the sender chose it (a retrying producer sends the same one again), scoped to the user: the (user_id, event_id) unique index makes a second delivery a no-op, and one sender's id can never block another user's event.",
     columns: { id: uuid, eventId: text, userId: text, name: text, ts, payload: jsonb },
     primaryKey: ['id'],
     uuidV7: 'id',
-    uniqueIndexes: [['eventId']],
+    uniqueIndexes: [['userId', 'eventId']],
     indexes: [['userId', 'name', 'ts']],
   }),
   profile: table({

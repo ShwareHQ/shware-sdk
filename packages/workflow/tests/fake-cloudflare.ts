@@ -3,7 +3,6 @@ import type {
   D1PreparedStatementLike,
   D1RunResultLike,
   JourneyEnv,
-  KVNamespaceLike,
   WorkflowBindingLike,
   WorkflowInstanceLike,
 } from '../src/cloudflare/bindings';
@@ -11,9 +10,11 @@ import type {
 /**
  * In-memory fakes for the Cloudflare bindings, so the ingest router is tested
  * through the same structural interfaces the real bindings satisfy. The fake
- * D1 dispatches on the exact SQL strings the router and fact source use —
- * editing a query means updating the dispatch here, which is deliberate: the
- * suite then reviews every statement change.
+ * D1 dispatches on the SQL the D1 store issues — exact statements, plus a few
+ * patterns for the ones the store assembles (event windows, user pages, the
+ * profile merge) — and throws on anything else. Editing a query means updating
+ * the dispatch here, which is deliberate: the suite then reviews every
+ * statement change, and no statement reaches production having never run.
  */
 
 interface EventRow {
@@ -49,6 +50,11 @@ interface SubscriptionRow {
   wake_handle: string;
   ts: number;
 }
+interface DeviceRow {
+  user_id: string | null;
+  platform: string;
+  ts: number;
+}
 
 /**
  * SQLite's json_patch, which is RFC 7386 merge-patch: objects merge key by key,
@@ -70,6 +76,35 @@ function jsonPatch(target: unknown, patch: unknown): unknown {
   return base;
 }
 
+/** The key a top-level SQLite JSON path (`$."key"`) names. */
+function pathKey(path: string): string {
+  const match = /^\$\."(.*)"$/.exec(path);
+  if (match === null) throw new Error(`FakeD1: unsupported JSON path: ${path}`);
+  return match[1];
+}
+
+/** The tables `forgetUser` erases by user id. */
+const USER_TABLES = new Set([
+  'entries',
+  'subscriptions',
+  'segment_starts',
+  'segment_members',
+  'devices',
+  'events',
+  'profiles',
+  'erasures',
+]);
+
+const EVENT_QUERY =
+  /^SELECT (COUNT\(\*\) AS c|payload) FROM events WHERE user_id = \? AND name = \?( AND ts >= \?)?( AND ts <= \?)?$/;
+const USER_PAGE =
+  /^SELECT user_id FROM \(SELECT user_id FROM profiles UNION SELECT user_id FROM events\)( WHERE user_id > \?)? ORDER BY user_id( LIMIT \?)?$/;
+const PROFILE_MERGE =
+  /^INSERT INTO profiles \(user_id, props\) VALUES \(\?, json_patch\('\{\}', \?\)\) ON CONFLICT\(user_id\) DO UPDATE SET props = json_patch\((?:profiles\.props|json_remove\(profiles\.props, ((?:\?, )*\?)\)), \?\) RETURNING props$/;
+const USER_DELETE = /^DELETE FROM (\w+) WHERE user_id = \?$/;
+
+type Result = { rows: Record<string, unknown>[]; changes: number };
+
 export class FakeD1 implements D1DatabaseLike {
   readonly events: EventRow[] = [];
   readonly profiles = new Map<string, string>();
@@ -79,7 +114,9 @@ export class FakeD1 implements D1DatabaseLike {
   readonly segmentMembers = new Map<string, number>(); // `${segment}\n${user}` → ts
   readonly segmentStarts = new Set<string>(); // `${segment}\n${workflow}\n${user}`
   readonly erasures = new Map<string, number>(); // user → ts
-  readonly devices = new Map<string, { user_id: string; platform: string; ts: number }>(); // token →
+  readonly devices = new Map<string, DeviceRow>(); // token →
+  /** workflow_ir: content hash → WorkflowIR JSON. */
+  readonly ir = new Map<string, string>();
   entries: EntryRow[] = [];
   subscriptions: SubscriptionRow[] = [];
 
@@ -94,7 +131,7 @@ export class FakeD1 implements D1DatabaseLike {
   }
 
   private statement(sql: string, params: unknown[]): D1PreparedStatementLike {
-    const exec = (): { rows: Record<string, unknown>[]; changes: number } => this.exec(sql, params);
+    const exec = (): Result => this.exec(sql, params);
     return {
       bind: (...values: unknown[]) => this.statement(sql, values),
       first: async <T>() => (exec().rows[0] ?? null) as T | null,
@@ -103,58 +140,131 @@ export class FakeD1 implements D1DatabaseLike {
     };
   }
 
+  /** The statements the store assembles from optional parts. */
+  private pattern(sql: string, p: unknown[]): Result | undefined {
+    const eventQuery = EVENT_QUERY.exec(sql);
+    if (eventQuery !== null) {
+      let rows = this.events.filter((e) => e.user_id === p[0] && e.name === p[1]);
+      let next = 2;
+      if (eventQuery[2]) {
+        const since = p[next++] as number;
+        rows = rows.filter((e) => e.ts >= since);
+      }
+      if (eventQuery[3]) {
+        const until = p[next++] as number;
+        rows = rows.filter((e) => e.ts <= until);
+      }
+      return eventQuery[1] === 'payload'
+        ? { rows: rows.map((e) => ({ payload: e.payload })), changes: 0 }
+        : { rows: [{ c: rows.length }], changes: 0 };
+    }
+    const userPage = USER_PAGE.exec(sql);
+    if (userPage !== null) {
+      let ids = [
+        ...new Set([...this.profiles.keys(), ...this.events.map((e) => e.user_id)]),
+      ].sort();
+      let next = 0;
+      if (userPage[1]) {
+        const after = p[next++] as string;
+        ids = ids.filter((id) => id > after);
+      }
+      if (userPage[2]) ids = ids.slice(0, p[next++] as number);
+      return { rows: ids.map((user_id) => ({ user_id })), changes: 0 };
+    }
+    const merge = PROFILE_MERGE.exec(sql);
+    if (merge !== null) {
+      const userId = p[0] as string;
+      const patch = JSON.parse(p[1] as string) as Record<string, unknown>;
+      const existing = this.profiles.get(userId);
+      let base: Record<string, unknown> = {};
+      if (existing !== undefined) {
+        base = JSON.parse(existing) as Record<string, unknown>;
+        const removed = merge[1] ? merge[1].split(', ').length : 0;
+        for (const path of p.slice(2, 2 + removed)) delete base[pathKey(path as string)];
+      }
+      const props = JSON.stringify(jsonPatch(base, patch));
+      this.profiles.set(userId, props);
+      return { rows: [{ props }], changes: 1 };
+    }
+    const userDelete = USER_DELETE.exec(sql);
+    if (userDelete !== null && USER_TABLES.has(userDelete[1])) {
+      return { rows: [], changes: this.deleteUser(userDelete[1], p[0] as string) };
+    }
+    return undefined;
+  }
+
+  private deleteUser(table: string, userId: string): number {
+    const drop = <T>(rows: T[], owner: (row: T) => string | null): T[] =>
+      rows.filter((row) => owner(row) !== userId);
+    switch (table) {
+      case 'entries': {
+        const before = this.entries.length;
+        this.entries = drop(this.entries, (e) => e.user_id);
+        return before - this.entries.length;
+      }
+      case 'subscriptions': {
+        const before = this.subscriptions.length;
+        this.subscriptions = drop(this.subscriptions, (s) => s.user_id);
+        return before - this.subscriptions.length;
+      }
+      case 'segment_starts': {
+        let changes = 0;
+        for (const key of this.segmentStarts) {
+          if (key.split('\n')[2] === userId && this.segmentStarts.delete(key)) changes++;
+        }
+        return changes;
+      }
+      case 'segment_members': {
+        let changes = 0;
+        for (const key of this.segmentMembers.keys()) {
+          if (key.split('\n')[1] === userId && this.segmentMembers.delete(key)) changes++;
+        }
+        return changes;
+      }
+      case 'devices': {
+        let changes = 0;
+        for (const [token, device] of this.devices) {
+          if (device.user_id === userId && this.devices.delete(token)) changes++;
+        }
+        return changes;
+      }
+      case 'events': {
+        const before = this.events.length;
+        const kept = drop(this.events, (e) => e.user_id);
+        this.events.splice(0, this.events.length, ...kept);
+        return before - this.events.length;
+      }
+      case 'profiles':
+        return this.profiles.delete(userId) ? 1 : 0;
+      case 'erasures':
+        return this.erasures.delete(userId) ? 1 : 0;
+      default:
+        throw new Error(`FakeD1: no user rows in ${table}`);
+    }
+  }
+
   // oxlint-disable-next-line eslint/max-lines-per-function -- one arm per SQL statement is the point
-  private exec(sql: string, p: unknown[]): { rows: Record<string, unknown>[]; changes: number } {
+  private exec(sql: string, p: unknown[]): Result {
     switch (sql) {
       case 'INSERT OR IGNORE INTO events (id, user_id, name, ts, payload) VALUES (?, ?, ?, ?, ?)': {
         const id = p[0] as string;
-        if (this.events.some((e) => e.id === id)) return { rows: [], changes: 0 }; // the key
+        const userId = p[1] as string;
+        // The key is (user_id, id)
+        if (this.events.some((e) => e.id === id && e.user_id === userId))
+          return { rows: [], changes: 0 };
         this.events.push({
           id,
-          user_id: p[1] as string,
+          user_id: userId,
           name: p[2] as string,
           ts: p[3] as number,
           payload: p[4] as string,
         });
         return { rows: [], changes: 1 };
       }
-      case 'SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND name = ?': {
-        const c = this.events.filter((e) => e.user_id === p[0] && e.name === p[1]).length;
-        return { rows: [{ c }], changes: 0 };
-      }
-      case 'SELECT COUNT(*) AS c FROM events WHERE user_id = ? AND name = ? AND ts >= ?': {
-        const c = this.events.filter(
-          (e) => e.user_id === p[0] && e.name === p[1] && e.ts >= (p[2] as number)
-        ).length;
-        return { rows: [{ c }], changes: 0 };
-      }
-      case 'SELECT payload FROM events WHERE user_id = ? AND name = ?': {
-        const rows = this.events
-          .filter((e) => e.user_id === p[0] && e.name === p[1])
-          .map((e) => ({ payload: e.payload }));
-        return { rows, changes: 0 };
-      }
-      case 'SELECT payload FROM events WHERE user_id = ? AND name = ? AND ts >= ?': {
-        const rows = this.events
-          .filter((e) => e.user_id === p[0] && e.name === p[1] && e.ts >= (p[2] as number))
-          .map((e) => ({ payload: e.payload }));
-        return { rows, changes: 0 };
-      }
 
       case 'SELECT props FROM profiles WHERE user_id = ?': {
         const props = this.profiles.get(p[0] as string);
         return { rows: props === undefined ? [] : [{ props }], changes: 0 };
-      }
-      case "INSERT INTO profiles (user_id, props) VALUES (?, json_patch('{}', ?)) ON CONFLICT(user_id) DO UPDATE SET props = json_patch(profiles.props, ?) RETURNING props": {
-        const userId = p[0] as string;
-        const existing = this.profiles.get(userId);
-        const merged = jsonPatch(
-          existing === undefined ? {} : JSON.parse(existing),
-          JSON.parse(p[1] as string)
-        );
-        const props = JSON.stringify(merged);
-        this.profiles.set(userId, props);
-        return { rows: [{ props }], changes: 1 };
       }
 
       case 'SELECT condition FROM segments WHERE id = ?': {
@@ -169,10 +279,6 @@ export class FakeD1 implements D1DatabaseLike {
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([id, segment]) => ({ id, condition: segment.condition }));
         return { rows, changes: 0 };
-      }
-      case 'SELECT user_id FROM profiles UNION SELECT DISTINCT user_id FROM events': {
-        const ids = new Set([...this.profiles.keys(), ...this.events.map((e) => e.user_id)]);
-        return { rows: [...ids].map((user_id) => ({ user_id })), changes: 0 };
       }
       case 'SELECT token, platform FROM devices WHERE user_id = ? ORDER BY ts DESC': {
         const rows = [...this.devices]
@@ -196,6 +302,16 @@ export class FakeD1 implements D1DatabaseLike {
           rows: device === undefined ? [] : [{ user_id: device.user_id }],
           changes: device === undefined ? 0 : 1,
         };
+      }
+      case 'SELECT user_id FROM devices WHERE token = ?': {
+        const device = this.devices.get(p[0] as string);
+        return { rows: device === undefined ? [] : [{ user_id: device.user_id }], changes: 0 };
+      }
+      case 'UPDATE devices SET user_id = NULL WHERE token = ?': {
+        const device = this.devices.get(p[0] as string);
+        if (device === undefined) return { rows: [], changes: 0 };
+        device.user_id = null;
+        return { rows: [], changes: 1 };
       }
       case 'DELETE FROM segments': {
         const changes = this.segments.size;
@@ -251,6 +367,15 @@ export class FakeD1 implements D1DatabaseLike {
         return { rows: [], changes: 1 };
       }
 
+      case 'INSERT OR REPLACE INTO workflow_ir (content_hash, ir) VALUES (?, ?)': {
+        this.ir.set(p[0] as string, p[1] as string);
+        return { rows: [], changes: 1 };
+      }
+      case 'SELECT ir FROM workflow_ir WHERE content_hash = ?': {
+        const ir = this.ir.get(p[0] as string);
+        return { rows: ir === undefined ? [] : [{ ir }], changes: 0 };
+      }
+
       case 'SELECT 1 AS x FROM segment_members WHERE segment = ? AND user_id = ?': {
         const key = `${p[0] as string}\n${p[1] as string}`;
         return { rows: this.segmentMembers.has(key) ? [{ x: 1 }] : [], changes: 0 };
@@ -286,16 +411,26 @@ export class FakeD1 implements D1DatabaseLike {
         }
         return { rows: [], changes };
       }
+      case 'DELETE FROM segment_members WHERE segment = ? AND user_id = ?': {
+        const key = `${p[0] as string}\n${p[1] as string}`;
+        const changes = this.segmentMembers.delete(key) ? 1 : 0;
+        return { rows: [], changes };
+      }
+
+      case 'INSERT OR IGNORE INTO erasures (user_id, ts) VALUES (?, ?)': {
+        const userId = p[0] as string;
+        if (this.erasures.has(userId)) return { rows: [], changes: 0 };
+        this.erasures.set(userId, p[1] as number);
+        return { rows: [], changes: 1 };
+      }
       case 'SELECT user_id FROM erasures ORDER BY ts': {
         const rows = [...this.erasures]
           .sort(([, a], [, b]) => a - b)
           .map(([user_id]) => ({ user_id }));
         return { rows, changes: 0 };
       }
-      case 'DELETE FROM segment_members WHERE segment = ? AND user_id = ?': {
-        const key = `${p[0] as string}\n${p[1] as string}`;
-        const changes = this.segmentMembers.delete(key) ? 1 : 0;
-        return { rows: [], changes };
+      case 'SELECT 1 AS x FROM erasures WHERE user_id = ?': {
+        return { rows: this.erasures.has(p[0] as string) ? [{ x: 1 }] : [], changes: 0 };
       }
 
       case 'INSERT OR IGNORE INTO entries (workflow, user_id, instance_id, hash, status, ts) VALUES (?, ?, ?, ?, ?, ?)': {
@@ -337,6 +472,12 @@ export class FakeD1 implements D1DatabaseLike {
         }
         return { rows: [], changes };
       }
+      case "SELECT instance_id FROM entries WHERE user_id = ? AND status = 'running'": {
+        const rows = this.entries
+          .filter((e) => e.user_id === p[0] && e.status === 'running')
+          .map((e) => ({ instance_id: e.instance_id }));
+        return { rows, changes: 0 };
+      }
 
       case 'SELECT DISTINCT wake_handle AS handle FROM subscriptions WHERE user_id = ? AND event = ?': {
         const handles = new Set(
@@ -346,25 +487,30 @@ export class FakeD1 implements D1DatabaseLike {
         );
         return { rows: [...handles].map((handle) => ({ handle })), changes: 0 };
       }
+      case 'INSERT OR IGNORE INTO subscriptions (user_id, event, wake_handle, ts) VALUES (?, ?, ?, ?)': {
+        // The (wake_handle, event) primary key
+        if (this.subscriptions.some((s) => s.wake_handle === p[2] && s.event === p[1]))
+          return { rows: [], changes: 0 };
+        this.subscriptions.push({
+          user_id: p[0] as string,
+          event: p[1] as string,
+          wake_handle: p[2] as string,
+          ts: p[3] as number,
+        });
+        return { rows: [], changes: 1 };
+      }
       case 'DELETE FROM subscriptions WHERE wake_handle = ?': {
         const before = this.subscriptions.length;
         this.subscriptions = this.subscriptions.filter((s) => s.wake_handle !== p[0]);
         return { rows: [], changes: before - this.subscriptions.length };
       }
 
-      default:
-        throw new Error(`FakeD1: unsupported SQL: ${sql}`);
+      default: {
+        const result = this.pattern(sql, p);
+        if (result === undefined) throw new Error(`FakeD1: unsupported SQL: ${sql}`);
+        return result;
+      }
     }
-  }
-}
-
-export class FakeKV implements KVNamespaceLike {
-  readonly store = new Map<string, string>();
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
-  }
-  async put(key: string, value: string): Promise<void> {
-    this.store.set(key, value);
   }
 }
 
@@ -401,12 +547,10 @@ export class FakeJourney implements WorkflowBindingLike {
 export function makeEnv(overrides?: Partial<JourneyEnv>): {
   env: JourneyEnv;
   db: FakeD1;
-  kv: FakeKV;
   journey: FakeJourney;
 } {
   const db = new FakeD1();
-  const kv = new FakeKV();
   const journey = new FakeJourney();
-  const env: JourneyEnv = { WORKFLOW_KV: kv, DB: db, JOURNEY: journey, ...overrides };
-  return { env, db, kv, journey };
+  const env: JourneyEnv = { DB: db, JOURNEY: journey, ...overrides };
+  return { env, db, journey };
 }

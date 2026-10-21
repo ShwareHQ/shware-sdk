@@ -293,11 +293,18 @@ export interface JourneyStore {
   requestErasure(userId: string, at: number): Promise<void>;
   /** Users whose erasure was requested and not finished yet. */
   pendingErasures(): Promise<string[]>;
+  /**
+   * Whether the user's erasure was requested and not finished yet: ingest, identify and device
+   * registration refuse the user meanwhile, so nothing is written back between the stop of their
+   * instances and the erase.
+   */
+  erasurePending(userId: string): Promise<boolean>;
   /** The user's journey instances still running, by the entry ledger. */
   runningInstances(userId: string): Promise<string[]>;
   /**
    * Erase everything kept about the user — profile, devices, events, wake subscriptions, segment
-   * memberships, suppressions, entries and reporting — and the erasure request last. Run only
+   * memberships, entries and reporting — and the erasure request last. Suppressions stay: an
+   * opt-out is a compliance record keyed by an opaque id, and it outlives the erasure. Run only
    * once no instance of theirs runs any more, or one could write some of it back.
    */
   forgetUser(userId: string): Promise<void>;
@@ -332,8 +339,12 @@ export interface JourneyStore {
    */
   mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps>;
 
-  /** Every user the engine knows (a profile or an event): who the segment sweep evaluates. */
-  listUserIds(): Promise<string[]>;
+  /**
+   * Every user the engine knows (a profile or an event): who the segment sweep evaluates. Ids
+   * come in ascending order; `after` resumes past the last id of the previous page, and `limit`
+   * bounds the page (the whole list without one).
+   */
+  listUserIds(page?: { after?: string | undefined; limit?: number | undefined }): Promise<string[]>;
 
   /* ---------------------------------- devices --------------------------------- */
   /** The user's push devices, most recently registered first. */

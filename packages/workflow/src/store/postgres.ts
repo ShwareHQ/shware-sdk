@@ -78,15 +78,16 @@ export class PostgresJourneyStore implements JourneyStore {
 
   /**
    * What the live database lacks against tables.ts: missing tables, missing columns, a column
-   * of another type or nullability. Read-only — the engine never migrates the host's database; a
-   * deploy fails with these problems listed, and the fix is to regenerate the drizzle file and
-   * run the host's migrations.
+   * of another type or nullability, and missing unique indexes (the store's ON CONFLICT targets
+   * — without one the first ingest fails, not the deploy). Read-only — the engine never migrates
+   * the host's database; a deploy fails with these problems listed, and the fix is to regenerate
+   * the drizzle file and run the host's migrations.
    */
   async checkSchema(): Promise<string[]> {
     // In a transaction, so Hyperdrive answers from the database, not from its read cache — a
     // deploy right after the migration must see the new columns
-    const rows = await this.sql.transaction((tx) =>
-      tx.query<{
+    const { columns, indexes } = await this.sql.transaction(async (tx) => ({
+      columns: await tx.query<{
         table_name: string;
         column_name: string;
         udt_name: string;
@@ -94,10 +95,15 @@ export class PostgresJourneyStore implements JourneyStore {
       }>(
         `SELECT table_name, column_name, udt_name, is_nullable FROM information_schema.columns WHERE table_schema = $1`,
         [this.schema]
-      )
-    );
-    const live = new Map(rows.map((row) => [`${row.table_name}.${row.column_name}`, row]));
-    const tables = new Set(rows.map((row) => row.table_name));
+      ),
+      indexes: await tx.query<{ tablename: string; indexname: string; indexdef: string }>(
+        `SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = $1`,
+        [this.schema]
+      ),
+    }));
+    const live = new Map(columns.map((row) => [`${row.table_name}.${row.column_name}`, row]));
+    const tables = new Set(columns.map((row) => row.table_name));
+    const liveIndexes = new Map(indexes.map((row) => [`${row.tablename}.${row.indexname}`, row]));
     const problems: string[] = [];
     for (const spec of Object.values(TABLES)) {
       const where = `"${this.schema}"."${spec.name}"`;
@@ -118,19 +124,27 @@ export class PostgresJourneyStore implements JourneyStore {
             `column ${where}."${name}" should be ${column.nullable ? 'nullable' : 'NOT NULL'}`
           );
       }
+      // The names drizzle-kit and renderPostgresDdl both give an unnamed unique index
+      for (const keys of spec.uniqueIndexes ?? []) {
+        const name = `${spec.name}_${keys.map(columnName).join('_')}_index`;
+        const row = liveIndexes.get(`${spec.name}.${name}`);
+        if (row === undefined) problems.push(`missing unique index "${this.schema}"."${name}"`);
+        else if (!/^CREATE UNIQUE INDEX/i.test(row.indexdef))
+          problems.push(`index "${this.schema}"."${name}" is not unique`);
+      }
     }
     return problems;
   }
 
   async insertEvent(input: EventInput): Promise<boolean> {
     // The row key stays a UUID v7 (the house rule for every table); the
-    // sender's occurrence id lives in event_id, whose unique index is what
-    // makes a second delivery a no-op. ON CONFLICT DO NOTHING + RETURNING
+    // sender's occurrence id lives in event_id, unique per user, which is
+    // what makes a second delivery a no-op. ON CONFLICT DO NOTHING + RETURNING
     // reports which of the two happened without a second round trip.
     const rows = await this.sql.query(
       `INSERT INTO ${this.t.event} (id, event_id, user_id, name, ts, payload)
        VALUES ($1, $2, $3, $4, ${TS('$5')}, $6::text::jsonb)
-       ON CONFLICT (event_id) DO NOTHING RETURNING id`,
+       ON CONFLICT (user_id, event_id) DO NOTHING RETURNING id`,
       [
         uuidv7(input.ts),
         input.id,
@@ -204,9 +218,25 @@ export class PostgresJourneyStore implements JourneyStore {
     return asJson<ProfileProps>(rows.at(0)?.props ?? {});
   }
 
-  async listUserIds(): Promise<string[]> {
+  async listUserIds(page?: {
+    after?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<string[]> {
+    // Ascending user_id with a keyset bound, so a sweep can resume past the last id it saw
+    const params: unknown[] = [];
+    let where = '';
+    if (page?.after !== undefined) {
+      params.push(page.after);
+      where = ` WHERE user_id > $${params.length}`;
+    }
+    let limit = '';
+    if (page?.limit !== undefined) {
+      params.push(page.limit);
+      limit = ` LIMIT $${params.length}`;
+    }
     const rows = await this.sql.query<{ user_id: string }>(
-      `SELECT user_id FROM ${this.t.profile} UNION SELECT DISTINCT user_id FROM ${this.t.event}`
+      `SELECT user_id FROM (SELECT user_id FROM ${this.t.profile} UNION SELECT user_id FROM ${this.t.event}) u${where} ORDER BY user_id${limit}`,
+      params
     );
     return rows.map((row) => row.user_id);
   }
@@ -241,6 +271,13 @@ export class PostgresJourneyStore implements JourneyStore {
     return rows.map((row) => row.user_id);
   }
 
+  async erasurePending(userId: string): Promise<boolean> {
+    const rows = await this.sql.query(`SELECT 1 AS x FROM ${this.t.erasure} WHERE user_id = $1`, [
+      userId,
+    ]);
+    return rows.length > 0;
+  }
+
   async runningInstances(userId: string): Promise<string[]> {
     const rows = await this.sql.query<{ instance_id: string }>(
       `SELECT instance_id FROM ${this.t.entry} WHERE user_id = $1 AND status = 'running'`,
@@ -266,7 +303,8 @@ export class PostgresJourneyStore implements JourneyStore {
         this.t.subscription,
         this.t.segmentStart,
         this.t.segmentMember,
-        this.t.suppression,
+        // Not suppression: an opt-out is a compliance record keyed by an opaque id, and it
+        // outlives the erasure
         this.t.device,
         this.t.event,
         this.t.profile,

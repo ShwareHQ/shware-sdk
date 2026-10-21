@@ -9,22 +9,37 @@
 -- interpreter's send_event step being retried after it already committed its
 -- row), so both pass an id they can reproduce.
 --
+-- The id is per user: the key is (user_id, id), so one sender's id can never
+-- block another user's event, and a producer only has to keep its ids unique
+-- within a user. A database created while `id` alone was the key needs the
+-- table rebuilt (4.0).
+--
 -- Only the sender knows whether two deliveries describe one occurrence or two,
 -- so the engine never invents that answer: an ingest that arrives without an id
 -- is given a fresh one, which is a truthful "this is its own occurrence" rather
 -- than a guess.
 CREATE TABLE IF NOT EXISTS events (
-  id      TEXT PRIMARY KEY NOT NULL,
+  id      TEXT NOT NULL,
   user_id TEXT NOT NULL,
   name    TEXT NOT NULL,
   ts      INTEGER NOT NULL,
-  payload TEXT NOT NULL DEFAULT '{}'
+  payload TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY (user_id, id)
 );
 CREATE INDEX IF NOT EXISTS idx_events_user_name_ts ON events (user_id, name, ts);
 
 CREATE TABLE IF NOT EXISTS profiles (
   user_id TEXT PRIMARY KEY,
   props   TEXT NOT NULL DEFAULT '{}'
+);
+
+-- Workflow bodies (WorkflowIR JSON), content-addressed. They live beside the
+-- routes that point at them so a deploy is read-your-writes: the trigger row
+-- and the body it names are in one strongly consistent database, with no
+-- eventually consistent namespace (KV, before 4.0) to lag behind it.
+CREATE TABLE IF NOT EXISTS workflow_ir (
+  content_hash TEXT PRIMARY KEY,
+  ir           TEXT NOT NULL
 );
 
 -- Deploy artefacts: segment definitions (resolved by id during evaluation)

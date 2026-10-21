@@ -188,6 +188,17 @@ describe('ingest', () => {
     expect(rows.rows).toEqual([{ event_id: 'evt-1' }]);
   });
 
+  test('an event id is per user: the same id from another user is its own event', async () => {
+    const { env, store } = setup();
+    await deployBundle(env, bundle(), store);
+    const row = (userId: string) => ({ id: 'evt-1', userId, event: 'signed_up' });
+    expect(await ingestEvent(env, row('u1'), store)).toMatchObject({ stored: true });
+    expect(await ingestEvent(env, row('u2'), store)).toMatchObject({ stored: true });
+    expect(await ingestEvent(env, row('u2'), store)).toMatchObject({ stored: false });
+    expect(await store.countEvents('u1', 'signed_up')).toBe(1);
+    expect(await store.countEvents('u2', 'signed_up')).toBe(1);
+  });
+
   test('a null in the profile patch removes the property', async () => {
     const { store } = setup();
     await store.mergeProfile('u1', { plan: 'pro', email: 'a@b.c' });
@@ -196,6 +207,26 @@ describe('ingest', () => {
       name: 'Ann',
     });
     expect(await store.mergeProfile('u2', { gone: null, kept: 1 })).toEqual({ kept: 1 });
+  });
+
+  test('the profile merge is top-level: an object value replaces the stored one whole', async () => {
+    const { store } = setup();
+    await store.mergeProfile('u1', { address: { city: 'Oslo', zip: '0150' } } as never);
+    expect(await store.mergeProfile('u1', { address: { city: 'Bergen' } } as never)).toEqual({
+      address: { city: 'Bergen' },
+    });
+  });
+
+  test('user ids page in ascending order past the last id seen', async () => {
+    const { store } = setup();
+    await store.mergeProfile('u3', { a: 1 });
+    await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
+    await store.insertEvent({ id: 'e', userId: 'u2', event: 'x', ts: 1, payload: {} });
+    await store.mergeProfile('u2', { a: 1 });
+    expect(await store.listUserIds()).toEqual(['u1', 'u2', 'u3']);
+    expect(await store.listUserIds({ limit: 2 })).toEqual(['u1', 'u2']);
+    expect(await store.listUserIds({ after: 'u2', limit: 2 })).toEqual(['u3']);
+    expect(await store.listUserIds({ after: 'u3' })).toEqual([]);
   });
 
   test('a failed entry is reclaimed, a live one is not', async () => {
@@ -344,6 +375,35 @@ describe('devices', () => {
   });
 });
 
+describe('erasure', () => {
+  test('pending from the request until forgetUser, which keeps the suppressions', async () => {
+    const { env, store } = setup();
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
+    await store.mergeProfile('u1', { plan: 'pro' });
+    await store.subscribe('i1', 'u1', ['x'], 1);
+    await pg.query(
+      "INSERT INTO workflow.suppression (user_id, channel, ts) VALUES ('u1', 'email', now())"
+    );
+
+    expect(await store.erasurePending('u1')).toBe(false);
+    await store.requestErasure('u1', 5);
+    await store.requestErasure('u1', 6);
+    expect(await store.erasurePending('u1')).toBe(true);
+    expect(await store.pendingErasures()).toEqual(['u1']);
+
+    await store.forgetUser('u1');
+    expect(await store.erasurePending('u1')).toBe(false);
+    expect(await store.getProfile('u1')).toBeUndefined();
+    expect(await store.countEvents('u1', 'x')).toBe(0);
+    expect(await store.listDevices('u1')).toEqual([]);
+    expect(await store.findWakeHandles('u1', 'x')).toEqual([]);
+    expect(await store.listUserIds()).toEqual([]);
+    // An opt-out is a compliance record keyed by an opaque id: it outlives the erasure
+    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+  });
+});
+
 describe('uuidv7', () => {
   test('is a version 7, variant 1 uuid ordered by time', () => {
     const a = uuidv7(1_000_000);
@@ -378,6 +438,30 @@ describe('checkSchema', () => {
       expect(problems).toContain('table "app"."event" is missing');
       expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
       expect(problems).toHaveLength(Object.keys(TABLES).length);
+    });
+  });
+
+  describe('a database missing a unique index', () => {
+    let db: PGlite;
+    const index = 'event_user_id_event_id_index';
+
+    beforeAll(async () => {
+      db = await PGlite.create();
+      const withoutIndex = schemaSql.replace(
+        new RegExp(`CREATE UNIQUE INDEX IF NOT EXISTS "${index}"[^\\n]*\\n`),
+        ''
+      );
+      if (withoutIndex === schemaSql) throw new Error(`the DDL no longer declares ${index}`);
+      await db.exec(withoutIndex);
+    }, 30_000);
+
+    afterAll(async () => {
+      await db.close();
+    });
+
+    test('is refused by name: the ON CONFLICT target the first ingest would need', async () => {
+      const store = new PostgresJourneyStore(client(db));
+      expect(await store.checkSchema()).toEqual([`missing unique index "workflow"."${index}"`]);
     });
   });
 });

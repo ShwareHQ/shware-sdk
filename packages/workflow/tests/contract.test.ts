@@ -143,8 +143,8 @@ describe('JourneyClient with a contract', () => {
 
 describe('ingest validation in the Worker', () => {
   async function setup() {
-    const { env, db, kv, journey } = makeEnv();
-    const store = new D1JourneyStore(db, kv);
+    const { env, db, journey } = makeEnv();
+    const store = new D1JourneyStore(db);
     const welcome = workflow({
       id: 'welcome',
       trigger: trigger.event(contract.events.login),
