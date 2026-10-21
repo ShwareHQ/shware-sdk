@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { EmailBindingLike } from '../src/cloudflare/bindings';
 import { EmailSender, trackEmail } from '../src/email-sender';
-import { routeByPlatform } from '../src/host/senders';
+import { PermanentError, isRetryable } from '../src/engine/retry';
+import { WebhookMessageSender, routeByChannel, routeByPlatform } from '../src/host/senders';
 import { cloudflareEmailTransport } from '../src/transports/cloudflare-email';
 
 /** The email channel over the Cloudflare binding transport, as the tests used to build it. */
@@ -108,12 +109,60 @@ describe('routeByPlatform', () => {
     expect(sent).toEqual(['android', 'ios']);
   });
 
-  test('fails the step when the copy has no device or its platform has no sender', async () => {
+  test('fails the step for good when the copy has no device or its platform has no sender', async () => {
     const route = routeByPlatform({ ios: outlet('ios') });
     await expect(route.send(push)).rejects.toThrow(/carries no device/);
-    await expect(route.send({ ...push, device: { token: 'w', platform: 'web' } })).rejects.toThrow(
-      /no push sender configured for platform 'web'/
-    );
+    await expect(route.send(push)).rejects.toThrow(PermanentError);
+    const web = { ...push, device: { token: 'w', platform: 'web' } };
+    await expect(route.send(web)).rejects.toThrow(/no push sender configured for platform 'web'/);
+    await expect(route.send(web)).rejects.toThrow(PermanentError);
+  });
+});
+
+describe('routeByChannel', () => {
+  test('a channel without a sender is a misconfiguration: PermanentError, not a retry', async () => {
+    const route = routeByChannel({ email: { send: async () => undefined } });
+    await route.send(message);
+    const error = await route.send({ ...message, channel: 'push' }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(String(error)).toMatch(/no sender configured for channel 'push'/);
+    expect(isRetryable(error)).toBe(false);
+  });
+});
+
+describe('WebhookMessageSender', () => {
+  const sender = (status: number) =>
+    new WebhookMessageSender('https://hook.test/m', async () => new Response('', { status }));
+
+  test('a 2xx delivers; the idempotency key travels as a header', async () => {
+    let seen: Headers | undefined;
+    const s = new WebhookMessageSender('https://hook.test/m', async (_url, init) => {
+      seen = new Headers(init?.headers);
+      return new Response('', { status: 200 });
+    });
+    await s.send(message);
+    expect(seen?.get('idempotency-key')).toBe('inst_1:2');
+  });
+
+  test('a 4xx is the receiver refusing the message: PermanentError', async () => {
+    for (const status of [400, 401, 403, 404, 422]) {
+      const error = await sender(status)
+        .send(message)
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PermanentError);
+      expect(String(error)).toContain(String(status));
+    }
+  });
+
+  test('a timeout, a rate limit or a 5xx is retried', async () => {
+    for (const status of [408, 429, 500, 503]) {
+      const error = await sender(status)
+        .send(message)
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(PermanentError);
+      expect(isRetryable(error)).toBe(true);
+    }
   });
 });
 

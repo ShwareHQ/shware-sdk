@@ -1,6 +1,14 @@
 import { webcrypto } from 'node:crypto';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { ApnsPushSender, apnsKeyFromBase64, apnsReason, signApnsJwt } from '../src/apns';
+import {
+  ApnsPushSender,
+  apnsCollapseId,
+  apnsIdFromKey,
+  apnsKeyFromBase64,
+  apnsReason,
+  signApnsJwt,
+} from '../src/apns';
+import { PermanentError, isRetryable } from '../src/engine/retry';
 
 /** A throwaway P-256 key in PKCS #8 PEM, the shape of a `.p8` file. */
 let privateKey: string;
@@ -42,7 +50,8 @@ describe('signApnsJwt', () => {
 describe('apnsKeyFromBase64', () => {
   test('decodes the .p8 and rejects anything that is not one', () => {
     expect(apnsKeyFromBase64(Buffer.from(privateKey).toString('base64'))).toBe(privateKey);
-    expect(() => apnsKeyFromBase64(Buffer.from('nope').toString('base64'))).toThrow(/PKCS #8/);
+    expect(() => apnsKeyFromBase64(Buffer.from('nope').toString('base64'))).toThrow(PermanentError);
+    expect(() => apnsKeyFromBase64('%%%')).toThrow(PermanentError);
   });
 });
 
@@ -148,9 +157,115 @@ describe('ApnsPushSender', () => {
     expect(gone).toEqual(['u1']);
   });
 
-  test('any other failure throws so the step retries', async () => {
-    const { fetchFn } = fakeFetch(403, { reason: 'InvalidProviderToken' });
-    await expect(sender(fetchFn).send(message)).rejects.toThrow(/403.*InvalidProviderToken/);
+  test('a resend carries the same apns-id and apns-collapse-id, derived from the idempotency key', async () => {
+    const { calls, fetchFn } = fakeFetch(200, undefined);
+    await sender(fetchFn).send(message);
+    await sender(fetchFn).send(message);
+    await sender(fetchFn).send({ ...message, idempotencyKey: 'inst:4' });
+    const ids = calls.map((c) => c.headers.get('apns-id'));
+    expect(ids[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[2]).not.toBe(ids[0]);
+    expect(ids[0]).toBe(await apnsIdFromKey('inst:3'));
+    expect(calls[0].headers.get('apns-collapse-id')).toBe('inst:3');
+    // The collapse id is cut to 64 bytes, at a character boundary
+    const long = `inst:${'é'.repeat(40)}`;
+    const cut = apnsCollapseId(long);
+    expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(64);
+    expect(cut).toBe(`inst:${'é'.repeat(29)}`);
+    expect(apnsCollapseId('short')).toBe('short');
+  });
+
+  /**
+   * How each APNs answer ends the copy: a dead token settles it and forgets the device, a
+   * configuration or request problem fails it for good, throttling and outages retry.
+   */
+  describe('classification', () => {
+    type Outcome = 'settled-dead-token' | 'settled-undelivered' | 'PermanentError' | 'retryable';
+    const table: [status: number, reason: string | undefined, outcome: Outcome][] = [
+      [410, 'Unregistered', 'settled-dead-token'],
+      [410, undefined, 'settled-dead-token'],
+      [400, 'BadDeviceToken', 'settled-undelivered'],
+      [400, 'ExpiredToken', 'settled-dead-token'],
+      [400, 'DeviceTokenNotForTopic', 'PermanentError'],
+      [400, 'TopicDisallowed', 'PermanentError'],
+      [400, 'BadTopic', 'PermanentError'],
+      [400, 'MissingTopic', 'PermanentError'],
+      [403, 'BadCertificate', 'PermanentError'],
+      [403, 'BadCertificateEnvironment', 'PermanentError'],
+      [403, 'Forbidden', 'PermanentError'],
+      [403, 'InvalidProviderToken', 'PermanentError'],
+      [403, 'MissingProviderToken', 'PermanentError'],
+      [400, 'BadMessageId', 'PermanentError'],
+      [400, 'BadPriority', 'PermanentError'],
+      [400, 'PayloadEmpty', 'PermanentError'],
+      [400, 'IdleTimeout', 'PermanentError'],
+      [413, 'PayloadTooLarge', 'PermanentError'],
+      [404, 'BadPath', 'PermanentError'],
+      [403, 'ExpiredProviderToken', 'retryable'],
+      [429, 'TooManyRequests', 'retryable'],
+      [429, 'TooManyProviderTokenUpdates', 'retryable'],
+      [500, 'InternalServerError', 'retryable'],
+      [503, 'ServiceUnavailable', 'retryable'],
+      [503, 'Shutdown', 'retryable'],
+    ];
+    /** What the send did, in the table's terms: how it ended, and whether the device was forgotten. */
+    const observe = async (status: number, reason: string | undefined) => {
+      const { fetchFn } = fakeFetch(status, reason === undefined ? undefined : { reason });
+      const gone: string[] = [];
+      const s = sender(fetchFn, { onUnregistered: (m) => void gone.push(m.userId) });
+      const result = await s.send(message).then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error })
+      );
+      const { error } = result;
+      const outcome: Outcome | undefined =
+        error === undefined
+          ? gone.length > 0
+            ? 'settled-dead-token'
+            : 'settled-undelivered'
+          : error instanceof PermanentError
+            ? 'PermanentError'
+            : 'retryable';
+      return {
+        outcome,
+        settled: result.value,
+        forgotten: gone,
+        retryable: error === undefined ? undefined : isRetryable(error),
+        namesStatus: error instanceof Error ? error.message.includes(String(status)) : undefined,
+      };
+    };
+    test.each(table)('%i %s → %s', async (status, reason, outcome) => {
+      const dead = outcome === 'settled-dead-token';
+      const settled = dead || outcome === 'settled-undelivered';
+      expect(await observe(status, reason)).toEqual({
+        outcome,
+        settled: settled ? { delivered: false, reason: reason ?? 'Unregistered' } : undefined,
+        forgotten: dead ? ['u1'] : [],
+        retryable: settled ? undefined : outcome === 'retryable',
+        namesStatus: settled ? undefined : true,
+      });
+    });
+
+    test('ExpiredProviderToken drops the cached provider token, so the retry signs a new one', async () => {
+      let status = 403;
+      const calls: string[] = [];
+      const fetchFn: typeof fetch = async (_url, init) => {
+        calls.push(new Headers(init?.headers).get('authorization') ?? '');
+        return new Response(
+          status === 403 ? JSON.stringify({ reason: 'ExpiredProviderToken' }) : null,
+          { status }
+        );
+      };
+      const s = sender(fetchFn);
+      await s.send({ ...message, idempotencyKey: 'inst:1' }).catch(() => undefined);
+      await expect(s.send(message)).rejects.toThrow(/ExpiredProviderToken/);
+      status = 200;
+      await s.send(message);
+      // The first failure keeps nothing: the second attempt already carries a fresh token
+      expect(calls[0]).not.toBe(calls[1]);
+      // A token refused for another reason (InvalidProviderToken) is kept as is: see the table
+    });
   });
 
   test('refuses a message without a token or on another channel', async () => {

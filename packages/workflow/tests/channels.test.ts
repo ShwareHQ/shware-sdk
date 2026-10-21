@@ -4,11 +4,12 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { EmailBindingLike } from '../src/cloudflare/bindings';
 import type { OutboundMessage } from '../src/engine/ports';
+import { PermanentError } from '../src/engine/retry';
 import { type ChannelsConfig, channelsFromConfig } from '../src/host/channels';
 import { D1JourneyStore } from '../src/store/d1';
 import { emailTemplate, pushTemplate } from '../src/templates';
 import { cloudflareEmailTransport } from '../src/transports/cloudflare-email';
-import { FakeD1, FakeJourney, FakeKV } from './fake-cloudflare';
+import { FakeD1, FakeJourney } from './fake-cloudflare';
 
 /**
  * channelsFromConfig: the outlets a workflow.config.ts describes, assembled
@@ -190,11 +191,15 @@ describe('channelsFromConfig', () => {
     expect(fetched).toEqual([]);
   });
 
-  test('a channel the config leaves out fails the step with the reason', async () => {
+  test('a channel the config leaves out fails the step with the reason, for good', async () => {
     const { env } = setup();
     const noPush: ChannelsConfig = { templates: { email: emails } };
     await expect(channelsFromConfig(noPush, env).send(message('push', 'tok'))).rejects.toThrow(
       /no push templates are registered/
+    );
+    // The configuration is the same on every attempt: not retried
+    await expect(channelsFromConfig(noPush, env).send(message('push', 'tok'))).rejects.toThrow(
+      PermanentError
     );
     const noEmail: ChannelsConfig = {
       templates: { push: pushes },
@@ -227,11 +232,57 @@ describe('channelsFromConfig', () => {
     await expect(sender.send(message('push', 'tok'))).rejects.toThrow(
       /APNS_PRIVATE_KEY_BASE64 is not set/
     );
+    await expect(sender.send(message('push', 'tok'))).rejects.toThrow(PermanentError);
+  });
+
+  test('the provider sender outlives the run: one APNs provider token across runs on one env', async () => {
+    const { env, fetched, fetchImpl } = setup();
+    const config = {
+      templates,
+      apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' },
+    };
+    // Two runs, each assembling its own channels against the same env
+    await channelsFromConfig(config, env, { fetch: fetchImpl }).send(message('push', 'tok1'));
+    await channelsFromConfig(config, env, { fetch: fetchImpl }).send(message('push', 'tok2'));
+    expect(fetched).toHaveLength(2);
+    // The same JWT: signed once, reused (Apple refuses a sender that re-signs on every push)
+    expect(fetched[0]?.auth).toBe(fetched[1]?.auth);
+    // Another env (another deployment, another isolate) signs its own
+    const other = setup();
+    await channelsFromConfig(config, other.env, { fetch: fetchImpl }).send(message('push', 'tok3'));
+    expect(other.fetched[0]?.auth).not.toBe(fetched[0]?.auth);
+    // A different config on the same env builds a new sender rather than reusing the old
+    await channelsFromConfig({ ...config, apns: { ...config.apns, topic: 'io.acme.other' } }, env, {
+      fetch: fetchImpl,
+    }).send(message('push', 'tok4'));
+    expect(fetched[2]?.auth).not.toBe(fetched[0]?.auth);
+  });
+
+  test('a cached sender still forgets the dead token in the store of the run that met it', async () => {
+    const { env, fetchImpl } = setup(true);
+    const config = {
+      templates,
+      apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' },
+    };
+    const first = new D1JourneyStore(new FakeD1());
+    const second = new D1JourneyStore(new FakeD1());
+    await first.upsertDevice({ userId: 'u1', token: 'dead1', platform: 'ios', ts: 1 });
+    await second.upsertDevice({ userId: 'u1', token: 'dead2', platform: 'ios', ts: 1 });
+    const result1 = await channelsFromConfig(config, env, { fetch: fetchImpl, store: first }).send(
+      message('push', 'dead1')
+    );
+    const result2 = await channelsFromConfig(config, env, { fetch: fetchImpl, store: second }).send(
+      message('push', 'dead2')
+    );
+    expect(result1).toEqual({ delivered: false, reason: 'Unregistered' });
+    expect(result2).toEqual({ delivered: false, reason: 'Unregistered' });
+    expect(await first.listDevices('u1')).toEqual([]);
+    expect(await second.listDevices('u1')).toEqual([]);
   });
 
   test('a token APNs reports as gone is removed from the store', async () => {
     const { env, fetchImpl } = setup(true);
-    const store = new D1JourneyStore(new FakeD1(), new FakeKV());
+    const store = new D1JourneyStore(new FakeD1());
     await store.upsertDevice({ userId: 'u1', token: 'deadtoken', platform: 'ios', ts: 1 });
     const sender = channelsFromConfig(
       { templates, apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },

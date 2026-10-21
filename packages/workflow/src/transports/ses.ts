@@ -34,10 +34,38 @@ export interface SesEmailTransportOptions {
   fetch?: typeof fetch;
 }
 
+/**
+ * Error codes that mean "later", whatever the status line says. SES v2 answers its sending-rate
+ * limit with 429 `TooManyRequestsException`
+ * (https://docs.aws.amazon.com/ses/latest/APIReference-V2/API_SendEmail.html#API_SendEmail_Errors),
+ * but the AWS JSON protocols also carry throttling as a 400 (`Throttling`, `ThrottlingException`,
+ * `LimitExceededException`, …) — the set the AWS SDK itself retries on
+ * (https://github.com/aws/aws-sdk-js-v3/blob/main/packages/service-error-classification/src/constants.ts).
+ * `SendingPausedException`, `AccountSuspendedException`, `MessageRejected` and
+ * `MailFromDomainNotVerifiedException` are the account or the message: not here.
+ */
+const RETRYABLE_TYPES: ReadonlySet<string> = new Set([
+  'Throttling',
+  'ThrottlingException',
+  'ThrottledException',
+  'RequestThrottledException',
+  'RequestThrottled',
+  'TooManyRequestsException',
+  'LimitExceededException',
+  'RequestLimitExceeded',
+  'SlowDown',
+  'ServiceUnavailableException',
+  'InternalFailure',
+  'InternalServerError',
+]);
+
 /** An SES error response: `type` is SES's error code (`MessageRejected`, `TooManyRequestsException`, ...). */
 export class SesSendError extends Error {
   override readonly name = 'SesSendError';
-  /** A rejected request (an unverified sender, a bad address) fails the same way every time. */
+  /**
+   * A rejected request (an unverified sender, a bad address) fails the same way every time; a
+   * throttled one is worth another attempt even when it came as a 400.
+   */
   readonly retryable: boolean;
   constructor(
     readonly status: number,
@@ -45,8 +73,23 @@ export class SesSendError extends Error {
     message: string
   ) {
     super(`SES SendEmail failed (${status}${type === undefined ? '' : ` ${type}`}): ${message}`);
-    this.retryable = isRetryableStatus(status);
+    this.retryable = isRetryableStatus(status) || (type !== undefined && RETRYABLE_TYPES.has(type));
   }
+}
+
+/**
+ * The error code, from the `x-amzn-ErrorType` header (`Code:http://…`) or, when the header is
+ * missing, the body's `__type` (`prefix#Code` under the JSON protocols) or `code`.
+ */
+export function sesErrorType(headers: Headers, body: unknown): string | undefined {
+  const header = headers.get('x-amzn-errortype')?.split(':')[0]?.trim();
+  if (header) return header;
+  if (typeof body !== 'object' || body === null) return undefined;
+  const typed = body as { __type?: unknown; code?: unknown; Code?: unknown };
+  const raw = typed.__type ?? typed.code ?? typed.Code;
+  if (typeof raw !== 'string' || raw === '') return undefined;
+  // `com.amazonaws.ses#TooManyRequestsException` → `TooManyRequestsException`
+  return raw.slice(raw.lastIndexOf('#') + 1).split(':')[0];
 }
 
 function environmentCredentials(): AwsCredentials {
@@ -117,15 +160,17 @@ export function sesEmailTransport(options: SesEmailTransportOptions): EmailTrans
       const text = await response.text();
       if (!response.ok) {
         let detail = text;
+        let parsed: unknown;
         try {
-          const parsed = JSON.parse(text) as { message?: unknown; Message?: unknown };
-          const said = parsed.message ?? parsed.Message;
+          parsed = JSON.parse(text);
+          const said =
+            (parsed as { message?: unknown; Message?: unknown }).message ??
+            (parsed as { Message?: unknown }).Message;
           if (typeof said === 'string') detail = said;
         } catch {
           // Not JSON: the raw body says what went wrong
         }
-        const type = response.headers.get('x-amzn-errortype')?.split(':')[0];
-        throw new SesSendError(response.status, type, detail);
+        throw new SesSendError(response.status, sesErrorType(response.headers, parsed), detail);
       }
       let messageId: unknown;
       try {

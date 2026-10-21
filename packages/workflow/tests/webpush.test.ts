@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import type { OutboundMessage } from '../src/engine/ports';
+import { PermanentError, isRetryable } from '../src/engine/retry';
 import { base64url } from '../src/jwt';
 import {
+  MAX_PLAINTEXT_BYTES,
   WebPushSender,
   encryptPayload,
   fromBase64url,
   generateVapidKeys,
   vapidAuthorization,
+  webPushTopic,
 } from '../src/webpush';
 
 /**
@@ -161,6 +164,11 @@ describe('web push', () => {
     const headers = new Headers(request.init.headers);
     expect(headers.get('content-encoding')).toBe('aes128gcm');
     expect(headers.get('authorization')).toMatch(/^vapid t=/);
+    // RFC 8030 §5.4: at most 32 characters of the URL-safe base64 alphabet, the same on a resend
+    const topic = headers.get('topic');
+    expect(topic).toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+    expect(topic).toBe(await webPushTopic('i1:n1:t'));
+    expect(await webPushTopic('i1:n1:other')).not.toBe(topic);
     const payload = JSON.parse(await decrypt(request.init.body as Uint8Array, ua));
     expect(payload).toMatchObject({
       title: 'Tip',
@@ -212,5 +220,88 @@ describe('web push', () => {
         fetch: async () => new Response('slow down', { status: 429 }),
       }).send(message(subscription))
     ).rejects.toThrow('429');
+  });
+
+  test('a payload past the single-record limit is permanent, before anything is sent', async () => {
+    const ua = await browser();
+    const subscription = JSON.stringify({
+      endpoint: 'https://push.example.com/send/abc',
+      keys: { p256dh: base64url(ua.p256dh), auth: base64url(ua.auth) },
+    });
+    let fetched = 0;
+    const sender = new WebPushSender({
+      vapid: { ...(await generateVapidKeys()), subject: 'mailto:ops@example.com' },
+      render: async () => ({ title: 'Tip', body: 'x'.repeat(MAX_PLAINTEXT_BYTES) }),
+      fetch: async () => {
+        fetched += 1;
+        return new Response(null, { status: 201 });
+      },
+    });
+    const error = await sender.send(message(subscription)).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PermanentError);
+    expect(String(error)).toMatch(/at most 3993/);
+    expect(fetched).toBe(0);
+  });
+
+  /**
+   * How each push service answer ends the copy: a gone subscription settles it and forgets the
+   * device, a refused request fails it for good, throttling and outages retry.
+   */
+  describe('classification', () => {
+    type Outcome = 'settled-dead-token' | 'PermanentError' | 'retryable';
+    const table: [status: number, reason: string, outcome: Outcome][] = [
+      [404, 'NotFound', 'settled-dead-token'],
+      [410, 'Gone', 'settled-dead-token'],
+      [400, '', 'PermanentError'],
+      [401, '', 'PermanentError'],
+      [403, '', 'PermanentError'],
+      [413, '', 'PermanentError'],
+      [429, '', 'retryable'],
+      [500, '', 'retryable'],
+      [503, '', 'retryable'],
+    ];
+    /** What the send did, in the table's terms: how it ended, and whether the device was forgotten. */
+    const observe = async (status: number) => {
+      const ua = await browser();
+      const subscription = JSON.stringify({
+        endpoint: 'https://push.example.com/send/abc',
+        keys: { p256dh: base64url(ua.p256dh), auth: base64url(ua.auth) },
+      });
+      const removed: string[] = [];
+      const sender = new WebPushSender({
+        vapid: { ...(await generateVapidKeys()), subject: 'mailto:ops@example.com' },
+        render: async () => ({ title: 'Tip', body: 'Try it' }),
+        fetch: async () => new Response('said', { status }),
+        onUnregistered: (m) => void removed.push(m.userId),
+      });
+      const result = await sender.send(message(subscription)).then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error })
+      );
+      const { error } = result;
+      const outcome: Outcome | undefined =
+        error === undefined
+          ? 'settled-dead-token'
+          : error instanceof PermanentError
+            ? 'PermanentError'
+            : 'retryable';
+      return {
+        outcome,
+        settled: result.value,
+        forgotten: removed,
+        retryable: error === undefined ? undefined : isRetryable(error),
+        namesStatus: error instanceof Error ? error.message.includes(String(status)) : undefined,
+      };
+    };
+    test.each(table)('%i → %s', async (status, reason, outcome) => {
+      const dead = outcome === 'settled-dead-token';
+      expect(await observe(status)).toEqual({
+        outcome,
+        settled: dead ? { delivered: false, reason } : undefined,
+        forgotten: dead ? ['u1'] : [],
+        retryable: dead ? undefined : outcome === 'retryable',
+        namesStatus: dead ? undefined : true,
+      });
+    });
   });
 });

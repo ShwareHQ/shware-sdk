@@ -1,6 +1,13 @@
 import { webcrypto } from 'node:crypto';
 import { beforeAll, describe, expect, test } from 'vitest';
-import { FcmPushSender, type FcmServiceAccount, fcmErrorCode, signJwt } from '../src/fcm';
+import { PermanentError, isRetryable } from '../src/engine/retry';
+import {
+  FcmPushSender,
+  type FcmServiceAccount,
+  fcmErrorCode,
+  serviceAccountFromBase64,
+  signJwt,
+} from '../src/fcm';
 
 /** A throwaway RSA key pair in PKCS #8 PEM, like a real service-account file carries. */
 let account: FcmServiceAccount;
@@ -57,14 +64,19 @@ describe('signJwt', () => {
   });
 });
 
-function fakeFetch(fcmStatus: number, fcmBody: unknown) {
+function fakeFetch(fcmStatus: number, fcmBody: unknown, token: { status?: number } = {}) {
   const calls: { url: string; body: string; auth: string | null }[] = [];
+  let minted = 0;
   const fetchFn: typeof fetch = async (url, init) => {
     const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
     const headers = new Headers(init?.headers);
     calls.push({ url: href, body: init?.body as string, auth: headers.get('authorization') });
     if (href.endsWith('/token')) {
-      return new Response(JSON.stringify({ access_token: 'at-1', expires_in: 3600 }), {
+      if (token.status !== undefined && token.status !== 200) {
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: token.status });
+      }
+      minted += 1;
+      return new Response(JSON.stringify({ access_token: `at-${minted}`, expires_in: 3600 }), {
         status: 200,
       });
     }
@@ -72,6 +84,16 @@ function fakeFetch(fcmStatus: number, fcmBody: unknown) {
   };
   return { calls, fetchFn };
 }
+
+/** An FCM v1 error body: the gRPC status, and the messaging error code when there is one. */
+const fcmError = (status: string, errorCode?: string) => ({
+  error: {
+    code: 0,
+    status,
+    message: 'x',
+    ...(errorCode === undefined ? {} : { details: [{ errorCode }] }),
+  },
+});
 
 const message = {
   workflow: 'w',
@@ -141,6 +163,133 @@ describe('FcmPushSender', () => {
     });
     await expect(retrying.send(message)).rejects.toThrow('FCM send failed: 503');
     expect(fcmErrorCode('not json')).toBe('');
+  });
+
+  /**
+   * How each FCM answer ends the copy: a dead token settles it and forgets the device, a refused
+   * argument settles it with the device kept (it may be the payload, not the token), a
+   * configuration problem fails it for good, throttling and outages retry.
+   */
+  describe('classification', () => {
+    type Outcome = 'settled-dead-token' | 'settled-undelivered' | 'PermanentError' | 'retryable';
+    const table: [status: number, body: unknown, reason: string, outcome: Outcome][] = [
+      [404, fcmError('NOT_FOUND', 'UNREGISTERED'), 'UNREGISTERED', 'settled-dead-token'],
+      [404, fcmError('NOT_FOUND'), 'NOT_FOUND', 'settled-dead-token'],
+      [
+        400,
+        fcmError('INVALID_ARGUMENT', 'INVALID_ARGUMENT'),
+        'INVALID_ARGUMENT',
+        'settled-undelivered',
+      ],
+      [400, fcmError('INVALID_ARGUMENT'), 'INVALID_ARGUMENT', 'settled-undelivered'],
+      [
+        403,
+        fcmError('PERMISSION_DENIED', 'SENDER_ID_MISMATCH'),
+        'SENDER_ID_MISMATCH',
+        'PermanentError',
+      ],
+      [
+        401,
+        fcmError('UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR'),
+        'THIRD_PARTY_AUTH_ERROR',
+        'PermanentError',
+      ],
+      [403, fcmError('PERMISSION_DENIED'), 'PERMISSION_DENIED', 'PermanentError'],
+      [400, 'not json', '', 'PermanentError'],
+      [401, fcmError('UNAUTHENTICATED'), 'UNAUTHENTICATED', 'retryable'],
+      [429, fcmError('RESOURCE_EXHAUSTED', 'QUOTA_EXCEEDED'), 'QUOTA_EXCEEDED', 'retryable'],
+      [503, fcmError('UNAVAILABLE', 'UNAVAILABLE'), 'UNAVAILABLE', 'retryable'],
+      [500, fcmError('INTERNAL', 'INTERNAL'), 'INTERNAL', 'retryable'],
+      [429, 'slow down', '', 'retryable'],
+      [502, 'bad gateway', '', 'retryable'],
+    ];
+    /** What the send did, in the table's terms: how it ended, and whether the device was forgotten. */
+    const observe = async (status: number, body: unknown) => {
+      const { fetchFn } = fakeFetch(status, body);
+      const gone: string[] = [];
+      const sender = new FcmPushSender({
+        serviceAccount: account,
+        render: async () => ({ title: 't', body: 'b' }),
+        fetch: fetchFn,
+        onUnregistered: (m) => void gone.push(m.userId),
+      });
+      const result = await sender.send(message).then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error })
+      );
+      const { error } = result;
+      const outcome: Outcome | undefined =
+        error === undefined
+          ? gone.length > 0
+            ? 'settled-dead-token'
+            : 'settled-undelivered'
+          : error instanceof PermanentError
+            ? 'PermanentError'
+            : 'retryable';
+      return {
+        outcome,
+        settled: result.value,
+        retryable: error === undefined ? undefined : isRetryable(error),
+        namesStatus: error instanceof Error ? error.message.includes(String(status)) : undefined,
+      };
+    };
+    test.each(table)('%i %j → %s', async (status, body, reason, outcome) => {
+      const settled = outcome === 'settled-dead-token' || outcome === 'settled-undelivered';
+      expect(await observe(status, body)).toEqual({
+        outcome,
+        settled: settled ? { delivered: false, reason } : undefined,
+        retryable: settled ? undefined : outcome === 'retryable',
+        namesStatus: settled ? undefined : true,
+      });
+    });
+
+    test('a 401 drops the cached access token, so the retry mints a new one', async () => {
+      let status = 401;
+      const { calls, fetchFn } = fakeFetch(200, {});
+      const sender = new FcmPushSender({
+        serviceAccount: account,
+        render: async () => ({ title: 't', body: 'b' }),
+        fetch: async (url, init) => {
+          const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+          if (href.endsWith('/token')) return fetchFn(url, init);
+          calls.push({
+            url: href,
+            body: '',
+            auth: new Headers(init?.headers).get('authorization'),
+          });
+          return new Response(JSON.stringify(fcmError('UNAUTHENTICATED')), { status });
+        },
+      });
+      await expect(sender.send(message)).rejects.toThrow(/401/);
+      status = 200;
+      await sender.send(message);
+      const sends = calls.filter((c) => c.url.includes('/messages:send'));
+      expect(sends.map((c) => c.auth)).toEqual(['Bearer at-1', 'Bearer at-2']);
+    });
+
+    test('a token exchange the endpoint refuses is permanent; a failing endpoint is retried', async () => {
+      const refused = new FcmPushSender({
+        serviceAccount: account,
+        render: async () => ({ title: 't', body: 'b' }),
+        fetch: fakeFetch(200, {}, { status: 400 }).fetchFn,
+      });
+      await expect(refused.send(message)).rejects.toThrow(PermanentError);
+      const down = new FcmPushSender({
+        serviceAccount: account,
+        render: async () => ({ title: 't', body: 'b' }),
+        fetch: fakeFetch(200, {}, { status: 503 }).fetchFn,
+      });
+      const error = await down.send(message).catch((e: unknown) => e);
+      expect(error).not.toBeInstanceOf(PermanentError);
+      expect(isRetryable(error)).toBe(true);
+    });
+  });
+
+  test('a service account secret that is not base64 JSON, or is incomplete, is permanent', () => {
+    expect(() => serviceAccountFromBase64('%%%')).toThrow(PermanentError);
+    expect(() => serviceAccountFromBase64(btoa('{oops'))).toThrow(PermanentError);
+    expect(() => serviceAccountFromBase64(btoa('{"project_id":"p"}'))).toThrow(PermanentError);
+    expect(serviceAccountFromBase64(btoa(JSON.stringify(account)))).toEqual(account);
   });
 
   test('rejects other channels and missing tokens', async () => {

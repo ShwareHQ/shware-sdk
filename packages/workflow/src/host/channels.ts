@@ -1,9 +1,18 @@
-import { ApnsPushSender, apnsKeyFromBase64 } from '../apns';
+import {
+  DEAD_TOKEN_REASONS as APNS_DEAD_TOKEN_REASONS,
+  ApnsPushSender,
+  apnsKeyFromBase64,
+} from '../apns';
 import type { JourneyEnv } from '../cloudflare/bindings';
 import { type JourneyConfig, apnsEnvironment } from '../config';
 import { EmailSender, type EmailTransport } from '../email-sender';
-import type { MessageSender, OutboundMessage } from '../engine/ports';
-import { FcmPushSender, serviceAccountFromBase64 } from '../fcm';
+import type { MessageSender } from '../engine/ports';
+import { PermanentError } from '../engine/retry';
+import {
+  DEAD_TOKEN_REASONS as FCM_DEAD_TOKEN_REASONS,
+  FcmPushSender,
+  serviceAccountFromBase64,
+} from '../fcm';
 import { registryPushRenderer } from '../push';
 import { registryRenderer } from '../react-email';
 import { type JourneyMode, type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
@@ -17,7 +26,7 @@ import {
   renderSlackContent,
 } from '../templates';
 import { DiscordWebhookSender, SlackWebhookSender } from '../webhooks';
-import { WebPushSender } from '../webpush';
+import { DEAD_TOKEN_REASONS as WEB_PUSH_DEAD_TOKEN_REASONS, WebPushSender } from '../webpush';
 import { removeDevice } from './router';
 import { routeByChannel, routeByPlatform } from './senders';
 
@@ -45,11 +54,16 @@ export function runtimeFromConfig(
   return resolveRuntime(config?.runtime, journeyMode(env));
 }
 
-/** A sender that fails every message with the reason the channel cannot deliver. */
+/**
+ * A sender that fails every message with the reason the channel cannot deliver — for good: the
+ * configuration is the same on every attempt, so the step does not retry into it.
+ */
 function unavailable(reason: string): MessageSender {
   return {
     async send(message) {
-      throw new Error(`cannot send '${message.template}' on ${message.channel}: ${reason}`);
+      throw new PermanentError(
+        `cannot send '${message.template}' on ${message.channel}: ${reason}`
+      );
     },
   };
 }
@@ -64,7 +78,10 @@ function requireSecret(
 ): string {
   const value = env[name];
   if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`${name} is not set: the environment must hold it for the configured channel`);
+    // Missing on this attempt, missing on the next: the deployment has to change, not the step
+    throw new PermanentError(
+      `${name} is not set: the environment must hold it for the configured channel`
+    );
   }
   return value;
 }
@@ -82,6 +99,51 @@ function lazy(build: () => MessageSender): MessageSender {
       return sender.send(message);
     },
   };
+}
+
+/**
+ * The provider senders, one per `env` object and platform, for as long as the isolate lives.
+ *
+ * `channelsFromConfig` runs once per workflow run (every wake of every instance), while the APNs
+ * provider JWT must be reused for at least 20 minutes (Apple answers a sender that re-signs on
+ * every push with 429 `TooManyProviderTokenUpdates`) and the FCM access token is good for an hour.
+ * Both live on the sender instance, so the sender has to outlive the run. The runtime hands the
+ * same `env` object to every run in the isolate (a Worker's `env`, a Lambda's module-level
+ * environment), and the keys, topics and secrets a sender is built from all come from it, so the
+ * env is the natural scope: a WeakMap on it holds nothing past the isolate and never mixes two
+ * deployments. Inside, the key names the platform and the config fields that shape the sender, so a
+ * config change (tests, a reloaded host) builds a new one instead of reusing the old.
+ *
+ * What a cached sender must not capture is the run's store: the token a provider reports dead is
+ * removed in `dropDeadTokens` below, per run, from the settled result.
+ */
+const providerSenders = new WeakMap<object, Map<string, MessageSender>>();
+
+/** A number for each fetch implementation, so a sender built on one is not reused with another. */
+const fetchIds = new WeakMap<object, number>();
+let nextFetchId = 1;
+function fetchId(fetchImpl: typeof fetch | undefined): string {
+  if (fetchImpl === undefined) return 'global';
+  let id = fetchIds.get(fetchImpl);
+  if (id === undefined) {
+    id = nextFetchId++;
+    fetchIds.set(fetchImpl, id);
+  }
+  return String(id);
+}
+
+function cachedSender(env: object, key: string, build: () => MessageSender): MessageSender {
+  let senders = providerSenders.get(env);
+  if (senders === undefined) {
+    senders = new Map();
+    providerSenders.set(env, senders);
+  }
+  let sender = senders.get(key);
+  if (sender === undefined) {
+    sender = lazy(build);
+    senders.set(key, sender);
+  }
+  return sender;
 }
 
 /** The channels slice of the config — what `channelsFromConfig` reads. */
@@ -120,64 +182,103 @@ export function channelsFromConfig(
     const registry = config.templates?.push;
     if (registry === undefined) return unavailable('no push templates are registered');
     const render = registryPushRenderer(registry);
-    // A token the provider reports as gone is forgotten (nothing left to deliver to), waking the
-    // waits that read devices, as a removal through the API does
-    const onUnregistered = async (message: OutboundMessage) => {
-      if (message.device !== undefined && options.store !== undefined) {
-        await removeDevice(env, message.device.token, options.store);
-      }
-    };
+    /**
+     * A token the provider reports as gone is forgotten (nothing left to deliver to), waking the
+     * waits that read devices, as a removal through the API does. Done here, per run, on the
+     * settled result: the provider sender is cached across runs (see `providerSenders`) and must
+     * not hold this run's store.
+     */
+    const dropDeadTokens = (
+      provider: MessageSender,
+      deadTokenReasons: ReadonlySet<string>
+    ): MessageSender => ({
+      async send(message) {
+        const result = await provider.send(message);
+        if (
+          result !== undefined &&
+          deadTokenReasons.has(result.reason) &&
+          message.device !== undefined &&
+          options.store !== undefined
+        ) {
+          await removeDevice(env, message.device.token, options.store);
+        }
+        return result;
+      },
+    });
     const platforms: Record<string, MessageSender> = {};
     const apns = config.apns;
     if (apns !== undefined) {
-      platforms.ios = lazy(
-        () =>
-          new ApnsPushSender({
-            keyId: apns.keyId,
-            teamId: apns.teamId,
-            privateKey: apnsKeyFromBase64(requireSecret(env, 'APNS_PRIVATE_KEY_BASE64')),
-            topic: apns.topic,
-            environment: apnsEnvironment(apns, mode),
-            render,
-            onUnregistered,
-            ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
-            ...((options.apnsFetch ?? options.fetch) === undefined
-              ? {}
-              : { fetch: options.apnsFetch ?? options.fetch }),
-          })
+      const apnsFetch = options.apnsFetch ?? options.fetch;
+      const environment = apnsEnvironment(apns, mode);
+      const key = JSON.stringify([
+        'ios',
+        apns.keyId,
+        apns.teamId,
+        apns.topic,
+        environment,
+        env.APNS_RELAY_ORIGIN ?? null,
+        fetchId(apnsFetch),
+      ]);
+      platforms.ios = dropDeadTokens(
+        cachedSender(
+          env,
+          key,
+          () =>
+            new ApnsPushSender({
+              keyId: apns.keyId,
+              teamId: apns.teamId,
+              privateKey: apnsKeyFromBase64(requireSecret(env, 'APNS_PRIVATE_KEY_BASE64')),
+              topic: apns.topic,
+              environment,
+              render,
+              ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
+              ...(apnsFetch === undefined ? {} : { fetch: apnsFetch }),
+            })
+        ),
+        APNS_DEAD_TOKEN_REASONS
       );
     }
     const fcm = config.fcm;
     if (fcm !== undefined) {
-      platforms.android = lazy(
-        () =>
-          new FcmPushSender({
-            serviceAccount: serviceAccountFromBase64(
-              requireSecret(env, 'GOOGLE_APPLICATION_CREDENTIALS_BASE64')
-            ),
-            render,
-            onUnregistered,
-            ...(fcm.androidChannelId === undefined
-              ? {}
-              : { android: { channel_id: fcm.androidChannelId } }),
-            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-          })
+      const key = JSON.stringify(['android', fcm.androidChannelId ?? null, fetchId(options.fetch)]);
+      platforms.android = dropDeadTokens(
+        cachedSender(
+          env,
+          key,
+          () =>
+            new FcmPushSender({
+              serviceAccount: serviceAccountFromBase64(
+                requireSecret(env, 'GOOGLE_APPLICATION_CREDENTIALS_BASE64')
+              ),
+              render,
+              ...(fcm.androidChannelId === undefined
+                ? {}
+                : { android: { channel_id: fcm.androidChannelId } }),
+              ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            })
+        ),
+        FCM_DEAD_TOKEN_REASONS
       );
     }
     const webPush = config.webPush;
     if (webPush !== undefined) {
-      platforms.web = lazy(
-        () =>
-          new WebPushSender({
-            vapid: {
-              subject: webPush.subject,
-              publicKey: requireSecret(env, 'VAPID_PUBLIC_KEY'),
-              privateKey: requireSecret(env, 'VAPID_PRIVATE_KEY'),
-            },
-            render,
-            onUnregistered,
-            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-          })
+      const key = JSON.stringify(['web', webPush.subject, fetchId(options.fetch)]);
+      platforms.web = dropDeadTokens(
+        cachedSender(
+          env,
+          key,
+          () =>
+            new WebPushSender({
+              vapid: {
+                subject: webPush.subject,
+                publicKey: requireSecret(env, 'VAPID_PUBLIC_KEY'),
+                privateKey: requireSecret(env, 'VAPID_PRIVATE_KEY'),
+              },
+              render,
+              ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            })
+        ),
+        WEB_PUSH_DEAD_TOKEN_REASONS
       );
     }
     if (Object.keys(platforms).length === 0)
@@ -192,7 +293,7 @@ export function channelsFromConfig(
   const webhookUrl = (channel: 'discord' | 'slack', template: DiscordTemplate | SlackTemplate) => {
     const url = template.webhook(env as unknown as Record<string, unknown>);
     if (typeof url !== 'string' || url === '') {
-      throw new Error(
+      throw new PermanentError(
         `${channel} template '${template.id}': its webhook URL is not set in the environment`
       );
     }

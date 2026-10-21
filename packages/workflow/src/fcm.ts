@@ -1,4 +1,5 @@
 import type { MessageSender, OutboundMessage, SendResult } from './engine';
+import { PermanentError, isRetryableStatus } from './engine/retry';
 import { base64url, pemToDer } from './jwt';
 import type { PushRenderer } from './push';
 
@@ -30,12 +31,39 @@ export interface FcmPushOptions {
   apns?: Record<string, unknown>;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
-  /** Called for a token FCM reports as gone (`UNREGISTERED`); `channelsFromConfig` removes the device. */
+  /**
+   * Called for a token FCM reports as gone (a `DEAD_TOKEN_REASONS` answer) before the send
+   * settles `{ delivered: false, reason }`. A host that caches the sender across runs leaves this
+   * unset and reads the settled reason instead (`channelsFromConfig` does).
+   */
   onUnregistered?: (message: OutboundMessage) => Promise<void> | void;
 }
 
-/** Errors FCM reports for a token that will never deliver again — not worth a retry. */
-const DEAD_TOKEN_CODES = new Set(['UNREGISTERED', 'INVALID_ARGUMENT', 'SENDER_ID_MISMATCH']);
+/**
+ * How an FCM v1 answer is classified, after the API's error codes
+ * (https://firebase.google.com/docs/reference/fcm/rest/v1/ErrorCode):
+ *
+ * - dead token: 404 `UNREGISTERED` (the app was uninstalled, or the token expired) — also a 404
+ *   whose only code is the gRPC status `NOT_FOUND`. The copy settles undelivered and the host
+ *   forgets the token.
+ * - undelivered, device kept: 400 `INVALID_ARGUMENT`. FCM gives it for a malformed token but
+ *   just as well for a payload problem (a message too big, a bad data key, a bad TTL), which
+ *   would hit every device of the template at once; the copy settles with the reason, so the
+ *   report shows it, and nothing is deleted on a guess.
+ * - configuration: 403 `SENDER_ID_MISMATCH` (the token belongs to another Firebase project) and
+ *   401 `THIRD_PARTY_AUTH_ERROR` (the APNs or web push credentials in the Firebase project):
+ *   `PermanentError`, devices kept.
+ * - transient: 401 `UNAUTHENTICATED` (the cached access token is dropped first), 429
+ *   `QUOTA_EXCEEDED`, 503 `UNAVAILABLE`, 500 `INTERNAL` and any other 429 / 5xx.
+ * - everything else (another 4xx) is this request itself: a `PermanentError`.
+ */
+export const DEAD_TOKEN_REASONS: ReadonlySet<string> = new Set(['UNREGISTERED', 'NOT_FOUND']);
+
+const CONFIGURATION_CODES: ReadonlySet<string> = new Set([
+  'SENDER_ID_MISMATCH',
+  'THIRD_PARTY_AUTH_ERROR',
+]);
+const TRANSIENT_CODES: ReadonlySet<string> = new Set(['QUOTA_EXCEEDED', 'UNAVAILABLE', 'INTERNAL']);
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 
@@ -84,14 +112,36 @@ export class FcmPushSender implements MessageSender {
     if (response.ok) return;
 
     const text = await response.text();
-    if (DEAD_TOKEN_CODES.has(fcmErrorCode(text))) {
+    const { status } = response;
+    const code = fcmErrorCode(text);
+    if (code === 'UNREGISTERED' || (status === 404 && DEAD_TOKEN_REASONS.has(code))) {
       // A dead token is a fact about the recipient, not a transient failure:
       // report it and move on, so the step does not retry into the same wall.
-      console.warn(`[fcm] token gone for user ${message.userId}: ${fcmErrorCode(text)}`);
+      console.warn(`[fcm] token gone for user ${message.userId}: ${code}`);
       await this.options.onUnregistered?.(message);
-      return { delivered: false, reason: fcmErrorCode(text) };
+      return { delivered: false, reason: code };
     }
-    throw new Error(`FCM send failed: ${response.status} ${text}`);
+    if (code === 'INVALID_ARGUMENT') {
+      // The token or our payload: settled so the report says which device, nothing deleted
+      console.warn(`[fcm] refused for user ${message.userId}: ${status} ${text}`);
+      return { delivered: false, reason: code };
+    }
+    if (CONFIGURATION_CODES.has(code)) {
+      throw new PermanentError(
+        `FCM refused the request for project '${serviceAccount.project_id}': ${status} ${code}`
+      );
+    }
+    if (status === 401 || code === 'UNAUTHENTICATED') {
+      // The access token was revoked before it expired: mint a new one on the retry
+      this.token = undefined;
+      throw new Error(
+        `FCM send failed: ${status} ${code || text} (access token renewed for the retry)`
+      );
+    }
+    if (TRANSIENT_CODES.has(code) || isRetryableStatus(status)) {
+      throw new Error(`FCM send failed: ${status} ${code || text}`);
+    }
+    throw new PermanentError(`FCM refused the request: ${status} ${code || text}`);
   }
 
   private async accessToken(): Promise<string> {
@@ -111,7 +161,15 @@ export class FcmPushSender implements MessageSender {
       }),
     });
     if (!response.ok) {
-      throw new Error(`FCM token exchange failed: ${response.status} ${await response.text()}`);
+      const detail = `${response.status} ${await response.text()}`;
+      // A 4xx from the token endpoint (`invalid_grant`: the key was revoked, `invalid_client`)
+      // is the service account itself; only a throttled or failing endpoint is worth a retry
+      if (isRetryableStatus(response.status)) {
+        throw new Error(`FCM token exchange failed: ${detail}`);
+      }
+      throw new PermanentError(
+        `FCM token exchange refused for '${serviceAccount.client_email}': ${detail}`
+      );
     }
     const json = (await response.json()) as { access_token: string; expires_in: number };
     this.token = { value: json.access_token, expiresAt: now + json.expires_in * 1000 };
@@ -161,9 +219,17 @@ export async function signJwt(
 
 /** Parse the service-account JSON as it is usually shipped: base64 of the file, in one secret. */
 export function serviceAccountFromBase64(value: string): FcmServiceAccount {
-  const json = JSON.parse(atob(value)) as Partial<FcmServiceAccount>;
+  let json: Partial<FcmServiceAccount>;
+  try {
+    json = JSON.parse(atob(value)) as Partial<FcmServiceAccount>;
+  } catch (error) {
+    // A secret that is not base64 JSON is the same on every attempt: not worth a retry
+    throw new PermanentError('service account is not base64-encoded JSON', { cause: error });
+  }
   if (!json.project_id || !json.client_email || !json.private_key) {
-    throw new Error('service account JSON is missing project_id, client_email or private_key');
+    throw new PermanentError(
+      'service account JSON is missing project_id, client_email or private_key'
+    );
   }
   return json as FcmServiceAccount;
 }

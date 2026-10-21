@@ -5,7 +5,7 @@ import { mimeAddress } from '../src/email';
 import { type EmailMessage, EmailSender, unsubscribeHeaders } from '../src/email-sender';
 import type { OutboundMessage } from '../src/engine/ports';
 import { CloudflareEmailError, cloudflareEmailTransport } from '../src/transports/cloudflare-email';
-import { SesSendError, sesEmailTransport } from '../src/transports/ses';
+import { SesSendError, sesEmailTransport, sesErrorType } from '../src/transports/ses';
 import { signRequest } from '../src/transports/sigv4';
 
 /**
@@ -228,7 +228,70 @@ describe('sesEmailTransport', () => {
     });
     const error = await transport.send(email).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SesSendError);
-    expect(error).toMatchObject({ status: 400, type: 'MessageRejected' });
+    expect(error).toMatchObject({ status: 400, type: 'MessageRejected', retryable: false });
+  });
+
+  test('throttling is retried whatever the status line says; a refusal is not', async () => {
+    const cases: [status: number, type: string, retryable: boolean][] = [
+      [400, 'Throttling', true],
+      [400, 'ThrottlingException', true],
+      [400, 'LimitExceededException', true],
+      [429, 'TooManyRequestsException', true],
+      [503, 'ServiceUnavailableException', true],
+      [400, 'SendingPausedException', false],
+      [400, 'AccountSuspendedException', false],
+      [400, 'MailFromDomainNotVerifiedException', false],
+      [400, 'BadRequestException', false],
+      [404, 'NotFoundException', false],
+    ];
+    for (const [status, type, retryable] of cases) {
+      expect(new SesSendError(status, type, 'm')).toMatchObject({ status, type, retryable });
+    }
+    expect(new SesSendError(500, undefined, 'm').retryable).toBe(true);
+    expect(new SesSendError(400, undefined, 'm').retryable).toBe(false);
+  });
+
+  test("the error type is read from the header, or from the body's __type without it", async () => {
+    const answers = [
+      new Response(JSON.stringify({ __type: 'Throttling', message: 'Rate exceeded' }), {
+        status: 400,
+      }),
+      new Response(
+        JSON.stringify({
+          __type: 'com.amazonaws.ses#TooManyRequestsException',
+          message: 'Maximum sending rate exceeded.',
+        }),
+        { status: 400 }
+      ),
+      new Response(JSON.stringify({ message: 'nope' }), {
+        status: 400,
+        headers: { 'x-amzn-ErrorType': 'MessageRejected:http://internal' },
+      }),
+    ];
+    const { fetchImpl } = recordingFetch(
+      () => answers.shift() ?? new Response('', { status: 500 })
+    );
+    const transport = sesEmailTransport({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'a', secretAccessKey: 'b' },
+      fetch: fetchImpl,
+    });
+    await expect(transport.send(email)).rejects.toMatchObject({
+      status: 400,
+      type: 'Throttling',
+      retryable: true,
+    });
+    await expect(transport.send(email)).rejects.toMatchObject({
+      type: 'TooManyRequestsException',
+      retryable: true,
+    });
+    await expect(transport.send(email)).rejects.toMatchObject({
+      type: 'MessageRejected',
+      retryable: false,
+    });
+    expect(sesErrorType(new Headers(), { code: 'Throttling' })).toBe('Throttling');
+    expect(sesErrorType(new Headers(), 'not an object')).toBeUndefined();
+    expect(sesErrorType(new Headers(), {})).toBeUndefined();
   });
 
   test('a non-JSON error body is reported as is; a success without MessageId is still a success', async () => {
@@ -338,6 +401,11 @@ describe('cloudflareEmailTransport', () => {
     const error = await transport.send(email).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(CloudflareEmailError);
     expect(String(error)).toMatch(/10101 unauthorized/);
+    // A 4xx other than a timeout or rate limit is the request: not retried
+    expect(error).toMatchObject({ retryable: false });
+    expect(new CloudflareEmailError(429, []).retryable).toBe(true);
+    expect(new CloudflareEmailError(400, []).retryable).toBe(false);
+    expect(new CloudflareEmailError(503, []).retryable).toBe(true);
   });
 });
 
