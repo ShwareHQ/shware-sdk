@@ -7,6 +7,7 @@ import { InstanceNotFoundError, type JourneyEnv } from '../src/host/platform';
 import { classifyClick, classifyOpen } from '../src/reporting/classify';
 import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';
+import { UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
 
@@ -542,6 +543,8 @@ describe('forgetUser', () => {
     await store.mergeProfile('u1', { email: 'ada@example.com' });
     await store.upsertDevice({ userId: 'u1', token: 't', platform: 'ios', ts: 1 });
     await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i9', hash: 'h', ts: 1 });
+    // Its runner reached the runtime: the erasure has to stop it
+    expect(await store.admitInstance('i9', 'u1')).toBe(true);
   }
 
   const rowsOf = async (table: string) =>
@@ -577,6 +580,79 @@ describe('forgetUser', () => {
     expect(await store.pendingErasures()).toEqual([]);
     expect(await rowsOf('entry')).toBe(0);
     expect(await rowsOf('profile')).toBe(0);
+  });
+});
+
+describe('reporting after a tombstone', () => {
+  const instanceRows = async () =>
+    (await pg.query('SELECT instance_id, status FROM workflow.instance')).rows;
+  const instance = { workflow: 'w', instanceId: 'i1', userId: 'u1' };
+
+  test.each(['erasing', 'erased'] as const)(
+    'a late start, node or finish of a user %s leaves no instance row',
+    async (state) => {
+      const store = new PostgresJourneyStore(client(pg));
+      await store.requestErasure('u1', 5);
+      if (state === 'erased') await store.forgetUser('u1', 6);
+      const reporting = store.reporting;
+
+      await reporting.instanceStarted({ ...instance, at: 7 });
+      await reporting.nodeReached({ ...instance, nodeId: 'n1', at: 8 });
+      await reporting.instanceFinished({ ...instance, status: 'completed', at: 9 });
+      await reporting.instanceFinished({ ...instance, status: 'failed', at: 9 });
+      expect(await instanceRows()).toEqual([]);
+
+      // Another user's reporting is untouched
+      await reporting.instanceStarted({ ...instance, instanceId: 'i2', userId: 'u2', at: 7 });
+      await reporting.instanceFinished({
+        ...instance,
+        instanceId: 'i2',
+        userId: 'u2',
+        status: 'completed',
+        at: 9,
+      });
+      expect(await instanceRows()).toEqual([{ instance_id: 'i2', status: 'completed' }]);
+    }
+  );
+
+  test('a finish arriving after the erase does not put the instance back', async () => {
+    const store = new PostgresJourneyStore(client(pg));
+    await store.reporting.instanceStarted({ ...instance, at: 1 });
+    await store.reporting.nodeReached({ ...instance, nodeId: 'n1', at: 2 });
+    await store.requestErasure('u1', 5);
+    await store.forgetUser('u1', 6);
+    expect(await instanceRows()).toEqual([]);
+    await store.reporting.instanceFinished({ ...instance, status: 'completed', at: 9 });
+    await store.reporting.nodeReached({ ...instance, nodeId: 'n2', at: 9 });
+    expect(await instanceRows()).toEqual([]);
+  });
+
+  test('a copy for a user with a tombstone is refused for good, so it is never sent', async () => {
+    const store = new PostgresJourneyStore(client(pg));
+    const copy = {
+      idempotencyKey: 'i1:n1',
+      workflow: 'w',
+      instanceId: 'i1',
+      nodeId: 'n1',
+      template: 'welcome',
+      channel: 'email',
+      userId: 'u1',
+      sentAt: 1,
+    };
+    expect(await store.reporting.recordMessage(copy)).toEqual(expect.any(String));
+    await store.requestErasure('u1', 5);
+
+    const refused = store.reporting.recordMessage({ ...copy, idempotencyKey: 'i1:n2' });
+    await expect(refused).rejects.toBeInstanceOf(UserErasedError);
+    await expect(refused).rejects.toMatchObject({ userId: 'u1', retryable: false });
+    // A retry of the copy already recorded is refused too: nothing of theirs goes out
+    await expect(store.reporting.recordMessage(copy)).rejects.toBeInstanceOf(UserErasedError);
+    const rows = await pg.query('SELECT idempotency_key FROM workflow.message');
+    expect(rows.rows).toEqual([{ idempotency_key: 'i1:n1' }]);
+
+    await store.forgetUser('u1', 6);
+    await expect(store.reporting.recordMessage(copy)).rejects.toBeInstanceOf(UserErasedError);
+    expect((await pg.query('SELECT 1 FROM workflow.message')).rows).toEqual([]);
   });
 });
 

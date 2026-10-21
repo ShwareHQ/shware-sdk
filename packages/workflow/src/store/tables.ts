@@ -154,7 +154,18 @@ export const TABLES = {
   entry: table({
     name: 'entry',
     doc: 'Entry ledger: the (workflow, user) primary key is the once policy.',
-    columns: { workflow: text, userId: text, instanceId: text, hash: text, status: text, ts },
+    columns: {
+      workflow: text,
+      userId: text,
+      instanceId: text,
+      hash: text,
+      status: text,
+      ts,
+      admittedAt: nullable(
+        ts,
+        'When the runner admitted itself (`admitInstance`), before its first observable effect; null until then, so an erasure knows nothing of the instance has run yet.'
+      ),
+    },
     primaryKey: ['workflow', 'userId'],
     indexes: [['instanceId']],
   }),

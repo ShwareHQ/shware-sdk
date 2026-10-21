@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS entries (
   hash        TEXT NOT NULL,
   status      TEXT NOT NULL,
   ts          INTEGER NOT NULL,
+  -- When the runner admitted itself (admitInstance), before its first
+  -- observable effect; null until then, so an erasure knows nothing of the
+  -- instance has run yet.
+  admitted_at INTEGER,
   PRIMARY KEY (workflow, user_id)
 );
 

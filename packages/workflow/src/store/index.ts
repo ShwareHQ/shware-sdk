@@ -152,6 +152,13 @@ export interface DeviceInput {
   ts: number;
 }
 
+/** An instance of a user still in the ledger, and whether its runner was admitted (see `admitInstance`). */
+export interface RunningInstance {
+  instanceId: string;
+  /** False until the runner admitted itself: nothing has run, and the tombstone keeps it that way. */
+  admitted: boolean;
+}
+
 /** A store plus how to release what opening it acquired (a connection, say). */
 export interface StoreLease {
   store: JourneyStore;
@@ -310,8 +317,24 @@ export interface JourneyStore {
    * answer, and the store's conditional writes are the gate itself.
    */
   erasureState(userId: string): Promise<ErasureState>;
+  /**
+   * Users whose erasure was carried out at or after `since`, for the sweep's second pass: a
+   * write whose transaction straddled the tombstone's commit (a single statement, or a journey
+   * entry committing late) can land after the first erase; running `forgetUser` once more, a
+   * little later, takes it too. Idempotent on the tombstone (`erased_at` keeps its first value).
+   */
+  erasedSince(since: number): Promise<string[]>;
   /** The user's journey instances still running, by the entry ledger. */
-  runningInstances(userId: string): Promise<string[]>;
+  runningInstances(userId: string): Promise<RunningInstance[]>;
+  /**
+   * The runner's admission, before its first observable effect: records that the instance runs
+   * (`admitted_at`, kept on replay) — unless the user has an erasure tombstone, in which case
+   * nothing is recorded and the runner must not run. Mutually exclusive with `requestErasure`
+   * and `forgetUser` for that user (Postgres: the user's advisory lock), so an erasure either
+   * finds the instance admitted and stops it, or commits its tombstone first and the admission
+   * is refused — never neither. False also for an entry no longer in the ledger.
+   */
+  admitInstance(instanceId: string, userId: string): Promise<boolean>;
   /**
    * Erase everything kept about the user — profile, devices, events, wake subscriptions, segment
    * memberships, entries and reporting — and mark the tombstone erased (`erased_at`), which

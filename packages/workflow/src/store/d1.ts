@@ -10,6 +10,7 @@ import type {
   EventWindow,
   JourneyStore,
   ProfileProps,
+  RunningInstance,
   SegmentTriggerRoute,
   TriggerRoute,
 } from './index';
@@ -29,7 +30,10 @@ const NOT_ERASED = 'WHERE NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?)'
  *
  * Every write about a user is one statement conditional on their erasure tombstone not
  * existing (`INSERT ... SELECT ... WHERE NOT EXISTS`): a write that changed nothing is then
- * read back once to tell a refusal (`UserErasedError`) from a plain no-op.
+ * read back once to tell a refusal (`UserErasedError`) from a plain no-op. D1 has one writer,
+ * so a statement is atomic against every other: the runner's admission is one conditional
+ * UPDATE, and a tombstone either precedes it (refused) or follows it (the erasure finds the
+ * instance admitted) — no lock needed.
  */
 export class D1JourneyStore implements JourneyStore {
   constructor(private readonly db: D1DatabaseLike) {}
@@ -209,12 +213,33 @@ export class D1JourneyStore implements JourneyStore {
     return row.erased_at === null ? 'erasing' : 'erased';
   }
 
-  async runningInstances(userId: string): Promise<string[]> {
+  async erasedSince(since: number): Promise<string[]> {
     const { results } = await this.db
-      .prepare("SELECT instance_id FROM entries WHERE user_id = ? AND status = 'running'")
+      .prepare('SELECT user_id FROM erasures WHERE erased_at >= ? ORDER BY erased_at')
+      .bind(since)
+      .all<{ user_id: string }>();
+    return results.map((row) => row.user_id);
+  }
+
+  async runningInstances(userId: string): Promise<RunningInstance[]> {
+    const { results } = await this.db
+      .prepare(
+        "SELECT instance_id, admitted_at IS NOT NULL AS admitted FROM entries WHERE user_id = ? AND status = 'running'"
+      )
       .bind(userId)
-      .all<{ instance_id: string }>();
-    return results.map((row) => row.instance_id);
+      .all<{ instance_id: string; admitted: number | boolean }>();
+    return results.map((row) => ({ instanceId: row.instance_id, admitted: Boolean(row.admitted) }));
+  }
+
+  async admitInstance(instanceId: string, userId: string): Promise<boolean> {
+    // One statement: the first admission's time is kept on replay, the tombstone refuses it
+    const row = await this.db
+      .prepare(
+        "UPDATE entries SET admitted_at = COALESCE(admitted_at, ?) WHERE instance_id = ? AND user_id = ? AND status = 'running' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?) RETURNING instance_id"
+      )
+      .bind(Date.now(), instanceId, userId, userId)
+      .first<{ instance_id: string }>();
+    return row !== null;
   }
 
   async forgetUser(userId: string, at: number): Promise<void> {

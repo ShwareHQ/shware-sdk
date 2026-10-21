@@ -9,6 +9,8 @@ export type ErasureState = 'none' | 'erasing' | 'erased';
  */
 export class UserErasedError extends Error {
   override readonly name = 'UserErasedError';
+  /** The tombstone is permanent: a retry meets it again. */
+  readonly retryable = false;
   constructor(readonly userId: string) {
     super(`user ${userId} is erased`);
   }

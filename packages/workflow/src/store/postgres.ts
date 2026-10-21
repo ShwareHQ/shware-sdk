@@ -14,6 +14,7 @@ import type {
   JourneyReporting,
   JourneyStore,
   ProfileProps,
+  RunningInstance,
   SegmentTriggerRoute,
   TriggerRoute,
 } from './index';
@@ -61,10 +62,21 @@ function asJson<T>(value: unknown): T {
  * Every write about a user is one statement conditional on their erasure tombstone not
  * existing (`INSERT ... SELECT ... WHERE NOT EXISTS`, see `notErased`): the check and the write
  * share the statement's snapshot, so a tombstone committed before the statement is always
- * honoured, without a lock. A write whose snapshot predates the tombstone by less than its own
- * run time can still land, and the erase that follows the stop and drain of the user's
- * instances — seconds to minutes later — takes it with the rest. Suppressions are the one
- * exception: an opt-out is written whatever the user's state.
+ * honoured, without a lock. Suppressions are the one exception: an opt-out is written whatever
+ * the user's state.
+ *
+ * Four operations are mutually exclusive per user, by a transaction-scoped advisory lock
+ * (`lockUser`): `requestErasure`, `forgetUser`, `enterJourney` and `admitInstance`. Under READ
+ * COMMITTED a conditional write sees only what was committed when its statement began, and an
+ * erasure sees only entries committed when it looked — so without the lock an entry's
+ * transaction could commit its rows after the erase deleted everything (the user comes back),
+ * and a runner could admit itself after the tombstone (the instance runs on). With it, the
+ * four control points run one after another per user: an entry or an admission either commits
+ * before the tombstone, where the erasure finds and stops it, or reads the tombstone and is
+ * refused. The single-statement writes (an event, a profile merge, a device, a subscription, a
+ * segment membership) are not locked: their window is one statement, a tombstone committed
+ * before it is honoured by the statement itself, and the sweep's second pass (`erasedSince`,
+ * then `forgetUser` again) takes a straggler that landed inside that window.
  */
 export class PostgresJourneyStore implements JourneyStore {
   private readonly t: Record<TableKey, string>;
@@ -185,6 +197,23 @@ export class PostgresJourneyStore implements JourneyStore {
     if (rows.length > 0) throw new UserErasedError(userId);
   }
 
+  /**
+   * Take the user's transaction-scoped advisory lock: held until the transaction commits or
+   * rolls back, so the four control points on a user (`requestErasure`, `forgetUser`,
+   * `enterJourney`, `admitInstance`) run one at a time. Two int4 keys, the schema's and the
+   * user id's `hashtext` (a collision only serialises two more users). The transaction is first
+   * pinned to READ COMMITTED — a connection defaulting to REPEATABLE READ would wait for the lock
+   * on a snapshot taken before it, and read a state the lock holder has since changed — then the
+   * lock is its own statement, before any read: a snapshot taken after the wait is current.
+   */
+  private async lockUser(tx: SqlClientLike, userId: string): Promise<void> {
+    await tx.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+    await tx.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+      this.schema,
+      userId,
+    ]);
+  }
+
   /** The event rows of one user and name, within the window's bounds (both inclusive). */
   private eventWindow(userId: string, event: string, window?: EventWindow) {
     const params: unknown[] = [userId, event];
@@ -291,11 +320,16 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   async requestErasure(userId: string, at: number): Promise<void> {
-    await this.sql.query(
-      `INSERT INTO ${this.t.erasure} (user_id, requested_at) VALUES ($1, ${TS('$2')})
-       ON CONFLICT DO NOTHING`,
-      [userId, at]
-    );
+    // Under the user's lock: an entry or an admission in flight commits before the tombstone
+    // (and is found by the erase) or reads it after (and is refused)
+    await this.sql.transaction(async (tx) => {
+      await this.lockUser(tx, userId);
+      await tx.query(
+        `INSERT INTO ${this.t.erasure} (user_id, requested_at) VALUES ($1, ${TS('$2')})
+         ON CONFLICT DO NOTHING`,
+        [userId, at]
+      );
+    });
   }
 
   async pendingErasures(): Promise<string[]> {
@@ -315,16 +349,42 @@ export class PostgresJourneyStore implements JourneyStore {
     return row.erased ? 'erased' : 'erasing';
   }
 
-  async runningInstances(userId: string): Promise<string[]> {
-    const rows = await this.sql.query<{ instance_id: string }>(
-      `SELECT instance_id FROM ${this.t.entry} WHERE user_id = $1 AND status = 'running'`,
+  async erasedSince(since: number): Promise<string[]> {
+    const rows = await this.sql.query<{ user_id: string }>(
+      `SELECT user_id FROM ${this.t.erasure} WHERE erased_at >= ${TS('$1')} ORDER BY erased_at`,
+      [since]
+    );
+    return rows.map((row) => row.user_id);
+  }
+
+  async runningInstances(userId: string): Promise<RunningInstance[]> {
+    const rows = await this.sql.query<{ instance_id: string; admitted: boolean }>(
+      `SELECT instance_id, admitted_at IS NOT NULL AS admitted
+       FROM ${this.t.entry} WHERE user_id = $1 AND status = 'running'`,
       [userId]
     );
-    return rows.map((row) => row.instance_id);
+    return rows.map((row) => ({ instanceId: row.instance_id, admitted: row.admitted }));
+  }
+
+  async admitInstance(instanceId: string, userId: string): Promise<boolean> {
+    return this.sql.transaction(async (tx) => {
+      await this.lockUser(tx, userId);
+      // The first admission's time is kept on replay; the tombstone refuses it altogether
+      const rows = await tx.query(
+        `UPDATE ${this.t.entry} SET admitted_at = COALESCE(admitted_at, ${TS('$3')})
+         WHERE instance_id = $1 AND user_id = $2 AND status = 'running'
+           AND NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = $2)
+         RETURNING instance_id`,
+        [instanceId, userId, Date.now()]
+      );
+      return rows.length > 0;
+    });
   }
 
   async forgetUser(userId: string, at: number): Promise<void> {
     await this.sql.transaction(async (tx) => {
+      // Under the user's lock, every entry committed before the tombstone is visible from here
+      await this.lockUser(tx, userId);
       // Children before the copies they belong to
       for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
         await tx.query(
@@ -588,12 +648,15 @@ export class PostgresJourneyStore implements JourneyStore {
 
   async enterJourney(entry: EntryInput): Promise<EntryOutcome> {
     const { execution } = entry;
-    if (execution === undefined) return this.claimEntry(this.sql, entry);
-    // The entry and the start it owes commit together: a crash between them would leave a
-    // running entry no retry could ever start
+    // One transaction under the user's lock: the claim (or reclaim) and the start it owes commit
+    // together — a crash between them would leave a running entry no retry could ever start —
+    // and before or after an erasure of the user, never astride it
     return this.sql.transaction(async (tx) => {
+      await this.lockUser(tx, entry.userId);
       const outcome = await this.claimEntry(tx, entry);
-      if (outcome !== null) await this.recordStart(tx, entry, execution);
+      if (outcome !== null && execution !== undefined) {
+        await this.recordStart(tx, entry, execution);
+      }
       return outcome;
     });
   }

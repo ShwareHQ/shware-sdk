@@ -402,7 +402,7 @@ describe('erasure', () => {
     await store.requestErasure('u1', 6);
     expect(await store.erasureState('u1')).toBe('erasing');
     expect(await store.pendingErasures()).toEqual(['u1']);
-    expect(await store.runningInstances('u1')).toEqual(['i1']);
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: false }]);
 
     await store.forgetUser('u1', 7);
     expect(await store.erasureState('u1')).toBe('erased');
@@ -491,6 +491,50 @@ describe('erasure', () => {
     }
   );
 
+  test('a straggler that landed after the erase is taken by a second forgetUser, the first time kept', async () => {
+    const { store } = setup();
+    await store.mergeProfile('u1', { plan: 'pro' });
+    await store.requestErasure('u1', 5);
+    await store.forgetUser('u1', 7);
+    expect(await store.getProfile('u1')).toBeUndefined();
+    // A single-statement write whose snapshot predated the tombstone commits after the erase
+    await pg.query(
+      `INSERT INTO workflow.event (id, event_id, user_id, name, ts, payload)
+       VALUES ($1, 'e', 'u1', 'x', now(), '{}')`,
+      [uuidv7()]
+    );
+    await pg.query("INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{}')");
+    expect(await store.listUserIds()).toEqual(['u1']);
+
+    await store.forgetUser('u1', 9);
+    expect(await store.listUserIds()).toEqual([]);
+    expect(await store.countEvents('u1', 'x')).toBe(0);
+    expect(await store.erasureState('u1')).toBe('erased');
+    const [row] = (
+      await pg.query<{ at: string }>(
+        "SELECT (extract(epoch FROM erased_at) * 1000)::bigint::text AS at FROM workflow.erasure WHERE user_id = 'u1'"
+      )
+    ).rows;
+    expect(row.at).toBe('7');
+  });
+
+  test('erasedSince lists the users erased at or after the instant, for the second pass', async () => {
+    const { store } = setup();
+    for (const [user, at] of [
+      ['u1', 100],
+      ['u2', 200],
+      ['u3', 300],
+    ] as const) {
+      await store.requestErasure(user, at - 1);
+      await store.forgetUser(user, at);
+    }
+    // Requested, not erased yet: not in the window
+    await store.requestErasure('u4', 400);
+    expect(await store.erasedSince(200)).toEqual(['u2', 'u3']);
+    expect(await store.erasedSince(301)).toEqual([]);
+    expect(await store.erasedSince(0)).toEqual(['u1', 'u2', 'u3']);
+  });
+
   test('a duplicate event and a taken entry stay plain no-ops without a tombstone', async () => {
     const { store } = setup();
     const row = { id: 'e1', userId: 'u1', event: 'x', ts: 1, payload: {} };
@@ -505,6 +549,52 @@ describe('erasure', () => {
     await store.addSegmentMember('s', 'u1', 1, ['w']);
     await store.addSegmentMember('s', 'u1', 2, ['w']);
     expect(await store.isSegmentMember('s', 'u1')).toBe(true);
+  });
+});
+
+describe('admitInstance', () => {
+  const admittedAt = async (instanceId: string) =>
+    (
+      await pg.query<{ at: string | null }>(
+        'SELECT (extract(epoch FROM admitted_at) * 1000)::bigint::text AS at FROM workflow.entry WHERE instance_id = $1',
+        [instanceId]
+      )
+    ).rows[0]?.at;
+
+  test('records the admission once: a replay keeps the first time', async () => {
+    const { store } = setup();
+    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: false }]);
+    expect(await admittedAt('i1')).toBeNull();
+
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
+    const first = await admittedAt('i1');
+    expect(first).toEqual(expect.any(String));
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: true }]);
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
+    expect(await admittedAt('i1')).toBe(first);
+  });
+
+  test('is refused once the user has a tombstone, and for an entry not in the ledger', async () => {
+    const { store } = setup();
+    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+    await store.requestErasure('u1', 2);
+    expect(await store.admitInstance('i1', 'u1')).toBe(false);
+    expect(await admittedAt('i1')).toBeNull();
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: false }]);
+
+    expect(await store.admitInstance('nope', 'u2')).toBe(false);
+    // Another user's entry cannot be admitted under this user
+    await store.enterJourney({ workflow: 'w', userId: 'u2', instanceId: 'i2', hash: 'h', ts: 1 });
+    expect(await store.admitInstance('i2', 'u3')).toBe(false);
+    expect(await store.admitInstance('i2', 'u2')).toBe(true);
+    // Nor one no longer running
+    await store.setEntryStatus('i2', 'completed');
+    expect(await store.admitInstance('i2', 'u2')).toBe(false);
   });
 });
 
@@ -563,6 +653,28 @@ describe('checkSchema', () => {
       const store = new PostgresJourneyStore(client(db));
       expect(await store.checkSchema()).toEqual([
         'column "workflow"."erasure"."erased_at" is missing',
+      ]);
+    });
+  });
+
+  describe('a database whose entry table has no admitted_at', () => {
+    let db: PGlite;
+
+    beforeAll(async () => {
+      db = await PGlite.create();
+      const without = schemaSql.replace(/\n\s*"admitted_at" timestamptz,?/, '');
+      if (without === schemaSql) throw new Error('the DDL no longer declares admitted_at');
+      await db.exec(without);
+    }, 30_000);
+
+    afterAll(async () => {
+      await db.close();
+    });
+
+    test('is refused: the runner has nowhere to record its admission', async () => {
+      const store = new PostgresJourneyStore(client(db));
+      expect(await store.checkSchema()).toEqual([
+        'column "workflow"."entry"."admitted_at" is missing',
       ]);
     });
   });

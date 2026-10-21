@@ -1,3 +1,4 @@
+import { UserErasedError } from './erasure';
 import type { ClickContext, Engagement, JourneyReporting, MessageRecord } from './index';
 import { type SqlClientLike, uuidv7 } from './sql';
 import type { TableKey } from './tables';
@@ -14,12 +15,24 @@ const MS = (column: string) => `(extract(epoch from ${column}) * 1000)::double p
  * message_link, message_open, message_click, segment_member, segment_snapshot). Every timestamp
  * is written here, never defaulted, and every write is idempotent: the engine reports again when
  * a step is retried.
+ *
+ * The instance and message rows are conditional on the user's erasure tombstone, like the
+ * store's writes (`INSERT ... SELECT ... WHERE NOT EXISTS`): a notification arriving after the
+ * user was erased — a late start, node or finish — is a no-op, never an upsert that puts the
+ * instance back; a copy to be recorded for them is refused (`UserErasedError`, not retryable)
+ * so it is never sent. Links, opens and clicks are keyed by the copy's id: with no copy row
+ * there is nothing to record under. The suppression an unsubscribe writes is the exception.
  */
 export class PostgresReporting implements JourneyReporting {
   constructor(
     private readonly sql: SqlClientLike,
     private readonly t: Record<TableKey, string>
   ) {}
+
+  /** The condition every row about a user carries: no erasure tombstone for `$user`. */
+  private notErased(user: string): string {
+    return `WHERE NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = ${user})`;
+  }
 
   async instanceStarted(input: {
     workflow: string;
@@ -29,7 +42,7 @@ export class PostgresReporting implements JourneyReporting {
   }): Promise<void> {
     await this.sql.query(
       `INSERT INTO ${this.t.instance} (instance_id, workflow, user_id, entered_at, status)
-       VALUES ($1, $2, $3, ${TS('$4')}, 'running')
+       SELECT $1, $2, $3, ${TS('$4')}, 'running' ${this.notErased('$3')}
        ON CONFLICT (instance_id) DO NOTHING`,
       [input.instanceId, input.workflow, input.userId, input.at]
     );
@@ -44,7 +57,7 @@ export class PostgresReporting implements JourneyReporting {
   }): Promise<void> {
     await this.sql.query(
       `INSERT INTO ${this.t.instance} (instance_id, workflow, user_id, entered_at, node_id, node_at, status)
-       VALUES ($1, $2, $3, ${TS('$4')}, $5, ${TS('$4')}, 'running')
+       SELECT $1, $2, $3, ${TS('$4')}, $5, ${TS('$4')}, 'running' ${this.notErased('$3')}
        ON CONFLICT (instance_id) DO UPDATE SET node_id = EXCLUDED.node_id, node_at = EXCLUDED.node_at`,
       [input.instanceId, input.workflow, input.userId, input.at, input.nodeId]
     );
@@ -58,11 +71,12 @@ export class PostgresReporting implements JourneyReporting {
     at: number;
     convertedAt?: number;
   }): Promise<void> {
-    // An upsert: an instance that started before its start was reported still gets its row
+    // An upsert: an instance that started before its start was reported still gets its row —
+    // unless the user is erased, where a late finish must not put one back
     await this.sql.query(
       `INSERT INTO ${this.t.instance}
          (instance_id, workflow, user_id, entered_at, status, finished_at, converted_at)
-       VALUES ($1, $2, $3, ${TS('$5')}, $4, ${TS('$5')}, ${TS('$6')})
+       SELECT $1, $2, $3, ${TS('$5')}, $4, ${TS('$5')}, ${TS('$6')} ${this.notErased('$3')}
        ON CONFLICT (instance_id) DO UPDATE SET status = EXCLUDED.status,
          finished_at = EXCLUDED.finished_at, converted_at = EXCLUDED.converted_at`,
       [
@@ -77,11 +91,12 @@ export class PostgresReporting implements JourneyReporting {
   }
 
   async recordMessage(message: MessageRecord): Promise<string> {
-    // A retried step records the same copy again: the row it already wrote is the one
+    // A retried step records the same copy again: the row it already wrote is the one. With a
+    // tombstone the statement yields nothing, a retry's row included: the copy is not sent
     const rows = await this.sql.query<{ id: string }>(
       `INSERT INTO ${this.t.message}
          (id, idempotency_key, workflow, instance_id, node_id, template, channel, user_id, sent_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ${TS('$9')})
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, ${TS('$9')} ${this.notErased('$8')}
        ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
        RETURNING id`,
       [
@@ -97,8 +112,13 @@ export class PostgresReporting implements JourneyReporting {
       ]
     );
     const id = rows.at(0)?.id;
-    if (id === undefined) throw new Error(`message ${message.idempotencyKey} was not recorded`);
-    return id;
+    if (id !== undefined) return id;
+    // Nothing recorded: the tombstone refused it, and the sender must stop here
+    const erased = await this.sql.query(`SELECT 1 AS x FROM ${this.t.erasure} WHERE user_id = $1`, [
+      message.userId,
+    ]);
+    if (erased.length > 0) throw new UserErasedError(message.userId);
+    throw new Error(`message ${message.idempotencyKey} was not recorded`);
   }
 
   async settleMessage(

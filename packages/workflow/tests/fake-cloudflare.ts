@@ -42,6 +42,8 @@ interface EntryRow {
   hash: string;
   status: string;
   ts: number;
+  /** When the runner admitted itself; null (or absent, for a row a test seeded) until then. */
+  admitted_at?: number | null;
 }
 interface SubscriptionRow {
   user_id: string;
@@ -446,6 +448,13 @@ export class FakeD1 implements D1DatabaseLike {
         const row = this.erasures.get(p[0] as string);
         return { rows: row === undefined ? [] : [{ erased_at: row.erased_at }], changes: 0 };
       }
+      case 'SELECT user_id FROM erasures WHERE erased_at >= ? ORDER BY erased_at': {
+        const rows = [...this.erasures]
+          .filter(([, row]) => row.erased_at !== null && row.erased_at >= (p[0] as number))
+          .sort(([, a], [, b]) => (a.erased_at as number) - (b.erased_at as number))
+          .map(([user_id]) => ({ user_id }));
+        return { rows, changes: 0 };
+      }
       case 'UPDATE erasures SET erased_at = COALESCE(erased_at, ?) WHERE user_id = ?': {
         const row = this.erasures.get(p[1] as string);
         if (row === undefined) return { rows: [], changes: 0 };
@@ -463,6 +472,7 @@ export class FakeD1 implements D1DatabaseLike {
           hash: p[3] as string,
           status: p[4] as string,
           ts: p[5] as number,
+          admitted_at: null,
         });
         return { rows: [], changes: 1 };
       }
@@ -493,11 +503,24 @@ export class FakeD1 implements D1DatabaseLike {
         }
         return { rows: [], changes };
       }
-      case "SELECT instance_id FROM entries WHERE user_id = ? AND status = 'running'": {
+      case "SELECT instance_id, admitted_at IS NOT NULL AS admitted FROM entries WHERE user_id = ? AND status = 'running'": {
         const rows = this.entries
           .filter((e) => e.user_id === p[0] && e.status === 'running')
-          .map((e) => ({ instance_id: e.instance_id }));
+          // SQLite hands a boolean expression back as 0 / 1
+          .map((e) => ({
+            instance_id: e.instance_id,
+            admitted: e.admitted_at === null || e.admitted_at === undefined ? 0 : 1,
+          }));
         return { rows, changes: 0 };
+      }
+      case "UPDATE entries SET admitted_at = COALESCE(admitted_at, ?) WHERE instance_id = ? AND user_id = ? AND status = 'running' AND NOT EXISTS (SELECT 1 FROM erasures WHERE user_id = ?) RETURNING instance_id": {
+        if (this.erased(p[3])) return { rows: [], changes: 0 };
+        const entry = this.entries.find(
+          (e) => e.instance_id === p[1] && e.user_id === p[2] && e.status === 'running'
+        );
+        if (entry === undefined) return { rows: [], changes: 0 };
+        entry.admitted_at ??= p[0] as number;
+        return { rows: [{ instance_id: entry.instance_id }], changes: 1 };
       }
 
       case 'SELECT DISTINCT wake_handle AS handle FROM subscriptions WHERE user_id = ? AND event = ?': {

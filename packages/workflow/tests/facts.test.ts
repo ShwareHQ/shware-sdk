@@ -206,7 +206,7 @@ describe('D1JourneyStore on FakeD1', () => {
     await store.requestErasure('u1', 6);
     expect(await store.erasureState('u1')).toBe('erasing');
     expect(await store.pendingErasures()).toEqual(['u1']);
-    expect(await store.runningInstances('u1')).toEqual(['i1']);
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: false }]);
 
     await store.forgetUser('u1', 7);
     expect(await store.erasureState('u1')).toBe('erased');
@@ -229,6 +229,55 @@ describe('D1JourneyStore on FakeD1', () => {
       store.insertEvent({ id: 'e2', userId: 'u1', event: 'x', ts: 9, payload: {} })
     ).rejects.toBeInstanceOf(UserErasedError);
     expect(await store.listUserIds()).toEqual(['u2']);
+  });
+
+  test('the runner admits itself once, and a tombstone refuses the admission', async () => {
+    const db = new FakeD1();
+    const store = new D1JourneyStore(db);
+    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: false }]);
+
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
+    const first = db.entries[0].admitted_at;
+    expect(first).toEqual(expect.any(Number));
+    expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: true }]);
+    // A replay keeps the first admission's time
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
+    expect(db.entries[0].admitted_at).toBe(first);
+
+    // Unknown, another user's, or no longer running: refused
+    expect(await store.admitInstance('nope', 'u1')).toBe(false);
+    expect(await store.admitInstance('i1', 'u2')).toBe(false);
+    await store.enterJourney({ workflow: 'w', userId: 'u2', instanceId: 'i2', hash: 'h', ts: 1 });
+    await store.setEntryStatus('i2', 'completed');
+    expect(await store.admitInstance('i2', 'u2')).toBe(false);
+
+    // The tombstone refuses a first admission
+    await store.enterJourney({ workflow: 'w', userId: 'u3', instanceId: 'i3', hash: 'h', ts: 1 });
+    await store.requestErasure('u3', 2);
+    expect(await store.admitInstance('i3', 'u3')).toBe(false);
+    expect(await store.runningInstances('u3')).toEqual([{ instanceId: 'i3', admitted: false }]);
+  });
+
+  test('erasedSince lists the users erased at or after the instant', async () => {
+    const store = new D1JourneyStore(new FakeD1());
+    for (const [user, at] of [
+      ['u1', 100],
+      ['u2', 200],
+      ['u3', 300],
+    ] as const) {
+      await store.requestErasure(user, at - 1);
+      await store.forgetUser(user, at);
+    }
+    await store.requestErasure('u4', 400);
+    expect(await store.erasedSince(200)).toEqual(['u2', 'u3']);
+    expect(await store.erasedSince(301)).toEqual([]);
+    // A repeat keeps the first time, so the window does not move
+    await store.forgetUser('u1', 500);
+    expect(await store.erasedSince(400)).toEqual([]);
   });
 
   test('a failed entry of a user being erased cannot be reclaimed', async () => {
