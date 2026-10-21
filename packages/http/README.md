@@ -397,11 +397,18 @@ const result = await prompt({ client_id: GOOGLE_CLIENT_ID });
 if (result.authorized) {
   await api.auth.loginOAuth2Onetap(result.credential); // { credential: ID token, select_by }
 } else if ('unsupported' in result) {
+  track('one_tap_unsupported', { reason: result.reason });
   // later, on a button click:
   const code = await requestCode({ client_id: GOOGLE_CLIENT_ID });
   if (code.ok) await exchangeCodeOnBackend(code.response.code);
+} else {
+  // { type: 'skipped', reason?: SkippedReason } | { type: 'dismissed', reason: DismissedReason }
+  track(`one_tap_${result.outcome.type}`, { reason: result.outcome.reason });
 }
 ```
+
+`outcome.reason` for skipped moments is often absent under FedCM, where Google only partially
+reports skipped reasons. The older `moment` fields are deprecated in favour of `outcome`.
 
 ## Webhooks (`@shware/http/webhook`)
 

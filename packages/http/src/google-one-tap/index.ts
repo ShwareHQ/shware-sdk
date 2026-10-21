@@ -28,10 +28,41 @@ export type Props = {
   use_fedcm_for_prompt?: boolean;
 };
 
+/**
+ * Why One Tap was skipped, from `getSkippedReason()`. Under FedCM this is only
+ * partially supported: `user_cancel` is never reported and the reason is often
+ * absent altogether.
+ */
+export type SkippedReason = 'auto_cancel' | 'user_cancel' | 'tap_outside' | 'issuing_failed';
+
+/**
+ * Why One Tap was dismissed without a credential, from `getDismissedReason()`.
+ * `credential_returned` is the success path and is reported as `authorized: true` instead.
+ */
+export type DismissedReason = Exclude<
+  ReturnType<PromptMomentNotification['getDismissedReason']>,
+  'credential_returned'
+>;
+
+/**
+ * How One Tap ended without a credential, for funnel tracking.
+ * - `skipped`: One Tap was skipped; `reason` is absent when GIS does not report one (common under FedCM).
+ * - `dismissed`: One Tap was dismissed by `cancel()` or a restarted flow.
+ */
+export type PromptOutcome =
+  | { type: 'skipped'; reason?: SkippedReason }
+  | { type: 'dismissed'; reason: DismissedReason };
+
 export type PromptMoment = {
+  /** @deprecated use `outcome.type === 'skipped'` */
   skipped: boolean;
+  /** @deprecated use `outcome.type === 'dismissed'` */
   dismissed: boolean;
-  dismissedReason: ReturnType<PromptMomentNotification['getDismissedReason']>;
+  /**
+   * Only set for dismissed moments; `undefined` for skipped ones.
+   * @deprecated use `outcome.reason` when `outcome.type === 'dismissed'`
+   */
+  dismissedReason: ReturnType<PromptMomentNotification['getDismissedReason']> | undefined;
 };
 
 /**
@@ -45,7 +76,7 @@ export type UnsupportedReason = 'fedcm_unsupported' | 'script_load_failed' | 'pr
 
 export type PromptResult =
   | { authorized: true; credential: CredentialResponse }
-  | { authorized: false; moment: PromptMoment }
+  | { authorized: false; outcome: PromptOutcome; moment: PromptMoment }
   | { authorized: false; unsupported: true; reason: UnsupportedReason };
 
 let script: HTMLScriptElement | null = null;
@@ -83,6 +114,36 @@ function loadScript(): Promise<void> {
 /** FedCM feature detection — `IdentityCredential` is absent on Safari, Firefox and pre-117 Chrome. */
 function isFedcmSupported(): boolean {
   return typeof window !== 'undefined' && 'IdentityCredential' in window;
+}
+
+const SKIPPED_REASONS: readonly SkippedReason[] = [
+  'auto_cancel',
+  'user_cancel',
+  'tap_outside',
+  'issuing_failed',
+];
+
+/**
+ * `getSkippedReason()` is only partially supported under FedCM: it may be
+ * missing, throw, or return nothing, so keep known values only.
+ */
+function readSkippedReason(notification: PromptMomentNotification): SkippedReason | undefined {
+  try {
+    // `Partial`: the method may be missing under FedCM.
+    const moment: Partial<PromptMomentNotification> = notification;
+    // oxlint-disable-next-line typescript/no-deprecated -- the only source of the skipped reason.
+    const reason: unknown = moment.getSkippedReason?.();
+    return SKIPPED_REASONS.find((known) => known === reason);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The deprecated `moment` kept for compatibility; `dismissedReason` is only set for dismissed moments. */
+function legacyMoment(dismissed: boolean, dismissedReason: DismissedReason | undefined) {
+  // oxlint-disable-next-line typescript/no-deprecated -- builds the deprecated shape on purpose.
+  const moment: PromptMoment = { skipped: !dismissed, dismissed, dismissedReason };
+  return moment;
 }
 
 /** debug: chrome://settings/content/federatedIdentityApi */
@@ -138,16 +199,24 @@ export async function prompt({
       accounts.id.prompt((notification) => {
         if (settled) return;
 
-        const skipped = notification.isSkippedMoment();
-        const dismissed = notification.isDismissedMoment();
-        const dismissedReason = notification.getDismissedReason();
-
-        if (skipped || (dismissed && dismissedReason !== 'credential_returned')) {
+        if (notification.isSkippedMoment()) {
           settle({
             authorized: false,
-            moment: { skipped, dismissed, dismissedReason },
+            outcome: { type: 'skipped', reason: readSkippedReason(notification) },
+            moment: legacyMoment(false, undefined),
           });
+          return;
         }
+
+        if (!notification.isDismissedMoment()) return;
+        const reason = notification.getDismissedReason();
+        // credential_returned: the callback above settles with the credential.
+        if (reason === 'credential_returned') return;
+        settle({
+          authorized: false,
+          outcome: { type: 'dismissed', reason },
+          moment: legacyMoment(true, reason),
+        });
       });
     } catch {
       settle({ authorized: false, unsupported: true, reason: 'prompt_error' });

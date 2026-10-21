@@ -137,7 +137,11 @@ export interface PromptMomentNotification {
     | 'unregistered_origin'
     | 'unknown_reason';
 
-  /** @deprecated */
+  /**
+   * Partially supported under FedCM: `user_cancel` is not reported and the
+   * reason may be absent, so treat the value as optional.
+   * @deprecated
+   */
   getSkippedReason(): 'auto_cancel' | 'user_cancel' | 'tap_outside' | 'issuing_failed';
 
   isSkippedMoment(): boolean;
