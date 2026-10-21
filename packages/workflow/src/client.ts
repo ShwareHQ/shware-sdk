@@ -1,6 +1,6 @@
 import type * as core from 'zod/v4/core';
 import type { Contract, ContractIssue, ProfilePatch } from './contract';
-import type { DeployResult, IdentifyResult, IngestResult } from './host/router';
+import type { DeployResult, IdentifyResult, IngestResult } from './host/ingest';
 import type { ProfileProps } from './store';
 
 /**

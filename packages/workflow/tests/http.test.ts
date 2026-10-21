@@ -1,19 +1,13 @@
 import { createElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { WAKE_EVENT_TYPE } from '../src/cloudflare/bindings';
 import { d1Store } from '../src/cloudflare/d1-env';
-import { PROFILE_UPDATED_EVENT, profileUpdatedEvent } from '../src/engine/condition';
+import { profileUpdatedEvent } from '../src/engine/condition';
 import { bearerMatches } from '../src/host/auth';
+import { handleRequest } from '../src/host/http';
+import { deployBundle, forgetUser, ingestEvent } from '../src/host/ingest';
 import { createJourneyHost } from '../src/host/journey-host';
-import {
-  UserErasedError,
-  deployBundle,
-  handleRequest,
-  ingestEvent,
-  sweepSegments,
-  sweepSegmentsPaged,
-} from '../src/host/router';
+import { WAKE_EVENT_TYPE } from '../src/host/platform';
 import {
   compileBundle,
   defineConfig,
@@ -23,356 +17,15 @@ import {
   trigger,
   workflow,
 } from '../src/index';
-import type { JourneyReporting, JourneyStore } from '../src/store/index';
+import { type JourneyReporting, type JourneyStore, UserErasedError } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
-import {
-  allSegments,
-  checkoutRecovery,
-  e,
-  firstTimeRecovery,
-  gettingStarted,
-  reengagement,
-  u,
-} from './fixtures';
+import { e, firstTimeRecovery, u } from './fixtures';
 
 /**
- * Ingest router over in-memory bindings: deploy routing, event triggers with
- * where/filter gates, entry-once, wake-up delivery, identify (profile wake +
- * segment re-evaluation) and the HTTP surface.
+ * The HTTP surface over in-memory bindings: the bare ingest API (`handleRequest` — identify,
+ * auth, validation, error mapping) and the journey host's routes around it (the production
+ * gate, the error boundary, previews, tracking). The domain itself is ingest.test.ts.
  */
-
-const bundle = () =>
-  compileBundle({ workflows: [checkoutRecovery, reengagement], segments: allSegments });
-
-describe('deployBundle rejects a bundle that misdescribes itself', () => {
-  /*
-   * `wf:${contentHash}` is the address an in-flight journey reads its IR from,
-   * so a hash that does not describe its content is a way to change what a
-   * pinned instance runs: submit an edited flow under the old hash and the next
-   * replay picks it up. Deploy used to take the caller's word for it.
-   */
-  test('an edited flow carrying its old hash is refused, and nothing is written', async () => {
-    const { env, db } = makeEnv();
-    const tampered = bundle();
-    const target = tampered.workflows[0];
-    const staleHash = target.contentHash;
-    // Change what it executes; keep the hash it arrived with
-    target.flow.push({ id: '99', type: 'exit', reason: 'injected' });
-
-    await expect(deployBundle(env, tampered)).rejects.toThrow(/contentHash does not match/);
-
-    expect(db.ir.size).toBe(0);
-    expect(db.triggers).toHaveLength(0);
-    expect(db.ir.get(staleHash)).toBeUndefined();
-  });
-
-  test('a tampered segment condition is refused too', async () => {
-    const { env } = makeEnv();
-    const tampered = bundle();
-    tampered.segments[0].condition = { type: 'property', path: 'plan', op: 'eq', value: 'free' };
-
-    await expect(deployBundle(env, tampered)).rejects.toThrow(/segment/);
-  });
-
-  test('an honest bundle still deploys', async () => {
-    const { env, db } = makeEnv();
-    await expect(deployBundle(env, bundle())).resolves.toBeDefined();
-    expect(db.ir.size).toBeGreaterThan(0);
-  });
-
-  test('a metadata-only edit keeps its hash and redeploys in place', async () => {
-    const { env, db } = makeEnv();
-    await deployBundle(env, bundle());
-    const storedKeys = [...db.ir.keys()];
-
-    // Rewording a description must not move the hash
-    const reworded = bundle();
-    reworded.workflows[0].meta = { ...reworded.workflows[0].meta, description: 'new wording' };
-    await expect(deployBundle(env, reworded)).resolves.toBeDefined();
-    expect([...db.ir.keys()]).toEqual(storedKeys);
-  });
-
-  test('the HTTP surface reports it as the caller error, not a server fault', async () => {
-    const { env } = makeEnv();
-    const tampered = bundle();
-    tampered.workflows[0].flow.push({ id: '99', type: 'exit' });
-
-    const response = await handleRequest(
-      new Request('https://x/deploy', { method: 'POST', body: JSON.stringify(tampered) }),
-      env
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining('contentHash') });
-  });
-});
-
-describe('deployBundle', () => {
-  test('routes event and segment triggers, stores segments and workflow bodies', async () => {
-    const { env, db } = makeEnv();
-
-    const result = await deployBundle(env, bundle());
-
-    expect(db.triggers).toHaveLength(1); // checkout_recovery (begin_checkout)
-    expect(db.triggers[0]).toMatchObject({
-      workflow: 'checkout_recovery',
-      event: 'begin_checkout',
-    });
-    expect(db.segmentTriggers).toEqual([
-      expect.objectContaining({ workflow: 'reengagement', segment: 'inactive_30d' }),
-    ]);
-    expect(db.segments.size).toBe(allSegments.length);
-    expect(db.ir.size).toBe(2);
-    expect(result.unrouted).toEqual([]);
-  });
-
-  test('reports workflows whose trigger type has no routing yet', async () => {
-    const { env } = makeEnv();
-    const holiday = workflow({ id: 'holiday', trigger: trigger.date('2026-12-25 09:00:00') }).email(
-      gettingStarted
-    );
-
-    const result = await deployBundle(env, compileBundle({ workflows: [holiday] }));
-
-    expect(result.unrouted).toEqual([{ workflow: 'holiday', trigger: 'date' }]);
-  });
-
-  test('redeploy swaps the routing tables instead of accumulating', async () => {
-    const { env, db } = makeEnv();
-    await deployBundle(env, bundle());
-    await deployBundle(env, bundle());
-
-    expect(db.triggers).toHaveLength(1);
-    expect(db.segmentTriggers).toHaveLength(1);
-  });
-});
-
-describe('event triggers', () => {
-  test('starts a journey once; the entry ledger blocks re-entry', async () => {
-    const { env, db, journey } = makeEnv();
-    await deployBundle(env, bundle());
-
-    const first = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' });
-    // begin_checkout starts checkout_recovery; the user also has no login
-    // history, so the inactive_30d segment trigger fires reengagement
-    expect(first.started).toHaveLength(2);
-    expect(journey.created.map((c) => c.id)).toEqual(first.started);
-    expect(db.entries.map((entry) => entry.workflow).sort()).toEqual([
-      'checkout_recovery',
-      'reengagement',
-    ]);
-
-    const second = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' });
-    expect(second.started).toEqual([]);
-    expect(db.entries).toHaveLength(2);
-  });
-
-  test('the where gate rejects non-matching payloads before anything else', async () => {
-    const { env } = makeEnv();
-    const webOnly = workflow({
-      id: 'web_only',
-      trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
-    }).email(firstTimeRecovery);
-    await deployBundle(env, compileBundle({ workflows: [webOnly] }));
-
-    const rejected = await ingestEvent(env, {
-      userId: 'u1',
-      event: 'sign_up',
-      payload: { method: 'email' },
-    });
-    expect(rejected.started).toEqual([]);
-
-    const accepted = await ingestEvent(env, {
-      userId: 'u1',
-      event: 'sign_up',
-      payload: { method: 'google' },
-    });
-    expect(accepted.started).toHaveLength(1);
-  });
-
-  test('the profile filter gates entry until the profile matches', async () => {
-    const { env, db } = makeEnv();
-    const activeOnly = workflow({
-      id: 'active_only',
-      trigger: trigger.event(e.sign_up, { filter: eq(u.subscription_status, 'active') }),
-    }).email(firstTimeRecovery);
-    await deployBundle(env, compileBundle({ workflows: [activeOnly] }));
-
-    const before = await ingestEvent(env, { userId: 'u1', event: 'sign_up' });
-    expect(before.started).toEqual([]);
-
-    db.profiles.set('u1', JSON.stringify({ subscription_status: 'active' }));
-    const after = await ingestEvent(env, { userId: 'u1', event: 'sign_up' });
-    expect(after.started).toHaveLength(1);
-  });
-
-  test('reserved $ event names are rejected', async () => {
-    const { env } = makeEnv();
-    await expect(ingestEvent(env, { userId: 'u1', event: '$profile_updated' })).rejects.toThrow(
-      /reserved/
-    );
-  });
-});
-
-describe('the sender decides what counts as the same event', () => {
-  /*
-   * Every count- and window-based condition reads the events log, so a second
-   * copy of one event silently changes what a journey decides. Only the sender
-   * knows whether two deliveries are one occurrence, so the id comes from them:
-   * an HTTP client retrying a 500 and the interpreter's send_event step both
-   * resend an id they can reproduce.
-   */
-  test('the same id is stored once, however often it arrives', async () => {
-    const { env, db } = makeEnv();
-
-    const first = await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:7' });
-    const retry = await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:7' });
-
-    expect(first.stored).toBe(true);
-    expect(retry.stored).toBe(false);
-    expect(retry.id).toBe('inst-1:7');
-    expect(db.events).toHaveLength(1);
-  });
-
-  test('an id is per-occurrence, not per-event-name', async () => {
-    const { env, db } = makeEnv();
-    await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:7' });
-    await ingestEvent(env, { userId: 'u1', event: 'purchase', id: 'inst-1:9' });
-    expect(db.events).toHaveLength(2);
-  });
-
-  test('two identical events a moment apart stay two events', async () => {
-    // Nothing tells them apart but the sender's silence, which says they are distinct
-    const { env, db } = makeEnv();
-    const first = await ingestEvent(env, { userId: 'u1', event: 'purchase' });
-    const second = await ingestEvent(env, { userId: 'u1', event: 'purchase' });
-
-    expect(first.id).not.toBe(second.id);
-    expect(db.events).toHaveLength(2);
-  });
-
-  test('an event sent without an id still gets one, and the caller is told which', async () => {
-    const { env, db } = makeEnv();
-    const result = await ingestEvent(env, { userId: 'u1', event: 'purchase' });
-
-    expect(result.id).toEqual(expect.any(String));
-    expect(db.events[0].id).toBe(result.id);
-  });
-
-  test('the retry still starts the journeys the first attempt never got to', async () => {
-    const { env, db, journey } = makeEnv();
-    await deployBundle(env, bundle());
-
-    // The first attempt writes the row and then, as far as the caller knows, fails
-    await ingestEvent(env, { userId: 'u1', event: 'begin_checkout', id: 'evt-1' });
-    db.entries = [];
-    journey.created.length = 0;
-
-    const retry = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout', id: 'evt-1' });
-
-    expect(retry.stored).toBe(false); // the event was already logged
-    expect(retry.started.length).toBeGreaterThan(0); // but the journeys still start
-    expect(db.events).toHaveLength(1);
-  });
-});
-
-describe('an entry that never ran does not bar the user forever', () => {
-  /*
-   * The entries key is the once-policy, and it used to be absolute. A 'failed'
-   * row records an instance that died, not a journey the user received, so
-   * leaving it in place locks that user out of the workflow permanently over
-   * one transient outage.
-   */
-  const enter = async () => {
-    const { env, db, journey } = makeEnv();
-    await deployBundle(
-      env,
-      compileBundle({ workflows: [checkoutRecovery], segments: allSegments })
-    );
-    await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' });
-    expect(db.entries).toHaveLength(1);
-    return { env, db, journey };
-  };
-
-  test('a failed entry is reclaimed by the next trigger', async () => {
-    const { env, db, journey } = await enter();
-    db.entries[0].status = 'failed';
-    const deadInstance = db.entries[0].instance_id;
-
-    const again = await ingestEvent(env, {
-      userId: 'u1',
-      event: 'begin_checkout',
-      ts: Date.now() + 1,
-    });
-
-    expect(again.started).toHaveLength(1);
-    expect(db.entries).toHaveLength(1); // reclaimed in place, not a second row
-    expect(db.entries[0].status).toBe('running');
-    expect(db.entries[0].instance_id).not.toBe(deadInstance);
-    expect(journey.created).toHaveLength(2);
-  });
-
-  test('a running entry still blocks, which is the whole point of the ledger', async () => {
-    const { env, db } = await enter();
-    const again = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' });
-    expect(again.started).toEqual([]);
-    expect(db.entries[0].status).toBe('running');
-  });
-
-  test('a completed entry blocks too: the user did receive that journey', async () => {
-    const { env, db } = await enter();
-    db.entries[0].status = 'completed';
-    const again = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' });
-    expect(again.started).toEqual([]);
-    expect(db.entries[0].status).toBe('completed');
-  });
-});
-
-describe('segment-entry triggers', () => {
-  test('fires on the not-matching → matching transition and tracks leave', async () => {
-    const { env, db } = makeEnv();
-    await deployBundle(env, bundle());
-
-    // First activity: no login history → inactive_30d matches → enter
-    const first = await ingestEvent(env, { userId: 'u2', event: 'begin_checkout' });
-    expect(first.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
-    expect(db.segmentMembers.has('inactive_30d\nu2')).toBe(true);
-
-    // A login makes the user active again → membership drops (no journey started)
-    const login = await ingestEvent(env, { userId: 'u2', event: 'login' });
-    expect(login.started).toEqual([]);
-    expect(db.segmentMembers.has('inactive_30d\nu2')).toBe(false);
-
-    // Entry-once still applies on any later re-entry transition
-    expect(db.entries.filter((entry) => entry.workflow === 'reengagement')).toHaveLength(1);
-  });
-
-  test('a start that failed is retried by the next evaluation, behind the membership', async () => {
-    const { env, db, journey } = makeEnv();
-    await deployBundle(env, bundle());
-    const create = journey.create.bind(journey);
-    // Only the segment's workflow fails to start; the event-triggered one goes out
-    journey.create = async (options) => {
-      if (options.id.startsWith('reengagement-')) throw new Error('platform unavailable');
-      return create(options);
-    };
-
-    // The entry is recorded, its start owed; the failure still reaches the caller
-    await expect(ingestEvent(env, { userId: 'u2', event: 'begin_checkout' })).rejects.toThrow(
-      'platform unavailable'
-    );
-    expect(db.segmentMembers.has('inactive_30d\nu2')).toBe(true);
-    expect([...db.segmentStarts]).toContain('inactive_30d\nreengagement\nu2');
-
-    // Next activity: already a member, but the owed start goes out now — once
-    journey.create = create;
-    const retry = await ingestEvent(env, { userId: 'u2', event: 'begin_checkout' });
-    expect(retry.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
-    expect(db.segmentStarts.size).toBe(0);
-    const again = await ingestEvent(env, { userId: 'u2', event: 'begin_checkout' });
-    expect(again.started.some((id) => id.startsWith('reengagement-'))).toBe(false);
-  });
-});
 
 describe('identify', () => {
   const identifyRequest = (userId: string, props: Record<string, unknown>) =>
@@ -386,7 +39,7 @@ describe('identify', () => {
     journey.known.add('inst-wait');
     db.subscriptions.push({
       user_id: 'u1',
-      event: PROFILE_UPDATED_EVENT,
+      event: profileUpdatedEvent('plan'),
       wake_handle: 'inst-wait',
       ts: 0,
     });
@@ -404,7 +57,7 @@ describe('identify', () => {
     const { env, db, journey } = makeEnv();
     db.subscriptions.push({
       user_id: 'u1',
-      event: PROFILE_UPDATED_EVENT,
+      event: profileUpdatedEvent('plan'),
       wake_handle: 'inst-1',
       ts: 0,
     });
@@ -419,10 +72,12 @@ describe('identify', () => {
   });
 
   test('a dangling subscription (unknown instance) is pruned, not fatal', async () => {
+    // The fake fails `get` the way Cloudflare does; the adapter in makeEnv's env turns that into
+    // the port's InstanceNotFoundError, the one failure the host drops a subscription on
     const { env, db } = makeEnv();
     db.subscriptions.push({
       user_id: 'u1',
-      event: PROFILE_UPDATED_EVENT,
+      event: profileUpdatedEvent('plan'),
       wake_handle: 'gone',
       ts: 0,
     });
@@ -439,7 +94,7 @@ describe('identify', () => {
     journey.failingSends.add('inst-flaky');
     db.subscriptions.push({
       user_id: 'u1',
-      event: PROFILE_UPDATED_EVENT,
+      event: profileUpdatedEvent('plan'),
       wake_handle: 'inst-flaky',
       ts: 0,
     });
@@ -567,7 +222,7 @@ describe('http surface', () => {
   });
 });
 
-/* ------------------------------ 4.0 host behavior ------------------------------ */
+/* ------------------------------ host behavior ------------------------------ */
 
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
   new Request(`https://worker.test${path}`, {
@@ -576,23 +231,30 @@ const post = (path: string, body: unknown, headers: Record<string, string> = {})
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
 
-describe('a user being erased is refused everywhere that writes about them', () => {
+describe('a user with an erasure tombstone is refused everywhere that writes about them', () => {
   /*
-   * forgetUser records the request, stops the instances, then erases. Between the stop and the
+   * forgetUser commits the tombstone, stops the instances, then erases. Between the stop and the
    * erase a write would come back after it: an event re-creates the user, an identify a profile.
+   * After the erase the tombstone stays, so a late write cannot bring the user back either.
    */
+  const erasing = { ts: 1, erased_at: null };
+  const erased = { ts: 1, erased_at: 2 };
+
   test('ingestEvent, identifyUser and registerDevice throw UserErasedError', async () => {
     const { env, db } = makeEnv();
-    db.erasures.set('u1', 1);
+    db.erasures.set('u1', erasing);
     await expect(ingestEvent(env, { userId: 'u1', event: 'login' })).rejects.toBeInstanceOf(
       UserErasedError
     );
     expect(db.events).toEqual([]);
   });
 
-  test('/events, /identify and /devices answer 410', async () => {
+  test.each([
+    ['being erased', erasing],
+    ['erased', erased],
+  ])('/events, /identify and /devices answer 410 for a user %s', async (_, tombstone) => {
     const { env, db } = makeEnv();
-    db.erasures.set('u1', 1);
+    db.erasures.set('u1', tombstone);
     const requests = [
       post('/events', { userId: 'u1', event: 'login' }),
       post('/identify', { userId: 'u1', props: { plan: 'pro' } }),
@@ -601,12 +263,70 @@ describe('a user being erased is refused everywhere that writes about them', () 
     for (const request of requests) {
       const response = await handleRequest(request, env);
       expect(response.status).toBe(410);
-      expect(await response.json()).toEqual({ error: 'user is being erased' });
+      expect(await response.json()).toEqual({ error: 'user is erased' });
     }
     expect(db.events).toEqual([]);
     expect(db.profiles.size).toBe(0);
     expect(db.devices.size).toBe(0);
     // Another user is not affected
+    const other = await handleRequest(post('/events', { userId: 'u2', event: 'login' }), env);
+    expect(other.status).toBe(200);
+  });
+
+  test('the store refuses the write itself once the tombstone is there, pre-check or not', async () => {
+    // The entry point's check passed (no tombstone yet); the tombstone lands before the write
+    const { env, db } = makeEnv();
+    const store = d1Store(env);
+    db.erasures.set('u1', erasing);
+    await expect(
+      store.insertEvent({ id: 'e1', userId: 'u1', event: 'login', ts: 1, payload: {} })
+    ).rejects.toBeInstanceOf(UserErasedError);
+    await expect(store.mergeProfile('u1', { plan: 'pro' })).rejects.toBeInstanceOf(UserErasedError);
+    await expect(
+      store.upsertDevice({ userId: 'u1', token: 't1', platform: 'ios', ts: 1 })
+    ).rejects.toBeInstanceOf(UserErasedError);
+    await expect(store.addSegmentMember('s', 'u1', 1, ['w'])).rejects.toBeInstanceOf(
+      UserErasedError
+    );
+    await expect(
+      store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 })
+    ).rejects.toBeInstanceOf(UserErasedError);
+    await expect(store.subscribe('i1', 'u1', ['login'], 1)).rejects.toBeInstanceOf(UserErasedError);
+    expect(db.events).toEqual([]);
+    expect(db.profiles.size).toBe(0);
+    expect(db.devices.size).toBe(0);
+    expect(db.segmentMembers.size).toBe(0);
+    expect(db.entries).toEqual([]);
+    expect(db.subscriptions).toEqual([]);
+  });
+
+  test('forgetUser leaves the tombstone erased, and a repeat is idempotent', async () => {
+    const { env, db } = makeEnv();
+    await ingestEvent(env, { userId: 'u1', event: 'login' });
+    await ingestEvent(env, { userId: 'u2', event: 'login' });
+
+    expect(await forgetUser(env, 'u1', undefined, 7)).toEqual({
+      ok: true,
+      erased: true,
+      pending: [],
+    });
+    expect(db.events.map((e) => e.user_id)).toEqual(['u2']);
+    expect(db.erasures.get('u1')).toEqual({ ts: 7, erased_at: 7 });
+    expect(await d1Store(env).erasureState('u1')).toBe('erased');
+    expect(await d1Store(env).pendingErasures()).toEqual([]);
+
+    // Again, later: nothing to do, the first erase's time stays
+    expect(await forgetUser(env, 'u1', undefined, 9)).toEqual({
+      ok: true,
+      erased: true,
+      pending: [],
+    });
+    expect(db.erasures.get('u1')).toEqual({ ts: 7, erased_at: 7 });
+
+    // The id stays gone: a late event is refused, u2 goes on
+    const late = await handleRequest(post('/events', { userId: 'u1', event: 'login' }), env);
+    expect(late.status).toBe(410);
+    expect(db.events.map((e) => e.user_id)).toEqual(['u2']);
     const other = await handleRequest(post('/events', { userId: 'u2', event: 'login' }), env);
     expect(other.status).toBe(200);
   });
@@ -672,20 +392,19 @@ describe('identify wakes the waits on the properties it patched', () => {
   const subscribe = (db: ReturnType<typeof makeEnv>['db'], handle: string, event: string) =>
     db.subscriptions.push({ user_id: 'u1', event, wake_handle: handle, ts: 0 });
 
-  test('a wait on another property sleeps on; a pre-4.0 unscoped wait still wakes', async () => {
+  test('a wait on another property sleeps on', async () => {
     const { env, db, journey } = makeEnv();
-    for (const handle of ['inst-plan', 'inst-email', 'inst-legacy']) journey.known.add(handle);
+    for (const handle of ['inst-plan', 'inst-email']) journey.known.add(handle);
     subscribe(db, 'inst-plan', profileUpdatedEvent('plan'));
     subscribe(db, 'inst-email', profileUpdatedEvent('email'));
-    subscribe(db, 'inst-legacy', PROFILE_UPDATED_EVENT);
 
     const response = await handleRequest(
       post('/identify', { userId: 'u1', props: { plan: 'pro' } }),
       env
     );
 
-    expect(await response.json()).toMatchObject({ woke: 2 });
-    expect(journey.wakes.map((wake) => wake.id).sort()).toEqual(['inst-legacy', 'inst-plan']);
+    expect(await response.json()).toMatchObject({ woke: 1 });
+    expect(journey.wakes).toEqual([{ id: 'inst-plan', type: WAKE_EVENT_TYPE }]);
   });
 
   test('an instance subscribed to several patched properties is woken once', async () => {
@@ -693,7 +412,6 @@ describe('identify wakes the waits on the properties it patched', () => {
     journey.known.add('inst-both');
     subscribe(db, 'inst-both', profileUpdatedEvent('plan'));
     subscribe(db, 'inst-both', profileUpdatedEvent('seats'));
-    subscribe(db, 'inst-both', PROFILE_UPDATED_EVENT);
 
     const response = await handleRequest(
       post('/identify', { userId: 'u1', props: { plan: 'pro', seats: 5 } }),
@@ -702,88 +420,6 @@ describe('identify wakes the waits on the properties it patched', () => {
 
     expect(await response.json()).toMatchObject({ woke: 1 });
     expect(journey.wakes).toEqual([{ id: 'inst-both', type: WAKE_EVENT_TYPE }]);
-  });
-});
-
-describe('the sweep walks users page by page', () => {
-  /** The store, with every listUserIds call recorded. */
-  function recording(env: ReturnType<typeof makeEnv>['env']) {
-    const store = d1Store(env);
-    const pages: { after: string | undefined; limit: number | undefined }[] = [];
-    const recorded = new Proxy(store, {
-      get(target, property, receiver) {
-        if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
-        return async (page?: { after?: string; limit?: number }) => {
-          pages.push({ after: page?.after, limit: page?.limit });
-          return target.listUserIds(page);
-        };
-      },
-    });
-    return { store: recorded, pages };
-  }
-
-  test('1200 users are three pages of 500, resumed past the last id of each', async () => {
-    const { env, db } = makeEnv();
-    await deployBundle(env, bundle());
-    for (let i = 0; i < 1200; i++) db.profiles.set(`u${String(i).padStart(4, '0')}`, '{}');
-    const { store, pages } = recording(env);
-
-    const result = await sweepSegments(env, store);
-
-    expect(result.users).toBe(1200);
-    expect(pages).toEqual([
-      { after: undefined, limit: 500 },
-      { after: 'u0499', limit: 500 },
-      { after: 'u0999', limit: 500 },
-    ]);
-    // Everyone was evaluated exactly once: all 1200 have no login, so all entered inactive_30d
-    expect(
-      [...db.segmentMembers.keys()].filter((key) => key.startsWith('inactive_30d\n'))
-    ).toHaveLength(1200);
-  });
-
-  test('exactly a full page is followed by one more, empty, page', async () => {
-    const { env, db } = makeEnv();
-    for (let i = 0; i < 500; i++) db.profiles.set(`u${String(i).padStart(4, '0')}`, '{}');
-    const { store, pages } = recording(env);
-    const result = await sweepSegments(env, store);
-    expect(result.users).toBe(500);
-    expect(pages.map((page) => page.after)).toEqual([undefined, 'u0499']);
-  });
-
-  test('one page reports where to resume and whether more follow', async () => {
-    const { env, db } = makeEnv();
-    for (const id of ['a', 'b', 'c']) db.profiles.set(id, '{}');
-    const first = await sweepSegmentsPaged(env, d1Store(env), { limit: 2 });
-    expect(first).toMatchObject({ users: 2, lastUserId: 'b', more: true });
-    const last = await sweepSegmentsPaged(env, d1Store(env), { after: 'b', limit: 2 });
-    expect(last).toMatchObject({ users: 1, lastUserId: 'c', more: false });
-  });
-
-  test('users being erased are listed but not evaluated', async () => {
-    const { env, db } = makeEnv();
-    await deployBundle(env, bundle());
-    db.profiles.set('u1', '{}');
-    db.profiles.set('u2', '{}');
-    db.erasures.set('u2', 1);
-    // u2's erasure finishes in maintenance (no running instance): nothing left to list
-    const result = await sweepSegments(env, d1Store(env));
-    expect(result.users).toBe(1);
-    expect(db.profiles.has('u2')).toBe(false);
-  });
-
-  test('a store that ignores `after` cannot loop the sweep forever', async () => {
-    const { env, db } = makeEnv();
-    for (let i = 0; i < 3; i++) db.profiles.set(`u${i}`, '{}');
-    const store = new Proxy(d1Store(env), {
-      get: (target, property, receiver) =>
-        property === 'listUserIds'
-          ? (page?: { limit?: number }) => target.listUserIds({ limit: page?.limit })
-          : Reflect.get(target, property, receiver),
-    });
-    await expect(sweepSegmentsPaged(env, store, { after: 'u1', limit: 2 })).rejects.toThrow(
-      /did not advance/
-    );
   });
 });
 
@@ -935,9 +571,9 @@ describe('an unsubscribe wakes the waits reading email reachability', () => {
       },
       recordClick: async () => undefined,
       recordUnsubscribe: async (id) => {
-        if (id !== messageId) return false;
+        if (id !== messageId) return undefined;
         unsubscribed.push(id);
-        return true;
+        return { userId: 'u1' };
       },
       recordDeviceDelivered: unknown,
       snapshotSegments: async () => [],

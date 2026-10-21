@@ -1,6 +1,6 @@
+import type { JourneyEnv } from '../host/platform';
 import { D1JourneyStore } from '../store/d1';
 import type { JourneyStore } from '../store/index';
-import type { JourneyEnv } from './bindings';
 
 /**
  * The default store: D1 from the env's `DB` binding — tables and workflow bodies alike (see

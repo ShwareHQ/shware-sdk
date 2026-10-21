@@ -1,24 +1,13 @@
-import * as z from 'zod/mini';
-import {
-  type JourneyEnv,
-  type JourneyParams,
-  WAKE_EVENT_TYPE,
-  type WorkflowInstanceLike,
-  isInstanceNotFound,
-} from '../cloudflare/bindings';
 import { d1Store } from '../cloudflare/d1-env';
-import { type Contract, type ContractResult, checkEvent } from '../contract';
 import { murmur3 } from '../engine/bucket';
 import {
   DEVICES_UPDATED_EVENT,
-  PROFILE_UPDATED_EVENT,
   evaluateCondition,
   matchesWhere,
   profileUpdatedEvent,
 } from '../engine/condition';
 import { semanticHash } from '../hash';
 import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
-import { recordPushOpen } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
 import {
   type BundleVersion,
@@ -26,35 +15,34 @@ import {
   type ProfileProps,
   SchemaMismatchError,
   type SegmentTriggerRoute,
+  UserErasedError,
 } from '../store/index';
-import { authorized } from './auth';
+import {
+  InstanceNotFoundError,
+  type JourneyEnv,
+  type JourneyParams,
+  WAKE_EVENT_TYPE,
+  type WorkflowInstanceLike,
+} from './platform';
 
 /**
- * Ingest router. An incoming event does four things: it is stored, it wakes
- * waiting instances, it is matched against event triggers, and it re-evaluates
- * segment-trigger membership. Plus /deploy (persist a bundle) and /identify
- * (merge a profile — which wakes property-condition waits via
- * PROFILE_UPDATED_EVENT and re-evaluates segment triggers too).
+ * Ingest: what the host does with what comes in, HTTP aside (that is `http.ts`). An incoming
+ * event does four things: it is stored, it wakes waiting instances, it is matched against event
+ * triggers, and it re-evaluates segment-trigger membership. An identify merges a profile, which
+ * wakes the waits on the properties it patched and re-evaluates segment triggers too. Plus
+ * devices, erasure, the segment sweep and bundle deploys.
  *
- * Storage goes through a JourneyStore; the `store` argument defaults to the
- * D1 + KV store built from the env's bindings, so a Worker that only has those
- * calls these functions exactly as before.
+ * Storage goes through a JourneyStore; the `store` argument defaults to the D1 store built from
+ * the env's binding, so a Worker that only has that calls these functions as they are.
  */
 
 /**
- * The user is being erased (`forgetUser` recorded it, their instances are being stopped): nothing
- * may be written about them until the erase is through, or it would come back after it.
+ * The fast answer for a user with an erasure tombstone (being erased, or erased for good): every
+ * ingest-side entry point starts here and does no work for them. The gate itself is the store's
+ * conditional write, which throws the same error when the tombstone lands after this check.
  */
-export class UserErasedError extends Error {
-  override readonly name = 'UserErasedError';
-  constructor(readonly userId: string) {
-    super(`user ${userId} is being erased`);
-  }
-}
-
-/** Refuse the write when the user's erasure is pending: every ingest-side entry point starts here. */
 async function refuseIfErased(store: JourneyStore, userId: string): Promise<void> {
-  if (await store.erasurePending(userId)) throw new UserErasedError(userId);
+  if ((await store.erasureState(userId)) !== 'none') throw new UserErasedError(userId);
 }
 
 export interface IngestInput {
@@ -152,7 +140,7 @@ export async function wakeSubscribers(
     } catch (error) {
       // Unknown instance (errored out without cleanup): drop the dangling subscription. Any
       // other failure (a database blip) keeps it: deleting would silence the wait for good
-      if (isInstanceNotFound(error)) await store.unsubscribe(handle);
+      if (error instanceof InstanceNotFoundError) await store.unsubscribe(handle);
       else console.warn(`[workflow] looking up ${handle} to wake it failed`, error);
       continue;
     }
@@ -331,7 +319,7 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
   }
   for (const userId of await store.pendingErasures()) {
     try {
-      await eraseUser(env, userId, store);
+      await eraseUser(env, userId, store, Date.now());
     } catch (error) {
       // Still pending: the next sweep tries again, and the rest of this one goes on
       console.error(`[workflow] erasure of ${userId} failed`, error);
@@ -369,8 +357,9 @@ export async function sweepSegmentsPaged(
   const erasing = new Set(await store.pendingErasures());
   const listed = await store.listUserIds({ after: page.after, limit });
   const lastUserId = listed.at(-1);
-  // A store that ignores `after` would hand back the same page forever: refuse to loop on it
-  if (page.after !== undefined && lastUserId !== undefined && lastUserId <= page.after) {
+  // A store that ignores `after` would hand back the same page forever: refuse to loop on it.
+  // Equality only — the order is the store's collation, which JavaScript's `<` does not know
+  if (page.after !== undefined && lastUserId === page.after) {
     throw new Error(`listUserIds did not advance past ${page.after}: the store ignores 'after'`);
   }
   const users = listed.filter((userId) => !erasing.has(userId));
@@ -469,7 +458,7 @@ async function startJourney(
 const utf8 = new TextEncoder();
 
 /**
- * Instance id: addressable (the router gets it directly to wake it), ≤100
+ * Instance id: addressable (the host gets it directly to wake it), ≤100
  * chars, legal charset. The murmur3 fingerprint keeps ids distinct when the
  * sanitized/truncated userId alone would collide.
  */
@@ -503,13 +492,13 @@ export async function identifyUser(
   const ts = Date.now();
   const merged = await store.mergeProfile(userId, props);
   // A property wait subscribes to its own property's channel (see relevantEvents): only the
-  // waits on what this patch touched wake up. The unscoped PROFILE_UPDATED_EVENT is still fired
-  // for instances that subscribed before 4.0 (in flight across the upgrade): remove it in the
-  // next major.
-  const woke = await wakeSubscribers(env, store, userId, [
-    ...Object.keys(props).map(profileUpdatedEvent),
-    PROFILE_UPDATED_EVENT,
-  ]);
+  // waits on what this patch touched wake up
+  const woke = await wakeSubscribers(
+    env,
+    store,
+    userId,
+    Object.keys(props).map(profileUpdatedEvent)
+  );
   // A profile change can move the user into (or out of) a trigger-routed segment
   const started = await refreshSegmentTriggers(env, store, userId, ts);
   return { ok: true, props: merged, woke, started };
@@ -559,7 +548,7 @@ async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolea
   try {
     instance = await env.JOURNEY.get(instanceId);
   } catch (error) {
-    if (isInstanceNotFound(error)) return true;
+    if (error instanceof InstanceNotFoundError) return true;
     console.warn(`[workflow] looking up ${instanceId} to stop it failed`, error);
     return false;
   }
@@ -577,28 +566,32 @@ async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolea
 
 /**
  * Carry out a recorded erasure: stop every running instance of the user, and only once all have
- * stopped erase their data (the request with it). Stopping first means no step can write rows
- * back after the erase; erasing nothing until then keeps the entries that name the instances
- * still to stop, so a retry can finish the job.
+ * stopped erase their data. The tombstone is already committed, so no new entry, event, profile
+ * or device of theirs lands meanwhile; stopping first means no step of theirs writes rows back
+ * after the erase; erasing nothing until then keeps the entries that name the instances still
+ * to stop, so a retry can finish the job. The tombstone outlives the erase (`erased_at`), which
+ * is what makes a repeat of this idempotent and a late write harmless.
  */
 async function eraseUser(
   env: JourneyEnv,
   userId: string,
-  store: JourneyStore
+  store: JourneyStore,
+  now: number
 ): Promise<{ erased: boolean; pending: string[] }> {
   const pending: string[] = [];
   for (const instanceId of await store.runningInstances(userId)) {
     if (!(await stopInstance(env, instanceId))) pending.push(instanceId);
   }
   if (pending.length > 0) return { erased: false, pending };
-  await store.forgetUser(userId);
+  await store.forgetUser(userId, now);
   return { erased: true, pending };
 }
 
 /**
- * Forget a user (a deleted account): the request is recorded first, then carried out. An
- * instance that will not stop leaves it pending — nothing erased yet — and the scheduled sweep
- * retries it; `erased: false` says so.
+ * Forget a user (a deleted account): the tombstone is committed first, then the erasure carried
+ * out. An instance that will not stop leaves it pending — nothing erased yet — and the
+ * scheduled sweep retries it; `erased: false` says so. A user already erased answers
+ * `erased: true` again, with nothing to do.
  */
 export async function forgetUser(
   env: JourneyEnv,
@@ -607,7 +600,7 @@ export async function forgetUser(
   now = Date.now()
 ): Promise<{ ok: true; erased: boolean; pending: string[] }> {
   await store.requestErasure(userId, now);
-  return { ok: true, ...(await eraseUser(env, userId, store)) };
+  return { ok: true, ...(await eraseUser(env, userId, store, now)) };
 }
 
 /**
@@ -743,243 +736,4 @@ export async function deployBundle(
     unrouted,
     applied,
   };
-}
-
-/* ----------------------------------- http ----------------------------------- */
-
-/**
- * Request bodies are untrusted JSON. They are read as unknown fields and
- * checked, never cast into the shape they are supposed to have: a cast only
- * silences the compiler, and what arrives here reaches SQL parameters.
- */
-async function readBody(request: Request): Promise<Record<string, unknown>> {
-  const body = await readJson(request);
-  return isPlainObject(body) ? body : {};
-}
-
-/** The request body is not JSON: the caller's to fix (a 400), not a server fault. */
-class InvalidJsonError extends Error {
-  override readonly name = 'InvalidJsonError';
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch (error) {
-    throw new InvalidJsonError('invalid JSON body', { cause: error });
-  }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-/** A profile value: a scalar or null (which removes the property). Nested values are not profile data. */
-function isScalarOrNull(value: unknown): value is string | number | boolean | null {
-  return (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  );
-}
-
-/** How far ahead of the server's clock an event or device `ts` may be: clock skew, not the future. */
-const TS_FUTURE_TOLERANCE_MS = 5 * 60_000;
-const TS_ERROR = 'ts must be a non-negative integer no later than 5 minutes in the future';
-
-/**
- * A caller's timestamp: epoch milliseconds, whole, not negative, and not past the skew tolerance.
- * A far-future ts would put the event ahead of everything a window condition reads, and a
- * fractional or unsafe one does not survive the store.
- */
-function isValidTs(ts: unknown): ts is number {
-  return (
-    typeof ts === 'number' &&
-    Number.isSafeInteger(ts) &&
-    ts >= 0 &&
-    ts <= Date.now() + TS_FUTURE_TOLERANCE_MS
-  );
-}
-
-/**
- * How the ingest API applies a contract: 'enforce' refuses an invalid event or
- * patch with a 400 before anything is stored, woken or started; 'report' logs
- * the issues (event id, name, field paths — never the payload) and accepts it,
- * for checking real producers before turning enforcement on.
- */
-export interface IngestValidation {
-  contract?: Contract | undefined;
-  mode?: 'enforce' | 'report' | undefined;
-}
-
-export async function handleRequest(
-  request: Request,
-  env: JourneyEnv,
-  store: JourneyStore = d1Store(env),
-  validation: IngestValidation = {}
-): Promise<Response> {
-  const url = new URL(request.url);
-  const json = (body: unknown, status = 200): Response =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { 'content-type': 'application/json' },
-    });
-  const { contract } = validation;
-  const enforce = validation.mode !== 'report';
-  /** The contract's verdict: the value to use, or the response refusing the request. */
-  const checked = <T>(
-    result: ContractResult<T>,
-    original: T,
-    what: string
-  ): { value: T } | { refused: Response } => {
-    if (result.ok) return { value: result.data };
-    const issues = result.issues.map((i) => `${i.path || '(root)'}: ${i.message}`);
-    if (!enforce) {
-      console.warn(`[workflow router] contract would refuse ${what}: ${issues.join('; ')}`);
-      return { value: original };
-    }
-    return {
-      refused: json({ error: `${what} refused by the contract`, issues: result.issues }, 400),
-    };
-  };
-
-  if (request.method === 'GET' && url.pathname === '/health') {
-    return json({ ok: true });
-  }
-
-  // Bearer auth on everything mutating. An unset token means an open dev
-  // instance (see JourneyEnv.API_TOKEN) — production refuses to run without one (journey-host).
-  if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
-
-  try {
-    if (request.method === 'POST' && url.pathname === '/events') {
-      const { id, userId, event, payload, ts } = await readBody(request);
-      if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
-        return json({ error: 'userId and event required' }, 400);
-      }
-      if (event.startsWith('$')) {
-        return json({ error: 'event names starting with $ are reserved' }, 400);
-      }
-      // An empty id is rejected rather than treated as absent: a caller that
-      // sent one meant to identify the occurrence, and silently minting a
-      // different one would turn their retry into a duplicate.
-      if (id !== undefined && !isNonEmptyString(id)) {
-        return json({ error: 'id must be a non-empty string' }, 400);
-      }
-      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
-      if (payload !== undefined && !isPlainObject(payload)) {
-        return json({ error: 'payload must be an object' }, 400);
-      }
-      let accepted = payload;
-      if (contract !== undefined) {
-        const verdict = checked(
-          checkEvent(contract, event, payload ?? {}),
-          accepted ?? {},
-          `event '${event}'${typeof id === 'string' ? ` (${id})` : ''}`
-        );
-        if ('refused' in verdict) return verdict.refused;
-        accepted = verdict.value;
-      }
-      return json(await ingestEvent(env, { id, userId, event, payload: accepted, ts }, store));
-    }
-
-    if (request.method === 'POST' && url.pathname === '/identify') {
-      const { userId, props } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
-      if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
-      // Profiles hold scalars only (both stores merge at the top level; a nested object would
-      // be merged differently by each): refused here, contract or not
-      if (!Object.values(props).every(isScalarOrNull)) {
-        return json(
-          { error: 'props values must be scalars (string, number, boolean) or null' },
-          400
-        );
-      }
-      let patch = props as ProfileProps;
-      if (contract !== undefined) {
-        const verdict = checked(contract.parseProfilePatch(props), patch, 'identify');
-        if ('refused' in verdict) return verdict.refused;
-        patch = verdict.value as ProfileProps;
-      }
-      return json(await identifyUser(env, userId, patch, store));
-    }
-
-    if (request.method === 'POST' && url.pathname === '/devices') {
-      const { userId, token, platform, ts } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
-      if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
-      if (platform !== 'ios' && platform !== 'android' && platform !== 'web') {
-        return json({ error: "platform must be 'ios', 'android' or 'web'" }, 400);
-      }
-      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
-      return json(
-        await registerDevice(
-          env,
-          { userId, token, platform, ...(ts === undefined ? {} : { ts }) },
-          store
-        )
-      );
-    }
-
-    if (request.method === 'POST' && url.pathname === '/messages/opened') {
-      const { userId, messageId } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
-      if (!isNonEmptyString(messageId)) return json({ error: 'messageId required' }, 400);
-      const recorded =
-        store.reporting !== undefined && (await recordPushOpen(store.reporting, userId, messageId));
-      return json({ ok: true, recorded });
-    }
-
-    if (request.method === 'POST' && url.pathname === '/users/forget') {
-      const { userId } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
-      return json(await forgetUser(env, userId, store));
-    }
-
-    if (request.method === 'POST' && url.pathname === '/devices/unbind') {
-      const { token } = await readBody(request);
-      if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
-      return json(await unbindDevice(env, token, store));
-    }
-
-    if (request.method === 'POST' && url.pathname === '/devices/remove') {
-      const { token } = await readBody(request);
-      if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
-      return json(await removeDevice(env, token, store));
-    }
-
-    if (request.method === 'POST' && url.pathname === '/deploy') {
-      return json(await deployBundle(env, await readJson(request), store));
-    }
-
-    return json({ error: 'not found' }, 404);
-  } catch (error) {
-    // Validation problems are the caller's to fix; anything else stays out of
-    // the response body (internals are logged, not leaked).
-    if (error instanceof InvalidJsonError) {
-      return json({ error: 'invalid JSON body' }, 400);
-    }
-    if (error instanceof z.core.$ZodError) {
-      return json({ error: `invalid payload: ${error.message}` }, 400);
-    }
-    // The user is being erased: gone, and nothing about them is taken until the erase is through
-    if (error instanceof UserErasedError) {
-      return json({ error: 'user is being erased' }, 410);
-    }
-    // The caller sent a self-inconsistent bundle: their problem to fix, so say what is wrong
-    if (error instanceof BundleIntegrityError) {
-      return json({ error: error.message }, 400);
-    }
-    // The operator's to fix (run the migrations), so the response says what is missing
-    if (error instanceof SchemaMismatchError) {
-      return json({ error: error.message, problems: error.problems }, 503);
-    }
-    console.error('[workflow router]', error);
-    return json({ error: 'internal error' }, 500);
-  }
 }

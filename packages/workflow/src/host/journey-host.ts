@@ -1,9 +1,8 @@
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
-import type { JourneyEnv, JourneyParams } from '../cloudflare/bindings';
 import { d1Store } from '../cloudflare/d1-env';
 import { type JourneyConfig, compileConfig } from '../config';
-import { ContractValidationError, checkEvent } from '../contract';
+import { type Contract, ContractValidationError, checkEvent } from '../contract';
 import { assertEmailConfig } from '../email';
 import type { EmailTransport } from '../email-sender';
 import { RegistryActionInvoker } from '../engine/actions';
@@ -11,76 +10,64 @@ import { profileUpdatedEvent } from '../engine/condition';
 import type { JourneyObserver, MessageSender } from '../engine/ports';
 import { RECIPIENT_PROPERTY } from '../engine/recipient';
 import { scaleSegmentWindows } from '../engine/time-scale';
-import type { BundleIR, NodeIR, ScalarIR } from '../ir';
+import type { BundleIR, NodeIR } from '../ir';
 import { registryRenderer } from '../react-email';
 import { reportingObserver } from '../reporting/observer';
-import { handleTracking } from '../reporting/tracking';
+import type { TrackingOptions } from '../reporting/tracking';
 import type { JourneyRuntimeOptions } from '../runtime';
-import {
-  type BundleVersion,
-  type JourneyStore,
-  SchemaMismatchError,
-  type StoreLease,
-} from '../store/index';
+import type { BundleVersion, JourneyStore, StoreLease } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
-import { TemplateValidationError, indexTemplates, registryValidator } from '../templates';
-import { authorized } from './auth';
-import { channelsFromConfig, journeyMode, runtimeFromConfig } from './channels';
+import { indexTemplates, registryValidator } from '../templates';
+import { channelsFromConfig, createProviderCache, runtimeFromConfig } from './channels';
 import type { JourneyRunParts } from './execute';
+import { serve } from './http';
 import {
   type SweepResult,
   deployBundle,
-  handleRequest,
   ingestEvent,
   sweepSegments,
   wakeSubscribers,
-} from './router';
+} from './ingest';
+import type { JourneyEnv, JourneyParams } from './platform';
 
 /**
  * What a journey host is, apart from the runtime it runs on: the validated environment, the
- * store lease, the outlets a run is wired to, the HTTP API (tracking, sweep, bundle, preview,
- * ingest) and the bundle that goes live with the code. `journeyWorker` (Cloudflare) and
+ * store lease, the outlets a run is wired to, the HTTP API (`http.ts`, with the host's parts
+ * plugged in) and the bundle that goes live with the code. `journeyWorker` (Cloudflare) and
  * `journeyLambda` (AWS) are this plus how their platform starts, wakes and stops instances.
  */
 
 export interface JourneyHostOptions<Env extends JourneyEnv> {
   /**
-   * The project's `workflow.config.ts` (`defineConfig`): what the host
-   * deploys (`GET /bundle`, `POST /bundle/deploy` serve `compileConfig`), the
-   * template registries the senders, the validator and `/preview` render from,
-   * the contract every `/events` and `/identify` is checked against, the email
-   * defaults, actions, and the runtime / APNs / FCM settings. Secrets come
-   * from the env under the names `JourneyEnv` documents.
+   * The project's `workflow.config.ts` (`defineConfig`): what the host deploys (`GET /bundle`,
+   * `POST /bundle/deploy` serve `compileConfig`), the template registries the senders, the
+   * validator and `/preview` render from, the contract every `/events` and `/identify` is
+   * checked against, the email defaults, actions, and the runtime / APNs / FCM settings.
+   * Secrets come from the env under the names `JourneyEnv` documents.
    */
   config: JourneyConfig;
   /**
-   * The data plane, opened per request and per workflow run. Return a
-   * `StoreLease` when the client must be released afterwards (a Postgres
-   * connection); defaults to D1 + KV from the env's bindings. `database` is
-   * the config's (`schema` defaulting to `workflow`), for a Postgres store:
+   * The data plane, opened per request and per workflow run. Return a `StoreLease` when the
+   * client must be released afterwards (a Postgres connection); defaults to D1 from the env's
+   * binding. `database` is the config's (`schema` defaulting to `workflow`), for Postgres:
    *
    *   store: (env, database) => postgresJsStore(env.DATABASE_URL, database)
    */
   store?: (env: Env, database: { schema: string }) => JourneyStore | StoreLease;
   /**
-   * Where journey emails go: a transport built from the validated env —
-   * `sesEmailTransport(...)`, `cloudflareEmailTransport(...)`, or your own. Which one is
-   * independent of where the workflow runs. Without it the email channel fails its sends,
-   * saying so.
+   * Where journey emails go: a transport built from the validated env — `sesEmailTransport(...)`,
+   * `cloudflareEmailTransport(...)`, or your own. Which one is independent of where the workflow
+   * runs. Without it the email channel fails its sends, saying so.
    */
   email?: (env: Env) => EmailTransport;
   /**
    * Reporting hooks: node arrivals, every copy sent (with the tracking it should carry — click
    * links and an open pixel for email, payload data for a push), and how each instance ended.
-   * By default a store that keeps reporting (Postgres) records them itself, and the host
-   * serves the email tracking routes (`/t/...`, on `WORKFLOW_ORIGIN`); override to report
-   * elsewhere.
+   * By default a store that keeps reporting (Postgres) records them itself, and the host serves
+   * the email tracking routes (`/t/...`, on `WORKFLOW_ORIGIN`); override to report elsewhere.
    */
   observer?: (env: Env, store: JourneyStore) => JourneyObserver;
-  /**
-   * Message outlet override (tests, a custom gateway): replaces every channel, `email`
-   * included. By default the channels the config describes.
-   */
+  /** Message outlet override (tests, a custom gateway): replaces every channel, `email` included. */
   messages?: (env: Env, store: JourneyStore) => MessageSender;
   /** Per-instance runtime options override (a tester in fast-forward); by default `config.runtime` for `ENVIRONMENT`. */
   runtime?: (env: Env, params: JourneyParams) => JourneyRuntimeOptions;
@@ -113,7 +100,7 @@ export interface JourneyHost<Env extends JourneyEnv> {
   bundle(): BundleIR;
   /** The outlets one run is wired to (the store is the run's). */
   runParts(env: Env, store: JourneyStore, params: JourneyParams): JourneyRunParts;
-  /** The HTTP API over one store: tracking, sweep, bundle, preview, then the ingest router. */
+  /** The HTTP API over one store: the ingest API plus tracking, the sweep, the bundle and previews. */
   handle(request: Request, env: Env, store: JourneyStore): Promise<Response>;
   /** The scheduled sweep (`sweepSegments`) on a store of its own. */
   sweep(env: Env): Promise<SweepResult>;
@@ -150,6 +137,21 @@ function sendsEmail(nodes: readonly NodeIR[]): boolean {
   });
 }
 
+const describeIssue = (issue: { path: PropertyKey[]; message: string }): string =>
+  `${issue.path.join('.') || '(root)'}: ${issue.message}`;
+
+/** An event the host emits itself, checked against the contract like any ingest. */
+function checkedPayload(
+  contract: Contract | undefined,
+  event: string,
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  if (contract === undefined) return payload;
+  const verdict = checkEvent(contract, event, payload);
+  if (!verdict.ok) throw new ContractValidationError(event, verdict.issues);
+  return verdict.data;
+}
+
 export function createJourneyHost<Env extends JourneyEnv>(
   options: JourneyHostOptions<Env>,
   platform: JourneyPlatform = {}
@@ -158,17 +160,15 @@ export function createJourneyHost<Env extends JourneyEnv>(
   const emailIds = indexTemplates('email', config.templates?.email);
   // A config still on `emails` (its sender would be silently dropped) fails here, not at a send
   assertEmailConfig(config, emailIds.values());
+  let compiled: BundleIR | undefined;
+  const bundle = () => (compiled ??= compileConfig(config));
   // A journey that emails with nowhere to send fails here too, not at its first email
-  if (options.email === undefined && options.messages === undefined) {
-    const emailing = compileConfig(config).workflows.filter((workflow) =>
-      sendsEmail(workflow.flow)
+  const emailing = bundle().workflows.filter((workflow) => sendsEmail(workflow.flow));
+  if (options.email === undefined && options.messages === undefined && emailing.length > 0) {
+    throw new TypeError(
+      `workflows ${emailing.map((w) => `'${w.id}'`).join(', ')} send email, but the host has no ` +
+        '`email` transport: pass `email: (env) => cloudflareEmailTransport(...)` or `sesEmailTransport(...)`'
     );
-    if (emailing.length > 0) {
-      throw new TypeError(
-        `workflows ${emailing.map((w) => `'${w.id}'`).join(', ')} send email, but the host has no ` +
-          '`email` transport: pass `email: (env) => cloudflareEmailTransport(...)` or `sesEmailTransport(...)`'
-      );
-    }
   }
   // Parsed once per env object: the runtime hands the same one to every request of an isolate
   const checked = new WeakMap<object, Env>();
@@ -177,18 +177,12 @@ export function createJourneyHost<Env extends JourneyEnv>(
     const cached = checked.get(env);
     if (cached !== undefined) return cached;
     const result = z.safeParse(options.env, env);
-    if (!result.success) {
-      // Names and reasons only: the values are secrets
-      throw new EnvValidationError(
-        result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      );
-    }
+    // Names and reasons only: the values are secrets
+    if (!result.success) throw new EnvValidationError(result.error.issues.map(describeIssue));
     const merged: Env = { ...env, ...result.data };
     checked.set(env, merged);
     return merged;
   };
-  let compiled: BundleIR | undefined;
-  const bundle = () => (compiled ??= compileConfig(config));
   const emails = config.templates?.email;
   const database = { schema: config.database?.schema ?? DEFAULT_SCHEMA };
   // In fast-forward, segment windows scale with the journeys reading them (time-scale.ts)
@@ -201,12 +195,16 @@ export function createJourneyHost<Env extends JourneyEnv>(
       : { store: scaleSegmentWindows(opened, factor), close: noop };
   };
 
+  // The provider clients (APNs JWT, FCM access token) live with the host, not with a run: a
+  // run's env is a fresh object on every Lambda invocation, so nothing keyed on it would be reused
+  const providers = createProviderCache();
   const messages = (env: Env, store: JourneyStore): MessageSender => {
     if (options.messages !== undefined) return options.messages(env, store);
     return channelsFromConfig(config, env, {
       store,
       email: options.email?.(env),
       apnsFetch: platform.apnsFetch,
+      providers,
     });
   };
 
@@ -230,144 +228,54 @@ export function createJourneyHost<Env extends JourneyEnv>(
     observer: observer(env, store),
   });
 
-  const json = (body: unknown, status = 200): Response =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { 'content-type': 'application/json' },
-    });
-
   const preview = emails === undefined ? undefined : registryRenderer(emails, config.email);
 
   /**
-   * Production without a bearer token is not an open instance, it is a mistake: anyone could
-   * ingest, identify and deploy. Only what recipients open (`/t/*`) and the health check stay up.
+   * The recipients' routes (`/t/*`): a push tapped open is recorded as the config's
+   * `webPush.openedEvent` — keyed by the copy, so a second tap of the same notification is the
+   * same event — and an unsubscribe wakes the waits reading email reachability (`reachable
+   * ('email')` subscribes to the email property's channel), so an `exitWhen:
+   * not(reachable('email'))` takes effect without waiting for a timeout.
    */
-  const refusesOpen = (request: Request, env: Env, pathname: string): boolean =>
-    env.API_TOKEN === undefined &&
-    journeyMode(env) === 'production' &&
-    !pathname.startsWith('/t/') &&
-    !(request.method === 'GET' && pathname === '/health');
-
-  const handle = async (request: Request, env: Env, store: JourneyStore): Promise<Response> => {
-    try {
-      return await dispatch(request, env, store);
-    } catch (error) {
-      // The operator's to fix (run the migrations), so the response says what is missing
-      if (error instanceof SchemaMismatchError) {
-        return json({ error: error.message, problems: error.problems }, 503);
-      }
-      // Anything else stays out of the response body (internals are logged, not leaked)
-      console.error('[workflow host]', error);
-      return json({ error: 'internal error' }, 500);
-    }
+  const tracking = (env: Env, store: JourneyStore): TrackingOptions => {
+    const opened = config.webPush?.openedEvent;
+    return {
+      product: config.title,
+      quickMs: config.email?.tracking?.quickClickMs,
+      pushOpened:
+        opened === undefined
+          ? undefined
+          : async ({ messageId, userId, at }) => {
+              const payload = checkedPayload(config.contract, opened, { message_id: messageId });
+              const input = {
+                id: `${opened}:${messageId}`,
+                userId,
+                event: opened,
+                payload,
+                ts: at,
+              };
+              await ingestEvent(env, input, store);
+            },
+      onUnsubscribed: async ({ userId }) => {
+        const email = profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email');
+        await wakeSubscribers(env, store, userId, [email]);
+      },
+    };
   };
 
-  const dispatch = async (request: Request, env: Env, store: JourneyStore): Promise<Response> => {
-    const url = new URL(request.url);
-    if (refusesOpen(request, env, url.pathname)) {
-      return json(
-        {
-          error:
-            'API_TOKEN is not set: production refuses to serve without it (set ENVIRONMENT=development to run open)',
-        },
-        503
-      );
-    }
-    // Opened by recipients, so no bearer: the routes only record, and redirect to recorded URLs
-    if (url.pathname.startsWith('/t/') && store.reporting !== undefined) {
-      const openedEvent = config.webPush?.openedEvent;
-      const tracked = await handleTracking(request, store.reporting, {
-        legacyUnsubscribeUrl: config.email?.unsubscribeUrl,
-        product: config.title,
-        quickMs: config.email?.tracking?.quickClickMs,
-        pushOpened:
-          openedEvent === undefined
-            ? undefined
-            : async ({ messageId, userId, at }) => {
-                const payload: Record<string, unknown> = { message_id: messageId };
-                const contract = config.contract;
-                const verdict =
-                  contract === undefined ? undefined : checkEvent(contract, openedEvent, payload);
-                if (verdict !== undefined && !verdict.ok) {
-                  throw new ContractValidationError(openedEvent, verdict.issues);
-                }
-                // Keyed by the copy: a second tap of the same notification is the same event
-                await ingestEvent(
-                  env,
-                  {
-                    id: `${openedEvent}:${messageId}`,
-                    userId,
-                    event: openedEvent,
-                    payload: verdict?.data ?? payload,
-                    ts: at,
-                  },
-                  store
-                );
-              },
-        // An unsubscribe is a profile-side change for the waits reading email reachability
-        // (`reachable('email')` subscribes to the email property's channel): wake them now,
-        // so an `exitWhen: not(reachable('email'))` takes effect without waiting for a timeout
-        onUnsubscribed: async ({ userId }) => {
-          await wakeSubscribers(env, store, userId, [
-            profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email'),
-          ]);
-        },
-      });
-      if (tracked !== undefined) return tracked;
-    }
-    if (url.pathname === '/segments/sweep') {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
-      if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
-      return json(await sweepSegments(env, store));
-    }
-    if (url.pathname === '/bundle') {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
-      if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
-      return json(bundle());
-    }
-    if (url.pathname === '/bundle/deploy') {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
-      if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
-      return json(await deployBundle(env, bundle(), store));
-    }
-    if (emails !== undefined && preview !== undefined && url.pathname.startsWith('/preview/')) {
-      if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
-      if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405);
-      const key = url.pathname.slice('/preview/'.length);
-      if (!emailIds.has(key)) return json({ error: `unknown email template: ${key}` }, 404);
-      // `?props=<JSON object>`: JSON keeps numbers and booleans typed, which query strings cannot
-      let props: unknown = {};
-      try {
-        props = JSON.parse(url.searchParams.get('props') ?? '{}');
-      } catch {
-        return json({ error: 'props must be a JSON object' }, 400);
-      }
-      if (typeof props !== 'object' || props === null || Array.isArray(props)) {
-        return json({ error: 'props must be a JSON object' }, 400);
-      }
-      try {
-        const { subject, html } = await preview(key, props as Record<string, ScalarIR>);
-        // A header holds bytes, not text: a subject with a non-Latin-1 character would throw
-        // here, so it travels percent-encoded (the reader `decodeURIComponent`s it)
-        return new Response(html, {
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'x-subject': encodeURIComponent(subject),
-          },
-        });
-      } catch (error) {
-        // The query string is the props: a refusal is the caller's to fix, with the field paths
-        if (error instanceof TemplateValidationError) {
-          return json({ error: error.message, issues: error.issues }, 400);
-        }
-        throw error;
-      }
-    }
-    return handleRequest(request, env, store, {
-      contract: config.contract,
-      mode: options.contractMode,
+  const handle = (request: Request, env: Env, store: JourneyStore): Promise<Response> =>
+    serve(request, {
+      env,
+      store,
+      validation: { contract: config.contract, mode: options.contractMode },
+      host: {
+        bundle,
+        preview:
+          preview === undefined ? undefined : { has: (id) => emailIds.has(id), render: preview },
+        tracking: tracking(env, store),
+        sweep: () => sweepSegments(env, store),
+      },
     });
-  };
 
   const sweep = async (env: Env) => {
     const { store, close } = lease(env);

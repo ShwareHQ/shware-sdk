@@ -1,4 +1,3 @@
-import type { JourneyEnv, JourneyParams } from '../cloudflare/bindings';
 import { type Contract, ContractValidationError, checkEvent } from '../contract';
 import { runJourney } from '../engine/interpreter';
 import type {
@@ -14,7 +13,8 @@ import { scaleDurations } from '../engine/time-scale';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import { JourneyFactSource } from '../store/facts';
 import type { JourneyStore } from '../store/index';
-import { ingestEvent } from './router';
+import { ingestEvent } from './ingest';
+import type { JourneyEnv, JourneyParams } from './platform';
 
 /**
  * One journey instance run to its end, on whatever durable runtime supplies the `EngineStep`:

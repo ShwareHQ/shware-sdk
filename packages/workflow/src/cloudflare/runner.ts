@@ -12,10 +12,11 @@ import type {
 } from '../engine/ports';
 import { isRetryable } from '../engine/retry';
 import { type JourneyRunParts, executeJourney } from '../host/execute';
+import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE } from '../host/platform';
 import { LogMessageSender, WebhookMessageSender } from '../host/senders';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import type { JourneyStore } from '../store/index';
-import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE, wakeExpired } from './bindings';
+import { cloudflareJourneyBinding, wakeExpired } from './bindings';
 import { d1Store } from './d1-env';
 
 /**
@@ -115,6 +116,17 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
   /** Called once `run` is over, success or not — release whatever `createStore` opened. */
   protected async closeStore(_store: JourneyStore): Promise<void> {}
 
+  private adapted: JourneyEnv | undefined;
+
+  /**
+   * The env a run ingests its emitted events with: the Workflow binding behind the host's port,
+   * so an instance the platform no longer knows answers `InstanceNotFoundError` (what lets the
+   * host drop its wakes). Built once per instance.
+   */
+  protected hostEnv(): JourneyEnv {
+    return (this.adapted ??= { ...this.env, JOURNEY: cloudflareJourneyBinding(this.env.JOURNEY) });
+  }
+
   /**
    * Runtime options for this instance — typed configuration, resolved by the app (typically
    * `resolveRuntime(config.runtime, mode)` over its workflow.config.ts, with the mode coming from
@@ -189,7 +201,7 @@ export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams>
   protected createRunParts(store: JourneyStore, params: JourneyParams): JourneyRunParts {
     return {
       store,
-      env: this.env,
+      env: this.hostEnv(),
       runtime: this.runtime(params),
       messages: this.createMessageSender(),
       actions: this.createActionInvoker(),

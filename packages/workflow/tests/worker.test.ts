@@ -2,7 +2,9 @@ import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
+import { cloudflareJourneyBinding } from '../src/cloudflare/bindings';
 import { journeyWorker } from '../src/cloudflare/worker';
+import { InstanceNotFoundError } from '../src/host/platform';
 import {
   defineConfig,
   emailTemplate,
@@ -121,6 +123,22 @@ describe('journeyWorker fetch', () => {
     const { call } = setup();
     expect(await (await call('/health')).json()).toEqual({ ok: true });
     expect((await call('/nope')).status).toBe(404);
+  });
+});
+
+describe('the Workflow binding as the host port', () => {
+  test("an unknown id is the port's InstanceNotFoundError; any other failure passes through", async () => {
+    const journey = new FakeJourney();
+    const port = cloudflareJourneyBinding(journey);
+    await expect(port.get('gone')).rejects.toBeInstanceOf(InstanceNotFoundError);
+    await expect(port.get('gone')).rejects.toMatchObject({ instanceId: 'gone' });
+    // Created instances are reachable: the wrapper forwards, it does not copy
+    await port.create({ id: 'inst-1', params: {} });
+    expect((await port.get('inst-1')).id).toBe('inst-1');
+    journey.get = async () => {
+      throw new Error('connection reset by peer');
+    };
+    await expect(port.get('inst-1')).rejects.toThrow('connection reset by peer');
   });
 });
 

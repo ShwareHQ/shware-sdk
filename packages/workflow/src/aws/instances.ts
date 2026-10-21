@@ -1,10 +1,10 @@
+import { murmur3 } from '../engine/bucket';
 import {
   InstanceNotFoundError,
   type JourneyParams,
   type WorkflowBindingLike,
   type WorkflowInstanceLike,
-} from '../cloudflare/bindings';
-import { murmur3 } from '../engine/bucket';
+} from '../host/platform';
 import type {
   ExecutionRecord,
   ExecutionRegistry,

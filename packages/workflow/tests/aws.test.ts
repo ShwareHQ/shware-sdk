@@ -1,10 +1,13 @@
+import { webcrypto } from 'node:crypto';
+import { type Http2Server, createServer } from 'node:http2';
+import type { AddressInfo } from 'node:net';
 import {
   LocalDurableTestRunner,
   WaitingOperationStatus,
 } from '@aws/durable-execution-sdk-js-testing';
 import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import {
   AwsInstances,
@@ -18,8 +21,18 @@ import {
 } from '../src/aws';
 import { compileConfig } from '../src/config';
 import type { EmailMessage } from '../src/email-sender';
-import { deployBundle, forgetUser, ingestEvent } from '../src/host/router';
-import { defineConfig, emailTemplate, event, performed, trigger, workflow } from '../src/index';
+import { PermanentError } from '../src/engine/retry';
+import type { FcmServiceAccount } from '../src/fcm';
+import { deployBundle, forgetUser, ingestEvent } from '../src/host/ingest';
+import {
+  defineConfig,
+  emailTemplate,
+  event,
+  performed,
+  pushTemplate,
+  trigger,
+  workflow,
+} from '../src/index';
 import type { JourneyStore } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
@@ -216,7 +229,9 @@ describe('journeyLambda', () => {
     );
     const run = JSON.parse(starts[0].payload) as RunInput;
 
-    const runner = new LocalDurableTestRunner({ handlerFunction: journeys.handler });
+    const runner = new LocalDurableTestRunner({
+      handlerFunction: (...args) => journeys.handler(...args),
+    });
     const running = runner.run({ payload: run });
 
     // Parked: the callback is armed in Postgres, and the welcome email went out once
@@ -267,7 +282,9 @@ describe('journeyLambda', () => {
     );
     const run = JSON.parse(starts[0].payload) as RunInput;
 
-    const runner = new LocalDurableTestRunner({ handlerFunction: journeys.handler });
+    const runner = new LocalDurableTestRunner({
+      handlerFunction: (...args) => journeys.handler(...args),
+    });
     const result = await runner.run({ payload: run });
     expect(result.getResult()).toMatchObject({ status: 'completed' });
     expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard', 'Thanks for buying']);
@@ -1178,4 +1195,318 @@ describe('4.0: the sweep is resumable, one durable step per page', () => {
     expect(pages.filter((after) => after === undefined)).toHaveLength(1);
     expect(pages.filter((after) => after === 'u0500')).toHaveLength(1);
   }, 30_000);
+});
+
+describe('the registry read at the entry of a run is retried, briefly, never its verdict', () => {
+  /** The store with every `executions.get` counted, and failed when `failNext` says so. */
+  function flakyRegistry() {
+    const reads: string[] = [];
+    let failNext: (() => Error | undefined) | undefined;
+    const store = () => {
+      const base = new PostgresJourneyStore(client(pg));
+      const executions = new Proxy(base.executions, {
+        get(target, property, receiver) {
+          if (property !== 'get') return Reflect.get(target, property, receiver);
+          return async (instanceId: string) => {
+            reads.push(instanceId);
+            const error = failNext?.();
+            if (error !== undefined) throw error;
+            return target.get(instanceId);
+          };
+        },
+      });
+      return new Proxy(base, {
+        get(target, property, receiver) {
+          if (property === 'executions') return executions;
+          return Reflect.get(target, property, receiver);
+        },
+      });
+    };
+    return {
+      store,
+      reads,
+      /** Fail the next `count` reads with `error`, then answer normally. */
+      failReads: (count: number, error = new Error('transient: connection reset')) => {
+        let left = count;
+        failNext = () => (left-- > 0 ? error : undefined);
+      },
+    };
+  }
+
+  function host(timeout: '1 day' | '2 seconds' = '1 day') {
+    const flaky = flakyRegistry();
+    const sent: EmailMessage[] = [];
+    const control = fakeLambda();
+    const journeys = journeyLambda({
+      config: journeyConfig(timeout),
+      env: { ENVIRONMENT: 'production', API_TOKEN: 'secret' },
+      store: flaky.store,
+      email: () => ({
+        async send(message) {
+          sent.push(message);
+          return {};
+        },
+      }),
+      lambda: control.lambda,
+    });
+    return { ...flaky, journeys, sent, starts: control.starts };
+  }
+
+  async function recorded(timeout: '1 day' | '2 seconds' = '1 day') {
+    const h = host(timeout);
+    await call(h.journeys.handler, request('/bundle/deploy'));
+    await call(h.journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await pg.query(
+      `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
+    );
+    h.reads.length = 0;
+    return { ...h, run: JSON.parse(h.starts[0].payload) as RunInput };
+  }
+
+  const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  test('a read that stumbles once is tried again: the run goes on, its steps once', async () => {
+    const warned = quiet();
+    try {
+      const { journeys, sent, reads, failReads, run } = await recorded('2 seconds');
+      failReads(1);
+      const { result } = await call((...args) => journeys.handler(...args), run);
+      expect(result.getResult()).toMatchObject({ status: 'exited' });
+      expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
+      // The failed read, its retry, then the wake after the timeout read once more
+      expect(reads.slice(0, 2)).toEqual([run.instanceId, run.instanceId]);
+      expect(warned).toHaveBeenCalledWith(
+        expect.stringMatching(
+          new RegExp(`run entry: read failed for instance ${run.instanceId} \\(attempt 1 of 3\\)`)
+        ),
+        expect.any(Error)
+      );
+    } finally {
+      warned.mockRestore();
+    }
+  }, 30_000);
+
+  test('a stumble on the wake after a wait continues the run without repeating its steps', async () => {
+    const warned = quiet();
+    try {
+      const { journeys, sent, failReads, run } = await recorded();
+      const runner = new LocalDurableTestRunner({
+        handlerFunction: (...args) => journeys.handler(...args),
+      });
+      const running = runner.run({ payload: run });
+      const callback = runner.getOperation('1:subscribe:0:callback');
+      await callback.waitForData(WaitingOperationStatus.STARTED);
+      await runner.getOperation('1:remaining:0').waitForData(WaitingOperationStatus.COMPLETED);
+      expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
+      await call(
+        journeys.handler,
+        request('/events', { userId: 'u1', event: 'purchase', payload: { value: 1 } })
+      );
+      // The wake's invocation: its first read fails, the retry sees the record
+      failReads(1);
+      await callback.sendCallbackSuccess('{}');
+      const result = await running;
+      expect(result.getResult()).toMatchObject({ status: 'completed' });
+      expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard', 'Thanks for buying']);
+    } finally {
+      warned.mockRestore();
+    }
+  }, 30_000);
+
+  test('a stop during the wait is seen on the wake: refused, nothing more sent', async () => {
+    const { journeys, sent, run } = await recorded();
+    const runner = new LocalDurableTestRunner({
+      handlerFunction: (...args) => journeys.handler(...args),
+    });
+    const running = runner.run({ payload: run });
+    const callback = runner.getOperation('1:subscribe:0:callback');
+    await callback.waitForData(WaitingOperationStatus.STARTED);
+    await runner.getOperation('1:remaining:0').waitForData(WaitingOperationStatus.COMPLETED);
+    await new PostgresJourneyStore(client(pg)).executions.markStopped(run.instanceId, Date.now());
+    await callback.sendCallbackSuccess('{}');
+    const result = await running;
+    expect(result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
+  }, 30_000);
+
+  test('a missing record or a mismatched input is refused on the first read, no retry', async () => {
+    const { journeys, sent, reads, run } = await recorded();
+    const forged = await call(journeys.handler, {
+      ...run,
+      params: { ...run.params, userId: 'u2' },
+    });
+    expect(forged.result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(reads).toEqual([run.instanceId]);
+    const unknown = await call(journeys.handler, { ...run, instanceId: 'never-planned' });
+    expect(unknown.result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(reads).toEqual([run.instanceId, 'never-planned']);
+    expect(sent).toEqual([]);
+  });
+
+  test('a database that keeps failing fails the execution after three reads; a permanent error after one', async () => {
+    const warned = quiet();
+    try {
+      const { journeys, sent, reads, failReads, run } = await recorded();
+      failReads(Number.POSITIVE_INFINITY);
+      const startedAt = Date.now();
+      const { result } = await call((...args) => journeys.handler(...args), run);
+      expect(result.getError().errorMessage).toMatch(/connection reset/);
+      expect(reads).toHaveLength(3);
+      // The two pauses between the attempts, and no durable step before the refusal
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(390);
+      expect(result.getOperations()).toEqual([]);
+      expect(warned).toHaveBeenCalledTimes(2);
+
+      reads.length = 0;
+      failReads(Number.POSITIVE_INFINITY, new PermanentError('registry schema is missing'));
+      const permanent = await call(journeys.handler, run);
+      expect(permanent.result.getError().errorMessage).toMatch(/schema is missing/);
+      expect(reads).toHaveLength(1);
+      expect(sent).toEqual([]);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+});
+
+describe('the provider clients live with the host, across invocations', () => {
+  /** An APNs stand-in the Lambda's own HTTP/2 fetch reaches (the relay origin): records each bearer. */
+  let apns: Http2Server;
+  let apnsOrigin: string;
+  const apnsAuths: (string | undefined)[] = [];
+  let p8Base64: string;
+  let serviceAccountBase64: string;
+  const fcmTokenCalls: string[] = [];
+  const fcmSends: string[] = [];
+
+  beforeAll(async () => {
+    apns = createServer((request, response) => {
+      apnsAuths.push(request.headers.authorization);
+      response.writeHead(200, { 'apns-id': 'id-1' });
+      response.end();
+    });
+    await new Promise<void>((resolve) => {
+      apns.listen(0, '127.0.0.1', resolve);
+    });
+    apnsOrigin = `http://127.0.0.1:${(apns.address() as AddressInfo).port}`;
+    const ec = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+    ]);
+    const ecDer = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', ec.privateKey)).toString(
+      'base64'
+    );
+    p8Base64 = Buffer.from(
+      `-----BEGIN PRIVATE KEY-----\n${ecDer}\n-----END PRIVATE KEY-----\n`
+    ).toString('base64');
+    const rsa = await webcrypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify']
+    );
+    const rsaDer = Buffer.from(await webcrypto.subtle.exportKey('pkcs8', rsa.privateKey)).toString(
+      'base64'
+    );
+    const account: FcmServiceAccount = {
+      project_id: 'acme',
+      client_email: 'sa@acme.iam.gserviceaccount.com',
+      private_key: `-----BEGIN PRIVATE KEY-----\n${rsaDer.match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----\n`,
+    };
+    serviceAccountBase64 = Buffer.from(JSON.stringify(account)).toString('base64');
+    // FCM goes through the platform fetch: Google's endpoints are answered here, the rest passes
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const href =
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (href === 'https://oauth2.googleapis.com/token') {
+        fcmTokenCalls.push(href);
+        return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }), {
+          status: 200,
+        });
+      }
+      if (href.startsWith('https://fcm.googleapis.com/')) {
+        fcmSends.push(new Headers(init?.headers).get('authorization') ?? '');
+        return new Response('{}', { status: 200 });
+      }
+      return realFetch(input, init);
+    });
+  }, 30_000);
+
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    await new Promise<void>((resolve) => {
+      apns.close(() => resolve());
+    });
+  });
+
+  const pushes = {
+    nudge: pushTemplate({
+      id: 'nudge',
+      title: 'Nudge',
+      props: z.strictObject({}),
+      preview: {},
+      content: () => ({ title: 'Hi', body: 'come back' }),
+    }),
+  };
+
+  function pushHost() {
+    const control = fakeLambda();
+    const flow = workflow({ id: 'nudge', trigger: trigger.event(e.login) }).push(pushes.nudge, {});
+    const journeys = journeyLambda({
+      config: defineConfig({
+        workflows: [flow],
+        templates: { push: pushes },
+        apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' },
+        fcm: {},
+      }),
+      env: {
+        ENVIRONMENT: 'production',
+        API_TOKEN: 'secret',
+        APNS_PRIVATE_KEY_BASE64: p8Base64,
+        APNS_RELAY_ORIGIN: apnsOrigin,
+        GOOGLE_APPLICATION_CREDENTIALS_BASE64: serviceAccountBase64,
+      },
+      store: () => new PostgresJourneyStore(client(pg)),
+      lambda: control.lambda,
+    });
+    return { journeys, starts: control.starts };
+  }
+
+  /** Enter `userId` with an iOS and an Android device, and run its instance as its own invocation. */
+  async function runFor(host: ReturnType<typeof pushHost>, userId: string) {
+    const store = new PostgresJourneyStore(client(pg));
+    await store.upsertDevice({ userId, token: `${userId}-ios`, platform: 'ios', ts: 1 });
+    await store.upsertDevice({ userId, token: `${userId}-android`, platform: 'android', ts: 2 });
+    const before = host.starts.length;
+    await call(host.journeys.handler, request('/events', { userId, event: 'login' }));
+    const { result } = await call(
+      host.journeys.handler,
+      JSON.parse(host.starts[before].payload) as RunInput
+    );
+    expect(result.getResult()).toMatchObject({ status: 'completed' });
+  }
+
+  test('two invocations of one host sign one APNs token and exchange one FCM token; another host signs its own', async () => {
+    const host = pushHost();
+    await call(host.journeys.handler, request('/bundle/deploy'));
+    await runFor(host, 'u1');
+    await runFor(host, 'u2');
+    expect(apnsAuths).toHaveLength(2);
+    expect(apnsAuths[0]).toMatch(/^bearer /);
+    // One provider JWT across two invocations, each with its own run env
+    expect(apnsAuths[1]).toBe(apnsAuths[0]);
+    expect(fcmTokenCalls).toHaveLength(1);
+    expect(fcmSends).toEqual(['Bearer at', 'Bearer at']);
+
+    // Another host instance (a cold start): its own clients, its own tokens
+    const other = pushHost();
+    await runFor(other, 'u3');
+    expect(apnsAuths).toHaveLength(3);
+    expect(apnsAuths[2]).not.toBe(apnsAuths[0]);
+    expect(fcmTokenCalls).toHaveLength(2);
+  }, 60_000);
 });
