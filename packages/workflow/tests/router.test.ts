@@ -1,8 +1,29 @@
+import { createElement } from 'react';
 import { describe, expect, test } from 'vitest';
+import { z } from 'zod';
 import { WAKE_EVENT_TYPE } from '../src/cloudflare/bindings';
-import { PROFILE_UPDATED_EVENT } from '../src/engine/condition';
-import { deployBundle, handleRequest, ingestEvent } from '../src/host/router';
-import { compileBundle, eq, segment, trigger, workflow } from '../src/index';
+import { d1Store } from '../src/cloudflare/d1-env';
+import { PROFILE_UPDATED_EVENT, profileUpdatedEvent } from '../src/engine/condition';
+import { bearerMatches } from '../src/host/auth';
+import { createJourneyHost } from '../src/host/journey-host';
+import {
+  UserErasedError,
+  deployBundle,
+  handleRequest,
+  ingestEvent,
+  sweepSegments,
+  sweepSegmentsPaged,
+} from '../src/host/router';
+import {
+  compileBundle,
+  defineConfig,
+  emailTemplate,
+  eq,
+  segment,
+  trigger,
+  workflow,
+} from '../src/index';
+import type { JourneyReporting, JourneyStore } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
 import {
   allSegments,
@@ -31,7 +52,7 @@ describe('deployBundle rejects a bundle that misdescribes itself', () => {
    * replay picks it up. Deploy used to take the caller's word for it.
    */
   test('an edited flow carrying its old hash is refused, and nothing is written', async () => {
-    const { env, db, kv } = makeEnv();
+    const { env, db } = makeEnv();
     const tampered = bundle();
     const target = tampered.workflows[0];
     const staleHash = target.contentHash;
@@ -40,9 +61,9 @@ describe('deployBundle rejects a bundle that misdescribes itself', () => {
 
     await expect(deployBundle(env, tampered)).rejects.toThrow(/contentHash does not match/);
 
-    expect(kv.store.size).toBe(0);
+    expect(db.ir.size).toBe(0);
     expect(db.triggers).toHaveLength(0);
-    expect(kv.store.get(`wf:${staleHash}`)).toBeUndefined();
+    expect(db.ir.get(staleHash)).toBeUndefined();
   });
 
   test('a tampered segment condition is refused too', async () => {
@@ -54,21 +75,21 @@ describe('deployBundle rejects a bundle that misdescribes itself', () => {
   });
 
   test('an honest bundle still deploys', async () => {
-    const { env, kv } = makeEnv();
+    const { env, db } = makeEnv();
     await expect(deployBundle(env, bundle())).resolves.toBeDefined();
-    expect(kv.store.size).toBeGreaterThan(0);
+    expect(db.ir.size).toBeGreaterThan(0);
   });
 
   test('a metadata-only edit keeps its hash and redeploys in place', async () => {
-    const { env, kv } = makeEnv();
+    const { env, db } = makeEnv();
     await deployBundle(env, bundle());
-    const storedKeys = [...kv.store.keys()];
+    const storedKeys = [...db.ir.keys()];
 
     // Rewording a description must not move the hash
     const reworded = bundle();
     reworded.workflows[0].meta = { ...reworded.workflows[0].meta, description: 'new wording' };
     await expect(deployBundle(env, reworded)).resolves.toBeDefined();
-    expect([...kv.store.keys()]).toEqual(storedKeys);
+    expect([...db.ir.keys()]).toEqual(storedKeys);
   });
 
   test('the HTTP surface reports it as the caller error, not a server fault', async () => {
@@ -87,8 +108,8 @@ describe('deployBundle rejects a bundle that misdescribes itself', () => {
 });
 
 describe('deployBundle', () => {
-  test('routes event and segment triggers, stores segments and KV bodies', async () => {
-    const { env, db, kv } = makeEnv();
+  test('routes event and segment triggers, stores segments and workflow bodies', async () => {
+    const { env, db } = makeEnv();
 
     const result = await deployBundle(env, bundle());
 
@@ -101,8 +122,7 @@ describe('deployBundle', () => {
       expect.objectContaining({ workflow: 'reengagement', segment: 'inactive_30d' }),
     ]);
     expect(db.segments.size).toBe(allSegments.length);
-    expect([...kv.store.keys()].every((key) => key.startsWith('wf:'))).toBe(true);
-    expect(kv.store.size).toBe(2);
+    expect(db.ir.size).toBe(2);
     expect(result.unrouted).toEqual([]);
   });
 
@@ -544,5 +564,409 @@ describe('http surface', () => {
       env
     );
     expect(response.status).toBe(400);
+  });
+});
+
+/* ------------------------------ 4.0 host behavior ------------------------------ */
+
+const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+  new Request(`https://worker.test${path}`, {
+    method: 'POST',
+    headers,
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+
+describe('a user being erased is refused everywhere that writes about them', () => {
+  /*
+   * forgetUser records the request, stops the instances, then erases. Between the stop and the
+   * erase a write would come back after it: an event re-creates the user, an identify a profile.
+   */
+  test('ingestEvent, identifyUser and registerDevice throw UserErasedError', async () => {
+    const { env, db } = makeEnv();
+    db.erasures.set('u1', 1);
+    await expect(ingestEvent(env, { userId: 'u1', event: 'login' })).rejects.toBeInstanceOf(
+      UserErasedError
+    );
+    expect(db.events).toEqual([]);
+  });
+
+  test('/events, /identify and /devices answer 410', async () => {
+    const { env, db } = makeEnv();
+    db.erasures.set('u1', 1);
+    const requests = [
+      post('/events', { userId: 'u1', event: 'login' }),
+      post('/identify', { userId: 'u1', props: { plan: 'pro' } }),
+      post('/devices', { userId: 'u1', token: 't1', platform: 'ios' }),
+    ];
+    for (const request of requests) {
+      const response = await handleRequest(request, env);
+      expect(response.status).toBe(410);
+      expect(await response.json()).toEqual({ error: 'user is being erased' });
+    }
+    expect(db.events).toEqual([]);
+    expect(db.profiles.size).toBe(0);
+    expect(db.devices.size).toBe(0);
+    // Another user is not affected
+    const other = await handleRequest(post('/events', { userId: 'u2', event: 'login' }), env);
+    expect(other.status).toBe(200);
+  });
+});
+
+describe('request validation', () => {
+  test('a body that is not JSON is a 400, not a 500', async () => {
+    const { env } = makeEnv();
+    for (const path of ['/events', '/identify', '/devices', '/deploy']) {
+      const response = await handleRequest(post(path, '{not json'), env);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'invalid JSON body' });
+    }
+  });
+
+  test('ts must be a whole, non-negative epoch no later than 5 minutes ahead', async () => {
+    const { env } = makeEnv();
+    const refused = [-1, 1.5, Date.now() + 6 * 60_000, Number.MAX_SAFE_INTEGER + 2, '123'];
+    for (const ts of refused) {
+      const events = await handleRequest(
+        post('/events', { userId: 'u1', event: 'login', ts }),
+        env
+      );
+      expect(events.status).toBe(400);
+      expect(await events.json()).toEqual({
+        error: 'ts must be a non-negative integer no later than 5 minutes in the future',
+      });
+      const devices = await handleRequest(
+        post('/devices', { userId: 'u1', token: 't', platform: 'ios', ts }),
+        env
+      );
+      expect(devices.status).toBe(400);
+    }
+    // Clock skew within the tolerance, and the past, are fine
+    for (const ts of [0, Date.now() - 86_400_000, Date.now() + 60_000]) {
+      const response = await handleRequest(
+        post('/events', { userId: 'u1', event: 'login', ts }),
+        env
+      );
+      expect(response.status).toBe(200);
+    }
+  });
+
+  test('/identify takes scalars and null only, contract or not', async () => {
+    const { env, db } = makeEnv();
+    for (const props of [{ address: { city: 'Paris' } }, { tags: ['a'] }]) {
+      const response = await handleRequest(post('/identify', { userId: 'u1', props }), env);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: 'props values must be scalars (string, number, boolean) or null',
+      });
+    }
+    expect(db.profiles.size).toBe(0);
+    const ok = await handleRequest(
+      post('/identify', { userId: 'u1', props: { plan: 'pro', seats: 3, vip: true, trial: null } }),
+      env
+    );
+    expect(ok.status).toBe(200);
+  });
+});
+
+describe('identify wakes the waits on the properties it patched', () => {
+  const subscribe = (db: ReturnType<typeof makeEnv>['db'], handle: string, event: string) =>
+    db.subscriptions.push({ user_id: 'u1', event, wake_handle: handle, ts: 0 });
+
+  test('a wait on another property sleeps on; a pre-4.0 unscoped wait still wakes', async () => {
+    const { env, db, journey } = makeEnv();
+    for (const handle of ['inst-plan', 'inst-email', 'inst-legacy']) journey.known.add(handle);
+    subscribe(db, 'inst-plan', profileUpdatedEvent('plan'));
+    subscribe(db, 'inst-email', profileUpdatedEvent('email'));
+    subscribe(db, 'inst-legacy', PROFILE_UPDATED_EVENT);
+
+    const response = await handleRequest(
+      post('/identify', { userId: 'u1', props: { plan: 'pro' } }),
+      env
+    );
+
+    expect(await response.json()).toMatchObject({ woke: 2 });
+    expect(journey.wakes.map((wake) => wake.id).sort()).toEqual(['inst-legacy', 'inst-plan']);
+  });
+
+  test('an instance subscribed to several patched properties is woken once', async () => {
+    const { env, db, journey } = makeEnv();
+    journey.known.add('inst-both');
+    subscribe(db, 'inst-both', profileUpdatedEvent('plan'));
+    subscribe(db, 'inst-both', profileUpdatedEvent('seats'));
+    subscribe(db, 'inst-both', PROFILE_UPDATED_EVENT);
+
+    const response = await handleRequest(
+      post('/identify', { userId: 'u1', props: { plan: 'pro', seats: 5 } }),
+      env
+    );
+
+    expect(await response.json()).toMatchObject({ woke: 1 });
+    expect(journey.wakes).toEqual([{ id: 'inst-both', type: WAKE_EVENT_TYPE }]);
+  });
+});
+
+describe('the sweep walks users page by page', () => {
+  /** The store, with every listUserIds call recorded. */
+  function recording(env: ReturnType<typeof makeEnv>['env']) {
+    const store = d1Store(env);
+    const pages: { after: string | undefined; limit: number | undefined }[] = [];
+    const recorded = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
+        return async (page?: { after?: string; limit?: number }) => {
+          pages.push({ after: page?.after, limit: page?.limit });
+          return target.listUserIds(page);
+        };
+      },
+    });
+    return { store: recorded, pages };
+  }
+
+  test('1200 users are three pages of 500, resumed past the last id of each', async () => {
+    const { env, db } = makeEnv();
+    await deployBundle(env, bundle());
+    for (let i = 0; i < 1200; i++) db.profiles.set(`u${String(i).padStart(4, '0')}`, '{}');
+    const { store, pages } = recording(env);
+
+    const result = await sweepSegments(env, store);
+
+    expect(result.users).toBe(1200);
+    expect(pages).toEqual([
+      { after: undefined, limit: 500 },
+      { after: 'u0499', limit: 500 },
+      { after: 'u0999', limit: 500 },
+    ]);
+    // Everyone was evaluated exactly once: all 1200 have no login, so all entered inactive_30d
+    expect(
+      [...db.segmentMembers.keys()].filter((key) => key.startsWith('inactive_30d\n'))
+    ).toHaveLength(1200);
+  });
+
+  test('exactly a full page is followed by one more, empty, page', async () => {
+    const { env, db } = makeEnv();
+    for (let i = 0; i < 500; i++) db.profiles.set(`u${String(i).padStart(4, '0')}`, '{}');
+    const { store, pages } = recording(env);
+    const result = await sweepSegments(env, store);
+    expect(result.users).toBe(500);
+    expect(pages.map((page) => page.after)).toEqual([undefined, 'u0499']);
+  });
+
+  test('one page reports where to resume and whether more follow', async () => {
+    const { env, db } = makeEnv();
+    for (const id of ['a', 'b', 'c']) db.profiles.set(id, '{}');
+    const first = await sweepSegmentsPaged(env, d1Store(env), { limit: 2 });
+    expect(first).toMatchObject({ users: 2, lastUserId: 'b', more: true });
+    const last = await sweepSegmentsPaged(env, d1Store(env), { after: 'b', limit: 2 });
+    expect(last).toMatchObject({ users: 1, lastUserId: 'c', more: false });
+  });
+
+  test('users being erased are listed but not evaluated', async () => {
+    const { env, db } = makeEnv();
+    await deployBundle(env, bundle());
+    db.profiles.set('u1', '{}');
+    db.profiles.set('u2', '{}');
+    db.erasures.set('u2', 1);
+    // u2's erasure finishes in maintenance (no running instance): nothing left to list
+    const result = await sweepSegments(env, d1Store(env));
+    expect(result.users).toBe(1);
+    expect(db.profiles.has('u2')).toBe(false);
+  });
+
+  test('a store that ignores `after` cannot loop the sweep forever', async () => {
+    const { env, db } = makeEnv();
+    for (let i = 0; i < 3; i++) db.profiles.set(`u${i}`, '{}');
+    const store = new Proxy(d1Store(env), {
+      get: (target, property, receiver) =>
+        property === 'listUserIds'
+          ? (page?: { limit?: number }) => target.listUserIds({ limit: page?.limit })
+          : Reflect.get(target, property, receiver),
+    });
+    await expect(sweepSegmentsPaged(env, store, { after: 'u1', limit: 2 })).rejects.toThrow(
+      /did not advance/
+    );
+  });
+});
+
+describe('bearer authentication', () => {
+  test('the scheme is case-insensitive, the token is not', () => {
+    const request = (authorization: string) =>
+      new Request('https://worker.test/events', { headers: { authorization } });
+    expect(bearerMatches(request('Bearer secret'), 'secret')).toBe(true);
+    expect(bearerMatches(request('bearer secret'), 'secret')).toBe(true);
+    expect(bearerMatches(request('BEARER secret'), 'secret')).toBe(true);
+    expect(bearerMatches(request('Bearer Secret'), 'secret')).toBe(false);
+    expect(bearerMatches(request('Bearer secre'), 'secret')).toBe(false);
+    expect(bearerMatches(request('Bearer secret2'), 'secret')).toBe(false);
+    expect(bearerMatches(request('Basic secret'), 'secret')).toBe(false);
+    expect(bearerMatches(request('secret'), 'secret')).toBe(false);
+    expect(bearerMatches(new Request('https://worker.test/events'), 'secret')).toBe(false);
+  });
+
+  test('the router accepts a lower-case scheme', async () => {
+    const { env } = makeEnv({ API_TOKEN: 'secret' });
+    const allowed = await handleRequest(
+      post('/events', { userId: 'u1', event: 'login' }, { authorization: 'bearer secret' }),
+      env
+    );
+    expect(allowed.status).toBe(200);
+    const denied = await handleRequest(
+      post('/events', { userId: 'u1', event: 'login' }, { authorization: 'Bearer nope' }),
+      env
+    );
+    expect(denied.status).toBe(401);
+  });
+});
+
+/* The journey host over the fake bindings: what it adds around the router. */
+
+const hostEmails = {
+  bienvenue: emailTemplate({
+    id: 'bienvenue',
+    from: 'hi@acme.test',
+    title: 'Bienvenue',
+    props: z.strictObject({}),
+    subject: 'Bienvenue à bord 🎉',
+    preview: {},
+    component: () => createElement('p', null, 'Salut'),
+  }),
+};
+const hostConfig = defineConfig({
+  workflows: [
+    workflow({ id: 'welcome', trigger: trigger.event(e.sign_up) }).email(hostEmails.bienvenue, {}),
+  ],
+  templates: { email: hostEmails },
+});
+
+function host(overrides?: Record<string, unknown>, reporting?: JourneyReporting) {
+  const made = makeEnv(overrides);
+  const base = d1Store(made.env);
+  const store: JourneyStore =
+    reporting === undefined
+      ? base
+      : new Proxy(base, {
+          get: (target, property, receiver) =>
+            property === 'reporting' ? reporting : Reflect.get(target, property, receiver),
+        });
+  const journeyHost = createJourneyHost({
+    config: hostConfig,
+    email: () => ({ send: async () => ({}) }),
+    store: () => store,
+  });
+  const call = (path: string, init?: RequestInit) =>
+    journeyHost.handle(new Request(`https://worker.test${path}`, init), made.env, store);
+  return { ...made, store, call };
+}
+
+describe('production refuses to serve without API_TOKEN', () => {
+  test('everything but the health check and the tracking routes answers 503', async () => {
+    const { call } = host(); // no ENVIRONMENT: production
+    const refused = [
+      ['/events', 'POST'],
+      ['/identify', 'POST'],
+      ['/bundle', 'GET'],
+      ['/bundle/deploy', 'POST'],
+      ['/segments/sweep', 'POST'],
+      ['/preview/bienvenue', 'GET'],
+      ['/deploy', 'POST'],
+      ['/health', 'POST'],
+    ] as const;
+    for (const [path, method] of refused) {
+      const response = await call(path, { method, body: method === 'POST' ? '{}' : null });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({
+        error:
+          'API_TOKEN is not set: production refuses to serve without it (set ENVIRONMENT=development to run open)',
+      });
+    }
+    expect((await call('/health')).status).toBe(200);
+    // Recipients' routes stay up: no reporting here, so the router's 404, never the 503
+    expect((await call('/t/o/0190a3b8-0000-7000-8000-000000000001')).status).toBe(404);
+  });
+
+  test('development runs open; production with a token serves', async () => {
+    const open = host({ ENVIRONMENT: 'development' });
+    expect((await open.call('/bundle')).status).toBe(200);
+    const closed = host({ API_TOKEN: 'secret' });
+    expect((await closed.call('/bundle')).status).toBe(401);
+    expect(
+      (await closed.call('/bundle', { headers: { authorization: 'bearer secret' } })).status
+    ).toBe(200);
+  });
+});
+
+describe('the host boundary', () => {
+  test('an unexpected failure is a 500 with nothing of it in the body', async () => {
+    const { env, store, call } = host({ ENVIRONMENT: 'development' });
+    await deployBundle(env, compileBundle({ workflows: [], segments: [] }), store);
+    store.listSegments = async () => {
+      throw new Error('D1_ERROR: table segments has no column named secret');
+    };
+    const response = await call('/segments/sweep', { method: 'POST' });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'internal error' });
+  });
+
+  test('a non-ASCII subject travels percent-encoded in x-subject', async () => {
+    const { call } = host({ ENVIRONMENT: 'development' });
+    const response = await call('/preview/bienvenue');
+    expect(response.status).toBe(200);
+    expect(decodeURIComponent(response.headers.get('x-subject') ?? '')).toBe('Bienvenue à bord 🎉');
+  });
+});
+
+describe('an unsubscribe wakes the waits reading email reachability', () => {
+  const messageId = '0190a3b8-0000-7000-8000-000000000001';
+  /** Reporting that knows one email copy of u1, and records its unsubscribe. */
+  function reporting(): JourneyReporting & { unsubscribed: string[] } {
+    const unsubscribed: string[] = [];
+    const unknown = async () => false;
+    return {
+      unsubscribed,
+      instanceStarted: async () => {},
+      nodeReached: async () => {},
+      instanceFinished: async () => {},
+      recordMessage: async () => messageId,
+      settleMessage: async () => {},
+      recordLinks: async () => {},
+      recordOpen: async (id, judge) => {
+        if (id !== messageId) return false;
+        judge({ userId: 'u1', deliveredAt: 0 });
+        return true;
+      },
+      recordClick: async () => undefined,
+      recordUnsubscribe: async (id) => {
+        if (id !== messageId) return false;
+        unsubscribed.push(id);
+        return true;
+      },
+      recordDeviceDelivered: unknown,
+      snapshotSegments: async () => [],
+    };
+  }
+
+  test('POST /t/u records it and wakes the email-property channel of its recipient', async () => {
+    const reports = reporting();
+    const { db, journey, call } = host({ ENVIRONMENT: 'development' }, reports);
+    journey.known.add('inst-exit');
+    journey.known.add('inst-plan');
+    db.subscriptions.push(
+      { user_id: 'u1', event: profileUpdatedEvent('email'), wake_handle: 'inst-exit', ts: 0 },
+      { user_id: 'u1', event: profileUpdatedEvent('plan'), wake_handle: 'inst-plan', ts: 0 },
+      { user_id: 'u2', event: profileUpdatedEvent('email'), wake_handle: 'inst-other', ts: 0 }
+    );
+
+    const response = await call(`/t/u/${messageId}`, { method: 'POST' });
+
+    expect(response.status).toBe(200);
+    expect(reports.unsubscribed).toEqual([messageId]);
+    expect(journey.wakes).toEqual([{ id: 'inst-exit', type: WAKE_EVENT_TYPE }]);
+  });
+
+  test('an unknown copy still answers the one-click POST, and wakes nobody', async () => {
+    const reports = reporting();
+    const { journey, call } = host({ ENVIRONMENT: 'development' }, reports);
+    const response = await call('/t/u/0190a3b8-0000-7000-8000-000000000002', { method: 'POST' });
+    expect(response.status).toBe(200);
+    expect(journey.wakes).toEqual([]);
   });
 });

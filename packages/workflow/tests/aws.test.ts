@@ -20,6 +20,7 @@ import { compileConfig } from '../src/config';
 import type { EmailMessage } from '../src/email-sender';
 import { deployBundle, forgetUser, ingestEvent } from '../src/host/router';
 import { defineConfig, emailTemplate, event, performed, trigger, workflow } from '../src/index';
+import type { JourneyStore } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
 import { TABLES, renderPostgresDdl } from '../src/store/tables';
 
@@ -1065,4 +1066,116 @@ describe('second review fixes', () => {
     expect(record).toMatchObject({ name: control.starts[1].name, submittedAt: expect.any(Number) });
     expect(record?.callbackId).toBeUndefined();
   });
+});
+
+describe('4.0: the run is bound to the registry', () => {
+  async function recordedRun() {
+    const { journeys, starts, sent } = setup();
+    await call(journeys.handler, request('/bundle/deploy'));
+    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await pg.query(
+      `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
+    );
+    return { journeys, sent, run: JSON.parse(starts[0].payload) as RunInput };
+  }
+
+  test('an input that is not byte for byte a recorded start is refused, before any step', async () => {
+    const { journeys, sent, run } = await recordedRun();
+    const forged: RunInput = { ...run, params: { ...run.params, userId: 'u2' } };
+    const { result } = await call(journeys.handler, forged);
+    expect(result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(result.getOperations()).toEqual([]);
+    expect(sent).toEqual([]);
+    // A reordered copy of the same fields is another byte string too
+    const reordered = {
+      params: run.params,
+      instanceId: run.instanceId,
+      type: run.type,
+      enteredAtMs: run.enteredAtMs,
+    };
+    const again = await call(journeys.handler, reordered);
+    expect(again.result.getError().errorMessage).toMatch(/not a recorded start/);
+  });
+
+  test('an instance with no record, or one that was stopped, does not run', async () => {
+    const { journeys, sent, run } = await recordedRun();
+    const unknown = await call(journeys.handler, { ...run, instanceId: 'never-planned' });
+    expect(unknown.result.getError().errorMessage).toMatch(/not a recorded start/);
+    await new PostgresJourneyStore(client(pg)).executions.markStopped(run.instanceId, Date.now());
+    const stopped = await call(journeys.handler, run);
+    expect(stopped.result.getError().errorMessage).toMatch(/not a recorded start/);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('4.0: the sweep is resumable, one durable step per page', () => {
+  /** A Postgres store with every listUserIds call recorded, and page 0 slowed down by `delayMs`. */
+  function pagedStore(delayMs = 0) {
+    const pages: (string | undefined)[] = [];
+    const store = () => {
+      const base = new PostgresJourneyStore(client(pg));
+      return new Proxy(base, {
+        get(target, property, receiver) {
+          if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
+          return async (page?: { after?: string; limit?: number }) => {
+            pages.push(page?.after);
+            if (page?.after === undefined && delayMs > 0) {
+              await new Promise<void>((resolve) => {
+                setTimeout(resolve, delayMs);
+              });
+            }
+            return target.listUserIds(page);
+          };
+        },
+      });
+    };
+    return { store, pages };
+  }
+
+  function sweeper(store: () => JourneyStore) {
+    return journeyLambda({
+      email: () => quietTransport,
+      config: journeyConfig('1 day'),
+      env: { API_TOKEN: 'secret' },
+      store,
+      lambda: fakeLambda().lambda,
+    });
+  }
+
+  const seedUsers = (count: number) =>
+    pg.query(
+      `INSERT INTO workflow.profile (user_id, props)
+       SELECT 'u' || lpad(i::text, 4, '0'), '{}' FROM generate_series(1, ${count}) i`
+    );
+
+  test('501 users are two page steps between maintenance and the snapshot', async () => {
+    await seedUsers(501);
+    const { store, pages } = pagedStore();
+    const { result } = await call(sweeper(store).handler, { type: SWEEP_EVENT_TYPE });
+    expect(result.getResult()).toMatchObject({ users: 501, started: [] });
+    expect(result.getOperations().map((operation) => operation.getName())).toEqual([
+      'sweep:maintain',
+      'sweep:page:0',
+      'sweep:page:1',
+      'sweep:snapshot',
+    ]);
+    expect(pages).toEqual([undefined, 'u0500']);
+  });
+
+  test('an invocation cut short replays its checkpointed pages instead of re-evaluating them', async () => {
+    await seedUsers(501);
+    const { store, pages } = pagedStore(300);
+    const runner = new LocalDurableTestRunner({ handlerFunction: sweeper(store).handler });
+    const running = runner.run({ payload: { type: SWEEP_EVENT_TYPE } });
+    // Cut the invocation at page 0's checkpoint: the page is kept, the rest replays on resume
+    await runner.getOperation('sweep:page:0').waitForData(WaitingOperationStatus.STARTED);
+    await runner.pauseExecution();
+    await runner.resumeExecution();
+    const result = await running;
+    expect(result.getResult()).toMatchObject({ users: 501 });
+    expect(result.getInvocations().length).toBeGreaterThan(1);
+    // Page 0 was listed once across both invocations: the replay took its checkpoint
+    expect(pages.filter((after) => after === undefined)).toHaveLength(1);
+    expect(pages.filter((after) => after === 'u0500')).toHaveLength(1);
+  }, 30_000);
 });

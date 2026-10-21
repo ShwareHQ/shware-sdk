@@ -44,6 +44,14 @@ export interface TrackingOptions {
   pushOpened?:
     | ((open: { messageId: string; userId: string; at: number }) => Promise<void>)
     | undefined;
+  /**
+   * An unsubscribe was recorded (`POST /t/u`): the host wakes the user's waits that read email
+   * reachability, so an `exitWhen: not(reachable('email'))` takes effect at once. Its failure is
+   * logged, never a reason to fail the unsubscribe.
+   */
+  onUnsubscribed?:
+    | ((unsubscribe: { messageId: string; userId: string; at: number }) => Promise<void>)
+    | undefined;
 }
 
 const GIF = Uint8Array.from(
@@ -127,10 +135,21 @@ export async function handleTracking(
     return new Response(null, { status: known ? 204 : 404 });
   }
   if (kind === 'u' && who.method === 'POST') {
-    const known = await reporting.recordUnsubscribe(id, Date.now());
+    const at = Date.now();
+    const known = await reporting.recordUnsubscribe(id, at);
     // A mail client's one-click POST must succeed: for a copy no longer on record (its user
     // erased) there is nothing left to send to, so the answer is the same
     if (!known) return page(options, "You won't get these emails anymore.");
+    if (options.onUnsubscribed !== undefined) {
+      const userId = await messageOwner(reporting, id);
+      if (userId !== undefined) {
+        try {
+          await options.onUnsubscribed({ messageId: id, userId, at });
+        } catch (error) {
+          console.error(`[workflow] acting on the unsubscribe of ${id} failed`, error);
+        }
+      }
+    }
     return page(
       options,
       options.product === undefined
@@ -139,6 +158,19 @@ export async function handleTracking(
     );
   }
   return undefined;
+}
+
+/**
+ * Whose copy a message is. Reporting keeps no lookup of its own: `recordOpen` hands the copy to
+ * its judge and records nothing when the judge declines, which reads the owner without writing.
+ */
+async function messageOwner(reporting: JourneyReporting, id: string): Promise<string | undefined> {
+  let userId: string | undefined;
+  await reporting.recordOpen(id, (message) => {
+    userId = message.userId;
+    return undefined;
+  });
+  return userId;
 }
 
 /** The question an unsubscribe link, or the List-Unsubscribe URL opened in a browser, asks. */

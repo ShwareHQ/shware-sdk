@@ -14,6 +14,7 @@ import {
   PROFILE_UPDATED_EVENT,
   evaluateCondition,
   matchesWhere,
+  profileUpdatedEvent,
 } from '../engine/condition';
 import { semanticHash } from '../hash';
 import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
@@ -26,6 +27,7 @@ import {
   SchemaMismatchError,
   type SegmentTriggerRoute,
 } from '../store/index';
+import { authorized } from './auth';
 
 /**
  * Ingest router. An incoming event does four things: it is stored, it wakes
@@ -38,6 +40,22 @@ import {
  * D1 + KV store built from the env's bindings, so a Worker that only has those
  * calls these functions exactly as before.
  */
+
+/**
+ * The user is being erased (`forgetUser` recorded it, their instances are being stopped): nothing
+ * may be written about them until the erase is through, or it would come back after it.
+ */
+export class UserErasedError extends Error {
+  override readonly name = 'UserErasedError';
+  constructor(readonly userId: string) {
+    super(`user ${userId} is being erased`);
+  }
+}
+
+/** Refuse the write when the user's erasure is pending: every ingest-side entry point starts here. */
+async function refuseIfErased(store: JourneyStore, userId: string): Promise<void> {
+  if (await store.erasurePending(userId)) throw new UserErasedError(userId);
+}
 
 export interface IngestInput {
   userId: string;
@@ -78,6 +96,9 @@ export async function ingestEvent(
   if (input.event.startsWith('$')) {
     throw new Error(`event name '${input.event}' is reserved ('$' prefix is internal)`);
   }
+  // Also reached from a running instance's send_event: an erased user's instances are stopped
+  // before the erase, so one that still gets here is refused like any other writer
+  await refuseIfErased(store, input.userId);
   const ts = input.ts ?? Date.now();
   const payload = input.payload ?? {};
   // No id means the sender is not claiming this is a repeat of anything, which
@@ -100,20 +121,31 @@ export async function ingestEvent(
    * halves are independently idempotent: waking an instance that already moved
    * on is a no-op, and the entry ledger refuses a second entry.
    */
-  const woke = await wakeSubscribers(env, store, input.userId, input.event);
+  const woke = await wakeSubscribers(env, store, input.userId, [input.event]);
   const started = await startTriggeredJourneys(env, store, { ...input, payload }, ts);
   started.push(...(await refreshSegmentTriggers(env, store, input.userId, ts)));
   return { id, stored, woke, started };
 }
 
-async function wakeSubscribers(
+/**
+ * Wake every instance of the user waiting on any of `events`, once each: an instance subscribed
+ * to several of them (a wait on two profile properties, patched together) gets one wake-up, and
+ * the payload names the first event it matched.
+ */
+export async function wakeSubscribers(
   env: JourneyEnv,
   store: JourneyStore,
   userId: string,
-  event: string
+  events: readonly string[]
 ): Promise<number> {
+  const handles = new Map<string, string>(); // handle → the event that matched it first
+  for (const event of events) {
+    for (const handle of await store.findWakeHandles(userId, event)) {
+      if (!handles.has(handle)) handles.set(handle, event);
+    }
+  }
   let woke = 0;
-  for (const handle of await store.findWakeHandles(userId, event)) {
+  for (const [handle, event] of handles) {
     let instance: WorkflowInstanceLike;
     try {
       instance = await env.JOURNEY.get(handle);
@@ -282,39 +314,66 @@ export interface SweepResult {
   sizes: { segment: string; size: number }[];
 }
 
+/** How many users one sweep page evaluates: a unit of resumable work (AWS checkpoints each). */
+export const SWEEP_PAGE_SIZE = 500;
+
 /**
- * The scheduled sweep: every deployed segment evaluated for every known user — the evaluator a
- * journey's conditions run on, so a member is exactly who a journey would see in it. Membership
- * follows (joiners keep the time they joined, leavers are removed), segment triggers start the
- * journeys of whoever entered by the clock alone, and the store records each segment's size.
- * It walks users one by one: fine for thousands, a large audience wants SQL-side evaluation.
+ * What the sweep does before it looks at any user: the runtime's own upkeep (AWS: unconfirmed
+ * starts, executions that ended unseen) and the erasures left unfinished (an instance would not
+ * stop). A failure of either is logged, never fatal: the pages still run. Users whose erasure is
+ * still pending afterwards are skipped by every page (`sweepSegmentsPaged`).
  */
-export async function sweepSegments(
-  env: JourneyEnv,
-  store: JourneyStore,
-  now = Date.now()
-): Promise<SweepResult> {
-  // The runtime's own upkeep first (AWS: unconfirmed starts, executions that ended unseen)
+export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Promise<void> {
   try {
     await env.JOURNEY.maintain?.();
   } catch (error) {
     console.error('[workflow] runtime maintenance failed', error);
   }
-  // Erasures left unfinished (an instance would not stop) first: their users are not evaluated
-  const erasing = new Set<string>();
   for (const userId of await store.pendingErasures()) {
     try {
-      const { erased } = await eraseUser(env, userId, store);
-      if (!erased) erasing.add(userId);
+      await eraseUser(env, userId, store);
     } catch (error) {
       // Still pending: the next sweep tries again, and the rest of this one goes on
-      erasing.add(userId);
       console.error(`[workflow] erasure of ${userId} failed`, error);
     }
   }
+}
+
+export interface SweepPage {
+  /** Users evaluated on this page (those being erased are listed but skipped). */
+  users: number;
+  /** Journeys the segments' entries started on this page. */
+  started: string[];
+  /** The last user id listed, to resume past (`after`); undefined when the page was empty. */
+  lastUserId?: string | undefined;
+  /** Whether the page was full, so another may follow. */
+  more: boolean;
+}
+
+/**
+ * One page of the sweep: the users after `after` (ascending, at most `limit`), every deployed
+ * segment evaluated for each. The pages are what makes the sweep resumable — a host whose run
+ * can be cut short (a Lambda timeout) checkpoints each one and replays the checkpointed pages
+ * instead of starting over; `sweepSegments` is the plain loop over them.
+ */
+export async function sweepSegmentsPaged(
+  env: JourneyEnv,
+  store: JourneyStore,
+  page: { after?: string | undefined; limit?: number | undefined; now?: number | undefined }
+): Promise<SweepPage> {
+  const now = page.now ?? Date.now();
+  const limit = page.limit ?? SWEEP_PAGE_SIZE;
   const segments = (await store.listSegments()).map((segment) => segment.id);
   const routes = await store.listSegmentTriggers();
-  const users = (await store.listUserIds()).filter((userId) => !erasing.has(userId));
+  // Read per page, not once up front: an erasure requested since the last page is honored too
+  const erasing = new Set(await store.pendingErasures());
+  const listed = await store.listUserIds({ after: page.after, limit });
+  const lastUserId = listed.at(-1);
+  // A store that ignores `after` would hand back the same page forever: refuse to loop on it
+  if (page.after !== undefined && lastUserId !== undefined && lastUserId <= page.after) {
+    throw new Error(`listUserIds did not advance past ${page.after}: the store ignores 'after'`);
+  }
+  const users = listed.filter((userId) => !erasing.has(userId));
   const started: string[] = [];
   const definitions = new Map<string, ConditionIR | undefined>();
   for (const userId of users) {
@@ -327,8 +386,35 @@ export async function sweepSegments(
       console.error(`[workflow] segment refresh for ${userId} failed`, error);
     }
   }
+  return { users: users.length, started, lastUserId, more: listed.length >= limit };
+}
+
+/**
+ * The scheduled sweep: every deployed segment evaluated for every known user — the evaluator a
+ * journey's conditions run on, so a member is exactly who a journey would see in it. Membership
+ * follows (joiners keep the time they joined, leavers are removed), segment triggers start the
+ * journeys of whoever entered by the clock alone, and the store records each segment's size.
+ * It walks users page by page (`sweepSegmentsPaged`): fine for thousands, a large audience wants
+ * SQL-side evaluation.
+ */
+export async function sweepSegments(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now = Date.now()
+): Promise<SweepResult> {
+  await sweepMaintenance(env, store);
+  let users = 0;
+  const started: string[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await sweepSegmentsPaged(env, store, { after, limit: SWEEP_PAGE_SIZE, now });
+    users += page.users;
+    started.push(...page.started);
+    if (!page.more || page.lastUserId === undefined) break;
+    after = page.lastUserId;
+  }
   const sizes = (await store.reporting?.snapshotSegments(now)) ?? [];
-  return { users: users.length, started, sizes };
+  return { users, started, sizes };
 }
 
 /**
@@ -413,10 +499,17 @@ export async function identifyUser(
   props: ProfileProps,
   store: JourneyStore = d1Store(env)
 ): Promise<IdentifyResult> {
+  await refuseIfErased(store, userId);
   const ts = Date.now();
   const merged = await store.mergeProfile(userId, props);
-  // Property-condition waits subscribe to this reserved event (see relevantEvents)
-  const woke = await wakeSubscribers(env, store, userId, PROFILE_UPDATED_EVENT);
+  // A property wait subscribes to its own property's channel (see relevantEvents): only the
+  // waits on what this patch touched wake up. The unscoped PROFILE_UPDATED_EVENT is still fired
+  // for instances that subscribed before 4.0 (in flight across the upgrade): remove it in the
+  // next major.
+  const woke = await wakeSubscribers(env, store, userId, [
+    ...Object.keys(props).map(profileUpdatedEvent),
+    PROFILE_UPDATED_EVENT,
+  ]);
   // A profile change can move the user into (or out of) a trigger-routed segment
   const started = await refreshSegmentTriggers(env, store, userId, ts);
   return { ok: true, props: merged, woke, started };
@@ -439,11 +532,12 @@ export async function registerDevice(
   device: DeviceRegistration,
   store: JourneyStore = d1Store(env)
 ): Promise<{ ok: true; woke: number }> {
+  await refuseIfErased(store, device.userId);
   const previous = await store.removeDevice(device.token);
   await store.upsertDevice({ ...device, ts: device.ts ?? Date.now() });
-  let woke = await wakeSubscribers(env, store, device.userId, DEVICES_UPDATED_EVENT);
+  let woke = await wakeSubscribers(env, store, device.userId, [DEVICES_UPDATED_EVENT]);
   if (previous !== undefined && previous !== device.userId) {
-    woke += await wakeSubscribers(env, store, previous, DEVICES_UPDATED_EVENT);
+    woke += await wakeSubscribers(env, store, previous, [DEVICES_UPDATED_EVENT]);
   }
   return { ok: true, woke };
 }
@@ -528,7 +622,7 @@ export async function unbindDevice(
 ): Promise<{ ok: true; woke: number }> {
   const owner = await store.unbindDevice(token);
   const woke =
-    owner === undefined ? 0 : await wakeSubscribers(env, store, owner, DEVICES_UPDATED_EVENT);
+    owner === undefined ? 0 : await wakeSubscribers(env, store, owner, [DEVICES_UPDATED_EVENT]);
   return { ok: true, woke };
 }
 
@@ -540,7 +634,7 @@ export async function removeDevice(
 ): Promise<{ ok: true; woke: number }> {
   const owner = await store.removeDevice(token);
   const woke =
-    owner === undefined ? 0 : await wakeSubscribers(env, store, owner, DEVICES_UPDATED_EVENT);
+    owner === undefined ? 0 : await wakeSubscribers(env, store, owner, [DEVICES_UPDATED_EVENT]);
   return { ok: true, woke };
 }
 
@@ -659,8 +753,21 @@ export async function deployBundle(
  * silences the compiler, and what arrives here reaches SQL parameters.
  */
 async function readBody(request: Request): Promise<Record<string, unknown>> {
-  const body: unknown = await request.json();
+  const body = await readJson(request);
   return isPlainObject(body) ? body : {};
+}
+
+/** The request body is not JSON: the caller's to fix (a 400), not a server fault. */
+class InvalidJsonError extends Error {
+  override readonly name = 'InvalidJsonError';
+}
+
+async function readJson(request: Request): Promise<unknown> {
+  try {
+    return await request.json();
+  } catch (error) {
+    throw new InvalidJsonError('invalid JSON body', { cause: error });
+  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -669,6 +776,34 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/** A profile value: a scalar or null (which removes the property). Nested values are not profile data. */
+function isScalarOrNull(value: unknown): value is string | number | boolean | null {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  );
+}
+
+/** How far ahead of the server's clock an event or device `ts` may be: clock skew, not the future. */
+const TS_FUTURE_TOLERANCE_MS = 5 * 60_000;
+const TS_ERROR = 'ts must be a non-negative integer no later than 5 minutes in the future';
+
+/**
+ * A caller's timestamp: epoch milliseconds, whole, not negative, and not past the skew tolerance.
+ * A far-future ts would put the event ahead of everything a window condition reads, and a
+ * fractional or unsafe one does not survive the store.
+ */
+function isValidTs(ts: unknown): ts is number {
+  return (
+    typeof ts === 'number' &&
+    Number.isSafeInteger(ts) &&
+    ts >= 0 &&
+    ts <= Date.now() + TS_FUTURE_TOLERANCE_MS
+  );
 }
 
 /**
@@ -718,12 +853,8 @@ export async function handleRequest(
   }
 
   // Bearer auth on everything mutating. An unset token means an open dev
-  // instance (see JourneyEnv.API_TOKEN) — production must configure it.
-  if (env.API_TOKEN !== undefined) {
-    if (request.headers.get('authorization') !== `Bearer ${env.API_TOKEN}`) {
-      return json({ error: 'unauthorized' }, 401);
-    }
-  }
+  // instance (see JourneyEnv.API_TOKEN) — production refuses to run without one (journey-host).
+  if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
 
   try {
     if (request.method === 'POST' && url.pathname === '/events') {
@@ -740,9 +871,7 @@ export async function handleRequest(
       if (id !== undefined && !isNonEmptyString(id)) {
         return json({ error: 'id must be a non-empty string' }, 400);
       }
-      if (ts !== undefined && typeof ts !== 'number') {
-        return json({ error: 'ts must be a number' }, 400);
-      }
+      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
       if (payload !== undefined && !isPlainObject(payload)) {
         return json({ error: 'payload must be an object' }, 400);
       }
@@ -763,6 +892,14 @@ export async function handleRequest(
       const { userId, props } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
       if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
+      // Profiles hold scalars only (both stores merge at the top level; a nested object would
+      // be merged differently by each): refused here, contract or not
+      if (!Object.values(props).every(isScalarOrNull)) {
+        return json(
+          { error: 'props values must be scalars (string, number, boolean) or null' },
+          400
+        );
+      }
       let patch = props as ProfileProps;
       if (contract !== undefined) {
         const verdict = checked(contract.parseProfilePatch(props), patch, 'identify');
@@ -779,8 +916,7 @@ export async function handleRequest(
       if (platform !== 'ios' && platform !== 'android' && platform !== 'web') {
         return json({ error: "platform must be 'ios', 'android' or 'web'" }, 400);
       }
-      if (ts !== undefined && typeof ts !== 'number')
-        return json({ error: 'ts must be a number' }, 400);
+      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
       return json(
         await registerDevice(
           env,
@@ -818,15 +954,22 @@ export async function handleRequest(
     }
 
     if (request.method === 'POST' && url.pathname === '/deploy') {
-      return json(await deployBundle(env, await request.json(), store));
+      return json(await deployBundle(env, await readJson(request), store));
     }
 
     return json({ error: 'not found' }, 404);
   } catch (error) {
     // Validation problems are the caller's to fix; anything else stays out of
     // the response body (internals are logged, not leaked).
+    if (error instanceof InvalidJsonError) {
+      return json({ error: 'invalid JSON body' }, 400);
+    }
     if (error instanceof z.core.$ZodError) {
       return json({ error: `invalid payload: ${error.message}` }, 400);
+    }
+    // The user is being erased: gone, and nothing about them is taken until the erase is through
+    if (error instanceof UserErasedError) {
+      return json({ error: 'user is being erased' }, 410);
     }
     // The caller sent a self-inconsistent bundle: their problem to fix, so say what is wrong
     if (error instanceof BundleIntegrityError) {

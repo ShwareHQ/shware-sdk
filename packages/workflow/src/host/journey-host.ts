@@ -7,7 +7,9 @@ import { ContractValidationError, checkEvent } from '../contract';
 import { assertEmailConfig } from '../email';
 import type { EmailTransport } from '../email-sender';
 import { RegistryActionInvoker } from '../engine/actions';
+import { profileUpdatedEvent } from '../engine/condition';
 import type { JourneyObserver, MessageSender } from '../engine/ports';
+import { RECIPIENT_PROPERTY } from '../engine/recipient';
 import { scaleSegmentWindows } from '../engine/time-scale';
 import type { BundleIR, NodeIR, ScalarIR } from '../ir';
 import { registryRenderer } from '../react-email';
@@ -22,7 +24,8 @@ import {
 } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
 import { TemplateValidationError, indexTemplates, registryValidator } from '../templates';
-import { channelsFromConfig, runtimeFromConfig } from './channels';
+import { authorized } from './auth';
+import { channelsFromConfig, journeyMode, runtimeFromConfig } from './channels';
 import type { JourneyRunParts } from './execute';
 import {
   type SweepResult,
@@ -30,6 +33,7 @@ import {
   handleRequest,
   ingestEvent,
   sweepSegments,
+  wakeSubscribers,
 } from './router';
 
 /**
@@ -232,14 +236,43 @@ export function createJourneyHost<Env extends JourneyEnv>(
       headers: { 'content-type': 'application/json' },
     });
 
-  const authorized = (request: Request, env: Env): boolean =>
-    env.API_TOKEN === undefined ||
-    request.headers.get('authorization') === `Bearer ${env.API_TOKEN}`;
-
   const preview = emails === undefined ? undefined : registryRenderer(emails, config.email);
 
+  /**
+   * Production without a bearer token is not an open instance, it is a mistake: anyone could
+   * ingest, identify and deploy. Only what recipients open (`/t/*`) and the health check stay up.
+   */
+  const refusesOpen = (request: Request, env: Env, pathname: string): boolean =>
+    env.API_TOKEN === undefined &&
+    journeyMode(env) === 'production' &&
+    !pathname.startsWith('/t/') &&
+    !(request.method === 'GET' && pathname === '/health');
+
   const handle = async (request: Request, env: Env, store: JourneyStore): Promise<Response> => {
+    try {
+      return await dispatch(request, env, store);
+    } catch (error) {
+      // The operator's to fix (run the migrations), so the response says what is missing
+      if (error instanceof SchemaMismatchError) {
+        return json({ error: error.message, problems: error.problems }, 503);
+      }
+      // Anything else stays out of the response body (internals are logged, not leaked)
+      console.error('[workflow host]', error);
+      return json({ error: 'internal error' }, 500);
+    }
+  };
+
+  const dispatch = async (request: Request, env: Env, store: JourneyStore): Promise<Response> => {
     const url = new URL(request.url);
+    if (refusesOpen(request, env, url.pathname)) {
+      return json(
+        {
+          error:
+            'API_TOKEN is not set: production refuses to serve without it (set ENVIRONMENT=development to run open)',
+        },
+        503
+      );
+    }
     // Opened by recipients, so no bearer: the routes only record, and redirect to recorded URLs
     if (url.pathname.startsWith('/t/') && store.reporting !== undefined) {
       const openedEvent = config.webPush?.openedEvent;
@@ -271,6 +304,14 @@ export function createJourneyHost<Env extends JourneyEnv>(
                   store
                 );
               },
+        // An unsubscribe is a profile-side change for the waits reading email reachability
+        // (`reachable('email')` subscribes to the email property's channel): wake them now,
+        // so an `exitWhen: not(reachable('email'))` takes effect without waiting for a timeout
+        onUnsubscribed: async ({ userId }) => {
+          await wakeSubscribers(env, store, userId, [
+            profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email'),
+          ]);
+        },
       });
       if (tracked !== undefined) return tracked;
     }
@@ -287,12 +328,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
     if (url.pathname === '/bundle/deploy') {
       if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
       if (request.method !== 'POST') return json({ error: 'method not allowed' }, 405);
-      try {
-        return json(await deployBundle(env, bundle(), store));
-      } catch (error) {
-        if (!(error instanceof SchemaMismatchError)) throw error;
-        return json({ error: error.message, problems: error.problems }, 503);
-      }
+      return json(await deployBundle(env, bundle(), store));
     }
     if (emails !== undefined && preview !== undefined && url.pathname.startsWith('/preview/')) {
       if (!authorized(request, env)) return json({ error: 'unauthorized' }, 401);
@@ -311,8 +347,13 @@ export function createJourneyHost<Env extends JourneyEnv>(
       }
       try {
         const { subject, html } = await preview(key, props as Record<string, ScalarIR>);
+        // A header holds bytes, not text: a subject with a non-Latin-1 character would throw
+        // here, so it travels percent-encoded (the reader `decodeURIComponent`s it)
         return new Response(html, {
-          headers: { 'content-type': 'text/html; charset=utf-8', 'x-subject': subject },
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'x-subject': encodeURIComponent(subject),
+          },
         });
       } catch (error) {
         // The query string is the props: a refusal is the caller's to fix, with the field paths
