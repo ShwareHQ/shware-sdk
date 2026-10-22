@@ -449,6 +449,8 @@ describe('the sweep walks users page by page', () => {
     return { store: recorded, pages };
   }
 
+  // Every user is evaluated inside its own locked transaction, so this one takes seconds on
+  // PGlite (and longer on a CI runner): a timeout of its own, not vitest's 5 s.
   test('1200 users are three pages of 500, resumed past the last id of each', async () => {
     const { env, store: base } = setup();
     await deployBundle(env, bundle(), base);
@@ -465,7 +467,7 @@ describe('the sweep walks users page by page', () => {
     ]);
     // Everyone was evaluated exactly once: all 1200 have no login, so all entered inactive_30d
     expect(await rows('segment_member', "segment = 'inactive_30d'")).toBe(1200);
-  });
+  }, 60_000);
 
   test('exactly a full page is followed by one more, empty, page', async () => {
     const { env, store: base } = setup();
