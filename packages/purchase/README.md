@@ -12,18 +12,18 @@ signatures and calling store APIs stays in your app, with the official SDKs.
 ```sh
 pnpm add @shware/purchase zod
 # optional peers, only for the subpaths you use
-pnpm add stripe                            # @shware/purchase/stripe (^22.6.2 || ^23.0.0)
+pnpm add stripe                            # @shware/purchase/stripe (^23.0.0)
 pnpm add @apple/app-store-server-library   # @shware/purchase/app-store (^3.1.0)
 ```
 
 ## Entry points
 
-| Import path                    | Contents                                                                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `@shware/purchase`             | Subscription model (`PLATFORMS`, `SUBSCRIPTION_STATUSES`, `AVAILABLE_STATUSES`, cancellation types) and the three configs    |
-| `@shware/purchase/stripe`      | `StripeEventHandler`, Stripe mappers, checkout schemas, `METADATA_KEYS`, analytics helpers, browser pending-checkout helpers |
-| `@shware/purchase/app-store`   | `AppStoreNotificationHandler` for App Store Server Notifications V2, `mapCancellationDetails`                                |
-| `@shware/purchase/google-play` | Real-time developer notification (RTDN) types and enums, subscription state and cancellation mappers                         |
+| Import path                    | Contents                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@shware/purchase`             | Subscription model (`PLATFORMS`, `SUBSCRIPTION_STATUSES`, `AVAILABLE_STATUSES`, cancellation types) and the three configs                              |
+| `@shware/purchase/stripe`      | `StripeThinEventHandler`, `StripeEventHandler`, Stripe mappers, checkout schemas, `METADATA_KEYS`, analytics helpers, browser pending-checkout helpers |
+| `@shware/purchase/app-store`   | `AppStoreNotificationHandler` for App Store Server Notifications V2, `mapCancellationDetails`                                                          |
+| `@shware/purchase/google-play` | Real-time developer notification (RTDN) types and enums, subscription state and cancellation mappers                                                   |
 
 ## Subscription model
 
@@ -131,14 +131,38 @@ so existing subscribers keep resolving.
 
 ### Webhooks
 
-Verify the signature with the Stripe SDK, then dispatch with `StripeEventHandler`. `on` is typed
-per event, so each handler receives the right `event.data.object`; `process` throws for an event
-type with no handler.
+Two dispatchers, one per Stripe [event format](https://docs.stripe.com/events/how-events-work#event-formats).
+Both are typed per event type, run every handler registered for a type, and throw from `process`
+for a type with no handler.
+
+| Handler                  | Event format | Verify with                                | Handlers receive                         |
+| ------------------------ | ------------ | ------------------------------------------ | ---------------------------------------- |
+| `StripeThinEventHandler` | thin         | `stripe.parseEventNotificationAsync(...)`  | the typed notification (`v1.*` types)    |
+| `StripeEventHandler`     | snapshot     | `stripe.webhooks.constructEventAsync(...)` | `event.data.object` for the event's type |
+
+Which to use: Stripe recommends thin events for new integrations, and so do we. Use snapshot
+events when you need the full payload as it was when the event fired, or
+`data.previous_attributes`.
+
+#### Thin events (recommended)
+
+A thin event only says which object changed (`type`, `id`, `created`, `reason`, `related_object`),
+so each handler reads current state from Stripe with `notification.fetchRelatedObject()` (or the
+full event with `fetchEvent()`). The SDK never pre-fetches: some handlers only need
+`related_object.id`. `on` is keyed by thin event type (`v1.customer.subscription.updated`, ...),
+so `fetchRelatedObject()` resolves to the right Stripe object. Delivery order carries no meaning:
+re-read state instead of applying payloads in order, and dedupe one-off facts (credits, payments,
+refunds) with idempotency keys. `StripeThinEventNotificationOf<T>` types a handler shared across
+several types.
+
+Create the event destination with the thin payload style and the `v1.*` types you handle. A
+Cloudflare Workers route with Hono (`parseEventNotificationAsync` uses Web Crypto there):
 
 ```ts
 import {
   METADATA_KEYS,
-  StripeEventHandler,
+  StripeThinEventHandler,
+  type StripeThinEventNotificationOf,
   mapCancellationDetails,
   mapSubscriptionStatus,
   mapTime,
@@ -147,23 +171,31 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
-export async function processStripeEvent(signature: string, body: string) {
-  const event = await stripe.webhooks.constructEventAsync(
-    body,
-    signature,
+const handler = StripeThinEventHandler.create()
+  .on('v1.checkout.session.completed', handleCheckoutSessionCompleted)
+  .on('v1.invoice.paid', handleInvoicePaid)
+  .on('v1.customer.subscription.created', handleSubscriptionEvent)
+  .on('v1.customer.subscription.updated', handleSubscriptionEvent)
+  .on('v1.customer.subscription.deleted', handleSubscriptionEvent);
+
+app.post('/webhooks/stripe', async (c) => {
+  const notification = await stripe.parseEventNotificationAsync(
+    await c.req.text(),
+    c.req.header('stripe-signature') ?? '',
     env.STRIPE_WEBHOOK_SECRET
   );
+  await handler.process(notification);
+  return c.body(null, 204);
+});
 
-  await StripeEventHandler.create()
-    .on('checkout.session.completed', handleCheckoutSessionCompleted)
-    .on('invoice.payment_succeeded', handleInvoicePaymentSucceeded)
-    .on('customer.subscription.created', handleSubscriptionEvent)
-    .on('customer.subscription.updated', handleSubscriptionEvent)
-    .on('customer.subscription.deleted', handleSubscriptionEvent)
-    .process(event);
-}
-
-async function handleSubscriptionEvent(sub: Stripe.Subscription) {
+async function handleSubscriptionEvent(
+  notification: StripeThinEventNotificationOf<
+    | 'v1.customer.subscription.created'
+    | 'v1.customer.subscription.updated'
+    | 'v1.customer.subscription.deleted'
+  >
+) {
+  const sub = await notification.fetchRelatedObject(); // Stripe.Subscription, current state
   const userId = sub.metadata[METADATA_KEYS.USER_ID];
   const productId = sub.metadata[METADATA_KEYS.PRODUCT_ID];
   await saveSubscription({
@@ -177,6 +209,41 @@ async function handleSubscriptionEvent(sub: Stripe.Subscription) {
   });
 }
 ```
+
+#### Snapshot events
+
+`on` is keyed by snapshot event type (`customer.subscription.updated`, ...) and each handler
+receives that event's `data.object`, typed.
+
+```ts
+import { StripeEventHandler } from '@shware/purchase/stripe';
+
+export async function processStripeEvent(signature: string, body: string) {
+  const event = await stripe.webhooks.constructEventAsync(
+    body,
+    signature,
+    env.STRIPE_WEBHOOK_SECRET
+  );
+
+  await StripeEventHandler.create()
+    .on('invoice.payment_succeeded', handleInvoicePaymentSucceeded) // (invoice: Stripe.Invoice)
+    .on('customer.subscription.updated', handleSubscription) // (sub: Stripe.Subscription)
+    .process(event);
+}
+```
+
+#### Moving from snapshot to thin events
+
+- Switch the event destination to the thin payload style; `parseEventNotificationAsync` rejects
+  snapshot payloads.
+- Replace `constructEventAsync` with `parseEventNotificationAsync` and `StripeEventHandler` with
+  `StripeThinEventHandler`.
+- Prefix every `on` type with `v1.` (`invoice.paid` becomes `v1.invoice.paid`).
+- Handlers receive the notification instead of `event.data.object`: call
+  `await notification.fetchRelatedObject()`, or use `notification.related_object.id` when the id
+  is enough. The fetched object is current state, so handlers must not depend on delivery order.
+- The mappers (`mapSubscriptionStatus`, `mapInvoice`, `mapCancellationDetails`, ...) take the
+  fetched objects unchanged.
 
 ### Checkout
 

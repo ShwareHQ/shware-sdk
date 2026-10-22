@@ -22,6 +22,11 @@ export {
 } from './mapper';
 export { StripeEventHandler } from './handler';
 export {
+  StripeThinEventHandler,
+  type StripeThinEventNotificationOf,
+  type StripeThinEventType,
+} from './thin-handler';
+export {
   cancellationDetailsSchema,
   createCheckoutSessionSchema,
   returnUrlSchema,
