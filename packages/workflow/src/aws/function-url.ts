@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 /**
  * Lambda Function URL events (payload format 2.0) as fetch `Request`s, and `Response`s back as
  * the result Lambda turns into the HTTP response — so the host's HTTP API runs unchanged.
@@ -46,20 +47,8 @@ export function isFunctionUrlEvent(event: unknown): event is FunctionUrlEvent {
   );
 }
 
-function fromBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(binary);
-}
+const fromBase64 = (value: string): Uint8Array => new Uint8Array(Buffer.from(value, 'base64'));
+const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 
 export function toRequest(event: FunctionUrlEvent): Request {
   const method = event.requestContext.http.method.toUpperCase();

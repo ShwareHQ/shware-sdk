@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import {
   DEAD_TOKEN_REASONS as APNS_DEAD_TOKEN_REASONS,
   ApnsProviderToken,
@@ -139,9 +140,7 @@ function identity(value: object | undefined): string {
 /** The first 8 hex of the secret's SHA-256: enough to tell a rotation apart, nothing of the secret. */
 async function secretDigest(secret: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
-  return Array.from(new Uint8Array(digest).slice(0, 4), (b) =>
-    b.toString(16).padStart(2, '0')
-  ).join('');
+  return Buffer.from(digest.slice(0, 4)).toString('hex');
 }
 
 /**

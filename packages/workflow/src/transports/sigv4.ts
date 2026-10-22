@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 /**
  * AWS Signature Version 4 over WebCrypto, which a Worker and Node both have: enough to sign
  * the JSON API calls the transports make. Headers are signed as given (plus `host` and
@@ -25,9 +26,7 @@ export interface SigV4Request {
 
 const utf8 = new TextEncoder();
 
-function hex(bytes: ArrayBuffer): string {
-  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
+const hex = (bytes: ArrayBuffer): string => Buffer.from(bytes).toString('hex');
 
 async function sha256(data: string): Promise<string> {
   return hex(await crypto.subtle.digest('SHA-256', utf8.encode(data)));
