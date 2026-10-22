@@ -546,13 +546,14 @@ export class Auth implements AuthService {
       // Sent before it is stored, so a failed delivery leaves the previous code usable.
       const verificationCode = randomInt(1_000_000).toString().padStart(6, '0');
       await sender({ email, verificationCode });
+      // The new code gets the full attempt budget; the cooldown bounds how often that happens.
+      // Reset before storing, so every comparison against the new code is counted.
+      await this.kv.removeItem(this.getEmailVerificationAttemptsKey(email));
       await this.kv.setItem(
         this.getEmailVerificationCodeKey(email),
         verificationCode,
         EMAIL_VERIFICATION_CODE_TTL
       );
-      // The new code gets the full attempt budget; the cooldown bounds how often that happens.
-      await this.kv.removeItem(this.getEmailVerificationAttemptsKey(email));
       return Response.json({});
     } catch (e) {
       console.error('Failed to send email verification code', e);
