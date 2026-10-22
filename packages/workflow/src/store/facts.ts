@@ -69,7 +69,7 @@ export class JourneyFactSource implements FactSource {
 
   /** The user's registered devices; none, and push skips while `reachable('push')` is false. */
   async isSuppressed(channel: string): Promise<boolean> {
-    return (await this.store.isSuppressed?.(this.userId, channel)) ?? false;
+    return this.store.isSuppressed(this.userId, channel);
   }
 
   listDevices(): Promise<PushDevice[]> {

@@ -164,12 +164,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
     const placeholder = { ...baseEnv } as unknown as HostEnv;
     invocation.lease ??= host.lease(placeholder);
     const { store } = invocation.lease;
-    const executions = store.executions;
-    if (executions === undefined) {
-      throw new Error(
-        'journeyLambda needs a store with an execution registry (PostgresJourneyStore)'
-      );
-    }
+    const { executions } = store;
     const functionArn = unqualified(context.lambdaContext.invokedFunctionArn);
     const target = async (contentHash: string, version?: string): Promise<string> => {
       // An execution runs the code its IR was compiled with: the version whose bundle put the
@@ -302,7 +297,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       'sweep:snapshot',
       async () => {
         const { store } = open(context);
-        return (await store.reporting?.snapshotSegments(Date.now())) ?? [];
+        return store.reporting.snapshotSegments(Date.now());
       },
       once
     );

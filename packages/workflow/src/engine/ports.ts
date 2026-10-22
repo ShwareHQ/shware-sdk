@@ -71,7 +71,7 @@ export interface PushDevice {
   platform: string;
 }
 
-/** Facts from a single user's point of view: the read interface condition evaluation uses (D1 and in-memory share one evaluator). */
+/** Facts from a single user's point of view: the read interface condition evaluation uses (the store-backed and in-memory sources share one evaluator). */
 export interface FactSource {
   /**
    * How many times an event occurred. `sinceMs` bounds the window (within /

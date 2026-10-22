@@ -22,52 +22,35 @@ import {
 } from '../src/index';
 import { JourneyFactSource } from '../src/store/facts';
 import { UserErasedError } from '../src/store/index';
-import { PostgresJourneyStore, type SqlClientLike, uuidv7 } from '../src/store/postgres';
+import { PostgresJourneyStore, uuidv7 } from '../src/store/postgres';
 import { TABLES, renderDrizzleSchema, renderPostgresDdl } from '../src/store/tables';
 import { FakeJourney } from './fake-cloudflare';
 import { plainEmail } from './fixtures';
+import { type PgliteDatabase, pgliteClient, pgliteDatabase, truncateAll } from './pglite';
 
 /**
- * PostgresJourneyStore against a real Postgres (PGlite, in-process) through
- * the same router the D1 store is tested with — the contract is the behaviour
- * the router relies on: atomic once-policy entries, idempotent subscriptions,
- * jsonb profile merges with null as "unset", timestamptz windows, and the
+ * PostgresJourneyStore against a real Postgres (PGlite, in-process) through the router — the
+ * contract is the behaviour the router relies on: atomic once-policy entries, idempotent
+ * subscriptions, jsonb profile merges with null as "unset", timestamptz windows, and the
  * route swap.
  */
 
 const schemaSql = renderPostgresDdl();
 
+let database: PgliteDatabase;
 let pg: PGlite;
 
-function client(db: {
-  query: PGlite['query'];
-  transaction?: PGlite['transaction'];
-}): SqlClientLike {
-  return {
-    query: async <T>(text: string, params: readonly unknown[] = []) =>
-      (await db.query<T>(text, [...params])).rows,
-    transaction: (fn) =>
-      db.transaction === undefined
-        ? fn(client(db)) // already inside one: PGlite transactions do not nest
-        : db.transaction((tx) => fn(client({ query: tx.query.bind(tx) }))),
-  };
-}
-
 beforeAll(async () => {
-  pg = await PGlite.create();
-  await pg.exec(schemaSql);
+  database = await pgliteDatabase();
+  pg = database.pg;
 }, 30_000);
 
 afterAll(async () => {
-  await pg.close();
+  await database.close();
 });
 
 beforeEach(async () => {
-  await pg.exec(
-    `TRUNCATE ${Object.values(TABLES)
-      .map((t) => `workflow."${t.name}"`)
-      .join(', ')}`
-  );
+  await truncateAll(pg);
 });
 
 interface Event {
@@ -97,7 +80,7 @@ const bundle = () =>
 function setup() {
   const journey = new FakeJourney();
   const env: JourneyEnv = { JOURNEY: cloudflareJourneyBinding(journey) };
-  const store = new PostgresJourneyStore(client(pg));
+  const store = database.store;
   return { env, journey, store };
 }
 
@@ -653,7 +636,7 @@ describe('checkSchema', () => {
     });
 
     test('lists what the live database lacks, without changing it', async () => {
-      const store = new PostgresJourneyStore(client(db), { schema: 'app' });
+      const store = new PostgresJourneyStore(pgliteClient(db), { schema: 'app' });
       const problems = await store.checkSchema();
       expect(problems).toContain('table "app"."event" is missing');
       expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
@@ -676,7 +659,7 @@ describe('checkSchema', () => {
     });
 
     test('is refused: the tombstone has nowhere to record the erase', async () => {
-      const store = new PostgresJourneyStore(client(db));
+      const store = new PostgresJourneyStore(pgliteClient(db));
       expect(await store.checkSchema()).toEqual([
         'column "workflow"."erasure"."erased_at" is missing',
       ]);
@@ -698,7 +681,7 @@ describe('checkSchema', () => {
     });
 
     test('is refused: the runner has nowhere to record its admission', async () => {
-      const store = new PostgresJourneyStore(client(db));
+      const store = new PostgresJourneyStore(pgliteClient(db));
       expect(await store.checkSchema()).toEqual([
         'column "workflow"."entry"."admitted_at" is missing',
       ]);
@@ -724,7 +707,7 @@ describe('checkSchema', () => {
     });
 
     test('is refused by name: the ON CONFLICT target the first ingest would need', async () => {
-      const store = new PostgresJourneyStore(client(db));
+      const store = new PostgresJourneyStore(pgliteClient(db));
       expect(await store.checkSchema()).toEqual([`missing unique index "workflow"."${index}"`]);
     });
   });

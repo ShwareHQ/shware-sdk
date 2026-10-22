@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { wakeExpired } from '../src/cloudflare/bindings';
-import { d1Store } from '../src/cloudflare/d1-env';
 import { JourneyRunner } from '../src/cloudflare/runner';
 import type {
   JourneyObserver,
@@ -10,20 +9,74 @@ import type {
   OutboundMessage,
 } from '../src/engine/ports';
 import { compileBundle, defineContract, performed, trigger, workflow } from '../src/index';
+import type { JourneyStore } from '../src/store/index';
 import { TemplateValidationError } from '../src/templates';
 import { makeEnv } from './fake-cloudflare';
 import { e, gettingStarted, nudge } from './fixtures';
+import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 import { EvictionError, FakeCfStep } from './stubs/cf-step';
 import { NonRetryableError } from './stubs/cloudflare-workflows';
 
 /**
- * The CF adapter's failure paths and its wait semantics.
+ * The CF adapter's failure paths and its wait semantics, on a Postgres store (PGlite).
  *
  * They used to be invisible: a wait that broke reported a timeout, a wait that genuinely timed
  * out after an eviction reported a failure, and an instance that died stayed 'running' in the
  * ledger forever. None was reachable from a test either, because `cloudflare:workers` only
  * resolves inside workerd — see the stubs wired up in vitest.config.ts.
  */
+
+let database: PgliteDatabase;
+beforeAll(async () => {
+  database = await pgliteDatabase();
+}, 30_000);
+afterAll(async () => {
+  await database.close();
+});
+// Every test starts from an empty engine: the tables are emptied, the database kept
+beforeEach(async () => {
+  await truncateAll(database.pg);
+});
+
+/** How many rows the table holds, those matching `where` (SQL, no parameters) when given. */
+const rows = async (table: string, where = 'TRUE') =>
+  (
+    await database.client.query<{ c: number }>(
+      `SELECT COUNT(*)::int AS c FROM workflow.${table} WHERE ${where}`
+    )
+  )[0].c;
+/** The instance's entry: its status, and when the runner admitted itself (epoch ms, or null). */
+const entry = async (instanceId: string) =>
+  (
+    await database.client.query<{ status: string; admitted_at: number | null }>(
+      `SELECT status, (extract(epoch FROM admitted_at) * 1000)::double precision AS admitted_at
+         FROM workflow.entry WHERE instance_id = $1`,
+      [instanceId]
+    )
+  )[0];
+const entryStatus = async (instanceId: string) => (await entry(instanceId)).status;
+
+/** The store's tables for the instance: its workflow body, and its entry as the router leaves it. */
+async function enter(
+  ir: ReturnType<typeof compileBundle>['workflows'][number],
+  instanceId: string
+) {
+  await database.store.putWorkflowIR(ir);
+  await database.store.enterJourney({
+    workflow: ir.id,
+    userId: 'u1',
+    instanceId,
+    hash: ir.contentHash,
+    ts: Date.now(),
+  });
+}
+
+/** The runner over the database's store: what `journeyWorker` wires up, for a runner on its own. */
+class StoreRunner extends JourneyRunner {
+  protected override createStore(): JourneyStore {
+    return database.store;
+  }
+}
 
 describe('wakeExpired: a thrown wait is a timeout only if the deadline passed', () => {
   const minute = 60_000;
@@ -52,7 +105,7 @@ describe('wakeExpired: a thrown wait is a timeout only if the deadline passed', 
   });
 });
 
-class ExplodingRunner extends JourneyRunner {
+class ExplodingRunner extends StoreRunner {
   protected override createMessageSender(): MessageSender {
     return {
       send: async () => {
@@ -64,17 +117,9 @@ class ExplodingRunner extends JourneyRunner {
 
 describe('an instance that dies stops reading as running', () => {
   const setup = async () => {
-    const { env, db } = makeEnv();
+    const { env } = makeEnv();
     const ir = compileBundle({ workflows: [nudge] }).workflows[0];
-    await d1Store(env).putWorkflowIR(ir);
-    db.entries.push({
-      workflow: ir.id,
-      user_id: 'u1',
-      instance_id: 'inst-1',
-      hash: ir.contentHash,
-      status: 'running',
-      ts: Date.now(),
-    });
+    await enter(ir, 'inst-1');
     const event = {
       payload: {
         workflowId: ir.id,
@@ -85,29 +130,29 @@ describe('an instance that dies stops reading as running', () => {
       timestamp: new Date(),
       instanceId: 'inst-1',
     };
-    return { env, db, event };
+    return { env, event };
   };
 
   test('the ledger records the failure instead of leaving it mid-flight', async () => {
-    const { env, db, event } = await setup();
+    const { env, event } = await setup();
     const runner = new ExplodingRunner({}, env);
 
     await expect(runner.run(event as never, new FakeCfStep() as never)).rejects.toThrow(
       'sender is down'
     );
 
-    expect(db.entries[0].status).toBe('failed');
+    expect(await entryStatus('inst-1')).toBe('failed');
   });
 
   test('a journey that ends normally still records its outcome', async () => {
-    const { env, db, event } = await setup();
-    const runner = new JourneyRunner({}, env);
+    const { env, event } = await setup();
+    const runner = new StoreRunner({}, env);
 
     await expect(runner.run(event as never, new FakeCfStep() as never)).resolves.toMatchObject({
       status: 'completed',
     });
 
-    expect(db.entries[0].status).toBe('completed');
+    expect(await entryStatus('inst-1')).toBe('completed');
   });
 });
 
@@ -127,17 +172,9 @@ describe('the observer hears how each instance ended', () => {
   };
 
   const event = async () => {
-    const { env, db } = makeEnv();
+    const { env } = makeEnv();
     const ir = compileBundle({ workflows: [nudge] }).workflows[0];
-    await d1Store(env).putWorkflowIR(ir);
-    db.entries.push({
-      workflow: ir.id,
-      user_id: 'u1',
-      instance_id: 'inst-1',
-      hash: ir.contentHash,
-      status: 'running',
-      ts: Date.now(),
-    });
+    await enter(ir, 'inst-1');
     return {
       env,
       ir,
@@ -156,7 +193,7 @@ describe('the observer hears how each instance ended', () => {
 
   test('a normal ending reports its outcome', async () => {
     const { env, ir, event: e1 } = await event();
-    const { Observed, finished } = finishedOf(JourneyRunner);
+    const { Observed, finished } = finishedOf(StoreRunner);
     await new Observed({}, env).run(e1, new FakeCfStep() as never);
     expect(finished).toEqual([`${ir.id}/inst-1:completed`]);
   });
@@ -171,7 +208,7 @@ describe('the observer hears how each instance ended', () => {
   });
 });
 
-class RefusingRunner extends JourneyRunner {
+class RefusingRunner extends StoreRunner {
   sent = 0;
   protected override createMessageValidator(): MessageValidator {
     return {
@@ -189,17 +226,9 @@ class RefusingRunner extends JourneyRunner {
 
 describe('a template refusing its props', () => {
   test('ends the step as non-retryable, sends nothing, and records the failure', async () => {
-    const { env, db } = makeEnv();
+    const { env } = makeEnv();
     const ir = compileBundle({ workflows: [nudge] }).workflows[0];
-    await d1Store(env).putWorkflowIR(ir);
-    db.entries.push({
-      workflow: ir.id,
-      user_id: 'u1',
-      instance_id: 'inst-2',
-      hash: ir.contentHash,
-      status: 'running',
-      ts: Date.now(),
-    });
+    await enter(ir, 'inst-2');
     const event = {
       payload: {
         workflowId: ir.id,
@@ -222,7 +251,7 @@ describe('a template refusing its props', () => {
       /\[inst-2 0\] email template .* rejected its props: name required/
     );
     expect(runner.sent).toBe(0);
-    expect(db.entries[0].status).toBe('failed');
+    expect(await entryStatus('inst-2')).toBe('failed');
   });
 });
 
@@ -239,18 +268,10 @@ describe('an emitted event the contract refuses', () => {
       id: 'emitter',
       trigger: trigger.event(shop.events.sign_up),
     }).sendEvent(shop.events.purchase, { transaction_id: 't', value: -1 });
-    const { env, db } = makeEnv();
+    const { env } = makeEnv();
     const ir = compileBundle({ workflows: [emitter] }).workflows[0];
-    await d1Store(env).putWorkflowIR(ir);
-    db.entries.push({
-      workflow: ir.id,
-      user_id: 'u1',
-      instance_id: 'inst-3',
-      hash: ir.contentHash,
-      status: 'running',
-      ts: Date.now(),
-    });
-    class ContractRunner extends JourneyRunner {
+    await enter(ir, 'inst-3');
+    class ContractRunner extends StoreRunner {
       protected override contract() {
         return shop;
       }
@@ -272,14 +293,14 @@ describe('an emitted event the contract refuses', () => {
     expect((error as Error).message).toMatch(
       /\[inst-3 0\] event 'purchase' refused by the contract: value/
     );
-    expect(db.events.filter((e) => e.name === 'purchase')).toEqual([]);
+    expect(await rows('event', "name = 'purchase'")).toBe(0);
   });
 });
 
 /* ------------------------------ wait semantics ------------------------------ */
 
 /** A runner that collects what it sends, so the test sees the journey go on after a wait. */
-class CollectingRunner extends JourneyRunner {
+class CollectingRunner extends StoreRunner {
   readonly sent: OutboundMessage[] = [];
   protected override createMessageSender(): MessageSender {
     return {
@@ -300,17 +321,9 @@ const windowed = workflow({ id: 'windowed', trigger: trigger.event(e.sign_up) })
   .email(gettingStarted);
 
 async function seeded(flow: typeof waiter, instanceId: string) {
-  const { env, db } = makeEnv();
+  const { env } = makeEnv();
   const ir = compileBundle({ workflows: [flow] }).workflows[0];
-  await d1Store(env).putWorkflowIR(ir);
-  db.entries.push({
-    workflow: ir.id,
-    user_id: 'u1',
-    instance_id: instanceId,
-    hash: ir.contentHash,
-    status: 'running',
-    ts: Date.now(),
-  });
+  await enter(ir, instanceId);
   const event = {
     payload: {
       workflowId: ir.id,
@@ -321,7 +334,7 @@ async function seeded(flow: typeof waiter, instanceId: string) {
     timestamp: new Date(),
     instanceId,
   };
-  return { env, db, event };
+  return { env, event };
 }
 
 describe('a wait that throws', () => {
@@ -333,7 +346,7 @@ describe('a wait that throws', () => {
 
   test('is a timeout when the deadline passed — also on the replay after an eviction', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: T0 });
-    const { env, db, event } = await seeded(waiter, 'inst-w1');
+    const { env, event } = await seeded(waiter, 'inst-w1');
     const runner = new CollectingRunner({}, env);
 
     // The live attempt parks on the wait and the isolate is evicted there: every checkpoint up
@@ -357,12 +370,12 @@ describe('a wait that throws', () => {
     });
     expect(replay.results.get('0:wait:0:timed-out')).toBe(true);
     expect(again.sent.map((m) => m.template)).toEqual(['getting_started']);
-    expect(db.entries[0].status).toBe('completed');
+    expect(await entryStatus('inst-w1')).toBe('completed');
   });
 
   test('is a failure when the deadline has not passed: the error comes back out', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: T0 });
-    const { env, db, event } = await seeded(waiter, 'inst-w2');
+    const { env, event } = await seeded(waiter, 'inst-w2');
     const runner = new CollectingRunner({}, env);
     const step = new FakeCfStep();
     step.wakes = [new Error('binding exploded')];
@@ -370,21 +383,27 @@ describe('a wait that throws', () => {
     await expect(runner.run(event as never, step as never)).rejects.toThrow('binding exploded');
     expect(step.results.get('0:wait:0:timed-out')).toBe(false);
     expect(runner.sent).toEqual([]);
-    expect(db.entries[0].status).toBe('failed');
+    expect(await entryStatus('inst-w2')).toBe('failed');
   });
 
   test('a wake lets the journey check and go on', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: T0 });
-    const { env, db, event } = await seeded(waiter, 'inst-w3');
+    const { env, event } = await seeded(waiter, 'inst-w3');
     const runner = new CollectingRunner({}, env);
-    const step = new FakeCfStep();
     // The login lands while the instance is parked, and the wake follows it
-    step.wakes = [
-      () => {
-        db.events.push({ id: 'ev1', user_id: 'u1', name: 'login', ts: Date.now(), payload: '{}' });
-        return 'event';
-      },
-    ];
+    class WokenStep extends FakeCfStep {
+      override async waitForEvent(name: string, options: { type: string; timeout?: number }) {
+        await database.store.insertEvent({
+          id: 'ev1',
+          userId: 'u1',
+          event: 'login',
+          ts: Date.now(),
+          payload: {},
+        });
+        return super.waitForEvent(name, options);
+      }
+    }
+    const step = new WokenStep();
 
     await expect(runner.run(event as never, step as never)).resolves.toMatchObject({
       status: 'completed',
@@ -392,7 +411,7 @@ describe('a wait that throws', () => {
     expect(step.results.get('0:check:0')).toBeNull();
     expect(step.results.get('0:check:1')).toBe(true);
     expect(runner.sent.map((m) => m.template)).toEqual(['getting_started']);
-    expect(db.entries[0].status).toBe('completed');
+    expect(await entryStatus('inst-w3')).toBe('completed');
   });
 });
 
@@ -404,7 +423,7 @@ describe('a time window', () => {
   test('replayed after its target passed sleeps the recorded time and does not throw', async () => {
     const T0 = new Date('2026-10-19T12:00:00Z'); // Monday noon: the next window is Friday 09:00
     vi.useFakeTimers({ toFake: ['Date'], now: T0 });
-    const { env, db, event } = await seeded(windowed, 'inst-tw');
+    const { env, event } = await seeded(windowed, 'inst-tw');
 
     const first = new FakeCfStep();
     first.evictAt = '0:sleep';
@@ -424,7 +443,7 @@ describe('a time window', () => {
     });
     expect(replay.sleeps).toEqual([{ name: '0:sleep', ms: remaining }]);
     expect(runner.sent.map((m) => m.template)).toEqual(['getting_started']);
-    expect(db.entries[0].status).toBe('completed');
+    expect(await entryStatus('inst-tw')).toBe('completed');
   });
 });
 
@@ -454,8 +473,8 @@ describe('a runner refuses an erased user before its first effect', () => {
   test('on a fresh invocation: no started, no step, no send, and the entry is left alone', async () => {
     const warned = quiet();
     try {
-      const { env, db, event } = await seeded(waiter, 'inst-e1');
-      db.erasures.set('u1', { ts: 1, erased_at: null });
+      const { env, event } = await seeded(waiter, 'inst-e1');
+      await database.store.requestErasure('u1', 1);
       const runner = new HearingRunner({}, env);
       const step = new FakeCfStep();
 
@@ -466,7 +485,7 @@ describe('a runner refuses an erased user before its first effect', () => {
       expect(runner.started).toEqual([]);
       expect(step.names).toEqual([]);
       expect(runner.sent).toEqual([]);
-      expect(db.entries[0].status).toBe('running');
+      expect(await entryStatus('inst-e1')).toBe('running');
     } finally {
       warned.mockRestore();
     }
@@ -476,7 +495,7 @@ describe('a runner refuses an erased user before its first effect', () => {
     const warned = quiet();
     vi.useFakeTimers({ toFake: ['Date'], now: T0 });
     try {
-      const { env, db, event } = await seeded(waiter, 'inst-e2');
+      const { env, event } = await seeded(waiter, 'inst-e2');
       const runner = new HearingRunner({}, env);
       const first = new FakeCfStep();
       first.evictAt = '0:wait:0';
@@ -484,12 +503,12 @@ describe('a runner refuses an erased user before its first effect', () => {
         EvictionError
       );
       expect(runner.started).toEqual(['inst-e2']);
-      expect(await d1Store(env).runningInstances('u1')).toEqual([
+      expect(await database.store.runningInstances('u1')).toEqual([
         { instanceId: 'inst-e2', admitted: true },
       ]);
 
       // The user is erased while the instance is parked; the hour passes and it is rebuilt
-      db.erasures.set('u1', { ts: Date.now(), erased_at: null });
+      await database.store.requestErasure('u1', Date.now());
       vi.setSystemTime(new Date(T0.getTime() + 61 * 60_000));
       const replay = first.replay();
       replay.wakes = ['timeout'];
@@ -502,7 +521,7 @@ describe('a runner refuses an erased user before its first effect', () => {
       expect(again.started).toEqual([]);
       expect(replay.names).toEqual([]);
       expect(again.sent).toEqual([]);
-      expect(db.entries[0].status).toBe('running');
+      expect(await entryStatus('inst-e2')).toBe('running');
     } finally {
       warned.mockRestore();
     }
@@ -537,7 +556,7 @@ class UncommittedStep extends FakeCfStep {
 function reporting() {
   const finished: string[] = [];
   const faults = { finished: 0, senderDown: false };
-  class Reporting extends JourneyRunner {
+  class Reporting extends StoreRunner {
     readonly sent: OutboundMessage[] = [];
     protected override createMessageSender(): MessageSender {
       return {
@@ -564,19 +583,10 @@ describe('a finalize interrupted on Cloudflare is replayed by the same instance'
 
   /** `nudge` entered for u1, with a subscription left behind for the finalize to clear. */
   async function entered(instanceId: string) {
-    const { env, db } = makeEnv();
+    const { env } = makeEnv();
     const ir = compileBundle({ workflows: [nudge] }).workflows[0];
-    await d1Store(env).putWorkflowIR(ir);
-    db.entries.push({
-      workflow: ir.id,
-      user_id: 'u1',
-      instance_id: instanceId,
-      hash: ir.contentHash,
-      status: 'running',
-      ts: Date.now(),
-      admitted_at: null,
-    });
-    db.subscriptions.push({ user_id: 'u1', event: 'login', wake_handle: instanceId, ts: 1 });
+    await enter(ir, instanceId);
+    await database.store.subscribe(instanceId, 'u1', ['login'], 1);
     const event = {
       payload: {
         workflowId: ir.id,
@@ -587,21 +597,21 @@ describe('a finalize interrupted on Cloudflare is replayed by the same instance'
       timestamp: new Date(),
       instanceId,
     };
-    return { env, db, event };
+    return { env, event };
   }
 
   test('interrupted after the unsubscribe, before finished: the rebuilt instance finishes it', async () => {
-    const { env, db, event } = await entered('inst-f1');
+    const { env, event } = await entered('inst-f1');
     const { Reporting, finished, faults } = reporting();
     faults.finished = 1;
     const first = new FakeCfStep();
     const runner = new Reporting({}, env);
     await expect(runner.run(event as never, first as never)).rejects.toThrow(/reporting is down/);
     expect(runner.sent).toHaveLength(1);
-    expect(db.entries[0].status).toBe('completed');
-    expect(db.subscriptions).toEqual([]);
+    expect(await entryStatus('inst-f1')).toBe('completed');
+    expect(await rows('subscription')).toBe(0);
     expect(finished).toEqual([]);
-    const admittedAt = db.entries[0].admitted_at;
+    const admittedAt = (await entry('inst-f1')).admitted_at;
     expect(admittedAt).toEqual(expect.any(Number));
 
     // Rebuilt on its checkpoints, much later: admitted as the same instance, nothing resent
@@ -611,18 +621,18 @@ describe('a finalize interrupted on Cloudflare is replayed by the same instance'
     });
     expect(again.sent).toEqual([]);
     expect(finished).toEqual(['completed']);
-    expect(db.entries[0]).toMatchObject({ status: 'completed', admitted_at: admittedAt });
-    expect(db.erasures.size).toBe(0);
+    expect(await entry('inst-f1')).toEqual({ status: 'completed', admitted_at: admittedAt });
+    expect(await rows('erasure')).toBe(0);
   });
 
   test('every write done, the checkpoint lost: the replay is idempotent', async () => {
-    const { env, db, event } = await entered('inst-f2');
+    const { env, event } = await entered('inst-f2');
     const { Reporting, finished } = reporting();
     const first = new UncommittedStep('finalize');
     await expect(new Reporting({}, env).run(event as never, first as never)).rejects.toThrow(
       EvictionError
     );
-    expect(db.entries[0].status).toBe('completed');
+    expect(await entryStatus('inst-f2')).toBe('completed');
     expect(finished).toEqual(['completed']);
 
     const again = new Reporting({}, env);
@@ -630,43 +640,43 @@ describe('a finalize interrupted on Cloudflare is replayed by the same instance'
       status: 'completed',
     });
     expect(again.sent).toEqual([]);
-    expect(db.entries[0].status).toBe('completed');
-    expect(db.subscriptions).toEqual([]);
+    expect(await entryStatus('inst-f2')).toBe('completed');
+    expect(await rows('subscription')).toBe(0);
     // Never checkpointed, the hook ran again with the same result: the ledger is what counts
     expect(finished.every((status) => status === 'completed')).toBe(true);
   });
 
   test('a failed finalize replays as a failure: not erased, the send not retried past it', async () => {
-    const { env, db, event } = await entered('inst-f3');
+    const { env, event } = await entered('inst-f3');
     const { Reporting, finished, faults } = reporting();
     faults.senderDown = true;
     const first = new UncommittedStep('finalize:failed');
     await expect(new Reporting({}, env).run(event as never, first as never)).rejects.toThrow(
       EvictionError
     );
-    expect(db.entries[0].status).toBe('failed');
+    expect(await entryStatus('inst-f3')).toBe('failed');
     expect(finished).toEqual(['failed']);
 
     await expect(
       new Reporting({}, env).run(event as never, first.replay() as never)
     ).rejects.toThrow('sender is down');
-    expect(db.entries[0].status).toBe('failed');
-    expect(db.subscriptions).toEqual([]);
+    expect(await entryStatus('inst-f3')).toBe('failed');
+    expect(await rows('subscription')).toBe(0);
     expect(finished.every((status) => status === 'failed')).toBe(true);
-    expect(db.erasures.size).toBe(0);
+    expect(await rows('erasure')).toBe(0);
   });
 
   test('a tombstone before the replay: refused, the entry left as it was, nothing reported', async () => {
     const warned = quiet();
     try {
-      const { env, db, event } = await entered('inst-f4');
+      const { env, event } = await entered('inst-f4');
       const { Reporting, finished, faults } = reporting();
       faults.finished = 1;
       const first = new FakeCfStep();
       await expect(new Reporting({}, env).run(event as never, first as never)).rejects.toThrow(
         /reporting is down/
       );
-      db.erasures.set('u1', { ts: Date.now(), erased_at: null });
+      await database.store.requestErasure('u1', Date.now());
 
       const replay = first.replay();
       const again = new Reporting({}, env);
@@ -677,7 +687,7 @@ describe('a finalize interrupted on Cloudflare is replayed by the same instance'
       expect(replay.names).toEqual([]);
       expect(again.sent).toEqual([]);
       expect(finished).toEqual([]);
-      expect(db.entries[0].status).toBe('completed');
+      expect(await entryStatus('inst-f4')).toBe('completed');
     } finally {
       warned.mockRestore();
     }

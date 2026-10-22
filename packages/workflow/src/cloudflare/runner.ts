@@ -17,7 +17,6 @@ import { LogMessageSender, WebhookMessageSender } from '../host/senders';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import type { JourneyStore } from '../store/index';
 import { cloudflareJourneyBinding, wakeExpired } from './bindings';
-import { d1Store } from './d1-env';
 
 /**
  * Adapts CF's WorkflowStep to EngineStep.
@@ -104,13 +103,13 @@ class CfEngineStep implements EngineStep {
  */
 export class JourneyRunner extends WorkflowEntrypoint<JourneyEnv, JourneyParams> {
   /**
-   * The data plane. D1 from the env by default; an app on Postgres
-   * overrides this (and `closeStore` if its client needs closing):
+   * The data plane: `journeyWorker` opens it through the host's store lease. A runner subclass
+   * of its own overrides this (and `closeStore` if its client needs closing):
    *
    *   protected override createStore() { return new PostgresJourneyStore(client(this.env)); }
    */
   protected createStore(): JourneyStore {
-    return d1Store(this.env);
+    throw new Error('JourneyRunner: override createStore, or build the runner with journeyWorker');
   }
 
   /** Called once `run` is over, success or not — release whatever `createStore` opened. */

@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import { journeyWorker } from '../src/cloudflare/worker';
 import { useEmailContext } from '../src/email-context';
@@ -15,8 +15,8 @@ import {
   workflow,
 } from '../src/index';
 import { registryRenderer } from '../src/react-email';
-import { D1JourneyStore } from '../src/store/d1';
-import { FakeD1, FakeJourney } from './fake-cloudflare';
+import { FakeJourney } from './fake-cloudflare';
+import { type PgliteDatabase, pgliteDatabase } from './pglite';
 
 /**
  * Email metadata: each template's own `from` / `replyTo`, and the unsubscribe link resolved
@@ -184,7 +184,10 @@ describe('the config', () => {
     Object.assign(stale, { emails: { from: 'noreply@acme.test' } });
     expect(() => compileConfig(stale)).toThrow(ConfigCompileError);
     expect(() => compileConfig(stale)).toThrow(/declared on each emailTemplate/);
-    expect(() => journeyWorker({ config: stale })).toThrow(/`emails` is gone/);
+    const store = () => {
+      throw new Error('never opened');
+    };
+    expect(() => journeyWorker({ config: stale, store })).toThrow(/`emails` is gone/);
   });
 
   test('email.unsubscribeUrl and quickClickMs are checked', () => {
@@ -206,6 +209,14 @@ describe('the config', () => {
 });
 
 describe("the Worker's preview", () => {
+  let database: PgliteDatabase;
+  beforeAll(async () => {
+    database = await pgliteDatabase();
+  }, 30_000);
+  afterAll(async () => {
+    await database.close();
+  });
+
   test('finds a template by id, with the resolved unsubscribe link', async () => {
     const config = defineConfig({
       workflows: [],
@@ -215,7 +226,7 @@ describe("the Worker's preview", () => {
     // Development: a production host refuses to serve without API_TOKEN
     const env = { JOURNEY: new FakeJourney(), ENVIRONMENT: 'development' };
     const worker = journeyWorker<typeof env>({
-      store: () => new D1JourneyStore(new FakeD1()),
+      store: () => database.store,
       config,
     });
     const props = encodeURIComponent('{"name":"Ada"}');

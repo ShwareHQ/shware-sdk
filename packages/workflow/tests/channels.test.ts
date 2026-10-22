@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto';
 import { createElement } from 'react';
-import { beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { EmailBindingLike } from '../src/cloudflare/bindings';
 import type { OutboundMessage } from '../src/engine/ports';
@@ -8,11 +8,12 @@ import { PermanentError } from '../src/engine/retry';
 import type { FcmServiceAccount } from '../src/fcm';
 import { type ChannelsConfig, channelsFromConfig, createProviderCache } from '../src/host/channels';
 import { base64url } from '../src/jwt';
-import { D1JourneyStore } from '../src/store/d1';
+import { renderPostgresDdl } from '../src/store/tables';
 import { emailTemplate, pushTemplate } from '../src/templates';
 import { cloudflareEmailTransport } from '../src/transports/cloudflare-email';
 import { generateVapidKeys } from '../src/webpush';
-import { FakeD1, FakeJourney } from './fake-cloudflare';
+import { FakeJourney } from './fake-cloudflare';
+import { type PgliteDatabase, pgliteDatabase } from './pglite';
 
 /**
  * channelsFromConfig: the outlets a workflow.config.ts describes, assembled
@@ -26,6 +27,7 @@ let p8Base64: string;
 let rotatedP8Base64: string;
 /** A service account with a real (throwaway) RSA key, so the FCM token exchange is reached. */
 let serviceAccountBase64: string;
+let database: PgliteDatabase;
 
 async function apnsKey(): Promise<string> {
   const pair = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
@@ -61,6 +63,12 @@ beforeAll(async () => {
     private_key: `-----BEGIN PRIVATE KEY-----\n${der.match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----\n`,
   };
   serviceAccountBase64 = Buffer.from(JSON.stringify(account)).toString('base64');
+  database = await pgliteDatabase();
+  // A second store of its own (another schema), for the run that meets another device
+  await database.pg.exec(renderPostgresDdl('second'));
+}, 30_000);
+afterAll(async () => {
+  await database.close();
 });
 
 const named = z.strictObject({ name: z.string() });
@@ -269,7 +277,7 @@ describe('channelsFromConfig', () => {
 
   test('a token APNs reports as gone is removed from the store', async () => {
     const { env, fetchImpl } = setup(true);
-    const store = new D1JourneyStore(new FakeD1());
+    const store = database.store;
     await store.upsertDevice({ userId: 'u1', token: 'deadtoken', platform: 'ios', ts: 1 });
     const sender = channelsFromConfig(
       { templates, apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },
@@ -367,8 +375,8 @@ describe('the provider cache', () => {
   test('a shared credential still forgets the dead token in the store of the run that met it', async () => {
     const { env, fetchImpl } = setup(true);
     const providers = createProviderCache();
-    const first = new D1JourneyStore(new FakeD1());
-    const second = new D1JourneyStore(new FakeD1());
+    const first = database.store;
+    const second = database.storeIn('second');
     await first.upsertDevice({ userId: 'u1', token: 'dead1', platform: 'ios', ts: 1 });
     await second.upsertDevice({ userId: 'u1', token: 'dead2', platform: 'ios', ts: 1 });
     // The first run meets a live device: the credential is minted with that run's store around

@@ -2,12 +2,10 @@ import type { PushDevice } from '../engine/ports';
 import type { BundleIR, ConditionIR, ScalarIR, WorkflowIR } from '../ir';
 
 /**
- * The journey engine's data plane as a port. Everything the ingest router, the
- * runner and the fact source persist or look up goes through this interface,
- * so the storage engine is a deployment choice: D1 + KV (`D1JourneyStore`,
- * the original), Postgres (`PostgresJourneyStore`), or anything else that can
- * satisfy the contract below. Execution (durable steps, sleeps, wake-ups) is
- * the workflow runtime's job and stays out of here.
+ * The journey engine's data plane. Postgres is the store (`PostgresJourneyStore`); this
+ * interface is the port the host, the runner and the fact source use to persist or look
+ * anything up, and what a test stub implements in its place. Execution (durable steps,
+ * sleeps, wake-ups) is the workflow runtime's job and stays out of here.
  *
  * Timestamps are epoch milliseconds throughout; a store may persist them in
  * its native type as long as `sinceMs` comparisons behave.
@@ -38,8 +36,7 @@ export interface TriggerRoute {
   filter: ConditionIR | null;
   /**
    * The code version that applied these routes (`replaceRoutesIfNewer`); absent after a forced
-   * deploy, or on a store that keeps none. Read in the same row as the hash, so the pair is
-   * always one deploy's.
+   * deploy. Read in the same row as the hash, so the pair is always one deploy's.
    */
   version?: string | undefined;
 }
@@ -70,8 +67,7 @@ export interface EntryInput {
   ts: number;
   /**
    * The instance's start, recorded in the same transaction as the entry — for a runtime whose
-   * start is an asynchronous submit (AWS) that may have to be retried. Only a store with
-   * `executions` accepts it.
+   * start is an asynchronous submit (AWS) that may have to be retried.
    */
   execution?: ExecutionStart | undefined;
 }
@@ -220,8 +216,8 @@ export interface Engagement {
 
 /**
  * Journey reporting: where each instance stands, every copy and how it was engaged with, segment
- * sizes. A store that keeps it (Postgres) exposes it as `reporting`; the Worker then records it
- * and serves email tracking. Every write is idempotent — a retried step reports again.
+ * sizes. The store exposes it as `reporting`; the host records it and serves email tracking.
+ * Every write is idempotent — a retried step reports again.
  */
 /** Bounds on when an event happened, both inclusive (epoch ms); an absent side is open. */
 export interface EventWindow {
@@ -298,8 +294,8 @@ export interface JourneyReporting {
 }
 
 export interface JourneyStore {
-  /** Reporting, when the store keeps it (Postgres); D1 stores none. */
-  readonly reporting?: JourneyReporting;
+  /** Where instances stand, every copy and its engagement, segment sizes. */
+  readonly reporting: JourneyReporting;
 
   /**
    * Record that the user's data must go (a deleted account): the tombstone every write about
@@ -343,19 +339,19 @@ export interface JourneyStore {
    * same id is never reactivated by ingest. Suppressions stay too: an opt-out is a compliance
    * record keyed by an opaque id, and it outlives the erasure. Run only once no instance of
    * theirs runs any more, or one could write some of it back. Idempotent. Mutually exclusive
-   * with every write about the user (Postgres: the user's advisory lock; D1: one writer), so
+   * with every write about the user (the user's advisory lock), so
    * the data is gone when this returns — nothing of theirs lands afterwards.
    */
   forgetUser(userId: string, at: number): Promise<void>;
 
-  /** The user opted out of the channel (recorded by an unsubscribe); stores without reporting omit it. */
-  isSuppressed?(userId: string, channel: string): Promise<boolean>;
+  /** The user opted out of the channel (recorded by an unsubscribe). */
+  isSuppressed(userId: string, channel: string): Promise<boolean>;
 
   /**
    * What the live database lacks against the engine's tables (read-only); a deploy refuses to
-   * run while it lists anything. Stores whose schema the engine owns (D1) omit it.
+   * run while it lists anything.
    */
-  checkSchema?(): Promise<string[]>;
+  checkSchema(): Promise<string[]>;
 
   /* ---------------------------------- events --------------------------------- */
   /**
@@ -422,15 +418,15 @@ export interface JourneyStore {
   /**
    * The Worker version whose bundle the routes came from, when one put them there through
    * `replaceRoutesIfNewer` (a forced deploy leaves it as it was). Read from the database itself,
-   * not a cache in front of it. Stores without it (D1) leave every deploy to `POST /bundle/deploy`.
+   * not a cache in front of it.
    */
-  liveBundleVersion?(): Promise<BundleVersion | undefined>;
+  liveBundleVersion(): Promise<BundleVersion | undefined>;
   /**
    * `replaceRoutes`, only when `version` is newer than the live one, recorded in the same
    * transaction: two versions serving side by side during a rollout cannot leave the older one's
    * routes in force. False, with nothing written, when a version as new or newer is live.
    */
-  replaceRoutesIfNewer?(bundle: BundleIR, version: BundleVersion): Promise<boolean>;
+  replaceRoutesIfNewer(bundle: BundleIR, version: BundleVersion): Promise<boolean>;
 
   /* ----------------------------- segment membership --------------------------- */
   isSegmentMember(segment: string, userId: string): Promise<boolean>;
@@ -456,8 +452,8 @@ export interface JourneyStore {
   enterJourney(entry: EntryInput): Promise<EntryOutcome>;
   removeEntry(instanceId: string): Promise<void>;
   setEntryStatus(instanceId: string, status: string): Promise<void>;
-  /** Execution starts and wake callbacks, for a runtime that needs them (AWS); Postgres only. */
-  readonly executions?: ExecutionRegistry;
+  /** Execution starts and wake callbacks, for a runtime that submits its starts (AWS). */
+  readonly executions: ExecutionRegistry;
 
   /* ------------------------------ wake subscriptions --------------------------- */
   /** Distinct wake handles registered for (user, event). */
@@ -468,7 +464,6 @@ export interface JourneyStore {
   unsubscribe(handle: string): Promise<void>;
 }
 
-export { D1JourneyStore } from './d1';
 export { JourneyFactSource } from './facts';
 export { PostgresJourneyStore } from './postgres';
 export { PostgresReporting } from './postgres-reporting';

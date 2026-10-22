@@ -1,5 +1,4 @@
 import * as z from 'zod/mini';
-import { d1Store } from '../cloudflare/d1-env';
 import { type Contract, type ContractResult, checkEvent } from '../contract';
 import type { EmailRenderer } from '../email-sender';
 import type { BundleIR, ScalarIR } from '../ir';
@@ -185,7 +184,7 @@ const routes: readonly Route[] = [
     path: /^\/t\//,
     auth: 'none',
     async handle({ request, store, host }) {
-      if (host.tracking === undefined || store.reporting === undefined) return notFound();
+      if (host.tracking === undefined) return notFound();
       return (await handleTracking(request, store.reporting, host.tracking)) ?? notFound();
     },
   },
@@ -299,8 +298,7 @@ const routes: readonly Route[] = [
       const { userId, messageId } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
       if (!isNonEmptyString(messageId)) return json({ error: 'messageId required' }, 400);
-      const recorded =
-        store.reporting !== undefined && (await recordPushOpen(store.reporting, userId, messageId));
+      const recorded = await recordPushOpen(store.reporting, userId, messageId);
       return json({ ok: true, recorded });
     },
   },
@@ -480,7 +478,7 @@ export async function serve(request: Request, ctx: ServeContext): Promise<Respon
 export function handleRequest(
   request: Request,
   env: JourneyEnv,
-  store: JourneyStore = d1Store(env),
+  store: JourneyStore,
   validation: IngestValidation = {}
 ): Promise<Response> {
   return serve(request, { env, store, validation });

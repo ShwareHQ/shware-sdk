@@ -1,4 +1,3 @@
-import { d1Store } from '../cloudflare/d1-env';
 import { murmur3 } from '../engine/bucket';
 import {
   DEVICES_UPDATED_EVENT,
@@ -32,8 +31,7 @@ import {
  * wakes the waits on the properties it patched and re-evaluates segment triggers too. Plus
  * devices, erasure, the segment sweep and bundle deploys.
  *
- * Storage goes through a JourneyStore; the `store` argument defaults to the D1 store built from
- * the env's binding, so a Worker that only has that calls these functions as they are.
+ * Storage goes through a JourneyStore; every entry point takes the one the host opened.
  */
 
 /**
@@ -79,7 +77,7 @@ export interface IngestResult {
 export async function ingestEvent(
   env: JourneyEnv,
   input: IngestInput,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore
 ): Promise<IngestResult> {
   if (input.event.startsWith('$')) {
     throw new Error(`event name '${input.event}' is reserved ('$' prefix is internal)`);
@@ -404,7 +402,7 @@ export async function sweepSegments(
     if (!page.more || page.lastUserId === undefined) break;
     after = page.lastUserId;
   }
-  const sizes = (await store.reporting?.snapshotSegments(now)) ?? [];
+  const sizes = await store.reporting.snapshotSegments(now);
   return { users, started, sizes };
 }
 
@@ -488,7 +486,7 @@ export async function identifyUser(
   env: JourneyEnv,
   userId: string,
   props: ProfileProps,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore
 ): Promise<IdentifyResult> {
   await refuseIfErased(store, userId);
   const ts = Date.now();
@@ -521,7 +519,7 @@ export interface DeviceRegistration {
 export async function registerDevice(
   env: JourneyEnv,
   device: DeviceRegistration,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore
 ): Promise<{ ok: true; woke: number }> {
   await refuseIfErased(store, device.userId);
   const previous = await store.removeDevice(device.token);
@@ -616,7 +614,7 @@ async function eraseUser(
 export async function forgetUser(
   env: JourneyEnv,
   userId: string,
-  store: JourneyStore = d1Store(env),
+  store: JourneyStore,
   now = Date.now()
 ): Promise<{ ok: true; erased: boolean; pending: string[] }> {
   await store.requestErasure(userId, now);
@@ -631,7 +629,7 @@ export async function forgetUser(
 export async function unbindDevice(
   env: JourneyEnv,
   token: string,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore
 ): Promise<{ ok: true; woke: number }> {
   const owner = await store.unbindDevice(token);
   const woke =
@@ -643,7 +641,7 @@ export async function unbindDevice(
 export async function removeDevice(
   env: JourneyEnv,
   token: string,
-  store: JourneyStore = d1Store(env)
+  store: JourneyStore
 ): Promise<{ ok: true; woke: number }> {
   const owner = await store.removeDevice(token);
   const woke =
@@ -668,14 +666,6 @@ export interface DeployResult {
    * versioned one when a version as new or newer is already live (nothing was swapped).
    */
   applied: boolean;
-}
-
-/** A versioned deploy on a store that cannot tell which version is live (D1). */
-export class UnversionedStoreError extends Error {
-  override readonly name = 'UnversionedStoreError';
-  constructor() {
-    super('this store does not record which version is live: deploy with POST /bundle/deploy');
-  }
 }
 
 /** A bundle whose declared hashes do not describe its contents — rejected before anything is written. */
@@ -729,23 +719,20 @@ function verifyBundleHashes(parsed: BundleIR): void {
 export async function deployBundle(
   env: JourneyEnv,
   bundle: unknown,
-  store: JourneyStore = d1Store(env),
+  store: JourneyStore,
   version?: BundleVersion
 ): Promise<DeployResult> {
-  if (version !== undefined && store.replaceRoutesIfNewer === undefined) {
-    throw new UnversionedStoreError();
-  }
   const parsed = BundleIR.parse(bundle);
   // Before any write: a bad hash must not reach the store, where it would address content it does not describe
   verifyBundleHashes(parsed);
   // Nor a bundle the database cannot hold: the host migrates, the engine only checks
-  const problems = (await store.checkSchema?.()) ?? [];
+  const problems = await store.checkSchema();
   if (problems.length > 0) throw new SchemaMismatchError(problems);
 
   for (const workflow of parsed.workflows) await store.putWorkflowIR(workflow);
   let applied = true;
   if (version === undefined) await store.replaceRoutes(parsed);
-  else applied = (await store.replaceRoutesIfNewer?.(parsed, version)) ?? false;
+  else applied = await store.replaceRoutesIfNewer(parsed, version);
 
   const unrouted = parsed.workflows
     .filter((workflow) => workflow.trigger.type === 'date' || workflow.trigger.type === 'webhook')

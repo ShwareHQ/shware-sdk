@@ -19,7 +19,7 @@ export interface EvaluateOptions {
 
 /**
  * ConditionIR evaluation: pure logic, with facts injected through FactSource,
- * so the D1 implementation and the in-memory test one share a single set of
+ * so the store-backed implementation and the in-memory test one share a single set of
  * semantics and cannot drift into two evaluators.
  */
 export async function evaluateCondition(
@@ -34,7 +34,7 @@ export async function evaluateCondition(
 /**
  * `enclosing` is the chain of segment names currently being expanded. A
  * segment that reaches itself has no truth value to converge on, and left
- * unchecked the recursion runs until memory gives out, one D1 round trip per
+ * unchecked the recursion runs until memory gives out, one store round trip per
  * level — inside a step, so Workflows retries it and the instance never gets
  * out. Failing immediately keeps it bounded, and the message names the cycle
  * because only a deployed bundle can fix it. Only the *path* is tracked, so a
@@ -230,7 +230,7 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
   const found = new Set<string>();
   // Names already expanded. The result is a union, so re-walking a segment can
   // only add what is already there — and a segment that reaches itself would
-  // otherwise recurse until the stack blows, taking a D1 read per level.
+  // otherwise recurse until the stack blows, taking a store read per level.
   const expanded = new Set<string>();
   async function walk(c: ConditionIR): Promise<void> {
     switch (c.type) {

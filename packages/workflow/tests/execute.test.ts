@@ -1,4 +1,3 @@
-import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
@@ -8,8 +7,7 @@ import type { EngineStep, JourneyObserver, MessageSender } from '../src/engine/p
 import { executeJourney } from '../src/host/execute';
 import { LogMessageSender } from '../src/host/senders';
 import { action, defineConfig, emailTemplate, event, trigger, workflow } from '../src/index';
-import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
-import { renderPostgresDdl } from '../src/store/tables';
+import { type PgliteDatabase, pgliteDatabase } from './pglite';
 
 /**
  * executeJourney's start: the runner's admission against the user's erasure tombstone, read
@@ -17,19 +15,15 @@ import { renderPostgresDdl } from '../src/store/tables';
  * by the runtime, and one that keeps failing ends the instance through the failure path.
  */
 
-let pg: PGlite;
-const client = (db: { query: PGlite['query'] }): SqlClientLike => ({
-  query: async <T>(text: string, params: readonly unknown[] = []) =>
-    (await db.query<T>(text, [...params])).rows,
-  transaction: (fn) => fn(client(db)),
-});
+let database: PgliteDatabase;
+let pg: PgliteDatabase['pg'];
 
 beforeAll(async () => {
-  pg = await PGlite.create();
-  await pg.exec(renderPostgresDdl());
+  database = await pgliteDatabase();
+  pg = database.pg;
 }, 30_000);
 afterAll(async () => {
-  await pg.close();
+  await database.close();
 });
 
 const e = event<{ login: Record<string, never> }>();
@@ -91,7 +85,7 @@ function retryingStep(retries: number): EngineStep & { names: string[] } {
 
 async function setup(failures: number) {
   await pg.exec('TRUNCATE workflow.entry, workflow.ir, workflow.subscription');
-  const store = new PostgresJourneyStore(client(pg));
+  const store = database.store;
   const ir = irOf('w');
   await store.putWorkflowIR(ir);
   await store.enterJourney({
@@ -182,7 +176,7 @@ const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
  */
 async function admissionSetup(admitFailures: { count: number; error?: Error } = { count: 0 }) {
   await pg.exec('TRUNCATE workflow.entry, workflow.ir, workflow.subscription, workflow.erasure');
-  const plain = new PostgresJourneyStore(client(pg));
+  const plain = database.store;
   const ir = irOf('mail');
   await plain.putWorkflowIR(ir);
   await plain.enterJourney({
@@ -355,7 +349,7 @@ function checkpointedStep(
 async function finalizeSetup(workflowId: 'mail' | 'acted', options: { sendFails?: boolean } = {}) {
   await pg.exec('TRUNCATE workflow.entry, workflow.ir, workflow.subscription, workflow.erasure');
   acted.length = 0;
-  const plain = new PostgresJourneyStore(client(pg));
+  const plain = database.store;
   const ir = irOf(workflowId);
   await plain.putWorkflowIR(ir);
   await plain.enterJourney({

@@ -8,12 +8,10 @@ import { compileConfig } from '../src/config';
 import { longestJourneyMs } from '../src/engine/duration';
 import { isRetryable } from '../src/engine/retry';
 import { defineConfig, emailTemplate, event, performed, trigger, workflow } from '../src/index';
-import { D1JourneyStore } from '../src/store/d1';
 import { PostgresJourneyStore } from '../src/store/postgres';
 import { TemplateValidationError } from '../src/templates';
 import { CloudflareEmailError } from '../src/transports/cloudflare-email';
 import { SesSendError } from '../src/transports/ses';
-import { FakeD1 } from './fake-cloudflare';
 
 /**
  * Leftovers of the AWS review: a host that would email with no transport fails when it is
@@ -33,7 +31,10 @@ const hi = emailTemplate({
 });
 
 describe('a host without an email transport', () => {
-  const store = () => new D1JourneyStore(new FakeD1());
+  /** These hosts are created, never served: the store is never opened. */
+  const store = () => {
+    throw new Error('never opened');
+  };
 
   test('fails when created if a workflow sends email, naming the workflows', () => {
     const config = defineConfig({
