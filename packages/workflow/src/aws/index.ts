@@ -348,6 +348,8 @@ export { AwsEngineStep, stepRetry } from './engine-step';
 export { AwsInstances, RUN_EVENT_TYPE, executionName, isRunInput } from './instances';
 export type { AwsInstancesOptions, RunInput } from './instances';
 export { sdkLambdaApi } from './lambda-api';
+export { bearerMatches, timingSafeEqual } from '../host/auth';
+export type { Authorize } from '../host/auth';
 export type { ExecutionState, LambdaApi } from './lambda-api';
 export { fromResponse, isFunctionUrlEvent, toRequest } from './function-url';
 export type { FunctionUrlEvent, FunctionUrlResult } from './function-url';

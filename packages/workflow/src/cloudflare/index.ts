@@ -25,7 +25,8 @@ export {
 } from '../host/ingest';
 export { handleRequest } from '../host/http';
 export type { IngestValidation } from '../host/http';
-export { authorized, bearerMatches } from '../host/auth';
+export { authorized, bearerMatches, timingSafeEqual } from '../host/auth';
+export type { Authorize } from '../host/auth';
 export type {
   DeployResult,
   DeviceRegistration,

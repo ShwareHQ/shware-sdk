@@ -18,6 +18,7 @@ import type { JourneyRuntimeOptions } from '../runtime';
 import type { BundleVersion, JourneyStore, StoreLease } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
 import { indexTemplates, registryValidator } from '../templates';
+import type { Authorize } from './auth';
 import { channelsFromConfig, createProviderCache, runtimeFromConfig } from './channels';
 import type { JourneyRunParts } from './execute';
 import { serve } from './http';
@@ -80,6 +81,17 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
   env?: core.$ZodType<object>;
   /** 'enforce' (default) answers an event or patch the contract refuses with a 400; 'report' only logs it. */
   contractMode?: 'enforce' | 'report';
+  /**
+   * Who may call the API routes, in whatever form the host chooses: an HMAC over the body, a
+   * JWT, a header its proxy adds. Receives a copy of the request and the env; true lets it
+   * through, false answers 401, a throw answers 500. The tracking routes and `/health` stay
+   * public. Without it, the env's `API_TOKEN` as a bearer (`bearerMatches`), which production
+   * then requires.
+   *
+   *   authorize: async (request, env) =>
+   *     timingSafeEqual(request.headers.get('x-signature') ?? '', await hmac(env.SECRET, await request.text()))
+   */
+  authorize?: Authorize<Env>;
 }
 
 /** The host's environment failed its schema (`env` option). */
@@ -268,6 +280,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
       env,
       store,
       validation: { contract: config.contract, mode: options.contractMode },
+      authorize: options.authorize as Authorize<JourneyEnv> | undefined,
       host: {
         bundle,
         preview:

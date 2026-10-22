@@ -11,7 +11,7 @@ import {
   UserErasedError,
 } from '../store/index';
 import { TemplateValidationError } from '../templates';
-import { authorized } from './auth';
+import { type Authorize, authorized } from './auth';
 import { journeyMode } from './channels';
 import {
   BundleIntegrityError,
@@ -62,9 +62,12 @@ export interface ServeContext {
   validation?: IngestValidation | undefined;
   /**
    * The host's parts. Their presence is what makes this a deployed host rather than the bare
-   * API: production then refuses to serve without `API_TOKEN`.
+   * API: production then refuses to serve without `API_TOKEN` — unless the host authorizes
+   * callers itself (`authorize`).
    */
   host?: HostParts | undefined;
+  /** The host's own authorization for the API routes; the env's `API_TOKEN` bearer without one. */
+  authorize?: Authorize<JourneyEnv> | undefined;
 }
 
 interface RouteContext {
@@ -80,7 +83,8 @@ interface Route {
   /** '*' takes every method (the tracking routes answer GET, HEAD and POST themselves). */
   method: 'GET' | 'POST' | '*';
   path: string | RegExp | ((pathname: string) => boolean);
-  auth: 'none' | 'bearer';
+  /** `api`: the caller must be authorized (the host's `authorize`, or the bearer); `none`: public. */
+  auth: 'none' | 'api';
   handle(ctx: RouteContext): Promise<Response>;
 }
 
@@ -188,7 +192,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/events',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store, validation }) {
       const { id, userId, event, payload, ts } = await readBody(request);
       if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
@@ -224,7 +228,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/identify',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store, validation }) {
       const { userId, props } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
@@ -254,7 +258,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/devices',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store }) {
       const { userId, token, platform, ts } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
@@ -270,7 +274,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/devices/unbind',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store }) {
       const { token } = await readBody(request);
       if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
@@ -280,7 +284,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/devices/remove',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store }) {
       const { token } = await readBody(request);
       if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
@@ -290,7 +294,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/messages/opened',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, store }) {
       const { userId, messageId } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
@@ -303,7 +307,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/users/forget',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store }) {
       const { userId } = await readBody(request);
       if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
@@ -313,7 +317,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/deploy',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ request, env, store }) {
       return json(await deployBundle(env, await readJson(request), store));
     },
@@ -321,7 +325,7 @@ const routes: readonly Route[] = [
   {
     method: 'GET',
     path: '/bundle',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ host }) {
       return host.bundle === undefined ? notFound() : json(host.bundle());
     },
@@ -329,7 +333,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/bundle/deploy',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ env, store, host }) {
       if (host.bundle === undefined) return notFound();
       return json(await deployBundle(env, host.bundle(), store));
@@ -338,7 +342,7 @@ const routes: readonly Route[] = [
   {
     method: 'POST',
     path: '/segments/sweep',
-    auth: 'bearer',
+    auth: 'api',
     async handle({ host }) {
       return host.sweep === undefined ? notFound() : json(await host.sweep());
     },
@@ -346,7 +350,7 @@ const routes: readonly Route[] = [
   {
     method: 'GET',
     path: /^\/preview\//,
-    auth: 'bearer',
+    auth: 'api',
     async handle({ url, host }) {
       const { preview } = host;
       if (preview === undefined) return notFound();
@@ -380,16 +384,28 @@ function matches(path: Route['path'], pathname: string): boolean {
 }
 
 /**
- * Production without a bearer token is not an open instance, it is a mistake: anyone could
- * ingest, identify and deploy. Only what recipients open (`/t/*`) and the health check stay up.
+ * Production without a bearer token (and no authorizer of the host's own) is not an open
+ * instance, it is a mistake: anyone could ingest, identify and deploy. Only what recipients open
+ * (`/t/*`) and the health check stay up.
  */
-function refusesOpen(request: Request, env: JourneyEnv, pathname: string): boolean {
+function refusesOpen(request: Request, ctx: ServeContext, pathname: string): boolean {
   return (
-    env.API_TOKEN === undefined &&
-    journeyMode(env) === 'production' &&
+    ctx.authorize === undefined &&
+    ctx.env.API_TOKEN === undefined &&
+    journeyMode(ctx.env) === 'production' &&
     !pathname.startsWith('/t/') &&
     !(request.method === 'GET' && pathname === '/health')
   );
+}
+
+/**
+ * Whether the caller may use an API route: the host's authorizer on a copy of the request (so a
+ * body it verifies is still there for the route), or the env's `API_TOKEN` as a bearer. An
+ * authorizer that throws is a failure, never an admission.
+ */
+async function allowed(request: Request, ctx: ServeContext): Promise<boolean> {
+  if (ctx.authorize === undefined) return authorized(request, ctx.env);
+  return ctx.authorize(request.clone(), ctx.env);
 }
 
 /**
@@ -420,7 +436,7 @@ function failure(error: unknown): Response {
 /** One request through the table: the production gate, the bearer, the route, the error mapping. */
 export async function serve(request: Request, ctx: ServeContext): Promise<Response> {
   const url = new URL(request.url);
-  if (ctx.host !== undefined && refusesOpen(request, ctx.env, url.pathname)) {
+  if (ctx.host !== undefined && refusesOpen(request, ctx, url.pathname)) {
     return json(
       {
         error:
@@ -431,10 +447,18 @@ export async function serve(request: Request, ctx: ServeContext): Promise<Respon
   }
   const candidates = routes.filter((route) => matches(route.path, url.pathname));
   if (candidates.length === 0) return notFound();
-  // Bearer auth on everything but the health check and the recipients' routes. An unset token
-  // means an open dev instance (see JourneyEnv.API_TOKEN); production refuses to run that way
-  if (candidates.some((route) => route.auth === 'bearer') && !authorized(request, ctx.env)) {
-    return json({ error: 'unauthorized' }, 401);
+  // Every API route asks the authorizer; the health check and the recipients' routes never do.
+  // An unset token and no authorizer means an open dev instance (see JourneyEnv.API_TOKEN);
+  // production refuses to run that way
+  if (candidates.some((route) => route.auth === 'api')) {
+    let ok: boolean;
+    try {
+      ok = await allowed(request, ctx);
+    } catch (error) {
+      console.error('[workflow http] authorize failed', error);
+      return json({ error: 'internal error' }, 500);
+    }
+    if (!ok) return json({ error: 'unauthorized' }, 401);
   }
   const route = candidates.find((r) => r.method === '*' || r.method === request.method);
   if (route === undefined) return json({ error: 'method not allowed' }, 405);
