@@ -321,12 +321,15 @@ Every failure of the callback lands on `errorUri` — never a raw JSON error in 
 - the provider's own error (`access_denied` means the user declined; also `invalid_scope`,
   `server_error`, …), with its `error_description` (unregistered codes become `server_error`);
 - a failed validation (`invalid_request`: missing session, state or provider mismatch);
-- an `OAuth2Error` thrown while exchanging the code or loading the user info (e.g. `invalid_grant`
-  for an expired or reused code), with its message as `error_description`;
+- an `OAuth2Error` thrown while exchanging the code or loading the user info, logged with
+  `console.warn` and reported by code only: `invalid_grant` (an expired or reused code),
+  `access_denied` or `temporarily_unavailable` as is, any other as `server_error`. Its message
+  stays in the logs, since it can name a client id or quote a provider's response;
 - anything else thrown by the exchange, `onAuthorized` or the session store, as `server_error`
   (logged with `console.error`).
 
-`error_description` is capped at 256 characters.
+`error_description` is capped at 256 characters. Show users a message per `error` code, never the
+description: it is the provider's technical text, and a forged callback can set it to anything.
 
 #### Carrying data to `onAuthorized` (`attributes`)
 
