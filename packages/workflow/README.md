@@ -1048,7 +1048,9 @@ that version serves its first request, whatever share of traffic it has.
 
 `wrangler rollback` restores an older version, which does not apply itself over
 the newer one. Call `POST /bundle/deploy` after a rollback: it applies the
-running version's bundle whatever is live.
+running version's bundle whatever is live, and records that version as the live
+one — so a newer version that serves again later puts its own bundle back, as a
+deploy always does.
 
 On Postgres the engine also keeps:
 
@@ -1126,6 +1128,14 @@ it, which also makes the check atomic under concurrent ingests. The one
 exception is an entry whose instance died: that row records a failure, not a
 journey the user received, so the next trigger reclaims it. Re-entry beyond that
 is a design question this package does not yet answer.
+
+The entry commits before the platform creates the instance, so a host cut off
+between the two leaves an entry with nothing behind it. Two things repair it: a
+retry of the same event (same `id` and `ts`) creates the missing instance — the
+instance id is the platform's identity too, so a second create is harmless — and
+the sweep's maintenance marks an entry left unadmitted for 15 minutes, whose
+instance the runtime does not know, as failed, so the user's next trigger
+re-enters. Neither can start a second journey for the pair.
 
 ## Exports
 

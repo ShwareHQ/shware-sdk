@@ -112,7 +112,7 @@ export function journeyWorker<Env extends JourneyEnv>(
     }
     const { store, close } = host.lease(env);
     try {
-      return await host.handle(request, env, store);
+      return await host.handle(request, env, store, ownVersion(env));
     } finally {
       // After the response when the runtime offers waitUntil, inline otherwise (tests).
       if (ctx === undefined) await close();

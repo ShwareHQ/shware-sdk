@@ -83,11 +83,25 @@ describe('EmailSender over the Cloudflare binding', () => {
     expect(delivered.size).toBe(1);
   });
 
-  test('a missing recipient fails the step instead of sending nowhere', async () => {
+  test('a missing recipient settles the copy undelivered instead of failing the journey', async () => {
     const { binding, calls } = fakeBinding();
     const sender = new CfEmailSender({ binding, render });
 
-    await expect(sender.send({ ...message, recipient: undefined })).rejects.toThrow(/no recipient/);
+    await expect(sender.send({ ...message, recipient: undefined })).resolves.toEqual({
+      delivered: false,
+      reason: 'no_recipient',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test('a malformed recipient settles undelivered before the provider can reject it', async () => {
+    const { binding, calls } = fakeBinding();
+    const sender = new CfEmailSender({ binding, render });
+
+    await expect(sender.send({ ...message, recipient: 'not an address' })).resolves.toEqual({
+      delivered: false,
+      reason: 'invalid_recipient',
+    });
     expect(calls).toEqual([]);
   });
 });

@@ -35,8 +35,8 @@ export interface TriggerRoute {
   /** Profile gate, or null. */
   filter: ConditionIR | null;
   /**
-   * The code version that applied these routes (`replaceRoutesIfNewer`); absent after a forced
-   * deploy. Read in the same row as the hash, so the pair is always one deploy's.
+   * The code version that applied these routes; absent after a hand-posted `POST /deploy`. Read
+   * in the same row as the hash, so the pair is always one deploy's.
    */
   version?: string | undefined;
 }
@@ -155,6 +155,22 @@ export interface RunningInstance {
   admitted: boolean;
 }
 
+/** One (workflow, user) entry: the attempt it records and how far that attempt got. */
+export interface EntryState {
+  instanceId: string;
+  /** 'running' until the run finalizes it ('completed', 'goal', 'failed', …). */
+  status: string;
+  /** The runner admitted itself (`admitInstance`): the instance did reach the runtime. */
+  admitted: boolean;
+}
+
+/** An entry still waiting for its first admission (`unadmittedEntries`). */
+export interface UnadmittedEntry {
+  instanceId: string;
+  workflow: string;
+  userId: string;
+}
+
 /** A store plus how to release what opening it acquired (a connection, say). */
 export interface StoreLease {
   store: JourneyStore;
@@ -225,6 +241,16 @@ export interface EventWindow {
   untilMs?: number;
 }
 
+/**
+ * Where a page of events ended: the last row's timestamp and id, the keyset `(ts, id)` the next
+ * page starts after. Opaque to callers; `ts` is the store's own rendering of the timestamp, so a
+ * round trip loses no precision.
+ */
+export interface EventCursor {
+  ts: string;
+  id: string;
+}
+
 export interface JourneyReporting {
   /** The instance entered: its row exists from here, so one a guard ends at once still counts. */
   instanceStarted(input: {
@@ -250,6 +276,11 @@ export interface JourneyReporting {
   }): Promise<void>;
   /** The copy's row id; the row a retry already wrote, when there is one. */
   recordMessage(message: MessageRecord): Promise<string>;
+  /**
+   * Whether the copy was settled (`settleMessage`: delivered, or settled undelivered) — read from
+   * the database itself, so a replayed send step never trusts a cache that missed the settle.
+   */
+  messageSettled(idempotencyKey: string): Promise<boolean>;
   settleMessage(
     idempotencyKey: string,
     result: { delivered: true } | { delivered: false; reason: string },
@@ -359,14 +390,29 @@ export interface JourneyStore {
    * `UserErasedError` for a user with a tombstone, like every write about a user below.
    */
   insertEvent(input: EventInput): Promise<boolean>;
-  /** Occurrences of `event` for the user, optionally only those within the window. */
-  countEvents(userId: string, event: string, window?: EventWindow): Promise<number>;
-  /** The payloads of those occurrences — the caller filters them with the shared evaluator. */
-  listEventPayloads(
+  /**
+   * Occurrences of `event` for the user, optionally only those within the window. With
+   * `atLeast`, counting may stop there: the result is exact below it and some number ≥ it
+   * otherwise — all a `performed(…, { count })` check needs, without counting a heavy user's
+   * whole history.
+   */
+  countEvents(
     userId: string,
     event: string,
-    window?: EventWindow
-  ): Promise<Record<string, unknown>[]>;
+    window?: EventWindow,
+    atLeast?: number
+  ): Promise<number>;
+  /**
+   * One page of those occurrences' payloads, oldest first — the caller filters them with the
+   * shared evaluator and pages on with `next` only while it still needs matches, so a `where`
+   * never loads a user's whole history at once. `next` is absent on the last page.
+   */
+  pageEventPayloads(
+    userId: string,
+    event: string,
+    window: EventWindow | undefined,
+    page: { limit: number; after?: EventCursor | undefined }
+  ): Promise<{ payloads: Record<string, unknown>[]; next?: EventCursor | undefined }>;
 
   /* --------------------------------- profiles -------------------------------- */
   getProfile(userId: string): Promise<ProfileProps | undefined>;
@@ -413,12 +459,17 @@ export interface JourneyStore {
    * the bundle's — atomically, so a concurrent ingest never sees them half
    * empty. Workflow bodies are stored separately (`putWorkflowIR`) because they
    * are content-addressed and outlive the routes that point at them.
+   *
+   * With `version` — a forced apply of the code's own bundle (`POST /bundle/deploy`) — the
+   * version is recorded too, unconditionally and in the same transaction, so the live version
+   * always names the code the routes came from. Without it (a hand-posted `POST /deploy`) the
+   * recorded version stays as it was: that bundle holds until a newer code version applies its own.
    */
-  replaceRoutes(bundle: BundleIR): Promise<void>;
+  replaceRoutes(bundle: BundleIR, version?: BundleVersion): Promise<void>;
   /**
-   * The Worker version whose bundle the routes came from, when one put them there through
-   * `replaceRoutesIfNewer` (a forced deploy leaves it as it was). Read from the database itself,
-   * not a cache in front of it.
+   * The Worker version whose bundle the routes came from, when one put them there (through
+   * `replaceRoutesIfNewer`, or a forced `replaceRoutes` with a version). Read from the database
+   * itself, not a cache in front of it.
    */
   liveBundleVersion(): Promise<BundleVersion | undefined>;
   /**
@@ -452,6 +503,18 @@ export interface JourneyStore {
   enterJourney(entry: EntryInput): Promise<EntryOutcome>;
   removeEntry(instanceId: string): Promise<void>;
   setEntryStatus(instanceId: string, status: string): Promise<void>;
+  /** The (workflow, user) entry as it stands, read from the database itself; undefined if none. */
+  getEntry(workflow: string, userId: string): Promise<EntryState | undefined>;
+  /**
+   * Running entries no runner has admitted, claimed before `claimedBefore` (epoch ms), oldest
+   * first: candidates for a start that was lost between the claim and the platform's create.
+   */
+  unadmittedEntries(claimedBefore: number, limit: number): Promise<UnadmittedEntry[]>;
+  /**
+   * Mark a lost start `failed`, so the pair's next trigger reclaims it. Only while the entry is
+   * still running and unadmitted under this instance id; false when it moved on meanwhile.
+   */
+  failUnadmittedEntry(instanceId: string): Promise<boolean>;
   /** Execution starts and wake callbacks, for a runtime that submits its starts (AWS). */
   readonly executions: ExecutionRegistry;
 

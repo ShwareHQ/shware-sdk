@@ -244,8 +244,9 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
             method
           );
         }
-        await host.applyOwnBundle(env, bundleVersion());
-        return await fromResponse(await host.handle(request, env, store), method);
+        const version = bundleVersion();
+        await host.applyOwnBundle(env, version);
+        return await fromResponse(await host.handle(request, env, store, version), method);
       } catch (error) {
         console.error('[workflow] request failed', error);
         return fromResponse(json({ error: 'internal error' }, 500), method);
