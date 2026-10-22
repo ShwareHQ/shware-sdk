@@ -12,7 +12,7 @@ signatures and calling store APIs stays in your app, with the official SDKs.
 ```sh
 pnpm add @shware/purchase zod
 # optional peers, only for the subpaths you use
-pnpm add stripe                            # @shware/purchase/stripe (^22.6.2 || ^23.0.0)
+pnpm add stripe                            # @shware/purchase/stripe (^23.0.0)
 pnpm add @apple/app-store-server-library   # @shware/purchase/app-store (^3.1.0)
 ```
 
@@ -131,14 +131,24 @@ so existing subscribers keep resolving.
 
 ### Webhooks
 
-Verify the signature with the Stripe SDK, then dispatch with `StripeEventHandler`. `on` is typed
-per event, so each handler receives the right `event.data.object`; `process` throws for an event
-type with no handler.
+`StripeEventHandler` dispatches Stripe [thin events](https://docs.stripe.com/events/how-events-work#event-formats).
+A thin event only says which object changed (`type`, `id`, `created`, `reason`, `related_object`),
+so each handler reads current state from Stripe with `notification.fetchRelatedObject()` (or the
+full event with `fetchEvent()`). The SDK never pre-fetches: some handlers only need
+`related_object.id`. `on` is keyed by thin event type (`v1.customer.subscription.updated`, ...) and
+each handler receives that type's notification, so `fetchRelatedObject()` resolves to the right
+Stripe object. Every handler registered for a type runs; `process` throws for a type with no
+handler. Delivery order carries no meaning: re-read state instead of applying payloads in order,
+and dedupe one-off facts (credits, payments, refunds) with idempotency keys.
+
+Create the event destination with the thin payload style and the `v1.*` types you handle. A
+Cloudflare Workers route with Hono (`parseEventNotificationAsync` uses Web Crypto there):
 
 ```ts
 import {
   METADATA_KEYS,
   StripeEventHandler,
+  type StripeEventNotificationOf,
   mapCancellationDetails,
   mapSubscriptionStatus,
   mapTime,
@@ -147,23 +157,31 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
-export async function processStripeEvent(signature: string, body: string) {
-  const event = await stripe.webhooks.constructEventAsync(
-    body,
-    signature,
+const handler = StripeEventHandler.create()
+  .on('v1.checkout.session.completed', handleCheckoutSessionCompleted)
+  .on('v1.invoice.paid', handleInvoicePaid)
+  .on('v1.customer.subscription.created', handleSubscriptionEvent)
+  .on('v1.customer.subscription.updated', handleSubscriptionEvent)
+  .on('v1.customer.subscription.deleted', handleSubscriptionEvent);
+
+app.post('/webhooks/stripe', async (c) => {
+  const notification = await stripe.parseEventNotificationAsync(
+    await c.req.text(),
+    c.req.header('stripe-signature') ?? '',
     env.STRIPE_WEBHOOK_SECRET
   );
+  await handler.process(notification);
+  return c.body(null, 204);
+});
 
-  await StripeEventHandler.create()
-    .on('checkout.session.completed', handleCheckoutSessionCompleted)
-    .on('invoice.payment_succeeded', handleInvoicePaymentSucceeded)
-    .on('customer.subscription.created', handleSubscriptionEvent)
-    .on('customer.subscription.updated', handleSubscriptionEvent)
-    .on('customer.subscription.deleted', handleSubscriptionEvent)
-    .process(event);
-}
-
-async function handleSubscriptionEvent(sub: Stripe.Subscription) {
+async function handleSubscriptionEvent(
+  notification: StripeEventNotificationOf<
+    | 'v1.customer.subscription.created'
+    | 'v1.customer.subscription.updated'
+    | 'v1.customer.subscription.deleted'
+  >
+) {
+  const sub = await notification.fetchRelatedObject(); // Stripe.Subscription, current state
   const userId = sub.metadata[METADATA_KEYS.USER_ID];
   const productId = sub.metadata[METADATA_KEYS.PRODUCT_ID];
   await saveSubscription({
@@ -177,6 +195,20 @@ async function handleSubscriptionEvent(sub: Stripe.Subscription) {
   });
 }
 ```
+
+#### Migrating from snapshot events (6.x)
+
+- Switch the webhook endpoint (event destination) to the thin payload style; snapshot payloads
+  are rejected by `parseEventNotificationAsync`.
+- Replace `stripe.webhooks.constructEventAsync(...)` with `stripe.parseEventNotificationAsync(...)`
+  and pass the notification to `process`.
+- Prefix every `on` type with `v1.` (`invoice.paid` becomes `v1.invoice.paid`).
+- Handlers receive the notification instead of `event.data.object`: call
+  `await notification.fetchRelatedObject()` for the object, or use `notification.related_object.id`
+  when the id is enough. The fetched object is the current state, not the state when the event
+  fired, so handlers must not depend on delivery order.
+- The mappers (`mapSubscriptionStatus`, `mapInvoice`, `mapCancellationDetails`, ...) are unchanged
+  and take the fetched objects.
 
 ### Checkout
 
