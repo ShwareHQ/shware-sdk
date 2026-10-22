@@ -84,15 +84,15 @@ function postJson(path: string, body: unknown) {
   });
 }
 
-function send(auth: Auth) {
+function send(auth: Auth, email = EMAIL) {
   return auth.sendEmailVerificationCode(
-    postJson('/auth/sendEmailVerificationCode', { email: EMAIL, turnstileToken: 'token' }),
+    postJson('/auth/sendEmailVerificationCode', { email, turnstileToken: 'token' }),
     sender
   );
 }
 
-function login(auth: Auth, verificationCode: string) {
-  return auth.loginEmail(postJson('/login/email', { email: EMAIL, verificationCode }), handler);
+function login(auth: Auth, verificationCode: string, email = EMAIL) {
+  return auth.loginEmail(postJson('/login/email', { email, verificationCode }), handler);
 }
 
 async function reason(response: Response) {
@@ -276,4 +276,75 @@ describe('email verification code resend cooldown', () => {
     expect(kv.store.has(COOLDOWN_KEY)).toBe(false);
     expect(sender).not.toHaveBeenCalled();
   });
+});
+
+describe('email address normalization', () => {
+  it('sends to and stores under the trimmed, lowercased address', async () => {
+    const auth = createAuth();
+
+    expect((await send(auth, '  User@Example.COM \n')).status).toBe(200);
+
+    expect(sender).toHaveBeenCalledWith({ email: EMAIL, verificationCode: sentCode() });
+    expect(kv.store.get(CODE_KEY)?.value).toBe(sentCode());
+    expect(kv.store.has(COOLDOWN_KEY)).toBe(true);
+    expect([...kv.store.keys()].every((key) => key.endsWith(EMAIL))).toBe(true);
+  });
+
+  it('logs in with another casing of the address, presenting lowercase claims', async () => {
+    const auth = createAuth();
+    await send(auth, 'User@Example.com');
+
+    const response = await login(auth, sentCode(), ' USER@EXAMPLE.COM ');
+
+    expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler.mock.calls[0]?.[1].userInfo.claims).toEqual({
+      sub: EMAIL,
+      email: EMAIL,
+      email_verified: true,
+    });
+  });
+
+  it('shares the resend cooldown across casings', async () => {
+    const auth = createAuth();
+    expect((await send(auth, 'user@example.com')).status).toBe(200);
+
+    const response = await send(auth, 'USER@example.com');
+
+    expect(response.status).toBe(429);
+    expect(await reason(response)).toBe('VERIFICATION_CODE_RESEND_TOO_SOON');
+    expect(sender).toHaveBeenCalledOnce();
+  });
+
+  it('shares the attempt budget across casings', async () => {
+    const auth = createAuth();
+    await send(auth);
+    const code = sentCode();
+    const casings = [
+      'USER@EXAMPLE.COM',
+      'User@Example.com',
+      'user@EXAMPLE.com',
+      'uSeR@example.COM',
+    ];
+    for (const email of casings) await login(auth, wrong(code), email);
+    expect(kv.store.get(ATTEMPTS_KEY)?.value).toBe('4');
+    await login(auth, wrong(code), 'USER@example.com');
+
+    const response = await login(auth, code, 'User@EXAMPLE.com');
+
+    expect(await reason(response)).toBe('VERIFICATION_CODE_ATTEMPTS_EXCEEDED');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each(['not-an-email', ' ', 'user@', 'us er@example.com', `${'a'.repeat(310)}@example.com`])(
+    'still rejects %j',
+    async (email) => {
+      const auth = createAuth();
+
+      expect((await send(auth, email)).status).toBe(400);
+      expect((await login(auth, '123456', email)).status).toBe(400);
+      expect(sender).not.toHaveBeenCalled();
+      expect(kv.store.size).toBe(0);
+    }
+  );
 });
