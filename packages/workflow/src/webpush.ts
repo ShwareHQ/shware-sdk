@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { MessageSender, OutboundMessage, SendResult } from './engine';
 import { PermanentError, isRetryableStatus } from './engine/retry';
 import { base64url } from './jwt';
@@ -85,35 +86,17 @@ const encoder = new TextEncoder();
 const utf8 = (text: string): Bytes => encoder.encode(text);
 
 export function fromBase64url(text: string): Bytes {
-  const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new Uint8Array(Buffer.from(text, 'base64url'));
 }
 
-function concat(...parts: Uint8Array[]): Bytes {
-  const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
+const concat = (...parts: Uint8Array[]): Bytes => new Uint8Array(Buffer.concat(parts));
 
-async function hmac(key: Bytes, data: Bytes): Promise<Bytes> {
-  const imported = await crypto.subtle.importKey(
-    'raw',
-    key,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  return new Uint8Array(await crypto.subtle.sign('HMAC', imported, data));
-}
-
-/** HKDF-SHA256 with a single output block (every length here is ≤ 32 bytes). */
+/** HKDF-SHA256 (RFC 5869), as WebCrypto provides it. */
 async function hkdf(salt: Bytes, ikm: Bytes, info: Bytes, length: number): Promise<Bytes> {
-  const prk = await hmac(salt, ikm);
-  return (await hmac(prk, concat(info, new Uint8Array([1])))).slice(0, length);
+  const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  return new Uint8Array(
+    await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, length * 8)
+  );
 }
 
 /**

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { MessageSender, OutboundMessage, SendResult } from './engine';
 import { PermanentError, isRetryableStatus } from './engine/retry';
 import { base64url, pemToDer } from './jwt';
@@ -253,7 +254,7 @@ export async function signJwt(
 export function serviceAccountFromBase64(value: string): FcmServiceAccount {
   let json: Partial<FcmServiceAccount>;
   try {
-    json = JSON.parse(atob(value)) as Partial<FcmServiceAccount>;
+    json = JSON.parse(Buffer.from(value, 'base64').toString()) as Partial<FcmServiceAccount>;
   } catch (error) {
     // A secret that is not base64 JSON is the same on every attempt: not worth a retry
     throw new PermanentError('service account is not base64-encoded JSON', { cause: error });
