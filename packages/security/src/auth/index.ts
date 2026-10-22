@@ -3,7 +3,7 @@ import { invariant } from '@shware/utils';
 import type { Principal } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
-import type { OAuth2ErrorType } from '../oauth2/error';
+import { OAuth2Error, type OAuth2ErrorType, isKnownOAuth2ErrorType } from '../oauth2/error';
 import type {
   NativeCredential,
   OAuth2AuthorizationRequest,
@@ -37,6 +37,15 @@ import type {
 // the rest shrinks the accepted input shape without losing legit clients.
 // A 32-byte random verifier base64url-encodes to exactly 43 chars.
 const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
+
+// error_description forwarded to errorUri comes from the provider or an error message: cap it so
+// the redirect URL stays short and an attacker-crafted callback cannot stuff the page with text.
+const MAX_ERROR_DESCRIPTION_LENGTH = 256;
+
+/** An error code safe to put on errorUri: a registered one as is, anything else as `fallback`. */
+function safeErrorType(error: string, fallback: OAuth2ErrorType): OAuth2ErrorType {
+  return isKnownOAuth2ErrorType(error) ? error : fallback;
+}
 
 function authorizationAttributes(
   attributes: OAuth2AuthorizationOptions['attributes']
@@ -308,7 +317,9 @@ export class Auth implements AuthService {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const uri = new URL(this.oauth2Client.errorUri);
     uri.searchParams.set('error', error);
-    if (description) uri.searchParams.set('error_description', description);
+    if (description) {
+      uri.searchParams.set('error_description', description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH));
+    }
     return Response.redirect(uri.href, 302);
   };
 
@@ -346,6 +357,21 @@ export class Auth implements AuthService {
     if (!parsed.success) {
       return this.redirect('invalid_request', 'invalid redirect query');
     }
+    // The provider answered with an error instead of a code (the user pressed Cancel →
+    // access_denied, invalid_scope, server_error, ...). Forward it rather than reporting a
+    // malformed query. This runs before the state check on purpose: providers echo state on
+    // error responses, but not all reliably do, and a forged error callback can only make the
+    // victim's popup show an error — nothing is exchanged or signed in. A present state that does
+    // not match still wins, since that is the more accurate (and more alarming) diagnosis.
+    if (parsed.data.error) {
+      if (parsed.data.state && parsed.data.state !== cached.state) {
+        return this.redirect('invalid_request', 'redirect state mismatch');
+      }
+      return this.redirect(
+        safeErrorType(parsed.data.error, 'server_error'),
+        parsed.data.error_description
+      );
+    }
     if (!parsed.data.code || !parsed.data.state) {
       return this.redirect('invalid_request', 'invalid redirect query');
     }
@@ -360,36 +386,47 @@ export class Auth implements AuthService {
     // 4. exchange authorization code for token and get user info
     const { code, user } = parsed.data;
 
-    const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
-      provider,
-      code,
-      pkce: cached.additionalParameters,
-    });
-    // Apple posts the user's name alongside the code, once: hand it to the provider with the token.
-    const userInfo = await this.oauth2Client.getUserInfo({
-      provider,
-      clientId,
-      token,
-      response: user ? { user } : undefined,
-    });
-    mark('exchange_code');
+    // Everything past validation can fail (an expired or reused code, a network error, the host's
+    // handler or session store). The callback runs in a popup the user is looking at, so every
+    // failure must land on errorUri instead of surfacing as a raw JSON error response.
+    try {
+      const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
+        provider,
+        code,
+        pkce: cached.additionalParameters,
+      });
+      // Apple posts the user's name alongside the code, once: hand it to the provider with the token.
+      const userInfo = await this.oauth2Client.getUserInfo({
+        provider,
+        clientId,
+        token,
+        response: user ? { user } : undefined,
+      });
+      mark('exchange_code');
 
-    // 5. create or update principal, with what the host attached when the flow started
-    const principal = await handler(request, {
-      provider,
-      clientId,
-      userInfo,
-      token,
-      attributes: cached.attributes ?? {},
-    });
-    mark('save_principal');
+      // 5. create or update principal, with what the host attached when the flow started
+      const principal = await handler(request, {
+        provider,
+        clientId,
+        userInfo,
+        token,
+        attributes: cached.attributes ?? {},
+      });
+      mark('save_principal');
 
-    // 6. update session
-    session.setLastAccessedTime(Date.now());
-    session.removeAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST);
-    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
-    await this.repository.save(session);
-    mark('update_session');
+      // 6. update session
+      session.setLastAccessedTime(Date.now());
+      session.removeAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST);
+      session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
+      await this.repository.save(session);
+      mark('update_session');
+    } catch (error) {
+      if (error instanceof OAuth2Error) {
+        return this.redirect(safeErrorType(error.error, 'server_error'), error.message);
+      }
+      console.error('OAuth2 callback failed', error);
+      return this.redirect('server_error');
+    }
 
     const uri = new URL(this.oauth2Client.successUri);
     uri.searchParams.set('status', 'success');
