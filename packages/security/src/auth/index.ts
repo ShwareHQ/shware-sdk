@@ -47,6 +47,18 @@ function safeErrorType(error: string, fallback: OAuth2ErrorType): OAuth2ErrorTyp
   return isKnownOAuth2ErrorType(error) ? error : fallback;
 }
 
+/**
+ * The codes a failure past validation keeps on errorUri, each one the user can act on: the code
+ * expired or was used (start again), they declined, or the provider is briefly down. Every other
+ * failure there (a rejected client, a user info request that failed) is the app's or the
+ * provider's problem, which the user sees as `server_error`.
+ */
+const CALLBACK_ERROR_TYPES: ReadonlySet<OAuth2ErrorType> = new Set([
+  'invalid_grant',
+  'access_denied',
+  'temporarily_unavailable',
+]);
+
 function authorizationAttributes(
   attributes: OAuth2AuthorizationOptions['attributes']
 ): Record<string, string> | undefined {
@@ -421,8 +433,12 @@ export class Auth implements AuthService {
       await this.repository.save(session);
       mark('update_session');
     } catch (error) {
+      // The details stay in the logs: an OAuth2Error message can carry a client id or a
+      // provider's response, which has no place in a URL the browser keeps in its history.
       if (error instanceof OAuth2Error) {
-        return this.redirect(safeErrorType(error.error, 'server_error'), error.message);
+        console.warn('OAuth2 callback failed', error);
+        const type = CALLBACK_ERROR_TYPES.has(error.error) ? error.error : 'server_error';
+        return this.redirect(type);
       }
       console.error('OAuth2 callback failed', error);
       return this.redirect('server_error');

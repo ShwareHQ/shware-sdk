@@ -169,18 +169,31 @@ describe('oauth2 callback errors', () => {
     expect(description).toHaveLength(256);
   });
 
-  it('redirects with the type of an OAuth2Error thrown by the code exchange', async () => {
-    exchange.mockRejectedValue(new OAuth2Error(400, 'invalid_grant', 'code expired'));
+  it('keeps an actionable OAuth2Error type and logs its message instead of forwarding it', async () => {
+    const failure = new OAuth2Error(400, 'invalid_grant', 'code expired');
+    exchange.mockRejectedValue(failure);
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const auth = createAuth();
     const { cookie, state } = await start(auth);
 
     const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
 
-    expect(errorRedirect(response)).toEqual({
-      error: 'invalid_grant',
-      description: 'code expired',
-    });
+    expect(errorRedirect(response)).toEqual({ error: 'invalid_grant', description: null });
+    expect(log).toHaveBeenCalledWith(expect.any(String), failure);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('reports any other OAuth2Error past validation as server_error', async () => {
+    exchange.mockRejectedValue(
+      new OAuth2Error(400, 'invalid_client', 'client-123 is not a client of google')
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const auth = createAuth();
+    const { cookie, state } = await start(auth);
+
+    const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
+
+    expect(errorRedirect(response)).toEqual({ error: 'server_error', description: null });
   });
 
   it('logs any other failure and redirects with server_error', async () => {
