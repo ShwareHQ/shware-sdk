@@ -1,7 +1,16 @@
 /**
- * Bearer authentication for the host's HTTP API, shared by the ingest router and the journey
- * host so the two cannot drift apart.
+ * Who may call the host's protected routes. By default the env's `API_TOKEN` as a bearer; a host
+ * replaces it with its own `Authorize` (an HMAC over the body, a JWT, a header its proxy adds).
+ * The helpers here are what such an authorizer builds on.
  */
+
+/**
+ * The host's authorization: receives a copy of the request (so it may read the body) and the
+ * env. True lets the request through, false answers 401, a throw answers 500 and is logged — an
+ * authorizer that fails never lets a request in. The tracking routes (`/t/...`) and `/health`
+ * are public and never reach it.
+ */
+export type Authorize<Env> = (request: Request, env: Env) => boolean | Promise<boolean>;
 
 const utf8 = new TextEncoder();
 
@@ -19,6 +28,19 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
   return diff === 0;
+}
+
+/**
+ * Whether two secrets are equal, in time that does not depend on where they differ: both are
+ * hashed first, so the comparison runs over equal-length digests whatever their lengths — for an
+ * authorizer comparing a signature or a token of its own.
+ */
+export async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const [x, y] = await Promise.all([
+    crypto.subtle.digest('SHA-256', utf8.encode(a)),
+    crypto.subtle.digest('SHA-256', utf8.encode(b)),
+  ]);
+  return constantTimeEqual(new Uint8Array(x), new Uint8Array(y));
 }
 
 /**

@@ -666,8 +666,10 @@ Secrets never go in the config; the Worker reads them from its environment:
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | The Web Push key pair                                      |
 | `APNS_RELAY_ORIGIN`                     | Development only: the local APNs relay                     |
 
-`journeyWorker` also takes `observer`, `messages` and `runtime` overrides, and
-`contractMode: 'report'` to log contract refusals instead of answering 400.
+`journeyWorker` (and `journeyLambda`) also take `observer`, `messages` and `runtime` overrides,
+`contractMode: 'report'` to log contract refusals instead of answering 400, and `authorize` to
+replace the `API_TOKEN` bearer with a check of your own (see
+[AWS deployment notes](#aws-deployment-notes)).
 
 ## `JourneyClient`
 
@@ -796,6 +798,30 @@ There are no migrations, and re-applying the file is not one: every statement is
 the first insert needing a new column fails. Recreate it instead. The demo has
 `pnpm db:reset`. The `events` key is `(user_id, id)`, and `workflow_ir` holds the compiled IR.
 
+### Cloudflare deployment notes
+
+- **Email transport.** Pass `email` explicitly: `cloudflareEmailTransport({ binding: env.EMAIL })`
+  for Cloudflare Email, or `sesEmailTransport({ region, credentials })` with credentials from the
+  Worker's env, since a Worker has no execution role. A Worker whose workflows email without one
+  fails at startup.
+- **List-Unsubscribe.** Cloudflare Email rejects a `List-Unsubscribe` header with a non-TLS URI, so
+  the one-click header is only sent with an https `WORKFLOW_ORIGIN`. `wrangler dev` on
+  `http://localhost` sends none.
+- **Workflows limits** (paid plan):
+  - An instance's wall time is unlimited.
+  - A single `step.sleep` lasts at most 365 days.
+  - 10,000 steps per instance by default, configurable up to 25,000. Sleeps do not count, but every
+    wait attempt costs a few steps.
+  - A step's result is at most 1 MiB.
+  - A completed instance's state is kept 30 days.
+- **Authorization.** Set `API_TOKEN` with `wrangler secret put`, or pass `authorize` (below).
+  The tracking routes (`/t/...`) stay public by design.
+- **Deploying.** With the `CF_VERSION_METADATA` binding and a Postgres store, each `wrangler deploy`
+  makes its own bundle live (see [Postgres](#postgres)). On D1, call `POST /bundle/deploy`.
+- **APNs in development.** `wrangler dev` (workerd) cannot make HTTP/2 subrequests: run
+  `@shware/workflow/apns-relay` and point `APNS_RELAY_ORIGIN` at it. A deployed Worker needs no
+  relay.
+
 ## AWS Lambda
 
 The same config runs as one Lambda durable function behind a Function URL, on
@@ -879,14 +905,114 @@ Workflow:
     FunctionUrlConfig: { AuthType: NONE, InvokeMode: BUFFERED }
 ```
 
-The execution role needs the durable checkpoint permissions,
-`lambda:InvokeFunction` on its own versions, `lambda:SendDurableExecutionCallbackSuccess`,
-`lambda:GetDurableExecution`, `lambda:ListDurableExecutionsByFunction` and
-`lambda:StopDurableExecution`, plus `ses:SendEmail` when it sends through SES.
-With `AuthType: NONE`, scope the public `lambda:InvokeFunction` grant to
-`lambda:InvokedViaFunctionUrl = true` so the URL cannot be used to invoke the
-function directly. APNs goes over Node's HTTP/2 client; a custom domain needs
-CloudFront (or another HTTPS proxy) in front of the Function URL.
+### AWS deployment notes
+
+Checked against a real durable Lambda (Node 24, us-east-1).
+
+**Function URL: `AuthType: NONE`, with the API protected in the app.** Not every caller can
+sign a request:
+
+| Caller                                     | Routes                                                   |
+| ------------------------------------------ | -------------------------------------------------------- |
+| Your backend                               | `/events`, `/identify`, `/devices`, `/users/forget`, ... |
+| Recipients' mail clients and browsers      | `/t/o`, `/t/l`, `/t/u`                                   |
+| Gmail / Yahoo one-click unsubscribe        | `POST /t/u/<message>` (RFC 8058)                         |
+| iOS notification extension, service worker | `POST /t/d`, `POST /t/p`                                 |
+
+An alias has one URL and one auth type, and the tracking and one-click routes must stay public:
+
+- `AWS_IAM` would break those routes. SigV4 also takes the `Authorization` header, so the bearer
+  could not travel with it.
+- CloudFront's origin access control (OAC) does not help either: with OAC, every POST must carry
+  the body's SHA-256 in `x-amz-content-sha256`, and a mail provider's one-click POST does not.
+
+Keep the routes public and protect the API in the app: the `API_TOKEN` bearer by default, or
+your own `authorize`. Production refuses to serve without one of the two.
+
+**Your own authorization.** `authorize(request, env)` replaces the bearer check on every API
+route, in any format you choose: an HMAC over the body, a JWT, a header your proxy adds. It
+receives a copy of the request, so it can read the body, and the env the host validated. True
+lets the request through, false answers 401, and a throw answers 500 rather than letting the
+request in. The tracking routes and `/health` never ask it. `bearerMatches` and
+`timingSafeEqual` are exported for building one:
+
+```ts
+import { journeyLambda, timingSafeEqual } from '@shware/workflow/aws';
+
+journeyLambda({
+  // ...
+  authorize: async (request, env) =>
+    timingSafeEqual(
+      request.headers.get('x-signature') ?? '',
+      await hmac(env.SECRET, await request.text())
+    ),
+});
+```
+
+**Resource policy.** Grant `lambda:InvokeFunctionUrl` to everyone (`FunctionUrlAuthType: NONE`)
+and `lambda:InvokeFunction` only with `lambda:InvokedViaFunctionUrl = true`, so the URL cannot
+be used to invoke the function directly.
+
+**Put CloudFront and WAF in front, without OAC.** A custom domain needs CloudFront (or another
+HTTPS proxy) anyway; Route 53 alone cannot terminate TLS for a Function URL. Add a rate-based WAF
+rule there: every request that reaches the function starts a durable execution and is billed,
+even one the app answers 401. Reserved concurrency caps what a flood can cost.
+
+**What a request costs.** Every Function URL request is a durable execution of its own:
+
+| Execution                                   | Durable ops | Per million |
+| ------------------------------------------- | ----------- | ----------- |
+| `GET` (pixel, redirect, `/health`), no step | 1           | about $9    |
+| `POST` (an event, an identify), one step    | 2           | about $17   |
+| A plain, non-durable Lambda for comparison  | -           | about $1    |
+| A journey: email, delay, one wake-up, email | 24          | about $190  |
+
+Durable operations cost $8 per million, on top of Lambda's request and duration charges. That is
+negligible at thousands of requests a month and worth a second, non-durable function for HTTP at
+tens of millions. Server-side latency stays small: `/health` takes about 6 ms, a write 40–300 ms.
+
+**Quotas.**
+
+- Starting durable executions: 3,000 per second (6,000 in us-east-1, us-west-2 and eu-west-1).
+  HTTP requests and journey starts share it.
+- 30,000 operations per execution, which cannot be raised. A wait attempt costs about five: the
+  callback plus four steps.
+- 1 MB per operation's payload. Reads (`GET`, `HEAD`) are answered outside a step so their bodies
+  are not checkpointed.
+
+**Timeouts and retention.**
+
+- Set `DurableConfig.ExecutionTimeout` to the longest journey (waits, delays and the goal
+  window), up to 366 days, and pass the same value as `journeyLambda({ executionTimeoutMs })`: a
+  workflow that could outlive it fails at startup instead of being stopped midway.
+- `RetentionPeriodInDays` (1–90) only keeps history after an execution ends. Keep `startRetryMs`
+  (12 hours) well under it.
+- Keep `stopDrainMs` (15 minutes) at least the function's `Timeout`: a stop does not interrupt a
+  running invocation.
+
+**Execution role.**
+
+- `AWSLambdaBasicDurableExecutionRolePolicy` (checkpoints, state, logs).
+- On `arn:...:function:<name>` and `arn:...:function:<name>:*`: `lambda:InvokeFunction`,
+  `lambda:SendDurableExecutionCallbackSuccess`, `lambda:GetDurableExecution`,
+  `lambda:StopDurableExecution` and `lambda:ListDurableExecutionsByFunction`. Durable execution
+  ARNs carry the version, so an unqualified ARN alone matches nothing.
+- `ses:SendEmail` when sending through SES.
+
+**Versions.**
+
+- Publish numbered versions behind the `live` alias. `$LATEST` lets a paused execution resume on
+  changed code.
+- Do not delete a version while executions are pinned to it.
+- Rolling the alias back does not roll the routes back: the newer bundle stays live until
+  `POST /bundle/deploy` from the restored version.
+
+**Emails.** The one-click unsubscribe header needs an https `WORKFLOW_ORIGIN`; over http no
+`List-Unsubscribe` is sent. Mailbox providers honour the header only when DKIM signs it, so check
+one real message for `dkim=pass` with `list-unsubscribe` in `h=`.
+
+**Memory.** Size it for the app; the store is remote. APNs goes over the package's Node HTTP/2
+client, because Node 24's `fetch` speaks HTTP/1.1 only (see `src/http2-client.ts`).
 
 ## Postgres
 
@@ -963,8 +1089,9 @@ On Postgres the engine also keeps:
 
 `handleRequest` serves the ingest API:
 
-- `GET /health` is the only unauthenticated one. The bearer scheme is matched
-  case-insensitively and compared in constant time.
+- `GET /health` is the only unauthenticated one. Every other route asks the
+  host's `authorize`, or without one the `API_TOKEN` bearer: its scheme is
+  matched case-insensitively and the token compared in constant time.
 - `POST /events` takes `{ userId, event, payload?, ts?, id? }` and answers with
   the id the occurrence was recorded under. Event names beginning with `$` are
   reserved for internal use. `ts` is epoch milliseconds: a non-negative integer
