@@ -42,6 +42,21 @@ const propertyText = pipe(
 );
 
 /**
+ * Tags are truncated for the same reason property values are, and they are stored more than once
+ * (on the event, the session and the visitor), so an unbounded one costs several times over.
+ * 1024 sits just above what GA4 itself keeps (1000 characters of page_location, 420 of
+ * page_referrer, 300 of page_title). Real tags stay under ~500 characters; the rare longer ones
+ * are page_referrer values from search and ad redirect URLs, where the kept prefix — host and
+ * path — is the part that matters.
+ */
+const MAX_TAG_LENGTH = 1024;
+
+const tagText = pipe(
+  string(),
+  transform((value) => value.slice(0, MAX_TAG_LENGTH))
+);
+
+/**
  * Keys are written by hand in instrumentation code, so an unusable one is a mistake in the host
  * rather than something the visitor typed. It is still dropped rather than rejected, for the same
  * reason: the mistake should cost that property, not the batch it happens to be in. Truncating a
@@ -94,16 +109,16 @@ export const ALL_PLATFORMS = [
 export const ALL_ENVIRONMENTS = ['development', 'production'] as const satisfies Environment[];
 
 export const tagsSchema = object({
-  os: optional(string()),
-  os_name: optional(string()),
-  os_version: optional(string()),
-  browser: optional(string()),
-  browser_name: optional(string()),
-  browser_version: optional(string()),
-  device: optional(string()),
+  os: optional(tagText),
+  os_name: optional(tagText),
+  os_version: optional(tagText),
+  browser: optional(tagText),
+  browser_name: optional(tagText),
+  browser_version: optional(tagText),
+  device: optional(tagText),
   device_id: optional(string().check(trim(), minLength(1), maxLength(36))),
-  device_type: optional(string()),
-  device_vendor: optional(string()),
+  device_type: optional(tagText),
+  device_vendor: optional(tagText),
   device_pixel_ratio: optional(number()),
   screen_width: optional(number()),
   screen_height: optional(number()),
@@ -114,13 +129,13 @@ export const tagsSchema = object({
     )
   ),
   webdriver: optional(boolean()),
-  release: optional(string()),
-  language: optional(string()),
-  time_zone: optional(string()),
-  page_location: optional(string()),
-  page_referrer: optional(string()),
-  page_title: optional(string()),
-  page_load_id: optional(string()),
+  release: optional(tagText),
+  language: optional(tagText),
+  time_zone: optional(tagText),
+  page_location: optional(tagText),
+  page_referrer: optional(tagText),
+  page_title: optional(tagText),
+  page_load_id: optional(tagText),
   /**
    * @deprecated Renamed to `page_location` in 7.0.0. Accepted so that events from clients
    * still on an older SDK are not stripped of their page URL at this boundary — a browser
@@ -128,22 +143,22 @@ export const tagsSchema = object({
    * `pageLocation` in `server/page-location.ts` is the only reader.
    */
   // oxlint-disable-next-line typescript/no-deprecated -- Legacy input from pre-7.0 clients must survive validation.
-  source_url: optional(string()),
+  source_url: optional(tagText),
   // app info
-  advertising_id: optional(string()),
-  install_referrer: optional(string()),
+  advertising_id: optional(tagText),
+  install_referrer: optional(tagText),
   // Ad click ids (URL parameters) and ad platform cookies (underscore names); see AdvertisingInfo.
   // Meta Ads
-  fbclid: optional(string()),
-  ad_id: optional(string()),
-  ad_name: optional(string()),
-  adset_id: optional(string()),
-  adset_name: optional(string()),
-  campaign_id: optional(string()),
-  campaign_name: optional(string()),
-  placement: optional(string()),
-  _fbc: optional(string()),
-  _fbp: optional(string()),
+  fbclid: optional(tagText),
+  ad_id: optional(tagText),
+  ad_name: optional(tagText),
+  adset_id: optional(tagText),
+  adset_name: optional(tagText),
+  campaign_id: optional(tagText),
+  campaign_name: optional(tagText),
+  placement: optional(tagText),
+  _fbc: optional(tagText),
+  _fbp: optional(tagText),
   /**
    * @deprecated `fbc` / `fbp` / `rdt_uuid` were renamed to `_fbc` / `_fbp` / `_rdt_uuid` in 9.0.0.
    * Accepted so that conversions from clients still on an older SDK keep their match keys; the
@@ -151,52 +166,52 @@ export const tagsSchema = object({
    * gone.
    */
   // oxlint-disable-next-line typescript/no-deprecated -- Legacy pre-9.0 click-id fields must survive validation.
-  fbc: optional(string()),
-  fbp: optional(string()),
-  rdt_uuid: optional(string()),
+  fbc: optional(tagText),
+  fbp: optional(tagText),
+  rdt_uuid: optional(tagText),
   // Google Ads
-  gclid: optional(string()),
-  gclsrc: optional(string()),
-  gad_source: optional(string()),
-  gad_campaignid: optional(string()),
-  network: optional(string()),
-  match_type: optional(string()),
-  wbraid: optional(string()),
-  gbraid: optional(string()),
-  dclid: optional(string()),
-  _gcl_aw: optional(string()),
-  _gcl_gb: optional(string()),
+  gclid: optional(tagText),
+  gclsrc: optional(tagText),
+  gad_source: optional(tagText),
+  gad_campaignid: optional(tagText),
+  network: optional(tagText),
+  match_type: optional(tagText),
+  wbraid: optional(tagText),
+  gbraid: optional(tagText),
+  dclid: optional(tagText),
+  _gcl_aw: optional(tagText),
+  _gcl_gb: optional(tagText),
   // Microsoft Ads
-  msclkid: optional(string()),
-  _uetmsclkid: optional(string()),
+  msclkid: optional(tagText),
+  _uetmsclkid: optional(tagText),
   // Reddit Ads
-  rdt_cid: optional(string()),
-  _rdt_cid: optional(string()),
-  _rdt_uuid: optional(string()),
+  rdt_cid: optional(tagText),
+  _rdt_cid: optional(tagText),
+  _rdt_uuid: optional(tagText),
   // LinkedIn Ads
-  li_fat_id: optional(string()),
-  _li_fat_id: optional(string()),
+  li_fat_id: optional(tagText),
+  _li_fat_id: optional(tagText),
   // OpenAI Ads
-  oppref: optional(string()),
-  __oppref: optional(string()),
-  __obref: optional(string()),
+  oppref: optional(tagText),
+  __oppref: optional(tagText),
+  __obref: optional(tagText),
   // other click ids
-  ko_click_id: optional(string()),
-  ScCid: optional(string()),
-  ttclid: optional(string()),
-  twclid: optional(string()),
-  yclid: optional(string()),
-  epik: optional(string()),
+  ko_click_id: optional(tagText),
+  ScCid: optional(tagText),
+  ttclid: optional(tagText),
+  twclid: optional(tagText),
+  yclid: optional(tagText),
+  epik: optional(tagText),
   // utm params
-  utm_source: optional(string()),
-  utm_medium: optional(string()),
-  utm_campaign: optional(string()),
-  utm_term: optional(string()),
-  utm_content: optional(string()),
-  utm_id: optional(string()),
-  utm_source_platform: optional(string()),
-  utm_creative_format: optional(string()),
-  utm_marketing_tactic: optional(string()),
+  utm_source: optional(tagText),
+  utm_medium: optional(tagText),
+  utm_campaign: optional(tagText),
+  utm_term: optional(tagText),
+  utm_content: optional(tagText),
+  utm_id: optional(tagText),
+  utm_source_platform: optional(tagText),
+  utm_creative_format: optional(tagText),
+  utm_marketing_tactic: optional(tagText),
 });
 
 export const propertiesSchema = optional(

@@ -142,6 +142,48 @@ describe('createTrackEventSchema', () => {
 });
 
 describe('tagsSchema', () => {
+  it('truncates an oversized tag to 1024 characters and keeps the batch', () => {
+    const parsed = createTrackEventSchema.parse([
+      {
+        name: 'page_view',
+        visitor_id: '019485d9-8b41-7000-8000-000000000001',
+        session_id: '019485d9-8b41-7000-8000-000000000002',
+        platform: 'web',
+        environment: 'production',
+        timestamp: new Date().toISOString(),
+        tags: { page_location: `https://example.com/?q=${'a'.repeat(5000)}`, utm_source: 'kept' },
+      },
+    ]);
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].tags.page_location).toHaveLength(1024);
+    expect(parsed[0].tags.page_location?.startsWith('https://example.com/?q=')).toBe(true);
+    expect(parsed[0].tags.utm_source).toBe('kept');
+  });
+
+  it('leaves a tag of exactly 1024 characters unchanged', () => {
+    const value = 'a'.repeat(1024);
+    expect(tagsSchema.parse({ page_referrer: value }).page_referrer).toBe(value);
+  });
+
+  it('truncates the deprecated legacy fields too', () => {
+    const long = 'a'.repeat(2000);
+    // oxlint-disable-next-line typescript/no-deprecated -- Exercising the legacy input fields.
+    const { source_url, fbc, fbp, rdt_uuid } = tagsSchema.parse({
+      source_url: long,
+      fbc: long,
+      fbp: long,
+      rdt_uuid: long,
+    });
+    for (const value of [source_url, fbc, fbp, rdt_uuid]) expect(value).toHaveLength(1024);
+  });
+
+  it('still rejects a device_id over 36 characters instead of truncating it', () => {
+    expect(validationIssues(tagsSchema, { device_id: 'd'.repeat(37) })).toContainEqual(
+      expect.objectContaining({ code: 'too_big', maximum: 36, path: ['device_id'] })
+    );
+  });
+
   it('accepts the WxH screen resolution shape and rejects anything else', () => {
     expect(tagsSchema.parse({ screen_resolution: '390x844' }).screen_resolution).toBe('390x844');
     expect(validationIssues(tagsSchema, { screen_resolution: '390' })).toContainEqual(
