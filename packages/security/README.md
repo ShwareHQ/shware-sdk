@@ -404,6 +404,12 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
   `provider: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 
+Both routes trim the email and lowercase it before validating, so `" Jane@Example.com "` is
+`"jane@example.com"` everywhere: the address the sender receives, the code, its attempt counter and
+resend cooldown, and the claims' `sub` and `email`. The local part is lowercased too: case-sensitive
+mailboxes are allowed by RFC 5321 but practically unused, and honouring them would let one mailbox
+hold several accounts.
+
 Error reasons (`google.rpc.ErrorInfo`), all `400 INVALID_ARGUMENT` unless noted:
 
 | Reason                                | When                                                                              |
