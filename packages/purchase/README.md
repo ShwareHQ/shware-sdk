@@ -18,12 +18,12 @@ pnpm add @apple/app-store-server-library   # @shware/purchase/app-store (^3.1.0)
 
 ## Entry points
 
-| Import path                    | Contents                                                                                                                     |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `@shware/purchase`             | Subscription model (`PLATFORMS`, `SUBSCRIPTION_STATUSES`, `AVAILABLE_STATUSES`, cancellation types) and the three configs    |
-| `@shware/purchase/stripe`      | `StripeEventHandler`, Stripe mappers, checkout schemas, `METADATA_KEYS`, analytics helpers, browser pending-checkout helpers |
-| `@shware/purchase/app-store`   | `AppStoreNotificationHandler` for App Store Server Notifications V2, `mapCancellationDetails`                                |
-| `@shware/purchase/google-play` | Real-time developer notification (RTDN) types and enums, subscription state and cancellation mappers                         |
+| Import path                    | Contents                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@shware/purchase`             | Subscription model (`PLATFORMS`, `SUBSCRIPTION_STATUSES`, `AVAILABLE_STATUSES`, cancellation types) and the three configs                              |
+| `@shware/purchase/stripe`      | `StripeThinEventHandler`, `StripeEventHandler`, Stripe mappers, checkout schemas, `METADATA_KEYS`, analytics helpers, browser pending-checkout helpers |
+| `@shware/purchase/app-store`   | `AppStoreNotificationHandler` for App Store Server Notifications V2, `mapCancellationDetails`                                                          |
+| `@shware/purchase/google-play` | Real-time developer notification (RTDN) types and enums, subscription state and cancellation mappers                                                   |
 
 ## Subscription model
 
@@ -131,15 +131,29 @@ so existing subscribers keep resolving.
 
 ### Webhooks
 
-`StripeEventHandler` dispatches Stripe [thin events](https://docs.stripe.com/events/how-events-work#event-formats).
+Two dispatchers, one per Stripe [event format](https://docs.stripe.com/events/how-events-work#event-formats).
+Both are typed per event type, run every handler registered for a type, and throw from `process`
+for a type with no handler.
+
+| Handler                  | Event format | Verify with                                | Handlers receive                         |
+| ------------------------ | ------------ | ------------------------------------------ | ---------------------------------------- |
+| `StripeThinEventHandler` | thin         | `stripe.parseEventNotificationAsync(...)`  | the typed notification (`v1.*` types)    |
+| `StripeEventHandler`     | snapshot     | `stripe.webhooks.constructEventAsync(...)` | `event.data.object` for the event's type |
+
+Which to use: Stripe recommends thin events for new integrations, and so do we. Use snapshot
+events when you need the full payload as it was when the event fired, or
+`data.previous_attributes`.
+
+#### Thin events (recommended)
+
 A thin event only says which object changed (`type`, `id`, `created`, `reason`, `related_object`),
 so each handler reads current state from Stripe with `notification.fetchRelatedObject()` (or the
 full event with `fetchEvent()`). The SDK never pre-fetches: some handlers only need
-`related_object.id`. `on` is keyed by thin event type (`v1.customer.subscription.updated`, ...) and
-each handler receives that type's notification, so `fetchRelatedObject()` resolves to the right
-Stripe object. Every handler registered for a type runs; `process` throws for a type with no
-handler. Delivery order carries no meaning: re-read state instead of applying payloads in order,
-and dedupe one-off facts (credits, payments, refunds) with idempotency keys.
+`related_object.id`. `on` is keyed by thin event type (`v1.customer.subscription.updated`, ...),
+so `fetchRelatedObject()` resolves to the right Stripe object. Delivery order carries no meaning:
+re-read state instead of applying payloads in order, and dedupe one-off facts (credits, payments,
+refunds) with idempotency keys. `StripeThinEventNotificationOf<T>` types a handler shared across
+several types.
 
 Create the event destination with the thin payload style and the `v1.*` types you handle. A
 Cloudflare Workers route with Hono (`parseEventNotificationAsync` uses Web Crypto there):
@@ -147,8 +161,8 @@ Cloudflare Workers route with Hono (`parseEventNotificationAsync` uses Web Crypt
 ```ts
 import {
   METADATA_KEYS,
-  StripeEventHandler,
-  type StripeEventNotificationOf,
+  StripeThinEventHandler,
+  type StripeThinEventNotificationOf,
   mapCancellationDetails,
   mapSubscriptionStatus,
   mapTime,
@@ -157,7 +171,7 @@ import Stripe from 'stripe';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
-const handler = StripeEventHandler.create()
+const handler = StripeThinEventHandler.create()
   .on('v1.checkout.session.completed', handleCheckoutSessionCompleted)
   .on('v1.invoice.paid', handleInvoicePaid)
   .on('v1.customer.subscription.created', handleSubscriptionEvent)
@@ -175,7 +189,7 @@ app.post('/webhooks/stripe', async (c) => {
 });
 
 async function handleSubscriptionEvent(
-  notification: StripeEventNotificationOf<
+  notification: StripeThinEventNotificationOf<
     | 'v1.customer.subscription.created'
     | 'v1.customer.subscription.updated'
     | 'v1.customer.subscription.deleted'
@@ -196,19 +210,40 @@ async function handleSubscriptionEvent(
 }
 ```
 
-#### Migrating from snapshot events (6.x)
+#### Snapshot events
 
-- Switch the webhook endpoint (event destination) to the thin payload style; snapshot payloads
-  are rejected by `parseEventNotificationAsync`.
-- Replace `stripe.webhooks.constructEventAsync(...)` with `stripe.parseEventNotificationAsync(...)`
-  and pass the notification to `process`.
+`on` is keyed by snapshot event type (`customer.subscription.updated`, ...) and each handler
+receives that event's `data.object`, typed.
+
+```ts
+import { StripeEventHandler } from '@shware/purchase/stripe';
+
+export async function processStripeEvent(signature: string, body: string) {
+  const event = await stripe.webhooks.constructEventAsync(
+    body,
+    signature,
+    env.STRIPE_WEBHOOK_SECRET
+  );
+
+  await StripeEventHandler.create()
+    .on('invoice.payment_succeeded', handleInvoicePaymentSucceeded) // (invoice: Stripe.Invoice)
+    .on('customer.subscription.updated', handleSubscription) // (sub: Stripe.Subscription)
+    .process(event);
+}
+```
+
+#### Moving from snapshot to thin events
+
+- Switch the event destination to the thin payload style; `parseEventNotificationAsync` rejects
+  snapshot payloads.
+- Replace `constructEventAsync` with `parseEventNotificationAsync` and `StripeEventHandler` with
+  `StripeThinEventHandler`.
 - Prefix every `on` type with `v1.` (`invoice.paid` becomes `v1.invoice.paid`).
 - Handlers receive the notification instead of `event.data.object`: call
-  `await notification.fetchRelatedObject()` for the object, or use `notification.related_object.id`
-  when the id is enough. The fetched object is the current state, not the state when the event
-  fired, so handlers must not depend on delivery order.
-- The mappers (`mapSubscriptionStatus`, `mapInvoice`, `mapCancellationDetails`, ...) are unchanged
-  and take the fetched objects.
+  `await notification.fetchRelatedObject()`, or use `notification.related_object.id` when the id
+  is enough. The fetched object is current state, so handlers must not depend on delivery order.
+- The mappers (`mapSubscriptionStatus`, `mapInvoice`, `mapCancellationDetails`, ...) take the
+  fetched objects unchanged.
 
 ### Checkout
 

@@ -20,11 +20,12 @@ export {
   type ProductPrice,
   type BeginCheckoutProperties,
 } from './mapper';
+export { StripeEventHandler } from './handler';
 export {
-  StripeEventHandler,
-  type StripeEventNotificationOf,
-  type StripeEventType,
-} from './handler';
+  StripeThinEventHandler,
+  type StripeThinEventNotificationOf,
+  type StripeThinEventType,
+} from './thin-handler';
 export {
   cancellationDetailsSchema,
   createCheckoutSessionSchema,
