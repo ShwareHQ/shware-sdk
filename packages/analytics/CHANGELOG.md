@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.15.0
+
+### Minor Changes
+
+- bf705dd: Truncate every free-form string tag (page_location, page_referrer, utm_*, click ids, campaign names, the deprecated legacy fields, …) to 1024 characters instead of accepting it unbounded. Nothing previously valid is rejected; an oversized tag is shortened rather than failing its batch.
+
 ## 11.14.0
 
 ### Minor Changes
