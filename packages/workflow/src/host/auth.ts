@@ -1,3 +1,5 @@
+import { timingSafeEqual as timingSafeEqualBytes } from 'node:crypto';
+
 /**
  * Who may call the host's protected routes. By default the env's `API_TOKEN` as a bearer; a host
  * replaces it with its own `Authorize` (an HMAC over the body, a JWT, a header its proxy adds).
@@ -15,19 +17,12 @@ export type Authorize<Env> = (request: Request, env: Env) => boolean | Promise<b
 const utf8 = new TextEncoder();
 
 /**
- * Whether two byte strings are equal, in time that depends on their length only — never on
- * where they first differ. A plain `===` returns at the first mismatching character, and that
- * timing is measurable over enough requests. The length is still revealed (a mismatch on it
- * answers at once), which is accepted: it is not the secret.
- *
- * `crypto.subtle.timingSafeEqual` is not available on every runtime the host runs on, hence
- * the XOR loop.
+ * `node:crypto`'s constant-time compare — on Node, Lambda, and a Worker with `nodejs_compat`
+ * (which the host needs anyway). It demands equal lengths, so callers hash first or check the
+ * length; a mismatch on length answers at once, which reveals the length and nothing else.
  */
 function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  return diff === 0;
+  return a.length === b.length && timingSafeEqualBytes(a, b);
 }
 
 /**

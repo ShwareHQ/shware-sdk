@@ -753,7 +753,8 @@ The compiled IR lives in D1 with the routes, never in a KV namespace: KV is even
 while the routes in D1 are not, so an instance started in another colo right after a deploy could
 miss its IR.
 
-A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
+The Worker needs the `nodejs_compat` compatibility flag (the bearer check uses
+`node:crypto`'s `timingSafeEqual`). A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
 when it sends through Cloudflare Email (`cloudflareEmailTransport({ binding: env.EMAIL })`), and a `triggers.crons` entry with `scheduled`
 exported to run the segment sweep.
 
