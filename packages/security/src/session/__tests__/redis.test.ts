@@ -1,7 +1,7 @@
 import Redis from 'ioredis';
 import { describe, expect, test } from 'vitest';
 import { PRINCIPAL_NAME_INDEX_NAME } from '../common';
-import { RedisIndexedSessionRepository } from '../redis';
+import { RedisIndexedSessionRepository, RedisKVRepository } from '../redis';
 
 // Integration tests against a live local Redis:
 // docker run -d -p 6379:6379 --name my-redis redis
@@ -94,5 +94,35 @@ describe.skipIf(!available)('redis session config', () => {
     const session = repository.createSession();
     expect(session.isExpired()).toBe(false);
     expect(session.getMaxInactiveInterval()).toBe(maxInactiveInterval);
+  });
+});
+
+describe.skipIf(!available)('redis kv increment', () => {
+  const kv = new RedisKVRepository(redis);
+  const key = `test:increment:${crypto.randomUUID()}`;
+
+  test('creates the counter at 1 with the given ttl', async () => {
+    expect(await kv.increment(key, 60)).toBe(1);
+    expect(await redis.ttl(key)).toBeGreaterThan(55);
+  });
+
+  test('increments and keeps the existing ttl', async () => {
+    await redis.expire(key, 30);
+    expect(await kv.increment(key, 60)).toBe(2);
+    expect(await redis.ttl(key)).toBeLessThanOrEqual(30);
+  });
+
+  test('hands parallel callers distinct counts', async () => {
+    const counts = await Promise.all(Array.from({ length: 20 }, () => kv.increment(key, 60)));
+    expect(counts.sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 3));
+  });
+
+  test('starts over at 1 once the counter expired', async () => {
+    await redis.pexpire(key, 1);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    expect(await kv.increment(key, 60)).toBe(1);
+    await kv.removeItem(key);
   });
 });

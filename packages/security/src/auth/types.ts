@@ -52,6 +52,19 @@ export interface AuthConfig {
   sessionRepository: SessionRepository;
   cookie?: CookieOptions & { name?: string };
   turnstileSecretKey?: string;
+  /** Limits of email verification codes (a code itself is valid for 10 minutes). */
+  verificationCode?: {
+    /**
+     * Wrong guesses a code survives: once a login exceeds this many attempts the code is discarded
+     * and `loginEmail` answers `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`. Default 5.
+     */
+    maxAttempts?: number;
+    /**
+     * Seconds after a send before the same email can be sent another code; earlier requests are
+     * answered `429 VERIFICATION_CODE_RESEND_TOO_SOON`. Default 60.
+     */
+    resendCooldown?: number;
+  };
   oauth2?: {
     client?: OAuth2ClientConfig;
   };

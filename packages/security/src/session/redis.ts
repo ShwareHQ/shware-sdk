@@ -355,6 +355,12 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
   }
 }
 
+const INCREMENT_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return count
+`;
+
 export class RedisKVRepository implements KVRepository {
   private readonly redis: Redis;
 
@@ -376,5 +382,12 @@ export class RedisKVRepository implements KVRepository {
 
   async removeItem(key: string) {
     await this.redis.del(key);
+  }
+
+  async increment(key: string, expiresIn: number): Promise<number> {
+    // INCR and the creating EXPIRE run as one script, so the key never exists without a TTL and
+    // an existing key keeps its expiry.
+    const count = await this.redis.eval(INCREMENT_SCRIPT, 1, key, expiresIn);
+    return Number(count);
   }
 }
