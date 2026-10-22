@@ -35,6 +35,7 @@ const kv: KVRepository = {
   setItem: async () => {},
   getItem: async (key) => (key.includes(EMAIL) ? CODE : null),
   removeItem: async () => {},
+  increment: async () => 1,
 };
 
 const token: OAuth2Token = {

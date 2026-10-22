@@ -123,6 +123,11 @@ function memoryKV(): KVRepository & { store: Map<string, string> } {
     removeItem: async (key) => {
       store.delete(key);
     },
+    increment: async (key) => {
+      const count = Number(store.get(key) ?? 0) + 1;
+      store.set(key, String(count));
+      return count;
+    },
   };
 }
 

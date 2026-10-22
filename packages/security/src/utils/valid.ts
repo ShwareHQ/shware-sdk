@@ -21,6 +21,17 @@ export function invalidArgument(reason: string): ErrorBody {
   };
 }
 
+export function resourceExhausted(reason: string, message: string): ErrorBody {
+  return {
+    error: {
+      code: 429,
+      status: 'RESOURCE_EXHAUSTED',
+      message,
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason }],
+    },
+  };
+}
+
 type Result<S extends ZodType | ZodMiniType> =
   | { error: null; data: S extends ZodType ? output<S> : outputMini<S> }
   | { error: ErrorBody; data: null };

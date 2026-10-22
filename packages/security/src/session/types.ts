@@ -49,8 +49,19 @@ export interface SessionRepository<S extends Session = Session> {
   cleanupExpiredSessions(cleanupCount?: number): Promise<void>;
 }
 
+/**
+ * Short-lived values: OAuth2 state/nonce, verification codes and their counters, desktop codes.
+ * `expiresIn` is in seconds; an expired key must read as absent.
+ */
 export interface KVRepository {
   setItem(key: string, value: string, expiresIn?: number): Promise<void>;
   getItem(key: string): Promise<string | null>;
   removeItem(key: string): Promise<void>;
+  /**
+   * Atomically increments the integer counter at `key` and returns the new count. An absent or
+   * expired key starts over at 1 and expires in `expiresIn` seconds; an existing key keeps its
+   * expiry. Must be atomic under concurrent calls: verification attempt limits rely on every
+   * caller seeing a distinct count.
+   */
+  increment(key: string, expiresIn: number): Promise<number>;
 }

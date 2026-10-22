@@ -160,6 +160,7 @@ handy for a database enum.
 | `cookie`             | `CookieOptions & { name?: string }` | Session cookie. Defaults: name `SESSION`, `path: '/'`, `SameSite=None`, `Secure`, `HttpOnly`. |
 | `oauth2.client`      | `OAuth2ClientConfig`                | `baseUri`, `errorUri`, `successUri`, `providers` (object or async function).                  |
 | `turnstileSecretKey` | `string`                            | Cloudflare Turnstile secret; required by `sendEmailVerificationCode`.                         |
+| `verificationCode`   | `{ maxAttempts?, resendCooldown? }` | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
 
 The session id is read from the cookie or from an `Authorization: Bearer <session id>` header.
@@ -203,7 +204,9 @@ All repositories implement `SessionRepository` and index sessions by principal n
 - `DBIndexedSessionRepository(adapter)`: for any database; you implement `DBAdapter`
   (`save`, `deleteById`, `findById`, `findByPrincipalName`, `cleanupExpiredSessions`).
 - `RedisKVRepository(redis)`: `KVRepository` on Redis. Implement `KVRepository`
-  (`setItem(key, value, expiresIn?)`, `getItem`, `removeItem`) to use another store.
+  (`setItem(key, value, expiresIn?)`, `getItem`, `removeItem`, `increment(key, expiresIn)`) to use
+  another store. `increment` must be atomic: it creates an absent or expired key at 1 expiring in
+  `expiresIn` seconds, otherwise adds 1 and keeps the expiry, and returns the new count.
 
 Both session repositories have `setDefaultMaxInactiveInterval(seconds)` (default 1800).
 
@@ -252,6 +255,15 @@ class DBKVRepository implements KVRepository {
   }
   async removeItem(key: string) {
     /* delete by key */
+  }
+  async increment(key: string, expiresIn: number) {
+    // one atomic upsert, e.g. on Postgres with kv(key text primary key, value text, expires_at timestamptz):
+    // insert into kv (key, value, expires_at) values ($1, '1', now() + make_interval(secs => $2))
+    // on conflict (key) do update set
+    //   value = case when kv.expires_at <= now() then '1' else (kv.value::int + 1)::text end,
+    //   expires_at = case when kv.expires_at <= now() then excluded.expires_at else kv.expires_at end
+    // returning value::int
+    return 1;
   }
 }
 
@@ -391,6 +403,19 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 - `POST /auth/sendEmailVerificationCode` with `{ email, turnstileToken }`.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
   `provider: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
+
+Error reasons (`google.rpc.ErrorInfo`), all `400 INVALID_ARGUMENT` unless noted:
+
+| Reason                                | When                                                                              |
+| ------------------------------------- | --------------------------------------------------------------------------------- |
+| `TURNSTILE_VERIFICATION_FAILED`       | The Turnstile token was rejected.                                                 |
+| `VERIFICATION_CODE_RESEND_TOO_SOON`   | `429 RESOURCE_EXHAUSTED`: a code was sent to this email within `resendCooldown`.  |
+| `EMAIL_DELIVERY_FAILED`               | The sender threw; the cooldown is released, so the user can retry at once.        |
+| `INVALID_VERIFICATION_CODE`           | Wrong code, or no code is pending for this email.                                 |
+| `VERIFICATION_CODE_ATTEMPTS_EXCEEDED` | More than `maxAttempts` guesses at this code; it is discarded, ask for a new one. |
+
+Every login attempt against a pending code is counted before the code is compared, so parallel
+requests cannot exceed `maxAttempts` guesses either. A new code starts with a fresh budget.
 
 `sendPhoneVerificationCode` and `loginPhone` exist but currently answer `501 not_implemented`.
 

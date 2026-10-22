@@ -21,7 +21,7 @@ import {
   setCookie,
 } from '../utils/http';
 import { timing } from '../utils/timing';
-import { invalidArgument, valid, verifyTurnstileToken } from '../utils/valid';
+import { invalidArgument, resourceExhausted, valid, verifyTurnstileToken } from '../utils/valid';
 import { MAX_ATTRIBUTES_BYTES, attributesSize, bodyAttributes } from './attributes';
 import type {
   AuthConfig,
@@ -106,6 +106,9 @@ export const PATH = {
   CLEANUP_EXPIRED_SESSIONS: '/sessions/expired/cleanup',
 } as const;
 
+/** Seconds an email verification code, and its attempt counter, stay valid. */
+const EMAIL_VERIFICATION_CODE_TTL = 10 * 60;
+
 export class Auth implements AuthService {
   private readonly timing: boolean;
   private readonly cookieName;
@@ -113,6 +116,8 @@ export class Auth implements AuthService {
   private readonly kv: KVRepository;
   private readonly repository: SessionRepository;
   private readonly turnstileSecretKey?: string;
+  private readonly maxVerificationAttempts: number;
+  private readonly verificationResendCooldown: number;
   private readonly oauth2Client: OAuth2Client | null;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
@@ -120,6 +125,7 @@ export class Auth implements AuthService {
     sessionRepository,
     kvRepository,
     turnstileSecretKey,
+    verificationCode,
     oauth2,
     cookie,
     timing,
@@ -128,6 +134,13 @@ export class Auth implements AuthService {
     this.kv = kvRepository;
     this.repository = sessionRepository;
     this.turnstileSecretKey = turnstileSecretKey;
+    this.maxVerificationAttempts = verificationCode?.maxAttempts ?? 5;
+    this.verificationResendCooldown = verificationCode?.resendCooldown ?? 60;
+    invariant(this.maxVerificationAttempts >= 1, 'verificationCode.maxAttempts must be at least 1');
+    invariant(
+      this.verificationResendCooldown >= 1,
+      'verificationCode.resendCooldown must be at least 1 second'
+    );
     const { name, ...cookieOptions } = cookie ?? {};
     this.cookieName = name ?? 'SESSION';
     this.cookieOptions = {
@@ -221,6 +234,14 @@ export class Auth implements AuthService {
 
   private getEmailVerificationCodeKey(email: string) {
     return `email:verification:${email}`;
+  }
+
+  private getEmailVerificationAttemptsKey(email: string) {
+    return `email:verification-attempts:${email}`;
+  }
+
+  private getEmailVerificationCooldownKey(email: string) {
+    return `email:verification-cooldown:${email}`;
   }
 
   private getPhoneVerificationCodeKey(phone: string) {
@@ -509,13 +530,34 @@ export class Auth implements AuthService {
     const result = await verifyTurnstileToken(this.turnstileSecretKey, turnstileToken);
     if (result.error) return Response.json(result.error, { status: result.error.error.code });
 
+    // The cooldown is claimed before sending, so of concurrent requests exactly one sends. A failed
+    // delivery releases it again: no code was stored, so an immediate retry gains an attacker
+    // nothing, while keeping it would lock the user out of signing in for the whole cooldown.
+    const cooldownKey = this.getEmailVerificationCooldownKey(email);
+    if ((await this.kv.increment(cooldownKey, this.verificationResendCooldown)) > 1) {
+      const error = resourceExhausted(
+        'VERIFICATION_CODE_RESEND_TOO_SOON',
+        'Verification code was sent recently'
+      );
+      return Response.json(error, { status: error.error.code });
+    }
+
     try {
+      // Sent before it is stored, so a failed delivery leaves the previous code usable.
       const verificationCode = randomInt(1_000_000).toString().padStart(6, '0');
       await sender({ email, verificationCode });
-      await this.kv.setItem(this.getEmailVerificationCodeKey(email), verificationCode, 10 * 60);
+      // The new code gets the full attempt budget; the cooldown bounds how often that happens.
+      // Reset before storing, so every comparison against the new code is counted.
+      await this.kv.removeItem(this.getEmailVerificationAttemptsKey(email));
+      await this.kv.setItem(
+        this.getEmailVerificationCodeKey(email),
+        verificationCode,
+        EMAIL_VERIFICATION_CODE_TTL
+      );
       return Response.json({});
     } catch (e) {
       console.error('Failed to send email verification code', e);
+      await this.kv.removeItem(cooldownKey);
       return Response.json(invalidArgument('EMAIL_DELIVERY_FAILED'), { status: 400 });
     }
   };
@@ -526,15 +568,30 @@ export class Auth implements AuthService {
     const { email, verificationCode, attributes } = data;
 
     const key = this.getEmailVerificationCodeKey(email);
+    const attemptsKey = this.getEmailVerificationAttemptsKey(email);
     const stored = await this.kv.getItem(key);
+    if (typeof stored !== 'string') {
+      return Response.json(invalidArgument('INVALID_VERIFICATION_CODE'), { status: 400 });
+    }
+
+    // Count the attempt before comparing: the atomic increment hands every request, parallel ones
+    // included, a distinct count, so at most maxAttempts comparisons are ever made against a code.
+    const attempts = await this.kv.increment(attemptsKey, EMAIL_VERIFICATION_CODE_TTL);
+    if (attempts > this.maxVerificationAttempts) {
+      // Only the code is discarded. The counter stays until it expires (or a new code is sent):
+      // removing it would hand requests that already read the code a fresh budget.
+      await this.kv.removeItem(key);
+      const error = invalidArgument('VERIFICATION_CODE_ATTEMPTS_EXCEEDED');
+      return Response.json(error, { status: error.error.code });
+    }
     if (
-      typeof stored !== 'string' ||
       stored.length !== verificationCode.length ||
       !timingSafeEqual(Buffer.from(stored), Buffer.from(verificationCode))
     ) {
       return Response.json(invalidArgument('INVALID_VERIFICATION_CODE'), { status: 400 });
     }
     await this.kv.removeItem(key);
+    await this.kv.removeItem(attemptsKey);
     const claims: StandardClaims = { sub: email, email, email_verified: true };
     const principal = await handler(request, {
       provider: 'EMAIL',
