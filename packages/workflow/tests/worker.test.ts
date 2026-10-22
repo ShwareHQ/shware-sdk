@@ -1,6 +1,5 @@
-import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
-import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { cloudflareJourneyBinding } from '../src/cloudflare/bindings';
 import { journeyWorker } from '../src/cloudflare/worker';
@@ -15,10 +14,8 @@ import {
   trigger,
   workflow,
 } from '../src/index';
-import { D1JourneyStore } from '../src/store/d1';
-import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
-import { renderPostgresDdl } from '../src/store/tables';
-import { FakeD1, FakeJourney } from './fake-cloudflare';
+import { FakeJourney } from './fake-cloudflare';
+import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 
 /** An email transport that accepts every email: these hosts are not about delivery. */
 const quietTransport = { send: async () => ({}) };
@@ -26,10 +23,22 @@ const quietTransport = { send: async () => ({}) };
 /**
  * journeyWorker: the fetch handler around the ingest router (deploying the
  * config's compiled bundle, template preview, auth) and the store lease
- * lifecycle. The runner class itself needs
+ * lifecycle, on a Postgres store (PGlite). The runner class itself needs
  * the Workflows runtime; its wiring is covered by the options being applied to
  * the fetch side, which shares the same lease.
  */
+
+let database: PgliteDatabase;
+beforeAll(async () => {
+  database = await pgliteDatabase();
+}, 30_000);
+afterAll(async () => {
+  await database.close();
+});
+// Every test starts from an empty engine: the tables are emptied, the database kept
+beforeEach(async () => {
+  await truncateAll(database.pg);
+});
 
 const e = event<{ login: { method: string } }>();
 const emails = {
@@ -48,8 +57,11 @@ const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(
 });
 const config = defineConfig({ workflows: [flow], templates: { email: emails } });
 
+/** The workflows the login event is routed to. */
+const routed = async () =>
+  (await database.store.findTriggers('login')).map((route) => route.workflow);
+
 function setup(token?: string) {
-  const db = new FakeD1();
   const journey = new FakeJourney();
   const closes: number[] = [];
   // Development mode: these hosts are about routing and leases, not the production token gate
@@ -61,7 +73,7 @@ function setup(token?: string) {
   const worker = journeyWorker<typeof env>({
     email: () => quietTransport,
     store: () => ({
-      store: new D1JourneyStore(db),
+      store: database.store,
       close: async () => {
         closes.push(1);
       },
@@ -70,16 +82,16 @@ function setup(token?: string) {
   });
   const call = (path: string, init?: RequestInit) =>
     worker.fetch(new Request(`http://worker${path}`, init), env);
-  return { worker, env, db, journey, closes, call };
+  return { worker, env, journey, closes, call };
 }
 
 describe('journeyWorker fetch', () => {
   test('deploys its own bundle, then routes events through it', async () => {
-    const { call, db, journey, closes } = setup();
+    const { call, journey, closes } = setup();
 
     const deploy = await call('/bundle/deploy', { method: 'POST' });
     expect(await deploy.json()).toMatchObject({ workflows: [expect.stringMatching(/^welcome@/)] });
-    expect(db.triggers).toHaveLength(1);
+    expect(await routed()).toEqual(['welcome']);
 
     const shown = await call('/bundle');
     expect((await shown.json()) as { workflows: unknown[] }).toMatchObject({
@@ -143,36 +155,36 @@ describe('the Workflow binding as the host port', () => {
 });
 
 describe('sweep', () => {
+  const te = event<{ login: { method: string } }>();
+  const dormant = segment({
+    id: 'dormant',
+    condition: not(performed(te.login, { within: '7 days' })),
+  });
+  const comeBack = workflow({ id: 'come_back', trigger: trigger.segment(dormant) }).email(
+    emails.welcome,
+    { name: 'friend' }
+  );
+  const sweeping = defineConfig({
+    workflows: [comeBack],
+    segments: [dormant],
+    templates: { email: emails },
+  });
+
   test('starts the journeys of a segment a user entered by the clock alone, once', async () => {
-    const te = event<{ login: { method: string } }>();
-    const dormant = segment({
-      id: 'dormant',
-      condition: not(performed(te.login, { within: '7 days' })),
-    });
-    const comeBack = workflow({ id: 'come_back', trigger: trigger.segment(dormant) }).email(
-      emails.welcome,
-      { name: 'friend' }
-    );
-    const db = new FakeD1();
     const journey = new FakeJourney();
     const env = { JOURNEY: journey, ENVIRONMENT: 'development' };
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new D1JourneyStore(db),
-      config: defineConfig({
-        workflows: [comeBack],
-        segments: [dormant],
-        templates: { email: emails },
-      }),
+      store: () => database.store,
+      config: sweeping,
     });
     // Known users, written straight to the store: identify would already evaluate the trigger
-    const store = new D1JourneyStore(db);
-    await store.mergeProfile('u1', { plan: 'free' });
-    await store.mergeProfile('u2', { plan: 'free' });
+    await database.store.mergeProfile('u1', { plan: 'free' });
+    await database.store.mergeProfile('u2', { plan: 'free' });
     await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
 
     const first = await worker.sweep(env);
-    expect(first).toMatchObject({ users: 2, sizes: [] });
+    expect(first).toMatchObject({ users: 2, sizes: [{ segment: 'dormant', size: 2 }] });
     expect(first.started).toHaveLength(2);
     expect(journey.created).toHaveLength(2);
     // Already members: a second sweep starts nothing
@@ -180,28 +192,14 @@ describe('sweep', () => {
   });
 
   test('the cron handler awaits the sweep: it is done when the handler returns, and a failure surfaces', async () => {
-    const te = event<{ login: { method: string } }>();
-    const dormant = segment({
-      id: 'dormant',
-      condition: not(performed(te.login, { within: '7 days' })),
-    });
-    const comeBack = workflow({ id: 'come_back', trigger: trigger.segment(dormant) }).email(
-      emails.welcome,
-      { name: 'friend' }
-    );
-    const db = new FakeD1();
     const journey = new FakeJourney();
     const env = { JOURNEY: journey, ENVIRONMENT: 'development' };
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new D1JourneyStore(db),
-      config: defineConfig({
-        workflows: [comeBack],
-        segments: [dormant],
-        templates: { email: emails },
-      }),
+      store: () => database.store,
+      config: sweeping,
     });
-    await new D1JourneyStore(db).mergeProfile('u1', { plan: 'free' });
+    await database.store.mergeProfile('u1', { plan: 'free' });
     await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
 
     // Nothing is parked in waitUntil: a runtime that cut the handler off there would lose the sweep
@@ -217,37 +215,13 @@ describe('sweep', () => {
       store: () => {
         throw new Error('store is down');
       },
-      config: defineConfig({
-        workflows: [comeBack],
-        segments: [dormant],
-        templates: { email: emails },
-      }),
+      config: sweeping,
     });
     await expect(broken.scheduled(undefined, env, ctx)).rejects.toThrow('store is down');
   });
 });
 
 describe('a version applies its own bundle', () => {
-  let pg: PGlite;
-  const client = (
-    db: Pick<PGlite, 'query'> & Partial<Pick<PGlite, 'transaction'>>
-  ): SqlClientLike => ({
-    query: async <T>(text: string, params: readonly unknown[] = []) =>
-      (await db.query<T>(text, [...params])).rows,
-    transaction: (fn) =>
-      db.transaction === undefined
-        ? fn(client(db))
-        : db.transaction((tx) => fn(client({ query: tx.query.bind(tx) }))),
-  });
-
-  beforeAll(async () => {
-    pg = await PGlite.create();
-    await pg.exec(renderPostgresDdl());
-  }, 30_000);
-  afterAll(async () => {
-    await pg.close();
-  });
-
   const other = workflow({ id: 'other', trigger: trigger.event(e.login) }).email(emails.welcome, {
     name: 'friend',
   });
@@ -259,13 +233,11 @@ describe('a version applies its own bundle', () => {
     };
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new PostgresJourneyStore(client(pg)),
+      store: () => database.store,
       config: defineConfig({ workflows, templates: { email: emails } }),
     });
     return () => worker.fetch(new Request('http://worker/health'), env);
   };
-  const routed = async () =>
-    (await new PostgresJourneyStore(client(pg)).findTriggers('login')).map((r) => r.workflow);
 
   test('the first request makes a new version live; an older one serving beside it cannot undo it', async () => {
     await versioned([flow], 'v1', '2026-10-01T00:00:00.000Z')();
@@ -285,7 +257,7 @@ describe('a version applies its own bundle', () => {
 
   test('a failed apply is logged and never fails the request', async () => {
     // Keep the deployment table missing without another PGlite cold start in the test budget.
-    await pg.exec('CREATE SCHEMA IF NOT EXISTS unmigrated');
+    await database.pg.exec('CREATE SCHEMA IF NOT EXISTS unmigrated');
     const env = {
       JOURNEY: new FakeJourney(),
       ENVIRONMENT: 'development',
@@ -293,7 +265,7 @@ describe('a version applies its own bundle', () => {
     };
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new PostgresJourneyStore(client(pg), { schema: 'unmigrated' }),
+      store: () => database.storeIn('unmigrated'),
       config,
     });
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -309,19 +281,15 @@ describe('a version applies its own bundle', () => {
     }
   });
 
-  test('a store that records no version (D1) leaves deploying to POST /bundle/deploy', async () => {
-    const env = {
-      JOURNEY: new FakeJourney(),
-      ENVIRONMENT: 'development',
-      CF_VERSION_METADATA: { id: 'v1', timestamp: '2026-10-01T00:00:00.000Z' },
-    };
-    const db = new FakeD1();
+  test('without version metadata, deploying is left to POST /bundle/deploy', async () => {
+    const env = { JOURNEY: new FakeJourney(), ENVIRONMENT: 'development' };
     const worker = journeyWorker<typeof env>({
       email: () => quietTransport,
-      store: () => new D1JourneyStore(db),
+      store: () => database.store,
       config,
     });
     await worker.fetch(new Request('http://worker/health'), env);
-    expect(db.triggers).toHaveLength(0);
+    expect(await routed()).toEqual([]);
+    expect(await database.store.liveBundleVersion()).toBeUndefined();
   });
 });

@@ -262,7 +262,7 @@ export class AwsInstances implements WorkflowBindingLike {
       // Ended without its finalize step: the ledger must not show it running forever
       const { store } = this.options;
       await store.setEntryStatus(record.instanceId, 'failed');
-      await store.reporting?.instanceFinished({
+      await store.reporting.instanceFinished({
         workflow: record.workflow,
         instanceId: record.instanceId,
         userId: record.userId,

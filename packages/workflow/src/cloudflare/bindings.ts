@@ -10,24 +10,6 @@ import { InstanceNotFoundError, type WorkflowBindingLike } from '../host/platfor
  * and the real bindings satisfy it structurally at runtime.
  */
 
-/** Structural subset of D1Result: `meta.changes` is how INSERT OR IGNORE reports whether it inserted. */
-export interface D1RunResultLike {
-  meta?: { changes?: number };
-}
-
-export interface D1PreparedStatementLike {
-  bind(...values: unknown[]): D1PreparedStatementLike;
-  first<T = Record<string, unknown>>(): Promise<T | null>;
-  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
-  run(): Promise<D1RunResultLike>;
-}
-
-export interface D1DatabaseLike {
-  prepare(sql: string): D1PreparedStatementLike;
-  /** Statements run in order inside one transaction (real D1 semantics) — deploy relies on the atomicity. */
-  batch(statements: D1PreparedStatementLike[]): Promise<unknown>;
-}
-
 /**
  * Cloudflare Email Service's send_email binding (structural subset).
  *

@@ -106,7 +106,7 @@ export interface JourneyConfigDefinition {
   apns?: ApnsConfig;
   fcm?: FcmConfig;
   webPush?: WebPushConfig;
-  /** Where a Postgres store keeps the engine's tables (the D1 store ignores it). */
+  /** The schema the store keeps the engine's tables in. */
   database?: DatabaseConfig;
 }
 

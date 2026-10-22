@@ -11,13 +11,18 @@
       "class_name": "DemoJourneyRunner",
     },
   ],
-  "d1_databases": [
+  // The engine's Postgres. Locally, `pnpm db:up` starts it in docker and wrangler dev connects
+  // straight to it; deployed, the Hyperdrive id names the real database.
+  "hyperdrive": [
     {
-      "binding": "DB",
-      "database_name": "journey-db",
-      "database_id": "journey-db-local",
+      "binding": "HYPERDRIVE",
+      "id": "<hyperdrive id>",
+      "localConnectionString": "postgres://postgres:pw@localhost:54320/workflow",
     },
   ],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "send_email": [{ "name": "EMAIL" }],
+  // Development runs open (no API_TOKEN) and in fast-forward; production needs `wrangler secret put API_TOKEN`
+  "vars": { "ENVIRONMENT": "development" },
   "triggers": { "crons": ["*/15 * * * *"] },
 }

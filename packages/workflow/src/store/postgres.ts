@@ -54,9 +54,8 @@ function asJson<T>(value: unknown): T {
 }
 
 /**
- * Journey data plane on Postgres. Same contract as D1JourneyStore, native
- * types where Postgres has them (jsonb, timestamptz), and the concurrency
- * guarantees come from the database: ON CONFLICT for the once policy and
+ * The journey data plane on Postgres: native types where Postgres has them
+ * (jsonb, timestamptz), and the concurrency guarantees come from the database: ON CONFLICT for the once policy and
  * idempotent subscriptions, a transaction for the route swap, a jsonb merge
  * for /identify. The tables are declared in tables.ts.
  *

@@ -1,4 +1,4 @@
-export type { D1DatabaseLike, EmailBindingLike } from './bindings';
+export type { EmailBindingLike } from './bindings';
 export { WAKE_TIMEOUT_TOLERANCE_MS, cloudflareJourneyBinding, wakeExpired } from './bindings';
 export type {
   JourneyEnv,
@@ -7,7 +7,6 @@ export type {
   WorkflowInstanceLike,
 } from '../host/platform';
 export { InstanceNotFoundError, WAKE_EVENT_TYPE } from '../host/platform';
-export { d1Store } from './d1-env';
 export {
   BundleIntegrityError,
   deployBundle,
@@ -21,7 +20,6 @@ export {
   sweepSegments,
   sweepSegmentsPaged,
   SWEEP_PAGE_SIZE,
-  UnversionedStoreError,
 } from '../host/ingest';
 export { handleRequest } from '../host/http';
 export type { IngestValidation } from '../host/http';
@@ -64,7 +62,7 @@ export type {
   OutboundMessage,
   SendResult,
 } from '../engine/ports';
-// Reporting a store keeps (Postgres): what journeyWorker installs by default, for a custom host.
+// Reporting over the store: what journeyWorker installs by default, for a custom host.
 export { reportingObserver } from '../reporting/observer';
 export { handleTracking, recordPushOpen } from '../reporting/tracking';
 export type { TrackingOptions } from '../reporting/tracking';
@@ -79,7 +77,6 @@ export { EnvValidationError, journeyWorker } from './worker';
 export type { ExecutionContextLike, JourneyWorker, JourneyWorkerOptions } from './worker';
 // The data plane lives in ../store; re-exported here so a Cloudflare host imports one path.
 export {
-  D1JourneyStore,
   JourneyFactSource,
   PostgresJourneyStore,
   PostgresReporting,

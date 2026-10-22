@@ -1,6 +1,5 @@
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
-import { d1Store } from '../cloudflare/d1-env';
 import { type JourneyConfig, compileConfig } from '../config';
 import { type Contract, ContractValidationError, checkEvent } from '../contract';
 import { assertEmailConfig } from '../email';
@@ -49,12 +48,12 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
   config: JourneyConfig;
   /**
    * The data plane, opened per request and per workflow run. Return a `StoreLease` when the
-   * client must be released afterwards (a Postgres connection); defaults to D1 from the env's
-   * binding. `database` is the config's (`schema` defaulting to `workflow`), for Postgres:
+   * client must be released afterwards (a Postgres connection). `database` is the config's
+   * (`schema` defaulting to `workflow`):
    *
    *   store: (env, database) => postgresJsStore(env.DATABASE_URL, database)
    */
-  store?: (env: Env, database: { schema: string }) => JourneyStore | StoreLease;
+  store: (env: Env, database: { schema: string }) => JourneyStore | StoreLease;
   /**
    * Where journey emails go: a transport built from the validated env — `sesEmailTransport(...)`,
    * `cloudflareEmailTransport(...)`, or your own. Which one is independent of where the workflow
@@ -64,8 +63,8 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
   /**
    * Reporting hooks: node arrivals, every copy sent (with the tracking it should carry — click
    * links and an open pixel for email, payload data for a push), and how each instance ended.
-   * By default a store that keeps reporting (Postgres) records them itself, and the host serves
-   * the email tracking routes (`/t/...`, on `WORKFLOW_ORIGIN`); override to report elsewhere.
+   * By default the store records them itself, and the host serves the email tracking routes
+   * (`/t/...`, on `WORKFLOW_ORIGIN`); override to report elsewhere.
    */
   observer?: (env: Env, store: JourneyStore) => JourneyObserver;
   /** Message outlet override (tests, a custom gateway): replaces every channel, `email` included. */
@@ -199,7 +198,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
   const database = { schema: config.database?.schema ?? DEFAULT_SCHEMA };
   // In fast-forward, segment windows scale with the journeys reading them (time-scale.ts)
   const lease = (env: Env): Required<StoreLease> => {
-    const opened = options.store === undefined ? d1Store(env) : options.store(env, database);
+    const opened = options.store(env, database);
     const noop = async () => {};
     const factor = runtimeFromConfig(config, env).timeScale;
     return 'store' in opened
@@ -220,11 +219,9 @@ export function createJourneyHost<Env extends JourneyEnv>(
     });
   };
 
-  const observer = (env: Env, store: JourneyStore): JourneyObserver | undefined => {
+  const observer = (env: Env, store: JourneyStore): JourneyObserver => {
     if (options.observer !== undefined) return options.observer(env, store);
-    return store.reporting === undefined
-      ? undefined
-      : reportingObserver(store.reporting, env.WORKFLOW_ORIGIN);
+    return reportingObserver(store.reporting, env.WORKFLOW_ORIGIN);
   };
 
   const runParts = (env: Env, store: JourneyStore, params: JourneyParams): JourneyRunParts => ({
@@ -315,7 +312,6 @@ export function createJourneyHost<Env extends JourneyEnv>(
     applying = (async () => {
       const { store, close } = lease(env);
       try {
-        if (store.liveBundleVersion === undefined) return; // D1: POST /bundle/deploy
         const live = await store.liveBundleVersion();
         if (live !== undefined && (live.id === version.id || live.createdAt >= version.createdAt))
           return;

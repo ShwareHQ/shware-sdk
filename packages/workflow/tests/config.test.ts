@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
 import { journeyWorker } from '../src/cloudflare/worker';
 import {
@@ -15,6 +15,15 @@ import {
   workflow,
 } from '../src/index';
 import { makeEnv } from './fake-cloudflare';
+import { type PgliteDatabase, pgliteDatabase } from './pglite';
+
+let database: PgliteDatabase;
+beforeAll(async () => {
+  database = await pgliteDatabase();
+}, 30_000);
+afterAll(async () => {
+  await database.close();
+});
 
 const contract = defineContract({
   events: { login: z.looseObject({ method: z.string() }) },
@@ -262,7 +271,11 @@ describe('compileConfig', () => {
 describe('journeyWorker({ config })', () => {
   test('serves the compiled config as its bundle and validates ingest with its contract', async () => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
-    const worker = journeyWorker({ config: config(), email: () => ({ send: async () => ({}) }) });
+    const worker = journeyWorker({
+      config: config(),
+      store: () => database.store,
+      email: () => ({ send: async () => ({}) }),
+    });
     const bundle = await (await worker.fetch(new Request('https://w.test/bundle'), env)).json();
     expect(bundle).toEqual(JSON.parse(JSON.stringify(compileConfig(config()))));
     const refused = await worker.fetch(
@@ -363,6 +376,7 @@ test('/preview takes typed JSON props, so number and boolean fields can be previ
   };
   const worker = journeyWorker({
     config: defineConfig({ workflows: [], templates: { email: typed } }),
+    store: () => database.store,
   });
   const { env } = makeEnv({ ENVIRONMENT: 'development' });
   const get = (query: string) =>

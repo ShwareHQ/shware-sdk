@@ -6,15 +6,15 @@ npm on its own and can be adopted independently.
 
 ## Packages
 
-| Package                                         | What it does                                                                                                                      |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [`@shware/analytics`](./packages/analytics)     | Event tracking for web and React Native, browser pixels, attribution, and server-side conversions APIs for the ad platforms       |
-| [`@shware/http`](./packages/http)               | A gRPC-style `Status` error model, Hono middlewares and helpers, webhooks, Google One Tap, and small HTTP utilities               |
-| [`@shware/security`](./packages/security)       | Session-based auth: OAuth2 sign-in with the major providers, Redis session repositories, native and desktop sign-in               |
-| [`@shware/purchase`](./packages/purchase)       | One subscription model over Stripe, the App Store and Google Play, and handlers that map their webhooks and notifications onto it |
-| [`@shware/workflow`](./packages/workflow)       | Customer journeys (email, push, webhooks) written as TypeScript, compiled to versioned IR, run on Cloudflare Workers              |
-| [`@shware/workflow-ui`](./packages/workflow-ui) | A local studio for reviewing a `@shware/workflow` project's journeys, message templates and reports                               |
-| [`@shware/utils`](./packages/utils)             | Dependency-free helpers shared by the other packages: arrays, strings, promises, rate limiting, storage, React hooks              |
+| Package                                         | What it does                                                                                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@shware/analytics`](./packages/analytics)     | Event tracking for web and React Native, browser pixels, attribution, and server-side conversions APIs for the ad platforms                        |
+| [`@shware/http`](./packages/http)               | A gRPC-style `Status` error model, Hono middlewares and helpers, webhooks, Google One Tap, and small HTTP utilities                                |
+| [`@shware/security`](./packages/security)       | Session-based auth: OAuth2 sign-in with the major providers, Redis session repositories, native and desktop sign-in                                |
+| [`@shware/purchase`](./packages/purchase)       | One subscription model over Stripe, the App Store and Google Play, and handlers that map their webhooks and notifications onto it                  |
+| [`@shware/workflow`](./packages/workflow)       | Customer journeys (email, push, webhooks) written as TypeScript, compiled to versioned IR, run on Cloudflare Workflows or AWS Lambda over Postgres |
+| [`@shware/workflow-ui`](./packages/workflow-ui) | A local studio for reviewing a `@shware/workflow` project's journeys, message templates and reports                                                |
+| [`@shware/utils`](./packages/utils)             | Dependency-free helpers shared by the other packages: arrays, strings, promises, rate limiting, storage, React hooks                               |
 
 Each package's README covers installation, its entry points and usage:
 
@@ -44,7 +44,7 @@ TypeScript types.
 ## Examples
 
 - [`examples/cloudflare-demo`](./examples/cloudflare-demo): a `@shware/workflow` Worker on
-  Cloudflare with KV, D1 and Workflows (`pnpm dev`, `pnpm db:reset`).
+  Cloudflare Workflows with Postgres through Hyperdrive (`pnpm db:up`, `pnpm dev`).
 - [`examples/playground`](./examples/playground): a `@shware/workflow` project opened in
   `@shware/workflow-ui` (`pnpm dev`).
 

@@ -1,12 +1,12 @@
-import { describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { bearerMatches, timingSafeEqual } from '../src/cloudflare';
 import { journeyWorker } from '../src/cloudflare/worker';
 import type { Authorize } from '../src/host/auth';
 import type { JourneyEnv } from '../src/host/platform';
 import { defineConfig, event, trigger, workflow } from '../src/index';
-import { D1JourneyStore } from '../src/store/d1';
 import { makeEnv } from './fake-cloudflare';
 import { plainEmail } from './fixtures';
+import { type PgliteDatabase, pgliteDatabase } from './pglite';
 
 /**
  * The host's `authorize` option: the caller decides what a valid request looks like (here an
@@ -22,6 +22,14 @@ const config = defineConfig({
 
 const SECRET = 'webhook-secret';
 
+let database: PgliteDatabase;
+beforeAll(async () => {
+  database = await pgliteDatabase();
+}, 30_000);
+afterAll(async () => {
+  await database.close();
+});
+
 async function hmacHex(secret: string, body: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -35,20 +43,13 @@ async function hmacHex(secret: string, body: string): Promise<string> {
 }
 
 function setup(authorize: Authorize<JourneyEnv> | undefined, overrides: Partial<JourneyEnv> = {}) {
-  const { env, db } = makeEnv({ ENVIRONMENT: 'development', ...overrides });
+  const { env } = makeEnv({ ENVIRONMENT: 'development', ...overrides });
   const asked: string[] = [];
   const worker = journeyWorker<JourneyEnv>({
     config,
-    // A store that keeps reporting serves the tracking routes; a pixel for an unknown copy is
-    // all they need here
-    store: () => {
-      const store = new D1JourneyStore(db);
-      const reporting = { recordOpen: async () => false };
-      return new Proxy(store, {
-        get: (target, property) =>
-          property === 'reporting' ? reporting : Reflect.get(target, property, target),
-      });
-    },
+    // The store's reporting serves the tracking routes; a pixel for an unknown copy is all they
+    // need here
+    store: () => database.store,
     email: () => ({ send: async () => ({}) }),
     ...(authorize === undefined
       ? {}

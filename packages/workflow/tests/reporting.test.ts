@@ -1,4 +1,3 @@
-import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { isUnsubscribeLink } from '../src/email';
 import type { OutboundMessage } from '../src/engine/ports';
@@ -9,48 +8,31 @@ import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';
 import { type Engagement, UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
-import { TABLES, renderPostgresDdl } from '../src/store/tables';
+import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 
 /**
  * Reporting on Postgres: what the observer records as a journey runs, and what the tracking
  * routes record when a recipient opens, clicks or unsubscribes.
  */
 
-let pg: PGlite;
-
-function client(db: {
-  query: PGlite['query'];
-  transaction?: PGlite['transaction'];
-}): SqlClientLike {
-  return {
-    query: async <T>(text: string, params: readonly unknown[] = []) =>
-      (await db.query<T>(text, [...params])).rows,
-    transaction: (fn) =>
-      db.transaction === undefined
-        ? fn(client(db))
-        : db.transaction((tx) => fn(client({ query: tx.query.bind(tx) }))),
-  };
-}
+let database: PgliteDatabase;
+let pg: PgliteDatabase['pg'];
 
 beforeAll(async () => {
-  pg = await PGlite.create();
-  await pg.exec(renderPostgresDdl());
+  database = await pgliteDatabase();
+  pg = database.pg;
 }, 30_000);
 
 afterAll(async () => {
-  await pg.close();
+  await database.close();
 });
 
 beforeEach(async () => {
   vi.useRealTimers();
-  await pg.exec(
-    `TRUNCATE ${Object.values(TABLES)
-      .map((t) => `workflow."${t.name}"`)
-      .join(', ')}`
-  );
+  await truncateAll(pg);
 });
 
-const reporting = () => new PostgresJourneyStore(client(pg)).reporting;
+const reporting = () => database.storeIn().reporting;
 
 const email = (overrides: Partial<OutboundMessage> = {}): OutboundMessage => ({
   workflow: 'welcome',
@@ -307,7 +289,7 @@ describe('tracking', () => {
     expect((await handleTracking(post(), reporting(), options))?.status).toBe(200);
     expect((await unsubscribed()).rows).toEqual([{ u: true }]);
     // The opt-out the engine reads before every email: the whole email channel
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.storeIn();
     expect(await store.isSuppressed('u1', 'email')).toBe(true);
     expect(await store.isSuppressed('u1', 'push')).toBe(false);
   });
@@ -335,7 +317,7 @@ describe('tracking', () => {
     });
     expect((await handleTracking(oneClick, reporting(), options))?.status).toBe(200);
     expect((await unsubscribed()).rows).toEqual([{ u: true }]);
-    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(true);
+    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(true);
 
     // A copy no longer on record (its user erased): the one-click still succeeds, changing nothing
     const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
@@ -392,7 +374,7 @@ describe('tracking', () => {
     expect(second?.status).toBe(200);
     expect(error).toHaveBeenCalledOnce();
     error.mockRestore();
-    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(true);
+    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(true);
 
     // An unknown copy: nothing to tell the host, the page still answers success
     const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
@@ -410,7 +392,7 @@ describe('tracking', () => {
     const failing: SqlClientLike = {
       query: async (text, params) => {
         if (text.includes('suppression')) throw new Error('suppression table unavailable');
-        return client(pg).query(text, params);
+        return database.client.query(text, params);
       },
       transaction: (fn) =>
         pg.transaction((tx) =>
@@ -432,7 +414,7 @@ describe('tracking', () => {
       await pg.query('SELECT unsubscribed_at IS NULL AS untouched FROM workflow.message')
     ).rows;
     expect(row).toEqual({ untouched: true });
-    expect(await new PostgresJourneyStore(client(pg)).isSuppressed('u1', 'email')).toBe(false);
+    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(false);
   });
 
   test('a scanner following every link at once: clicks judged one after another', async () => {
@@ -551,7 +533,7 @@ describe('forgetUser', () => {
     (await pg.query(`SELECT 1 FROM workflow.${table}`)).rows.length;
 
   test('stops the running instances first, then erases everything, the request with it', async () => {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.storeIn();
     await seed(store);
     const { env, terminated } = binding('stops');
 
@@ -565,7 +547,7 @@ describe('forgetUser', () => {
   });
 
   test('an instance that will not stop keeps everything, and a retry finishes the job', async () => {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.storeIn();
     await seed(store);
 
     const refused = await forgetUser(binding('refuses').env, 'u1', store);
@@ -591,7 +573,7 @@ describe('reporting after a tombstone', () => {
   test.each(['erasing', 'erased'] as const)(
     'a late start, node or finish of a user %s leaves no instance row',
     async (state) => {
-      const store = new PostgresJourneyStore(client(pg));
+      const store = database.storeIn();
       await store.requestErasure('u1', 5);
       if (state === 'erased') await store.forgetUser('u1', 6);
       const reporting = store.reporting;
@@ -616,7 +598,7 @@ describe('reporting after a tombstone', () => {
   );
 
   test('a finish arriving after the erase does not put the instance back', async () => {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.storeIn();
     await store.reporting.instanceStarted({ ...instance, at: 1 });
     await store.reporting.nodeReached({ ...instance, nodeId: 'n1', at: 2 });
     await store.requestErasure('u1', 5);
@@ -628,7 +610,7 @@ describe('reporting after a tombstone', () => {
   });
 
   test('a copy for a user with a tombstone is refused for good, so it is never sent', async () => {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.storeIn();
     const copy = {
       idempotencyKey: 'i1:n1',
       workflow: 'w',
@@ -656,7 +638,7 @@ describe('reporting after a tombstone', () => {
   });
 
   test('the paths that know only the copy re-check its owner: a tombstone makes them no-ops', async () => {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.storeIn();
     const { id } = await sendEmail(['https://example.com/a']);
     const person = (at: number): Engagement => ({
       at,

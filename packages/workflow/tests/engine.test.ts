@@ -1031,11 +1031,11 @@ describe('evaluateCondition: comparison operators', () => {
 describe('segment cycles in hand-built IR', () => {
   /*
    * `segment(...)` is an eager constructor, so a cycle cannot be written in the
-   * DSL — but IR is read back from KV and segment definitions from D1, where a
+   * DSL — but IR is read back from the store and segment definitions with it, where a
    * self-reference is just a row. Unbounded recursion is the worst failure
    * shape available here: it blows the stack inside a durable step, the step
    * throws, Workflows retries it, and the instance is wedged for good — after
-   * one D1 round trip per level of recursion.
+   * one store round trip per level of recursion.
    */
   const definitions: Record<string, ConditionIR> = {
     loops: { type: 'segment', segment: 'loops' },

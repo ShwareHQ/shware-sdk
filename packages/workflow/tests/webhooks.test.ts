@@ -177,6 +177,10 @@ describe('environment schema', () => {
     const worker = journeyWorker({
       config: defineConfig({ workflows: [], templates: registry }),
       env,
+      // The request fails on the env, before the store is opened
+      store: () => {
+        throw new Error('never opened');
+      },
     });
     const response = await worker.fetch(new Request('http://worker/health'), {
       JOURNEY: new FakeJourney(),

@@ -5,7 +5,6 @@ import {
   LocalDurableTestRunner,
   WaitingOperationStatus,
 } from '@aws/durable-execution-sdk-js-testing';
-import { PGlite } from '@electric-sql/pglite';
 import { createElement } from 'react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
@@ -34,8 +33,8 @@ import {
   workflow,
 } from '../src/index';
 import type { JourneyStore } from '../src/store/index';
-import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
-import { TABLES, renderPostgresDdl } from '../src/store/tables';
+import type { PostgresJourneyStore } from '../src/store/postgres';
+import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 
 /** An email transport that accepts every email: these hosts are not about delivery. */
 const quietTransport = { send: async () => ({}) };
@@ -47,39 +46,22 @@ const quietTransport = { send: async () => ({}) };
  * by the real SDK, against a real Postgres (PGlite).
  */
 
-let pg: PGlite;
-
-function client(db: {
-  query: PGlite['query'];
-  transaction?: PGlite['transaction'];
-}): SqlClientLike {
-  return {
-    query: async <T>(text: string, params: readonly unknown[] = []) =>
-      (await db.query<T>(text, [...params])).rows,
-    transaction: (fn) =>
-      db.transaction === undefined
-        ? fn(client(db))
-        : db.transaction((tx) => fn(client({ query: tx.query.bind(tx) }))),
-  };
-}
+let database: PgliteDatabase;
+let pg: PgliteDatabase['pg'];
 
 beforeAll(async () => {
-  pg = await PGlite.create();
-  await pg.exec(renderPostgresDdl());
+  database = await pgliteDatabase();
+  pg = database.pg;
   await LocalDurableTestRunner.setupTestEnvironment();
 }, 30_000);
 
 afterAll(async () => {
   await LocalDurableTestRunner.teardownTestEnvironment();
-  await pg.close();
+  await database.close();
 });
 
 beforeEach(async () => {
-  await pg.exec(
-    `TRUNCATE ${Object.values(TABLES)
-      .map((t) => `workflow."${t.name}"`)
-      .join(', ')}`
-  );
+  await truncateAll(pg);
 });
 
 const e = event<{ login: Record<string, never>; purchase: { value: number } }>();
@@ -147,7 +129,7 @@ function setup(
   const journeys = journeyLambda({
     config: journeyConfig(timeout),
     env: { ENVIRONMENT: 'production', API_TOKEN: 'secret' },
-    store: () => ({ store: new PostgresJourneyStore(client(pg)), close: async () => {} }),
+    store: () => ({ store: database.store, close: async () => {} }),
     email: () => ({
       async send(message) {
         sent.push(message);
@@ -196,7 +178,7 @@ describe('journeyLambda', () => {
     expect(starts).toHaveLength(1);
     const [start] = starts;
     // The name recorded with the entry: what every retry of this start resends
-    const recorded = await new PostgresJourneyStore(client(pg)).executions.get(body.started[0]);
+    const recorded = await database.store.executions.get(body.started[0]);
     expect(start.name).toBe(recorded?.name);
     expect(start.name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     // Pinned to this invocation's version (the local runner invokes $LATEST)
@@ -239,7 +221,7 @@ describe('journeyLambda', () => {
     await callback.waitForData(WaitingOperationStatus.STARTED);
     // The last step before the wait parks: past it, the check has already run
     await runner.getOperation('1:remaining:0').waitForData(WaitingOperationStatus.COMPLETED);
-    const armed = await new PostgresJourneyStore(client(pg)).executions.get(run.instanceId);
+    const armed = await database.store.executions.get(run.instanceId);
     expect(armed?.callbackId).toBe(callback.getCallbackDetails()?.callbackId);
     expect(armed?.submittedAt).toBeTypeOf('number');
     expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
@@ -261,7 +243,7 @@ describe('journeyLambda', () => {
     expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard', 'Thanks for buying']);
     const finished = await pg.query<{ status: string }>(`SELECT status FROM workflow.entry`);
     expect(finished.rows).toEqual([{ status: 'completed' }]);
-    const left = await new PostgresJourneyStore(client(pg)).executions.get(run.instanceId);
+    const left = await database.store.executions.get(run.instanceId);
     expect(left?.callbackId).toBeUndefined();
     const subscriptions = await pg.query(`SELECT * FROM workflow.subscription`);
     expect(subscriptions.rows).toEqual([]);
@@ -316,7 +298,7 @@ describe('journeyLambda', () => {
 
 describe('AwsInstances', () => {
   function instances(lambda: LambdaApi, now = () => Date.now()) {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.store;
     return {
       store,
       port: new AwsInstances({
@@ -478,7 +460,7 @@ describe('the router on AwsInstances', () => {
   const TARGET = 'arn:aws:lambda:us-east-1:1:function:f:7';
 
   async function routed(lambda: LambdaApi, now?: () => number) {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.store;
     const port = new AwsInstances({
       store,
       executions: store.executions,
@@ -757,7 +739,7 @@ describe('every stop judgment obeys one drain', () => {
     ) => PostgresJourneyStore['executions'];
     reconcileEveryMs?: number;
   }) {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.store;
     const port = new AwsInstances({
       store,
       executions: options.executions?.(store.executions) ?? store.executions,
@@ -981,7 +963,7 @@ describe('journeyLambda entry points', () => {
       email: () => quietTransport,
       config: journeyConfig('1 day'),
       env: { API_TOKEN: 'secret' },
-      store: () => new PostgresJourneyStore(client(pg)),
+      store: () => database.store,
       lambda: {
         ...control.lambda,
         async startExecution(input) {
@@ -1010,25 +992,6 @@ describe('journeyLambda entry points', () => {
     const { journeys } = setup();
     const { result } = await call(journeys.handler, { hello: 'world' });
     expect(result.getError().errorMessage).toMatch(/unrecognized event/);
-  });
-
-  test('a store without an execution registry is refused with the reason', async () => {
-    const journeys = journeyLambda({
-      email: () => quietTransport,
-      config: journeyConfig('1 day'),
-      env: {},
-      store: () => {
-        const store = new PostgresJourneyStore(client(pg));
-        return new Proxy(store, {
-          get: (target, property) =>
-            property === 'executions' ? undefined : Reflect.get(target, property, target),
-        });
-      },
-      lambda: fakeLambda().lambda,
-    });
-    const { result } = await call(journeys.handler, request('/health', undefined, 'GET'));
-    // The HTTP step answers 500 and logs why
-    expect(result.getResult()).toMatchObject({ statusCode: 500 });
   });
 
   test('a numbered version makes its own bundle live and pins new executions to itself', async () => {
@@ -1062,7 +1025,7 @@ describe('journeyLambda entry points', () => {
         templates: { email: emails },
       }),
       env: { API_TOKEN: 'secret' },
-      store: () => new PostgresJourneyStore(client(pg)),
+      store: () => database.store,
       lambda: control.lambda,
     });
     await call(older.handler, request('/events', { userId: 'u1', event: 'login' }));
@@ -1086,7 +1049,7 @@ describe('journeyLambda entry points', () => {
     const journeys = journeyLambda({
       config: defineConfig({ workflows: [flow], templates: { email: emails } }),
       env: { API_TOKEN: 'secret' },
-      store: () => new PostgresJourneyStore(client(pg)),
+      store: () => database.store,
       email: () => ({
         async send(message) {
           sent.push(message);
@@ -1115,7 +1078,7 @@ describe('review fixes', () => {
   const HOUR = 3_600_000;
 
   function port(lambda: LambdaApi, now: () => number = Date.now) {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.store;
     return {
       store,
       port: new AwsInstances({
@@ -1249,7 +1212,7 @@ describe('second review fixes', () => {
       ],
       templates: { email: emails },
     });
-    const base = new PostgresJourneyStore(client(pg));
+    const base = database.store;
     await deployBundle({ JOURNEY: {} as never }, compileConfig(v3), base, {
       id: '3',
       createdAt: 3,
@@ -1307,14 +1270,14 @@ describe('second review fixes', () => {
         templates: { email: emails },
       }),
       env: { API_TOKEN: 'secret' },
-      store: () => new PostgresJourneyStore(client(pg)),
+      store: () => database.store,
       lambda: control.lambda,
     });
     // Another bundle forced in: no version recorded on its routes
     await deployBundle(
       { JOURNEY: {} as never },
       compileConfig(journeyConfig('1 day')),
-      new PostgresJourneyStore(client(pg))
+      database.store
     );
     const { result } = await call(
       journeys.handler,
@@ -1326,7 +1289,7 @@ describe('second review fixes', () => {
 
   test('a replayed event that reclaims a failed entry starts a new execution', async () => {
     const control = fakeLambda();
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.store;
     const port = new AwsInstances({
       store,
       executions: store.executions,
@@ -1384,7 +1347,7 @@ describe('4.0: the run is bound to the registry', () => {
     const { journeys, sent, run } = await recordedRun();
     const unknown = await call(journeys.handler, { ...run, instanceId: 'never-planned' });
     expect(unknown.result.getError().errorMessage).toMatch(/not a recorded start/);
-    await new PostgresJourneyStore(client(pg)).executions.markStopped(run.instanceId, Date.now());
+    await database.store.executions.markStopped(run.instanceId, Date.now());
     const stopped = await call(journeys.handler, run);
     expect(stopped.result.getError().errorMessage).toMatch(/not a recorded start/);
     expect(sent).toEqual([]);
@@ -1396,7 +1359,7 @@ describe('4.0: the sweep is resumable, one durable step per page', () => {
   function pagedStore(delayMs = 0) {
     const pages: (string | undefined)[] = [];
     const store = () => {
-      const base = new PostgresJourneyStore(client(pg));
+      const base = database.store;
       return new Proxy(base, {
         get(target, property, receiver) {
           if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
@@ -1469,7 +1432,7 @@ describe('the registry read at the entry of a run is retried, briefly, never its
     const reads: string[] = [];
     let failNext: (() => Error | undefined) | undefined;
     const store = () => {
-      const base = new PostgresJourneyStore(client(pg));
+      const base = database.store;
       const executions = new Proxy(base.executions, {
         get(target, property, receiver) {
           if (property !== 'get') return Reflect.get(target, property, receiver);
@@ -1588,7 +1551,7 @@ describe('the registry read at the entry of a run is retried, briefly, never its
     const callback = runner.getOperation('1:subscribe:0:callback');
     await callback.waitForData(WaitingOperationStatus.STARTED);
     await runner.getOperation('1:remaining:0').waitForData(WaitingOperationStatus.COMPLETED);
-    await new PostgresJourneyStore(client(pg)).executions.markStopped(run.instanceId, Date.now());
+    await database.store.executions.markStopped(run.instanceId, Date.now());
     await callback.sendCallbackSuccess('{}');
     const result = await running;
     expect(result.getError().errorMessage).toMatch(/not a recorded start/);
@@ -1736,7 +1699,7 @@ describe('the provider clients live with the host, across invocations', () => {
         APNS_RELAY_ORIGIN: apnsOrigin,
         GOOGLE_APPLICATION_CREDENTIALS_BASE64: serviceAccountBase64,
       },
-      store: () => new PostgresJourneyStore(client(pg)),
+      store: () => database.store,
       lambda: control.lambda,
     });
     return { journeys, starts: control.starts };
@@ -1744,7 +1707,7 @@ describe('the provider clients live with the host, across invocations', () => {
 
   /** Enter `userId` with an iOS and an Android device, and run its instance as its own invocation. */
   async function runFor(host: ReturnType<typeof pushHost>, userId: string) {
-    const store = new PostgresJourneyStore(client(pg));
+    const store = database.store;
     await store.upsertDevice({ userId, token: `${userId}-ios`, platform: 'ios', ts: 1 });
     await store.upsertDevice({ userId, token: `${userId}-android`, platform: 'android', ts: 2 });
     const before = host.starts.length;

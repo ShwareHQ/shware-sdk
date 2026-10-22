@@ -1,4 +1,4 @@
-import type { D1DatabaseLike, EmailBindingLike } from '../cloudflare/bindings';
+import type { EmailBindingLike } from '../cloudflare/bindings';
 import type { ExecutionStart } from '../store/index';
 
 /**
@@ -72,12 +72,6 @@ export interface JourneyParams {
 
 /** Every binding, variable and secret the journey host reads (names match the wrangler config). */
 export interface JourneyEnv {
-  /**
-   * The default D1 store's database (events / profiles / segments / triggers / entries /
-   * subscriptions / workflow IR). Optional: a host on another JourneyStore (Postgres, say)
-   * does not declare it.
-   */
-  DB?: D1DatabaseLike;
   /** The runtime port: creating instances, waking and stopping them. */
   JOURNEY: WorkflowBindingLike;
   /** Optional message-delivery webhook (defaults to the console logging sender). */

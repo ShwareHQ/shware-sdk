@@ -5,7 +5,7 @@ versioned IR, and executed by a single generic runner: the IR is data, so one
 deployed Worker runs every journey. Events and profile fields are typed by a
 shared Zod contract, messages are typed templates (React email, push, Slack,
 Discord), and the host is a Cloudflare Worker on Cloudflare Workflows, with its
-data in D1 or in your own Postgres.
+data in your own Postgres.
 
 ```ts
 const welcome = workflow({ id: 'welcome', trigger: trigger.event(e.sign_up) })
@@ -189,8 +189,7 @@ export const AcmeJourneyRunner = journeys.Runner;
 export default { fetch: journeys.fetch, scheduled: journeys.scheduled };
 ```
 
-Leave `store` out to use the default D1 + KV store from the env's bindings (see
-[Cloudflare setup](#cloudflare-setup)). On Postgres, create the engine's tables
+`store` names the engine's Postgres (here through Hyperdrive); create its tables
 first (see [Postgres](#postgres)).
 
 ```jsonc
@@ -742,19 +741,15 @@ backward-compatible changes, so a new required prop means a new id.
 
 ## Cloudflare setup
 
-The default store needs two bindings, named as in `JourneyEnv`:
+The Worker needs two bindings, named as in `JourneyEnv` and the quick start's `wrangler.jsonc`:
 
-| Binding   | Type        | Holds                                                  |
-| --------- | ----------- | ------------------------------------------------------ |
-| `DB`      | D1 database | Events, profiles, routing, compiled IR, entries, wakes |
-| `JOURNEY` | Workflow    | The `JourneyRunner` entrypoint                         |
-
-The compiled IR lives in D1 with the routes, never in a KV namespace: KV is eventually consistent
-while the routes in D1 are not, so an instance started in another colo right after a deploy could
-miss its IR.
+| Binding      | Type       | Holds                                                       |
+| ------------ | ---------- | ----------------------------------------------------------- |
+| `JOURNEY`    | Workflow   | The `JourneyRunner` entrypoint                              |
+| `HYPERDRIVE` | Hyperdrive | The connection to the engine's Postgres (`postgresJsStore`) |
 
 The Worker needs the `nodejs_compat` compatibility flag (the bearer check uses
-`node:crypto`'s `timingSafeEqual`). A Worker on Postgres needs only `JOURNEY`. Add the `EMAIL` send_email binding
+`node:crypto`'s `timingSafeEqual`). Add the `EMAIL` send_email binding
 when it sends through Cloudflare Email (`cloudflareEmailTransport({ binding: env.EMAIL })`), and a `triggers.crons` entry with `scheduled`
 exported to run the segment sweep.
 
@@ -780,24 +775,9 @@ window to come back for and no second pass; the tombstone stays, so a late
 write cannot bring the user back.
 
 One database per host. The routing tables are global (`triggers`, `segments`, the live
-`deployment` row), so two Workers on one D1 database or one Postgres schema would swap each
-other's routes on every deploy: give staging and production their own database or schema
-(`database: { schema }`).
-
-The D1 schema ships with the package. Apply it before the first deploy:
-
-```bash
-wrangler d1 execute <database> --file node_modules/@shware/workflow/dist/cloudflare/schema.sql
-```
-
-Nothing in the adapter creates these tables at runtime, so this step is not
-optional. The same file lives at `src/cloudflare/schema.sql` in this repo and is
-the single source for both.
-
-There are no migrations, and re-applying the file is not one: every statement is
-`CREATE TABLE IF NOT EXISTS`, so an existing database keeps its old tables and
-the first insert needing a new column fails. Recreate it instead. The demo has
-`pnpm db:reset`. The `events` key is `(user_id, id)`, and `workflow_ir` holds the compiled IR.
+`deployment` row), so two Workers on one Postgres schema would swap each other's routes on
+every deploy: give staging and production their own schema (`database: { schema }`) or
+database.
 
 ### Cloudflare deployment notes
 
@@ -817,8 +797,8 @@ the first insert needing a new column fails. Recreate it instead. The demo has
   - A completed instance's state is kept 30 days.
 - **Authorization.** Set `API_TOKEN` with `wrangler secret put`, or pass `authorize` (below).
   The tracking routes (`/t/...`) stay public by design.
-- **Deploying.** With the `CF_VERSION_METADATA` binding and a Postgres store, each `wrangler deploy`
-  makes its own bundle live (see [Postgres](#postgres)). On D1, call `POST /bundle/deploy`.
+- **Deploying.** With the `CF_VERSION_METADATA` binding, each `wrangler deploy` makes its own
+  bundle live (see [Postgres](#postgres)); `POST /bundle/deploy` forces it.
 - **APNs in development.** `wrangler dev` (workerd) cannot make HTTP/2 subrequests: run
   `@shware/workflow/apns-relay` and point `APNS_RELAY_ORIGIN` at it. A deployed Worker needs no
   relay.
@@ -1068,8 +1048,7 @@ that version serves its first request, whatever share of traffic it has.
 
 `wrangler rollback` restores an older version, which does not apply itself over
 the newer one. Call `POST /bundle/deploy` after a rollback: it applies the
-running version's bundle whatever is live. The D1 store keeps no version, so
-on D1 every deploy is that call.
+running version's bundle whatever is live.
 
 On Postgres the engine also keeps:
 
@@ -1154,8 +1133,8 @@ is a design question this package does not yet answer.
 | ------------------------------ | -------------------------------------------------------------------------------------------------- |
 | `@shware/workflow`             | The DSL, `defineContract`, `defineConfig`, `compileConfig`, `compileBundle`, `plan`, templates, IR |
 | `@shware/workflow/engine`      | The interpreter (`runJourney`) and its ports, condition evaluation, bucketing                      |
-| `@shware/workflow/cloudflare`  | `journeyWorker`, `JourneyRunner`, `handleRequest`, the router functions, senders, stores           |
-| `@shware/workflow/store`       | The `JourneyStore` port, D1 and Postgres stores, `renderPostgresDdl`, `renderDrizzleSchema`        |
+| `@shware/workflow/cloudflare`  | `journeyWorker`, `JourneyRunner`, `handleRequest`, the ingest functions, senders, the store        |
+| `@shware/workflow/store`       | The `JourneyStore` port, the Postgres store, `renderPostgresDdl`, `renderDrizzleSchema`            |
 | `@shware/workflow/client`      | `JourneyClient`, the producer side of the HTTP API                                                 |
 | `@shware/workflow/postgres-js` | `postgresJsStore`, the Postgres store over postgres.js (peer `postgres`)                           |
 | `@shware/workflow/react-email` | `registryRenderer`, the email renderer over the registry (peers `react`, `react-dom`)              |
@@ -1165,7 +1144,6 @@ is a design question this package does not yet answer.
 | `@shware/workflow/fcm`         | `FcmPushSender` over an `FcmAccessToken`, FCM HTTP v1 for Android                                  |
 | `@shware/workflow/webpush`     | `WebPushSender` over a `VapidSigner`, `generateVapidKeys`; standard Web Push with VAPID            |
 | `@shware/workflow/webhooks`    | `SlackWebhookSender` and `DiscordWebhookSender`                                                    |
-| `@shware/workflow/schema.sql`  | The D1 schema file                                                                                 |
 
 ## Testing
 

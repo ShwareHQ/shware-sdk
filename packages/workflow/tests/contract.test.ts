@@ -1,11 +1,11 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { JourneyClient, JourneyValidationError } from '../src/client';
 import { handleRequest } from '../src/host/http';
 import { deployBundle } from '../src/host/ingest';
 import { compileBundle, defineContract, performed, trigger, workflow } from '../src/index';
-import { D1JourneyStore } from '../src/store/d1';
 import { makeEnv } from './fake-cloudflare';
+import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 
 const contract = defineContract({
   events: {
@@ -143,9 +143,25 @@ describe('JourneyClient with a contract', () => {
 });
 
 describe('ingest validation in the Worker', () => {
+  let database: PgliteDatabase;
+  beforeAll(async () => {
+    database = await pgliteDatabase();
+  }, 30_000);
+  afterAll(async () => {
+    await database.close();
+  });
+  beforeEach(async () => {
+    await truncateAll(database.pg);
+  });
+  /** How many rows the table holds. */
+  const rows = async (table: string) =>
+    (
+      await database.client.query<{ c: number }>(`SELECT COUNT(*)::int AS c FROM workflow.${table}`)
+    )[0].c;
+
   async function setup() {
-    const { env, db, journey } = makeEnv();
-    const store = new D1JourneyStore(db);
+    const { env, journey } = makeEnv();
+    const store = database.store;
     const welcome = workflow({
       id: 'welcome',
       trigger: trigger.event(contract.events.login),
@@ -158,11 +174,11 @@ describe('ingest validation in the Worker', () => {
         store,
         { contract, mode }
       );
-    return { db, journey, post };
+    return { rows, journey, post };
   }
 
   test('a bad payload, an undeclared event and a bad patch are refused with no side effects', async () => {
-    const { db, journey, post } = await setup();
+    const { rows, journey, post } = await setup();
     const bad = await post('/events', {
       id: 'e1',
       userId: 'u1',
@@ -175,13 +191,13 @@ describe('ingest validation in the Worker', () => {
       400
     );
     expect((await post('/identify', { userId: 'u1', props: { name: 3 } })).status).toBe(400);
-    expect(db.events).toEqual([]);
-    expect(db.profiles.size).toBe(0);
+    expect(await rows('event')).toBe(0);
+    expect(await rows('profile')).toBe(0);
     expect(journey.created).toEqual([]);
   });
 
   test('a valid event is stored with its parsed payload and starts the journey', async () => {
-    const { db, journey, post } = await setup();
+    const { rows, journey, post } = await setup();
     const ok = await post('/events', {
       id: 'e2',
       userId: 'u1',
@@ -189,12 +205,12 @@ describe('ingest validation in the Worker', () => {
       payload: { method: 'email', extra: 1 },
     });
     expect(ok.status).toBe(200);
-    expect(db.events).toHaveLength(1);
+    expect(await rows('event')).toBe(1);
     expect(journey.created).toHaveLength(1);
   });
 
   test('report mode logs and accepts, so real producers can be checked first', async () => {
-    const { db, post } = await setup();
+    const { rows, post } = await setup();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const res = await post(
       '/events',
@@ -202,7 +218,7 @@ describe('ingest validation in the Worker', () => {
       'report'
     );
     expect(res.status).toBe(200);
-    expect(db.events).toHaveLength(1);
+    expect(await rows('event')).toBe(1);
     expect(warn.mock.calls[0]?.[0]).toMatch(/event 'login' \(e3\).*method/);
     expect(JSON.stringify(warn.mock.calls)).not.toContain('"method":1');
     warn.mockRestore();
