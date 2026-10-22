@@ -15,6 +15,27 @@ export type OAuth2ErrorType =
   | 'temporarily_unavailable' // 503
   | (string & {});
 
+/** The registered error codes of `OAuth2ErrorType`, for checking untrusted input at runtime. */
+const OAUTH2_ERROR_TYPES: ReadonlySet<string> = new Set([
+  'invalid_request',
+  'invalid_client',
+  'invalid_grant',
+  'invalid_token',
+  'invalid_scope',
+  'unauthorized_client',
+  'unsupported_grant_type',
+  'unsupported_response_type',
+  'insufficient_scope',
+  'redirect_uri_mismatch',
+  'access_denied',
+  'server_error',
+  'temporarily_unavailable',
+]);
+
+export function isKnownOAuth2ErrorType(value: string): boolean {
+  return OAUTH2_ERROR_TYPES.has(value);
+}
+
 export class OAuth2Error extends Error {
   readonly status: number;
   readonly error: OAuth2ErrorType;

@@ -316,6 +316,18 @@ any app; it is sent with an `appsecret_proof`, so the client needs its `clientSe
    calls `onAuthorized` and redirects to `successUri` with `status=success&provider=<key>`, or to
    `errorUri` with `error` and `error_description`.
 
+Every failure of the callback lands on `errorUri` — never a raw JSON error in the popup:
+
+- the provider's own error (`access_denied` means the user declined; also `invalid_scope`,
+  `server_error`, …), with its `error_description` (unregistered codes become `server_error`);
+- a failed validation (`invalid_request`: missing session, state or provider mismatch);
+- an `OAuth2Error` thrown while exchanging the code or loading the user info (e.g. `invalid_grant`
+  for an expired or reused code), with its message as `error_description`;
+- anything else thrown by the exchange, `onAuthorized` or the session store, as `server_error`
+  (logged with `console.error`).
+
+`error_description` is capped at 256 characters.
+
 #### Carrying data to `onAuthorized` (`attributes`)
 
 Something known when the flow starts may be needed when the user comes back — a referral code in
