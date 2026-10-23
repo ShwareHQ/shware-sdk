@@ -211,6 +211,16 @@ export class StripeConfig<
     return product.plan === null ? 'payment' : 'subscription';
   };
 
+  /**
+   * Whether the config declares `productId` and sells it as a subscription, so `getPlan` and
+   * `getBillingPeriod` hold for it. False, not a throw, for an id it does not know: a product that
+   * left the config (renamed, retired) or one named by metadata set outside the app.
+   */
+  isSubscription = (productId: string): boolean => {
+    const product = this.products.get(productId);
+    return product !== undefined && product.plan !== null;
+  };
+
   /** The price new checkouts are created with: the default, or its test twin in test mode. */
   getPriceId = (productId: string): PriceId => {
     const product = this.products.get(productId);
