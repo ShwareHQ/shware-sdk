@@ -1,4 +1,4 @@
-import type { CancellationDetails, SubscriptionStatus } from '../subscription/index';
+import type { CancellationDetails, PaymentType, SubscriptionStatus } from '../subscription/index';
 import type { GooglePlaySubscriptionState } from './real-time-developer-notification';
 
 export function mapSubscriptionStatus(state: GooglePlaySubscriptionState): SubscriptionStatus {
@@ -73,6 +73,18 @@ export function mapCancellationDetails(
     return { initiator: 'developer', reason: 'DEVELOPER_INITIATED', feedback: null, comment: null };
   }
   return null;
+}
+
+/**
+ * What a paid Play subscription order was for, by its order id. Play numbers a subscription's
+ * orders from the first purchase: the initial order is `GPA.1234-5678-9012-34567`, each renewal
+ * the same id with `..0`, `..1`, ... appended. A plan change through the Play Store is a new
+ * purchase with an order id of its own, so it reads as a start, like any first purchase.
+ *
+ * ref: [Order ID](https://developer.android.com/google/play/billing/subscriptions#renewals)
+ */
+export function mapPaymentType(orderId: string): Exclude<PaymentType, 'ONE_TIME'> {
+  return orderId.includes('..') ? 'SUBSCRIPTION_RENEWAL' : 'SUBSCRIPTION_START';
 }
 
 /**
