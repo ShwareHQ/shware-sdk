@@ -3,6 +3,24 @@ export const PLATFORMS = ['APPLE', 'GOOGLE', 'STRIPE'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
 /**
+ * What a payment was for, on every platform.
+ *
+ * - ONE_TIME: a one-time purchase.
+ * - SUBSCRIPTION_START: the first paid charge of a subscription.
+ * - SUBSCRIPTION_RENEWAL: a charge for a new billing period on the regular cycle.
+ * - SUBSCRIPTION_UPDATE: a charge mid-period, outside the cycle: the proration of a plan change, or
+ *   a manual invoice on the subscription. Kept apart from renewals so renewal rates stay honest.
+ */
+export const PAYMENT_TYPES = [
+  'ONE_TIME',
+  'SUBSCRIPTION_START',
+  'SUBSCRIPTION_RENEWAL',
+  'SUBSCRIPTION_UPDATE',
+] as const;
+
+export type PaymentType = (typeof PAYMENT_TYPES)[number];
+
+/**
  * [Stripe Subscription Status](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)
  * [Stripe Subscription Lifecycle](https://docs.stripe.com/billing/subscriptions/overview)
  *

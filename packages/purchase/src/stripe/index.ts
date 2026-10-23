@@ -7,6 +7,7 @@ export {
   mapPaymentIntent,
   mapCheckoutSession,
   mapSubscriptionStatus,
+  mapPaymentType,
   mapCancellationDetails,
   minorUnits,
   price,

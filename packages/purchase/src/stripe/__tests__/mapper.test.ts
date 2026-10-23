@@ -3,6 +3,7 @@ import {
   type CheckoutSession,
   getPurchaseProperties,
   mapCancellationDetails,
+  mapPaymentType,
   money,
   price,
 } from '../mapper';
@@ -126,5 +127,20 @@ describe('money', () => {
   it('pairs the converted amount with its currency', () => {
     expect(money(1999, 'usd')).toEqual({ amount: 19.99, currency: 'usd' });
     expect(money(500, 'jpy')).toEqual({ amount: 500, currency: 'jpy' });
+  });
+});
+
+describe('mapPaymentType', () => {
+  it.each([
+    ['subscription_create', 'SUBSCRIPTION_START'],
+    ['subscription_cycle', 'SUBSCRIPTION_RENEWAL'],
+    ['subscription_update', 'SUBSCRIPTION_UPDATE'],
+    ['manual', 'SUBSCRIPTION_UPDATE'],
+    ['subscription_threshold', 'SUBSCRIPTION_UPDATE'],
+    [null, 'SUBSCRIPTION_UPDATE'],
+  ] as const)('maps billing_reason %s to %s', (reason, type) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(mapPaymentType({ id: 'in_1', billing_reason: reason })).toBe(type);
+    warn.mockRestore();
   });
 });

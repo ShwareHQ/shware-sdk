@@ -1,11 +1,13 @@
 export {
   PLATFORMS,
+  PAYMENT_TYPES,
   SUBSCRIPTION_STATUSES,
   AVAILABLE_STATUSES,
   CANCELLATION_INITIATORS,
   CANCELLATION_FEEDBACKS,
   RESUBSCRIBE_INTENTS,
   type Platform,
+  type PaymentType,
   type SubscriptionStatus,
   type CancellationDetails,
   type CancellationInitiator,
