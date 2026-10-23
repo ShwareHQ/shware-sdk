@@ -115,6 +115,12 @@ export class StripeConfig<
   // protects a single fluent chain, not statement-style re-entry or casts
   [addMethod] = (product: Product<NS, PE, BP, PL, PI>) => {
     invariant(!this.products.has(product.id), `Duplicate product ${product.id}`);
+    // A Stripe price belongs to one Stripe product, and getProductId must have one answer.
+    for (const existing of this.products.values()) {
+      for (const priceId of product.prices.keys()) {
+        invariant(!existing.prices.has(priceId), `Duplicate price ${priceId} on ${existing.id}`);
+      }
+    }
     if (product.plan !== null) {
       for (const existing of this.products.values()) {
         invariant(
@@ -185,6 +191,19 @@ export class StripeConfig<
     invariant(product, `Product not found for ${productId}`);
     invariant(product.defaultPriceId, `Default price not found for product ${productId}`);
     return product.defaultPriceId;
+  };
+
+  /**
+   * The product that declares `priceId` (a legacy price or the test twin included), or null for a
+   * price this config does not know: one set up by hand in the dashboard, or a test price reaching
+   * a live config. Reading the product from the price a Stripe object charged, rather than from
+   * metadata that may already name the next plan, is what an invoice should be credited by.
+   */
+  getProductId = (priceId: string): string | null => {
+    for (const product of this.products.values()) {
+      if (product.prices.has(priceId as PriceId)) return product.id;
+    }
+    return null;
   };
 
   getCreditAmount = (productId: string, priceId?: string): number => {

@@ -104,6 +104,19 @@ describe('StripeConfig', () => {
     const chain = fresh.product('com.example.credits.x');
     chain.price('price_x1');
     expect(() => chain.price('price_x1')).toThrow('Duplicate price price_x1');
+
+    // a price already declared on another product
+    expect(() =>
+      fresh.product('com.example.credits.y').price('price_1').default('price_1')
+    ).toThrow('Duplicate price price_1 on com.example.sub.pro');
+  });
+
+  it('should find the product a price is declared on', () => {
+    expect(config.getProductId('price_credits_500')).toBe('com.example.credits.starter');
+    expect(config.getProductId('price_starter_monthly2')).toBe('com.example.sub.starter');
+    // live mode: the test twin is not a declared price
+    expect(config.getProductId('price_starter_yearly1_test')).toBeNull();
+    expect(config.getProductId('price_unknown')).toBeNull();
   });
 
   it('should reject invalid configurations at the type level', () => {
@@ -219,6 +232,11 @@ describe('StripeConfig', () => {
       expect(sandbox.mode).toBe('test');
       expect(sandbox.getPriceId('com.example.credits.starter')).toBe('price_credits_100_test');
       expect(sandbox.getPriceId('com.example.sub.starter')).toBe('price_starter_monthly1_test');
+    });
+
+    it('should find the product of a test twin', () => {
+      expect(sandbox.getProductId('price_starter_monthly1_test')).toBe('com.example.sub.starter');
+      expect(sandbox.getProductId('price_starter_monthly1')).toBe('com.example.sub.starter');
     });
 
     it('should resolve the twin to the default price entitlement', () => {
