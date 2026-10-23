@@ -8,6 +8,8 @@ export {
   mapCheckoutSession,
   mapSubscriptionStatus,
   mapPaymentType,
+  mapRefundStatus,
+  mapDisputeStatus,
   mapCancellationDetails,
   minorUnits,
   price,
@@ -24,6 +26,13 @@ export {
   type BeginCheckoutProperties,
 } from './mapper';
 export { idOf, expanded } from './expandable';
+export {
+  DECLINE_REASONS,
+  mapDecline,
+  type CardFailure,
+  type Decline,
+  type DeclineReason,
+} from './decline';
 export { StripeEventHandler } from './handler';
 export {
   StripeThinEventHandler,
