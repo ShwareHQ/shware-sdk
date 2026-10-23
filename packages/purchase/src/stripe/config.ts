@@ -82,14 +82,32 @@ class Product<
   };
 }
 
-type Options = {
+type Options<PE extends string, BP extends string> = {
   mode: StripeMode;
   returnUrl: string;
   cancelUrl: string;
   successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
   cancellationCouponId: string;
   allowPromotionCodes: boolean;
+  /**
+   * Every plan, lowest tier first: the plan's level, as Apple orders a subscription group. Needed
+   * by {@link StripeConfig.comparePlans} and so by plan changes; a config that sells no
+   * subscriptions, or never switches between them, can leave it out.
+   */
+  plans?: readonly PE[];
+  /** Every billing period, shortest first. Required together with `plans`. */
+  billingPeriods?: readonly BP[];
 };
+
+/**
+ * How a switch between two subscription products relates them, by plan level first and billing
+ * period second:
+ * - `upgrade` / `downgrade`: a higher or lower plan, whatever the periods.
+ * - `longer` / `shorter`: the same plan billed over a longer or shorter period (monthly → yearly
+ *   is `longer`). Apple calls these crossgrades.
+ * - `same`: the same plan and period.
+ */
+export type PlanComparison = 'upgrade' | 'downgrade' | 'longer' | 'shorter' | 'same';
 
 export class StripeConfig<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -106,6 +124,8 @@ export class StripeConfig<
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
   public cancellationCouponId: string;
   public allowPromotionCodes: boolean;
+  private readonly plans: readonly PE[] | null;
+  private readonly billingPeriods: readonly BP[] | null;
 
   get productIds(): string[] {
     return Array.from(this.products.keys());
@@ -133,7 +153,13 @@ export class StripeConfig<
     return this;
   };
 
-  private constructor(options: Options) {
+  private constructor(options: Options<PE, BP>) {
+    invariant(
+      !options.plans === !options.billingPeriods,
+      'plans and billingPeriods are declared together'
+    );
+    this.plans = options.plans ?? null;
+    this.billingPeriods = options.billingPeriods ?? null;
     this.mode = options.mode;
     this.returnUrl = options.returnUrl;
     this.cancelUrl = options.cancelUrl;
@@ -143,7 +169,7 @@ export class StripeConfig<
   }
 
   static create = <NS extends Lowercase<string>, PE extends string, BP extends string = string>(
-    options: Options
+    options: Options<PE, BP>
   ) => {
     return new StripeConfig<NS, PE, BP>(options);
   };
@@ -204,6 +230,27 @@ export class StripeConfig<
       if (product.prices.has(priceId as PriceId)) return product.id;
     }
     return null;
+  };
+
+  /**
+   * How switching from one subscription product to another relates them (see
+   * {@link PlanComparison}), by the order `plans` and `billingPeriods` were declared in. Throws for
+   * a product that is not a subscription, and when the config declares no order.
+   */
+  comparePlans = (fromProductId: string, toProductId: string): PlanComparison => {
+    invariant(this.plans && this.billingPeriods, 'plans and billingPeriods are not declared');
+    const level = (productId: string) => {
+      const plan = this.plans?.indexOf(this.getPlan(productId)) ?? -1;
+      const period = this.billingPeriods?.indexOf(this.getBillingPeriod(productId)) ?? -1;
+      invariant(plan >= 0, `Plan of ${productId} is not in plans`);
+      invariant(period >= 0, `Billing period of ${productId} is not in billingPeriods`);
+      return { plan, period };
+    };
+    const from = level(fromProductId);
+    const to = level(toProductId);
+    if (to.plan !== from.plan) return to.plan > from.plan ? 'upgrade' : 'downgrade';
+    if (to.period !== from.period) return to.period > from.period ? 'longer' : 'shorter';
+    return 'same';
   };
 
   getCreditAmount = (productId: string, priceId?: string): number => {

@@ -59,6 +59,76 @@ describe('StripeConfig', () => {
     expect(() => config.getPlan('nonexistent')).toThrow('Product not found for nonexistent');
   });
 
+  describe('comparePlans', () => {
+    const create = (order: boolean) =>
+      StripeConfig.create<'com.example', 'STARTER' | 'PRO', 'monthly' | 'yearly'>({
+        mode: 'live',
+        allowPromotionCodes: true,
+        cancellationCouponId: 'coupon_123456',
+        returnUrl: 'https://example.com/return',
+        cancelUrl: 'https://example.com/cancel',
+        successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+        ...(order ? { plans: ['STARTER', 'PRO'], billingPeriods: ['monthly', 'yearly'] } : {}),
+      })
+        .product('com.example.starter.monthly', 'STARTER', 'monthly')
+        .price('price_sm')
+        .default('price_sm')
+        .product('com.example.starter.yearly', 'STARTER', 'yearly')
+        .price('price_sy')
+        .default('price_sy')
+        .product('com.example.pro.monthly', 'PRO', 'monthly')
+        .price('price_pm')
+        .default('price_pm')
+        .product('com.example.credits')
+        .price('price_c')
+        .default('price_c');
+    const ladder = create(true);
+
+    it('ranks by plan first, whatever the periods', () => {
+      expect(ladder.comparePlans('com.example.starter.yearly', 'com.example.pro.monthly')).toBe(
+        'upgrade'
+      );
+      expect(ladder.comparePlans('com.example.pro.monthly', 'com.example.starter.yearly')).toBe(
+        'downgrade'
+      );
+    });
+
+    it('compares periods within one plan', () => {
+      expect(ladder.comparePlans('com.example.starter.monthly', 'com.example.starter.yearly')).toBe(
+        'longer'
+      );
+      expect(ladder.comparePlans('com.example.starter.yearly', 'com.example.starter.monthly')).toBe(
+        'shorter'
+      );
+      expect(ladder.comparePlans('com.example.pro.monthly', 'com.example.pro.monthly')).toBe(
+        'same'
+      );
+    });
+
+    it('needs the order declared, and both products to be subscriptions', () => {
+      expect(() =>
+        create(false).comparePlans('com.example.starter.monthly', 'com.example.pro.monthly')
+      ).toThrow('plans and billingPeriods are not declared');
+      expect(() => ladder.comparePlans('com.example.credits', 'com.example.pro.monthly')).toThrow(
+        'Product com.example.credits is not a subscription'
+      );
+    });
+
+    it('takes plans and billingPeriods only together', () => {
+      expect(() =>
+        StripeConfig.create<'com.example', 'STARTER', 'monthly'>({
+          mode: 'live',
+          allowPromotionCodes: true,
+          cancellationCouponId: 'coupon_123456',
+          returnUrl: 'https://example.com/return',
+          cancelUrl: 'https://example.com/cancel',
+          successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+          plans: ['STARTER'],
+        })
+      ).toThrow('plans and billingPeriods are declared together');
+    });
+  });
+
   it('should return correct billing period', () => {
     expect(config.getBillingPeriod('com.example.sub.starter')).toBe('monthly');
 
