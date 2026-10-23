@@ -7,7 +7,9 @@ import {
   DISPUTE_STATUSES,
   type DisputeStatus,
   type PaymentType,
+  RESUBSCRIBE_INTENTS,
   type RefundStatus,
+  type ResubscribeIntent,
   type SubscriptionStatus,
 } from '../subscription/index';
 
@@ -394,10 +396,32 @@ export function getBeginCheckoutProperties(p: ProductPrice): BeginCheckoutProper
 }
 
 /**
+ * The `cancellation_details.comment` to send Stripe for a cancel dialog's answers. Stripe stores
+ * reason, feedback and comment, one field short of `resubscribeIntent`, so the intent travels as a
+ * `[maybe]` / `[no]` / `[yes]` prefix on the comment, which {@link mapCancellationDetails} takes
+ * back out.
+ */
+export function cancellationComment({
+  comment,
+  resubscribeIntent,
+}: Pick<CancellationDetails, 'comment' | 'resubscribeIntent'>): string {
+  return `${resubscribeIntent ? `[${resubscribeIntent}]` : ''}${comment ?? ''}`;
+}
+
+function parseCancellationComment(
+  comment: string | null
+): Pick<CancellationDetails, 'comment' | 'resubscribeIntent'> {
+  const [, intent, rest] = (comment && /^\[(\w+)\](.*)$/s.exec(comment)) || [];
+  if (!intent || !(RESUBSCRIBE_INTENTS as readonly string[]).includes(intent)) return { comment };
+  return { comment: rest || null, resubscribeIntent: intent as ResubscribeIntent };
+}
+
+/**
  * Stripe's `cancellation_details` in the shared shape. The object is present on every
  * subscription with all three fields null, so an active one maps to null rather than an empty
  * record. `reason` says who acted: `cancellation_requested` is the customer (or us on their
- * behalf), the payment reasons are Stripe ending it.
+ * behalf), the payment reasons are Stripe ending it. A comment written by
+ * {@link cancellationComment} is split back into the comment and `resubscribeIntent`.
  */
 export function mapCancellationDetails(
   subscription: Pick<Stripe.Subscription, 'cancellation_details'>
@@ -416,6 +440,6 @@ export function mapCancellationDetails(
         ? (details.feedback as CancellationFeedback)
         : 'other'
       : null,
-    comment: details.comment ?? null,
+    ...parseCancellationComment(details.comment ?? null),
   };
 }

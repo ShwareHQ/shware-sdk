@@ -11,6 +11,7 @@ export {
   mapRefundStatus,
   mapDisputeStatus,
   mapCancellationDetails,
+  cancellationComment,
   minorUnits,
   price,
   money,
@@ -25,6 +26,7 @@ export {
   type ProductPrice,
   type BeginCheckoutProperties,
 } from './mapper';
+export { mapSubscription, mapListPrice, type StripeSubscriptionState } from './subscription';
 export { idOf, expanded } from './expandable';
 export {
   DECLINE_REASONS,
