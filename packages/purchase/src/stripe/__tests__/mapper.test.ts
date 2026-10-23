@@ -3,6 +3,7 @@ import {
   type CheckoutSession,
   getPurchaseProperties,
   mapCancellationDetails,
+  money,
   price,
 } from '../mapper';
 
@@ -118,5 +119,12 @@ describe('price', () => {
     expect(price(1999, 'usd')).toBe(19.99);
     expect(price(500, 'jpy')).toBe(500);
     expect(price(5120, 'kwd')).toBe(5.12);
+  });
+});
+
+describe('money', () => {
+  it('pairs the converted amount with its currency', () => {
+    expect(money(1999, 'usd')).toEqual({ amount: 19.99, currency: 'usd' });
+    expect(money(500, 'jpy')).toEqual({ amount: 500, currency: 'jpy' });
   });
 });

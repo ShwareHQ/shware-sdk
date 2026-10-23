@@ -10,6 +10,8 @@ export {
   mapCancellationDetails,
   minorUnits,
   price,
+  money,
+  type Money,
   getPurchaseProperties,
   getBeginCheckoutProperties,
   type Price,
@@ -20,6 +22,7 @@ export {
   type ProductPrice,
   type BeginCheckoutProperties,
 } from './mapper';
+export { idOf, expanded } from './expandable';
 export { StripeEventHandler } from './handler';
 export {
   StripeThinEventHandler,

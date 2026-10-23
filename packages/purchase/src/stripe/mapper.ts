@@ -218,6 +218,13 @@ export function price(value: number, currency: string) {
   return value / minorUnits(currency);
 }
 
+export type Money = { amount: number; currency: string };
+
+/** A Stripe amount in minor units (cents, yen, fils) as an amount in `currency` itself. */
+export function money(value: number, currency: string): Money {
+  return { amount: price(value, currency), currency };
+}
+
 export interface Item {
   item_id: string;
   item_name: string;
