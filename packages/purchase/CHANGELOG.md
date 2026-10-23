@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 7.5.0
+
+### Minor Changes
+
+- e08ad99: Add `mapSubscription` (a Stripe subscription in the platform-neutral row shape), `mapListPrice` and `cancellationComment` to `@shware/purchase/stripe`; `mapCancellationDetails` now splits a `[maybe]` / `[no]` / `[yes]` comment prefix back into `resubscribeIntent`.
+
 ## 7.4.0
 
 ### Minor Changes
