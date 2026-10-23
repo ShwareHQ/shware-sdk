@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 7.4.0
+
+### Minor Changes
+
+- 123971a: Add `hasDelayedNotification(type)` and `DELAYED_NOTIFICATION_PAYMENT_METHOD_TYPES` to `@shware/purchase/stripe`: the saved payment method types (bank debits) whose charge outcome arrives days later.
+
 ## 7.3.0
 
 ### Minor Changes
