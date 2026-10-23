@@ -21,6 +21,58 @@ export const PAYMENT_TYPES = [
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
 
 /**
+ * Where a refund stands, on every platform. Stripe reports all of them; Apple and Google report a
+ * refund once it is done (SUCCEEDED), and Apple can take it back (REVERSED, `REFUND_REVERSED`).
+ */
+export const REFUND_STATUSES = ['PENDING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'REVERSED'] as const;
+
+export type RefundStatus = (typeof REFUND_STATUSES)[number];
+
+/**
+ * Where a refund may move from the status it has. Notifications arrive out of order and are
+ * redelivered, so a status only ever moves forward along these edges:
+ * - PENDING settles into anything (Stripe: succeeded / failed / canceled).
+ * - SUCCEEDED can still become FAILED (Stripe: the money could not be returned after all) or
+ *   REVERSED (Apple: REFUND_REVERSED).
+ * - FAILED, CANCELED and REVERSED are final: nothing a platform sends afterwards reopens them.
+ * Nothing moves back to PENDING, and a status never "moves" to itself (a redelivery is a no-op).
+ */
+export const REFUND_STATUS_TRANSITIONS: Readonly<Record<RefundStatus, readonly RefundStatus[]>> = {
+  PENDING: ['SUCCEEDED', 'FAILED', 'CANCELED', 'REVERSED'],
+  SUCCEEDED: ['FAILED', 'REVERSED'],
+  FAILED: [],
+  CANCELED: [],
+  REVERSED: [],
+};
+
+/**
+ * Stripe's dispute statuses, as they are: the `warning_*` ones are inquiries and early fraud
+ * warnings that may never become a chargeback, `prevented` is one Stripe blocked before it was
+ * filed. Only LOST costs money. Stripe only: Apple and Google absorb chargebacks themselves and
+ * report them as refunds.
+ */
+export const DISPUTE_STATUSES = [
+  'WARNING_NEEDS_RESPONSE',
+  'WARNING_UNDER_REVIEW',
+  'WARNING_CLOSED',
+  'NEEDS_RESPONSE',
+  'UNDER_REVIEW',
+  'PREVENTED',
+  'WON',
+  'LOST',
+] as const;
+
+export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
+
+/** A dispute in one of these is over; nothing Stripe sends afterwards reopens it. */
+export const CLOSED_DISPUTE_STATUSES = [
+  'WON',
+  'LOST',
+  'WARNING_CLOSED',
+  'PREVENTED',
+] as const satisfies readonly DisputeStatus[];
+
+/**
  * [Stripe Subscription Status](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)
  * [Stripe Subscription Lifecycle](https://docs.stripe.com/billing/subscriptions/overview)
  *

@@ -3,7 +3,9 @@ import {
   type CheckoutSession,
   getPurchaseProperties,
   mapCancellationDetails,
+  mapDisputeStatus,
   mapPaymentType,
+  mapRefundStatus,
   money,
   price,
 } from '../mapper';
@@ -142,5 +144,39 @@ describe('mapPaymentType', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(mapPaymentType({ id: 'in_1', billing_reason: reason })).toBe(type);
     warn.mockRestore();
+  });
+});
+
+describe('mapRefundStatus', () => {
+  it.each([
+    ['pending', 'PENDING'],
+    ['requires_action', 'PENDING'],
+    [null, 'PENDING'],
+    ['succeeded', 'SUCCEEDED'],
+    ['failed', 'FAILED'],
+    ['canceled', 'CANCELED'],
+  ] as const)('maps %s to %s', (status, expected) => {
+    expect(mapRefundStatus({ id: 're_1', status })).toBe(expected);
+  });
+
+  it('throws on a status Stripe does not document', () => {
+    expect(() => mapRefundStatus({ id: 're_1', status: 'mystery' })).toThrow(
+      'Unknown refund status mystery: re_1'
+    );
+  });
+});
+
+describe('mapDisputeStatus', () => {
+  it('upper-cases every Stripe dispute status', () => {
+    expect(mapDisputeStatus({ id: 'dp_1', status: 'warning_needs_response' })).toBe(
+      'WARNING_NEEDS_RESPONSE'
+    );
+    expect(mapDisputeStatus({ id: 'dp_1', status: 'lost' })).toBe('LOST');
+  });
+
+  it('throws on a status it does not know', () => {
+    expect(() => mapDisputeStatus({ id: 'dp_1', status: 'mystery' })).toThrow(
+      'Unknown dispute status mystery: dp_1'
+    );
   });
 });

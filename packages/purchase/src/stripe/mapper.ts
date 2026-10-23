@@ -4,7 +4,10 @@ import {
   CANCELLATION_FEEDBACKS,
   type CancellationDetails,
   type CancellationFeedback,
+  DISPUTE_STATUSES,
+  type DisputeStatus,
   type PaymentType,
+  type RefundStatus,
   type SubscriptionStatus,
 } from '../subscription/index';
 
@@ -233,6 +236,30 @@ export function mapPaymentType(
       console.warn(`Invoice ${invoice.id} has billing_reason ${invoice.billing_reason}`);
       return 'SUBSCRIPTION_UPDATE';
   }
+}
+
+/** `refund.status` is an untyped string in stripe-node; these are the documented values. */
+const REFUND_STATUS: Partial<Record<string, RefundStatus>> = {
+  pending: 'PENDING',
+  requires_action: 'PENDING',
+  succeeded: 'SUCCEEDED',
+  failed: 'FAILED',
+  canceled: 'CANCELED',
+};
+
+/** A Stripe refund's status; a refund that has none yet is pending. Throws on an unknown one. */
+export function mapRefundStatus(refund: Pick<Stripe.Refund, 'id' | 'status'>): RefundStatus {
+  const status = REFUND_STATUS[refund.status ?? 'pending'];
+  if (!status) throw new Error(`Unknown refund status ${refund.status}: ${refund.id}`);
+  return status;
+}
+
+/** A Stripe dispute's status, upper-cased into {@link DISPUTE_STATUSES}. Throws on an unknown one. */
+export function mapDisputeStatus(dispute: Pick<Stripe.Dispute, 'id' | 'status'>): DisputeStatus {
+  const status = dispute.status.toUpperCase();
+  const known = DISPUTE_STATUSES.find((item) => item === status);
+  if (!known) throw new Error(`Unknown dispute status ${dispute.status}: ${dispute.id}`);
+  return known;
 }
 
 export { ZERO_DECIMAL_CURRENCIES } from '@shware/utils';
