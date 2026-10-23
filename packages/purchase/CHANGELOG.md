@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 7.6.0
+
+### Minor Changes
+
+- ac6dda4: Add `StripeConfig.isSubscription(productId)`, and `mapPaymentType` for the App Store (by notification type and subtype) and Google Play (by order id), matching the Stripe one.
+
 ## 7.5.0
 
 ### Minor Changes
