@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 7.1.0
+
+### Minor Changes
+
+- d2c4ef9: Add `idOf` and `expanded` for Stripe's expandable fields, and `money` for turning a minor-unit amount into `{ amount, currency }`, to `@shware/purchase/stripe`.
+
 ## 7.0.0
 
 ### Major Changes
