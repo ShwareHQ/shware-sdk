@@ -1,4 +1,4 @@
-import type { CancellationDetails } from '../subscription/index';
+import type { CancellationDetails, PaymentType } from '../subscription/index';
 
 /**
  * The App Store Server Notification fields that say why a subscription stops renewing: the
@@ -52,6 +52,41 @@ export function mapCancellationDetails(
     case 'REFUND':
     case 'REVOKE':
       return details('system', notificationType);
+    default:
+      return null;
+  }
+}
+
+/** The App Store Server Notification fields that say whether a notification is a payment. */
+export interface AppStorePaymentSource {
+  notificationType?: string | null;
+  subtype?: string | null;
+}
+
+/**
+ * The payment a subscription notification's transaction is, if it is one: the first purchase
+ * (`SUBSCRIBED`, or a redeemed offer code that starts or resumes the subscription), a renewal
+ * (`DID_RENEW`), or an upgrade. An upgrade counts as a renewal: Apple charges the higher plan in
+ * full and starts a new period at once, refunding what is left of the old one separately, so it is
+ * a regular period charge rather than an off-cycle proration. A downgrade, an auto-renew change
+ * and the like carry the current transaction, already paid, and are null.
+ *
+ * ref: [notificationType](https://developer.apple.com/documentation/appstoreservernotifications/notificationtype)
+ */
+export function mapPaymentType({
+  notificationType,
+  subtype,
+}: AppStorePaymentSource): Exclude<PaymentType, 'ONE_TIME'> | null {
+  switch (notificationType) {
+    case 'SUBSCRIBED':
+      return 'SUBSCRIPTION_START';
+    case 'DID_RENEW':
+      return 'SUBSCRIPTION_RENEWAL';
+    case 'DID_CHANGE_RENEWAL_PREF':
+      return subtype === 'UPGRADE' ? 'SUBSCRIPTION_RENEWAL' : null;
+    case 'OFFER_REDEEMED':
+      if (subtype === 'INITIAL_BUY' || subtype === 'RESUBSCRIBE') return 'SUBSCRIPTION_START';
+      return subtype === 'UPGRADE' ? 'SUBSCRIPTION_RENEWAL' : null;
     default:
       return null;
   }

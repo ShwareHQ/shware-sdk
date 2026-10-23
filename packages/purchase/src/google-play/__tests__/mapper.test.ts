@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { mapCanceledAt, mapCancellationDetails, mapSubscriptionStatus } from '../mapper';
+import {
+  mapCanceledAt,
+  mapCancellationDetails,
+  mapPaymentType,
+  mapSubscriptionStatus,
+} from '../mapper';
 
 describe('mapSubscriptionStatus', () => {
   it('should map every google play state to a subscription status', () => {
@@ -80,5 +85,13 @@ describe('mapCanceledAt', () => {
     ).toBe('2026-09-12T14:44:08.552Z');
     expect(mapCanceledAt({ systemInitiatedCancellation: {} })).toBeNull();
     expect(mapCanceledAt(null)).toBeNull();
+  });
+});
+
+describe('mapPaymentType', () => {
+  it('reads the base order id as the start and a suffixed one as a renewal', () => {
+    expect(mapPaymentType('GPA.3345-1234-5678-90123')).toBe('SUBSCRIPTION_START');
+    expect(mapPaymentType('GPA.3345-1234-5678-90123..0')).toBe('SUBSCRIPTION_RENEWAL');
+    expect(mapPaymentType('GPA.3345-1234-5678-90123..12')).toBe('SUBSCRIPTION_RENEWAL');
   });
 });

@@ -17,5 +17,6 @@ export {
   mapSubscriptionStatus,
   mapCancellationDetails,
   mapCanceledAt,
+  mapPaymentType,
   type CanceledStateContext,
 } from './mapper';

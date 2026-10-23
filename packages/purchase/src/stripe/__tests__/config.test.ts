@@ -59,6 +59,13 @@ describe('StripeConfig', () => {
     expect(() => config.getPlan('nonexistent')).toThrow('Product not found for nonexistent');
   });
 
+  it('should say whether a product is a subscription without throwing', () => {
+    expect(config.isSubscription('com.example.sub.starter')).toBe(true);
+    expect(config.isSubscription('com.example.sub.starter.yearly')).toBe(true);
+    expect(config.isSubscription('com.example.credits.starter')).toBe(false);
+    expect(config.isSubscription('nonexistent')).toBe(false);
+  });
+
   it('should return correct billing period', () => {
     expect(config.getBillingPeriod('com.example.sub.starter')).toBe('monthly');
 
