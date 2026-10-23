@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 7.3.0
+
+### Minor Changes
+
+- cde365d: Add the cross-platform `REFUND_STATUSES` / `RefundStatus` (with `REFUND_STATUS_TRANSITIONS`) and `DISPUTE_STATUSES` / `DisputeStatus` (with `CLOSED_DISPUTE_STATUSES`), `mapRefundStatus` / `mapDisputeStatus` for Stripe refunds and disputes, and `mapDecline`, which sorts a Stripe card failure into `DECLINE_REASONS` a cardholder can act on.
+
 ## 7.2.0
 
 ### Minor Changes
