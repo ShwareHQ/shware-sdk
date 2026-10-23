@@ -4,6 +4,7 @@ import {
   CANCELLATION_FEEDBACKS,
   type CancellationDetails,
   type CancellationFeedback,
+  type PaymentType,
   type SubscriptionStatus,
 } from '../subscription/index';
 
@@ -204,6 +205,33 @@ export function mapSubscriptionStatus(status: Stripe.Subscription.Status): Subsc
       console.error(`Invalid stripe status: ${String(status)}`);
       throw new Error(`Invalid stripe status: ${String(status)}`);
     }
+  }
+}
+
+/**
+ * What a paid subscription invoice was for, by its `billing_reason`. Only `subscription_cycle` is
+ * a renewal: a plan change invoices its proration mid-period (`subscription_update`), and counting
+ * that as a renewal would inflate the renewal rate by every upgrade.
+ */
+export function mapPaymentType(
+  invoice: Pick<Stripe.Invoice, 'id' | 'billing_reason'>
+): Exclude<PaymentType, 'ONE_TIME'> {
+  switch (invoice.billing_reason) {
+    // Exactly once per subscription: its first invoice (after a trial, the first paid one is a cycle).
+    case 'subscription_create':
+      return 'SUBSCRIPTION_START';
+    case 'subscription_cycle':
+      return 'SUBSCRIPTION_RENEWAL';
+    case 'subscription_update':
+      return 'SUBSCRIPTION_UPDATE';
+    // An invoice made by hand on the subscription (dashboard or API): off-cycle money, not a renewal.
+    case 'manual':
+      return 'SUBSCRIPTION_UPDATE';
+    default:
+      // subscription_threshold (metered billing) and the rest are not reasons flat-priced
+      // subscriptions produce. Off-cycle is the safe reading: it leaves renewals alone.
+      console.warn(`Invoice ${invoice.id} has billing_reason ${invoice.billing_reason}`);
+      return 'SUBSCRIPTION_UPDATE';
   }
 }
 
