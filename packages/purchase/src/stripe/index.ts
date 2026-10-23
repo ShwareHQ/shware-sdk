@@ -33,6 +33,10 @@ export {
   type Decline,
   type DeclineReason,
 } from './decline';
+export {
+  DELAYED_NOTIFICATION_PAYMENT_METHOD_TYPES,
+  hasDelayedNotification,
+} from './payment-method';
 export { StripeEventHandler } from './handler';
 export {
   StripeThinEventHandler,
