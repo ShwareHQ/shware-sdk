@@ -65,12 +65,12 @@ export const DISPUTE_STATUSES = [
 export type DisputeStatus = (typeof DISPUTE_STATUSES)[number];
 
 /** A dispute in one of these is over; nothing Stripe sends afterwards reopens it. */
-export const CLOSED_DISPUTE_STATUSES = [
+export const CLOSED_DISPUTE_STATUSES: readonly DisputeStatus[] = [
   'WON',
   'LOST',
   'WARNING_CLOSED',
   'PREVENTED',
-] as const satisfies readonly DisputeStatus[];
+];
 
 /**
  * [Stripe Subscription Status](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)
