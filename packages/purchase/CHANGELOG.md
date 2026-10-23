@@ -1,5 +1,12 @@
 # @shware/purchase
 
+## 7.2.0
+
+### Minor Changes
+
+- 3cc8ecb: Add the cross-platform `PAYMENT_TYPES` / `PaymentType` and `mapPaymentType`, which reads a Stripe subscription invoice's `billing_reason` as a start, renewal or off-cycle update.
+- 3cc8ecb: Add `StripeConfig.getProductId(priceId)`, the product a price is declared on (test twins included) or null; declaring the same price on two products now throws.
+
 ## 7.1.0
 
 ### Minor Changes
