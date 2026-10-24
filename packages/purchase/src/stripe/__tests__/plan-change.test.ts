@@ -269,6 +269,18 @@ describe('createPlanChange', () => {
       expect(logged).toHaveBeenCalled();
     });
 
+    it('syncs as soon as Stripe takes the update, even if reading its payment then fails', async () => {
+      const { plans, stripe, sync } = setup();
+      stripe.subscriptions.update.mockResolvedValue({
+        ...subscription(),
+        pending_update: { expires_at: PERIOD_END },
+        latest_invoice: 'in_pending',
+      });
+      stripe.invoices.retrieve.mockRejectedValue(new Error('Stripe unavailable'));
+      await expect(plans.apply('sub_1', PRO_MONTHLY)).rejects.toThrow('Stripe unavailable');
+      expect(sync).toHaveBeenCalledWith('sub_1');
+    });
+
     it('still reports a sync failure after a change that went through', async () => {
       const { plans, sync } = setup();
       sync.mockRejectedValue(new Error('database unavailable'));

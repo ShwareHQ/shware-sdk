@@ -524,15 +524,12 @@ export function createPlanChange<PE extends string, BP extends string>(
       }
       throw error;
     }
-    if (!updated.pending_update) {
-      await sync(sub.id);
-      return applied();
-    }
+    // Synced as soon as Stripe took the update, before anything else can fail: the row shows the
+    // new plan, or the released schedule while the payment is parked.
+    await sync(sub.id);
+    if (!updated.pending_update) return applied();
     const parked = await settleParkedUpdate(updated);
-    if (parked.state === 'challenge') {
-      await sync(sub.id);
-      return parked.result;
-    }
+    if (parked.state === 'challenge') return parked.result;
     if (parked.state === 'paid') {
       await sync(sub.id);
       return applied();
