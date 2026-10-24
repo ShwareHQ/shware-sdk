@@ -12,7 +12,7 @@ export {
   VoidedPurchaseProductType,
   VoidedPurchaseRefundType,
 } from './real-time-developer-notification';
-export { GooglePlayConfig } from './config';
+export { GooglePlayConfig, defineGooglePlayConfig } from './config';
 export {
   mapSubscriptionStatus,
   mapCancellationDetails,

@@ -55,7 +55,26 @@ export {
   type CreateCheckoutSessionDTO,
 } from './schema';
 export { METADATA_KEYS } from './metadata';
-export { StripeConfig, type PriceId, type StripeMode } from './config';
+export {
+  StripeConfig,
+  defineStripeConfig,
+  type PlanComparison,
+  type PriceId,
+  type StripeMode,
+} from './config';
+export {
+  PLAN_CHANGE_ERROR_REASONS,
+  PlanChangeError,
+  createPlanChange,
+  type PlanChange,
+  type PlanChangeErrorReason,
+  type PlanChangeOptions,
+  type PlanChangePreview,
+  type PlanChangeResult,
+  type PlanChangeTiming,
+  type PlanSummary,
+  type ScheduledPlanChange,
+} from './plan-change';
 export { addPendingCheckout, removePendingCheckout, getPendingCheckouts } from './pending-checkout';
 
 export type { Stripe } from 'stripe';
