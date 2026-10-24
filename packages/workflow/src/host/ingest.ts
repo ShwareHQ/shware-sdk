@@ -281,7 +281,13 @@ async function refreshSegments(
           route.version
         );
         if (instanceId !== null) started.push(instanceId);
-        await store.completeSegmentStart(segmentId, userId, route.workflow);
+        // Crossed off only once an instance is known to exist. A null here means another
+        // attempt holds the entry — one whose create may still fail and roll the entry back;
+        // crossing the start off on its word would lose the journey for good. Left pending, the
+        // next evaluation asks again, and the ledger keeps that from starting a second one.
+        if (instanceId !== null || (await entryStarted(env, store, route.workflow, userId))) {
+          await store.completeSegmentStart(segmentId, userId, route.workflow);
+        }
       } catch (error) {
         failures.push(error);
       }
@@ -300,6 +306,48 @@ export interface SweepResult {
   sizes: { segment: string; size: number }[];
 }
 
+/**
+ * How long an entry may wait for its runner's admission before maintenance looks for its
+ * instance. A create takes well under a second and a queued instance is found by `get`, so this
+ * only has to outlast a create still in flight — generously, since a wrong call fails a journey.
+ */
+export const LOST_START_AFTER_MS = 15 * 60 * 1000;
+
+/** Entries one maintenance run examines, oldest first; the next run takes the rest. */
+const LOST_START_BATCH = 25;
+
+/**
+ * Starts lost between the entry and the platform's create — the Worker cut off there, or a
+ * create that failed with its rollback failing too — leave a `running` entry nothing will ever
+ * admit, and the once-policy would then bar the user from the workflow for good. An entry old
+ * enough, unadmitted, whose instance the runtime does not know, is marked `failed`: the pair's
+ * next trigger reclaims it. Platform-neutral: on AWS a planned start is always known to `get`
+ * (its registry row), so only a start with nothing behind it is touched.
+ */
+export async function failLostStarts(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now: number
+): Promise<string[]> {
+  const failed: string[] = [];
+  for (const entry of await store.unadmittedEntries(now - LOST_START_AFTER_MS, LOST_START_BATCH)) {
+    try {
+      await env.JOURNEY.get(entry.instanceId);
+      continue; // created — queued, or about to admit itself
+    } catch (error) {
+      // Only "not found" proves the start was lost; a failed lookup proves nothing
+      if (!(error instanceof InstanceNotFoundError)) continue;
+    }
+    if (await store.failUnadmittedEntry(entry.instanceId)) {
+      failed.push(entry.instanceId);
+      console.error(
+        `[workflow] the start of ${entry.instanceId} (${entry.workflow}) was lost before its instance existed: marked failed, the next trigger re-enters`
+      );
+    }
+  }
+  return failed;
+}
+
 /** How many users one sweep page evaluates: a unit of resumable work (AWS checkpoints each). */
 export const SWEEP_PAGE_SIZE = 500;
 
@@ -314,6 +362,11 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
     await env.JOURNEY.maintain?.();
   } catch (error) {
     console.error('[workflow] runtime maintenance failed', error);
+  }
+  try {
+    await failLostStarts(env, store, Date.now());
+  } catch (error) {
+    console.error('[workflow] reclaiming lost starts failed', error);
   }
   // Erasures left pending (an admitted instance would not stop, or is still draining): retried
   // until every one of them is confirmed stopped and the data is gone
@@ -407,6 +460,56 @@ export async function sweepSegments(
 }
 
 /**
+ * Whether the (workflow, user) entry's start is known to have happened: the runner admitted
+ * itself, the entry already ended, or the runtime knows its instance. An unadmitted entry whose
+ * instance cannot be found — or cannot be looked up right now — is not; the caller asks again.
+ */
+async function entryStarted(
+  env: JourneyEnv,
+  store: JourneyStore,
+  workflow: string,
+  userId: string
+): Promise<boolean> {
+  const entry = await store.getEntry(workflow, userId);
+  // A failed entry is reclaimed by the next evaluation: its start is still owed
+  if (entry === undefined || entry.status === 'failed') return false;
+  if (entry.admitted || entry.status !== 'running') return true;
+  try {
+    await env.JOURNEY.get(entry.instanceId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create the instance, idempotently by id, on a runtime that does not record its starts
+ * (Cloudflare): a create the platform refuses because the id already exists — a concurrent
+ * retry of the same start won the race — is the instance we wanted, not a failure. Rolling the
+ * entry back over it would strand a running instance with no ledger row, and it would never be
+ * admitted. Only a create whose instance the runtime cannot find failed. True when this call
+ * created it, false when it already existed.
+ */
+async function createInstance(
+  env: JourneyEnv,
+  id: string,
+  params: JourneyParams
+): Promise<boolean> {
+  try {
+    await env.JOURNEY.create({ id, params });
+    return true;
+  } catch (error) {
+    try {
+      await env.JOURNEY.get(id);
+    } catch {
+      // Not found, or the lookup failed too: the create's own error is the one to surface
+      throw error;
+    }
+    return false;
+  }
+}
+
+/**
  * Create one journey instance behind the entry ledger. Returns null when the
  * once-policy blocks the entry (the store's attempt is atomic, so concurrent
  * ingests cannot double-enter). A pair whose previous instance is recorded as
@@ -431,12 +534,29 @@ async function startJourney(
   if (outcome === null) {
     // Already entered and still alive — unless its start never got through: this retry is the
     // first chance to finish it
-    await env.JOURNEY.resume?.({ workflow, userId });
-    return null;
+    if (env.JOURNEY.resume !== undefined) {
+      // A runtime that records its starts (AWS) retries the recorded one
+      await env.JOURNEY.resume({ workflow, userId });
+      return null;
+    }
+    // A runtime that does not (Cloudflare): the ledger alone says a start is owed. Only a retry
+    // of this very attempt — same instance id, so same event and ts — may finish it; a later
+    // event of the user carries another id and must not start a second journey. The id is the
+    // platform's identity too, so creating it again is idempotent (`createInstance`).
+    const entry = await store.getEntry(workflow, userId);
+    if (entry?.instanceId !== instanceId || entry.status !== 'running' || entry.admitted) {
+      return null;
+    }
+    // Reported as started only when this retry is what created it: a duplicate delivery of an
+    // event whose first attempt succeeded finds the instance there and starts nothing
+    return (await createInstance(env, instanceId, params)) ? instanceId : null;
   }
 
   try {
-    await env.JOURNEY.create({ id: instanceId, params });
+    // A recorded start (AWS) is its own idempotency: there `get` finds the record even when the
+    // submit failed, so only a runtime without one reads "already exists" as success
+    if (execution !== undefined) await env.JOURNEY.create({ id: instanceId, params });
+    else await createInstance(env, instanceId, params);
   } catch (error) {
     // A recorded start stays: the runtime may have taken it, and a retry with the same name
     // and payload finds that execution instead of starting a second one
@@ -714,13 +834,16 @@ function verifyBundleHashes(parsed: BundleIR): void {
  * Bundle deploy, terraform-apply style: workflow bodies first (content-addressed, so a failed
  * deploy leaves only harmless orphans), then the routing swap. With a `version` the swap happens
  * only over an older live version (`replaceRoutesIfNewer`) — how journeyWorker applies the bundle
- * compiled into it; without one it is forced, whatever is live.
+ * compiled into it — unless `force` is set: then it happens whatever is live, and the version is
+ * recorded as live (`POST /bundle/deploy`). Without a version it is forced and records nothing
+ * (`POST /deploy`, a hand-posted bundle).
  */
 export async function deployBundle(
   env: JourneyEnv,
   bundle: unknown,
   store: JourneyStore,
-  version?: BundleVersion
+  version?: BundleVersion,
+  force = false
 ): Promise<DeployResult> {
   const parsed = BundleIR.parse(bundle);
   // Before any write: a bad hash must not reach the store, where it would address content it does not describe
@@ -731,7 +854,7 @@ export async function deployBundle(
 
   for (const workflow of parsed.workflows) await store.putWorkflowIR(workflow);
   let applied = true;
-  if (version === undefined) await store.replaceRoutes(parsed);
+  if (version === undefined || force) await store.replaceRoutes(parsed, version);
   else applied = await store.replaceRoutesIfNewer(parsed, version);
 
   const unrouted = parsed.workflows

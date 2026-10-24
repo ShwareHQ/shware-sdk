@@ -175,6 +175,19 @@ export class PostgresReporting implements JourneyReporting {
     });
   }
 
+  async messageSettled(idempotencyKey: string): Promise<boolean> {
+    // In a transaction, so Hyperdrive answers from the database: a cached "not settled" would
+    // send the copy again, which is the one thing this read exists to prevent
+    const rows = await this.sql.transaction((tx) =>
+      tx.query(
+        `SELECT 1 AS x FROM ${this.t.message} WHERE idempotency_key = $1
+           AND (delivered_at IS NOT NULL OR undelivered_reason IS NOT NULL)`,
+        [idempotencyKey]
+      )
+    );
+    return rows.length > 0;
+  }
+
   async settleMessage(
     idempotencyKey: string,
     result: { delivered: true } | { delivered: false; reason: string },

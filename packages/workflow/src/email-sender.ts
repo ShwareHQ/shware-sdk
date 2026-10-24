@@ -1,5 +1,5 @@
-import { type EmailAddress, type ResolvedEmail, isUnsubscribeLink } from './email';
-import type { MessageSender, MessageTracking, OutboundMessage } from './engine/ports';
+import { type EmailAddress, type ResolvedEmail, isEmailAddress, isUnsubscribeLink } from './email';
+import type { MessageSender, MessageTracking, OutboundMessage, SendResult } from './engine/ports';
 import type { ScalarIR } from './ir';
 
 /**
@@ -68,12 +68,16 @@ export interface EmailSenderOptions {
 export class EmailSender implements MessageSender {
   constructor(private readonly options: EmailSenderOptions) {}
 
-  async send(message: OutboundMessage): Promise<void> {
+  async send(message: OutboundMessage): Promise<void | SendResult> {
     if (message.channel !== 'email') {
       throw new Error(`EmailSender: unsupported channel '${message.channel}'`);
     }
-    if (message.recipient === undefined) {
-      throw new Error(`EmailSender: no recipient for user '${message.userId}'`);
+    // A user with no usable address is a fact about that user, not a fault worth retrying: the
+    // copy settles undelivered and the journey goes on, the way a push with no device is skipped.
+    // Throwing here burned the step's retries and then failed the whole instance.
+    if (message.recipient === undefined) return { delivered: false, reason: 'no_recipient' };
+    if (!isEmailAddress(message.recipient)) {
+      return { delivered: false, reason: 'invalid_recipient' };
     }
     const { subject, html, from, replyTo, unsubscribeUrl } = await this.options.render(
       message.template,

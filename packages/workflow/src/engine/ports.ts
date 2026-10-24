@@ -77,10 +77,13 @@ export interface FactSource {
    * How many times an event occurred. `sinceMs` bounds the window (within /
    * anchoring); `where` is a payload-only condition tree — count only events
    * whose payload matches (evaluate with matchesWhere from engine/condition).
+   * `atLeast` is the threshold the caller compares against: an implementation
+   * may stop counting there and return any number ≥ it, or ignore it and count
+   * them all.
    */
   countEvents(
     event: string,
-    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR }
+    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR; atLeast?: number }
   ): Promise<number>;
   getProperty(path: string): Promise<ScalarIR | undefined>;
   /** Resolve a segment definition by id (stored with the bundle at deploy time). */
@@ -110,9 +113,12 @@ export interface OutboundMessage {
   /** Push only: the device this copy goes to — its platform picks the provider. */
   device?: PushDevice | undefined;
   /**
-   * `${instanceId}:${nodeId}` (plus `:${token}` for a push copy) — one per copy. Senders
-   * de-duplicate on it, making replays and retries safe, and it is the copy's identity for
-   * tracking: a push carries it in its payload, so the app can report the tap against it.
+   * `${instanceId}:${nodeId}` (plus `:${token}` for a push copy) — one per copy, stable across
+   * replays and retries. The engine skips a copy the observer reports settled
+   * (`messageSettled`); past that, de-duplication is the provider's: APNs (collapse id) and Web
+   * Push (`Topic`) collapse on it, SES and the Cloudflare REST API cannot, so a crash between the
+   * provider taking a copy and its report still sends it twice there. It is also the copy's
+   * identity for tracking: a push carries it in its payload, so the app can report the tap.
    */
   idempotencyKey: string;
   /** What the host's observer asked the sender to add for measuring this copy (see `MessageTracking`). */
@@ -188,6 +194,15 @@ export interface JourneyObserver {
     nodeId: string;
     at: number;
   }): Promise<void>;
+  /**
+   * Whether this copy (its idempotency key) was already settled — sent, or settled undelivered —
+   * by an earlier run of the same step. The send and its report sit inside one durable step, so
+   * an instance that crashes after both but before the step's checkpoint replays the step; a
+   * settled copy is then skipped instead of reaching the transport a second time. (A crash
+   * between the transport taking it and the report is still a second send: only a provider that
+   * de-duplicates on the key closes that.)
+   */
+  messageSettled?(message: OutboundMessage): Promise<boolean>;
   /** A copy is about to go out; the tracking returned travels with it to the sender. */
   messagePrepared?(message: OutboundMessage): Promise<MessageTracking | undefined>;
   /** The transport took the copy (`delivered: true`), or settled it undelivered; a thrown send is not reported. */

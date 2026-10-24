@@ -6,6 +6,8 @@ import type {
   DeviceInput,
   EntryInput,
   EntryOutcome,
+  EntryState,
+  EventCursor,
   EventInput,
   EventWindow,
   ExecutionRecord,
@@ -17,6 +19,7 @@ import type {
   RunningInstance,
   SegmentTriggerRoute,
   TriggerRoute,
+  UnadmittedEntry,
 } from './index';
 import { PostgresReporting } from './postgres-reporting';
 import { type SqlClientLike, uuidv7 } from './sql';
@@ -222,26 +225,52 @@ export class PostgresJourneyStore implements JourneyStore {
     return { where, params };
   }
 
-  async countEvents(userId: string, event: string, window?: EventWindow): Promise<number> {
+  async countEvents(
+    userId: string,
+    event: string,
+    window?: EventWindow,
+    atLeast?: number
+  ): Promise<number> {
     const { where, params } = this.eventWindow(userId, event, window);
+    // A LIMITed inner scan stops on the (user_id, name, ts) index once enough rows are seen
+    const capped = atLeast !== undefined && Number.isInteger(atLeast) && atLeast > 0;
+    if (capped) params.push(atLeast);
     const rows = await this.sql.query<{ c: number | string }>(
-      `SELECT count(*)::int AS c FROM ${this.t.event} WHERE ${where}`,
+      capped
+        ? `SELECT count(*)::int AS c FROM (SELECT 1 FROM ${this.t.event} WHERE ${where} LIMIT $${params.length}) capped`
+        : `SELECT count(*)::int AS c FROM ${this.t.event} WHERE ${where}`,
       params
     );
     return Number(rows.at(0)?.c ?? 0);
   }
 
-  async listEventPayloads(
+  async pageEventPayloads(
     userId: string,
     event: string,
-    window?: EventWindow
-  ): Promise<Record<string, unknown>[]> {
+    window: EventWindow | undefined,
+    page: { limit: number; after?: EventCursor | undefined }
+  ): Promise<{ payloads: Record<string, unknown>[]; next?: EventCursor | undefined }> {
     const { where, params } = this.eventWindow(userId, event, window);
-    const rows = await this.sql.query<{ payload: unknown }>(
-      `SELECT payload FROM ${this.t.event} WHERE ${where}`,
+    let keyset = '';
+    if (page.after !== undefined) {
+      params.push(page.after.ts, page.after.id);
+      keyset = ` AND (ts, id) > ($${params.length - 1}::timestamptz, $${params.length}::uuid)`;
+    }
+    params.push(page.limit);
+    // `ts::text` is the cursor: Postgres renders and re-reads its own timestamp exactly, where
+    // a float of epoch milliseconds could land a hair off and repeat or skip a row
+    const rows = await this.sql.query<{ payload: unknown; ts: string; id: string }>(
+      `SELECT payload, ts::text AS ts, id::text AS id FROM ${this.t.event}
+       WHERE ${where}${keyset} ORDER BY ts, id LIMIT $${params.length}`,
       params
     );
-    return rows.map((row) => asJson<Record<string, unknown>>(row.payload));
+    const last = rows.at(-1);
+    return {
+      payloads: rows.map((row) => asJson<Record<string, unknown>>(row.payload)),
+      ...(last !== undefined && rows.length === page.limit
+        ? { next: { ts: last.ts, id: last.id } }
+        : {}),
+    };
   }
 
   async getProfile(userId: string): Promise<ProfileProps | undefined> {
@@ -510,8 +539,22 @@ export class PostgresJourneyStore implements JourneyStore {
     return row === undefined ? undefined : WorkflowIR.parse(asJson(row.ir));
   }
 
-  replaceRoutes(bundle: BundleIR): Promise<void> {
-    return this.sql.transaction((tx) => this.swapRoutes(tx, bundle));
+  replaceRoutes(bundle: BundleIR, version?: BundleVersion): Promise<void> {
+    return this.sql.transaction(async (tx) => {
+      if (version !== undefined) {
+        // Unconditional, unlike replaceRoutesIfNewer: a forced apply wins, and the row must then
+        // name the code its routes came from. Leaving it naming a newer version would make that
+        // version skip re-applying its own bundle, with these older routes left live.
+        await tx.query(
+          `INSERT INTO ${this.t.deployment} (scope, version_id, version_created_at, applied_at)
+           VALUES ('routes', $1, ${TS('$2')}, ${TS('$3')})
+           ON CONFLICT (scope) DO UPDATE SET version_id = EXCLUDED.version_id,
+             version_created_at = EXCLUDED.version_created_at, applied_at = EXCLUDED.applied_at`,
+          [version.id, version.createdAt, Date.now()]
+        );
+      }
+      await this.swapRoutes(tx, bundle, version?.id);
+    });
   }
 
   async liveBundleVersion(): Promise<BundleVersion | undefined> {
@@ -662,11 +705,12 @@ export class PostgresJourneyStore implements JourneyStore {
   private async claimEntry(sql: SqlClientLike, entry: EntryInput): Promise<EntryOutcome> {
     // The (workflow, user_id) primary key makes the once policy atomic:
     // concurrent ingests race on the insert and exactly one wins.
+    const claimedAt = Date.now();
     const inserted = await sql.query(
-      `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, hash, status, ts)
-       SELECT $1, $2, $3, $4, 'running', ${TS('$5')} ${this.notErased('$2')}
+      `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, hash, status, ts, claimed_at)
+       SELECT $1, $2, $3, $4, 'running', ${TS('$5')}, ${TS('$6')} ${this.notErased('$2')}
        ON CONFLICT (workflow, user_id) DO NOTHING RETURNING instance_id`,
-      [entry.workflow, entry.userId, entry.instanceId, entry.hash, entry.ts]
+      [entry.workflow, entry.userId, entry.instanceId, entry.hash, entry.ts, claimedAt]
     );
     if (inserted.length > 0) return 'entered';
 
@@ -679,11 +723,11 @@ export class PostgresJourneyStore implements JourneyStore {
     // runner that has not been created yet).
     const claimed = await sql.query(
       `UPDATE ${this.t.entry} SET instance_id = $1, hash = $2, status = 'running', ts = ${TS('$3')},
-         admitted_at = NULL
+         admitted_at = NULL, claimed_at = ${TS('$6')}
        WHERE workflow = $4 AND user_id = $5 AND status = 'failed'
          AND NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = $5)
        RETURNING instance_id`,
-      [entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId]
+      [entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId, claimedAt]
     );
     if (claimed.length > 0) return 'reclaimed';
     // Taken by a live instance, or refused by the tombstone: tell them apart
@@ -727,6 +771,51 @@ export class PostgresJourneyStore implements JourneyStore {
 
   async removeEntry(instanceId: string): Promise<void> {
     await this.sql.query(`DELETE FROM ${this.t.entry} WHERE instance_id = $1`, [instanceId]);
+  }
+
+  async getEntry(workflow: string, userId: string): Promise<EntryState | undefined> {
+    // In a transaction, so Hyperdrive answers from the database: the caller decides whether a
+    // start is lost on this read, and a cached row could still show an admission as missing
+    const rows = await this.sql.transaction((tx) =>
+      tx.query<{ instance_id: string; status: string; admitted: boolean }>(
+        `SELECT instance_id, status, admitted_at IS NOT NULL AS admitted
+         FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2`,
+        [workflow, userId]
+      )
+    );
+    const row = rows.at(0);
+    return row === undefined
+      ? undefined
+      : { instanceId: row.instance_id, status: row.status, admitted: row.admitted };
+  }
+
+  async unadmittedEntries(claimedBefore: number, limit: number): Promise<UnadmittedEntry[]> {
+    // Rows from before claimed_at existed fall back to ts: older than any real claim, they are
+    // exactly the entries a crash may have stranded
+    const rows = await this.sql.query<{ instance_id: string; workflow: string; user_id: string }>(
+      `SELECT instance_id, workflow, user_id FROM ${this.t.entry}
+       WHERE admitted_at IS NULL AND status = 'running'
+         AND COALESCE(claimed_at, ts) < ${TS('$1')}
+       ORDER BY COALESCE(claimed_at, ts) LIMIT $2`,
+      [claimedBefore, limit]
+    );
+    return rows.map((row) => ({
+      instanceId: row.instance_id,
+      workflow: row.workflow,
+      userId: row.user_id,
+    }));
+  }
+
+  async failUnadmittedEntry(instanceId: string): Promise<boolean> {
+    // Conditional on the same state the caller saw: a runner that admitted itself meanwhile, or a
+    // reclaim under a new instance id, leaves the row alone
+    const rows = await this.sql.query(
+      `UPDATE ${this.t.entry} SET status = 'failed'
+       WHERE instance_id = $1 AND status = 'running' AND admitted_at IS NULL
+       RETURNING instance_id`,
+      [instanceId]
+    );
+    return rows.length > 0;
   }
 
   async setEntryStatus(instanceId: string, status: string): Promise<void> {

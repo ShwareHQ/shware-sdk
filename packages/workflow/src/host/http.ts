@@ -4,6 +4,7 @@ import type { EmailRenderer } from '../email-sender';
 import type { BundleIR, ScalarIR } from '../ir';
 import { type TrackingOptions, handleTracking, recordPushOpen } from '../reporting/tracking';
 import {
+  type BundleVersion,
   type JourneyStore,
   type ProfileProps,
   SchemaMismatchError,
@@ -47,6 +48,8 @@ export interface IngestValidation {
 export interface HostParts {
   /** The bundle compiled into the code: `GET /bundle` shows it, `POST /bundle/deploy` makes it live. */
   bundle?: (() => BundleIR) | undefined;
+  /** The code version serving this request, recorded as live by `POST /bundle/deploy`. */
+  bundleVersion?: BundleVersion | undefined;
   /** `GET /preview/:id?props=<JSON>`: the email templates, rendered. */
   preview?: { has(id: string): boolean; render: EmailRenderer } | undefined;
   /** `/t/*`, what recipients open (no bearer): served on a store that keeps reporting. */
@@ -334,7 +337,10 @@ const routes: readonly Route[] = [
     auth: 'api',
     async handle({ env, store, host }) {
       if (host.bundle === undefined) return notFound();
-      return json(await deployBundle(env, host.bundle(), store));
+      // Forced, and recording the serving version: otherwise an older version still serving
+      // during a rollout would put its routes live while the row kept naming the newer one —
+      // which then never re-applies its own bundle
+      return json(await deployBundle(env, host.bundle(), store, host.bundleVersion, true));
     },
   },
   {

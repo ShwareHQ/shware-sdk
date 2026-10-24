@@ -4,7 +4,14 @@ import { z } from 'zod';
 import type { JourneyRunner } from '../src/cloudflare/runner';
 import { journeyWorker } from '../src/cloudflare/worker';
 import { handleRequest } from '../src/host/http';
-import { deployBundle, ingestEvent, sweepSegments, sweepSegmentsPaged } from '../src/host/ingest';
+import {
+  LOST_START_AFTER_MS,
+  deployBundle,
+  failLostStarts,
+  ingestEvent,
+  sweepSegments,
+  sweepSegmentsPaged,
+} from '../src/host/ingest';
 import type {
   JourneyParams,
   WorkflowBindingLike,
@@ -384,6 +391,154 @@ describe('an entry that never ran does not bar the user forever', () => {
     const again = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' }, store);
     expect(again.started).toEqual([]);
     expect((await entries())[0].status).toBe('completed');
+  });
+});
+
+describe('a start lost between the entry and the create', () => {
+  /*
+   * The entry commits, then the platform's create runs. A Worker cut off between the two — or a
+   * create that fails with its rollback failing too — leaves a running entry with no instance.
+   * Cloudflare records no start to retry (unlike AWS), and the once-policy used to bar the user
+   * from the workflow for good: every later trigger saw a live entry and did nothing.
+   */
+  const event = { id: 'evt-1', userId: 'u1', event: 'begin_checkout', ts: 1_700_000_000_000 };
+
+  /** Deploy, then strand one entry: its create fails and so does the rollback. */
+  const strand = async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    journey.failingCreates = 1;
+    const rollback = vi
+      .spyOn(store, 'removeEntry')
+      .mockRejectedValueOnce(new Error('database unavailable'));
+    try {
+      await expect(ingestEvent(env, event, store)).rejects.toThrow('database unavailable');
+    } finally {
+      rollback.mockRestore();
+    }
+    expect(journey.created).toEqual([]);
+    const [entry] = await entries();
+    expect(entry.status).toBe('running');
+    return { env, store, journey, instanceId: entry.instance_id };
+  };
+
+  test('the producer retrying the same event finishes the start', async () => {
+    const { env, store, journey, instanceId } = await strand();
+
+    const retry = await ingestEvent(env, event, store);
+
+    expect(retry.started).toEqual([instanceId]);
+    expect(journey.created.map((created) => created.id)).toEqual([instanceId]);
+  });
+
+  test('a create the platform refuses as a duplicate counts as done, not as a failure to roll back', async () => {
+    const { env, store, journey, instanceId } = await strand();
+    // A concurrent retry created it a moment ago; this attempt's own create is then refused
+    await journey.create({ id: instanceId, params: {} });
+
+    const retry = await ingestEvent(env, event, store);
+
+    // Nothing new started — and the entry kept, not rolled back from under the live instance
+    expect(retry.started).toEqual([]);
+    expect(journey.created.map((created) => created.id)).toEqual([instanceId]);
+    expect((await entries())[0]).toMatchObject({ instance_id: instanceId, status: 'running' });
+  });
+
+  test('a duplicate delivery of an event whose start succeeded starts nothing', async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    const first = await ingestEvent(env, event, store);
+    expect(first.started).toHaveLength(1);
+
+    const duplicate = await ingestEvent(env, event, store);
+
+    expect(duplicate.started).toEqual([]);
+    expect(journey.created).toHaveLength(1);
+  });
+
+  test('a later event of the user does not start a second journey over the stranded entry', async () => {
+    const { env, store, journey } = await strand();
+
+    const later = await ingestEvent(env, { ...event, id: 'evt-2', ts: event.ts + 60_000 }, store);
+
+    expect(later.started).toEqual([]);
+    expect(journey.created).toEqual([]);
+  });
+
+  test('maintenance fails a stranded entry no retry finished, so the next trigger re-enters', async () => {
+    const { env, store, journey, instanceId } = await strand();
+
+    // Too young to judge: its create may still be in flight
+    expect(await failLostStarts(env, store, Date.now())).toEqual([]);
+    expect((await entries())[0].status).toBe('running');
+
+    expect(await failLostStarts(env, store, Date.now() + LOST_START_AFTER_MS + 1)).toEqual([
+      instanceId,
+    ]);
+    expect((await entries())[0].status).toBe('failed');
+
+    const next = await ingestEvent(env, { ...event, id: 'evt-3', ts: event.ts + 120_000 }, store);
+    expect(next.started).toHaveLength(1);
+    expect(journey.created).toHaveLength(1);
+    expect((await entries())[0].status).toBe('running');
+  });
+
+  test('maintenance leaves an unadmitted entry whose instance exists: it is queued, not lost', async () => {
+    const { env, store } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    await ingestEvent(env, event, store);
+
+    expect(await failLostStarts(env, store, Date.now() + LOST_START_AFTER_MS + 1)).toEqual([]);
+    expect((await entries())[0].status).toBe('running');
+  });
+
+  test('a segment start is not crossed off while the entry holding it has no instance', async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(env, bundle(), store);
+    // The segment's workflow fails to start, and its rollback fails with it
+    const create = journey.create.bind(journey);
+    journey.create = async (options) => {
+      if (options.id.startsWith('reengagement-')) throw new Error('platform unavailable');
+      return create(options);
+    };
+    const rollback = vi
+      .spyOn(store, 'removeEntry')
+      .mockRejectedValueOnce(new Error('database unavailable'));
+    try {
+      await expect(
+        ingestEvent(env, { userId: 'u2', event: 'begin_checkout', ts: event.ts }, store)
+      ).rejects.toThrow('database unavailable');
+    } finally {
+      rollback.mockRestore();
+    }
+    journey.create = create;
+
+    // The next evaluation finds the entry taken (null) — but by an attempt with nothing behind it
+    await ingestEvent(env, { userId: 'u2', event: 'begin_checkout', ts: event.ts + 60_000 }, store);
+    expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toContain('reengagement');
+
+    // Maintenance frees the entry; the following evaluation starts the owed journey and only then
+    // crosses it off
+    await failLostStarts(env, store, Date.now() + LOST_START_AFTER_MS + 1);
+    const recovered = await ingestEvent(
+      env,
+      { userId: 'u2', event: 'begin_checkout', ts: event.ts + 120_000 },
+      store
+    );
+    expect(recovered.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
+    expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toEqual([]);
   });
 });
 
