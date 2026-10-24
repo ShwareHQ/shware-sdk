@@ -170,7 +170,6 @@ export type UserProvidedData = {
 };
 
 export type GaId = `G-${Uppercase<string>}`;
-export type GtmId = `GTM-${Uppercase<string>}`;
 
 export type CampaignMedium =
   | 'email'
