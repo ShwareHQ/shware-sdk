@@ -62,7 +62,7 @@ export function createGoogleProvider(): OneTapProvider {
       });
       return { data, claims: claims(data) };
     },
-    async loginOAuth2Native({ pkce: _, credentials, ...params }: LoginOAuth2NativeParams) {
+    async loginOAuth2Native({ pkce, credentials, ...params }: LoginOAuth2NativeParams) {
       invariant(credentials.code, 'code is required');
       const { code } = credentials;
       const { tokenUri } = this;
@@ -70,10 +70,12 @@ export function createGoogleProvider(): OneTapProvider {
       // redirect), and Google only exchanges a code for the client it was issued to, so the exchange
       // runs as the client the app names, which the OAuth2 client has already checked is one of this
       // provider's configured clients. Installed-app clients have no secret. The redirect URI is the
-      // one the app used, which only the app knows.
+      // one the app used, which only the app knows. So is the PKCE verifier, when the app sent a
+      // challenge: Google then refuses the code without it.
       const { redirect_uri = params.redirectUri } = credentials;
       const response = await exchangeAuthorizationCode({
         code,
+        pkce,
         tokenUri,
         clientId: params.clientId,
         clientSecret: params.clientSecret,

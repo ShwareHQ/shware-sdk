@@ -56,7 +56,13 @@ export interface LoginOAuth2NativeParams {
   clientId: string;
   clientSecret?: string;
   redirectUri: string;
-  pkce?: PkceParameters;
+  /**
+   * The PKCE verifier for the code exchange, taken from `credentials.code_verifier`: the app made
+   * the challenge and keeps the verifier, so the server only ever has the verifier. Providers
+   * whose token endpoint takes `code_verifier` send it; the others ignore it.
+   */
+  pkce?: Omit<PkceParameters, 'code_challenge' | 'code_challenge_method'>;
+  /** What the app posted, without `code_verifier`, which arrives as `pkce`. */
   credentials: NativeCredential;
 }
 
@@ -111,6 +117,14 @@ export type NativeCredential = {
   code?: string;
   client_id?: string;
   redirect_uri?: string;
+  /**
+   * The PKCE verifier (RFC 7636) for `code`, when the app sent a `code_challenge` with the
+   * authorization request: 43-128 characters from `[A-Za-z0-9-._~]`. Sent on to the provider's
+   * token endpoint, which refuses the code unless the verifier matches its challenge, so a code
+   * intercepted on the redirect (a custom-scheme redirect any app can claim) is useless alone.
+   * RFC 8252 §8.1 requires it for native apps, whose installed-app clients have no secret.
+   */
+  code_verifier?: string;
   id_token?: string;
   access_token?: string;
   /**
