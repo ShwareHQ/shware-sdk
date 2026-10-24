@@ -2,4 +2,4 @@
 '@shware/purchase': minor
 ---
 
-Add `plans` / `billingPeriods` to `StripeConfig.create` and `StripeConfig.comparePlans`, which says whether a switch between two subscription products is an upgrade, a downgrade, or a longer or shorter period of the same plan; and the interface of `createPlanChange` (types and `PlanChangeError`, not yet implemented).
+Add `plans` / `billingPeriods` to `StripeConfig.create` and `StripeConfig.comparePlans` (upgrade, downgrade, or a longer or shorter period of the same plan), and `createPlanChange`: preview, apply and cancel a Stripe subscription's switch to another subscription product, with Apple's timing by default (an upgrade now, anything else at the period end), 3DS through a pending update, card declines as `PlanChangeError` with `mapDecline`'s reason, and period-end changes as a two-phase subscription schedule.
