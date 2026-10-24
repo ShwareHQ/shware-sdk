@@ -11,7 +11,8 @@ const CREDITS = 'com.example.credits';
 const PERIOD_START = 1_700_000_000;
 const PERIOD_END = PERIOD_START + 30 * 24 * 3600;
 
-const config = StripeConfig.create<'com.example', 'STARTER' | 'PRO', 'MONTHLY' | 'YEARLY'>({
+const config = StripeConfig.create({
+  namespace: 'com.example',
   mode: 'live',
   allowPromotionCodes: false,
   cancellationCouponId: 'coupon_1',

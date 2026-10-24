@@ -2,12 +2,25 @@ import { describe, expect, it, vi } from 'vitest';
 import { StripeConfig } from '../config';
 
 describe('StripeConfig', () => {
+  const options = {
+    namespace: 'io.x',
+    plans: [],
+    billingPeriods: [],
+    mode: 'live',
+    allowPromotionCodes: false,
+    cancellationCouponId: 'coupon_1',
+    returnUrl: 'https://example.com/return',
+    cancelUrl: 'https://example.com/cancel',
+    successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+  } as const;
   const PLANS = ['STARTER'] as const;
-  type Plan = (typeof PLANS)[number];
 
-  type BillingPeriod = 'monthly' | 'yearly';
+  const BILLING_PERIODS = ['monthly', 'yearly'] as const;
 
-  const config = StripeConfig.create<'com.example', Plan, BillingPeriod>({
+  const config = StripeConfig.create({
+    namespace: 'com.example',
+    plans: PLANS,
+    billingPeriods: BILLING_PERIODS,
     mode: 'live',
     allowPromotionCodes: true,
     cancellationCouponId: 'coupon_123456',
@@ -60,29 +73,29 @@ describe('StripeConfig', () => {
   });
 
   describe('comparePlans', () => {
-    const create = (order: boolean) =>
-      StripeConfig.create<'com.example', 'STARTER' | 'PRO', 'monthly' | 'yearly'>({
-        mode: 'live',
-        allowPromotionCodes: true,
-        cancellationCouponId: 'coupon_123456',
-        returnUrl: 'https://example.com/return',
-        cancelUrl: 'https://example.com/cancel',
-        successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
-        ...(order ? { plans: ['STARTER', 'PRO'], billingPeriods: ['monthly', 'yearly'] } : {}),
-      })
-        .product('com.example.starter.monthly', 'STARTER', 'monthly')
-        .price('price_sm')
-        .default('price_sm')
-        .product('com.example.starter.yearly', 'STARTER', 'yearly')
-        .price('price_sy')
-        .default('price_sy')
-        .product('com.example.pro.monthly', 'PRO', 'monthly')
-        .price('price_pm')
-        .default('price_pm')
-        .product('com.example.credits')
-        .price('price_c')
-        .default('price_c');
-    const ladder = create(true);
+    const ladder = StripeConfig.create({
+      namespace: 'com.example',
+      plans: ['STARTER', 'PRO'],
+      billingPeriods: ['monthly', 'yearly'],
+      mode: 'live',
+      allowPromotionCodes: true,
+      cancellationCouponId: 'coupon_123456',
+      returnUrl: 'https://example.com/return',
+      cancelUrl: 'https://example.com/cancel',
+      successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+    })
+      .product('com.example.starter.monthly', 'STARTER', 'monthly')
+      .price('price_sm')
+      .default('price_sm')
+      .product('com.example.starter.yearly', 'STARTER', 'yearly')
+      .price('price_sy')
+      .default('price_sy')
+      .product('com.example.pro.monthly', 'PRO', 'monthly')
+      .price('price_pm')
+      .default('price_pm')
+      .product('com.example.credits')
+      .price('price_c')
+      .default('price_c');
 
     it('ranks by plan first, whatever the periods', () => {
       expect(ladder.comparePlans('com.example.starter.yearly', 'com.example.pro.monthly')).toBe(
@@ -105,27 +118,10 @@ describe('StripeConfig', () => {
       );
     });
 
-    it('needs the order declared, and both products to be subscriptions', () => {
-      expect(() =>
-        create(false).comparePlans('com.example.starter.monthly', 'com.example.pro.monthly')
-      ).toThrow('plans and billingPeriods are not declared');
+    it('needs both products to be subscriptions', () => {
       expect(() => ladder.comparePlans('com.example.credits', 'com.example.pro.monthly')).toThrow(
         'Product com.example.credits is not a subscription'
       );
-    });
-
-    it('takes plans and billingPeriods only together', () => {
-      expect(() =>
-        StripeConfig.create<'com.example', 'STARTER', 'monthly'>({
-          mode: 'live',
-          allowPromotionCodes: true,
-          cancellationCouponId: 'coupon_123456',
-          returnUrl: 'https://example.com/return',
-          cancelUrl: 'https://example.com/cancel',
-          successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
-          plans: ['STARTER'],
-        })
-      ).toThrow('plans and billingPeriods are declared together');
     });
   });
 
@@ -157,7 +153,10 @@ describe('StripeConfig', () => {
   });
 
   it('should reject duplicate declarations at runtime', () => {
-    const fresh = StripeConfig.create<'com.example', Plan, BillingPeriod>({
+    const fresh = StripeConfig.create({
+      namespace: 'com.example',
+      plans: PLANS,
+      billingPeriods: BILLING_PERIODS,
       mode: 'live',
       allowPromotionCodes: true,
       cancellationCouponId: 'coupon_123456',
@@ -200,7 +199,10 @@ describe('StripeConfig', () => {
     // checked by tsc, never executed
     const typeChecks = () => {
       // @ts-expect-error mode is required
-      StripeConfig.create<'com.example', Plan, BillingPeriod>({
+      StripeConfig.create({
+        namespace: 'com.example',
+        plans: PLANS,
+        billingPeriods: BILLING_PERIODS,
         allowPromotionCodes: true,
         cancellationCouponId: 'coupon_123456',
         returnUrl: 'https://example.com/return',
@@ -218,8 +220,52 @@ describe('StripeConfig', () => {
       // @ts-expect-error the yearly pair is taken by com.example.sub.starter.yearly as well
       config.product('com.example.sub.starter2', 'STARTER', 'yearly');
       // (the main config chain itself proves same plan + different period compiles)
+      const inferred = StripeConfig.create({
+        namespace: 'io.inferred',
+        plans: ['BASIC', 'PLUS'],
+        billingPeriods: ['MONTHLY'],
+        mode: 'live',
+        allowPromotionCodes: false,
+        cancellationCouponId: 'coupon_1',
+        returnUrl: 'https://example.com/return',
+        cancelUrl: 'https://example.com/cancel',
+        successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+      });
+      // namespace, plans and periods are all inferred from the options, no type arguments
+      inferred.product('io.inferred.plus', 'PLUS', 'MONTHLY');
+      // @ts-expect-error outside the inferred namespace
+      inferred.product('com.example.plus', 'PLUS', 'MONTHLY');
+      // @ts-expect-error not one of the inferred plans
+      inferred.product('io.inferred.pro', 'PRO', 'MONTHLY');
+      // @ts-expect-error not one of the inferred periods
+      inferred.product('io.inferred.plus.yearly', 'PLUS', 'YEARLY');
+      const oneTimeOnly = StripeConfig.create(options);
+      // @ts-expect-error a config that sells no subscriptions has no plans to name
+      oneTimeOnly.product('io.x.a', 'A', 'B');
     };
     expect(typeChecks).toBeInstanceOf(Function);
+  });
+
+  it('should check namespace, plans and periods at runtime too', () => {
+    // widened on purpose, as for ids built at runtime: only the runtime checks stand
+    const loose = StripeConfig.create<Lowercase<string>, string, string>({
+      ...options,
+      namespace: 'com.example',
+      plans: PLANS,
+      billingPeriods: BILLING_PERIODS,
+    });
+    expect(() => loose.product('io.other.credits')).toThrow(
+      'Product io.other.credits is not in namespace com.example'
+    );
+    expect(() => loose.product('com.example.x', 'PRO', 'monthly')).toThrow(
+      'Plan PRO is not in plans'
+    );
+    expect(() => loose.product('com.example.y', 'STARTER', 'weekly')).toThrow(
+      'Billing period weekly is not in billingPeriods'
+    );
+    expect(() => StripeConfig.create({ ...options, plans: ['A', 'A'] })).toThrow(
+      'Duplicate plan in plans'
+    );
   });
 
   it('should return correct priceId', () => {
@@ -287,7 +333,10 @@ describe('StripeConfig', () => {
 
   describe('test mode', () => {
     const create = () =>
-      StripeConfig.create<'com.example', Plan, BillingPeriod>({
+      StripeConfig.create({
+        namespace: 'com.example',
+        plans: PLANS,
+        billingPeriods: BILLING_PERIODS,
         mode: 'test',
         allowPromotionCodes: true,
         cancellationCouponId: 'coupon_123456',

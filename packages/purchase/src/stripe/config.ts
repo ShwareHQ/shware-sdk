@@ -82,21 +82,23 @@ class Product<
   };
 }
 
-type Options<PE extends string, BP extends string> = {
+type Options<NS extends Lowercase<string>, PE extends string, BP extends string> = {
+  /** The prefix every product id starts with (`io.example` for `io.example.pro.monthly`). */
+  namespace: NS;
+  /**
+   * Every plan, lowest tier first: the plan's level, as Apple orders a subscription group, which is
+   * what {@link StripeConfig.comparePlans} reads an upgrade or a downgrade from. Empty for a config
+   * that sells no subscriptions.
+   */
+  plans: readonly PE[];
+  /** Every billing period, shortest first. Empty for a config that sells no subscriptions. */
+  billingPeriods: readonly BP[];
   mode: StripeMode;
   returnUrl: string;
   cancelUrl: string;
   successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
   cancellationCouponId: string;
   allowPromotionCodes: boolean;
-  /**
-   * Every plan, lowest tier first: the plan's level, as Apple orders a subscription group. Needed
-   * by {@link StripeConfig.comparePlans} and so by plan changes; a config that sells no
-   * subscriptions, or never switches between them, can leave it out.
-   */
-  plans?: readonly PE[];
-  /** Every billing period, shortest first. Required together with `plans`. */
-  billingPeriods?: readonly BP[];
 };
 
 /**
@@ -124,8 +126,9 @@ export class StripeConfig<
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
   public cancellationCouponId: string;
   public allowPromotionCodes: boolean;
-  private readonly plans: readonly PE[] | null;
-  private readonly billingPeriods: readonly BP[] | null;
+  public readonly namespace: NS;
+  public readonly plans: readonly PE[];
+  public readonly billingPeriods: readonly BP[];
 
   get productIds(): string[] {
     return Array.from(this.products.keys());
@@ -153,13 +156,15 @@ export class StripeConfig<
     return this;
   };
 
-  private constructor(options: Options<PE, BP>) {
+  private constructor(options: Options<NS, PE, BP>) {
+    invariant(new Set(options.plans).size === options.plans.length, 'Duplicate plan in plans');
     invariant(
-      !options.plans === !options.billingPeriods,
-      'plans and billingPeriods are declared together'
+      new Set(options.billingPeriods).size === options.billingPeriods.length,
+      'Duplicate billing period in billingPeriods'
     );
-    this.plans = options.plans ?? null;
-    this.billingPeriods = options.billingPeriods ?? null;
+    this.namespace = options.namespace;
+    this.plans = options.plans;
+    this.billingPeriods = options.billingPeriods;
     this.mode = options.mode;
     this.returnUrl = options.returnUrl;
     this.cancelUrl = options.cancelUrl;
@@ -168,8 +173,16 @@ export class StripeConfig<
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 
-  static create = <NS extends Lowercase<string>, PE extends string, BP extends string = string>(
-    options: Options<PE, BP>
+  /**
+   * Every type parameter is inferred from the options: the namespace from `namespace`, the plans
+   * and billing periods from the arrays (`const`, so a literal array needs no `as const`).
+   */
+  static create = <
+    const NS extends Lowercase<string>,
+    const PE extends string,
+    const BP extends string,
+  >(
+    options: Options<NS, PE, BP>
   ) => {
     return new StripeConfig<NS, PE, BP>(options);
   };
@@ -187,9 +200,20 @@ export class StripeConfig<
       plan: L,
       billingPeriod: `${L}:${P}` extends PL ? never : P
     ): Product<NS, PE, BP, `${L}:${P}` | PL, K | PI>;
-  } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) =>
+  } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) => {
+    // runtime mirror of the template-literal and union types, for ids built at runtime or cast
+    invariant(
+      productId.startsWith(`${this.namespace}.`),
+      `Product ${productId} is not in namespace ${this.namespace}`
+    );
+    invariant(plan === null || this.plans.includes(plan), `Plan ${plan} is not in plans`);
+    invariant(
+      billingPeriod === null || this.billingPeriods.includes(billingPeriod),
+      `Billing period ${billingPeriod} is not in billingPeriods`
+    );
     // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- widens to the overloads' accumulated generics
-    new Product(this, productId, plan, billingPeriod) as never;
+    return new Product(this, productId, plan, billingPeriod) as never;
+  };
 
   getPlan = (productId: string): PE => {
     const product = this.products.get(productId);
@@ -245,17 +269,13 @@ export class StripeConfig<
   /**
    * How switching from one subscription product to another relates them (see
    * {@link PlanComparison}), by the order `plans` and `billingPeriods` were declared in. Throws for
-   * a product that is not a subscription, and when the config declares no order.
+   * a product that is not a subscription.
    */
   comparePlans = (fromProductId: string, toProductId: string): PlanComparison => {
-    invariant(this.plans && this.billingPeriods, 'plans and billingPeriods are not declared');
-    const level = (productId: string) => {
-      const plan = this.plans?.indexOf(this.getPlan(productId)) ?? -1;
-      const period = this.billingPeriods?.indexOf(this.getBillingPeriod(productId)) ?? -1;
-      invariant(plan >= 0, `Plan of ${productId} is not in plans`);
-      invariant(period >= 0, `Billing period of ${productId} is not in billingPeriods`);
-      return { plan, period };
-    };
+    const level = (productId: string) => ({
+      plan: this.plans.indexOf(this.getPlan(productId)),
+      period: this.billingPeriods.indexOf(this.getBillingPeriod(productId)),
+    });
     const from = level(fromProductId);
     const to = level(toProductId);
     if (to.plan !== from.plan) return to.plan > from.plan ? 'upgrade' : 'downgrade';
