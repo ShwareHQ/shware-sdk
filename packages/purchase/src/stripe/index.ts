@@ -55,7 +55,13 @@ export {
   type CreateCheckoutSessionDTO,
 } from './schema';
 export { METADATA_KEYS } from './metadata';
-export { StripeConfig, type PlanComparison, type PriceId, type StripeMode } from './config';
+export {
+  StripeConfig,
+  defineStripeConfig,
+  type PlanComparison,
+  type PriceId,
+  type StripeMode,
+} from './config';
 export {
   PLAN_CHANGE_ERROR_REASONS,
   PlanChangeError,

@@ -1,5 +1,6 @@
 import { invariant } from '@shware/utils';
 import ms from 'ms';
+import { type Catalog, assertCatalog, assertDeclared, assertInNamespace } from '../catalog';
 import type { IsUnique, Metadata } from '../types';
 
 const addMethod = Symbol('addMethod');
@@ -34,6 +35,7 @@ class Subscription<
     billingPeriod: BP,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Subscription<NS, PE, BP, PI, I | K> => {
+    assertDeclared(this.config, plan, billingPeriod);
     invariant(!this.plans.has(planId), `Duplicate base plan ${planId}`);
     this.plans.set(planId, { ...metadata, plan, billingPeriod });
     return this;
@@ -51,7 +53,11 @@ class Subscription<
   };
 }
 
-type Options = { package: string; audience: string };
+type Options<NS extends Lowercase<string>, PE extends string, BP extends string> = Catalog<
+  NS,
+  PE,
+  BP
+> & { package: string; audience: string };
 
 export class GooglePlayConfig<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -61,6 +67,9 @@ export class GooglePlayConfig<
 > {
   readonly package: string;
   readonly audience: string;
+  readonly namespace: NS;
+  readonly plans: readonly PE[];
+  readonly billingPeriods: readonly BP[];
   private readonly onetimes: Set<string>;
   private readonly subscriptions: Map<string, Subscription<NS, PE, BP, PI>>;
   private readonly products: Map<string, (Metadata & { plan?: PE; billingPeriod?: BP }) | null>;
@@ -85,7 +94,11 @@ export class GooglePlayConfig<
     return planId ? `${productId}:${planId}` : productId;
   };
 
-  private constructor(options: Options) {
+  private constructor(options: Options<NS, PE, BP>) {
+    assertCatalog(options);
+    this.namespace = options.namespace;
+    this.plans = options.plans;
+    this.billingPeriods = options.billingPeriods;
     this.package = options.package;
     this.audience = options.audience;
     this.products = new Map();
@@ -93,17 +106,19 @@ export class GooglePlayConfig<
     this.subscriptions = new Map();
   }
 
+  /** @deprecated Use `defineGooglePlayConfig`, which this is the same as. */
   static create = <
-    NS extends Lowercase<string>,
-    PE extends string = string,
-    BP extends string = string,
+    const NS extends Lowercase<string>,
+    const PE extends string,
+    const BP extends string,
   >(
-    options: Options
+    options: Options<NS, PE, BP>
   ) => {
     return new GooglePlayConfig<NS, PE, BP>(options);
   };
 
   subscription = <K extends `${NS}.${Lowercase<string>}`>(productId: K extends PI ? never : K) => {
+    assertInNamespace(this.namespace, productId);
     return new Subscription<NS, PE, BP, PI | K>(this, productId);
   };
 
@@ -111,6 +126,7 @@ export class GooglePlayConfig<
     productId: K extends PI ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ) => {
+    assertInNamespace(this.namespace, productId);
     invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.onetimes.add(productId);
     this.products.set(productId, metadata);
@@ -164,4 +180,18 @@ export class GooglePlayConfig<
     const expiresIn = this.getCreditExpiresIn(productId, planId);
     return new Date(Date.now() + expiresIn).toISOString();
   };
+}
+
+/**
+ * Declare the GooglePlay product catalog. Every type parameter is inferred from the options:
+ * the namespace from `namespace`, the plans and billing periods from `plans` and `billingPeriods`
+ * (`const`, so a literal array needs no `as const`). Products are then added with the fluent chain.
+ */
+export function defineGooglePlayConfig<
+  const NS extends Lowercase<string>,
+  const PE extends string,
+  const BP extends string,
+>(options: Options<NS, PE, BP>): GooglePlayConfig<NS, PE, BP> {
+  // oxlint-disable-next-line typescript/no-deprecated -- the one sanctioned caller
+  return GooglePlayConfig.create(options);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GooglePlayConfig } from '../config';
+import { defineGooglePlayConfig } from '../config';
 
 describe('GooglePlayConfig', () => {
   const Plan = {
@@ -8,9 +8,13 @@ describe('GooglePlayConfig', () => {
   } as const;
   type Plan = (typeof Plan)[keyof typeof Plan];
 
-  type BillingPeriod = 'monthly' | 'yearly';
+  const PLANS = [Plan.STARTER, Plan.PREMIUM];
+  const BILLING_PERIODS = ['monthly', 'yearly'] as const;
 
-  const config = GooglePlayConfig.create<'com.example', Plan, BillingPeriod>({
+  const config = defineGooglePlayConfig({
+    namespace: 'com.example',
+    plans: PLANS,
+    billingPeriods: BILLING_PERIODS,
     package: 'com.example.app',
     audience: 'com.example.api',
   })
@@ -99,8 +103,33 @@ describe('GooglePlayConfig', () => {
     );
   });
 
+  it('should check namespace, plans and periods at runtime too', () => {
+    // widened on purpose, as for ids built at runtime: only the runtime checks stand
+    const loose = defineGooglePlayConfig<Lowercase<string>, string, string>({
+      namespace: 'com.example',
+      plans: PLANS,
+      billingPeriods: BILLING_PERIODS,
+      package: 'com.example.app',
+      audience: 'com.example.api',
+    });
+    expect(() => loose.onetime('io.other.credits')).toThrow(
+      'Product io.other.credits is not in namespace com.example'
+    );
+    expect(() => loose.subscription('io.other.sub')).toThrow(
+      'Product io.other.sub is not in namespace com.example'
+    );
+    const sub = loose.subscription('com.example.sub.x');
+    expect(() => sub.basePlan('m', 'ULTRA', 'monthly')).toThrow('Plan ULTRA is not in plans');
+    expect(() => sub.basePlan('w', 'STARTER', 'weekly')).toThrow(
+      'Billing period weekly is not in billingPeriods'
+    );
+  });
+
   it('should reject duplicate declarations at runtime', () => {
-    const fresh = GooglePlayConfig.create<'com.example', Plan, BillingPeriod>({
+    const fresh = defineGooglePlayConfig({
+      namespace: 'com.example',
+      plans: PLANS,
+      billingPeriods: BILLING_PERIODS,
       package: 'com.example.app',
       audience: 'com.example.api',
     });

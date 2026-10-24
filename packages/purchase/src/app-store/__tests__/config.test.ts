@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AppStoreConfig } from '../config';
+import { defineAppStoreConfig } from '../config';
 
 describe('AppStoreConfig', () => {
   const Plan = {
@@ -9,9 +9,13 @@ describe('AppStoreConfig', () => {
   } as const;
   type Plan = (typeof Plan)[keyof typeof Plan];
 
-  type BillingPeriod = 'monthly' | 'yearly';
+  const PLANS = [Plan.STARTER, Plan.PRO, Plan.PREMIUM];
+  const BILLING_PERIODS = ['monthly', 'yearly'] as const;
 
-  const config = AppStoreConfig.create<'com.example', Plan, BillingPeriod>({
+  const config = defineAppStoreConfig({
+    namespace: 'com.example',
+    plans: PLANS,
+    billingPeriods: BILLING_PERIODS,
     appId: '123456',
     bundleId: 'com.example.app',
   })
@@ -132,8 +136,35 @@ describe('AppStoreConfig', () => {
     );
   });
 
+  it('should check namespace, plans and periods at runtime too', () => {
+    // widened on purpose, as for ids built at runtime: only the runtime checks stand
+    const loose = defineAppStoreConfig<Lowercase<string>, string, string>({
+      namespace: 'com.example',
+      plans: PLANS,
+      billingPeriods: BILLING_PERIODS,
+      appId: '123456',
+      bundleId: 'com.example.app',
+    });
+    expect(() => loose.consumable('io.other.credits')).toThrow(
+      'Product io.other.credits is not in namespace com.example'
+    );
+    expect(() => loose.nonConsumable('io.other.unlock')).toThrow(
+      'Product io.other.unlock is not in namespace com.example'
+    );
+    expect(() => loose.subscription('STARTER', 'monthly').product('io.other.sub')).toThrow(
+      'Product io.other.sub is not in namespace com.example'
+    );
+    expect(() => loose.subscription('ULTRA', 'monthly')).toThrow('Plan ULTRA is not in plans');
+    expect(() => loose.subscription('STARTER', 'weekly')).toThrow(
+      'Billing period weekly is not in billingPeriods'
+    );
+  });
+
   it('should reject duplicate declarations at runtime', () => {
-    const fresh = AppStoreConfig.create<'com.example', Plan, BillingPeriod>({
+    const fresh = defineAppStoreConfig({
+      namespace: 'com.example',
+      plans: PLANS,
+      billingPeriods: BILLING_PERIODS,
       appId: '123456',
       bundleId: 'com.example.app',
     });

@@ -21,6 +21,6 @@ export {
   type ResubscribeIntent,
 } from './subscription/index';
 
-export { AppStoreConfig } from './app-store/config';
-export { GooglePlayConfig } from './google-play/config';
-export { StripeConfig } from './stripe/config';
+export { AppStoreConfig, defineAppStoreConfig } from './app-store/config';
+export { GooglePlayConfig, defineGooglePlayConfig } from './google-play/config';
+export { StripeConfig, defineStripeConfig } from './stripe/config';

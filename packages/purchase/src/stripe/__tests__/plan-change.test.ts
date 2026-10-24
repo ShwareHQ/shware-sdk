@@ -1,6 +1,6 @@
 import type { Stripe } from 'stripe';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { StripeConfig } from '../config';
+import { defineStripeConfig } from '../config';
 import { METADATA_KEYS } from '../metadata';
 import { PlanChangeError, createPlanChange } from '../plan-change';
 
@@ -11,7 +11,7 @@ const CREDITS = 'com.example.credits';
 const PERIOD_START = 1_700_000_000;
 const PERIOD_END = PERIOD_START + 30 * 24 * 3600;
 
-const config = StripeConfig.create({
+const config = defineStripeConfig({
   namespace: 'com.example',
   mode: 'live',
   allowPromotionCodes: false,

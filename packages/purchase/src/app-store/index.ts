@@ -1,4 +1,4 @@
-export { AppStoreConfig } from './config';
+export { AppStoreConfig, defineAppStoreConfig } from './config';
 export { AppStoreNotificationHandler, type AppStoreNotificationEvent } from './handler';
 export {
   mapCancellationDetails,

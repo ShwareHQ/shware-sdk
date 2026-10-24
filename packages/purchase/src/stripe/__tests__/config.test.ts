@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { StripeConfig } from '../config';
+import { defineStripeConfig } from '../config';
 
 describe('StripeConfig', () => {
   const options = {
@@ -17,7 +17,7 @@ describe('StripeConfig', () => {
 
   const BILLING_PERIODS = ['monthly', 'yearly'] as const;
 
-  const config = StripeConfig.create({
+  const config = defineStripeConfig({
     namespace: 'com.example',
     plans: PLANS,
     billingPeriods: BILLING_PERIODS,
@@ -73,7 +73,7 @@ describe('StripeConfig', () => {
   });
 
   describe('comparePlans', () => {
-    const ladder = StripeConfig.create({
+    const ladder = defineStripeConfig({
       namespace: 'com.example',
       plans: ['STARTER', 'PRO'],
       billingPeriods: ['monthly', 'yearly'],
@@ -153,7 +153,7 @@ describe('StripeConfig', () => {
   });
 
   it('should reject duplicate declarations at runtime', () => {
-    const fresh = StripeConfig.create({
+    const fresh = defineStripeConfig({
       namespace: 'com.example',
       plans: PLANS,
       billingPeriods: BILLING_PERIODS,
@@ -199,7 +199,7 @@ describe('StripeConfig', () => {
     // checked by tsc, never executed
     const typeChecks = () => {
       // @ts-expect-error mode is required
-      StripeConfig.create({
+      defineStripeConfig({
         namespace: 'com.example',
         plans: PLANS,
         billingPeriods: BILLING_PERIODS,
@@ -220,7 +220,7 @@ describe('StripeConfig', () => {
       // @ts-expect-error the yearly pair is taken by com.example.sub.starter.yearly as well
       config.product('com.example.sub.starter2', 'STARTER', 'yearly');
       // (the main config chain itself proves same plan + different period compiles)
-      const inferred = StripeConfig.create({
+      const inferred = defineStripeConfig({
         namespace: 'io.inferred',
         plans: ['BASIC', 'PLUS'],
         billingPeriods: ['MONTHLY'],
@@ -239,7 +239,7 @@ describe('StripeConfig', () => {
       inferred.product('io.inferred.pro', 'PRO', 'MONTHLY');
       // @ts-expect-error not one of the inferred periods
       inferred.product('io.inferred.plus.yearly', 'PLUS', 'YEARLY');
-      const oneTimeOnly = StripeConfig.create(options);
+      const oneTimeOnly = defineStripeConfig(options);
       // @ts-expect-error a config that sells no subscriptions has no plans to name
       oneTimeOnly.product('io.x.a', 'A', 'B');
     };
@@ -248,7 +248,7 @@ describe('StripeConfig', () => {
 
   it('should check namespace, plans and periods at runtime too', () => {
     // widened on purpose, as for ids built at runtime: only the runtime checks stand
-    const loose = StripeConfig.create<Lowercase<string>, string, string>({
+    const loose = defineStripeConfig<Lowercase<string>, string, string>({
       ...options,
       namespace: 'com.example',
       plans: PLANS,
@@ -263,7 +263,7 @@ describe('StripeConfig', () => {
     expect(() => loose.product('com.example.y', 'STARTER', 'weekly')).toThrow(
       'Billing period weekly is not in billingPeriods'
     );
-    expect(() => StripeConfig.create({ ...options, plans: ['A', 'A'] })).toThrow(
+    expect(() => defineStripeConfig({ ...options, plans: ['A', 'A'] })).toThrow(
       'Duplicate plan in plans'
     );
   });
@@ -333,7 +333,7 @@ describe('StripeConfig', () => {
 
   describe('test mode', () => {
     const create = () =>
-      StripeConfig.create({
+      defineStripeConfig({
         namespace: 'com.example',
         plans: PLANS,
         billingPeriods: BILLING_PERIODS,

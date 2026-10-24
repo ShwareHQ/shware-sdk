@@ -1,5 +1,6 @@
 import { invariant } from '@shware/utils';
 import ms from 'ms';
+import { type Catalog, assertCatalog, assertDeclared, assertInNamespace } from '../catalog';
 import type { Metadata } from '../types';
 
 export type PriceId = `price_${string}`;
@@ -82,17 +83,12 @@ class Product<
   };
 }
 
-type Options<NS extends Lowercase<string>, PE extends string, BP extends string> = {
-  /** The prefix every product id starts with (`io.example` for `io.example.pro.monthly`). */
-  namespace: NS;
-  /**
-   * Every plan, lowest tier first: the plan's level, as Apple orders a subscription group, which is
-   * what {@link StripeConfig.comparePlans} reads an upgrade or a downgrade from. Empty for a config
-   * that sells no subscriptions.
-   */
-  plans: readonly PE[];
-  /** Every billing period, shortest first. Empty for a config that sells no subscriptions. */
-  billingPeriods: readonly BP[];
+/** `plans` and `billingPeriods` are the order {@link StripeConfig.comparePlans} reads. */
+type Options<NS extends Lowercase<string>, PE extends string, BP extends string> = Catalog<
+  NS,
+  PE,
+  BP
+> & {
   mode: StripeMode;
   returnUrl: string;
   cancelUrl: string;
@@ -157,11 +153,7 @@ export class StripeConfig<
   };
 
   private constructor(options: Options<NS, PE, BP>) {
-    invariant(new Set(options.plans).size === options.plans.length, 'Duplicate plan in plans');
-    invariant(
-      new Set(options.billingPeriods).size === options.billingPeriods.length,
-      'Duplicate billing period in billingPeriods'
-    );
+    assertCatalog(options);
     this.namespace = options.namespace;
     this.plans = options.plans;
     this.billingPeriods = options.billingPeriods;
@@ -173,10 +165,7 @@ export class StripeConfig<
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 
-  /**
-   * Every type parameter is inferred from the options: the namespace from `namespace`, the plans
-   * and billing periods from the arrays (`const`, so a literal array needs no `as const`).
-   */
+  /** @deprecated Use `defineStripeConfig`, which this is the same as. */
   static create = <
     const NS extends Lowercase<string>,
     const PE extends string,
@@ -201,16 +190,8 @@ export class StripeConfig<
       billingPeriod: `${L}:${P}` extends PL ? never : P
     ): Product<NS, PE, BP, `${L}:${P}` | PL, K | PI>;
   } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) => {
-    // runtime mirror of the template-literal and union types, for ids built at runtime or cast
-    invariant(
-      productId.startsWith(`${this.namespace}.`),
-      `Product ${productId} is not in namespace ${this.namespace}`
-    );
-    invariant(plan === null || this.plans.includes(plan), `Plan ${plan} is not in plans`);
-    invariant(
-      billingPeriod === null || this.billingPeriods.includes(billingPeriod),
-      `Billing period ${billingPeriod} is not in billingPeriods`
-    );
+    assertInNamespace(this.namespace, productId);
+    assertDeclared(this, plan, billingPeriod);
     // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- widens to the overloads' accumulated generics
     return new Product(this, productId, plan, billingPeriod) as never;
   };
@@ -313,4 +294,18 @@ export class StripeConfig<
     const expiresIn = this.getCreditExpiresIn(productId, priceId);
     return new Date(Date.now() + expiresIn).toISOString();
   };
+}
+
+/**
+ * Declare the Stripe product catalog. Every type parameter is inferred from the options:
+ * the namespace from `namespace`, the plans and billing periods from `plans` and `billingPeriods`
+ * (`const`, so a literal array needs no `as const`). Products are then added with the fluent chain.
+ */
+export function defineStripeConfig<
+  const NS extends Lowercase<string>,
+  const PE extends string,
+  const BP extends string,
+>(options: Options<NS, PE, BP>): StripeConfig<NS, PE, BP> {
+  // oxlint-disable-next-line typescript/no-deprecated -- the one sanctioned caller
+  return StripeConfig.create(options);
 }
