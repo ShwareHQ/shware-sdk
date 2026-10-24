@@ -14,6 +14,8 @@ export type PriceId = `price_${string}`;
 export type StripeMode = 'live' | 'test';
 
 const addMethod = Symbol('addMethod');
+/** The private constructor's one door, for this module's `define` function only. */
+const construct = Symbol('construct');
 
 class Product<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -165,16 +167,9 @@ export class StripeConfig<
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 
-  /** @deprecated Use `defineStripeConfig`, which this is the same as. */
-  static create = <
-    const NS extends Lowercase<string>,
-    const PE extends string,
-    const BP extends string,
-  >(
+  static [construct] = <NS extends Lowercase<string>, PE extends string, BP extends string>(
     options: Options<NS, PE, BP>
-  ) => {
-    return new StripeConfig<NS, PE, BP>(options);
-  };
+  ) => new StripeConfig<NS, PE, BP>(options);
 
   /**
    * One-time products take no extra args; subscriptions require both plan and billingPeriod.
@@ -306,6 +301,5 @@ export function defineStripeConfig<
   const PE extends string,
   const BP extends string,
 >(options: Options<NS, PE, BP>): StripeConfig<NS, PE, BP> {
-  // oxlint-disable-next-line typescript/no-deprecated -- the one sanctioned caller
-  return StripeConfig.create(options);
+  return StripeConfig[construct](options);
 }

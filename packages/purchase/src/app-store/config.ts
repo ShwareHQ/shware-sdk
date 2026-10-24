@@ -4,6 +4,8 @@ import { type Catalog, assertCatalog, assertDeclared, assertInNamespace } from '
 import type { Metadata } from '../types';
 
 const addMethod = Symbol('addMethod');
+/** The private constructor's one door, for this module's `define` function only. */
+const construct = Symbol('construct');
 
 class Subscription<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -108,16 +110,9 @@ export class AppStoreConfig<
     this.nonConsumables = new Set();
   }
 
-  /** @deprecated Use `defineAppStoreConfig`, which this is the same as. */
-  static create = <
-    const NS extends Lowercase<string>,
-    const PE extends string,
-    const BP extends string,
-  >(
+  static [construct] = <NS extends Lowercase<string>, PE extends string, BP extends string>(
     options: Options<NS, PE, BP>
-  ) => {
-    return new AppStoreConfig<NS, PE, BP>(options);
-  };
+  ) => new AppStoreConfig<NS, PE, BP>(options);
 
   /** The same plan may be declared once per billing period; duplicate pairs are rejected. */
   subscription = <K extends PE, P extends BP>(
@@ -210,6 +205,5 @@ export function defineAppStoreConfig<
   const PE extends string,
   const BP extends string,
 >(options: Options<NS, PE, BP>): AppStoreConfig<NS, PE, BP> {
-  // oxlint-disable-next-line typescript/no-deprecated -- the one sanctioned caller
-  return AppStoreConfig.create(options);
+  return AppStoreConfig[construct](options);
 }

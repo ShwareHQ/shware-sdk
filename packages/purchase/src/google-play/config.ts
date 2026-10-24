@@ -4,6 +4,8 @@ import { type Catalog, assertCatalog, assertDeclared, assertInNamespace } from '
 import type { IsUnique, Metadata } from '../types';
 
 const addMethod = Symbol('addMethod');
+/** The private constructor's one door, for this module's `define` function only. */
+const construct = Symbol('construct');
 
 class Subscription<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -106,16 +108,9 @@ export class GooglePlayConfig<
     this.subscriptions = new Map();
   }
 
-  /** @deprecated Use `defineGooglePlayConfig`, which this is the same as. */
-  static create = <
-    const NS extends Lowercase<string>,
-    const PE extends string,
-    const BP extends string,
-  >(
+  static [construct] = <NS extends Lowercase<string>, PE extends string, BP extends string>(
     options: Options<NS, PE, BP>
-  ) => {
-    return new GooglePlayConfig<NS, PE, BP>(options);
-  };
+  ) => new GooglePlayConfig<NS, PE, BP>(options);
 
   subscription = <K extends `${NS}.${Lowercase<string>}`>(productId: K extends PI ? never : K) => {
     assertInNamespace(this.namespace, productId);
@@ -192,6 +187,5 @@ export function defineGooglePlayConfig<
   const PE extends string,
   const BP extends string,
 >(options: Options<NS, PE, BP>): GooglePlayConfig<NS, PE, BP> {
-  // oxlint-disable-next-line typescript/no-deprecated -- the one sanctioned caller
-  return GooglePlayConfig.create(options);
+  return GooglePlayConfig[construct](options);
 }
