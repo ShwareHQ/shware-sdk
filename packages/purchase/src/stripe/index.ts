@@ -66,7 +66,6 @@ export {
   PLAN_CHANGE_ERROR_REASONS,
   PlanChangeError,
   createPlanChange,
-  type ImmediateBilling,
   type PlanChange,
   type PlanChangeErrorReason,
   type PlanChangeOptions,

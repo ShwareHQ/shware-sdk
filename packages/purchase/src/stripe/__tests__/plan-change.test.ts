@@ -191,22 +191,6 @@ describe('createPlanChange', () => {
       expect(sync).toHaveBeenCalledWith('sub_1');
     });
 
-    it('keeps the period with immediateBilling: keep_period', async () => {
-      const stripe = fakeStripe(subscription());
-      const plans = createPlanChange({
-        stripe: stripe as unknown as Stripe,
-        config,
-        sync: async () => {},
-        immediateBilling: 'keep_period',
-      });
-      await plans.apply('sub_1', PRO_MONTHLY);
-      const [, params] = stripe.subscriptions.update.mock.calls[0] as unknown as [
-        string,
-        Record<string, unknown>,
-      ];
-      expect(params).not.toHaveProperty('billing_cycle_anchor');
-    });
-
     it('releases a parked period-end change first, under a key of its own', async () => {
       const { plans, stripe } = setup(subscription({ schedule: 'sub_sched_1' }));
       await plans.apply('sub_1', PRO_MONTHLY);
@@ -270,6 +254,27 @@ describe('createPlanChange', () => {
       expect(sync).toHaveBeenCalledWith('sub_1');
     });
 
+    it('keeps the decline when the sync after it fails too', async () => {
+      const { plans, stripe, sync } = setup();
+      stripe.subscriptions.update.mockRejectedValue(
+        Object.assign(new Error('Your card has expired.'), {
+          type: 'StripeCardError',
+          code: 'expired_card',
+        })
+      );
+      sync.mockRejectedValue(new Error('database unavailable'));
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const error = await refusal(plans.apply('sub_1', PRO_MONTHLY));
+      expect(error.decline?.reason).toBe('CARD_EXPIRED');
+      expect(logged).toHaveBeenCalled();
+    });
+
+    it('still reports a sync failure after a change that went through', async () => {
+      const { plans, sync } = setup();
+      sync.mockRejectedValue(new Error('database unavailable'));
+      await expect(plans.apply('sub_1', PRO_MONTHLY)).rejects.toThrow('database unavailable');
+    });
+
     it('reports a reused key with other parameters as a conflict', async () => {
       const { plans, stripe } = setup();
       stripe.subscriptions.update.mockRejectedValue(
@@ -290,7 +295,7 @@ describe('createPlanChange', () => {
           data: [
             {
               id: 'si_1',
-              quantity: 1,
+              quantity: 3,
               price: { id: 'price_pm' },
               current_period_start: PERIOD_START,
               current_period_end: PERIOD_END,
@@ -310,13 +315,13 @@ describe('createPlanChange', () => {
           {
             start_date: PERIOD_START,
             end_date: PERIOD_END,
-            items: [{ price: 'price_pm', quantity: 1 }],
+            items: [{ price: 'price_pm', quantity: 3 }],
             metadata: { [METADATA_KEYS.PRODUCT_ID]: PRO_MONTHLY },
             discounts: [{ discount: 'di_1' }],
             proration_behavior: 'none',
           },
           {
-            items: [{ price: 'price_sy', quantity: 1 }],
+            items: [{ price: 'price_sy', quantity: 3 }],
             duration: { interval: 'year', interval_count: 1 },
             metadata: { [METADATA_KEYS.PRODUCT_ID]: STARTER_YEARLY },
             discounts: [{ discount: 'di_1' }],
@@ -369,6 +374,18 @@ describe('createPlanChange', () => {
       const idle = setup();
       await idle.plans.cancelScheduled('sub_1');
       expect(idle.stripe.subscriptionSchedules.release).not.toHaveBeenCalled();
+    });
+
+    it('drops a change to a product the config no longer has, which it cannot show', async () => {
+      const sub = scheduled();
+      const schedule = sub.schedule as Stripe.SubscriptionSchedule;
+      schedule.phases[1].metadata = { [METADATA_KEYS.PRODUCT_ID]: 'com.example.retired' };
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { plans, stripe } = setup(sub);
+      expect(await plans.readScheduled(sub)).toBeNull();
+      expect(logged).toHaveBeenCalled();
+      await plans.cancelScheduled('sub_1');
+      expect(stripe.subscriptionSchedules.release).toHaveBeenCalledWith('sub_sched_1');
     });
   });
 

@@ -22,17 +22,6 @@ import { hasDelayedNotification } from './payment-method';
 /** When a kind of change takes effect: now, charged on today's invoice, or at the period end. */
 export type PlanChangeTiming = 'immediate' | 'period_end';
 
-/**
- * How an immediate change bills:
- * - `restart_period`: the new plan is charged in full now, the unused rest of the current period
- *   is credited on the same invoice, and the billing cycle restarts today (Apple's upgrade, Play's
- *   `CHARGE_FULL_PRICE`).
- * - `keep_period`: only the prorated difference is charged now and the renewal date stays (Play's
- *   `CHARGE_PRORATED_PRICE`). Stripe still restarts the cycle when the new price bills over a
- *   different interval.
- */
-export type ImmediateBilling = 'restart_period' | 'keep_period';
-
 export interface PlanChangeOptions<PE extends string, BP extends string> {
   stripe: Stripe;
   /** declares `plans` and `billingPeriods`, which order the changes (`comparePlans`) */
@@ -49,8 +38,6 @@ export interface PlanChangeOptions<PE extends string, BP extends string> {
    * `longer` and `shorter` at the period end.
    */
   timing?: Partial<Record<Exclude<PlanComparison, 'same'>, PlanChangeTiming>>;
-  /** default `restart_period` */
-  immediateBilling?: ImmediateBilling;
 }
 
 export interface PlanSummary<PE extends string = string, BP extends string = string> {
@@ -206,7 +193,6 @@ export function createPlanChange<PE extends string, BP extends string>(
 ): PlanChange<PE, BP> {
   const { stripe, config, sync } = options;
   const timing = { ...DEFAULT_TIMING, ...options.timing };
-  const immediateBilling = options.immediateBilling ?? 'restart_period';
 
   async function planSummary(productId: string): Promise<PlanSummary<PE, BP>> {
     const price = await stripe.prices.retrieve(config.getPriceId(productId));
@@ -303,14 +289,17 @@ export function createPlanChange<PE extends string, BP extends string>(
     return { ...base, paymentMethodId: paymentMethod?.id ?? null };
   }
 
-  /** The parameters of an immediate change, shared by the preview and the real update. */
+  /**
+   * The parameters of an immediate change, shared by the preview and the real update: the new plan
+   * is charged in full today, the unused rest of the current period is credited on the same
+   * invoice, and the billing cycle restarts now (Apple's upgrade, Play's `CHARGE_FULL_PRICE`), so
+   * "due today" is the new price minus that credit whatever the intervals involved.
+   */
   function immediateChangeParams(item: Stripe.SubscriptionItem, productId: string) {
     return {
       items: [{ id: item.id, price: config.getPriceId(productId) }],
       proration_behavior: 'always_invoice' as const,
-      ...(immediateBilling === 'restart_period'
-        ? { billing_cycle_anchor: { type: 'now' as const } }
-        : {}),
+      billing_cycle_anchor: { type: 'now' as const },
     };
   }
 
@@ -358,6 +347,19 @@ export function createPlanChange<PE extends string, BP extends string>(
     return new PlanChangeError('DECLINED', decline.message ?? 'Payment declined', { decline });
   }
 
+  /**
+   * Mirror the subscription after an attempt that already failed. The original error is what the
+   * caller needs (a decline, a conflict); a sync failure on top of it is only logged, and the next
+   * webhook or sync puts the row right.
+   */
+  async function syncAfterFailure(stripeSubscriptionId: string) {
+    try {
+      await sync(stripeSubscriptionId);
+    } catch (error) {
+      console.error(`Sync of ${stripeSubscriptionId} after a failed plan change failed:`, error);
+    }
+  }
+
   const applied = (): PlanChangeResult => ({
     effect: 'immediate',
     effectiveAt: now(),
@@ -365,18 +367,9 @@ export function createPlanChange<PE extends string, BP extends string>(
   });
 
   async function readScheduled(sub: Stripe.Subscription) {
-    const schedule = expanded(sub.schedule, `Schedule of subscription ${sub.id}`);
-    if (!schedule) return null;
-    if (schedule.status !== 'active' && schedule.status !== 'not_started') return null;
-    // The next phase is found from `current_phase`, not the wall clock, so it also holds for
-    // customers on a Stripe test clock.
-    const current = schedule.current_phase;
-    if (!current) return null;
-    const next = schedule.phases.find((phase) => phase.start_date >= current.end_date);
-    if (!next) return null;
-
-    const productId = next.metadata?.[METADATA_KEYS.PRODUCT_ID];
-    if (!productId || productId === sub.metadata[METADATA_KEYS.PRODUCT_ID]) return null;
+    const pending = pendingPhase(sub);
+    if (!pending) return null;
+    const { schedule, next, productId } = pending;
     // A product that left the config, or a next phase without a flat price (set up in the
     // dashboard), must not wedge every sync of this subscription; it just stops showing.
     if (!config.isSubscription(productId)) {
@@ -507,6 +500,8 @@ export function createPlanChange<PE extends string, BP extends string>(
         { idempotencyKey }
       );
     } catch (error) {
+      // A released schedule may be all that changed; the row has to stop showing it.
+      await syncAfterFailure(sub.id);
       // `pending_if_incomplete` absorbs declines, so a card error here is one Stripe refused to
       // attempt at all (an expired card, say).
       if (stripeErrorType(error) === 'StripeCardError') throw declined(error as CardFailure);
@@ -516,15 +511,22 @@ export function createPlanChange<PE extends string, BP extends string>(
         throw new PlanChangeError('CONFLICT', 'Plan change conflicts with a concurrent one');
       }
       throw error;
-    } finally {
-      await sync(sub.id);
     }
-    if (!updated.pending_update) return applied();
+    if (!updated.pending_update) {
+      await sync(sub.id);
+      return applied();
+    }
     const parked = await settleParkedUpdate(updated);
-    if (parked.state === 'challenge') return parked.result;
-    await sync(sub.id);
-    if (parked.state === 'paid') return applied();
+    if (parked.state === 'challenge') {
+      await sync(sub.id);
+      return parked.result;
+    }
+    if (parked.state === 'paid') {
+      await sync(sub.id);
+      return applied();
+    }
     // A declined card parks the update just like 3DS does; it was voided above.
+    await syncAfterFailure(sub.id);
     throw declined(parked.failure);
   }
 
@@ -567,7 +569,7 @@ export function createPlanChange<PE extends string, BP extends string>(
           proration_behavior: 'none',
         },
         {
-          items: [{ price: targetPrice.id, quantity: 1 }],
+          items: [{ price: targetPrice.id, quantity: item.quantity }],
           duration: {
             interval: targetPrice.recurring.interval,
             interval_count: targetPrice.recurring.interval_count,
@@ -605,12 +607,29 @@ export function createPlanChange<PE extends string, BP extends string>(
     return applyAtPeriodEnd(sub, item, productId);
   }
 
+  /**
+   * The schedule's next phase when it switches the subscription to another product, whatever that
+   * product is: also one the config no longer knows, or a price the dashboard set without a flat
+   * amount, which `readScheduled` does not show but "keep current plan" must still be able to drop.
+   */
+  function pendingPhase(sub: Stripe.Subscription) {
+    const schedule = expanded(sub.schedule, `Schedule of subscription ${sub.id}`);
+    if (!schedule) return null;
+    if (schedule.status !== 'active' && schedule.status !== 'not_started') return null;
+    // The next phase is found from `current_phase`, not the wall clock, so it also holds for
+    // customers on a Stripe test clock.
+    const current = schedule.current_phase;
+    if (!current) return null;
+    const next = schedule.phases.find((phase) => phase.start_date >= current.end_date);
+    const productId = next?.metadata?.[METADATA_KEYS.PRODUCT_ID];
+    if (!next || !productId || productId === sub.metadata[METADATA_KEYS.PRODUCT_ID]) return null;
+    return { schedule, next, productId };
+  }
+
   async function cancelScheduled(stripeSubscriptionId: string) {
     const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId, { expand: ['schedule'] });
-    const scheduleId = idOf(sub.schedule);
-    if (scheduleId && (await readScheduled(sub))) {
-      await stripe.subscriptionSchedules.release(scheduleId);
-    }
+    const pending = pendingPhase(sub);
+    if (pending) await stripe.subscriptionSchedules.release(pending.schedule.id);
     await sync(sub.id);
   }
 
