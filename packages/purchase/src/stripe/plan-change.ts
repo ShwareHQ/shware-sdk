@@ -148,7 +148,19 @@ export class PlanChangeError extends Error {
 export interface PlanChange<PE extends string = string, BP extends string = string> {
   /** What switching `stripeSubscriptionId` to `productId` would charge and when it would apply. */
   preview(stripeSubscriptionId: string, productId: string): Promise<PlanChangePreview<PE, BP>>;
-  /** Switch `stripeSubscriptionId` to `productId`; throws {@link PlanChangeError} when refused. */
+  /**
+   * Switch `stripeSubscriptionId` to `productId`; throws {@link PlanChangeError} when refused.
+   *
+   * Decided from the subscription as Stripe has it now, not as a `preview` saw it. If it changed in
+   * between (another tab switched plans or scheduled a change), the switch is worked out from the
+   * new state and the last request wins: a change scheduled elsewhere is released by an immediate
+   * one or replaced by another scheduled one, and the charge can differ from what the preview
+   * showed. Deliberately so: it takes two sessions changing the same subscription at once, the
+   * outcome is still the customer's latest choice, and the refusals above (cancellation scheduled,
+   * a change already pending, already on the plan) cover the conflicts that would charge wrongly.
+   * Refusing a stale request would need a token from `preview` checked here, carried by every
+   * client; worth adding only if customers report a charge that did not match its preview.
+   */
   apply(stripeSubscriptionId: string, productId: string): Promise<PlanChangeResult>;
   /** Drop a change scheduled for the period end ("keep current plan"); nothing pending is fine. */
   cancelScheduled(stripeSubscriptionId: string): Promise<void>;
