@@ -276,43 +276,6 @@ export function track<T extends EventName = EventName>(
   queueEvent(name, properties, options);
 }
 
-/**
- * Sends the event now, with whatever is queued, and resolves once it has been sent or lost — or,
- * when the send could not start (its headers or rate limit threw), at once, the event left queued
- * for the next send. It never rejects: tracking must not fail the step that awaits it.
- *
- * The third-party trackers are not what it waits for: as with `track`, they are fired at once.
- * Await it when the next step needs the event stored by the server; a page about to navigate
- * away needs no more than `track` to have its event reach the pixels, and `sendPendingEvents`
- * on `pagehide` to have it reach the server.
- */
-export async function trackAsync<T extends EventName = EventName>(
-  name: TrackName<T>,
-  properties?: TrackProperties<T>,
-  options: TrackOptions = defaultOptions
-) {
-  let settle!: () => void;
-  const settled = new Promise<void>((resolve) => {
-    settle = resolve;
-  });
-  const event = enqueue(name, properties, {
-    ...options,
-    onSucceed: (response) => {
-      options.onSucceed?.(response);
-      settle();
-    },
-    onError: (error) => {
-      options.onError?.(error);
-      settle();
-    },
-  });
-  await flush();
-  // Still queued: this send failed before taking it. It waits for the next send, but the caller,
-  // who may be holding a navigation on this, does not.
-  if (list.includes(event)) return;
-  await settled;
-}
-
 function beacon(dto: CreateTrackEventDTO): boolean {
   // Not every runtime with a `navigator` has it: React Native has neither beacons nor pages.
   if (typeof navigator === 'undefined' || !('sendBeacon' in navigator)) return false;

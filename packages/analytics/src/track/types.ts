@@ -16,7 +16,7 @@ export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTF
  * ```
  *
  * - `strict: true` — strict events: every function that takes an event name (`track`, `trackOnce`,
- *   `trackAsync`, `sendBeacon`, `useTrackImpression`, the third-party senders) accepts only
+ *   `sendBeacon`, `useTrackImpression`, the third-party senders) accepts only
  *   GA4's standard events and the events declared in `CustomEventProperties`: a misspelled or
  *   undeclared name (`'purchse'`, `'begin_checkout '`) is a compile error instead of a new event.
  *
