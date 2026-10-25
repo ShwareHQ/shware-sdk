@@ -76,7 +76,8 @@ export const CLOSED_DISPUTE_STATUSES: readonly DisputeStatus[] = [
  * [Stripe Subscription Status](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)
  * [Stripe Subscription Lifecycle](https://docs.stripe.com/billing/subscriptions/overview)
  *
- * provision product for customer when Status = TRIALING, ACTIVE, IN_GRACE_PERIOD
+ * provision product for customer when Status = TRIALING, ACTIVE, IN_GRACE_PERIOD, PAST_DUE
+ * (see `AVAILABLE_STATUSES`)
  */
 export const SUBSCRIPTION_STATUSES = [
   /**
@@ -151,16 +152,28 @@ export const SUBSCRIPTION_STATUSES = [
    * configure the subscription to move to canceled, unpaid, or leave it as past_due. To move the
    * subscription to active, pay the most recent invoice before its due date.
    *
+   * This is Stripe's grace period: the customer keeps the product while Stripe retries (Smart
+   * Retries, up to about three weeks), as an App Store or Play customer does in IN_GRACE_PERIOD,
+   * so it is in `AVAILABLE_STATUSES`. A retry the customer is not served through (an App Store
+   * billing retry without a grace period) is ON_HOLD, not PAST_DUE.
+   *
    * Platform: Stripe
    * */
   'PAST_DUE',
 
   /**
-   * Subscription is on hold (suspended). The state is only available when the subscription is an
-   * auto renewing plan. In this state, all items are on hold. Grace period ends or Active period
-   * ends but not grace period
+   * Google: Subscription is on hold (suspended). The state is only available when the
+   * subscription is an auto renewing plan. In this state, all items are on hold. Grace period
+   * ends or Active period ends but not grace period.
    *
-   * Platform: Google
+   * Apple: the billing retry period of a subscription that has no grace period (or whose grace
+   * period ended). Apple keeps retrying the charge for up to 60 days; the subscription is not
+   * over, but the customer is not served meanwhile.
+   *
+   * Either way the store is still trying to collect and the customer has no access until a
+   * payment goes through; the way out is a working payment method.
+   *
+   * Platform: Apple, Google
    * */
   'ON_HOLD',
 
@@ -226,11 +239,18 @@ export const SUBSCRIPTION_STATUSES = [
 
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
-/** statuses where it is safe to provision your product for the customer */
+/**
+ * Statuses where it is safe to provision your product for the customer. A failing renewal keeps
+ * the product while the store retries and the customer is meant to be served (IN_GRACE_PERIOD on
+ * the App Store and Play, PAST_DUE on Stripe); it loses it once the store has given up (UNPAID on
+ * Stripe) or is retrying without serving the customer (ON_HOLD on Play and on the App Store without
+ * a grace period).
+ */
 export const AVAILABLE_STATUSES = [
   'ACTIVE',
   'TRIALING',
   'IN_GRACE_PERIOD',
+  'PAST_DUE',
 ] as const satisfies readonly SubscriptionStatus[];
 
 /** Who stopped the subscription from renewing. */

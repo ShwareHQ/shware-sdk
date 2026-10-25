@@ -42,7 +42,12 @@ import {
 - `SUBSCRIPTION_STATUSES`: the union of every store's states (`TRIALING`, `ACTIVE`,
   `IN_GRACE_PERIOD`, `PAST_DUE`, `ON_HOLD`, `PAUSED`, `CANCELED`, `EXPIRED`, ...). Each platform
   mapper returns one of these.
-- `AVAILABLE_STATUSES`: `ACTIVE`, `TRIALING`, `IN_GRACE_PERIOD`, the statuses that grant access.
+- `AVAILABLE_STATUSES`: `ACTIVE`, `TRIALING`, `IN_GRACE_PERIOD`, `PAST_DUE`, the statuses that
+  grant access. A failing renewal keeps access while the store retries and means the customer to
+  be served: `IN_GRACE_PERIOD` on the App Store and Play, `PAST_DUE` on Stripe (Smart Retries are
+  Stripe's grace period). It loses access once the store has given up (`UNPAID`) or retries
+  without serving the customer (`ON_HOLD`: Play's account hold, and an App Store billing retry
+  without a grace period, which a host's Apple mapper should map to `ON_HOLD`, not `PAST_DUE`).
 - `CancellationDetails`: why a subscription stopped renewing, one record for all platforms:
   `initiator` (`CANCELLATION_INITIATORS`: `user`, `system`, `developer`), the store's own `reason`,
   `feedback` (`CANCELLATION_FEEDBACKS`), `comment` and `resubscribeIntent` (`RESUBSCRIBE_INTENTS`).
