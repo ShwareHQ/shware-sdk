@@ -334,7 +334,9 @@ export const updateVisitorSchema = object({
 
 export const createFeedbackSchema = object({
   name: string().check(minLength(1), maxLength(256)),
-  email: email().check(maxLength(320)),
+  // Trimmed and lower-cased like every other email the SDK accepts, so a host stores the
+  // normalized form without wrapping the schema.
+  email: emailValue,
   message: string().check(minLength(1), maxLength(65536)),
 });
 
