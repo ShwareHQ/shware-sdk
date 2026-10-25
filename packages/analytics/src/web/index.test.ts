@@ -98,6 +98,24 @@ describe('getTags', () => {
     expect(getPageReferrer()).toBe('http://localhost:3000/pricing');
   });
 
+  it('strips credential parameters from page_location and page_referrer', async () => {
+    vi.spyOn(document, 'referrer', 'get').mockReturnValue(
+      'https://accounts.example.com/authorize?client_id=c&state=s1'
+    );
+    const { getTags, getPageLocation } = await load();
+    window.history.replaceState(null, '', '/callback?code=abc&state=xyz&utm_source=x');
+
+    const tags = await getTags();
+    expect(tags.page_location).toBe('http://localhost:3000/callback?utm_source=x');
+    expect(getPageLocation()).toBe('http://localhost:3000/callback?utm_source=x');
+    expect(tags.page_referrer).toBe('https://accounts.example.com/authorize?client_id=c');
+    expect(tags.utm_source).toBe('x');
+
+    // The next page's referrer is the redacted URL too.
+    window.history.replaceState(null, '', '/account');
+    expect((await getTags()).page_referrer).toBe('http://localhost:3000/callback?utm_source=x');
+  });
+
   it('reports no referrer for a first page opened directly', async () => {
     const { getTags } = await load();
     expect((await getTags()).page_referrer).toBeUndefined();

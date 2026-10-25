@@ -117,6 +117,14 @@ describe('deepLink', () => {
     await expect(deepLink.getTags()).resolves.toMatchObject({ utm_medium: 'push' });
   });
 
+  it('strips credential parameters from the link it reports', async () => {
+    linking.initialUrl = 'myapp://auth/callback?code=abc&state=xyz&utm_source=mail';
+    await expect((await load()).getTags()).resolves.toEqual({
+      page_location: 'myapp://auth/callback?utm_source=mail',
+      utm_source: 'mail',
+    });
+  });
+
   it('keeps a link without parameters as the landing page and nothing else', async () => {
     linking.initialUrl = 'https://example.com/refer/abc123';
     const deepLink = await load();

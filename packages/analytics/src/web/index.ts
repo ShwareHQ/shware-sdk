@@ -5,6 +5,7 @@ import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
 import type { TrackTags } from '../track/types';
+import { redactUrl } from '../utils/redact-url';
 import { getPageKey } from './page-key';
 
 // lib.dom types `crypto.randomUUID` as always present, but it is missing in insecure contexts
@@ -42,7 +43,7 @@ export function getDeviceId() {
 let pageLoad: { page: string; id: string; href: string; referrer: string | undefined } | undefined;
 
 function currentPage() {
-  const href = window.location.href;
+  const href = redactUrl(window.location.href);
   const page = getPageKey(window.location.pathname, window.location.search);
   if (pageLoad?.page === page) {
     // The same page, its URL maybe cleaned of tracking parameters since: the next page's
@@ -50,12 +51,20 @@ function currentPage() {
     pageLoad.href = href;
     return pageLoad;
   }
-  const referrer = pageLoad ? pageLoad.href : document.referrer || undefined;
+  const referrer = pageLoad ? pageLoad.href : redactUrl(document.referrer) || undefined;
   pageLoad = { page, id: randomUUID(), href, referrer };
   return pageLoad;
 }
 
-/** The current page's referrer: see `pageLoad`. */
+/**
+ * The current page's URL as reported, without its credential parameters (`redactUrl`), so
+ * `page_location` never carries an OAuth code or a checkout session id.
+ */
+export function getPageLocation(): string {
+  return redactUrl(window.location.href);
+}
+
+/** The current page's referrer, without its credential parameters: see `pageLoad`. */
 export function getPageReferrer(): string | undefined {
   return currentPage().referrer;
 }
@@ -87,7 +96,7 @@ let parser: ReturnType<typeof Bowser.getParser> | undefined;
 export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
   // page app can navigate while the link lookup below is still in flight.
-  const page_location = window.location.href;
+  const page_location = redactUrl(window.location.href);
   const { id: page_load_id, referrer: page_referrer } = currentPage();
   const page_title = document.title;
 

@@ -236,6 +236,12 @@ Mode effect replay also queues another view, so its predecessor is the first vie
 page preserves that navigation referrer and `page_load_id`. Unrelated renders and uncommitted
 navigation do not advance the reporter's view history.
 
+`page_location` and `page_referrer` (and a native deep link's `page_location`) are reported
+without their credential-bearing query parameters, stripped on the client before anything is
+sent: `code`, `state`, `token`, `access_token`, `id_token`, `refresh_token`, `session_id`,
+`api_key`, `apikey`, `secret`, `password` and `otp`, matched case-insensitively, in the query and
+in a hash shaped like one (an implicit flow's `#access_token=…`). Every other parameter is kept.
+
 ## Backend API
 
 - /analytics/tracks: track events
