@@ -90,12 +90,14 @@ export interface UserProvidedData extends GAUserProvidedData {
  * Returning `false` means "not ready": the pixel's global (`fbq`, `rdt`, `gtag`, …) is not on the
  * page yet, its snippet still loading. The SDK then calls the tracker once more, with the same
  * event and id, on the next macrotask. Any other return value (`void` included) is a handled call.
+ * An `async` tracker (one awaiting a native module, like `sendFirebaseEvent`) is handled too: its
+ * promise is not awaited and cannot say "not ready".
  */
 export type ThirdPartyTracker = <T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   event_id?: string
-) => void | boolean;
+) => void | boolean | Promise<void>;
 
 export interface PlatformInfo {
   os?: string;
