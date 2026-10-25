@@ -139,6 +139,31 @@ describe('createTrackEventSchema', () => {
       expect.objectContaining({ code: 'invalid_format', format: 'uuid', path: [0, 'visitor_id'] })
     );
   });
+
+  it('keeps a client-generated v7 event id, and accepts a batch from a client that sends none', () => {
+    const id = '019485d9-8b41-7000-8000-000000000003';
+    const [withId, withoutId] = createTrackEventSchema.parse([{ ...event({}), id }, event({})]);
+    expect(withId.id).toBe(id);
+    expect(withoutId.id).toBeUndefined();
+  });
+
+  it('rejects an id, visitor_id or session_id that is not a uuidv7', () => {
+    const v4 = '3b241101-e2bb-4255-8caf-4136c566a962';
+    for (const field of ['id', 'visitor_id', 'session_id'] as const) {
+      for (const value of [v4, 'event-1', '']) {
+        expect(
+          validationIssues(createTrackEventSchema, [{ ...event({}), [field]: value }])
+        ).toContainEqual(
+          expect.objectContaining({ code: 'invalid_format', format: 'uuid', path: [0, field] })
+        );
+      }
+    }
+    // The SDK's own ids pass: a batch as `track()` sends it.
+    const v7 = '019485d9-8b41-7000-8000-000000000003';
+    expect(
+      createTrackEventSchema.parse([{ ...event({}), id: v7, visitor_id: v7, session_id: v7 }])
+    ).toHaveLength(1);
+  });
 });
 
 describe('tagsSchema', () => {

@@ -38,7 +38,7 @@ export function sendOpenAIEvent<T extends EventName>(
 ) {
   if (typeof window === 'undefined' || !window.oaiq) {
     console.warn('oaiq has not been initialized');
-    return;
+    return false;
   }
   if (NON_AD_EVENTS.includes(name)) return;
   if (window.location.host.includes('127.0.0.1')) return;

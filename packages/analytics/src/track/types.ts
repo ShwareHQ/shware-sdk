@@ -82,11 +82,20 @@ export interface UserProvidedData extends GAUserProvidedData {
   fb_page_id?: string;
 }
 
+/**
+ * A browser pixel or app SDK an event is forwarded to. Called synchronously when the event is
+ * tracked, before it is sent, with `event_id` — the client-generated id the event is stored and
+ * sent to the conversions APIs under — as the platform's deduplication id.
+ *
+ * Returning `false` means "not ready": the pixel's global (`fbq`, `rdt`, `gtag`, …) is not on the
+ * page yet, its snippet still loading. The SDK then calls the tracker once more, with the same
+ * event and id, on the next macrotask. Any other return value (`void` included) is a handled call.
+ */
 export type ThirdPartyTracker = <T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   event_id?: string
-) => void;
+) => void | boolean;
 
 export interface PlatformInfo {
   os?: string;
@@ -387,7 +396,15 @@ export interface TrackEvent<T extends EventName = EventName> {
   created_at: string;
 }
 
+/**
+ * What `POST /events` answers: one `{ id }` per event, in the order sent.
+ *
+ * Since 12.1 the client generates each event's id and sends it in the DTO; the SDK no longer
+ * reads this answer, and `onSucceed` reports the client's id. Servers keep answering it for
+ * clients before 12.1, which fire their pixels with the id found here. To be removed in the next
+ * major.
+ */
 export type TrackEventResponse = {
-  /** track event id: Meta Pixel will use event_id and event_name for deduplication */
+  /** The event's id, the one the pixels and the conversions APIs deduplicate on. */
   id: string;
 }[];

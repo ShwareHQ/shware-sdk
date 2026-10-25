@@ -19,7 +19,7 @@ export function sendFBEvent<T extends EventName>(
 ) {
   if (typeof window === 'undefined' || !window.fbq) {
     console.warn('fbq has not been initialized');
-    return;
+    return false;
   }
   if (metrics.includes(name)) return;
   if (window.location.host.includes('127.0.0.1')) return;

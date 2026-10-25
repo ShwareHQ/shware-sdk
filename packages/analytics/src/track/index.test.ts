@@ -30,6 +30,8 @@ function respondWithIds() {
   });
 }
 
+const uuidv7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 function sentBatches() {
   return fetchMock.mock.calls.map((call) => {
     const [url, init] = call as [string, RequestInit];
@@ -104,8 +106,6 @@ describe('batching', () => {
 });
 
 describe('the visitor', () => {
-  const uuidv7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
   it('a first visit sends at once under an id generated and kept here', async () => {
     const { track, storage } = await load();
     storage.map.delete('visitor_id');
@@ -287,10 +287,40 @@ describe('tags', () => {
   });
 });
 
-describe('callbacks and third parties', () => {
-  it('reports each event its own id', async () => {
+describe('event ids', () => {
+  it('generates a uuidv7 per event, session_start included, and sends it', async () => {
     const { track } = await load();
     respondWithIds();
+
+    track('custom_action', { a: 1 });
+    track('custom_action', { a: 2 });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const ids = sentBatches()[0].body.map((e) => e.id as string);
+    expect(ids).toHaveLength(3);
+    for (const id of ids) expect(id).toMatch(uuidv7);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('passes the createTrackEventSchema check, version 7 enforced', async () => {
+    const { track, storage } = await load();
+    storage.map.delete('visitor_id'); // a generated, valid one
+    respondWithIds();
+    const { createTrackEventSchema } = await import('../schema/index');
+
+    track('custom_action', { a: 1 });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const body = sentBatches()[0].body;
+    const parsed = createTrackEventSchema.parse(body);
+    expect(parsed.map((e) => e.id)).toEqual(body.map((e) => e.id));
+    const v4 = { ...body[0], id: '3b241101-e2bb-4255-8caf-4136c566a962' };
+    expect(createTrackEventSchema.safeParse([v4]).success).toBe(false);
+  });
+
+  it('reports each event its own id, whatever ids the server answers with', async () => {
+    const { track } = await load();
+    respondWithIds(); // a server predating client ids answers with its own
     const first = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
     const second = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
@@ -298,24 +328,54 @@ describe('callbacks and third parties', () => {
     track('custom_action', undefined, { onSucceed: second });
     await vi.advanceTimersByTimeAsync(2000);
 
-    // index 0 is session_start
-    expect(first).toHaveBeenCalledWith({ id: 'event-1' });
-    expect(second).toHaveBeenCalledWith({ id: 'event-2' });
+    const [, one, two] = sentBatches()[0].body; // index 0 is session_start
+    expect(first).toHaveBeenCalledWith({ id: one.id });
+    expect(second).toHaveBeenCalledWith({ id: two.id });
   });
 
-  it('survives a response carrying fewer ids than events', async () => {
+  it('takes any ok answer as stored: fewer ids, none, or a body that is not JSON', async () => {
     const { track, jsonResponse } = await load();
-    fetchMock.mockResolvedValue(jsonResponse([{ id: 'only-one' }]));
     const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
+    const onError = vi.fn<NonNullable<TrackOptions['onError']>>();
 
-    track('custom_action', undefined, { onSucceed });
-    track('custom_action', undefined, { onSucceed });
-    await vi.advanceTimersByTimeAsync(2000);
+    for (const response of [
+      jsonResponse([{ id: 'only-one' }]),
+      new Response(null, { status: 204 }),
+      new Response('ok', { status: 200 }),
+    ]) {
+      fetchMock.mockResolvedValueOnce(response);
+      track('custom_action', undefined, { onSucceed, onError });
+      track('custom_action', undefined, { onSucceed, onError });
+      await vi.advanceTimersByTimeAsync(2000);
+    }
 
-    expect(onSucceed).toHaveBeenCalledTimes(2);
-    expect(onSucceed).toHaveBeenLastCalledWith(undefined);
+    expect(onError).not.toHaveBeenCalled();
+    expect(onSucceed).toHaveBeenCalledTimes(6);
+    const sent = sentBatches().flatMap((b) => b.body.filter((e) => e.name !== 'session_start'));
+    expect(onSucceed.mock.calls.map(([response]) => response?.id)).toEqual(sent.map((e) => e.id));
   });
 
+  it('a batch fetch retries goes out again under the same ids', async () => {
+    const { track } = await load();
+    let calls = 0;
+    fetchMock.mockImplementation(async () => {
+      calls += 1;
+      // The first attempt is stored by the server but its answer is lost on the way back.
+      if (calls === 1) return new Response('bad gateway', { status: 502 });
+      return new Response('[]', { status: 200 });
+    });
+
+    track('custom_action', { a: 1 });
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(10_000); // the retry's backoff
+
+    const batches = sentBatches();
+    expect(batches.length).toBeGreaterThanOrEqual(2);
+    expect(batches[1].body.map((e) => e.id)).toEqual(batches[0].body.map((e) => e.id));
+  });
+});
+
+describe('callbacks and third parties', () => {
   it('reports onError to every event when the request fails', async () => {
     const { track, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse({ error: 'bad' }, 400));
@@ -338,9 +398,54 @@ describe('callbacks and third parties', () => {
     track('sign_up', { method: 'email' });
     await vi.advanceTimersByTimeAsync(2000);
 
-    // session_start is ignored too, so exactly one forward.
+    // session_start is ignored too, so exactly one forward, under the id sent to the server.
+    const signUp = sentBatches()[0].body.find((e) => e.name === 'sign_up');
     expect(tracker).toHaveBeenCalledTimes(1);
-    expect(tracker).toHaveBeenCalledWith('sign_up', { method: 'email' }, 'event-2');
+    expect(tracker).toHaveBeenCalledWith('sign_up', { method: 'email' }, signUp?.id);
+  });
+
+  it('fires the trackers synchronously as the event is tracked, before anything is sent', async () => {
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    const { track, config } = await load();
+    config.thirdPartyTrackers = [tracker];
+    respondWithIds();
+
+    track('sign_up', { method: 'email' });
+
+    expect(tracker).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const [, , id] = tracker.mock.calls[0];
+    expect(id).toMatch(uuidv7);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(sentBatches()[0].body.find((e) => e.name === 'sign_up')?.id).toBe(id);
+    expect(tracker).toHaveBeenCalledTimes(1); // not again once the server has answered
+  });
+
+  it('gives each event its own tracker id', async () => {
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    const { track, config } = await load();
+    config.thirdPartyTrackers = [tracker];
+
+    track('sign_up', { method: 'email' });
+    track('sign_up', { method: 'google' });
+
+    const ids = tracker.mock.calls.map(([, , id]) => id);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  it('fires the trackers even when the server rejects the batch', async () => {
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    const { track, config, jsonResponse } = await load();
+    config.thirdPartyTrackers = [tracker];
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'invalid' }, 400));
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    track('sign_up', { method: 'email' });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(tracker).toHaveBeenCalledTimes(1);
   });
 
   it('a throwing tracker does not stop the others or fail the batch', async () => {
@@ -361,6 +466,42 @@ describe('callbacks and third parties', () => {
 
     expect(good).toHaveBeenCalledTimes(1);
     expect(onSucceed).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls a tracker that was not ready once more, on the next macrotask, with the same id', async () => {
+    let ready = false;
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    tracker.mockImplementation(() => (ready ? undefined : false));
+    const { track, config } = await load();
+    config.thirdPartyTrackers = [tracker];
+
+    track('sign_up', { method: 'email' });
+    expect(tracker).toHaveBeenCalledTimes(1);
+    ready = true; // the pixel snippet ran after the event was tracked
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(tracker).toHaveBeenCalledTimes(2);
+    expect(tracker.mock.calls[1]).toEqual(tracker.mock.calls[0]);
+    expect(tracker.mock.calls[1][2]).toMatch(uuidv7);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(tracker).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up on a tracker that is still not ready, and does not re-call the ready ones', async () => {
+    const { blocked, ready } = vi.mockObject<{
+      blocked: ThirdPartyTracker;
+      ready: ThirdPartyTracker;
+    }>({ blocked() {}, ready() {} });
+    blocked.mockImplementation(() => false);
+    const { track, config } = await load();
+    config.thirdPartyTrackers = [blocked, ready];
+    respondWithIds();
+
+    track('sign_up', { method: 'email' });
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(blocked).toHaveBeenCalledTimes(2);
+    expect(ready).toHaveBeenCalledTimes(1);
   });
 
   it('respects enableThirdPartyTracking: false', async () => {
@@ -384,7 +525,35 @@ describe('trackAsync', () => {
 
     await trackAsync('custom_action', { a: 1 }, { onSucceed });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(onSucceed).toHaveBeenCalledWith({ id: 'event-1' }); // event-0 is its session_start
+    const [, event] = sentBatches()[0].body; // index 0 is its session_start
+    expect(onSucceed).toHaveBeenCalledWith({ id: event.id });
+  });
+
+  it('fires the trackers at once but resolves only once the server has answered', async () => {
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    const { trackAsync, config } = await load();
+    config.thirdPartyTrackers = [tracker];
+    let answer!: (response: Response) => void;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        })
+    );
+
+    let resolved = false;
+    const pending = trackAsync('begin_checkout', { value: 1, currency: 'USD', items: [] }).then(
+      () => (resolved = true)
+    );
+    expect(tracker).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(resolved).toBe(false);
+
+    answer(new Response('[]', { status: 200 }));
+    await pending;
+    expect(resolved).toBe(true);
+    expect(tracker).toHaveBeenCalledTimes(1);
   });
 
   it('takes the queued events along in its request', async () => {
@@ -487,7 +656,7 @@ describe('sendPendingEvents', () => {
     const sent = await beaconed(0);
     expect(sent.map((e) => e.name)).toEqual(['session_start', 'page_view']);
     expect(sent[0]).toMatchObject({ tags: { utm_source: 'google' }, visitor_id: 'visitor-1' });
-    expect(onSucceed).toHaveBeenCalledWith(undefined);
+    expect(onSucceed).toHaveBeenCalledWith({ id: sent[1].id });
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -517,17 +686,26 @@ describe('sendPendingEvents', () => {
     expect(sentBatches()[0].body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
   });
 
-  it('fires no third-party tracker for what it beacons: there is no server id to dedupe with', async () => {
+  it('beacons each event under the id its trackers already fired with, firing none again', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, sendPendingEvents, config } = await load();
     config.thirdPartyTrackers = [tracker];
 
     track('sign_up', { method: 'email' });
-    await vi.advanceTimersByTimeAsync(0);
+    expect(tracker).toHaveBeenCalledTimes(1);
+    const [, , id] = tracker.mock.calls[0];
+    // The page is hidden, then left, before the batch window closes: each runs this.
+    sendPendingEvents();
     sendPendingEvents();
 
     expect(beacon).toHaveBeenCalledTimes(1);
-    expect(tracker).not.toHaveBeenCalled();
+    const sent = await beaconed(0);
+    for (const event of sent) expect(event.id).toMatch(uuidv7);
+    expect(sent.find((e) => e.name === 'sign_up')?.id).toBe(id);
+    expect(tracker).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tracker).toHaveBeenCalledTimes(1);
   });
 
   it('sends an event whose tags have not settled with the last built ones', async () => {
