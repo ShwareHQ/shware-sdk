@@ -321,6 +321,9 @@ any app; it is sent with an `appsecret_proof`, so the client needs its `clientSe
    so register both). `loginOAuth2Code` checks state, exchanges the code as the `web` client,
    calls `onAuthorized` and redirects to `successUri` with `status=success&provider=<key>`, or to
    `errorUri` with `error` and `error_description`.
+3. On success the user is signed in on a new session id, not the one the flow started on, which
+   is deleted (session fixation protection). The attributes the host kept in that session move to
+   the new one; the single-use authorization request (state, PKCE verifier) does not.
 
 Every failure of the callback lands on `errorUri` — never a raw JSON error in the popup:
 

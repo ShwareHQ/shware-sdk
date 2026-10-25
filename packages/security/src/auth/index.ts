@@ -412,6 +412,7 @@ export class Auth implements AuthService {
     // Everything past validation can fail (an expired or reused code, a network error, the host's
     // handler or session store). The callback runs in a popup the user is looking at, so every
     // failure must land on errorUri instead of surfacing as a raw JSON error response.
+    let signedIn: Session;
     try {
       const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
         provider,
@@ -437,11 +438,11 @@ export class Auth implements AuthService {
       });
       mark('save_principal');
 
-      // 6. update session
-      session.setLastAccessedTime(Date.now());
-      session.removeAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST);
-      session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
-      await this.repository.save(session);
+      // 6. sign in on a new session: the id the browser brought may have been planted by an
+      // attacker who started the flow (session fixation), so it must not become authenticated.
+      signedIn = this.signedInSession(session, principal.name);
+      await this.repository.save(signedIn);
+      await this.repository.deleteById(session.getId());
       mark('update_session');
     } catch (error) {
       // The details stay in the logs: an OAuth2Error message can carry a client id or a
@@ -460,12 +461,29 @@ export class Auth implements AuthService {
     uri.searchParams.set('provider', provider);
 
     const response = new Response(null, { status: 302, headers: { location: uri.href } });
-    const maxAge = session.getMaxInactiveInterval();
-    setCookie(response, this.cookieName, session.getId(), { ...this.cookieOptions, maxAge });
+    const maxAge = signedIn.getMaxInactiveInterval();
+    setCookie(response, this.cookieName, signedIn.getId(), { ...this.cookieOptions, maxAge });
     setTiming(response);
 
     return response;
   };
+
+  /**
+   * A fresh session for `name`, carrying over what the host kept in the pre-login one. The
+   * authorization request (state, PKCE verifier, flow attributes) is single-use and was consumed
+   * by this callback, and a principal left there from an earlier sign-in is replaced.
+   */
+  private signedInSession(previous: Session, name: string): Session {
+    const session = this.repository.createSession();
+    for (const attribute of previous.getAttributeNames()) {
+      if (attribute === this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) continue;
+      if (attribute === PRINCIPAL_NAME_INDEX_NAME) continue;
+      const value = previous.getAttribute(attribute);
+      if (value !== null) session.setAttribute(attribute, value);
+    }
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, name);
+    return session;
+  }
 
   loginOAuth2Native = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');

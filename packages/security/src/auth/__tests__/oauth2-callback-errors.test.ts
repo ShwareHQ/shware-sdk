@@ -223,7 +223,10 @@ describe('oauth2 callback errors', () => {
     expect(response.headers.get('location')).toBe(
       'https://app.test/?status=success&provider=google'
     );
-    expect(response.headers.get('set-cookie')).toContain(cookie);
+    // A new session id, not the one the flow started on (session fixation).
+    const setCookie = response.headers.get('set-cookie') ?? '';
+    expect(setCookie).toMatch(/^SESSION=[^;]+/);
+    expect(setCookie).not.toContain(cookie);
     expect(handler).toHaveBeenCalledOnce();
   });
 });
