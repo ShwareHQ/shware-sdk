@@ -67,6 +67,17 @@ export interface AuthConfig {
   };
   oauth2?: {
     client?: OAuth2ClientConfig;
+    /** Google One Tap / FedCM sign-in (`loginOAuth2Onetap`). */
+    onetap?: {
+      /**
+       * Require the One Tap `credential` to carry a `nonce` claim issued by `GET
+       * /oauth2/nonce/google` (`oauth2Nonce`) and unused so far; each nonce signs in once. Without
+       * it, anyone holding a user's ID token could replay it for a new session until it expires.
+       * Turn off only while a front end that does not yet pass `nonce` to `prompt` is phased out.
+       * Default `true`.
+       */
+      requireNonce?: boolean;
+    };
   };
 }
 

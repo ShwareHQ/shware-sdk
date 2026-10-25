@@ -31,9 +31,14 @@ function memorySessions(): SessionRepository<MapSession> {
 /** Holds one emailed verification code, so loginEmail can be driven end to end. */
 const EMAIL = 'user@example.com';
 const CODE = '123456';
+/** A nonce issued for google, as One Tap logins require. */
+const NONCE = 'nonce-1';
 const kv: KVRepository = {
   setItem: async () => {},
-  getItem: async (key) => (key.includes(EMAIL) ? CODE : null),
+  getItem: async (key) => {
+    if (key.includes(EMAIL)) return CODE;
+    return key === `oauth2:nonce:${NONCE}` ? 'google' : null;
+  },
   removeItem: async () => {},
   increment: async () => 1,
 };
@@ -294,7 +299,10 @@ describe('attributes sent with a login body', () => {
   });
 
   it('one tap: hands JSON attributes over', async () => {
-    vi.spyOn(google, 'getTokenInfo').mockResolvedValue({ token, userInfo });
+    vi.spyOn(google, 'getTokenInfo').mockResolvedValue({
+      token,
+      userInfo: { ...userInfo, data: { nonce: NONCE } },
+    });
     const auth = createAuth();
     const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
 
