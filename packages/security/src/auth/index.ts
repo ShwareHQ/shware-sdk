@@ -149,6 +149,7 @@ export class Auth implements AuthService {
   private readonly maxVerificationAttempts: number;
   private readonly verificationResendCooldown: number;
   private readonly oauth2Client: OAuth2Client | null;
+  private readonly onetapRequireNonce: boolean;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
   constructor({
@@ -181,6 +182,7 @@ export class Auth implements AuthService {
       ...cookieOptions,
     };
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
+    this.onetapRequireNonce = oauth2?.onetap?.requireNonce ?? true;
   }
 
   private getSessionId(request: Request): string | undefined {
@@ -563,14 +565,6 @@ export class Auth implements AuthService {
     if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
     const parsed = googleOneTapSchema.parse(body);
 
-    // csrf token is not supported in FedCM mode
-    // const csrf_cookie = getCookie(request, 'g_csrf_token');
-    // const csrf_request = parsed.g_csrf_token;
-    // if (!csrf_request || csrf_cookie !== csrf_request) {
-    //   const json = { error: 'invalid_request', error_description: 'invalid csrf token' };
-    //   return Response.json(json, { status: 400 });
-    // }
-
     // Both the credential and the code are issued to the provider's web client.
     let principal: Principal;
     if (parsed.credential) {
@@ -578,6 +572,25 @@ export class Auth implements AuthService {
         provider,
         credential: parsed.credential,
       });
+      mark('verify_credential');
+
+      // A credential is replayable until it expires, so it must carry a single-use nonce from
+      // `oauth2Nonce`, which the front end passed to `prompt`. This replaces Google's
+      // `g_csrf_token` double-submit cookie, which FedCM mode no longer sets.
+      const { nonce } = userInfo.data as { nonce?: unknown };
+      if (typeof nonce === 'string' && nonce) {
+        const value = await this.kv.getItem(this.getOauth2NonceKey(nonce));
+        if (value !== provider) {
+          const json = { error: 'invalid_request', error_description: 'nonce mismatch' };
+          return Response.json(json, { status: 401 });
+        }
+        await this.kv.removeItem(this.getOauth2NonceKey(nonce));
+        mark('check_nonce');
+      } else if (this.onetapRequireNonce) {
+        const json = { error: 'invalid_request', error_description: 'nonce missing' };
+        return Response.json(json, { status: 401 });
+      }
+
       principal = await handler(request, { provider, clientId, userInfo, token, attributes });
     } else if (parsed.code) {
       const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({

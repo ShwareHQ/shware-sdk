@@ -135,11 +135,12 @@ let appleSecret: Mock<(clientId: string) => Promise<string>>;
 let kv: ReturnType<typeof memoryKV>;
 let handler: Mock<AuthorizedHandler>;
 
-function createAuth() {
+function createAuth(onetap?: { requireNonce?: boolean }) {
   return new Auth({
     sessionRepository: memorySessions(),
     kvRepository: kv,
     oauth2: {
+      onetap,
       client: {
         baseUri: 'https://api.test',
         errorUri: 'https://app.test/?status=error',
@@ -175,6 +176,13 @@ function postJson(path: string, body: unknown) {
 }
 
 const rejected = { status: 400 } satisfies Partial<OAuth2Error>;
+
+/** A nonce from `GET /oauth2/nonce/:provider`, as the web app fetches before One Tap's `prompt`. */
+async function issueNonce(auth: Auth, provider = 'google') {
+  const response = await auth.oauth2Nonce(new Request(`https://api.test/oauth2/nonce/${provider}`));
+  const { nonce } = (await response.json()) as { nonce: string };
+  return nonce;
+}
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -335,8 +343,9 @@ describe('nonce', () => {
 
 describe('Google', () => {
   it('one tap: accepts a credential issued to the web client', async () => {
-    const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB });
     const auth = createAuth();
+    const nonce = await issueNonce(auth);
+    const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB, nonce });
 
     const response = await auth.loginOAuth2Onetap(
       postJson('/login/oauth2/onetap/google', { credential }),
@@ -352,12 +361,80 @@ describe('Google', () => {
   });
 
   it('one tap: accepts the bare-host issuer Google also uses', async () => {
-    const credential = await sign({ iss: 'accounts.google.com', aud: GOOGLE_WEB });
-    const response = await createAuth().loginOAuth2Onetap(
+    const auth = createAuth();
+    const nonce = await issueNonce(auth);
+    const credential = await sign({ iss: 'accounts.google.com', aud: GOOGLE_WEB, nonce });
+    const response = await auth.loginOAuth2Onetap(
       postJson('/login/oauth2/onetap/google', { credential }),
       handler
     );
     expect(response.status).toBe(200);
+  });
+
+  it('one tap: consumes the nonce, so the same credential cannot sign in twice', async () => {
+    const auth = createAuth();
+    const nonce = await issueNonce(auth);
+    const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB, nonce });
+    const login = () =>
+      auth.loginOAuth2Onetap(postJson('/login/oauth2/onetap/google', { credential }), handler);
+
+    expect((await login()).status).toBe(200);
+    const replay = await login();
+
+    expect(replay.status).toBe(401);
+    expect(await replay.json()).toMatchObject({
+      error: 'invalid_request',
+      error_description: 'nonce mismatch',
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('one tap: refuses a credential without a nonce', async () => {
+    const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB });
+    const response = await createAuth().loginOAuth2Onetap(
+      postJson('/login/oauth2/onetap/google', { credential }),
+      handler
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: 'invalid_request',
+      error_description: 'nonce missing',
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('one tap: refuses a nonce that was never issued, or was issued for another provider', async () => {
+    const auth = createAuth();
+    const appleNonce = await issueNonce(auth, 'apple');
+    for (const nonce of ['made-up', appleNonce]) {
+      const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB, nonce });
+      const response = await auth.loginOAuth2Onetap(
+        postJson('/login/oauth2/onetap/google', { credential }),
+        handler
+      );
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ error_description: 'nonce mismatch' });
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('one tap: accepts a credential without a nonce when requireNonce is off', async () => {
+    const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB });
+    const response = await createAuth({ requireNonce: false }).loginOAuth2Onetap(
+      postJson('/login/oauth2/onetap/google', { credential }),
+      handler
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it('one tap: still checks a nonce the credential carries when requireNonce is off', async () => {
+    const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB, nonce: 'made-up' });
+    const response = await createAuth({ requireNonce: false }).loginOAuth2Onetap(
+      postJson('/login/oauth2/onetap/google', { credential }),
+      handler
+    );
+    expect(response.status).toBe(401);
   });
 
   it("one tap: refuses a credential for another app's client, or for our app clients", async () => {

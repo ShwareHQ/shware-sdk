@@ -159,6 +159,7 @@ handy for a database enum.
 | `kvRepository`       | `KVRepository`                      | Required. Short-lived values: OAuth2 state/nonce, verification and desktop codes.             |
 | `cookie`             | `CookieOptions & { name?: string }` | Session cookie. Defaults: name `SESSION`, `path: '/'`, `SameSite=None`, `Secure`, `HttpOnly`. |
 | `oauth2.client`      | `OAuth2ClientConfig`                | `baseUri`, `errorUri`, `successUri`, `providers` (object or async function).                  |
+| `oauth2.onetap`      | `{ requireNonce? }`                 | One Tap: refuse a `credential` without an issued nonce (default `true`, see Google One Tap).  |
 | `turnstileSecretKey` | `string`                            | Cloudflare Turnstile secret; required by `sendEmailVerificationCode`.                         |
 | `verificationCode`   | `{ maxAttempts?, resendCooldown? }` | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
@@ -464,6 +465,34 @@ await fetch(`${api}/login/oauth2/native/google`, {
 `POST /login/oauth2/onetap/google` accepts the One Tap `credential` (an `id_token`) or a `code`,
 as form data or JSON, both issued to the `web` client of the provider. The third argument of
 `loginOAuth2Onetap` is the provider key (default `'google'`).
+
+A `credential` must carry a nonce: fetch one from `GET /oauth2/nonce/google` (`oauth2Nonce`, valid
+10 minutes) right before `prompt` and pass it on, so Google writes it into the ID token's `nonce`
+claim. The login consumes the nonce, so a leaked ID token cannot be replayed for another session; a
+credential without one, or with one that was not issued or was already used, is answered
+`401 invalid_request` (`nonce missing` / `nonce mismatch`). The nonce takes the place of Google's
+`g_csrf_token` double-submit cookie, which FedCM mode no longer sets. A `code` (the popup fallback)
+is single use already and needs no nonce.
+
+```ts
+import { prompt } from '@shware/http/google-one-tap';
+
+const { nonce } = await fetch(`${api}/oauth2/nonce/google`).then((r) => r.json());
+const result = await prompt({ client_id: GOOGLE_WEB_CLIENT_ID, nonce });
+if (result.authorized) {
+  await fetch(`${api}/login/oauth2/onetap/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ credential: result.credential.credential }),
+  });
+}
+```
+
+While a front end that does not pass `nonce` yet is still deployed, set
+`oauth2: { onetap: { requireNonce: false } }`: credentials without a nonce are then accepted, and a
+nonce a credential does carry is still checked and consumed. Turn it back on once that front end is
+gone.
 
 ## Email sign-in
 
