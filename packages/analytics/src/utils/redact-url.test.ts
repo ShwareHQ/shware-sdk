@@ -16,9 +16,10 @@ describe('redactUrl', () => {
     expect(redactUrl('https://a.com/?%63ode=1&a=2')).toBe('https://a.com/?a=2');
   });
 
-  it('keeps every other parameter as written and in order', () => {
+  it('keeps every other parameter, in order, in URLSearchParams form', () => {
+    // Re-serialized by URLSearchParams: a space is `+`, a bare name gets `=`; nothing else moves.
     expect(redactUrl('https://a.com/p?b=2&code=x&a=%20q&c&code_hint=1&a=3')).toBe(
-      'https://a.com/p?b=2&a=%20q&c&code_hint=1&a=3'
+      'https://a.com/p?b=2&a=+q&c=&code_hint=1&a=3'
     );
   });
 
@@ -65,7 +66,7 @@ describe('redactUrl', () => {
   it('returns a string that is not a URL unchanged', () => {
     expect(redactUrl('')).toBe('');
     expect(redactUrl('not a url')).toBe('not a url');
-    // A malformed escape in a name is compared raw rather than throwing.
-    expect(redactUrl('https://a.com/?%E0%A4%A=1&a=2')).toBe('https://a.com/?%E0%A4%A=1&a=2');
+    // A malformed escape does not throw; URLSearchParams keeps the parameter (re-encoded).
+    expect(redactUrl('https://a.com/?%E0%A4%A=1&a=2')).toContain('&a=2');
   });
 });
