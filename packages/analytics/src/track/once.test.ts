@@ -31,7 +31,7 @@ function stored(storage: { map: Map<string, string> }) {
   const raw = storage.map.get('track_once.purchase');
   return raw === undefined
     ? undefined
-    : (JSON.parse(raw) as { v: number; entries: [string, number][] });
+    : (JSON.parse(raw) as { v: number; entries: [string, string, number, boolean][] });
 }
 
 /** The names of every event sent, session_start left out. */
@@ -70,11 +70,20 @@ describe('trackOnce', () => {
     respondWithIds();
 
     expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(true);
-    expect(storage.map.has('track_once.purchase')).toBe(false);
+    // Queued, not sent: remembered with its id, as unsent.
+    const queued = stored(storage);
+    expect(queued?.entries.map(([key, , , sent]) => [key, sent])).toEqual([['cs_1', false]]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(stored(storage)).toEqual({
-      v: 1,
-      entries: [['cs_1', Date.parse('2026-01-01T00:00:02Z') + 90 * 24 * 60 * 60 * 1000]],
+      v: 2,
+      entries: [
+        [
+          'cs_1',
+          queued?.entries[0][1],
+          Date.parse('2026-01-01T00:00:02Z') + 90 * 24 * 60 * 60 * 1000,
+          true,
+        ],
+      ],
     });
 
     expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(false);
@@ -111,7 +120,9 @@ describe('trackOnce', () => {
     trackOnce('purchase', undefined, { key: 'cs_1', onError });
     await vi.advanceTimersByTimeAsync(2000);
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(storage.map.has('track_once.purchase')).toBe(false);
+    expect(stored(storage)?.entries.map(([key, , , sent]) => [key, sent])).toEqual([
+      ['cs_1', false],
+    ]);
 
     respondWithIds();
     expect(trackOnce('purchase', undefined, { key: 'cs_1' })).toBe(true);
@@ -137,9 +148,10 @@ describe('trackOnce', () => {
 
     expect(pixel).toHaveBeenCalledTimes(1);
     expect(sentIds()).toEqual([id, id]);
-    // Sent: the attempt is settled, and the key remembered as before.
-    expect(storage.map.get('track_once_attempt.purchase')).toBe('{"v":1,"entries":[]}');
-    expect(stored(storage)?.entries.map(([key]) => key)).toEqual(['cs_1']);
+    // Sent: the one entry, under the one id, now marked sent.
+    expect(stored(storage)?.entries.map(([key, eid, , sent]) => [key, eid, sent])).toEqual([
+      ['cs_1', id, true],
+    ]);
   });
 
   it('reuses the id across a reload that lost the queued event', async () => {
@@ -256,10 +268,40 @@ describe('trackOnce', () => {
     respondWithIds();
     storage.map.set(
       'track_once.purchase',
-      JSON.stringify({ v: 2, entries: [['cs_1', Date.parse('2027-01-01T00:00:00Z')]] })
+      JSON.stringify({ v: 3, entries: [['cs_1', 'id', Date.parse('2027-01-01T00:00:00Z'), true]] })
     );
 
     expect(trackOnce('purchase', undefined, { key: 'cs_1' })).toBe(true);
+  });
+
+  it('reads a v1 record as sent keys, and rewrites it as v2', async () => {
+    const { trackOnce, storage } = await load();
+    respondWithIds();
+    const expiresAt = Date.parse('2027-01-01T00:00:00Z');
+    storage.map.set(
+      'track_once.purchase',
+      JSON.stringify({
+        v: 1,
+        entries: [
+          ['cs_1', expiresAt],
+          ['cs_2', expiresAt],
+        ],
+      })
+    );
+
+    expect(trackOnce('purchase', undefined, { key: 'cs_1' })).toBe(false);
+    expect(trackOnce('purchase', undefined, { key: 'cs_2' })).toBe(false);
+    expect(trackOnce('purchase', undefined, { key: 'cs_3' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(sentNames()).toEqual(['purchase']);
+    expect(stored(storage)?.v).toBe(2);
+    expect(
+      stored(storage)?.entries.map(([key, , exp, sent]) => [key, exp === expiresAt, sent])
+    ).toEqual([
+      ['cs_1', true, true],
+      ['cs_2', true, true],
+      ['cs_3', false, true],
+    ]);
   });
 
   it('keeps insertion order for integer-like keys', async () => {

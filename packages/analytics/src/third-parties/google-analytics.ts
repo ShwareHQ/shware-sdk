@@ -15,7 +15,7 @@ export function sendGAEvent<T extends EventName>(
 ) {
   if (typeof window === 'undefined' || !window.gtag) {
     console.warn('GA has not been initialized');
-    return;
+    return false;
   }
   window.gtag('event', name, properties);
 }

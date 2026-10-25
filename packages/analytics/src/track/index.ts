@@ -5,7 +5,14 @@ import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { visitorId } from '../visitor/id';
-import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
+import type {
+  EventName,
+  ThirdPartyTracker,
+  TrackEventResponse,
+  TrackName,
+  TrackProperties,
+  TrackTags,
+} from './types';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
@@ -97,6 +104,13 @@ let timer: ReturnType<typeof setTimeout> | null = null;
  * the pixels before the page goes, and the server's conversions API, sending the same id, still
  * deduplicates against the browser event. A server that is down no longer takes the pixels down
  * with it either.
+ *
+ * A tracker that returns `false` is not ready — its pixel's global is not on the page yet, the
+ * snippet still loading (the first `page_view` of a visit is tracked right as the page mounts).
+ * Those trackers, and only those, are called once more on the next macrotask, with the same event
+ * and id, after the inline snippets have had their turn; a tracker still not ready then is given
+ * up on, as it was when it ran after the server's answer. Never more than once: a pixel's global
+ * either exists by then or the script is blocked.
  */
 function firePixels(event: Item) {
   // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
@@ -104,12 +118,20 @@ function firePixels(event: Item) {
   if (event.options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
     return;
   }
-  config.thirdPartyTrackers.forEach((tracker) => {
+  const notReady = callTrackers(config.thirdPartyTrackers, event);
+  if (notReady.length === 0) return;
+  setTimeout(() => callTrackers(notReady, event), 0);
+}
+
+/** Calls each tracker with the event; returns the ones that said they were not ready. */
+function callTrackers(trackers: ThirdPartyTracker[], event: Item): ThirdPartyTracker[] {
+  return trackers.filter((tracker) => {
     try {
-      tracker(event.name, event.properties, event.id);
+      return tracker(event.name, event.properties, event.id) === false;
     } catch (e: unknown) {
       // A third-party script does not get to take the tracking call, or the other trackers, with it.
       if (e instanceof Error) console.log(e.message);
+      return false;
     }
   });
 }

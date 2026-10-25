@@ -468,6 +468,42 @@ describe('callbacks and third parties', () => {
     expect(onSucceed).toHaveBeenCalledTimes(1);
   });
 
+  it('calls a tracker that was not ready once more, on the next macrotask, with the same id', async () => {
+    let ready = false;
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    tracker.mockImplementation(() => (ready ? undefined : false));
+    const { track, config } = await load();
+    config.thirdPartyTrackers = [tracker];
+
+    track('sign_up', { method: 'email' });
+    expect(tracker).toHaveBeenCalledTimes(1);
+    ready = true; // the pixel snippet ran after the event was tracked
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(tracker).toHaveBeenCalledTimes(2);
+    expect(tracker.mock.calls[1]).toEqual(tracker.mock.calls[0]);
+    expect(tracker.mock.calls[1][2]).toMatch(uuidv7);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(tracker).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up on a tracker that is still not ready, and does not re-call the ready ones', async () => {
+    const { blocked, ready } = vi.mockObject<{
+      blocked: ThirdPartyTracker;
+      ready: ThirdPartyTracker;
+    }>({ blocked() {}, ready() {} });
+    blocked.mockImplementation(() => false);
+    const { track, config } = await load();
+    config.thirdPartyTrackers = [blocked, ready];
+    respondWithIds();
+
+    track('sign_up', { method: 'email' });
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(blocked).toHaveBeenCalledTimes(2);
+    expect(ready).toHaveBeenCalledTimes(1);
+  });
+
   it('respects enableThirdPartyTracking: false', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();

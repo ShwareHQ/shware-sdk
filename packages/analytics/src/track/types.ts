@@ -86,12 +86,16 @@ export interface UserProvidedData extends GAUserProvidedData {
  * A browser pixel or app SDK an event is forwarded to. Called synchronously when the event is
  * tracked, before it is sent, with `event_id` — the client-generated id the event is stored and
  * sent to the conversions APIs under — as the platform's deduplication id.
+ *
+ * Returning `false` means "not ready": the pixel's global (`fbq`, `rdt`, `gtag`, …) is not on the
+ * page yet, its snippet still loading. The SDK then calls the tracker once more, with the same
+ * event and id, on the next macrotask. Any other return value (`void` included) is a handled call.
  */
 export type ThirdPartyTracker = <T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   event_id?: string
-) => void;
+) => void | boolean;
 
 export interface PlatformInfo {
   os?: string;
