@@ -63,7 +63,7 @@ describe('fetch', () => {
 
   it('should not retry a POST by default, neither a 503 nor a network error', async () => {
     let spy = mockFetch([json({}, 503), json({ ok: true })]);
-    let response = await fetch('https://example.com', {
+    const response = await fetch('https://example.com', {
       method: 'POST',
       body: '{}',
       delayFactor: 0,
