@@ -25,6 +25,8 @@ export function setGAUser({ user_id, user_data }: UpdateVisitorDTO) {
     console.warn('GA has not been initialized');
     return;
   }
-  if (user_id) window.gtag('set', 'user_id', user_id);
+  // No user is sign-out (`setVisitor({})`): GA keeps a set user_id for every later event on the
+  // page, so it is cleared explicitly.
+  window.gtag('set', 'user_id', user_id || null);
   if (user_data) window.gtag('set', 'user_data', user_data);
 }
