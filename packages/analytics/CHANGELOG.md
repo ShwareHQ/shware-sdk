@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 12.2.0
+
+### Minor Changes
+
+- ab79ae5: `sendFirebaseEvent` is synchronous (its `logEvent` call was already fire-and-forget), so it satisfies the `void | boolean` return of `ThirdPartyTracker` that 12.1 introduced and can be passed to `thirdPartyTrackers` without a wrapper. Its return type changes from `Promise<void>` to `void`; `await`ing it still compiles.
+- 7f57561: Add an opt-in `strict` switch: merging `strict: true` into the new `AnalyticsOptions` interface restricts `track`, `trackOnce`, `trackAsync`, `sendBeacon`, `useTrackImpression` and the third-party senders to GA4's standard events and the events declared in `CustomEventProperties`, so a misspelled or undeclared event name is a compile error; without it nothing changes. Properties are strict too: an undeclared event has no open `Record` fallback.
+
 ## 12.1.0
 
 ### Minor Changes
