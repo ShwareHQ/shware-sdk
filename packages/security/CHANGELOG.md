@@ -1,5 +1,11 @@
 # @shware/security
 
+## 6.2.2
+
+### Patch Changes
+
+- f25cbbb: `logout` now clears the session cookie with the same `domain`, `path`, `sameSite` and `secure` attributes it was set with, so cookies set with a `Domain` are actually removed.
+
 ## 6.2.1
 
 ### Patch Changes
