@@ -1,4 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest';
+// Type-only: importing the module for real would load the native Firebase binding.
+import type { sendFirebaseEvent } from '../native/firebase';
 import type { EventName, ThirdPartyTracker, TrackName, TrackProperties } from './types';
 
 describe('ThirdPartyTracker', () => {
@@ -10,10 +12,7 @@ describe('ThirdPartyTracker', () => {
   });
 
   it("is satisfied by the SDK's own sendFirebaseEvent", () => {
-    // Type-only: importing the module would load the native Firebase binding.
-    expectTypeOf<
-      typeof import('../native/firebase').sendFirebaseEvent
-    >().toExtend<ThirdPartyTracker>();
+    expectTypeOf<typeof sendFirebaseEvent>().toExtend<ThirdPartyTracker>();
   });
 
   it('rejects an async tracker, whose promise could not report "not ready"', () => {
