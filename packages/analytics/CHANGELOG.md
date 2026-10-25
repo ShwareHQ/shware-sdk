@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 11.15.1
+
+### Patch Changes
+
+- c335e86: Subscribe to web-vitals once per mount in `useReportWebVitals`, so `Analytics` no longer reports each Core Web Vitals metric again after every route change.
+
 ## 11.15.0
 
 ### Minor Changes
