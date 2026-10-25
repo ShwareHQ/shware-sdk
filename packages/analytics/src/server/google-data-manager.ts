@@ -265,7 +265,8 @@ export async function sendEvents(
     try {
       const response = await fetch(ENDPOINT, {
         method: 'POST',
-        // Retried although a POST: the platform deduplicates on the `event id` each event carries.
+        // Retried although a POST: Google deduplicates on `transactionId` (the order id, else the
+        // event id, see above) within a conversion action, keeping the first instance it received.
         retries: 3,
         headers: {
           'Content-Type': 'application/json',
