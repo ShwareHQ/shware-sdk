@@ -226,10 +226,14 @@ type SessionEntity = Parameters<DBAdapter['save']>[0];
 
 class SessionAdapter implements DBAdapter {
   async save(entity: SessionEntity) {
-    await db
-      .insert(session)
-      .values(toRow(entity))
-      .onConflictDoUpdate({ target: session.sessionId, set: toRow(entity) });
+    // `isNew` says whether this is the first write: a session created in this request is
+    // inserted, one that was loaded is only ever updated. Updating zero rows means a concurrent
+    // logout or kick deleted it, and an upsert there would bring the session back from the dead.
+    if (entity.isNew) {
+      await db.insert(session).values(toRow(entity));
+      return;
+    }
+    await db.update(session).set(toRow(entity)).where(eq(session.sessionId, entity.sessionId));
   }
   async deleteById(sessionId: string) {
     await db.delete(session).where(eq(session.sessionId, sessionId));
