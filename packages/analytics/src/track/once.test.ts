@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Options } from '../setup/index';
 import { textRequestBody } from '../test/setup';
 import type { TrackOptions } from './index';
+import type { ThirdPartyTracker } from './types';
 
 const fetchMock = vi.fn<typeof globalThis.fetch>();
 
@@ -13,7 +14,7 @@ async function load(overrides: Partial<Options> = {}) {
   const setup = await import('../setup/index');
   setup.setupAnalytics(baseOptions({ storage, ...overrides }));
   const { trackOnce } = await import('./once');
-  return { storage, jsonResponse, trackOnce };
+  return { storage, jsonResponse, trackOnce, config: setup.config };
 }
 
 function respondWithIds() {
@@ -38,6 +39,14 @@ function sentNames() {
   return fetchMock.mock.calls.flatMap((call) => {
     const body = JSON.parse(textRequestBody(call[1])) as { name: string }[];
     return body.map((event) => event.name).filter((name) => name !== 'session_start');
+  });
+}
+
+/** The ids of every event sent, session_start left out. */
+function sentIds() {
+  return fetchMock.mock.calls.flatMap((call) => {
+    const body = JSON.parse(textRequestBody(call[1])) as { name: string; id: string }[];
+    return body.filter((event) => event.name !== 'session_start').map((event) => event.id);
   });
 }
 
@@ -108,6 +117,69 @@ describe('trackOnce', () => {
     expect(trackOnce('purchase', undefined, { key: 'cs_1' })).toBe(true);
     await vi.advanceTimersByTimeAsync(2000);
     expect(sentNames()).toEqual(['purchase', 'purchase']);
+  });
+
+  it('fires the pixels once per key, and a retry goes out under the first attempt’s id', async () => {
+    const { trackOnce, storage, jsonResponse, config } = await load();
+    const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
+    config.thirdPartyTrackers = [pixel];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid' }, 400));
+
+    trackOnce('purchase', purchase, { key: 'cs_1' });
+    expect(pixel).toHaveBeenCalledTimes(1); // at once, before any send
+    const [, , id] = pixel.mock.calls[0];
+    await vi.advanceTimersByTimeAsync(2000);
+
+    respondWithIds();
+    expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(pixel).toHaveBeenCalledTimes(1);
+    expect(sentIds()).toEqual([id, id]);
+    // Sent: the attempt is settled, and the key remembered as before.
+    expect(storage.map.get('track_once_attempt.purchase')).toBe('{"v":1,"entries":[]}');
+    expect(stored(storage)?.entries.map(([key]) => key)).toEqual(['cs_1']);
+  });
+
+  it('reuses the id across a reload that lost the queued event', async () => {
+    const first = await load();
+    const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
+    first.config.thirdPartyTrackers = [pixel];
+    first.trackOnce('purchase', purchase, { key: 'cs_1' });
+    const [, , id] = pixel.mock.calls[0];
+
+    // The page is reloaded before the batch went out: its timer dies with it, and a fresh
+    // module graph starts on the same storage.
+    vi.clearAllTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:01Z')); // clearing the timers resets the clock
+    vi.resetModules();
+    const { baseOptions } = await import('../test/setup');
+    const setup = await import('../setup/index');
+    setup.setupAnalytics(baseOptions({ storage: first.storage }));
+    setup.config.thirdPartyTrackers = [pixel];
+    const { trackOnce } = await import('./once');
+    respondWithIds();
+
+    expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(pixel).toHaveBeenCalledTimes(1);
+    expect(sentIds()).toEqual([id]);
+  });
+
+  it('gives each key its own id', async () => {
+    const { trackOnce, config } = await load();
+    const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
+    config.thirdPartyTrackers = [pixel];
+    respondWithIds();
+
+    trackOnce('purchase', purchase, { key: 'cs_1' });
+    trackOnce('purchase', purchase, { key: 'cs_2' });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const ids = pixel.mock.calls.map(([, , id]) => id);
+    expect(new Set(ids).size).toBe(2);
+    expect(sentIds()).toEqual(ids);
   });
 
   it('calls the caller’s onSucceed', async () => {

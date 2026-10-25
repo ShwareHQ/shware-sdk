@@ -1,5 +1,6 @@
+import { v7 as uuidv7 } from 'uuid';
 import { config } from '../setup/index';
-import { type TrackOptions, track } from './index';
+import { type TrackOptions, queueEvent } from './index';
 import type { EventName, TrackName, TrackProperties } from './types';
 
 export interface TrackOnceOptions extends TrackOptions {
@@ -64,6 +65,62 @@ function live(entries: Entry[], now: number) {
   return entries.filter((entry) => entry.expiresAt > now);
 }
 
+/**
+ * The attempts made at a key not yet confirmed sent, with the event id each went out under:
+ * `{"v":1,"entries":[[key, id, expiresAt], …]}` under `track_once_attempt.<event>`, oldest first.
+ *
+ * The third-party trackers are fired when an event is tracked, not when it is sent, so a send
+ * that fails has already reported the occurrence to the pixels. The next attempt at the same key
+ * — a reload of the result page, a sync run again — goes out under the same id and fires none
+ * of them again: the pixels count the occurrence once, and the server, storing events
+ * `on conflict (id) do nothing`, stores it once even if the failed send had in fact arrived.
+ */
+type Attempt = { key: string; id: string; expiresAt: number };
+
+function attemptKey(name: string) {
+  return `track_once_attempt.${name}`;
+}
+
+function readAttempts(name: string): Attempt[] {
+  const raw = config.storage.getItem(attemptKey(name));
+  if (!raw) return [];
+  let record: unknown;
+  try {
+    record = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (typeof record !== 'object' || record === null) return [];
+  const { v, entries } = record as { v?: unknown; entries?: unknown };
+  if (v !== VERSION || !Array.isArray(entries)) return [];
+  return entries.flatMap((entry: unknown) => {
+    if (!Array.isArray(entry)) return [];
+    const [key, id, expiresAt] = entry as unknown[];
+    if (typeof key !== 'string' || typeof id !== 'string' || typeof expiresAt !== 'number') {
+      return [];
+    }
+    return [{ key, id, expiresAt }];
+  });
+}
+
+function writeAttempts(name: string, attempts: Attempt[]) {
+  const record = {
+    v: VERSION,
+    entries: attempts.slice(-MAX_ENTRIES).map((a) => [a.key, a.id, a.expiresAt]),
+  };
+  config.storage.setItem(attemptKey(name), JSON.stringify(record));
+}
+
+/** Forgets the attempt at `key`, once it has been sent; only rewrites a record that holds it. */
+function settleAttempt(name: string, key: string) {
+  const attempts = readAttempts(name);
+  if (!attempts.some((attempt) => attempt.key === key)) return;
+  writeAttempts(
+    name,
+    attempts.filter((attempt) => attempt.key !== key && attempt.expiresAt > Date.now())
+  );
+}
+
 /** Keys queued in this page (or app process) but not confirmed sent yet, per event name. */
 const pending = new Map<string, Set<string>>();
 
@@ -94,6 +151,10 @@ function clearPending(name: string, key: string) {
  * already queued is not queued twice. When the storage cannot be read or written the event is
  * tracked anyway: a rare duplicate is better than a lost conversion.
  *
+ * The event's id is decided by the first attempt at a key and kept until the key is sent, so
+ * the third-party trackers, fired when the event is tracked, are fired once per key even when the
+ * first send fails and a later call sends it (see `Attempt`).
+ *
  * Deduplication is per device and storage. A second device still reports its own occurrence, so
  * figures that must be exact (revenue) belong to server-side records.
  */
@@ -111,14 +172,31 @@ export function trackOnce<T extends EventName = EventName>(
     if (e instanceof Error) console.log(e.message);
   }
 
+  // An earlier attempt that failed to send: its id, and its pixels already fired.
+  let earlier: Attempt | undefined;
+  let id: string | undefined;
+  try {
+    const attempts = readAttempts(name).filter((attempt) => attempt.expiresAt > now);
+    earlier = attempts.find((attempt) => attempt.key === key);
+    if (!earlier) {
+      id = uuidv7();
+      writeAttempts(name, [...attempts, { key, id, expiresAt: now + ttl }]);
+    }
+  } catch (e: unknown) {
+    // Unrecorded, a failed send would fire the pixels again on the next attempt: a rare
+    // duplicate there beats not tracking.
+    if (e instanceof Error) console.log(e.message);
+  }
+
   markPending(name, key);
-  track(name, properties, {
+  const callbacks: TrackOptions = {
     ...options,
     onSucceed: (response) => {
       clearPending(name, key);
       try {
         const entries = live(read(name), Date.now()).filter((entry) => entry.key !== key);
         write(name, [...entries, { key, expiresAt: Date.now() + ttl }]);
+        settleAttempt(name, key);
       } catch (e: unknown) {
         if (e instanceof Error) console.log(e.message);
       }
@@ -129,6 +207,7 @@ export function trackOnce<T extends EventName = EventName>(
       clearPending(name, key);
       options.onError?.(error);
     },
-  });
+  };
+  queueEvent(name, properties, callbacks, earlier ? { id: earlier.id, pixels: false } : { id });
   return true;
 }
