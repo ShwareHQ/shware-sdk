@@ -215,6 +215,9 @@ async function flush() {
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
+      // Retried although a POST: every event carries its client-generated id, and the server stores
+      // a batch it already has `on conflict (id) do nothing`.
+      retries: 3,
       // keepalive lets the request survive the page being unloaded mid-flight, within a 64KB
       // budget shared by every such request of the page; a body that could not fit goes as a
       // plain POST rather than failing outright.
