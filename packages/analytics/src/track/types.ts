@@ -10,12 +10,12 @@ export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTF
  * ```ts
  * declare module '@shware/analytics' {
  *   interface AnalyticsOptions {
- *     strictEventNames: true;
+ *     strict: true;
  *   }
  * }
  * ```
  *
- * - `strictEventNames: true` — every function that takes an event name (`track`, `trackOnce`,
+ * - `strict: true` — strict events: every function that takes an event name (`track`, `trackOnce`,
  *   `trackAsync`, `sendBeacon`, `useTrackImpression`, the third-party senders) accepts only
  *   GA4's standard events and the events declared in `CustomEventProperties`: a misspelled or
  *   undeclared name (`'purchse'`, `'begin_checkout '`) is a compile error instead of a new event.
@@ -25,11 +25,11 @@ export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTF
 // oxlint-disable-next-line typescript/no-empty-object-type
 export interface AnalyticsOptions {}
 
-/** Whether the application turned on `AnalyticsOptions['strictEventNames']`. */
-type StrictEventNames = AnalyticsOptions extends { strictEventNames: true } ? true : false;
+/** Whether the application turned on `AnalyticsOptions['strict']`. */
+type Strict = AnalyticsOptions extends { strict: true } ? true : false;
 
 /**
- * The names `track` accepts with `strictEventNames` on: GA4's standard events and the events
+ * The names `track` accepts with `strict` on: GA4's standard events and the events
  * the application declared. Only declared keys that are themselves valid event names, so the
  * set stays within `EventName`.
  */
@@ -40,9 +40,9 @@ export type DeclaredEventName =
 /**
  * The type of an event-name parameter. `T` is inferred from the argument through both branches;
  * the false branch is what the argument is checked against when it is not a known event — any
- * event name by default, only a declared one with `strictEventNames` on.
+ * event name by default, only a declared one with `strict` on.
  */
-export type TrackName<T extends EventName = EventName> = StrictEventNames extends true
+export type TrackName<T extends EventName = EventName> = Strict extends true
   ? T extends DeclaredEventName
     ? T
     : DeclaredEventName
@@ -56,7 +56,7 @@ export type TrackName<T extends EventName = EventName> = StrictEventNames extend
  * Empty here on purpose. Applications fill it by declaration merging, and it does two jobs:
  * it adds custom properties to GA4's standard events, which are otherwise closed shapes and
  * would need a cast; and it gives an application's own events a real type instead of the
- * open record they fall back to. With `AnalyticsOptions['strictEventNames']` on, it is also the
+ * open record they fall back to. With `AnalyticsOptions['strict']` on, it is also the
  * list of the custom event names `track` accepts.
  *
  * ```ts
@@ -96,9 +96,9 @@ export type TrackProperties<T extends EventName = EventName> = T extends keyof S
   ? StandardEvents[T] & CustomPropertiesFor<T>
   : T extends keyof CustomEventProperties
     ? CustomEventProperties[T]
-    : // With `strictEventNames` on, an undeclared event cannot be tracked, so it has no
+    : // With `strict` on, an undeclared event cannot be tracked, so it has no
       // properties to type; the open record is only the loose mode's fallback.
-      StrictEventNames extends true
+      Strict extends true
       ? never
       : Record<Lowercase<string>, AllowedPropertyValues>;
 

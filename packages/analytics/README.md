@@ -158,12 +158,12 @@ function Button() {
 
 An application types its own events, and adds properties to GA4's standard ones, by declaration merging into `CustomEventProperties` (see its doc comment). By default an event declared nowhere still compiles, with open properties, so `track('purchse', …)` or `track('begin_checkout ', …)` (a trailing space) quietly becomes a new event.
 
-Turn on `strictEventNames` to make that a compile error. Merge it into `AnalyticsOptions`, preferably in the same file that declares `CustomEventProperties`, so the list of events and the rule that only they can be tracked live together:
+Turn on `strict` to make that a compile error. Merge it into `AnalyticsOptions`, preferably in the same file that declares `CustomEventProperties`, so the list of events and the rule that only they can be tracked live together:
 
 ```ts
 declare module '@shware/analytics' {
   interface AnalyticsOptions {
-    strictEventNames: true;
+    strict: true;
   }
   interface CustomEventProperties {
     plan_changed: { direction: 'upgrade' | 'downgrade' };

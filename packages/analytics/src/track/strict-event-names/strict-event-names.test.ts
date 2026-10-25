@@ -5,7 +5,7 @@ import { trackOnce } from '../once';
 import type { TrackProperties } from '../types';
 
 /**
- * `AnalyticsOptions['strictEventNames']` turned on, as an application turns it on: merged next
+ * `AnalyticsOptions['strict']` turned on, as an application turns it on: merged next
  * to its `CustomEventProperties`.
  *
  * A declaration merge is global to its program, so this directory is a program of its own
@@ -19,7 +19,7 @@ import type { TrackProperties } from '../types';
  */
 declare module '../types' {
   interface AnalyticsOptions {
-    strictEventNames: true;
+    strict: true;
   }
   interface CustomEventProperties {
     plan_changed: { direction: 'upgrade' | 'downgrade' };
@@ -27,7 +27,7 @@ declare module '../types' {
   }
 }
 
-describe('strictEventNames on', () => {
+describe('strict on', () => {
   it('accepts the standard events and the declared ones', () => {
     const useCalls = () => {
       track('purchase', { currency: 'USD', value: 129, transaction_id: 'in_1' });

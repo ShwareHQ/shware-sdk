@@ -4,7 +4,7 @@ import { sendBeacon, track, trackAsync } from './index';
 import { trackOnce } from './once';
 
 /**
- * `AnalyticsOptions['strictEventNames']` left off, as it is for this package's own compilation:
+ * `AnalyticsOptions['strict']` left off, as it is for this package's own compilation:
  * every entry point keeps taking any event name, exactly as before the switch existed. The
  * switch turned on is checked in `strict-event-names/`, a program of its own — a declaration
  * merge is global to its program, so it cannot be turned on for one file of this one.
@@ -13,7 +13,7 @@ import { trackOnce } from './once';
  * sit in a function that is never called, so nothing is sent; it is named like a hook because
  * one of the calls is one.
  */
-describe('strictEventNames off (the default)', () => {
+describe('strict off (the default)', () => {
   it('accepts an event nobody declared, with open properties', () => {
     const useCalls = () => {
       track('anything', { anything: 'goes', count: 1 });
