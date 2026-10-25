@@ -54,6 +54,15 @@ describe('sendGAEvent', () => {
     expect(gtag).not.toHaveBeenCalledWith('set', 'user_data', expect.anything());
   });
 
+  it('setGAUser clears the user_id on sign-out', () => {
+    const { value: gtag } = vi.mockObject<{ value: NonNullable<Window['gtag']> }>({ value() {} });
+    window.gtag = gtag;
+
+    setGAUser({ user_id: 'u1' });
+    setGAUser({});
+    expect(gtag).toHaveBeenLastCalledWith('set', 'user_id', null);
+  });
+
   it('setGAUser forwards user_data when present', () => {
     const { value: gtag } = vi.mockObject<{ value: NonNullable<Window['gtag']> }>({ value() {} });
     window.gtag = gtag;

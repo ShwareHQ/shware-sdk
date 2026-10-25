@@ -11,7 +11,10 @@ export { visitorId } from './id';
  */
 export const IDENTIFY_EVENT = 'identify';
 
-/** The user this page has identified the visitor as: identify once per user, not per call. */
+/**
+ * The user this page has identified the visitor as: identify once per user, not per call. Cleared
+ * on sign-out, so the same user signing back in on this page is identified again.
+ */
 let identified: string | undefined;
 
 /**
@@ -21,17 +24,24 @@ let identified: string | undefined;
  * event it goes with the next batch or the page-hide beacon; `user_data` is handed to the setters
  * only, never stored with the event.
  *
- * Synchronous and never throws: sign-in must not fail on analytics.
+ * Without a `user_id` (missing, or `''`) it signs the visitor out: `setVisitor({})` is
+ * sign-out. Nothing goes to the server, the setters get `distinct_id: null` (PostHog resets its
+ * identity on it), and the next sign-in is identified again even if it is the same user. Still
+ * `track('logout')` as usual — that is an ordinary event, and resets nothing.
+ *
+ * Synchronous and never throws: sign-in and sign-out must not fail on analytics.
  */
 export function setVisitor(dto: Omit<UpdateVisitorDTO, 'tags'>) {
-  if (dto.user_id && dto.user_id !== identified) {
+  if (!dto.user_id) {
+    identified = undefined;
+  } else if (dto.user_id !== identified) {
     identified = dto.user_id;
     track(IDENTIFY_EVENT, { user_id: dto.user_id }, { enableThirdPartyTracking: false });
   }
 
   // Once bound, the server's person key for the visitor is the user's id, so the setters are told
   // that rather than waiting for the server to say it.
-  const identity = { ...dto, distinct_id: dto.user_id ?? null };
+  const identity = { ...dto, distinct_id: dto.user_id || null };
   config.thirdPartyUserSetters.forEach((setter) => {
     try {
       setter(identity);

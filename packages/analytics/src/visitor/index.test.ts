@@ -45,9 +45,14 @@ describe('visitorId', () => {
     expect(visitorId()).toBe('0199e7a0-0000-7000-8000-000000000001');
   });
 
-  it("does not take a stored 'undefined' for an id", async () => {
-    const { visitorId } = await load({ visitor_id: 'undefined' });
-    expect(visitorId()).toMatch(uuidv7);
+  it("replaces a stored 'undefined' with a new id, in storage too", async () => {
+    const { visitorId, storage } = await load({ visitor_id: 'undefined' });
+
+    const id = visitorId();
+
+    expect(id).toMatch(uuidv7);
+    expect(storage.map.get('visitor_id')).toBe(id);
+    expect(visitorId()).toBe(id);
   });
 });
 
@@ -95,6 +100,41 @@ describe('setVisitor', () => {
 
     expect(track).not.toHaveBeenCalled();
     expect(setter).toHaveBeenCalledWith({ user_data: { email: 'a@b.co' }, distinct_id: null });
+  });
+
+  it('signs out on setVisitor({}), so the same user signing back in is identified again', async () => {
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { setVisitor, config, IDENTIFY_EVENT } = await load();
+    config.thirdPartyUserSetters = [setter];
+
+    setVisitor({ user_id: 'a' });
+    expect(track).toHaveBeenCalledTimes(1);
+
+    setVisitor({});
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(setter).toHaveBeenLastCalledWith({ distinct_id: null });
+
+    setVisitor({ user_id: 'a' });
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenLastCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'a' },
+      { enableThirdPartyTracking: false }
+    );
+  });
+
+  it('takes an empty user_id for sign-out too', async () => {
+    const user_id = '';
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { setVisitor, config } = await load();
+    config.thirdPartyUserSetters = [setter];
+
+    setVisitor({ user_id: 'a' });
+    setVisitor({ user_id });
+    setVisitor({ user_id: 'a' });
+
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(setter).toHaveBeenNthCalledWith(2, { user_id, distinct_id: null });
   });
 
   it('never throws: a setter that throws does not stop the others', async () => {

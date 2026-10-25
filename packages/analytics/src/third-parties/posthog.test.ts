@@ -25,10 +25,10 @@ describe('sendPosthogEvent', () => {
     expect(reset).not.toHaveBeenCalled();
   });
 
-  it('resets the posthog identity after a logout event', () => {
+  it('captures a logout like any other event, without resetting the identity', () => {
     sendPosthogEvent('logout', undefined);
     expect(capture).toHaveBeenCalledWith('logout', undefined);
-    expect(reset).toHaveBeenCalledTimes(1);
+    expect(reset).not.toHaveBeenCalled();
   });
 
   it('drops web vitals', () => {
@@ -64,5 +64,14 @@ describe('setPosthogUser', () => {
     identify.mockClear();
     setPosthogUser({ distinct_id: 'v1', tags: {} });
     expect(identify).not.toHaveBeenCalled();
+  });
+
+  it('resets the posthog identity on sign-out: a setVisitor without a user', () => {
+    setPosthogUser({ distinct_id: null });
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(identify).not.toHaveBeenCalled();
+
+    setPosthogUser({ distinct_id: 'u1', user_id: 'u1' });
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 });

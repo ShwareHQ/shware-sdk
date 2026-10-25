@@ -154,6 +154,8 @@ function Button() {
 }
 ```
 
+On sign-out, call `setVisitor({})` (and `track('logout')` as usual): it clears the identity this page sent, resets PostHog, and makes the next sign-in identify again, even as the same user.
+
 ### Typed events and strict event names
 
 An application types its own events, and adds properties to GA4's standard ones, by declaration merging into `CustomEventProperties` (see its doc comment). By default an event declared nowhere still compiles, with open properties, so `track('purchse', …)` or `track('begin_checkout ', …)` (a trailing space) quietly becomes a new event.
