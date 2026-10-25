@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { useTrackImpression } from '../../hooks/use-track-impression';
-import { sendBeacon, track, trackAsync } from '../index';
+import { sendBeacon, track } from '../index';
 import { trackOnce } from '../once';
 import type { TrackProperties } from '../types';
 
@@ -35,7 +35,6 @@ describe('strict on', () => {
       track('plan_changed', { direction: 'upgrade' });
       track('account_deleted');
       trackOnce('plan_changed', { direction: 'downgrade' }, { key: 'k' });
-      void trackAsync('begin_checkout', { currency: 'USD', value: 129, items: [] });
       sendBeacon('page_view');
       useTrackImpression('view_item', { currency: 'USD', value: 1, items: [] });
     };
@@ -64,8 +63,6 @@ describe('strict on', () => {
       track('some_other_event');
       // @ts-expect-error declared nowhere.
       trackOnce('some_other_event', undefined, { key: 'k' });
-      // @ts-expect-error declared nowhere.
-      void trackAsync('some_other_event');
       // @ts-expect-error declared nowhere.
       sendBeacon('some_other_event');
       // @ts-expect-error declared nowhere.

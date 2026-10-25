@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { useTrackImpression } from '../hooks/use-track-impression';
-import { sendBeacon, track, trackAsync } from './index';
+import { sendBeacon, track } from './index';
 import { trackOnce } from './once';
 
 /**
@@ -20,7 +20,6 @@ describe('strict off (the default)', () => {
       track('purchse');
       track('begin_checkout ');
       trackOnce('anything', { a: 1 }, { key: 'k' });
-      void trackAsync('anything', { a: true });
       sendBeacon('anything', { a: null });
       useTrackImpression('anything', { a: 'b' });
     };
