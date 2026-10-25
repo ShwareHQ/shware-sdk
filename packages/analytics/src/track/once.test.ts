@@ -14,7 +14,8 @@ async function load(overrides: Partial<Options> = {}) {
   const setup = await import('../setup/index');
   setup.setupAnalytics(baseOptions({ storage, ...overrides }));
   const { trackOnce } = await import('./once');
-  return { storage, jsonResponse, trackOnce, config: setup.config };
+  const { sendPendingEvents } = await import('./index');
+  return { storage, jsonResponse, trackOnce, sendPendingEvents, config: setup.config };
 }
 
 function respondWithIds() {
@@ -177,6 +178,47 @@ describe('trackOnce', () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(pixel).toHaveBeenCalledTimes(1);
     expect(sentIds()).toEqual([id]);
+  });
+
+  it('leaves a key sent by beacon unsent, and sends it again under its id on the next page', async () => {
+    const beacon = vi.fn<Navigator['sendBeacon']>(() => true);
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    const first = await load();
+    const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
+    first.config.thirdPartyTrackers = [pixel];
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
+
+    first.trackOnce('purchase', purchase, { key: 'cs_1', onSucceed });
+    const [, , id] = pixel.mock.calls[0];
+    first.sendPendingEvents(); // the page is hidden before the batch went out
+    const [, blob] = beacon.mock.calls[0] as unknown as [string, Blob];
+    const beaconed = JSON.parse(await blob.text()) as { name: string; id: string }[];
+    expect(beaconed.find((event) => event.name === 'purchase')?.id).toBe(id);
+    expect(onSucceed).toHaveBeenCalledWith({ id, beacon: true });
+    // Queued by the browser, not confirmed: still unsent, under the same id.
+    expect(stored(first.storage)?.entries.map(([key, eid, , sent]) => [key, eid, sent])).toEqual([
+      ['cs_1', id, false],
+    ]);
+
+    // The result page is opened again: a fresh module graph on the same storage.
+    vi.clearAllTimers();
+    vi.setSystemTime(new Date('2026-01-01T00:00:01Z'));
+    vi.resetModules();
+    const { baseOptions } = await import('../test/setup');
+    const setup = await import('../setup/index');
+    setup.setupAnalytics(baseOptions({ storage: first.storage }));
+    setup.config.thirdPartyTrackers = [pixel];
+    const { trackOnce } = await import('./once');
+    respondWithIds();
+
+    expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(pixel).toHaveBeenCalledTimes(1);
+    expect(sentIds()).toEqual([id]);
+    expect(stored(first.storage)?.entries.map(([key, eid, , sent]) => [key, eid, sent])).toEqual([
+      ['cs_1', id, true],
+    ]);
+    expect(trackOnce('purchase', purchase, { key: 'cs_1' })).toBe(false);
   });
 
   it('gives each key its own id', async () => {

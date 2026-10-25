@@ -116,7 +116,13 @@ function clearPending(name: string, key: string) {
  * The key is marked sent in `config.storage` only once the event has been sent (`onSucceed`), so a
  * send that fails is tried again by the next call instead of being lost — under the same event id,
  * so the third-party trackers fired by the first call are not fired again (see `VERSION`); within
- * one page a key already queued is not queued twice. When the storage cannot be read or written
+ * one page a key already queued is not queued twice.
+ *
+ * An event that leaves by beacon (`sendPendingEvents`, the page hidden or left) is not marked
+ * sent: a beacon cannot tell delivered from dropped, so it counts as unconfirmed and the entry
+ * stays unsent with its id. The next call for the key — the result page opened again — sends the
+ * event once more under that id and without pixels, which the server ignores when the beacon did
+ * arrive (it drops an event id it already has): one idempotent request more, against a lost one. When the storage cannot be read or written
  * the event is tracked anyway: a rare duplicate is better than a lost conversion.
  *
  * Deduplication is per device and storage. A second device still reports its own occurrence, so
@@ -153,6 +159,12 @@ export function trackOnce<T extends EventName = EventName>(
       ...options,
       onSucceed: (response) => {
         clearPending(name, key);
+        // A beacon was only queued by the browser: the entry stays unsent, so a later call
+        // sends it again under the same id.
+        if (response?.beacon) {
+          options.onSucceed?.(response);
+          return;
+        }
         try {
           const entries = live(read(name), Date.now()).filter((entry) => entry.key !== key);
           write(name, [...entries, { key, id, expiresAt: Date.now() + ttl, sent: true }]);
