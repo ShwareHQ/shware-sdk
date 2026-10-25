@@ -28,6 +28,7 @@ export type {
   TrackTags,
   TrackProperties,
   CustomEventProperties,
+  AnalyticsOptions,
   AllowedPropertyValues,
   UserProvidedData,
   UTMParams,

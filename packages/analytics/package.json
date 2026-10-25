@@ -157,7 +157,7 @@
   },
   "scripts": {
     "dev": "tsc --watch",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc --noEmit -p src/track/strict-event-names",
     "test": "vitest run --passWithNoTests",
     "lint": "oxlint --type-aware . --fix",
     "build": "tsdown"
