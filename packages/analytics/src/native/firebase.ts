@@ -4,12 +4,16 @@ import type { EventName, TrackName, TrackProperties } from '../track/types';
 
 const analytics = getAnalytics();
 
-export async function sendFirebaseEvent<T extends EventName>(
+/**
+ * A `ThirdPartyTracker` for Firebase Analytics. Synchronous: @react-native-firebase/analytics 26
+ * made the modular `logEvent` fire-and-forget (void), and a tracker's return is `void | boolean`
+ * (`false` meaning "not ready"), which an `async` function's promise would not satisfy. Callers
+ * that still `await` it keep compiling.
+ */
+export function sendFirebaseEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  // @react-native-firebase/analytics 26 made the modular logEvent fire-and-forget (void).
-  // sendFirebaseEvent stays async so callers that await it keep compiling.
   if (name === 'screen_view') {
     logEvent(analytics, 'screen_view', {
       firebase_screen: (properties as StandardEvents['screen_view'] | undefined)?.screen_name,
