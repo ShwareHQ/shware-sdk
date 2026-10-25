@@ -1,5 +1,11 @@
 # @shware/security
 
+## 6.1.2
+
+### Patch Changes
+
+- 1543c2c: Treat WeChat HTTP 200 `{ errcode, errmsg }` bodies on the token, refresh and user info endpoints as `OAuth2Error`s mapped to standard OAuth2 error codes, instead of returning them as tokens or user info.
+
 ## 6.1.1
 
 ### Patch Changes
