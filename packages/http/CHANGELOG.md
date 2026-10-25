@@ -1,5 +1,12 @@
 # @shware/http
 
+## 4.0.1
+
+### Patch Changes
+
+- Updated dependencies [214e552]
+  - @shware/utils@2.0.0
+
 ## 4.0.0
 
 ### Major Changes

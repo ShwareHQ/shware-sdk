@@ -1,5 +1,12 @@
 # @shware/security
 
+## 6.2.1
+
+### Patch Changes
+
+- Updated dependencies [214e552]
+  - @shware/utils@2.0.0
+
 ## 6.2.0
 
 ### Minor Changes
