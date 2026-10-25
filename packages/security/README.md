@@ -164,6 +164,8 @@ handy for a database enum.
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
 
 The session id is read from the cookie or from an `Authorization: Bearer <session id>` header.
+`logout` clears the cookie with the same attributes it was set with (`domain`, `path`, …), so a
+cookie set with `Domain=.example.com` is actually removed.
 
 Besides the route handlers, `Auth` exposes session helpers: `getPrincipal(request)`,
 `isAuthenticated(request)`, `getSession(request, create)`, `listSessions(principal)`,

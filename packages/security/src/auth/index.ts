@@ -218,7 +218,9 @@ export class Auth implements AuthService {
     const sessionId = this.getSessionId(request);
     if (sessionId) await this.repository.deleteById(sessionId);
     const response = Response.json({});
-    deleteCookie(response, this.cookieName);
+    // A Set-Cookie only replaces the stored cookie when Domain and Path match (RFC 6265),
+    // so clear it with the same attributes it was set with.
+    deleteCookie(response, this.cookieName, this.cookieOptions);
     return response;
   };
 
