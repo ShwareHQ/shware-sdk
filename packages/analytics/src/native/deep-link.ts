@@ -1,6 +1,7 @@
 import { AppState, Linking } from 'react-native';
 import type { DeepLink } from '../setup/index';
 import type { TrackTags, UTMParams } from '../track/types';
+import { redactUrl } from '../utils/redact-url';
 
 /**
  * The link that opened the app for this visit, the app's landing page: `getTags` merges its URL
@@ -69,7 +70,7 @@ export const deepLink: DeepLink & {
     if (!openUrl) return {};
     const at = openUrl.indexOf('?');
     const params = new URLSearchParams(at === -1 ? '' : openUrl.slice(at + 1).split('#')[0]);
-    const tags: TrackTags = { page_location: openUrl };
+    const tags: TrackTags = { page_location: redactUrl(openUrl) };
     for (const key of UTM_KEYS) {
       const value = params.get(key);
       if (value !== null) tags[key] = value;
