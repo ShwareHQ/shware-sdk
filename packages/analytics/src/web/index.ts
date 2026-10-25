@@ -79,13 +79,18 @@ const links = new Map<string, Promise<Link | null>>();
 function getCachedLink(id: string) {
   const cached = links.get(id);
   if (cached) return cached;
-  const link = getLink(id).then((result) => {
-    // A lookup that came back empty must not stick for the lifetime of the page. `getLink`
-    // answers null for a network failure as well as for a link that does not exist, and losing
-    // the link's utm params for every later event costs more than repeating a rare request.
-    if (!result) links.delete(id);
-    return result;
-  });
+  const link = getLink(id).then(
+    // `null` is the server saying the id names no link (a 4xx) and stays cached: an unknown `?s=`
+    // would otherwise put a request on the wire for every event of the page.
+    (result) => result,
+    (e: unknown) => {
+      // A 5xx or a network failure says nothing about the link, and losing its utm params for
+      // every later event costs more than repeating a rare request: forget it, try again next time.
+      if (e instanceof Error) console.error(e.message);
+      links.delete(id);
+      return null;
+    }
+  );
   links.set(id, link);
   return link;
 }
