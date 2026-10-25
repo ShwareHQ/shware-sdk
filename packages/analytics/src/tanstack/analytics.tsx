@@ -4,7 +4,7 @@ import { useReportWebVitals } from '../hooks/use-report-web-vitals';
 import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import type { PixelId as MetaPixelId } from '../track/fbq';
-import type { GaId, GtmId } from '../track/gtag';
+import type { GaId } from '../track/gtag';
 import { track } from '../track/index';
 import type { PixelId as RedditPixelId } from '../track/rdt';
 import type { UETConsent } from '../track/uetq';
@@ -12,7 +12,6 @@ import type { UETConsent } from '../track/uetq';
 interface Props {
   gaId?: GaId;
   gaSrc?: string;
-  gtmId?: GtmId;
   metaPixelId?: MetaPixelId;
   openaiPixelId?: string;
   redditPixelId?: RedditPixelId;
@@ -102,6 +101,7 @@ export function Analytics({
         <script
           async
           id="meta-pixel"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
             !(function (f, b, e, v, n, t, s) {
@@ -129,6 +129,7 @@ export function Analytics({
         <script
           async
           id="openai-pixel"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               (function (w, d, s, u) {
@@ -155,6 +156,7 @@ export function Analytics({
         <script
           async
           id="reddit-pixel"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
             !function(w,d) {
@@ -179,6 +181,7 @@ export function Analytics({
         <script
           async
           id="linkedin-insight-tag"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
             _linkedin_partner_id = "${linkedInPartnerId}";
@@ -206,6 +209,7 @@ export function Analytics({
         <script
           async
           id="uet-tag"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               (function (w, d, t, u, o) {
@@ -233,6 +237,7 @@ export function Analytics({
         <script
           async
           id="hotjar"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
             (function(h,o,t,j,a,r){

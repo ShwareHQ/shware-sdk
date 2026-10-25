@@ -109,7 +109,7 @@ so screen changes are tracked as page views.
 
 Each web framework entry exports an `Analytics` component. Render it once in the document head:
 it tracks page views, outbound clicks and web vitals, and loads the pixels whose ids you pass
-(`gaId`, `gtmId`, `metaPixelId`, `redditPixelId`, `linkedInPartnerId`, `uetTagId`, `hotjarId`,
+(`gaId`, `metaPixelId`, `redditPixelId`, `linkedInPartnerId`, `uetTagId`, `hotjarId`,
 and on TanStack Start `openaiPixelId`). On TanStack Start:
 
 ```tsx
@@ -120,6 +120,11 @@ import { Analytics } from '@shware/analytics/tanstack';
   <Analytics nonce={nonce} gaId="G-XXXXXXXXXX" debugMode={import.meta.env.DEV} />
 </head>;
 ```
+
+Under a nonce-based Content Security Policy, pass the request's `nonce`: it is set on every
+`<script>` the component renders (the gtag loader and every pixel's inline snippet). The snippets
+then load each vendor's script from its own host, so those hosts still need to be allowed in
+`script-src` unless the policy uses `'strict-dynamic'`.
 
 On TanStack Start, also register the click-id middleware so the ad platforms' first-party cookies
 survive Safari's 7-day cap (see [Keeping the cookies past Safari's limits](#keeping-the-cookies-past-safaris-limits-tanstack-start)):
