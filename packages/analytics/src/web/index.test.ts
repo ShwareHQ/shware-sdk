@@ -236,15 +236,34 @@ describe('getTags', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('retries a link lookup that came back empty', async () => {
+  it('remembers that an id names no link, instead of asking again for every event', async () => {
     const { getTags, jsonResponse } = await load();
     window.history.replaceState(null, '', '/?s=abc');
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse('gone', 404))
-      .mockResolvedValue(jsonResponse(link({ utm_source: 'recovered' })));
+    fetchMock.mockResolvedValue(jsonResponse('gone', 404));
 
     expect((await getTags()).utm_source).toBeUndefined();
+    expect((await getTags()).utm_source).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a link lookup that failed for a reason other than the link', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { getTags, jsonResponse } = await load();
+    window.history.replaceState(null, '', '/?s=abc');
+    // The first lookup fails outright: the retrying `fetch` sees a 503 on every attempt.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValue(jsonResponse(link({ utm_source: 'recovered' })));
+
+    const first = getTags();
+    await vi.advanceTimersByTimeAsync(10_000); // ride out the retry backoff
+    expect((await first).utm_source).toBeUndefined();
     expect((await getTags()).utm_source).toBe('recovered');
+    vi.useRealTimers();
   });
 });
 

@@ -29,20 +29,33 @@ describe('getLink', () => {
     expect(fetchMock).toHaveBeenCalledWith('https://api.test/links/l1', expect.anything());
   });
 
-  it('answers null for a rejected lookup', async () => {
+  it('answers null for a 4xx: the id names no link', async () => {
     const { getLink, jsonResponse } = await load();
     fetchMock.mockResolvedValue(jsonResponse('missing', 404));
     await expect(getLink('gone')).resolves.toBeNull();
   });
 
-  it('answers null for a network failure, after the retry wrapper gives up', async () => {
+  it('throws for a 5xx: the link may exist', async () => {
+    vi.useFakeTimers();
+    const { getLink, jsonResponse } = await load();
+    fetchMock.mockResolvedValue(jsonResponse('down', 503));
+
+    const pending = getLink('l1');
+    pending.catch(() => {});
+    await vi.advanceTimersByTimeAsync(10_000); // ride out the retry backoff
+    await expect(pending).rejects.toThrow('503');
+    vi.useRealTimers();
+  });
+
+  it('throws for a network failure, after the retry wrapper gives up', async () => {
     vi.useFakeTimers();
     const { getLink } = await load();
     fetchMock.mockRejectedValue(new Error('offline'));
 
     const pending = getLink('gone');
+    pending.catch(() => {});
     await vi.advanceTimersByTimeAsync(10_000); // ride out the retry backoff
-    await expect(pending).resolves.toBeNull();
+    await expect(pending).rejects.toThrow('offline');
     vi.useRealTimers();
   });
 });
