@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 13.0.2
+
+### Patch Changes
+
+- e7d8d29: `createFeedbackSchema` trims and lower-cases `email` before validating it (max 320), the same normalization the user-provided-data schema applies, so hosts no longer need to extend the schema to store a normalized address.
+
 ## 13.0.1
 
 ### Patch Changes
