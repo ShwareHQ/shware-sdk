@@ -566,7 +566,7 @@ describe('sendPendingEvents', () => {
     const sent = await beaconed(0);
     expect(sent.map((e) => e.name)).toEqual(['session_start', 'page_view']);
     expect(sent[0]).toMatchObject({ tags: { utm_source: 'google' }, visitor_id: 'visitor-1' });
-    expect(onSucceed).toHaveBeenCalledWith({ id: sent[1].id });
+    expect(onSucceed).toHaveBeenCalledWith({ id: sent[1].id, beacon: true });
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchMock).not.toHaveBeenCalled();
   });

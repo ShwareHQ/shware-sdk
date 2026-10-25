@@ -18,9 +18,11 @@ export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
   /**
    * Called once the server (or a beacon) has taken the event, with the event's id: the one
-   * generated when it was tracked, which the third-party trackers were given too.
+   * generated when it was tracked, which the third-party trackers were given too. `beacon` is
+   * set when the event went by `sendPendingEvents`: the browser queued it, but a beacon cannot
+   * tell delivered from dropped, so it is taken, not confirmed.
    */
-  onSucceed?: (response?: TrackEventResponse[number]) => void;
+  onSucceed?: (response?: TrackEventResponse[number] & { beacon?: true }) => void;
   onError?: (error: unknown) => void;
 }
 
@@ -314,7 +316,7 @@ export function sendPendingEvents() {
     clearTimeout(timer);
     timer = null;
   }
-  list.splice(0).forEach((event) => event.options.onSucceed?.({ id: event.id }));
+  list.splice(0).forEach((event) => event.options.onSucceed?.({ id: event.id, beacon: true }));
 }
 
 export function sendBeacon<T extends EventName = EventName>(
