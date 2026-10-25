@@ -64,15 +64,19 @@ export const getCredentials = once(async () => {
 `fetch(input, init)` wraps the global `fetch` with exponential backoff (25% jitter) and honors
 `Retry-After`. Besides `RequestInit` it accepts `RetryOptions`:
 
-| Option           | Default                | Description                                 |
-| ---------------- | ---------------------- | ------------------------------------------- |
-| `retries`        | `3`                    | Retries after the first attempt             |
-| `delayFactor`    | `500`                  | Base delay in ms, doubled on every retry    |
-| `maxDelay`       | `30_000`               | Upper bound for a single delay in ms        |
-| `retryCondition` | 408, 429 or 5xx status | `(response) => boolean \| Promise<boolean>` |
+| Option           | Default                                                      | Description                                 |
+| ---------------- | ------------------------------------------------------------ | ------------------------------------------- |
+| `retries`        | `3` for GET, HEAD, PUT, DELETE, OPTIONS; `0` for POST, PATCH | Retries after the first attempt             |
+| `delayFactor`    | `500`                                                        | Base delay in ms, doubled on every retry    |
+| `maxDelay`       | `30_000`                                                     | Upper bound for a single delay in ms        |
+| `retryCondition` | 408, 429, 500, 502, 503 or 504 status                        | `(response) => boolean \| Promise<boolean>` |
 
-Network errors are retried too; after the last attempt the last response is returned (or the
-last error thrown).
+Network errors are retried too, under the same `retries`; after the last attempt the last response
+is returned (or the last error thrown). Only the idempotent methods are retried by default (RFC 9110
+§9.2.2): a POST whose answer was lost may already have run on the server. Pass `retries` for a POST
+the server deduplicates — one carrying a client-generated id or an `Idempotency-Key` header, which
+is the caller's to choose, since it names the business operation being repeated. A request whose
+body is a `ReadableStream` is never retried.
 
 ```ts
 import { fetch } from '@shware/utils';

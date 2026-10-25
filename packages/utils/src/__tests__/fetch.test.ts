@@ -31,8 +31,8 @@ describe('fetch', () => {
     expect(response.status).toBe(200);
   });
 
-  it('should retry 408, 429 and 5xx by default', async () => {
-    for (const status of [408, 429, 500, 503]) {
+  it('should retry 408, 429, 500, 502, 503 and 504 by default', async () => {
+    for (const status of [408, 429, 500, 502, 503, 504]) {
       const spy = mockFetch([json({}, status), json({ ok: true })]);
       const response = await fetch('https://example.com', { delayFactor: 0 });
 
@@ -48,6 +48,71 @@ describe('fetch', () => {
 
     expect(spy).toHaveBeenCalledTimes(1);
     expect(response.status).toBe(400);
+  });
+
+  it('should not retry 501, 505 or 511: another attempt will not change them', async () => {
+    for (const status of [501, 505, 511]) {
+      const spy = mockFetch([json({}, status), json({ ok: true })]);
+      const response = await fetch('https://example.com', { delayFactor: 0 });
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(response.status).toBe(status);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('should not retry a POST by default, neither a 503 nor a network error', async () => {
+    let spy = mockFetch([json({}, 503), json({ ok: true })]);
+    const response = await fetch('https://example.com', {
+      method: 'POST',
+      body: '{}',
+      delayFactor: 0,
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(503);
+    vi.unstubAllGlobals();
+
+    spy = mockFetch([new Error('offline'), json({ ok: true })]);
+    await expect(
+      fetch('https://example.com', { method: 'post', body: '{}', delayFactor: 0 })
+    ).rejects.toThrow('offline');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should retry a POST when the caller asks for it', async () => {
+    const spy = mockFetch([json({}, 503), new Error('offline'), json({ ok: true })]);
+    const response = await fetch('https://example.com', {
+      method: 'POST',
+      body: '{}',
+      retries: 3,
+      delayFactor: 0,
+    });
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(response.status).toBe(200);
+  });
+
+  it('should retry the idempotent methods of a Request object by default', async () => {
+    const spy = mockFetch([json({}, 503), json({ ok: true })]);
+    const response = await fetch(new Request('https://example.com', { method: 'DELETE' }), {
+      delayFactor: 0,
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(response.status).toBe(200);
+  });
+
+  it('should never retry a ReadableStream body, even when asked', async () => {
+    const spy = mockFetch([json({}, 503), json({ ok: true })]);
+    const body = new ReadableStream({ start: (c) => (c.enqueue(new Uint8Array([1])), c.close()) });
+    const response = await fetch('https://example.com', {
+      method: 'PUT',
+      body,
+      // @ts-expect-error duplex is required by the fetch spec for a stream body, but not typed yet
+      duplex: 'half',
+      retries: 3,
+      delayFactor: 0,
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(503);
   });
 
   it('should call a custom condition for successful responses', async () => {
