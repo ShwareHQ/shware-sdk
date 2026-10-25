@@ -38,6 +38,15 @@ import type {
 // A 32-byte random verifier base64url-encodes to exactly 43 chars.
 const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
 
+// A native app's `code_verifier` goes on to the provider, which checks it against the challenge
+// the app sent: accept the whole RFC 7636 unreserved set here, as the provider does.
+const CODE_VERIFIER_FORMAT = /^[A-Za-z0-9._~-]{43,128}$/;
+
+const INVALID_CODE_VERIFIER = {
+  error: 'invalid_request',
+  error_description: 'code_verifier must be 43-128 characters from [A-Za-z0-9-._~]',
+};
+
 // error_description forwarded to errorUri comes from the provider or an error message: cap it so
 // the redirect URL stays short and an attacker-crafted callback cannot stuff the page with text.
 const MAX_ERROR_DESCRIPTION_LENGTH = 256;
@@ -466,6 +475,13 @@ export class Auth implements AuthService {
     if (!attributes) return Response.json(INVALID_ATTRIBUTES, { status: 400 });
     // Only the credentials go on to the provider client.
     const { attributes: _, ...credentials } = body as NativeCredential & { attributes?: unknown };
+    const { code_verifier } = credentials as { code_verifier?: unknown };
+    if (
+      code_verifier !== undefined &&
+      (typeof code_verifier !== 'string' || !CODE_VERIFIER_FORMAT.test(code_verifier))
+    ) {
+      return Response.json(INVALID_CODE_VERIFIER, { status: 400 });
+    }
     const { clientId, userInfo, token } = await this.oauth2Client.loginOAuth2Native({
       provider,
       credentials,

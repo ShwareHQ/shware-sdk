@@ -370,7 +370,7 @@ export async function onAuthorized(request: Request, { attributes }: Authorizati
 
 Mobile apps sign in with the platform SDK and post the result to
 `POST /login/oauth2/native/:provider`. The body is a `NativeCredential`
-(`{ id_token?, access_token?, code?, state?, client_id?, redirect_uri?, fullName? }`); `client_id`
+(`{ id_token?, access_token?, code?, code_verifier?, state?, client_id?, redirect_uri?, fullName? }`); `client_id`
 picks the client (see [Providers and clients](#providers-and-clients)). `loginOAuth2Native`
 verifies it with the provider, calls `onAuthorized`, creates a session and returns the
 `Principal` as JSON with the session cookie.
@@ -386,6 +386,67 @@ await fetch(`${api}/login/oauth2/native/apple`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ code: authorizationCode, fullName: credential.fullName }),
+});
+```
+
+#### PKCE for a native authorization code
+
+When the app runs the authorization code flow itself (Google's installed-app clients, redirecting
+to a custom scheme), it must use PKCE (RFC 8252 §8.1): those clients have no secret, and on
+Android any app can register the same scheme and receive the code. The app:
+
+1. generates a `code_verifier`, 43-128 characters from the RFC 7636 unreserved set
+   `[A-Za-z0-9-._~]` (32 random bytes, base64url-encoded, give 43), and its S256
+   `code_challenge = base64url(sha256(code_verifier))`, plus a random `state`;
+2. opens the authorize URL with `code_challenge` and `code_challenge_method=S256`;
+3. on the redirect, checks that `state` is the one it sent before using `code`;
+4. posts `code_verifier` with the `code` to `/login/oauth2/native/:provider`.
+
+`loginOAuth2Native` hands `code_verifier` to the provider's token exchange (Google refuses the
+code without the matching verifier) and answers `400 invalid_request` when it is not 43-128
+unreserved characters. Providers whose token endpoint takes no verifier (Apple) leave it out.
+Without `code_verifier` the exchange runs as before. With expo-crypto and expo-web-browser:
+
+```ts
+import * as Crypto from 'expo-crypto';
+import * as WebBrowser from 'expo-web-browser';
+
+const base64url = (base64: string) =>
+  base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+const codeVerifier = base64url(btoa(String.fromCharCode(...Crypto.getRandomBytes(32))));
+const codeChallenge = base64url(
+  await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, codeVerifier, {
+    encoding: Crypto.CryptoEncoding.BASE64,
+  })
+);
+const state = Crypto.randomUUID();
+
+const authorize = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+authorize.search = new URLSearchParams({
+  client_id: clientId, // the iOS / Android client
+  redirect_uri: redirectUri, // its custom scheme
+  response_type: 'code',
+  scope: 'openid email profile',
+  state,
+  code_challenge: codeChallenge,
+  code_challenge_method: 'S256',
+}).toString();
+
+const result = await WebBrowser.openAuthSessionAsync(authorize.href, redirectUri);
+if (result.type !== 'success') return;
+const params = new URL(result.url).searchParams;
+if (params.get('state') !== state) throw new Error('OAuth2 state mismatch');
+
+await fetch(`${api}/login/oauth2/native/google`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    code: params.get('code'),
+    code_verifier: codeVerifier,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+  }),
 });
 ```
 

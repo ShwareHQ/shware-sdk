@@ -193,6 +193,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** A PKCE verifier using every kind of RFC 7636 unreserved character. */
+const CODE_VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk.~';
+
 describe('Sign in with Apple: app and web under one provider', () => {
   it('native: exchanges as the bundle id, with the secret minted for it', async () => {
     issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_APP });
@@ -209,6 +212,17 @@ describe('Sign in with Apple: app and web under one provider', () => {
     expect(body.get('client_id')).toBe(APPLE_APP);
     expect(body.get('client_secret')).toBe(`secret-for-${APPLE_APP}`);
     expect(handler.mock.calls[0]?.[1]).toMatchObject({ provider: 'apple', clientId: APPLE_APP });
+  });
+
+  it('native: leaves a code_verifier out of the exchange, as Apple takes none', async () => {
+    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_APP });
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/apple', { code: 'c0de', code_verifier: CODE_VERIFIER }),
+      handler
+    );
+
+    expect(response.status).toBe(200);
+    expect(tokenRequests()[0]?.has('code_verifier')).toBe(false);
   });
 
   it('web: redirects and exchanges as the Services ID, and reports the provider', async () => {
@@ -390,7 +404,45 @@ describe('Google', () => {
     const body = tokenRequests()[0];
     expect(body.get('client_id')).toBe(GOOGLE_IOS);
     expect(body.has('client_secret')).toBe(false);
+    expect(body.has('code_verifier')).toBe(false);
     expect(handler.mock.calls[0]?.[1]).toMatchObject({ provider: 'google', clientId: GOOGLE_IOS });
+  });
+
+  it('native: sends the PKCE code_verifier the app posted with the code', async () => {
+    issuedIdToken = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_ANDROID });
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/google', {
+        code: 'c0de',
+        client_id: GOOGLE_ANDROID,
+        code_verifier: CODE_VERIFIER,
+      }),
+      handler
+    );
+
+    expect(response.status).toBe(200);
+    const body = tokenRequests()[0];
+    expect(body.get('code_verifier')).toBe(CODE_VERIFIER);
+    expect(body.get('code')).toBe('c0de');
+  });
+
+  it.each([
+    ['too short', 'a'.repeat(42)],
+    ['too long', 'a'.repeat(129)],
+    ['outside the unreserved set', `${'a'.repeat(42)}+`],
+    ['not a string', 12345],
+  ])('native: refuses a code_verifier %s, before calling Google', async (_, code_verifier) => {
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/google', {
+        code: 'c0de',
+        client_id: GOOGLE_IOS,
+        code_verifier,
+      }),
+      handler
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: 'invalid_request' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('native: accepts the web client by name, with its secret (Android server auth code)', async () => {
