@@ -523,8 +523,10 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
   `?status=error&error=access_denied&reason=<REASON>&<metadata…>` when the error carries a `reason`
   (plus optional string `metadata`) or a google.rpc `ErrorInfo` body such as `@shware/http`'s
   `StatusError`; see `refusalOf`. Other failures stay `server_error` with the details in the logs.
-- `claims.email_verified` is set only by providers that state it (Google, Apple, GitHub); Facebook
-  and X leave it unset. Trust an address only when it is `true`.
+- `claims.email_verified` is set only by providers that state it (Google, Apple, GitHub, and X
+  when it returns `confirmed_email`); Facebook leaves it unset. Trust an address only when it is
+  `true`. X hands out the address only with the `users.email` scope (in the default scope) and
+  "Request email from users" enabled on the app in the X developer console.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
   `provider: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 

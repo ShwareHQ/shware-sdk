@@ -186,7 +186,8 @@ export interface StandardClaims {
   email?: string;
   /**
    * Set only by providers that state it (Google, Apple, GitHub from the primary address's
-   * `verified` flag); Facebook and X leave it unset. Trust the address only when this is `true`.
+   * `verified` flag, X when it returns `confirmed_email`); Facebook leaves it unset. Trust the
+   * address only when this is `true`.
    */
   email_verified?: boolean;
   gender?: 'female' | 'male' | (string & {});
