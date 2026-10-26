@@ -124,6 +124,8 @@ export interface AuthService {
   ) => Promise<Response>;
 
   loginEmail: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
+  /** Checks a mailed code without signing in (verifying or changing a user's email); consumes it. */
+  verifyEmailCode: (email: string, verificationCode: string) => Promise<EmailCodeVerification>;
   loginPhone: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
 
   // session management
@@ -138,3 +140,8 @@ export interface AuthService {
   listSessions: (principal: Principal) => Promise<Session[]>;
   cleanupExpiredSessions: (cleanupCount?: number) => Promise<Response>;
 }
+
+/** `verifyEmailCode`'s answer: the code matched and is now spent, or why it did not. */
+export type EmailCodeVerification =
+  | { ok: true }
+  | { ok: false; error: 'INVALID_VERIFICATION_CODE' | 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED' };

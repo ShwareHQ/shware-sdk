@@ -27,6 +27,7 @@ import type {
   AuthConfig,
   AuthService,
   AuthorizedHandler,
+  EmailCodeVerification,
   LoggedHandler,
   OAuth2AuthorizationOptions,
 } from './types';
@@ -62,6 +63,55 @@ function safeErrorType(error: string, fallback: OAuth2ErrorType): OAuth2ErrorTyp
  * failure there (a rejected client, a user info request that failed) is the app's or the
  * provider's problem, which the user sees as `server_error`.
  */
+/** What a refused sign-in puts on errorUri: the reason, and the metadata entries as parameters. */
+export interface SignInRefusal {
+  reason: string;
+  metadata?: Record<string, string>;
+}
+
+const REASON_FORMAT = /^[A-Z][A-Z0-9_]{0,63}$/;
+const METADATA_KEY_FORMAT = /^[a-z][a-z0-9_]{0,31}$/;
+const MAX_METADATA_ENTRIES = 8;
+const MAX_METADATA_VALUE_LENGTH = 64;
+/** Parameters the callback sets itself; a refusal's metadata must not overwrite them. */
+const RESERVED_PARAMS = new Set(['status', 'error', 'error_description', 'reason']);
+
+/**
+ * The refusal an error thrown by the host's `onAuthorized` carries, if any. Two shapes are read:
+ * an error with a `reason` string (and optional `metadata` record), and a google.rpc error body
+ * (`error.body.error.details[]` with a `type.googleapis.com/google.rpc.ErrorInfo` entry, what
+ * `@shware/http`'s `StatusError` holds), so a host can throw the same error on the JSON routes and
+ * here. Only well-formed reasons and metadata make it onto the URL: an upper-case reason code,
+ * at most 8 short string entries with lower-case keys that do not clash with the callback's own.
+ */
+export function refusalOf(error: unknown): SignInRefusal | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const direct = error as { reason?: unknown; metadata?: unknown };
+  let reason: unknown = direct.reason;
+  let metadata: unknown = direct.metadata;
+  if (typeof reason !== 'string') {
+    const body = (error as { body?: unknown }).body as
+      | { error?: { details?: { '@type'?: string; reason?: unknown; metadata?: unknown }[] } }
+      | undefined;
+    const info = body?.error?.details?.find(
+      (d) => d['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo'
+    );
+    reason = info?.reason;
+    metadata = info?.metadata;
+  }
+  if (typeof reason !== 'string' || !REASON_FORMAT.test(reason)) return null;
+  const entries: Record<string, string> = {};
+  if (typeof metadata === 'object' && metadata !== null) {
+    for (const [key, value] of Object.entries(metadata as Record<string, unknown>)) {
+      if (Object.keys(entries).length >= MAX_METADATA_ENTRIES) break;
+      if (!METADATA_KEY_FORMAT.test(key) || RESERVED_PARAMS.has(key)) continue;
+      if (typeof value !== 'string' || value.length > MAX_METADATA_VALUE_LENGTH) continue;
+      entries[key] = value;
+    }
+  }
+  return { reason, metadata: entries };
+}
+
 const CALLBACK_ERROR_TYPES: ReadonlySet<OAuth2ErrorType> = new Set([
   'invalid_grant',
   'access_denied',
@@ -342,12 +392,22 @@ export class Auth implements AuthService {
     return response;
   };
 
-  private readonly redirect = (error: OAuth2ErrorType, description?: string): Response => {
+  private readonly redirect = (
+    error: OAuth2ErrorType,
+    description?: string,
+    refusal?: SignInRefusal
+  ): Response => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
     const uri = new URL(this.oauth2Client.errorUri);
     uri.searchParams.set('error', error);
     if (description) {
       uri.searchParams.set('error_description', description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH));
+    }
+    if (refusal) {
+      uri.searchParams.set('reason', refusal.reason);
+      for (const [key, value] of Object.entries(refusal.metadata ?? {})) {
+        uri.searchParams.set(key, value);
+      }
     }
     return Response.redirect(uri.href, 302);
   };
@@ -457,6 +517,14 @@ export class Auth implements AuthService {
         console.warn('OAuth2 callback failed', error);
         const type = CALLBACK_ERROR_TYPES.has(error.error) ? error.error : 'server_error';
         return this.redirect(type);
+      }
+      // A refusal the host's handler made on purpose (an email another account holds, a banned
+      // user, ...) is something the user can act on, so its reason reaches the page like the
+      // JSON routes' errorInfo does: `error=access_denied`, `reason`, and the metadata entries.
+      const refusal = refusalOf(error);
+      if (refusal) {
+        console.warn('OAuth2 sign-in refused', refusal);
+        return this.redirect('access_denied', undefined, refusal);
       }
       console.error('OAuth2 callback failed', error);
       return this.redirect('server_error');
@@ -668,17 +736,21 @@ export class Auth implements AuthService {
     }
   };
 
-  loginEmail = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
-    const { data, error } = valid(loginEmailSchema, await request.json());
-    if (error) return Response.json(error, { status: error.error.code });
-    const { email, verificationCode, attributes } = data;
-
+  /**
+   * Checks a code `sendEmailVerificationCode` mailed to `email` without signing anyone in, for a
+   * host flow that only needs proof of the address (verifying or changing a signed-in user's
+   * email). Same rules and storage as `loginEmail`, which calls it: a code is single-use, lives
+   * `EMAIL_VERIFICATION_CODE_TTL` seconds, and is discarded after `verificationCode.maxAttempts`
+   * wrong guesses. A verified code is consumed, so it cannot be used to sign in afterwards.
+   */
+  verifyEmailCode = async (
+    email: string,
+    verificationCode: string
+  ): Promise<EmailCodeVerification> => {
     const key = this.getEmailVerificationCodeKey(email);
     const attemptsKey = this.getEmailVerificationAttemptsKey(email);
     const stored = await this.kv.getItem(key);
-    if (typeof stored !== 'string') {
-      return Response.json(invalidArgument('INVALID_VERIFICATION_CODE'), { status: 400 });
-    }
+    if (typeof stored !== 'string') return { ok: false, error: 'INVALID_VERIFICATION_CODE' };
 
     // Count the attempt before comparing: the atomic increment hands every request, parallel ones
     // included, a distinct count, so at most maxAttempts comparisons are ever made against a code.
@@ -687,17 +759,29 @@ export class Auth implements AuthService {
       // Only the code is discarded. The counter stays until it expires (or a new code is sent):
       // removing it would hand requests that already read the code a fresh budget.
       await this.kv.removeItem(key);
-      const error = invalidArgument('VERIFICATION_CODE_ATTEMPTS_EXCEEDED');
-      return Response.json(error, { status: error.error.code });
+      return { ok: false, error: 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED' };
     }
     if (
       stored.length !== verificationCode.length ||
       !timingSafeEqual(Buffer.from(stored), Buffer.from(verificationCode))
     ) {
-      return Response.json(invalidArgument('INVALID_VERIFICATION_CODE'), { status: 400 });
+      return { ok: false, error: 'INVALID_VERIFICATION_CODE' };
     }
     await this.kv.removeItem(key);
     await this.kv.removeItem(attemptsKey);
+    return { ok: true };
+  };
+
+  loginEmail = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
+    const { data, error } = valid(loginEmailSchema, await request.json());
+    if (error) return Response.json(error, { status: error.error.code });
+    const { email, verificationCode, attributes } = data;
+
+    const verified = await this.verifyEmailCode(email, verificationCode);
+    if (!verified.ok) {
+      const failure = invalidArgument(verified.error);
+      return Response.json(failure, { status: failure.error.code });
+    }
     const claims: StandardClaims = { sub: email, email, email_verified: true };
     const principal = await handler(request, {
       provider: 'EMAIL',

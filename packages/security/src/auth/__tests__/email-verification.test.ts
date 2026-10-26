@@ -142,6 +142,35 @@ describe('email verification code attempts', () => {
     expect(kv.store.has(ATTEMPTS_KEY)).toBe(false);
   });
 
+  it('verifies a sent code without signing in, and spends it', async () => {
+    const auth = createAuth();
+    await send(auth);
+
+    expect(await auth.verifyEmailCode(EMAIL, wrong(sentCode()))).toEqual({
+      ok: false,
+      error: 'INVALID_VERIFICATION_CODE',
+    });
+    expect(await auth.verifyEmailCode(EMAIL, sentCode())).toEqual({ ok: true });
+    expect(handler).not.toHaveBeenCalled();
+    expect(kv.store.has(CODE_KEY)).toBe(false);
+    expect(kv.store.has(ATTEMPTS_KEY)).toBe(false);
+    // Spent: the same code no longer signs in.
+    expect((await login(auth, sentCode())).status).toBe(400);
+  });
+
+  it('discards a code after maxAttempts wrong guesses through verifyEmailCode too', async () => {
+    const auth = createAuth({ maxAttempts: 2 });
+    await send(auth);
+
+    await auth.verifyEmailCode(EMAIL, wrong(sentCode()));
+    await auth.verifyEmailCode(EMAIL, wrong(sentCode()));
+    expect(await auth.verifyEmailCode(EMAIL, sentCode())).toEqual({
+      ok: false,
+      error: 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED',
+    });
+    expect(kv.store.has(CODE_KEY)).toBe(false);
+  });
+
   it('answers a wrong code with INVALID_VERIFICATION_CODE', async () => {
     const auth = createAuth();
     await send(auth);

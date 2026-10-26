@@ -79,7 +79,8 @@ export function createXProvider(options?: XOptions): Provider {
           name: profile.data.name,
           picture: profile.data.profile_image_url,
           email: profile.data.email,
-          email_verified: profile.data.verified ?? false,
+          // `profile.data.verified` is the account's blue check, not the address: X does not
+          // state whether the email is verified, so the claim is left unset (never trusted).
           preferred_username: profile.data.username,
           profile: `https://x.com/${profile.data.username}`,
           website: profile.data.url,

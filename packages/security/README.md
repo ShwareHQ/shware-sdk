@@ -515,6 +515,16 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 ```
 
 - `POST /auth/sendEmailVerificationCode` with `{ email, turnstileToken }`.
+- `auth.verifyEmailCode(email, code)` checks a mailed code without signing in and spends it:
+  `{ ok: true }` or `{ ok: false, error: 'INVALID_VERIFICATION_CODE' | 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED' }`.
+  For a host flow that only needs proof of the address (a signed-in user verifying or changing
+  their email); same storage and limits as `loginEmail`.
+- A refusal `onAuthorized` throws on the redirect flow reaches `errorUri` as
+  `?status=error&error=access_denied&reason=<REASON>&<metadata…>` when the error carries a `reason`
+  (plus optional string `metadata`) or a google.rpc `ErrorInfo` body such as `@shware/http`'s
+  `StatusError`; see `refusalOf`. Other failures stay `server_error` with the details in the logs.
+- `claims.email_verified` is set only by providers that state it (Google, Apple, GitHub); Facebook
+  and X leave it unset. Trust an address only when it is `true`.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
   `provider: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 

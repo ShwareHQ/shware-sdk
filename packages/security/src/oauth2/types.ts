@@ -184,6 +184,10 @@ export interface StandardClaims {
   picture?: string;
   website?: string;
   email?: string;
+  /**
+   * Set only by providers that state it (Google, Apple, GitHub from the primary address's
+   * `verified` flag); Facebook and X leave it unset. Trust the address only when this is `true`.
+   */
   email_verified?: boolean;
   gender?: 'female' | 'male' | (string & {});
   birthdate?: string; // ISO 8601-1 [ISO8601‑1] YYYY-MM-DD format.

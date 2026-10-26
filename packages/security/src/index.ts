@@ -1,4 +1,4 @@
-export { Auth, PATH } from './auth/index';
+export { Auth, PATH, refusalOf, type SignInRefusal } from './auth/index';
 export { OAuth2Client, oauth2RedirectQuerySchema } from './oauth2/client';
 export { OAuth2Error, type OAuth2ErrorType } from './oauth2/error';
 export { RedisIndexedSessionRepository, RedisKVRepository } from './session/redis';
@@ -32,4 +32,5 @@ export type {
   Authorization,
   AuthorizedHandler,
   OAuth2AuthorizationOptions,
+  EmailCodeVerification,
 } from './auth/types';

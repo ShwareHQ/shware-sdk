@@ -52,7 +52,8 @@ export function createFacebookProvider(): Provider {
             name: data.name,
             picture: data.picture,
             email: data.email,
-            email_verified: true,
+            // Facebook does not say whether the address is verified: left unset, so a host that
+            // trusts only `email_verified === true` treats it as unverified.
           },
         };
       }
@@ -119,7 +120,7 @@ async function fetchUserInfo(
       name: data.name,
       email: data.email,
       picture: data.picture.data.url,
-      email_verified: data.email_verified,
+      // Not stated by the Graph API either; see the Limited Login path above.
     },
   };
 }
@@ -136,7 +137,6 @@ export interface FacebookUserInfo {
   id: string;
   name: string;
   email: string;
-  email_verified: boolean;
   picture: {
     data: {
       url: string;
