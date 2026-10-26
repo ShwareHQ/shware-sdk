@@ -51,6 +51,17 @@ export interface AuthConfig {
   kvRepository: KVRepository;
   sessionRepository: SessionRepository;
   cookie?: CookieOptions & { name?: string };
+  session?: {
+    /**
+     * Seconds between two writes of a session's `lastAccessedTime` from authenticated access
+     * (`getPrincipal`, `isAuthenticated`): every request that authenticates renews the session's
+     * expiry (sliding expiration, as Spring Session and `express-session`'s `rolling` do), but
+     * the row is only rewritten when the previous access is older than this, so expiry lags real
+     * activity by at most this much while active sessions cost one write per interval. Default
+     * 3600 (an hour); `0` writes on every authenticated request.
+     */
+    touchInterval?: number;
+  };
   turnstileSecretKey?: string;
   /** Limits of email verification codes (a code itself is valid for 10 minutes). */
   verificationCode?: {
