@@ -66,10 +66,12 @@ export interface AppStorePaymentSource {
 /**
  * The payment a subscription notification's transaction is, if it is one: the first purchase
  * (`SUBSCRIBED`, or a redeemed offer code that starts or resumes the subscription), a renewal
- * (`DID_RENEW`), or an upgrade. An upgrade counts as a renewal: Apple charges the higher plan in
- * full and starts a new period at once, refunding what is left of the old one separately, so it is
- * a regular period charge rather than an off-cycle proration. A downgrade, an auto-renew change
- * and the like carry the current transaction, already paid, and are null.
+ * (`DID_RENEW`), or an upgrade. An upgrade is a SUBSCRIPTION_UPDATE, the label a change of plan
+ * gets on every platform (Stripe's `subscription_update` invoices, a host's verify endpoint that
+ * sees a new transaction in the group that is not a renewal), even though Apple charges the
+ * higher plan in full and starts a new period at once, refunding what is left of the old one
+ * separately: reports count plan changes by it. A downgrade, an auto-renew change and the like
+ * carry the current transaction, already paid, and are null.
  *
  * ref: [notificationType](https://developer.apple.com/documentation/appstoreservernotifications/notificationtype)
  */
@@ -83,10 +85,10 @@ export function mapPaymentType({
     case 'DID_RENEW':
       return 'SUBSCRIPTION_RENEWAL';
     case 'DID_CHANGE_RENEWAL_PREF':
-      return subtype === 'UPGRADE' ? 'SUBSCRIPTION_RENEWAL' : null;
+      return subtype === 'UPGRADE' ? 'SUBSCRIPTION_UPDATE' : null;
     case 'OFFER_REDEEMED':
       if (subtype === 'INITIAL_BUY' || subtype === 'RESUBSCRIBE') return 'SUBSCRIPTION_START';
-      return subtype === 'UPGRADE' ? 'SUBSCRIPTION_RENEWAL' : null;
+      return subtype === 'UPGRADE' ? 'SUBSCRIPTION_UPDATE' : null;
     default:
       return null;
   }

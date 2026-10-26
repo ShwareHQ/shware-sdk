@@ -75,10 +75,10 @@ describe('mapPaymentType', () => {
     [{ notificationType: 'SUBSCRIBED', subtype: 'INITIAL_BUY' }, 'SUBSCRIPTION_START'],
     [{ notificationType: 'SUBSCRIBED', subtype: 'RESUBSCRIBE' }, 'SUBSCRIPTION_START'],
     [{ notificationType: 'DID_RENEW' }, 'SUBSCRIPTION_RENEWAL'],
-    [{ notificationType: 'DID_CHANGE_RENEWAL_PREF', subtype: 'UPGRADE' }, 'SUBSCRIPTION_RENEWAL'],
+    [{ notificationType: 'DID_CHANGE_RENEWAL_PREF', subtype: 'UPGRADE' }, 'SUBSCRIPTION_UPDATE'],
     [{ notificationType: 'OFFER_REDEEMED', subtype: 'INITIAL_BUY' }, 'SUBSCRIPTION_START'],
     [{ notificationType: 'OFFER_REDEEMED', subtype: 'RESUBSCRIBE' }, 'SUBSCRIPTION_START'],
-    [{ notificationType: 'OFFER_REDEEMED', subtype: 'UPGRADE' }, 'SUBSCRIPTION_RENEWAL'],
+    [{ notificationType: 'OFFER_REDEEMED', subtype: 'UPGRADE' }, 'SUBSCRIPTION_UPDATE'],
   ])('reads %o as %s', (source, type) => {
     expect(mapPaymentType(source)).toBe(type);
   });
