@@ -7,7 +7,14 @@ describe('AVAILABLE_STATUSES', () => {
       ['ACTIVE', 'IN_GRACE_PERIOD', 'PAST_DUE', 'TRIALING'].sort()
     );
     // The store has given up, or retries without serving the customer.
-    for (const status of ['UNPAID', 'ON_HOLD', 'PAUSED', 'CANCELED', 'EXPIRED'] as const) {
+    for (const status of [
+      'UNPAID',
+      'BILLING_RETRY',
+      'ON_HOLD',
+      'PAUSED',
+      'CANCELED',
+      'EXPIRED',
+    ] as const) {
       expect(AVAILABLE_STATUSES).not.toContain(status);
     }
   });
