@@ -154,26 +154,28 @@ export const SUBSCRIPTION_STATUSES = [
    *
    * This is Stripe's grace period: the customer keeps the product while Stripe retries (Smart
    * Retries, up to about three weeks), as an App Store or Play customer does in IN_GRACE_PERIOD,
-   * so it is in `AVAILABLE_STATUSES`. A retry the customer is not served through (an App Store
-   * billing retry without a grace period) is ON_HOLD, not PAST_DUE.
+   * so it is in `AVAILABLE_STATUSES`; access ends at UNPAID or CANCELED.
    *
    * Platform: Stripe
    * */
   'PAST_DUE',
 
   /**
-   * Google: Subscription is on hold (suspended). The state is only available when the
-   * subscription is an auto renewing plan. In this state, all items are on hold. Grace period
-   * ends or Active period ends but not grace period.
+   * Apple: the billing retry period of a subscription without a grace period (App Store Server API
+   * status 3). Apple keeps retrying the charge for up to 60 days; the subscription is not over, but
+   * Apple does not consider it active and the customer is not served meanwhile. A billing retry
+   * with a grace period is IN_GRACE_PERIOD.
    *
-   * Apple: the billing retry period of a subscription that has no grace period (or whose grace
-   * period ended). Apple keeps retrying the charge for up to 60 days; the subscription is not
-   * over, but the customer is not served meanwhile.
+   * Platform: Apple
+   * */
+  'BILLING_RETRY',
+
+  /**
+   * Subscription is on hold (suspended). The state is only available when the subscription is an
+   * auto renewing plan. In this state, all items are on hold. Grace period ends or Active period
+   * ends but not grace period
    *
-   * Either way the store is still trying to collect and the customer has no access until a
-   * payment goes through; the way out is a working payment method.
-   *
-   * Platform: Apple, Google
+   * Platform: Google
    * */
   'ON_HOLD',
 
@@ -241,10 +243,10 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 /**
  * Statuses where it is safe to provision your product for the customer. A failing renewal keeps
- * the product while the store retries and the customer is meant to be served (IN_GRACE_PERIOD on
- * the App Store and Play, PAST_DUE on Stripe); it loses it once the store has given up (UNPAID on
- * Stripe) or is retrying without serving the customer (ON_HOLD on Play and on the App Store without
- * a grace period).
+ * the product while the store retries and means the customer to be served (IN_GRACE_PERIOD on the
+ * App Store and Play, PAST_DUE on Stripe during Smart Retries); it loses it once the store has
+ * given up (UNPAID or CANCELED on Stripe) or retries without serving the customer (BILLING_RETRY on
+ * the App Store, ON_HOLD on Play).
  */
 export const AVAILABLE_STATUSES = [
   'ACTIVE',
