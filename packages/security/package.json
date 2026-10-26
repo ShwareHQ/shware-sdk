@@ -45,7 +45,7 @@
   "dependencies": {
     "@shware/utils": "workspace:^",
     "cookie": "^2.0.1",
-    "jose": "^6.2.12",
+    "jose": "^6.2.13",
     "path-to-regexp": "^8.4.2"
   },
   "devDependencies": {
