@@ -150,6 +150,7 @@ export class Auth implements AuthService {
   private readonly verificationResendCooldown: number;
   private readonly oauth2Client: OAuth2Client | null;
   private readonly onetapRequireNonce: boolean;
+  private readonly touchInterval: number;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
   constructor({
@@ -159,6 +160,7 @@ export class Auth implements AuthService {
     verificationCode,
     oauth2,
     cookie,
+    session,
     timing,
   }: AuthConfig) {
     this.timing = timing ?? false;
@@ -183,6 +185,8 @@ export class Auth implements AuthService {
     };
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
     this.onetapRequireNonce = oauth2?.onetap?.requireNonce ?? true;
+    this.touchInterval = (session?.touchInterval ?? 3600) * 1000;
+    invariant(this.touchInterval >= 0, 'session.touchInterval must not be negative');
   }
 
   private getSessionId(request: Request): string | undefined {
@@ -874,6 +878,20 @@ export class Auth implements AuthService {
     }
   };
 
+  /**
+   * Sliding expiration: an authenticated request renews the session, as `logged` does, so a user
+   * who keeps using the app is never signed out after `maxInactiveInterval` of not calling one
+   * particular endpoint. No extra read: the session was just loaded to authenticate, and its
+   * `lastAccessedTime` is compared in memory; writes are spaced by `session.touchInterval` (see
+   * `AuthConfig`), so a session accessed again within the interval is not rewritten.
+   */
+  private async touch(session: Session) {
+    const now = Date.now();
+    if (now - session.getLastAccessedTime() < this.touchInterval) return;
+    session.setLastAccessedTime(now);
+    await this.repository.save(session);
+  }
+
   isAuthenticated = async (request: Request): Promise<boolean> => {
     const sessionId = this.getSessionId(request);
     if (!sessionId) return false;
@@ -881,6 +899,7 @@ export class Auth implements AuthService {
     if (!session) return false;
     const principalName = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME);
     if (!principalName) return false;
+    await this.touch(session);
     return true;
   };
 
@@ -922,6 +941,7 @@ export class Auth implements AuthService {
     if (!session) return null;
     const name = session.getAttribute(PRINCIPAL_NAME_INDEX_NAME);
     if (!name) return null;
+    await this.touch(session);
     return { name: String(name) };
   };
 
