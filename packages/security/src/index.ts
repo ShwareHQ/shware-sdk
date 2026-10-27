@@ -1,4 +1,5 @@
 export {
+  AUTHENTICATION_REASONS,
   AuthenticationError,
   type AuthenticationReason,
   type AuthenticationReasons,

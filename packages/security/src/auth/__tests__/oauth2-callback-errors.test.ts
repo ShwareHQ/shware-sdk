@@ -218,8 +218,12 @@ describe('oauth2 callback errors', () => {
     const auth = createAuth();
     const { cookie, state } = await start(auth);
     handler.mockRejectedValueOnce(
+      // Keys the type would refuse, to exercise the runtime rule: metadata never replaces a
+      // parameter errorUri carries or the callback sets.
       new AuthenticationError('EMAIL_ALREADY_USED', {
-        metadata: { provider: 'GOOGLE', status: 'ignored', error: 'ignored' },
+        metadata: { provider: 'GOOGLE', status: 'ignored', error: 'ignored' } as {
+          provider: string;
+        },
       })
     );
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

@@ -151,18 +151,29 @@ export async function onAuthorized(
 `PROVIDERS` is the list of `Provider` values (`APPLE`, `GITHUB`, `GOOGLE`, ..., `EMAIL`, `PHONE`),
 handy for a database enum.
 
-To refuse a sign-in the handler could complete but will not (an address another account holds, a
-banned user), throw an `AuthenticationError` with a reason code and, optionally, what the client
-needs to act on it. Declare your reasons once, each with the shape of its metadata (string fields
-only, since it travels as URL parameters and JSON), and the constructor accepts nothing else:
+To refuse a sign-in the handler could complete but will not, throw an `AuthenticationError` with a
+reason and, when the client needs it to act, metadata (string fields only, since it travels as URL
+parameters and JSON). The built-in reasons cover the account states every host meets:
+
+| Reason               | Metadata               | When                                                        |
+| -------------------- | ---------------------- | ----------------------------------------------------------- |
+| `ACCOUNT_DISABLED`   |                        | Banned, or closed by its owner.                             |
+| `ACCOUNT_LOCKED`     | `{ until?: string }`   | Locked for now; `until` is when it opens again, when known. |
+| `EMAIL_ALREADY_USED` | `{ provider?: string}` | The address belongs to another account; sign in with that.  |
+| `EMAIL_NOT_VERIFIED` | `{ provider?: string}` | Only verified addresses are accepted and this one is not.   |
+| `SIGNUP_DISABLED`    |                        | No new accounts: registration closed or by invitation.      |
+
+Add your own by augmenting `AuthenticationReasons`, each with the shape of its metadata; the
+constructor accepts exactly the built-in and declared reasons, and requires the metadata when one
+of its fields is required:
 
 ```ts
 import { AuthenticationError } from '@shware/security';
 
 declare module '@shware/security' {
   interface AuthenticationReasons {
-    EMAIL_ALREADY_USED: { provider?: string }; // the account to sign in with instead
-    ACCOUNT_BANNED: { until: string }; // required: the throw must pass it
+    CLOSED_BETA: { invite?: string };
+    REGION_BLOCKED: { region: string }; // required: the throw must pass it
   }
 }
 
@@ -172,8 +183,8 @@ throw new AuthenticationError('EMAIL_ALREADY_USED', {
 });
 ```
 
-`AuthenticationReason` is the union of the declared reasons, for the client-side switch. Without a
-declaration any string reason with string metadata is accepted.
+`AuthenticationReason` is the union of all reasons, for the client-side switch;
+`AUTHENTICATION_REASONS` lists the built-in ones at runtime, for a message table.
 
 `Auth` answers it in the shape of the route: the redirect flow lands on `errorUri` with
 `error=access_denied&reason=EMAIL_ALREADY_USED&provider=GOOGLE`; the JSON routes (native, One

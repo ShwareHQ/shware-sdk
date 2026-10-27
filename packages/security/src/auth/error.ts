@@ -1,41 +1,62 @@
+type Metadata = Record<string, string>;
+/** A reason that carries no metadata. */
+type NoMetadata = { [key: string]: never };
+
 /**
- * The refusal reasons the host's `onAuthorized` may throw, each with the metadata it carries.
- * Empty here: declare yours by augmenting it, and `AuthenticationError` accepts only those
- * reasons, each with its own metadata shape (a key with no required field needs no metadata):
+ * The reasons `onAuthorized` may refuse a sign-in with, each with the metadata it carries (string
+ * fields only: metadata travels as URL parameters and JSON). The built-in ones cover the account
+ * states every host meets; add your own by augmenting the interface, and `AuthenticationError`
+ * accepts exactly these reasons, requiring the metadata when one of its fields is required:
  *
  * ```ts
  * declare module '@shware/security' {
  *   interface AuthenticationReasons {
- *     EMAIL_ALREADY_USED: { provider?: string };
  *     CLOSED_BETA: { invite?: string };
  *   }
  * }
  * ```
- *
- * Without an augmentation any string reason with string metadata is accepted.
  */
-// oxlint-disable-next-line typescript/no-empty-object-type -- augmented by the host
-export interface AuthenticationReasons {}
+export interface AuthenticationReasons {
+  /** The account is disabled: banned, or closed by its owner. */
+  ACCOUNT_DISABLED: NoMetadata;
+  /** The account is locked for now; `until` is when it opens again, when known. */
+  ACCOUNT_LOCKED: { until?: string };
+  /** The address belongs to another account; `provider` is the one to sign in with instead. */
+  EMAIL_ALREADY_USED: { provider?: string };
+  /** The host accepts only verified addresses and this provider did not verify it. */
+  EMAIL_NOT_VERIFIED: { provider?: string };
+  /** No new accounts: registration is closed or by invitation. */
+  SIGNUP_DISABLED: NoMetadata;
+}
 
-type Metadata = Record<string, string>;
+/** The built-in reasons, for a client's message table or a check that every reason is handled. */
+export const AUTHENTICATION_REASONS = [
+  'ACCOUNT_DISABLED',
+  'ACCOUNT_LOCKED',
+  'EMAIL_ALREADY_USED',
+  'EMAIL_NOT_VERIFIED',
+  'SIGNUP_DISABLED',
+] as const satisfies readonly (keyof AuthenticationReasons)[];
+
 /**
- * Each declared reason's metadata, as declared; a field that is not a string makes the reason
- * unusable (`never`), since metadata travels as URL parameters and JSON strings.
+ * Each reason's metadata as declared; a field that is not a string makes the reason unusable
+ * (`never`).
  */
-type Reasons = keyof AuthenticationReasons extends never
-  ? Record<string, Metadata>
-  : {
-      [K in keyof AuthenticationReasons]: AuthenticationReasons[K] extends Partial<Metadata>
-        ? AuthenticationReasons[K]
-        : never;
-    };
+type Reasons = {
+  [K in keyof AuthenticationReasons]: AuthenticationReasons[K] extends Partial<Metadata>
+    ? AuthenticationReasons[K]
+    : never;
+};
 
-/** A reason `onAuthorized` may refuse with: the keys of `AuthenticationReasons`, else any string. */
+/** A reason `onAuthorized` may refuse with: the keys of `AuthenticationReasons`. */
 export type AuthenticationReason = keyof Reasons;
 
 /** `true` when the reason's metadata has no required field, so it may be left out. */
-type Optional<R extends AuthenticationReason> =
-  Partial<Reasons[R]> extends Reasons[R] ? true : false;
+type Optional<R extends AuthenticationReason> = Reasons[R] extends NoMetadata
+  ? true
+  : Partial<Reasons[R]> extends Reasons[R]
+    ? true
+    : false;
 type Options<R extends AuthenticationReason> = {
   message?: string;
   cause?: unknown;
@@ -62,9 +83,7 @@ export class AuthenticationError<
   readonly metadata: Metadata;
 
   constructor(reason: R, ...[options]: Optional<R> extends true ? [Options<R>?] : [Options<R>]) {
-    const given = options as
-      | { message?: string; cause?: unknown; metadata?: Partial<Metadata> }
-      | undefined;
+    const given = options;
     const { message, cause, metadata = {} } = given ?? {};
     super(message ?? `Sign-in refused: ${reason}`, { cause });
     this.name = 'AuthenticationError';

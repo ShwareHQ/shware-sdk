@@ -1,19 +1,21 @@
 import { describe, expectTypeOf, it } from 'vitest';
+import type { AUTHENTICATION_REASONS } from '../src/auth/error';
 import { AuthenticationError, type AuthenticationReason } from '../src/auth/error';
 
 declare module '../src/auth/error' {
   interface AuthenticationReasons {
-    EMAIL_ALREADY_USED: { provider?: string };
     ACCOUNT_BANNED: { until: string };
     CLOSED_BETA: { invite?: string };
   }
 }
 
 describe('AuthenticationError reasons', () => {
-  it('accepts only the declared reasons, each with its metadata', () => {
+  it('accepts only the built-in and declared reasons, each with its metadata', () => {
     expectTypeOf<AuthenticationReason>().toEqualTypeOf<
-      'EMAIL_ALREADY_USED' | 'ACCOUNT_BANNED' | 'CLOSED_BETA'
+      (typeof AUTHENTICATION_REASONS)[number] | 'ACCOUNT_BANNED' | 'CLOSED_BETA'
     >();
+    new AuthenticationError('ACCOUNT_DISABLED');
+    new AuthenticationError('ACCOUNT_LOCKED', { metadata: { until: '2026-12-31' } });
     new AuthenticationError('EMAIL_ALREADY_USED');
     new AuthenticationError('EMAIL_ALREADY_USED', { metadata: { provider: 'GOOGLE' } });
     new AuthenticationError('ACCOUNT_BANNED', { metadata: { until: '2026-12-31' } });
