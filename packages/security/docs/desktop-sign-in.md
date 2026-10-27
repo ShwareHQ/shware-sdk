@@ -89,7 +89,7 @@ Web side. Caller must be authenticated (cookie session, same auth your other met
 // JSON response
 { "code": "5e2c8e94-7b1f-4a3a-9e1b-2c8c3a14f9d3" }
 
-// Stored in KV under `desktop:code:<code>` → { name, code_challenge }, TTL 300s.
+// Stored in KV under `desktop:code:<code>` → { principal, code_challenge }, TTL 300s.
 // Anonymous callers receive HTTP 401 / UNAUTHENTICATED.
 // Missing/malformed challenge → 400 / INVALID_ARGUMENT (a BadRequest detail names the field).
 ```

@@ -233,13 +233,13 @@ export class Auth implements AuthService {
   }
 
   /**
-   * A new session signed in as `name`. With `carryOver`, what the host kept in the pre-login
+   * A new session signed in as `principal`. With `carryOver`, what the host kept in the pre-login
    * session moves to the new one; the authorization request (state, PKCE verifier, flow
    * attributes) is single-use and was consumed, and a principal left there from an earlier
    * sign-in is replaced. The new id is never the one the browser brought, which may have been
    * planted by an attacker who started the flow (session fixation).
    */
-  private async signIn(name: string, carryOver?: Session): Promise<Session> {
+  private async signIn(principal: Principal, carryOver?: Session): Promise<Session> {
     const session = this.repository.createSession();
     for (const attribute of carryOver?.getAttributeNames() ?? []) {
       if (attribute === this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) continue;
@@ -247,7 +247,7 @@ export class Auth implements AuthService {
       const value = carryOver?.getAttribute(attribute);
       if (value !== null && value !== undefined) session.setAttribute(attribute, value);
     }
-    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, name);
+    session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, principal.name);
     await this.repository.save(session);
     return session;
   }
@@ -486,7 +486,7 @@ export class Auth implements AuthService {
       });
       mark('save_principal');
 
-      signedIn = await this.signIn(principal.name, session);
+      signedIn = await this.signIn(principal, session);
       await this.repository.deleteById(session.getId());
       mark('update_session');
     } catch (error) {
@@ -523,7 +523,7 @@ export class Auth implements AuthService {
     setTiming: (response: Response) => void
   ): Promise<Response> {
     const principal = await handler(request, authorization);
-    const session = await this.signIn(principal.name);
+    const session = await this.signIn(principal);
     const response = Response.json(principal);
     setTiming(response);
     return this.withSession(response, session);
@@ -682,7 +682,7 @@ export class Auth implements AuthService {
       const principal = await this.getPrincipal(request);
       if (!principal) throw unauthenticated('Sign in first');
       const { code_challenge } = parse(desktopAuthorizeSchema, await readJson(request));
-      const code = await this.desktopCodes.issue(principal.name, code_challenge);
+      const code = await this.desktopCodes.issue(principal, code_challenge);
       return Response.json({ code });
     });
 
@@ -704,8 +704,8 @@ export class Auth implements AuthService {
   desktopExchange = (request: Request): Promise<Response> =>
     this.guard(async () => {
       const { code, code_verifier } = parse(desktopExchangeSchema, await readJson(request));
-      const name = await this.desktopCodes.redeem(code, code_verifier);
-      const session = await this.signIn(name);
+      const principal = await this.desktopCodes.redeem(code, code_verifier);
+      const session = await this.signIn(principal);
       session.setAttribute('client_type', 'desktop');
       await this.repository.save(session);
       return this.withSession(Response.json({ ok: true }), session, {
