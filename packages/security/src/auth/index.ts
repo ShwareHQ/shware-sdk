@@ -95,18 +95,6 @@ function authorizationAttributes(
   return defined;
 }
 
-/** The `attributes` of a login body, or the 400 a bad one is. */
-function loginAttributes(body: unknown): Record<string, string> {
-  const attributes = bodyAttributes(body);
-  if (!attributes) {
-    throw invalidArgument(
-      'INVALID_ATTRIBUTES',
-      `attributes must map strings to strings, at most ${MAX_ATTRIBUTES_BYTES} bytes`
-    );
-  }
-  return attributes;
-}
-
 /** Sign in with Apple answers with `response_mode=form_post`; a charset parameter may follow. */
 function isFormPost(request: Request) {
   const contentType = request.headers.get('content-type')?.toLowerCase();
@@ -536,7 +524,7 @@ export class Auth implements AuthService {
       const { provider } = param(request, PATH.LOGIN_OAUTH2_NATIVE);
       const body = await readJson(request);
       // Whatever the app sends besides its credentials for `onAuthorized` (a referral code, ...).
-      const attributes = loginAttributes(body);
+      const attributes = bodyAttributes(body);
       // Only the credentials go on to the provider client.
       const { attributes: _, ...credentials } = body as NativeCredential & { attributes?: unknown };
       const { code_verifier } = credentials as { code_verifier?: unknown };
