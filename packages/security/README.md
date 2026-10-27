@@ -3,8 +3,8 @@
 Session-based authentication for any server that speaks the Fetch API (`Request` → `Response`):
 Hono, Cloudflare Workers, Next.js route handlers and similar. It ships an `Auth` class with
 handlers for CSRF, logout, OAuth2 (redirect, native, Google One Tap), email verification-code
-sign-in and desktop sign-in, backed by pluggable session stores (Redis or your own database) that
-use the Spring Session key layout, so sessions can be shared with a Spring backend.
+sign-in and desktop sign-in, backed by pluggable session stores (Redis or your own database),
+indexed by principal so a user's sessions can be listed and revoked.
 
 ## Install
 
@@ -247,9 +247,8 @@ app.onError((error, c) => errorResponse(error) ?? yourErrorHandler(error, c));
 All repositories implement `SessionRepository` and index sessions by principal name
 (`PRINCIPAL_NAME_INDEX_NAME`), so `kick` and `listSessions` work.
 
-- `RedisIndexedSessionRepository(redis, namespace = 'spring:session')`: Spring Session's Redis
-  indexed layout (`<namespace>:sessions:<id>` hashes, a principal index set, and an expirations
-  sorted set). Takes an `ioredis` client.
+- `RedisIndexedSessionRepository(redis, namespace = 'app:session')`: `<namespace>:sessions:<id>`
+  hashes, a principal index set, and an expirations sorted set. Takes an `ioredis` client.
 - `DBIndexedSessionRepository(adapter)`: for any database; you implement `DBAdapter`
   (`save`, `deleteById`, `findById`, `findByPrincipalName`, `cleanupExpiredSessions`).
 - `RedisKVRepository(redis)`: `KVRepository` on Redis. Implement `KVRepository`

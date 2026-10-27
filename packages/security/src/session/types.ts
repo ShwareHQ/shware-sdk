@@ -1,21 +1,7 @@
 import type { Principal } from '../core/index';
 
-export interface Authentication extends Principal {
-  '@class': string;
-  principal?: Principal;
-  authorities?: string[];
-  credentials?: object;
-  details?: object;
-}
-
-export interface SecurityContext {
-  '@class': string;
-  authentication?: Authentication;
-}
-
 export type Namespace = `${string}:session`;
 
-// package org.springframework.session;
 export interface Session {
   getId(): string;
   changeSessionId(): string;

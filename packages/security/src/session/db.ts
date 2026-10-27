@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { PRINCIPAL_NAME_INDEX_NAME, resolveIndexesFor } from './common';
+import { PRINCIPAL_NAME_INDEX_NAME, principalNameOf } from './common';
 import { MapSession } from './map-session';
 import type { SessionRepository } from './types';
 
@@ -59,7 +59,7 @@ export class DBIndexedSessionRepository implements SessionRepository<DBSession> 
     for (const name of session.getAttributeNames()) {
       attributes[name] = session.getAttribute(name);
     }
-    const principalName = resolveIndexesFor(session);
+    const principalName = principalNameOf(session);
 
     return {
       primaryId: session.primaryId,

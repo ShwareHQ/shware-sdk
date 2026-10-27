@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import { PRINCIPAL_NAME_INDEX_NAME, SPRING_SECURITY_CONTEXT, resolveIndexesFor } from './common';
+import { PRINCIPAL_NAME_INDEX_NAME, principalNameOf } from './common';
 import { MapSession } from './map-session';
 import type { KVRepository, Namespace, Session, SessionRepository } from './types';
 
@@ -22,7 +22,7 @@ class RedisSession implements Session {
     this.cached = cached;
     this.isNew = isNew;
     this.originalSessionId = cached.getId();
-    this.originalPrincipalName = resolveIndexesFor(this);
+    this.originalPrincipalName = principalNameOf(this);
 
     if (isNew) {
       this.delta.set(CREATION_TIME_KEY, cached.getCreationTime());
@@ -145,9 +145,10 @@ class SortedSetRedisSessionExpirationStore implements RedisSessionExpirationStor
   }
 }
 
-// <spring:session:sessions:uuid, hash<session>> + 300s
-// <spring:session:sessions:expirations, sorted_set<uuid>>
-// <spring:session:sessions:expires:uuid, string<empty>>: for expire check & event
+// <namespace>:sessions:<id>               hash: the session's fields and `sessionAttr:*` attributes
+// <namespace>:sessions:expirations        sorted set of ids by expiry, for cleanup
+// <namespace>:sessions:expires:<id>       empty string with the session's TTL, for the expiry check
+// <namespace>:index:principalName:<name>  set of the principal's session ids
 export class RedisIndexedSessionRepository implements SessionRepository<RedisSession> {
   private readonly redis: Redis;
   private readonly namespace: Namespace;
@@ -155,7 +156,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
 
   private defaultMaxInactiveInterval = 1800;
 
-  constructor(redis: Redis, namespace: Namespace = 'spring:session') {
+  constructor(redis: Redis, namespace: Namespace = 'app:session') {
     this.redis = redis;
     this.namespace = namespace;
     this.expirationStore = new SortedSetRedisSessionExpirationStore(redis, namespace);
@@ -223,14 +224,12 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
       await this.redis.hdel(this.getSessionKey(sessionId), ...removes);
     }
 
-    const principalSessionKey = this.getSessionAttrNameKey(PRINCIPAL_NAME_INDEX_NAME);
-    const securityPrincipalSessionKey = this.getSessionAttrNameKey(SPRING_SECURITY_CONTEXT);
-    if (session.delta.has(principalSessionKey) || session.delta.has(securityPrincipalSessionKey)) {
+    if (session.delta.has(this.getSessionAttrNameKey(PRINCIPAL_NAME_INDEX_NAME))) {
       if (session.originalPrincipalName !== null) {
         const originalPrincipalRedisKey = this.getPrincipalKey(session.originalPrincipalName);
         await this.redis.srem(originalPrincipalRedisKey, sessionId);
       }
-      const principal = resolveIndexesFor(session);
+      const principal = principalNameOf(session);
       session.originalPrincipalName = principal;
       if (principal !== null) {
         const principalRedisKey = this.getPrincipalKey(principal);
@@ -312,7 +311,7 @@ export class RedisIndexedSessionRepository implements SessionRepository<RedisSes
     const session = await this.getSession(sessionId, true);
     if (!session) return;
     // 1. cleanup index
-    const principal = resolveIndexesFor(session);
+    const principal = principalNameOf(session);
     if (principal !== null) {
       await this.redis.srem(this.getPrincipalKey(principal), sessionId);
     }
