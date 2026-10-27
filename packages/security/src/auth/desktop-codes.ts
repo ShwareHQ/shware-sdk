@@ -8,8 +8,8 @@ export const DESKTOP_CODE_TTL = 5 * 60;
 interface DesktopCodeRecord {
   /** principal.name of the web session that issued the code. */
   name: string;
-  /** The S256 code_challenge the verifier must hash to. */
-  cc: string;
+  /** The S256 `code_challenge` the desktop sent; the verifier it redeems with must hash to it. */
+  code_challenge: string;
 }
 
 /**
@@ -30,7 +30,7 @@ export class DesktopCodes {
 
   async issue(name: string, codeChallenge: string): Promise<string> {
     const code = randomUUID();
-    const record: DesktopCodeRecord = { name, cc: codeChallenge };
+    const record: DesktopCodeRecord = { name, code_challenge: codeChallenge };
     await this.kv.setItem(this.key(code), JSON.stringify(record), DESKTOP_CODE_TTL);
     return code;
   }
@@ -54,7 +54,7 @@ export class DesktopCodes {
       throw new AuthenticationError('INVALID_DESKTOP_CODE');
     }
     const computed = createHash('sha256').update(codeVerifier).digest();
-    const stored = Buffer.from(record.cc, 'base64url');
+    const stored = Buffer.from(record.code_challenge, 'base64url');
     if (stored.length !== computed.length || !timingSafeEqual(computed, stored)) {
       throw new AuthenticationError('INVALID_DESKTOP_CODE');
     }
