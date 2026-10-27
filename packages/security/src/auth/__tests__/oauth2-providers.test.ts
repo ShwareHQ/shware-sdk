@@ -1,7 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { type JWTPayload, SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { type Mock, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OAuth2Error } from '../../oauth2/error';
 import { apple, facebook, google } from '../../oauth2/provider/index';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
@@ -175,7 +174,19 @@ function postJson(path: string, body: unknown) {
   });
 }
 
-const rejected = { status: 400 } satisfies Partial<OAuth2Error>;
+/** The reason of a google.rpc error body. */
+async function reasonOf(response: Response) {
+  const body = (await response.json()) as { error: { details: { reason: string }[] } };
+  return body.error.details[0]?.reason;
+}
+
+/** A login the JSON routes refused: 403 with the reason, nobody signed in. */
+async function refused(login: Promise<Response>, reason: string) {
+  const response = await login;
+  expect(response.status).toBe(403);
+  expect(response.headers.get('set-cookie')).toBeNull();
+  expect(await reasonOf(response)).toBe(reason);
+}
 
 /** A nonce from `GET /oauth2/nonce/:provider`, as the web app fetches before One Tap's `prompt`. */
 async function issueNonce(auth: Auth, provider = 'google') {
@@ -271,9 +282,10 @@ describe('Sign in with Apple: app and web under one provider', () => {
     const auth = createAuth();
     for (const aud of ['com.attacker.app', APPLE_WEB]) {
       issuedIdToken = await sign({ iss: APPLE_ISS, aud });
-      await expect(
-        auth.loginOAuth2Native(postJson('/login/oauth2/native/apple', { code: 'c0de' }), handler)
-      ).rejects.toMatchObject(rejected);
+      await refused(
+        auth.loginOAuth2Native(postJson('/login/oauth2/native/apple', { code: 'c0de' }), handler),
+        'OAUTH2_INVALID_GRANT'
+      );
     }
     expect(handler).not.toHaveBeenCalled();
   });
@@ -281,20 +293,22 @@ describe('Sign in with Apple: app and web under one provider', () => {
   it('native: refuses an id token from another issuer', async () => {
     issuedIdToken = await sign({ iss: 'https://evil.example.com', aud: APPLE_APP });
     const auth = createAuth();
-    await expect(
-      auth.loginOAuth2Native(postJson('/login/oauth2/native/apple', { code: 'c0de' }), handler)
-    ).rejects.toMatchObject(rejected);
+    await refused(
+      auth.loginOAuth2Native(postJson('/login/oauth2/native/apple', { code: 'c0de' }), handler),
+      'OAUTH2_INVALID_GRANT'
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
   it('native: refuses a client_id that is not configured, before calling Apple', async () => {
     const auth = createAuth();
-    await expect(
+    await refused(
       auth.loginOAuth2Native(
         postJson('/login/oauth2/native/apple', { code: 'c0de', client_id: 'com.attacker.app' }),
         handler
-      )
-    ).rejects.toMatchObject({ status: 400, error: 'invalid_client' });
+      ),
+      'OAUTH2_INVALID_CLIENT'
+    );
     expect(tokenRequests()).toHaveLength(0);
     expect(appleSecret).not.toHaveBeenCalled();
   });
@@ -319,7 +333,8 @@ describe('nonce', () => {
     );
 
     expect(first.status).toBe(200);
-    expect(replay.status).toBe(400);
+    expect(replay.status).toBe(403);
+    expect(await reasonOf(replay)).toBe('NONCE_MISMATCH');
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -335,8 +350,7 @@ describe('nonce', () => {
       handler
     );
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error_description: 'nonce mismatch' });
+    await refused(Promise.resolve(response), 'NONCE_MISMATCH');
     expect(handler).not.toHaveBeenCalled();
   });
 });
@@ -381,11 +395,7 @@ describe('Google', () => {
     expect((await login()).status).toBe(200);
     const replay = await login();
 
-    expect(replay.status).toBe(401);
-    expect(await replay.json()).toMatchObject({
-      error: 'invalid_request',
-      error_description: 'nonce mismatch',
-    });
+    await refused(Promise.resolve(replay), 'NONCE_MISMATCH');
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -396,11 +406,7 @@ describe('Google', () => {
       handler
     );
 
-    expect(response.status).toBe(401);
-    expect(await response.json()).toMatchObject({
-      error: 'invalid_request',
-      error_description: 'nonce missing',
-    });
+    await refused(Promise.resolve(response), 'NONCE_MISSING');
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -413,8 +419,7 @@ describe('Google', () => {
         postJson('/login/oauth2/onetap/google', { credential }),
         handler
       );
-      expect(response.status).toBe(401);
-      expect(await response.json()).toMatchObject({ error_description: 'nonce mismatch' });
+      await refused(Promise.resolve(response), 'NONCE_MISMATCH');
     }
     expect(handler).not.toHaveBeenCalled();
   });
@@ -430,44 +435,49 @@ describe('Google', () => {
 
   it('one tap: still checks a nonce the credential carries when requireNonce is off', async () => {
     const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB, nonce: 'made-up' });
-    const response = await createAuth({ requireNonce: false }).loginOAuth2Onetap(
-      postJson('/login/oauth2/onetap/google', { credential }),
-      handler
+    await refused(
+      createAuth({ requireNonce: false }).loginOAuth2Onetap(
+        postJson('/login/oauth2/onetap/google', { credential }),
+        handler
+      ),
+      'NONCE_MISMATCH'
     );
-    expect(response.status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("one tap: refuses a credential for another app's client, or for our app clients", async () => {
     const auth = createAuth();
     for (const aud of ['9999-foreign.apps.googleusercontent.com', GOOGLE_IOS]) {
       const credential = await sign({ iss: GOOGLE_ISS, aud });
-      await expect(
-        auth.loginOAuth2Onetap(postJson('/login/oauth2/onetap/google', { credential }), handler)
-      ).rejects.toMatchObject(rejected);
+      await refused(
+        auth.loginOAuth2Onetap(postJson('/login/oauth2/onetap/google', { credential }), handler),
+        'OAUTH2_INVALID_GRANT'
+      );
     }
     expect(handler).not.toHaveBeenCalled();
   });
 
   it('one tap: refuses a credential from another issuer', async () => {
     const credential = await sign({ iss: 'https://evil.example.com', aud: GOOGLE_WEB });
-    await expect(
+    await refused(
       createAuth().loginOAuth2Onetap(
         postJson('/login/oauth2/onetap/google', { credential }),
         handler
-      )
-    ).rejects.toMatchObject(rejected);
+      ),
+      'OAUTH2_INVALID_GRANT'
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
   it('one tap: is refused by a provider without One Tap', async () => {
     const credential = await sign({ iss: APPLE_ISS, aud: APPLE_WEB });
-    await expect(
-      createAuth().loginOAuth2Onetap(
-        postJson('/login/oauth2/onetap/google', { credential }),
-        handler,
-        'apple'
-      )
-    ).rejects.toMatchObject(rejected);
+    const response = await createAuth().loginOAuth2Onetap(
+      postJson('/login/oauth2/onetap/google', { credential }),
+      handler,
+      'apple'
+    );
+    expect(response.status).toBe(400);
+    expect(await reasonOf(response)).toBe('OAUTH2_INVALID_REQUEST');
   });
 
   it('native: exchanges as the named installed-app client, without a secret', async () => {
@@ -517,7 +527,7 @@ describe('Google', () => {
       handler
     );
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: 'invalid_request' });
+    expect(await reasonOf(response)).toBe('INVALID_CODE_VERIFIER');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
@@ -534,35 +544,37 @@ describe('Google', () => {
 
   it('native: refuses an id token whose audience is not the client exchanged as', async () => {
     issuedIdToken = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_ANDROID });
-    await expect(
+    await refused(
       createAuth().loginOAuth2Native(
         postJson('/login/oauth2/native/google', { code: 'c0de', client_id: GOOGLE_IOS }),
         handler
-      )
-    ).rejects.toMatchObject(rejected);
+      ),
+      'OAUTH2_INVALID_GRANT'
+    );
     expect(handler).not.toHaveBeenCalled();
   });
 
   it('native: refuses a client of another project or app', async () => {
-    await expect(
+    await refused(
       createAuth().loginOAuth2Native(
         postJson('/login/oauth2/native/google', {
           code: 'c0de',
           client_id: '1234-evil.apps.googleusercontent.com',
         }),
         handler
-      )
-    ).rejects.toMatchObject({ status: 400, error: 'invalid_client' });
+      ),
+      'OAUTH2_INVALID_CLIENT'
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('native: asks for client_id when several native clients could be meant', async () => {
-    await expect(
-      createAuth().loginOAuth2Native(
-        postJson('/login/oauth2/native/google', { code: 'c0de' }),
-        handler
-      )
-    ).rejects.toMatchObject({ status: 400, error: 'invalid_request' });
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/google', { code: 'c0de' }),
+      handler
+    );
+    expect(response.status).toBe(400);
+    expect(await reasonOf(response)).toBe('OAUTH2_INVALID_REQUEST');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -582,12 +594,13 @@ describe('Facebook', () => {
     });
 
     const foreign = await sign({ iss: FACEBOOK_ISS, aud: '777' });
-    await expect(
+    await refused(
       auth.loginOAuth2Native(
         postJson('/login/oauth2/native/facebook', { id_token: foreign }),
         handler
-      )
-    ).rejects.toMatchObject(rejected);
+      ),
+      'OAUTH2_INVALID_GRANT'
+    );
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -603,12 +616,13 @@ describe('Facebook', () => {
   });
 
   it('access token: refused when the client has no secret to prove it with', async () => {
-    await expect(
+    await refused(
       createAuth().loginOAuth2Native(
         postJson('/login/oauth2/native/facebookPublic', { access_token: 'user-at' }),
         handler
-      )
-    ).rejects.toMatchObject({ status: 400, error: 'invalid_client' });
+      ),
+      'OAUTH2_INVALID_CLIENT'
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

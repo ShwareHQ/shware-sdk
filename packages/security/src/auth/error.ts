@@ -17,6 +17,19 @@ type NoMetadata = { [key: string]: never };
  * ```
  */
 export interface AuthenticationReasons {
+  // Thrown by the SDK itself.
+  /** The emailed code is wrong, or none is pending for the address. */
+  INVALID_VERIFICATION_CODE: NoMetadata;
+  /** More than `verificationCode.maxAttempts` guesses at the code; it is discarded. */
+  VERIFICATION_CODE_ATTEMPTS_EXCEEDED: NoMetadata;
+  /** The id token carries no nonce and one is required (`oauth2.onetap.requireNonce`). */
+  NONCE_MISSING: NoMetadata;
+  /** The id token's nonce was not issued for this provider, or was used already. */
+  NONCE_MISMATCH: NoMetadata;
+  /** The desktop sign-in code is unknown, expired, used, or its verifier does not match. */
+  INVALID_DESKTOP_CODE: NoMetadata;
+
+  // For the host's `onAuthorized`.
   /** The account is disabled: banned, or closed by its owner. */
   ACCOUNT_DISABLED: NoMetadata;
   /** The account is locked for now; `until` is when it opens again, when known. */
@@ -31,6 +44,11 @@ export interface AuthenticationReasons {
 
 /** The built-in reasons, for a client's message table or a check that every reason is handled. */
 export const AUTHENTICATION_REASONS = [
+  'INVALID_VERIFICATION_CODE',
+  'VERIFICATION_CODE_ATTEMPTS_EXCEEDED',
+  'NONCE_MISSING',
+  'NONCE_MISMATCH',
+  'INVALID_DESKTOP_CODE',
   'ACCOUNT_DISABLED',
   'ACCOUNT_LOCKED',
   'EMAIL_ALREADY_USED',
@@ -70,11 +88,12 @@ type Options<R extends AuthenticationReason> = {
  * in the shape of the route it came through:
  *
  * - redirect flow (`loginOAuth2Code`): `errorUri?error=access_denied&reason=<reason>&<metadata>`;
- * - JSON routes (native, One Tap, email): `403` with a google.rpc error body whose `ErrorInfo`
- *   holds `reason` and `metadata`.
+ * - JSON routes (native, One Tap, email, desktop): `403` with a google.rpc error body whose
+ *   `ErrorInfo` holds `reason` and `metadata`.
  *
- * Anything else `onAuthorized` throws is a server fault: `server_error` on the redirect, rethrown
- * to the host's error handler on the JSON routes.
+ * The SDK throws it too, for a credential it checked itself (a wrong emailed code, a replayed
+ * nonce), so a client handles both the same way. Anything else `onAuthorized` throws is a server
+ * fault: `server_error` on the redirect, rethrown to the host's error handler on the JSON routes.
  */
 export class AuthenticationError<
   R extends AuthenticationReason = AuthenticationReason,

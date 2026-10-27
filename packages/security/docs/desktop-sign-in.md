@@ -91,7 +91,7 @@ Web side. Caller must be authenticated (cookie session, same auth your other met
 
 // Stored in KV under `desktop:code:<code>` → { name, cc }, TTL 300s.
 // Anonymous callers receive HTTP 401 / UNAUTHENTICATED.
-// Missing/malformed challenge → 400 / INVALID_ARGUMENT.
+// Missing/malformed challenge → 400 / INVALID_ARGUMENT (a BadRequest detail names the field).
 ```
 
 The endpoint sets no cookie — it's used from a context that already has one.
@@ -110,7 +110,7 @@ Set-Cookie: SESSION=<id>; HttpOnly; Secure; SameSite=None; Max-Age=...
 { "ok": true }
 
 // PKCE check (timing-safe): sha256(verifier) === stored challenge.
-// Verifier mismatch → 400 / INVALID_DESKTOP_CODE; the code is NOT
+// Verifier mismatch → 403 / INVALID_DESKTOP_CODE; the code is NOT
 // consumed on mismatch (a network retry of a legit exchange still
 // works), but the 5-min TTL bounds brute-force attempts.
 // On success: code is removed from KV before the session is created —

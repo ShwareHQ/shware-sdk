@@ -2,6 +2,7 @@ import type { Principal } from '../core';
 import type { OAuth2ClientConfig, OAuth2Token, UserInfo } from '../oauth2/types';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { CookieOptions } from '../utils/http';
+import type { EmailSender } from './email-codes';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
 /**
@@ -71,7 +72,7 @@ export interface AuthConfig {
   verificationCode?: {
     /**
      * Wrong guesses a code survives: once a login exceeds this many attempts the code is discarded
-     * and `loginEmail` answers `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`. Default 5.
+     * and `loginEmail` answers `403 VERIFICATION_CODE_ATTEMPTS_EXCEEDED`. Default 5.
      */
     maxAttempts?: number;
     /**
@@ -117,20 +118,19 @@ export interface AuthService {
     provider?: string
   ) => Promise<Response>;
 
-  // email & phone
-  sendEmailVerificationCode: (
-    request: Request,
-    sender: (data: { email: string; verificationCode: string }) => Promise<void>
-  ) => Promise<Response>;
-  sendPhoneVerificationCode: (
-    request: Request,
-    sender: (data: { phone: string; verificationCode: string }) => Promise<void>
-  ) => Promise<Response>;
-
+  // email
+  sendEmailVerificationCode: (request: Request, sender: EmailSender) => Promise<Response>;
   loginEmail: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
-  /** Checks a mailed code without signing in (verifying or changing a user's email); consumes it. */
-  verifyEmailCode: (email: string, verificationCode: string) => Promise<EmailCodeVerification>;
-  loginPhone: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
+  /**
+   * Spends a mailed code without signing in, for a host flow that only needs proof of the address
+   * (verifying or changing a signed-in user's email). Throws `AuthenticationError`
+   * (`INVALID_VERIFICATION_CODE`, `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`) as `loginEmail` answers.
+   */
+  verifyEmailCode: (email: string, verificationCode: string) => Promise<void>;
+
+  // desktop
+  desktopAuthorize: (request: Request) => Promise<Response>;
+  desktopExchange: (request: Request) => Promise<Response>;
 
   // session management
   kick: (principal: Principal) => Promise<void>;
@@ -144,8 +144,3 @@ export interface AuthService {
   listSessions: (principal: Principal) => Promise<Session[]>;
   cleanupExpiredSessions: (cleanupCount?: number) => Promise<Response>;
 }
-
-/** `verifyEmailCode`'s answer: the code matched and is now spent, or why it did not. */
-export type EmailCodeVerification =
-  | { ok: true }
-  | { ok: false; error: 'INVALID_VERIFICATION_CODE' | 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED' };
