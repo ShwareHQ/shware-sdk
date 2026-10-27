@@ -32,52 +32,47 @@ function signedIn() {
 const request = (headers: Record<string, string>) =>
   new Request('https://api.example.com/v1/me', { headers });
 
-describe('where the session id is read from', () => {
-  it('reads the X-Auth-Token header when there is no cookie', async () => {
+describe('session id in the X-Auth-Token header', () => {
+  it('is neither read nor written by default', async () => {
     const session = signedIn();
     const auth = new Auth({ kvRepository: kv, sessionRepository: sessions(session) });
+
+    expect(await auth.getPrincipal(request({ 'X-Auth-Token': session.getId() }))).toBe(null);
+    const logged = await auth.logged(request({ Cookie: `SESSION=${session.getId()}` }));
+    expect(logged.headers.get('X-Auth-Token')).toBe(null);
+  });
+
+  it('with session.header on, is read without a cookie and written with the cookie', async () => {
+    const session = signedIn();
+    const auth = new Auth({
+      kvRepository: kv,
+      sessionRepository: sessions(session),
+      session: { header: true },
+    });
 
     expect(await auth.getPrincipal(request({ 'X-Auth-Token': session.getId() }))).toEqual({
       name: 'alice',
     });
+    const logged = await auth.logged(request({ 'X-Auth-Token': session.getId() }));
+    expect(logged.headers.get('X-Auth-Token')).toBe(session.getId());
+    expect(logged.headers.get('set-cookie')).toContain(`SESSION=${session.getId()}`);
   });
 
-  it('prefers the cookie over the header', async () => {
+  it('prefers the cookie over the header, and never reads Authorization', async () => {
     const session = signedIn();
-    const auth = new Auth({ kvRepository: kv, sessionRepository: sessions(session) });
+    const auth = new Auth({
+      kvRepository: kv,
+      sessionRepository: sessions(session),
+      session: { header: true },
+    });
 
-    const principal = await auth.getPrincipal(
-      request({ Cookie: `SESSION=${session.getId()}`, 'X-Auth-Token': 'not-a-session' })
-    );
-    expect(principal).toEqual({ name: 'alice' });
-  });
-
-  it('never reads Authorization: Bearer', async () => {
-    const session = signedIn();
-    const auth = new Auth({ kvRepository: kv, sessionRepository: sessions(session) });
-
+    expect(
+      await auth.getPrincipal(
+        request({ Cookie: `SESSION=${session.getId()}`, 'X-Auth-Token': 'not-a-session' })
+      )
+    ).toEqual({ name: 'alice' });
     expect(await auth.getPrincipal(request({ Authorization: `Bearer ${session.getId()}` }))).toBe(
       null
     );
-  });
-
-  it('reads a configured header, or none with header: false', async () => {
-    const session = signedIn();
-    const custom = new Auth({
-      kvRepository: kv,
-      sessionRepository: sessions(session),
-      session: { header: 'X-Session' },
-    });
-    expect(await custom.getPrincipal(request({ 'X-Session': session.getId() }))).toEqual({
-      name: 'alice',
-    });
-    expect(await custom.getPrincipal(request({ 'X-Auth-Token': session.getId() }))).toBe(null);
-
-    const cookieOnly = new Auth({
-      kvRepository: kv,
-      sessionRepository: sessions(session),
-      session: { header: false },
-    });
-    expect(await cookieOnly.getPrincipal(request({ 'X-Auth-Token': session.getId() }))).toBe(null);
   });
 });

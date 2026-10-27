@@ -53,6 +53,9 @@ const PKCE_FORMAT = /^[A-Za-z0-9_-]{43,128}$/;
 // the app sent: accept the whole RFC 7636 unreserved set here, as the provider does.
 const CODE_VERIFIER_FORMAT = /^[A-Za-z0-9._~-]{43,128}$/;
 
+/** The header a session id travels in besides the cookie, with `session.header` on. */
+const SESSION_HEADER = 'X-Auth-Token';
+
 /** Seconds an OAuth2 state or nonce may be used within. */
 const OAUTH2_PARAMETER_TTL = 10 * 60;
 
@@ -163,7 +166,7 @@ export class Auth implements AuthService {
   private readonly oauth2Client: OAuth2Client | null;
   private readonly onetapRequireNonce: boolean;
   private readonly touchInterval: number;
-  private readonly sessionHeader: string | false;
+  private readonly sessionHeader: boolean;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
   constructor({
@@ -198,7 +201,7 @@ export class Auth implements AuthService {
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
     this.onetapRequireNonce = oauth2?.onetap?.requireNonce ?? true;
     this.touchInterval = (session?.touchInterval ?? 3600) * 1000;
-    this.sessionHeader = session?.header ?? 'X-Auth-Token';
+    this.sessionHeader = session?.header ?? false;
     invariant(this.touchInterval >= 0, 'session.touchInterval must not be negative');
   }
 
@@ -207,7 +210,7 @@ export class Auth implements AuthService {
   private getSessionId(request: Request): string | undefined {
     const fromCookie = getCookie(request, this.cookieName);
     if (fromCookie) return fromCookie;
-    return (this.sessionHeader && request.headers.get(this.sessionHeader)) || undefined;
+    return (this.sessionHeader && request.headers.get(SESSION_HEADER)) || undefined;
   }
 
   /** The session the request carries, if it exists. */
@@ -242,7 +245,10 @@ export class Auth implements AuthService {
     return session;
   }
 
-  /** `response` carrying `session`'s cookie, renewed for its whole inactive interval. */
+  /**
+   * `response` carrying `session`: its cookie, renewed for the whole inactive interval, and with
+   * `session.header` on, the `X-Auth-Token` header a client without a cookie jar reads.
+   */
   private withSession(response: Response, session: Session, cookie?: CookieOptions): Response {
     const maxAge = session.getMaxInactiveInterval();
     setCookie(response, this.cookieName, session.getId(), {
@@ -250,6 +256,7 @@ export class Auth implements AuthService {
       ...cookie,
       maxAge,
     });
+    if (this.sessionHeader) response.headers.set(SESSION_HEADER, session.getId());
     return response;
   }
 
