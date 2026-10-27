@@ -95,20 +95,19 @@ const OAUTH2_STATUS: Record<OAuth2ErrorType, [code: number, status: string]> = {
  * `errorResponse(error) ?? yourHandler(error)`.
  */
 export function errorResponse(error: unknown): Response | null {
-  if (error instanceof RequestError) return json(error.body);
+  if (error instanceof RequestError) {
+    return Response.json(error.body, { status: error.body.error.code });
+  }
   if (error instanceof AuthenticationError) {
     const body = errorBody(403, 'PERMISSION_DENIED', error.reason, error.message, error.metadata);
-    return json(body);
+    return Response.json(body, { status: body.error.code });
   }
   if (error instanceof OAuth2Error) {
     console.warn('OAuth2 login failed', error);
     const [code, status] = OAUTH2_STATUS[error.error] ?? [503, 'UNAVAILABLE'];
     const reason = `OAUTH2_${error.error.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
-    return json(errorBody(code, status, reason, `OAuth2 ${error.error}`));
+    const body = errorBody(code, status, reason, `OAuth2 ${error.error}`);
+    return Response.json(body, { status: body.error.code });
   }
   return null;
-}
-
-function json(body: ErrorBody) {
-  return Response.json(body, { status: body.error.code });
 }
