@@ -39,7 +39,7 @@
     "dev": "tsc --watch",
     "build": "tsdown",
     "test": "vitest run",
-    "check-types": "tsc --noEmit",
+    "check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.typetests.json",
     "lint": "oxlint --type-aware src --fix"
   },
   "dependencies": {

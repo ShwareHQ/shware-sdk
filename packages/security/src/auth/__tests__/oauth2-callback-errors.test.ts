@@ -5,6 +5,7 @@ import { google } from '../../oauth2/provider/index';
 import type { OAuth2Token, UserInfo } from '../../oauth2/types';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
+import { AuthenticationError } from '../error';
 import { Auth } from '../index';
 import type { AuthorizedHandler } from '../types';
 
@@ -211,6 +212,37 @@ describe('oauth2 callback errors', () => {
 
     expect(errorRedirect(response)).toEqual({ error: 'server_error', description: null });
     expect(log).toHaveBeenCalledWith(expect.any(String), failure);
+  });
+
+  it('forwards a refusal the handler threw, with its reason and metadata', async () => {
+    const auth = createAuth();
+    const { cookie, state } = await start(auth);
+    handler.mockRejectedValueOnce(
+      // Keys the type would refuse, to exercise the runtime rule: metadata never replaces a
+      // parameter errorUri carries or the callback sets.
+      new AuthenticationError('EMAIL_ALREADY_USED', {
+        metadata: { provider: 'GOOGLE', status: 'ignored', error: 'ignored' } as {
+          provider: string;
+        },
+      })
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
+
+    const { error, description } = errorRedirect(response);
+    expect(error).toBe('access_denied');
+    expect(description).toBeNull();
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('reason')).toBe('EMAIL_ALREADY_USED');
+    expect(location.searchParams.get('provider')).toBe('GOOGLE');
+    // The callback's own parameters win over metadata entries of the same name.
+    expect(location.searchParams.get('status')).toBe('error');
+    expect(warn).toHaveBeenCalledWith('OAuth2 sign-in refused', 'EMAIL_ALREADY_USED', {
+      provider: 'GOOGLE',
+      status: 'ignored',
+      error: 'ignored',
+    });
   });
 
   it('keeps the success redirect unchanged', async () => {

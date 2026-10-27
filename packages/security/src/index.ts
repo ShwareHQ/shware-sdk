@@ -1,4 +1,12 @@
+export {
+  AUTHENTICATION_REASONS,
+  AuthenticationError,
+  type AuthenticationReason,
+  type AuthenticationReasons,
+} from './auth/error';
 export { Auth, PATH } from './auth/index';
+export { errorResponse, type ErrorBody } from './auth/respond';
+export type { EmailSender } from './auth/email-codes';
 export { OAuth2Client, oauth2RedirectQuerySchema } from './oauth2/client';
 export { OAuth2Error, type OAuth2ErrorType } from './oauth2/error';
 export { RedisIndexedSessionRepository, RedisKVRepository } from './session/redis';

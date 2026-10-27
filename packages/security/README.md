@@ -3,8 +3,8 @@
 Session-based authentication for any server that speaks the Fetch API (`Request` → `Response`):
 Hono, Cloudflare Workers, Next.js route handlers and similar. It ships an `Auth` class with
 handlers for CSRF, logout, OAuth2 (redirect, native, Google One Tap), email verification-code
-sign-in and desktop sign-in, backed by pluggable session stores (Redis or your own database) that
-use the Spring Session key layout, so sessions can be shared with a Spring backend.
+sign-in and desktop sign-in, backed by pluggable session stores (Redis or your own database),
+indexed by principal so a user's sessions can be listed and revoked.
 
 ## Install
 
@@ -17,10 +17,10 @@ use the Redis repositories.
 
 ## Entry points
 
-| Import path                        | Contents                                                                                                         |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `@shware/security`                 | `Auth`, `PATH`, session/KV repositories, `OAuth2Client`, `OAuth2Error`, `PROVIDERS` and types                    |
-| `@shware/security/oauth2/provider` | Built-in OAuth2 providers (`apple`, `facebook`, `github`, `google`, `wechat`, `x`) and `createAppleClientSecret` |
+| Import path                        | Contents                                                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `@shware/security`                 | `Auth`, `PATH`, `AuthenticationError`, session/KV repositories, `OAuth2Client`, `OAuth2Error`, `PROVIDERS`, types |
+| `@shware/security/oauth2/provider` | Built-in OAuth2 providers (`apple`, `facebook`, `github`, `google`, `wechat`, `x`) and `createAppleClientSecret`  |
 
 ## Quick start (Hono)
 
@@ -151,6 +151,47 @@ export async function onAuthorized(
 `PROVIDERS` is the list of `Provider` values (`APPLE`, `GITHUB`, `GOOGLE`, ..., `EMAIL`, `PHONE`),
 handy for a database enum.
 
+To refuse a sign-in the handler could complete but will not, throw an `AuthenticationError` with a
+reason and, when the client needs it to act, metadata (string fields only, since it travels as URL
+parameters and JSON). The built-in reasons cover the account states every host meets:
+
+| Reason               | Metadata               | When                                                        |
+| -------------------- | ---------------------- | ----------------------------------------------------------- |
+| `ACCOUNT_DISABLED`   |                        | Banned, or closed by its owner.                             |
+| `ACCOUNT_LOCKED`     | `{ until?: string }`   | Locked for now; `until` is when it opens again, when known. |
+| `EMAIL_ALREADY_USED` | `{ provider?: string}` | The address belongs to another account; sign in with that.  |
+| `EMAIL_NOT_VERIFIED` | `{ provider?: string}` | Only verified addresses are accepted and this one is not.   |
+| `SIGNUP_DISABLED`    |                        | No new accounts: registration closed or by invitation.      |
+
+Add your own by augmenting `AuthenticationReasons`, each with the shape of its metadata; the
+constructor accepts exactly the built-in and declared reasons, and requires the metadata when one
+of its fields is required:
+
+```ts
+import { AuthenticationError } from '@shware/security';
+
+declare module '@shware/security' {
+  interface AuthenticationReasons {
+    CLOSED_BETA: { invite?: string };
+    REGION_BLOCKED: { region: string }; // required: the throw must pass it
+  }
+}
+
+throw new AuthenticationError('EMAIL_ALREADY_USED', {
+  metadata: { provider: 'GOOGLE' },
+  message: 'Email already used by another account',
+});
+```
+
+`AuthenticationReason` is the union of all reasons, for the client-side switch;
+`AUTHENTICATION_REASONS` lists the built-in ones at runtime, for a message table.
+
+`Auth` answers it in the shape of the route: the redirect flow lands on `errorUri` with
+`error=access_denied&reason=EMAIL_ALREADY_USED&provider=GOOGLE`; the JSON routes (native, One
+Tap, email) answer `403` with a google.rpc error body whose `ErrorInfo` holds the `reason` and
+`metadata` (what `@shware/http`'s `getErrorInfo` reads). Anything else the handler throws is a
+server fault: `server_error` on the redirect, rethrown to your error handler on the JSON routes.
+
 ## `Auth` options
 
 | Option               | Type                                | Notes                                                                                         |
@@ -164,7 +205,13 @@ handy for a database enum.
 | `verificationCode`   | `{ maxAttempts?, resendCooldown? }` | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
 
-The session id is read from the cookie or from an `Authorization: Bearer <session id>` header.
+The session id lives in the cookie. For clients without a cookie jar (a CLI, a desktop shell),
+`session: { header: true }` also carries it in `X-Auth-Token`, as Spring Session does: every
+response that sets the cookie answers `X-Auth-Token: <id>`, and a request without the cookie is
+read from the same header. Off by default: it exposes the id to same-origin scripts, which the
+cookie's `HttpOnly` keeps it from, and a cross-origin client needs the header in
+`Access-Control-Expose-Headers`. `Authorization` is never read: an API token is a different
+credential from a session and is not handled here.
 `logout` clears the cookie with the same attributes it was set with (`domain`, `path`, …), so a
 cookie set with `Domain=.example.com` is actually removed.
 
@@ -184,16 +231,15 @@ export async function getUserId(c: Context) {
 }
 ```
 
-Errors thrown by providers during the token exchange are `OAuth2Error` (`status`, `error`), which
-you can map to a 401 in your error handler:
+The JSON routes answer every failure they know themselves (see "Errors" below), so your error
+handler only sees genuine server faults: what `onAuthorized` or a session store threw besides an
+`AuthenticationError`. A flow of your own that calls `Auth` directly (`verifyEmailCode`) can throw
+the same errors; `errorResponse(error)` gives the response the routes would, or `null`:
 
 ```ts
-import { OAuth2Error } from '@shware/security';
+import { errorResponse } from '@shware/security';
 
-app.onError((error, c) => {
-  if (error instanceof OAuth2Error) return c.json({ error: error.error }, 401);
-  throw error;
-});
+app.onError((error, c) => errorResponse(error) ?? yourErrorHandler(error, c));
 ```
 
 ## Session repositories
@@ -201,9 +247,8 @@ app.onError((error, c) => {
 All repositories implement `SessionRepository` and index sessions by principal name
 (`PRINCIPAL_NAME_INDEX_NAME`), so `kick` and `listSessions` work.
 
-- `RedisIndexedSessionRepository(redis, namespace = 'spring:session')`: Spring Session's Redis
-  indexed layout (`<namespace>:sessions:<id>` hashes, a principal index set, and an expirations
-  sorted set). Takes an `ioredis` client.
+- `RedisIndexedSessionRepository(redis, namespace = 'app:session')`: `<namespace>:sessions:<id>`
+  hashes, a principal index set, and an expirations sorted set. Takes an `ioredis` client.
 - `DBIndexedSessionRepository(adapter)`: for any database; you implement `DBAdapter`
   (`save`, `deleteById`, `findById`, `findByPrincipalName`, `cleanupExpiredSessions`).
 - `RedisKVRepository(redis)`: `KVRepository` on Redis. Implement `KVRepository`
@@ -335,6 +380,8 @@ Every failure of the callback lands on `errorUri` — never a raw JSON error in 
   `console.warn` and reported by code only: `invalid_grant` (an expired or reused code),
   `access_denied` or `temporarily_unavailable` as is, any other as `server_error`. Its message
   stays in the logs, since it can name a client id or quote a provider's response;
+- an `AuthenticationError` thrown by `onAuthorized` as `access_denied` with its `reason` and
+  metadata entries as parameters (logged with `console.warn`; see "The `onAuthorized` handler");
 - anything else thrown by the exchange, `onAuthorized` or the session store, as `server_error`
   (logged with `console.error`).
 
@@ -413,7 +460,7 @@ Android any app can register the same scheme and receive the code. The app:
 4. posts `code_verifier` with the `code` to `/login/oauth2/native/:provider`.
 
 `loginOAuth2Native` hands `code_verifier` to the provider's token exchange (Google refuses the
-code without the matching verifier) and answers `400 invalid_request` when it is not 43-128
+code without the matching verifier) and answers `400 INVALID_CODE_VERIFIER` when it is not 43-128
 unreserved characters. Providers whose token endpoint takes no verifier (Apple) leave it out.
 Without `code_verifier` the exchange runs as before. With expo-crypto and expo-web-browser:
 
@@ -470,7 +517,7 @@ A `credential` must carry a nonce: fetch one from `GET /oauth2/nonce/google` (`o
 10 minutes) right before `prompt` and pass it on, so Google writes it into the ID token's `nonce`
 claim. The login consumes the nonce, so a leaked ID token cannot be replayed for another session; a
 credential without one, or with one that was not issued or was already used, is answered
-`401 invalid_request` (`nonce missing` / `nonce mismatch`). The nonce takes the place of Google's
+`403 NONCE_MISSING` / `403 NONCE_MISMATCH`. The nonce takes the place of Google's
 `g_csrf_token` double-submit cookie, which FedCM mode no longer sets. A `code` (the popup fallback)
 is single use already and needs no nonce.
 
@@ -515,6 +562,15 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
 ```
 
 - `POST /auth/sendEmailVerificationCode` with `{ email, turnstileToken }`.
+- `auth.verifyEmailCode(email, code)` spends a mailed code without signing in, for a host flow that
+  only needs proof of the address (a signed-in user verifying or changing their email). Same
+  storage and limits as `loginEmail`; a wrong code throws the `AuthenticationError` `loginEmail`
+  would answer with (`INVALID_VERIFICATION_CODE`, `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`), so
+  letting it propagate to an error handler that maps `AuthenticationError` answers the same 403.
+- `claims.email_verified` is set only by providers that state it (Google, Apple, GitHub, and X
+  when it returns `confirmed_email`); Facebook leaves it unset. Trust an address only when it is
+  `true`. X hands out the address only with the `users.email` scope (in the default scope) and
+  "Request email from users" enabled on the app in the X developer console.
 - `POST /login/email` with `{ email, verificationCode }`. On success `onAuthorized` is called with
   `provider: 'EMAIL'`, claims `{ sub: email, email, email_verified: true }` and no `token`.
 
@@ -524,20 +580,44 @@ resend cooldown, and the claims' `sub` and `email`. The local part is lowercased
 mailboxes are allowed by RFC 5321 but practically unused, and honouring them would let one mailbox
 hold several accounts.
 
-Error reasons (`google.rpc.ErrorInfo`), all `400 INVALID_ARGUMENT` unless noted:
+Error reasons (`google.rpc.ErrorInfo`, see "Errors"):
 
-| Reason                                | When                                                                              |
-| ------------------------------------- | --------------------------------------------------------------------------------- |
-| `TURNSTILE_VERIFICATION_FAILED`       | The Turnstile token was rejected.                                                 |
-| `VERIFICATION_CODE_RESEND_TOO_SOON`   | `429 RESOURCE_EXHAUSTED`: a code was sent to this email within `resendCooldown`.  |
-| `EMAIL_DELIVERY_FAILED`               | The sender threw; the cooldown is released, so the user can retry at once.        |
-| `INVALID_VERIFICATION_CODE`           | Wrong code, or no code is pending for this email.                                 |
-| `VERIFICATION_CODE_ATTEMPTS_EXCEEDED` | More than `maxAttempts` guesses at this code; it is discarded, ask for a new one. |
+| Reason                                | Status                   | When                                                                              |
+| ------------------------------------- | ------------------------ | --------------------------------------------------------------------------------- |
+| `TURNSTILE_VERIFICATION_FAILED`       | `400 INVALID_ARGUMENT`   | The Turnstile token was rejected.                                                 |
+| `VERIFICATION_CODE_RESEND_TOO_SOON`   | `429 RESOURCE_EXHAUSTED` | A code was sent to this email within `resendCooldown`.                            |
+| `EMAIL_DELIVERY_FAILED`               | `503 UNAVAILABLE`        | The sender threw; the cooldown is released, so the user can retry at once.        |
+| `INVALID_VERIFICATION_CODE`           | `403 PERMISSION_DENIED`  | Wrong code, or no code is pending for this email.                                 |
+| `VERIFICATION_CODE_ATTEMPTS_EXCEEDED` | `403 PERMISSION_DENIED`  | More than `maxAttempts` guesses at this code; it is discarded, ask for a new one. |
 
 Every login attempt against a pending code is counted before the code is compared, so parallel
 requests cannot exceed `maxAttempts` guesses either. A new code starts with a fresh budget.
 
-`sendPhoneVerificationCode` and `loginPhone` exist but currently answer `501 not_implemented`.
+## Errors
+
+The JSON routes (native, One Tap, email, desktop) answer every failure with a google.rpc error
+body, the shape `@shware/http`'s `getErrorInfo` reads: `{ error: { code, status, message, details:
+[{ '@type': '…google.rpc.ErrorInfo', reason, metadata? }] } }`. Branch on `reason`; the status
+tells the kind:
+
+| Status                   | What                                                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `400 INVALID_ARGUMENT`   | The request itself: a body that is not JSON (`INVALID_JSON`), a wrong content type, a field that failed validation (`INVALID_ARGUMENT` with a `BadRequest` detail naming it), `INVALID_ATTRIBUTES`, `INVALID_CODE_VERIFIER`.               |
+| `401 UNAUTHENTICATED`    | `desktopAuthorize` without a signed-in session.                                                                                                                                                                                            |
+| `403 PERMISSION_DENIED`  | An `AuthenticationError`: the host refused the sign-in (see "The `onAuthorized` handler"), or the SDK did (`INVALID_VERIFICATION_CODE`, `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`, `NONCE_MISSING`, `NONCE_MISMATCH`, `INVALID_DESKTOP_CODE`). |
+| `429 RESOURCE_EXHAUSTED` | `VERIFICATION_CODE_RESEND_TOO_SOON`.                                                                                                                                                                                                       |
+| `503 UNAVAILABLE`        | `EMAIL_DELIVERY_FAILED`, or the provider is down.                                                                                                                                                                                          |
+
+An `OAuth2Error` from the provider client is answered by what it means, with `OAUTH2_<error>` as
+the reason: `OAUTH2_INVALID_REQUEST` and the other malformed-request codes as `400`,
+`OAUTH2_INVALID_GRANT` (a code or id token that is expired, used, or for another client or
+issuer), `OAUTH2_INVALID_CLIENT`, `OAUTH2_INVALID_TOKEN`, `OAUTH2_ACCESS_DENIED` as `403`,
+`OAUTH2_SERVER_ERROR` and `OAUTH2_TEMPORARILY_UNAVAILABLE` as `503`. Its message stays in the logs:
+it can name a client id or quote the provider's response.
+
+Anything else thrown (by `onAuthorized`, a session store, a sender) propagates to your error
+handler as the server fault it is. The redirect flow is the exception to all of this: a page, not
+a client, reads its outcome, so it lands on `errorUri` with `error=…` (see "Redirect flow").
 
 ## Routes (`PATH`)
 
@@ -556,9 +636,7 @@ its own constant.
 | `LOGIN_OAUTH2_NATIVE`          | `/login/oauth2/native/:provider`  | `loginOAuth2Native`                               |
 | `LOGIN_OAUTH2_ONETAP`          | `/login/oauth2/onetap/google`     | `loginOAuth2Onetap`                               |
 | `LOGIN_EMAIL`                  | `/login/email`                    | `loginEmail`                                      |
-| `LOGIN_PHONE`                  | `/login/phone`                    | `loginPhone` (not implemented)                    |
 | `SEND_EMAIL_VERIFICATION_CODE` | `/auth/sendEmailVerificationCode` | `sendEmailVerificationCode`                       |
-| `SEND_PHONE_VERIFICATION_CODE` | `/auth/sendPhoneVerificationCode` | `sendPhoneVerificationCode` (not implemented)     |
 | `DESKTOP_AUTHORIZE`            | `/auth/desktop/authorize`         | `desktopAuthorize`                                |
 | `DESKTOP_EXCHANGE`             | `/auth/desktop/exchange`          | `desktopExchange`                                 |
 | `CLEANUP_EXPIRED_SESSIONS`     | `/sessions/expired/cleanup`       | `cleanupExpiredSessions`                          |

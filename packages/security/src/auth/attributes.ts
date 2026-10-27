@@ -1,4 +1,5 @@
 import { optional, record, refine, string } from 'zod/mini';
+import { invalidArgument } from './respond';
 
 /** Upper bound on serialized attributes: they ride in a session or a request body. */
 export const MAX_ATTRIBUTES_BYTES = 2048;
@@ -21,13 +22,18 @@ export const attributesSchema = optional(
 );
 
 /**
- * Reads `attributes` off a login body without trusting its shape: `{}` when absent, `null` when
- * present but invalid.
+ * The optional `attributes` of a login body (native): `{}` when absent, a 400 when present but
+ * not strings-to-strings within `MAX_ATTRIBUTES_BYTES`.
  */
-export function bodyAttributes(body: unknown): Record<string, string> | null {
+export function bodyAttributes(body: unknown): Record<string, string> {
   const value =
     typeof body === 'object' && body !== null && 'attributes' in body ? body.attributes : undefined;
   const parsed = attributesSchema.safeParse(value);
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    throw invalidArgument(
+      'INVALID_ATTRIBUTES',
+      `attributes must map strings to strings, at most ${MAX_ATTRIBUTES_BYTES} bytes`
+    );
+  }
   return parsed.data ?? {};
 }

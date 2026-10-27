@@ -12,7 +12,9 @@ export interface XOptions {
   userFields?: UserField[];
 }
 
-const defaultUserFields = [
+// `confirmed_email` is the address X has confirmed; it needs the `users.email` scope and
+// "Request email from users" enabled on the app in the developer console, else it is absent.
+const defaultUserFields: UserField[] = [
   'id',
   'name',
   'profile_image_url',
@@ -20,6 +22,7 @@ const defaultUserFields = [
   'username',
   'location',
   'verified',
+  'confirmed_email',
 ];
 
 export function createXProvider(options?: XOptions): Provider {
@@ -30,7 +33,7 @@ export function createXProvider(options?: XOptions): Provider {
     tokenRevokeUri: 'https://api.x.com/2/oauth2/revoke',
     // https://docs.x.com/x-api/users/user-lookup-me
     userInfoUri: 'https://api.x.com/2/users/me',
-    defaultScope: ['users.read', 'tweet.read', 'offline.access'],
+    defaultScope: ['users.read', 'tweet.read', 'users.email', 'offline.access'],
     createAuthorizationUri(params) {
       if (!params.pkce) throw new Error('pkce is required for x');
       return createAuthorizationUri({
@@ -62,7 +65,7 @@ export function createXProvider(options?: XOptions): Provider {
       const url = new URL(this.userInfoUri);
       userFields.forEach((field) => url.searchParams.append('user.fields', field));
 
-      const response = await fetch(this.userInfoUri, { headers });
+      const response = await fetch(url, { headers });
       if (!response.ok) {
         const { errors } = (await response.json()) as XAPIErrorResponse;
         throw new OAuth2Error(
@@ -78,8 +81,10 @@ export function createXProvider(options?: XOptions): Provider {
           sub: profile.data.id,
           name: profile.data.name,
           picture: profile.data.profile_image_url,
-          email: profile.data.email,
-          email_verified: profile.data.verified ?? false,
+          // X returns only an address it has confirmed, as `confirmed_email`; `verified` /
+          // `verified_type` are the blue check and say nothing about the email.
+          email: profile.data.confirmed_email,
+          email_verified: profile.data.confirmed_email ? true : undefined,
           preferred_username: profile.data.username,
           profile: `https://x.com/${profile.data.username}`,
           website: profile.data.url,
@@ -114,6 +119,7 @@ export const x = createXProvider();
 
 type UserField =
   | 'affiliation'
+  | 'confirmed_email'
   | 'connection_status'
   | 'created_at'
   | 'description'
@@ -142,7 +148,8 @@ type UserField =
 export interface XUser {
   id: string;
   name: string;
-  email?: string;
+  /** The address X has confirmed; only with the `users.email` scope and `confirmed_email` requested. */
+  confirmed_email?: string;
   username: string;
   location?: string;
   entities?: {

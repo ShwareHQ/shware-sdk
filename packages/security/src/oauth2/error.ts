@@ -47,10 +47,3 @@ export class OAuth2Error extends Error {
     Object.setPrototypeOf(this, OAuth2Error.prototype);
   }
 }
-
-export class AuthenticationError extends Error {
-  constructor(message: string) {
-    super(message);
-    Object.setPrototypeOf(this, AuthenticationError.prototype);
-  }
-}
