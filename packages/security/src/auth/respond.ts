@@ -90,7 +90,9 @@ const OAUTH2_STATUS: Record<OAuth2ErrorType, [code: number, status: string]> = {
  * the host's (a 500). Every JSON route runs under this, so the three kinds of failure have one
  * mapping: a `RequestError` as it is, an `AuthenticationError` as `403 PERMISSION_DENIED` with the
  * reason and metadata (the host's refusal or the SDK's own: a wrong code, a replayed nonce), an
- * `OAuth2Error` by what it means (`OAUTH2_<error>` as the reason).
+ * `OAuth2Error` by what it means (`OAUTH2_<error>` as the reason). Exported for the host's error
+ * handler, so a flow of its own that calls `Auth` directly (`verifyEmailCode`) answers the same way:
+ * `errorResponse(error) ?? yourHandler(error)`.
  */
 export function errorResponse(error: unknown): Response | null {
   if (error instanceof RequestError) return json(error.body);

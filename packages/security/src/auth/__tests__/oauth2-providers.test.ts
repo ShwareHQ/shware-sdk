@@ -628,25 +628,14 @@ describe('Facebook', () => {
 });
 
 describe('provider keys', () => {
-  it('refuses an unknown provider', async () => {
-    await expect(
-      createAuth().oauth2Authorization(new Request('https://api.test/oauth2/authorization/nope'))
-    ).rejects.toMatchObject({ status: 400, error: 'invalid_request' });
-  });
-
-  it('does not resolve prototype keys as providers', async () => {
-    await expect(
-      createAuth().oauth2Authorization(
-        new Request('https://api.test/oauth2/authorization/constructor')
-      )
-    ).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('refuses the redirect flow for a provider without a web client', async () => {
-    await expect(
-      createAuth().oauth2Authorization(
-        new Request('https://api.test/oauth2/authorization/facebookPublic')
-      )
-    ).rejects.toMatchObject({ status: 400 });
-  });
+  it.each(['nope', 'constructor', 'facebookPublic'])(
+    'answers 400 when the redirect flow is started for %s',
+    async (provider) => {
+      const response = await createAuth().oauth2Authorization(
+        new Request(`https://api.test/oauth2/authorization/${provider}`)
+      );
+      expect(response.status).toBe(400);
+      expect(await reasonOf(response)).toBe('OAUTH2_INVALID_REQUEST');
+    }
+  );
 });

@@ -382,38 +382,39 @@ export class Auth implements AuthService {
     return Response.json({ nonce });
   };
 
-  oauth2Authorization = async (
+  oauth2Authorization = (
     request: Request,
     options?: OAuth2AuthorizationOptions
-  ): Promise<Response> => {
-    invariant(this.oauth2Client, 'oauth2Client is not initialized');
-    const attributes = authorizationAttributes(options?.attributes);
-    const { mark, setTiming } = timing({ enabled: this.timing });
-    const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
-    const state = randomUUID();
-    const pkce = this.createPkceParameters();
-    const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce });
-    const session = (await this.loadSession(request)) ?? this.repository.createSession();
-    mark('fetch_session');
+  ): Promise<Response> =>
+    this.guard(async () => {
+      invariant(this.oauth2Client, 'oauth2Client is not initialized');
+      const attributes = authorizationAttributes(options?.attributes);
+      const { mark, setTiming } = timing({ enabled: this.timing });
+      const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
+      const state = randomUUID();
+      const pkce = this.createPkceParameters();
+      const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce });
+      const session = (await this.loadSession(request)) ?? this.repository.createSession();
+      mark('fetch_session');
 
-    const authorizationRequest: OAuth2AuthorizationRequest = {
-      state,
-      provider,
-      authorizationRequestUri: uri.href,
-      additionalParameters: pkce,
-      ...(attributes ? { attributes } : {}),
-    };
-    session.setAttribute(
-      this.ATTR_OAUTH2_AUTHORIZATION_REQUEST,
-      JSON.stringify(authorizationRequest)
-    );
-    await this.repository.save(session);
-    mark('save_session');
+      const authorizationRequest: OAuth2AuthorizationRequest = {
+        state,
+        provider,
+        authorizationRequestUri: uri.href,
+        additionalParameters: pkce,
+        ...(attributes ? { attributes } : {}),
+      };
+      session.setAttribute(
+        this.ATTR_OAUTH2_AUTHORIZATION_REQUEST,
+        JSON.stringify(authorizationRequest)
+      );
+      await this.repository.save(session);
+      mark('save_session');
 
-    const response = new Response(null, { status: 302, headers: { location: uri.href } });
-    setTiming(response);
-    return this.withSession(response, session);
-  };
+      const response = new Response(null, { status: 302, headers: { location: uri.href } });
+      setTiming(response);
+      return this.withSession(response, session);
+    });
 
   loginOAuth2Code = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');

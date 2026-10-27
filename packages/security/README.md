@@ -227,7 +227,14 @@ export async function getUserId(c: Context) {
 
 The JSON routes answer every failure they know themselves (see "Errors" below), so your error
 handler only sees genuine server faults: what `onAuthorized` or a session store threw besides an
-`AuthenticationError`.
+`AuthenticationError`. A flow of your own that calls `Auth` directly (`verifyEmailCode`) can throw
+the same errors; `errorResponse(error)` gives the response the routes would, or `null`:
+
+```ts
+import { errorResponse } from '@shware/security';
+
+app.onError((error, c) => errorResponse(error) ?? yourErrorHandler(error, c));
+```
 
 ## Session repositories
 
