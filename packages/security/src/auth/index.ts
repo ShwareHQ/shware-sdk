@@ -163,6 +163,7 @@ export class Auth implements AuthService {
   private readonly oauth2Client: OAuth2Client | null;
   private readonly onetapRequireNonce: boolean;
   private readonly touchInterval: number;
+  private readonly sessionHeader: string | false;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
   constructor({
@@ -197,15 +198,16 @@ export class Auth implements AuthService {
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
     this.onetapRequireNonce = oauth2?.onetap?.requireNonce ?? true;
     this.touchInterval = (session?.touchInterval ?? 3600) * 1000;
+    this.sessionHeader = session?.header ?? 'X-Auth-Token';
     invariant(this.touchInterval >= 0, 'session.touchInterval must not be negative');
   }
 
   // ---- sessions and responses ------------------------------------------------------------------
 
   private getSessionId(request: Request): string | undefined {
-    const header = request.headers.get('Authorization');
-    if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length) || undefined;
-    return getCookie(request, this.cookieName);
+    const fromCookie = getCookie(request, this.cookieName);
+    if (fromCookie) return fromCookie;
+    return (this.sessionHeader && request.headers.get(this.sessionHeader)) || undefined;
   }
 
   /** The session the request carries, if it exists. */

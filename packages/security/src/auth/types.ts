@@ -66,6 +66,14 @@ export interface AuthConfig {
      * 3600 (an hour); `0` writes on every authenticated request.
      */
     touchInterval?: number;
+    /**
+     * The request header a client without a cookie jar (a CLI, a desktop shell) sends the session
+     * id in, as Spring Session's `HeaderHttpSessionIdResolver` reads it. Default `X-Auth-Token`;
+     * `false` reads the cookie only. The cookie wins when both are present. The header is for
+     * the session id only: an API token for programmatic access is a different credential with
+     * its own lifecycle, which belongs in `Authorization: Bearer` and is not read here.
+     */
+    header?: string | false;
   };
   turnstileSecretKey?: string;
   /** Limits of email verification codes (a code itself is valid for 10 minutes). */

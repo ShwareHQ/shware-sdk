@@ -205,7 +205,10 @@ server fault: `server_error` on the redirect, rethrown to your error handler on 
 | `verificationCode`   | `{ maxAttempts?, resendCooldown? }` | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
 
-The session id is read from the cookie or from an `Authorization: Bearer <session id>` header.
+The session id is read from the cookie, else from the `X-Auth-Token` header (`session.header`
+names another, `false` turns it off), for clients without a cookie jar: they take the id from the
+login response's `Set-Cookie` and send it back in the header. `Authorization` is never read: an
+API token is a different credential from a session and is not handled here.
 `logout` clears the cookie with the same attributes it was set with (`domain`, `path`, …), so a
 cookie set with `Domain=.example.com` is actually removed.
 
