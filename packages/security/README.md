@@ -151,6 +151,36 @@ export async function onAuthorized(
 `PROVIDERS` is the list of `Provider` values (`APPLE`, `GITHUB`, `GOOGLE`, ..., `EMAIL`, `PHONE`),
 handy for a database enum.
 
+To refuse a sign-in the handler could complete but will not (an address another account holds, a
+banned user), throw an `AuthenticationError` with a reason code and, optionally, what the client
+needs to act on it. Declare your reasons once, each with the shape of its metadata (string fields
+only, since it travels as URL parameters and JSON), and the constructor accepts nothing else:
+
+```ts
+import { AuthenticationError } from '@shware/security';
+
+declare module '@shware/security' {
+  interface AuthenticationReasons {
+    EMAIL_ALREADY_USED: { provider?: string }; // the account to sign in with instead
+    ACCOUNT_BANNED: { until: string }; // required: the throw must pass it
+  }
+}
+
+throw new AuthenticationError('EMAIL_ALREADY_USED', {
+  metadata: { provider: 'GOOGLE' },
+  message: 'Email already used by another account',
+});
+```
+
+`AuthenticationReason` is the union of the declared reasons, for the client-side switch. Without a
+declaration any string reason with string metadata is accepted.
+
+`Auth` answers it in the shape of the route: the redirect flow lands on `errorUri` with
+`error=access_denied&reason=EMAIL_ALREADY_USED&provider=GOOGLE`; the JSON routes (native, One
+Tap, email) answer `403` with a google.rpc error body whose `ErrorInfo` holds the `reason` and
+`metadata` (what `@shware/http`'s `getErrorInfo` reads). Anything else the handler throws is a
+server fault: `server_error` on the redirect, rethrown to your error handler on the JSON routes.
+
 ## `Auth` options
 
 | Option               | Type                                | Notes                                                                                         |
@@ -335,6 +365,8 @@ Every failure of the callback lands on `errorUri` — never a raw JSON error in 
   `console.warn` and reported by code only: `invalid_grant` (an expired or reused code),
   `access_denied` or `temporarily_unavailable` as is, any other as `server_error`. Its message
   stays in the logs, since it can name a client id or quote a provider's response;
+- an `AuthenticationError` thrown by `onAuthorized` as `access_denied` with its `reason` and
+  metadata entries as parameters (logged with `console.warn`; see "The `onAuthorized` handler");
 - anything else thrown by the exchange, `onAuthorized` or the session store, as `server_error`
   (logged with `console.error`).
 
@@ -519,11 +551,6 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
   `{ ok: true }` or `{ ok: false, error: 'INVALID_VERIFICATION_CODE' | 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED' }`.
   For a host flow that only needs proof of the address (a signed-in user verifying or changing
   their email); same storage and limits as `loginEmail`.
-- To refuse a sign-in, `onAuthorized` throws `new AuthenticationError(reason, metadata)` (e.g.
-  `'EMAIL_ALREADY_USED', { provider: 'GOOGLE' }`). The JSON login routes answer `403` with a
-  google.rpc `ErrorInfo` carrying `reason` and `metadata`; the redirect flow lands on
-  `errorUri?status=error&error=access_denied&reason=<reason>&<metadata entries>`. Any other error
-  is the app's failure: `500` / `server_error`, details in the logs.
 - `claims.email_verified` is set only by providers that state it (Google, Apple, GitHub, and X
   when it returns `confirmed_email`); Facebook leaves it unset. Trust an address only when it is
   `true`. X hands out the address only with the `users.email` scope (in the default scope) and

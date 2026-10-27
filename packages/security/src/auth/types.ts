@@ -27,10 +27,9 @@ export interface Authorization {
 }
 
 /**
- * Creates or updates the user and returns the principal whose `name` the session stores. To refuse
- * the sign-in, throw `AuthenticationError(reason, metadata)`: the JSON login routes answer 403 with
- * that reason and the redirect flow lands on errorUri with `error=access_denied&reason=…`. Any
- * other error is treated as the app's failure (500 / `server_error`).
+ * Creates or updates the user and returns the principal whose `name` the session stores. Throw an
+ * `AuthenticationError` to refuse the sign-in with a reason the client can act on; any other error
+ * is treated as a server fault.
  */
 export type AuthorizedHandler = (
   request: Request,

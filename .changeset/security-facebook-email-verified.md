@@ -2,4 +2,4 @@
 '@shware/security': minor
 ---
 
-The Facebook provider no longer claims `email_verified: true`, which Facebook does not state; hosts should trust an address only when `email_verified === true`.
+The Facebook provider no longer sets `email_verified`: the Graph API does not state it, so the flag was a hardcoded `true`. Hosts can now trust `email_verified === true` from any provider.

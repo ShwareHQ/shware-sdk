@@ -1,7 +1,7 @@
 import { type Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthenticationError } from '../../oauth2/error';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
+import { AuthenticationError } from '../error';
 import { Auth } from '../index';
 import type { AuthorizedHandler } from '../types';
 
@@ -172,29 +172,39 @@ describe('email verification code attempts', () => {
     expect(kv.store.has(CODE_KEY)).toBe(false);
   });
 
-  it('answers a refusal from onAuthorized with 403 and its reason', async () => {
+  it('answers a refusal the handler threw as 403 with its reason and metadata', async () => {
     const auth = createAuth();
     await send(auth);
-    handler.mockRejectedValueOnce(new AuthenticationError('EMAIL_ALREADY_USED', { provider: 'X' }));
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    handler.mockRejectedValueOnce(
+      new AuthenticationError('EMAIL_ALREADY_USED', { metadata: { provider: 'GOOGLE' } })
+    );
 
     const response = await login(auth, sentCode());
 
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await response.json()).toEqual({
       error: {
         code: 403,
         status: 'PERMISSION_DENIED',
+        message: 'Sign-in refused: EMAIL_ALREADY_USED',
         details: [
           {
             '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
             reason: 'EMAIL_ALREADY_USED',
-            metadata: { provider: 'X' },
+            metadata: { provider: 'GOOGLE' },
           },
         ],
       },
     });
-    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('leaves any other handler error to the host', async () => {
+    const auth = createAuth();
+    await send(auth);
+    handler.mockRejectedValueOnce(new Error('database down'));
+
+    await expect(login(auth, sentCode())).rejects.toThrow('database down');
   });
 
   it('answers a wrong code with INVALID_VERIFICATION_CODE', async () => {

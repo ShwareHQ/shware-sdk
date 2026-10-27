@@ -1,10 +1,11 @@
 import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from '../../oauth2/client';
-import { AuthenticationError, OAuth2Error } from '../../oauth2/error';
+import { OAuth2Error } from '../../oauth2/error';
 import { google } from '../../oauth2/provider/index';
 import type { OAuth2Token, UserInfo } from '../../oauth2/types';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
+import { AuthenticationError } from '../error';
 import { Auth } from '../index';
 import type { AuthorizedHandler } from '../types';
 
@@ -213,13 +214,15 @@ describe('oauth2 callback errors', () => {
     expect(log).toHaveBeenCalledWith(expect.any(String), failure);
   });
 
-  it('forwards a refusal the handler made, with its reason and metadata', async () => {
+  it('forwards a refusal the handler threw, with its reason and metadata', async () => {
     const auth = createAuth();
     const { cookie, state } = await start(auth);
     handler.mockRejectedValueOnce(
-      new AuthenticationError('EMAIL_ALREADY_USED', { provider: 'GOOGLE', status: 'ignored' })
+      new AuthenticationError('EMAIL_ALREADY_USED', {
+        metadata: { provider: 'GOOGLE', status: 'ignored', error: 'ignored' },
+      })
     );
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
 
@@ -229,8 +232,13 @@ describe('oauth2 callback errors', () => {
     const location = new URL(response.headers.get('location') ?? '');
     expect(location.searchParams.get('reason')).toBe('EMAIL_ALREADY_USED');
     expect(location.searchParams.get('provider')).toBe('GOOGLE');
-    // The page reads the outcome from these; metadata cannot overwrite them.
+    // The callback's own parameters win over metadata entries of the same name.
     expect(location.searchParams.get('status')).toBe('error');
+    expect(warn).toHaveBeenCalledWith('OAuth2 sign-in refused', 'EMAIL_ALREADY_USED', {
+      provider: 'GOOGLE',
+      status: 'ignored',
+      error: 'ignored',
+    });
   });
 
   it('keeps the success redirect unchanged', async () => {

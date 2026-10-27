@@ -1,6 +1,11 @@
+export {
+  AuthenticationError,
+  type AuthenticationReason,
+  type AuthenticationReasons,
+} from './auth/error';
 export { Auth, PATH } from './auth/index';
 export { OAuth2Client, oauth2RedirectQuerySchema } from './oauth2/client';
-export { AuthenticationError, OAuth2Error, type OAuth2ErrorType } from './oauth2/error';
+export { OAuth2Error, type OAuth2ErrorType } from './oauth2/error';
 export { RedisIndexedSessionRepository, RedisKVRepository } from './session/redis';
 export { DBIndexedSessionRepository } from './session/db';
 export { PRINCIPAL_NAME_INDEX_NAME } from './session/common';

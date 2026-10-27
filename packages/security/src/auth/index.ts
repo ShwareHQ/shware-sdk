@@ -3,12 +3,7 @@ import { invariant } from '@shware/utils';
 import type { Principal } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
-import {
-  AuthenticationError,
-  OAuth2Error,
-  type OAuth2ErrorType,
-  isKnownOAuth2ErrorType,
-} from '../oauth2/error';
+import { OAuth2Error, type OAuth2ErrorType, isKnownOAuth2ErrorType } from '../oauth2/error';
 import type {
   NativeCredential,
   OAuth2AuthorizationRequest,
@@ -34,6 +29,7 @@ import {
   verifyTurnstileToken,
 } from '../utils/valid';
 import { MAX_ATTRIBUTES_BYTES, attributesSize, bodyAttributes } from './attributes';
+import { AuthenticationError } from './error';
 import type {
   AuthConfig,
   AuthService,
@@ -361,15 +357,12 @@ export class Auth implements AuthService {
     refusal?: AuthenticationError
   ): Response => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
-    const base = new URL(this.oauth2Client.errorUri);
-    const uri = new URL(base);
-    // A refusal's metadata becomes parameters, but never at the expense of what the page reads the
-    // outcome from: errorUri's own parameters (`status=error`) are re-applied over it, then the
-    // error and the reason.
+    const uri = new URL(this.oauth2Client.errorUri);
+    // Metadata never replaces a parameter: not one errorUri carries itself, nor one the callback
+    // sets below.
     for (const [key, value] of Object.entries(refusal?.metadata ?? {})) {
-      uri.searchParams.set(key, value);
+      if (!uri.searchParams.has(key)) uri.searchParams.set(key, value);
     }
-    for (const [key, value] of base.searchParams) uri.searchParams.set(key, value);
     uri.searchParams.set('error', error);
     if (description) {
       uri.searchParams.set('error_description', description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH));
@@ -379,26 +372,22 @@ export class Auth implements AuthService {
   };
 
   /**
-   * The host's `onAuthorized`, with its one expected failure handled: an `AuthenticationError` is
-   * the refusal the JSON login routes answer with 403 and the reason the clients act on. Anything
-   * else propagates as the 500 it is.
+   * Runs the host's handler for a JSON route. A refusal is answered here, as a 403 whose
+   * ErrorInfo carries the reason and metadata; any other error is the host's to handle.
    */
-  private async authorize(
+  private readonly authorize = async (
     handler: AuthorizedHandler,
     request: Request,
     authorization: Authorization
-  ): Promise<Principal | Response> {
+  ): Promise<Principal | Response> => {
     try {
       return await handler(request, authorization);
     } catch (error) {
-      if (error instanceof AuthenticationError) {
-        console.warn('Sign-in refused', { reason: error.reason, metadata: error.metadata });
-        const body = permissionDenied(error.reason, error.metadata);
-        return Response.json(body, { status: body.error.code });
-      }
-      throw error;
+      if (!(error instanceof AuthenticationError)) throw error;
+      const body = permissionDenied(error.reason, error.message, error.metadata);
+      return Response.json(body, { status: 403 });
     }
-  }
+  };
 
   loginOAuth2Code = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
@@ -506,11 +495,10 @@ export class Auth implements AuthService {
         const type = CALLBACK_ERROR_TYPES.has(error.error) ? error.error : 'server_error';
         return this.redirect(type);
       }
-      // A refusal the host's handler made on purpose is something the user can act on, so its
-      // reason reaches the page like the JSON routes' 403 does: `error=access_denied`, `reason`,
-      // and the metadata entries as parameters.
+      // A refusal is something the user can act on, so its reason and metadata reach the page,
+      // as they reach a JSON client through the ErrorInfo.
       if (error instanceof AuthenticationError) {
-        console.warn('OAuth2 sign-in refused', { reason: error.reason, metadata: error.metadata });
+        console.warn('OAuth2 sign-in refused', error.reason, error.metadata);
         return this.redirect('access_denied', undefined, error);
       }
       console.error('OAuth2 callback failed', error);
@@ -632,7 +620,7 @@ export class Auth implements AuthService {
     const parsed = googleOneTapSchema.parse(body);
 
     // Both the credential and the code are issued to the provider's web client.
-    let principal: Principal;
+    let principal: Principal | Response;
     if (parsed.credential) {
       const { clientId, token, userInfo } = await this.oauth2Client.getTokenInfo({
         provider,
@@ -657,34 +645,30 @@ export class Auth implements AuthService {
         return Response.json(json, { status: 401 });
       }
 
-      const result = await this.authorize(handler, request, {
+      principal = await this.authorize(handler, request, {
         provider,
         clientId,
         userInfo,
         token,
         attributes,
       });
-      if (result instanceof Response) return result;
-      principal = result;
     } else if (parsed.code) {
       const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
         provider,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ provider, clientId, token });
-      const result = await this.authorize(handler, request, {
+      principal = await this.authorize(handler, request, {
         provider,
         clientId,
         userInfo,
         token,
         attributes,
       });
-      if (result instanceof Response) return result;
-      principal = result;
     } else {
       throw new Error('invalid request');
     }
-
+    if (principal instanceof Response) return principal;
     mark('save_principal');
 
     const session = this.repository.createSession();

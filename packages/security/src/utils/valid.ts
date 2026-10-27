@@ -21,6 +21,16 @@ export function invalidArgument(reason: string): ErrorBody {
   };
 }
 
+/** The host refused a sign-in: `reason` and `metadata` as the client reads them off an ErrorInfo. */
+export function permissionDenied(
+  reason: string,
+  message: string,
+  metadata: Record<string, string>
+): ErrorBody {
+  const info = { '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason, metadata };
+  return { error: { code: 403, status: 'PERMISSION_DENIED', message, details: [info] } };
+}
+
 export function resourceExhausted(reason: string, message: string): ErrorBody {
   return {
     error: {
@@ -28,18 +38,6 @@ export function resourceExhausted(reason: string, message: string): ErrorBody {
       status: 'RESOURCE_EXHAUSTED',
       message,
       details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason }],
-    },
-  };
-}
-
-/** A refused sign-in on the JSON routes: 403 with the reason and metadata the clients act on. */
-export function permissionDenied(reason: string, metadata?: Record<string, string>): ErrorBody {
-  return {
-    error: {
-      code: 403,
-      status: 'PERMISSION_DENIED',
-      message: `Authentication refused: ${reason}`,
-      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason, metadata }],
     },
   };
 }
