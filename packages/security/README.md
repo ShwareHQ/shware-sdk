@@ -519,10 +519,11 @@ app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
   `{ ok: true }` or `{ ok: false, error: 'INVALID_VERIFICATION_CODE' | 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED' }`.
   For a host flow that only needs proof of the address (a signed-in user verifying or changing
   their email); same storage and limits as `loginEmail`.
-- A refusal `onAuthorized` throws on the redirect flow reaches `errorUri` as
-  `?status=error&error=access_denied&reason=<REASON>&<metadata…>` when the error carries a `reason`
-  (plus optional string `metadata`) or a google.rpc `ErrorInfo` body such as `@shware/http`'s
-  `StatusError`; see `refusalOf`. Other failures stay `server_error` with the details in the logs.
+- To refuse a sign-in, `onAuthorized` throws `new AuthenticationError(reason, metadata)` (e.g.
+  `'EMAIL_ALREADY_USED', { provider: 'GOOGLE' }`). The JSON login routes answer `403` with a
+  google.rpc `ErrorInfo` carrying `reason` and `metadata`; the redirect flow lands on
+  `errorUri?status=error&error=access_denied&reason=<reason>&<metadata entries>`. Any other error
+  is the app's failure: `500` / `server_error`, details in the logs.
 - `claims.email_verified` is set only by providers that state it (Google, Apple, GitHub, and X
   when it returns `confirmed_email`); Facebook leaves it unset. Trust an address only when it is
   `true`. X hands out the address only with the `users.email` scope (in the default scope) and

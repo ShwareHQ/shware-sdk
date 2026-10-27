@@ -32,6 +32,18 @@ export function resourceExhausted(reason: string, message: string): ErrorBody {
   };
 }
 
+/** A refused sign-in on the JSON routes: 403 with the reason and metadata the clients act on. */
+export function permissionDenied(reason: string, metadata?: Record<string, string>): ErrorBody {
+  return {
+    error: {
+      code: 403,
+      status: 'PERMISSION_DENIED',
+      message: `Authentication refused: ${reason}`,
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason, metadata }],
+    },
+  };
+}
+
 type Result<S extends ZodType | ZodMiniType> =
   | { error: null; data: S extends ZodType ? output<S> : outputMini<S> }
   | { error: ErrorBody; data: null };

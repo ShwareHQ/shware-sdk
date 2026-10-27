@@ -1,4 +1,5 @@
 import { type Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthenticationError } from '../../oauth2/error';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
 import { Auth } from '../index';
@@ -169,6 +170,31 @@ describe('email verification code attempts', () => {
       error: 'VERIFICATION_CODE_ATTEMPTS_EXCEEDED',
     });
     expect(kv.store.has(CODE_KEY)).toBe(false);
+  });
+
+  it('answers a refusal from onAuthorized with 403 and its reason', async () => {
+    const auth = createAuth();
+    await send(auth);
+    handler.mockRejectedValueOnce(new AuthenticationError('EMAIL_ALREADY_USED', { provider: 'X' }));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await login(auth, sentCode());
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 403,
+        status: 'PERMISSION_DENIED',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'EMAIL_ALREADY_USED',
+            metadata: { provider: 'X' },
+          },
+        ],
+      },
+    });
+    expect(response.headers.get('set-cookie')).toBeNull();
   });
 
   it('answers a wrong code with INVALID_VERIFICATION_CODE', async () => {

@@ -48,9 +48,22 @@ export class OAuth2Error extends Error {
   }
 }
 
+/**
+ * A sign-in the host's `onAuthorized` refuses on purpose (an email another account holds, a banned
+ * user, ...), as Spring's `OAuth2AuthenticationException`. `reason` is an error code the clients
+ * switch on and `metadata` what they need to say it (`{ provider: 'GOOGLE' }`). The SDK answers
+ * the JSON login routes with `403` and a google.rpc `ErrorInfo` carrying both, and the redirect
+ * flow with `errorUri?error=access_denied&reason=…` plus the metadata entries as parameters.
+ * Any other error a handler throws is the app's problem: `500` / `server_error`, details in logs.
+ */
 export class AuthenticationError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(
+    readonly reason: string,
+    readonly metadata?: Record<string, string>,
+    message?: string
+  ) {
+    super(message ?? `Authentication refused: ${reason}`);
+    this.name = 'AuthenticationError';
     Object.setPrototypeOf(this, AuthenticationError.prototype);
   }
 }

@@ -1,6 +1,6 @@
 import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from '../../oauth2/client';
-import { OAuth2Error } from '../../oauth2/error';
+import { AuthenticationError, OAuth2Error } from '../../oauth2/error';
 import { google } from '../../oauth2/provider/index';
 import type { OAuth2Token, UserInfo } from '../../oauth2/types';
 import { MapSession } from '../../session/map-session';
@@ -217,10 +217,7 @@ describe('oauth2 callback errors', () => {
     const auth = createAuth();
     const { cookie, state } = await start(auth);
     handler.mockRejectedValueOnce(
-      Object.assign(new Error('refused'), {
-        reason: 'EMAIL_ALREADY_USED',
-        metadata: { provider: 'GOOGLE', status: 'ignored', 'Bad Key': 'x', n: 1 },
-      })
+      new AuthenticationError('EMAIL_ALREADY_USED', { provider: 'GOOGLE', status: 'ignored' })
     );
     vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -232,51 +229,8 @@ describe('oauth2 callback errors', () => {
     const location = new URL(response.headers.get('location') ?? '');
     expect(location.searchParams.get('reason')).toBe('EMAIL_ALREADY_USED');
     expect(location.searchParams.get('provider')).toBe('GOOGLE');
-    expect(location.searchParams.get('status')).toBe('error'); // not overwritten by metadata
-    expect(location.searchParams.has('Bad Key')).toBe(false);
-    expect(location.searchParams.has('n')).toBe(false);
-  });
-
-  it('reads the refusal off a google.rpc error body too', async () => {
-    const auth = createAuth();
-    const { cookie, state } = await start(auth);
-    handler.mockRejectedValueOnce(
-      Object.assign(new Error('refused'), {
-        body: {
-          error: {
-            code: 400,
-            message: 'Email already used',
-            details: [
-              {
-                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
-                reason: 'EMAIL_ALREADY_USED',
-                metadata: { provider: 'APPLE' },
-              },
-            ],
-          },
-        },
-      })
-    );
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
-
-    expect(errorRedirect(response).error).toBe('access_denied');
-    const location = new URL(response.headers.get('location') ?? '');
-    expect(location.searchParams.get('reason')).toBe('EMAIL_ALREADY_USED');
-    expect(location.searchParams.get('provider')).toBe('APPLE');
-  });
-
-  it('treats a malformed reason as an ordinary failure', async () => {
-    const auth = createAuth();
-    const { cookie, state } = await start(auth);
-    handler.mockRejectedValueOnce(Object.assign(new Error('x'), { reason: 'not a code' }));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
-
-    expect(errorRedirect(response).error).toBe('server_error');
-    expect(new URL(response.headers.get('location') ?? '').searchParams.has('reason')).toBe(false);
+    // The page reads the outcome from these; metadata cannot overwrite them.
+    expect(location.searchParams.get('status')).toBe('error');
   });
 
   it('keeps the success redirect unchanged', async () => {

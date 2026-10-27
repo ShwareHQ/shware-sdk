@@ -3,7 +3,12 @@ import { invariant } from '@shware/utils';
 import type { Principal } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
-import { OAuth2Error, type OAuth2ErrorType, isKnownOAuth2ErrorType } from '../oauth2/error';
+import {
+  AuthenticationError,
+  OAuth2Error,
+  type OAuth2ErrorType,
+  isKnownOAuth2ErrorType,
+} from '../oauth2/error';
 import type {
   NativeCredential,
   OAuth2AuthorizationRequest,
@@ -21,11 +26,18 @@ import {
   setCookie,
 } from '../utils/http';
 import { timing } from '../utils/timing';
-import { invalidArgument, resourceExhausted, valid, verifyTurnstileToken } from '../utils/valid';
+import {
+  invalidArgument,
+  permissionDenied,
+  resourceExhausted,
+  valid,
+  verifyTurnstileToken,
+} from '../utils/valid';
 import { MAX_ATTRIBUTES_BYTES, attributesSize, bodyAttributes } from './attributes';
 import type {
   AuthConfig,
   AuthService,
+  Authorization,
   AuthorizedHandler,
   EmailCodeVerification,
   LoggedHandler,
@@ -63,55 +75,6 @@ function safeErrorType(error: string, fallback: OAuth2ErrorType): OAuth2ErrorTyp
  * failure there (a rejected client, a user info request that failed) is the app's or the
  * provider's problem, which the user sees as `server_error`.
  */
-/** What a refused sign-in puts on errorUri: the reason, and the metadata entries as parameters. */
-export interface SignInRefusal {
-  reason: string;
-  metadata?: Record<string, string>;
-}
-
-const REASON_FORMAT = /^[A-Z][A-Z0-9_]{0,63}$/;
-const METADATA_KEY_FORMAT = /^[a-z][a-z0-9_]{0,31}$/;
-const MAX_METADATA_ENTRIES = 8;
-const MAX_METADATA_VALUE_LENGTH = 64;
-/** Parameters the callback sets itself; a refusal's metadata must not overwrite them. */
-const RESERVED_PARAMS = new Set(['status', 'error', 'error_description', 'reason']);
-
-/**
- * The refusal an error thrown by the host's `onAuthorized` carries, if any. Two shapes are read:
- * an error with a `reason` string (and optional `metadata` record), and a google.rpc error body
- * (`error.body.error.details[]` with a `type.googleapis.com/google.rpc.ErrorInfo` entry, what
- * `@shware/http`'s `StatusError` holds), so a host can throw the same error on the JSON routes and
- * here. Only well-formed reasons and metadata make it onto the URL: an upper-case reason code,
- * at most 8 short string entries with lower-case keys that do not clash with the callback's own.
- */
-export function refusalOf(error: unknown): SignInRefusal | null {
-  if (typeof error !== 'object' || error === null) return null;
-  const direct = error as { reason?: unknown; metadata?: unknown };
-  let reason: unknown = direct.reason;
-  let metadata: unknown = direct.metadata;
-  if (typeof reason !== 'string') {
-    const body = (error as { body?: unknown }).body as
-      | { error?: { details?: { '@type'?: string; reason?: unknown; metadata?: unknown }[] } }
-      | undefined;
-    const info = body?.error?.details?.find(
-      (d) => d['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo'
-    );
-    reason = info?.reason;
-    metadata = info?.metadata;
-  }
-  if (typeof reason !== 'string' || !REASON_FORMAT.test(reason)) return null;
-  const entries: Record<string, string> = {};
-  if (typeof metadata === 'object' && metadata !== null) {
-    for (const [key, value] of Object.entries(metadata as Record<string, unknown>)) {
-      if (Object.keys(entries).length >= MAX_METADATA_ENTRIES) break;
-      if (!METADATA_KEY_FORMAT.test(key) || RESERVED_PARAMS.has(key)) continue;
-      if (typeof value !== 'string' || value.length > MAX_METADATA_VALUE_LENGTH) continue;
-      entries[key] = value;
-    }
-  }
-  return { reason, metadata: entries };
-}
-
 const CALLBACK_ERROR_TYPES: ReadonlySet<OAuth2ErrorType> = new Set([
   'invalid_grant',
   'access_denied',
@@ -395,22 +358,47 @@ export class Auth implements AuthService {
   private readonly redirect = (
     error: OAuth2ErrorType,
     description?: string,
-    refusal?: SignInRefusal
+    refusal?: AuthenticationError
   ): Response => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
-    const uri = new URL(this.oauth2Client.errorUri);
+    const base = new URL(this.oauth2Client.errorUri);
+    const uri = new URL(base);
+    // A refusal's metadata becomes parameters, but never at the expense of what the page reads the
+    // outcome from: errorUri's own parameters (`status=error`) are re-applied over it, then the
+    // error and the reason.
+    for (const [key, value] of Object.entries(refusal?.metadata ?? {})) {
+      uri.searchParams.set(key, value);
+    }
+    for (const [key, value] of base.searchParams) uri.searchParams.set(key, value);
     uri.searchParams.set('error', error);
     if (description) {
       uri.searchParams.set('error_description', description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH));
     }
-    if (refusal) {
-      uri.searchParams.set('reason', refusal.reason);
-      for (const [key, value] of Object.entries(refusal.metadata ?? {})) {
-        uri.searchParams.set(key, value);
-      }
-    }
+    if (refusal) uri.searchParams.set('reason', refusal.reason);
     return Response.redirect(uri.href, 302);
   };
+
+  /**
+   * The host's `onAuthorized`, with its one expected failure handled: an `AuthenticationError` is
+   * the refusal the JSON login routes answer with 403 and the reason the clients act on. Anything
+   * else propagates as the 500 it is.
+   */
+  private async authorize(
+    handler: AuthorizedHandler,
+    request: Request,
+    authorization: Authorization
+  ): Promise<Principal | Response> {
+    try {
+      return await handler(request, authorization);
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        console.warn('Sign-in refused', { reason: error.reason, metadata: error.metadata });
+        const body = permissionDenied(error.reason, error.metadata);
+        return Response.json(body, { status: body.error.code });
+      }
+      throw error;
+    }
+  }
 
   loginOAuth2Code = async (request: Request, handler: AuthorizedHandler): Promise<Response> => {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
@@ -518,13 +506,12 @@ export class Auth implements AuthService {
         const type = CALLBACK_ERROR_TYPES.has(error.error) ? error.error : 'server_error';
         return this.redirect(type);
       }
-      // A refusal the host's handler made on purpose (an email another account holds, a banned
-      // user, ...) is something the user can act on, so its reason reaches the page like the
-      // JSON routes' errorInfo does: `error=access_denied`, `reason`, and the metadata entries.
-      const refusal = refusalOf(error);
-      if (refusal) {
-        console.warn('OAuth2 sign-in refused', refusal);
-        return this.redirect('access_denied', undefined, refusal);
+      // A refusal the host's handler made on purpose is something the user can act on, so its
+      // reason reaches the page like the JSON routes' 403 does: `error=access_denied`, `reason`,
+      // and the metadata entries as parameters.
+      if (error instanceof AuthenticationError) {
+        console.warn('OAuth2 sign-in refused', { reason: error.reason, metadata: error.metadata });
+        return this.redirect('access_denied', undefined, error);
       }
       console.error('OAuth2 callback failed', error);
       return this.redirect('server_error');
@@ -593,7 +580,14 @@ export class Auth implements AuthService {
       mark('check_nonce');
     }
 
-    const principal = await handler(request, { provider, clientId, userInfo, token, attributes });
+    const principal = await this.authorize(handler, request, {
+      provider,
+      clientId,
+      userInfo,
+      token,
+      attributes,
+    });
+    if (principal instanceof Response) return principal;
     mark('save_principal');
 
     const session = this.repository.createSession();
@@ -663,14 +657,30 @@ export class Auth implements AuthService {
         return Response.json(json, { status: 401 });
       }
 
-      principal = await handler(request, { provider, clientId, userInfo, token, attributes });
+      const result = await this.authorize(handler, request, {
+        provider,
+        clientId,
+        userInfo,
+        token,
+        attributes,
+      });
+      if (result instanceof Response) return result;
+      principal = result;
     } else if (parsed.code) {
       const { clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
         provider,
         code: parsed.code,
       });
       const userInfo = await this.oauth2Client.getUserInfo({ provider, clientId, token });
-      principal = await handler(request, { provider, clientId, userInfo, token, attributes });
+      const result = await this.authorize(handler, request, {
+        provider,
+        clientId,
+        userInfo,
+        token,
+        attributes,
+      });
+      if (result instanceof Response) return result;
+      principal = result;
     } else {
       throw new Error('invalid request');
     }
@@ -783,11 +793,12 @@ export class Auth implements AuthService {
       return Response.json(failure, { status: failure.error.code });
     }
     const claims: StandardClaims = { sub: email, email, email_verified: true };
-    const principal = await handler(request, {
+    const principal = await this.authorize(handler, request, {
       provider: 'EMAIL',
       userInfo: { claims, data: {} },
       attributes: attributes ?? {},
     });
+    if (principal instanceof Response) return principal;
 
     // save session
     const session = this.repository.createSession();
