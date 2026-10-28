@@ -1,4 +1,4 @@
-import { defineContract } from '@shware/workflow';
+import { defineContract, templatesFor } from '@shware/workflow';
 import * as z from 'zod/mini';
 
 /**
@@ -54,3 +54,6 @@ export const contract = defineContract({
 /** Reference tables: `e.purchase`, `u.subscription_plan` (plus the system `u.userId`). */
 export const e = contract.events;
 export const u = contract.user;
+
+/** The template factories bound to the contract: a topic it does not declare fails at the template. */
+export const { emailTemplate, pushTemplate } = templatesFor(contract);

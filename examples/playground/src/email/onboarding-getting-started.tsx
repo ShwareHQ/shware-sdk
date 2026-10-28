@@ -1,5 +1,5 @@
-import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { emailTemplate } from '../workflows/schema';
 import { Message } from './layout';
 import { senders } from './senders';
 

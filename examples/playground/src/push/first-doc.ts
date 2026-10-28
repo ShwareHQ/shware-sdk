@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * Onboarding's activation nudge: only the sign-ups who still have no document

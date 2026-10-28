@@ -30,6 +30,7 @@ import {
   performed,
   pushTemplate,
   slackTemplate,
+  templatesFor,
   trigger,
   workflow,
 } from '../src/index';
@@ -447,10 +448,10 @@ emailTemplate({ id: 'both', topic: 'promotions', transactional: true, ...emailBa
 // @ts-expect-error transactional is the literal true, never a boolean variable
 emailTemplate({ id: 'maybe', transactional: Boolean(1), ...emailBase });
 
+// @ts-expect-error a transactional email has no unsubscribe link
 emailTemplate({
   id: 'receipt',
   transactional: true,
-  // @ts-expect-error a transactional email has no unsubscribe link
   unsubscribeUrl: 'https://a.test/u',
   ...emailBase,
 });
@@ -470,6 +471,24 @@ defineConfig({ contract: topical, workflows: [], templates: { email: { promo, di
 // @ts-expect-error without a contract there are no topics: transactional emails only
 defineConfig({ workflows: [], templates: { email: { promo } } });
 defineConfig({ workflows: [], templates: { email: { receipt } } });
+
+/* ------------------------------ templatesFor ------------------------------ */
+
+// The bound factories: the topic is typed by the contract, at the template itself
+const bound = templatesFor(topical);
+const boundPromo = bound.emailTemplate({ id: 'promo', topic: 'promotions', ...emailBase });
+const boundReceipt = bound.emailTemplate({ id: 'receipt', transactional: true, ...emailBase });
+expectTypeOf(boundPromo.topic).toEqualTypeOf<'promotions' | null>();
+expectTypeOf(boundReceipt.topic).toEqualTypeOf<null>();
+// @ts-expect-error a topic the contract does not declare fails here, not at the config
+bound.emailTemplate({ id: 'digest', topic: 'digest', ...emailBase });
+// @ts-expect-error neither, here too
+bound.emailTemplate({ id: 'neither', ...emailBase });
+defineConfig({
+  contract: topical,
+  workflows: [],
+  templates: { email: { boundPromo, boundReceipt } },
+});
 
 /* ------------------------------ push topics ------------------------------ */
 
@@ -494,6 +513,10 @@ const digestPush = pushTemplate({ id: 'digest_push', topic: 'digest', ...pushBas
 const codePush = pushTemplate({ id: 'code_push', transactional: true, ...pushBase });
 expectTypeOf(promoPush.topic).toEqualTypeOf<'promotions' | null>();
 expectTypeOf(codePush.topic).toEqualTypeOf<null>();
+const boundPush = bound.pushTemplate({ id: 'promo_push', topic: 'newsletter', ...pushBase });
+expectTypeOf(boundPush.topic).toEqualTypeOf<'newsletter' | null>();
+// @ts-expect-error a push topic the contract does not declare fails at the template
+bound.pushTemplate({ id: 'digest_push', topic: 'digest', ...pushBase });
 
 // The same topics type both channels' registries
 defineConfig({

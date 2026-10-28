@@ -69,7 +69,8 @@ the contract is defined, because input and output must mean the same JSON.
 
 `subscriptions.topics` lists the subscription topics: content categories
 ("offers", "tips"), not channels — ids only (a plain token; the app's i18n gives
-them names), and the union they form types every email and push template's
+them names). A plain array literal is enough: `defineContract` keeps the
+literals, and the union they form types every email and push template's
 `topic`, the config and `JourneyClient.setSubscriptions`. A user opts out of a
 topic per channel (the preference page is topic × channel), or of a whole
 channel; the engine keeps that record and is the one source of truth for it
@@ -84,11 +85,16 @@ stable and rename `title` instead. Its strict Zod `props` schema is the only
 source of the props type: the DSL's arguments, the `preview` and the component
 are all derived from it, and every send parses the props against it first.
 
+```ts
+// src/contract.ts (continued): the template factories bound to the contract
+export const { emailTemplate, pushTemplate } = templatesFor(contract);
+```
+
 ```tsx
 // src/email/welcome.tsx
 import { Html, Text } from '@react-email/components';
-import { emailTemplate } from '@shware/workflow';
 import { strictObject, string } from 'zod/mini';
+import { emailTemplate } from '../contract';
 
 export default emailTemplate({
   id: 'welcome',
@@ -110,7 +116,12 @@ Every email and push template says what it is: `topic: 'tips'` (a topic the
 contract declares, which the user can opt out of on that channel) or
 `transactional: true` (a receipt, a code, an invite: sent whatever they opted
 out of; for an email, with no unsubscribe link). Leaving both out, or giving
-both, is a type error and a compile error.
+both, is a type error and a compile error, and the error says so in words.
+`templatesFor(contract)` gives the factories with the topic typed by the
+contract, so a topic it does not declare is an error at the template's own
+`topic` line, in the editor and when the module loads; the bare `emailTemplate`
+/ `pushTemplate` from `@shware/workflow` are for a project without a contract
+(transactional templates only), and the compile checks every template again.
 
 Gather them per channel; the workflows send the definitions and the config
 registers the whole:
@@ -1100,7 +1111,9 @@ says `database: { schema }`, so their short names never meet the app's. The
 host owns the migrations. `npx workflow-ui generate --out <file>` (from
 `@shware/workflow-ui`) writes the tables as one drizzle file on that schema;
 re-export it from your drizzle schema and let drizzle-kit write the migration.
-Run `--check` in CI to catch an SDK upgrade that changed them. The unique index
+Run `--check` in CI to catch an SDK upgrade that changed them. The file is laid
+out the way a prettier-compatible formatter at 100 columns lays it out, so
+formatting it changes nothing and a regeneration shows only real changes. The unique index
 on `event` is on `(user_id, event_id)`: regenerate and migrate before deploying —
 the deploy check verifies the unique indexes and constraints as well as the columns, and refuses
 to run until they match. Without drizzle,

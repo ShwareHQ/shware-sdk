@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * The rich-image variant: `image` becomes the iOS attachment thumbnail and the

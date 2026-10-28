@@ -1,5 +1,5 @@
-import { action, defineContract, performed, segment, trigger, workflow } from '@shware/workflow';
-import * as z from 'zod/mini';
+import { action, performed, segment, trigger, workflow } from '@shware/workflow';
+import { contract } from './contract';
 import { email } from './email';
 
 /**
@@ -7,21 +7,6 @@ import { email } from './email';
  * eye under a local wrangler dev: event → trigger → sleep → branch/wait →
  * render and send → goal exit.
  */
-
-/**
- * The demo's contract: its events and profile, and the one topic its offer emails belong to
- * (the welcome is transactional). The Worker validates ingest against it, and
- * `JourneyClient.setSubscriptions` is typed by it.
- */
-export const contract = defineContract({
-  events: {
-    demo_signup: z.looseObject({}),
-    demo_click: z.looseObject({}),
-    demo_purchase: z.looseObject({ value: z.number() }),
-  },
-  profile: z.strictObject({ email: z.string(), plan: z.string() }),
-  subscriptions: { topics: ['offers'] },
-});
 
 const e = contract.events;
 export const u = contract.user;

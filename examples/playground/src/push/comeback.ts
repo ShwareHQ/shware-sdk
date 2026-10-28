@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * Push content is a function of the parsed props: the notification the OS

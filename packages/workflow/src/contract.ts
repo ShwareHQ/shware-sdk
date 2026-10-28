@@ -38,8 +38,9 @@ export type DeclaredOutput<S> =
  * The subscription topics a producer and the engine agree on: content categories ('offers',
  * 'tips'), not channels — an email or push template declares one (`emailTemplate({ topic })`,
  * `pushTemplate({ topic })`), and a user opts out of a topic per channel (the preference page is
- * topic × channel). Ids only — display names belong to the app's i18n. Written `as const` so the
- * union types the templates, the config and `JourneyClient.setSubscriptions`.
+ * topic × channel). Ids only — display names belong to the app's i18n. A plain array literal
+ * is enough: `defineContract` keeps the literals (no `as const` needed), and the union they form
+ * types the templates, the config and `JourneyClient.setSubscriptions`.
  */
 export interface SubscriptionsDefinition<T extends string> {
   topics: readonly T[];
@@ -106,8 +107,6 @@ export type EventPayload<C, K extends string> =
 /** The topics a contract declares, as a union: `Topic<typeof contract>`; `never` without any. */
 export type Topic<C> =
   C extends Contract<Record<string, ObjectSchema>, ObjectSchema, infer T> ? T : never;
-/** @deprecated Topics are no longer per channel: use `Topic<C>`. */
-export type EmailTopic<C> = Topic<C>;
 
 /** A topic id: what goes in a URL, a JSON key and a database column, so no spaces or specials. */
 const TOPIC_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;

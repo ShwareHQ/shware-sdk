@@ -430,14 +430,72 @@ export function renderPostgresDdl(schema = DEFAULT_SCHEMA): string {
   return `${out.join('\n')}\n`;
 }
 
+const TIMESTAMP_OPTIONS = "{ mode: 'string', withTimezone: true }";
+
 const DRIZZLE_TYPES: Record<ColumnType, (column: string) => string> = {
   uuid: (c) => `uuid('${c}')`,
   text: (c) => `text('${c}')`,
   jsonb: (c) => `jsonb('${c}')`,
-  timestamptz: (c) => `timestamp('${c}', { mode: 'string', withTimezone: true })`,
+  timestamptz: (c) => `timestamp('${c}', ${TIMESTAMP_OPTIONS})`,
   integer: (c) => `integer('${c}')`,
   boolean: (c) => `boolean('${c}')`,
 };
+
+/** The line width the generated file is laid out for: the formatters' common default. */
+const PRINT_WIDTH = 100;
+
+/**
+ * One `workflowSchema.table(...)` statement, laid out the way a prettier-compatible formatter
+ * (prettier, oxfmt, biome) at `PRINT_WIDTH` lays it out, so that formatting the generated file
+ * changes nothing and a regeneration shows only real changes: on one line when it fits; else
+ * with the last argument "hugged" (the columns object, or the constraints arrow when the columns
+ * fit on the first line) and its items one per line; else every argument on its own line, the
+ * constraints array still collapsed when it fits. A column with a doc comment keeps the columns
+ * object expanded, as a comment does for a formatter.
+ */
+/** A column line past the width: a formatter breaks the timestamp options object, so this does too. */
+function wrapColumn(text: string, indent: string): string {
+  if (`${indent}${text},`.length <= PRINT_WIDTH || !text.includes(TIMESTAMP_OPTIONS)) return text;
+  return text.replace(
+    TIMESTAMP_OPTIONS,
+    `{\n${indent}  mode: 'string',\n${indent}  withTimezone: true,\n${indent}}`
+  );
+}
+
+function renderTable(
+  name: string,
+  table: string,
+  columns: { doc: string | undefined; text: string }[],
+  extras: string[]
+): string {
+  const head = `export const ${name} = workflowSchema.table(`;
+  const flatColumns = columns.some((c) => c.doc !== undefined)
+    ? undefined
+    : `{ ${columns.map((c) => c.text).join(', ')} }`;
+  const expandedColumns = (indent: string) =>
+    `{\n${columns
+      .map(
+        (c) =>
+          `${c.doc === undefined ? '' : `${indent}  /** ${c.doc} */\n`}${indent}  ${wrapColumn(c.text, `${indent}  `)},`
+      )
+      .join('\n')}\n${indent}}`;
+  const flatExtras = `(table) => [${extras.join(', ')}]`;
+  const expandedExtras = (indent: string) =>
+    `(table) => [\n${extras.map((e) => `${indent}  ${e},`).join('\n')}\n${indent}]`;
+  const fits = (line: string) => line.length <= PRINT_WIDTH;
+
+  if (flatColumns !== undefined) {
+    const oneLine = `${head}'${table}', ${flatColumns}${extras.length === 0 ? '' : `, ${flatExtras}`});`;
+    if (fits(oneLine)) return oneLine;
+  }
+  if (extras.length === 0) return `${head}'${table}', ${expandedColumns('')});`;
+  if (flatColumns !== undefined) {
+    const first = `${head}'${table}', ${flatColumns}, (table) => [`;
+    if (fits(first)) return `${first}\n${extras.map((e) => `  ${e},`).join('\n')}\n]);`;
+  }
+  const third = fits(`  ${flatExtras}`) ? flatExtras : expandedExtras('  ');
+  return `${head}\n  '${table}',\n  ${expandedColumns('  ')},\n  ${third}\n);`;
+}
 
 const exportName = (key: string) => `workflow${key.charAt(0).toUpperCase()}${key.slice(1)}`;
 
@@ -456,10 +514,12 @@ export function renderDrizzleSchema(schema = DEFAULT_SCHEMA): string {
   for (const [key, spec] of specs) {
     const columns = Object.entries(spec.columns).map(([prop, column]) => {
       used.add(column.type === 'timestamptz' ? 'timestamp' : column.type);
-      const doc = column.doc === undefined ? '' : `    /** ${column.doc} */\n`;
       const key =
         spec.primaryKey?.length === 1 && spec.primaryKey[0] === prop ? '.primaryKey()' : '';
-      return `${doc}    ${prop}: ${DRIZZLE_TYPES[column.type](columnName(prop))}${key}${column.nullable ? '' : '.notNull()'},`;
+      return {
+        doc: column.doc,
+        text: `${prop}: ${DRIZZLE_TYPES[column.type](columnName(prop))}${key}${column.nullable ? '' : '.notNull()'}`,
+      };
     });
     const extras: string[] = [];
     if (spec.primaryKey !== undefined && spec.primaryKey.length > 1) {
@@ -495,13 +555,7 @@ export function renderDrizzleSchema(schema = DEFAULT_SCHEMA): string {
         `check('${spec.name}_uuid_v7', sql\`substring(\${table.${spec.uuidV7}}::text, 15, 1) = '7'\`)`
       );
     }
-    const third =
-      extras.length === 0
-        ? ''
-        : `,\n  (table) => [\n${extras.map((e) => `    ${e},`).join('\n')}\n  ]`;
-    body.push(
-      `/** ${spec.doc} */\nexport const ${exportName(key)} = workflowSchema.table(\n  '${spec.name}',\n  {\n${columns.join('\n')}\n  }${third}\n);`
-    );
+    body.push(`/** ${spec.doc} */\n${renderTable(exportName(key), spec.name, columns, extras)}`);
   }
   const imports = [...used].sort();
   return [

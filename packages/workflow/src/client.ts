@@ -74,8 +74,6 @@ type IdentifyProps<C> = [C] extends [undefined]
 
 /** The topics the client's contract declares; any string without a contract. */
 export type ClientTopic<C> = [C] extends [undefined] ? string : Topic<C>;
-/** @deprecated Topics are no longer per channel: use `ClientTopic<C>`. */
-export type ClientEmailTopic<C> = ClientTopic<C>;
 
 export type {
   ChannelSubscriptions,

@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { cloudflareJourneyBinding } from '../src/cloudflare/bindings';
@@ -24,6 +27,9 @@ import { JourneyFactSource } from '../src/store/facts';
 import { UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, uuidv7 } from '../src/store/postgres';
 import { TABLES, renderDrizzleSchema, renderPostgresDdl } from '../src/store/tables';
+
+/** The repo's formatter, for the generated-file layout test; absent outside this monorepo. */
+const OXFMT = resolve(import.meta.dirname, '../../../node_modules/.bin/oxfmt');
 import { FakeJourney } from './fake-cloudflare';
 import { plainEmail } from './fixtures';
 import { type PgliteDatabase, pgliteClient, pgliteDatabase, truncateAll } from './pglite';
@@ -813,12 +819,41 @@ describe('renderDrizzleSchema', () => {
     const file = renderDrizzleSchema('marketing');
     expect(file).toContain("export const workflowSchema = pgSchema('marketing');");
     for (const spec of Object.values(TABLES)) {
-      expect(file).toContain(`= workflowSchema.table(\n  '${spec.name}',`);
+      expect(file).toMatch(new RegExp(`= workflowSchema\\.table\\((\\n  )?'${spec.name}',`));
     }
     expect(file).not.toMatch(/defaultNow|default\(|gen_random_uuid/);
     expect(file).toContain(
       "check('event_uuid_v7', sql`substring(${table.id}::text, 15, 1) = '7'`)"
     );
     expect(renderDrizzleSchema('marketing')).toBe(file);
+  });
+
+  test('the file is laid out as a formatter at 100 columns lays it out: one line when it fits, else the last argument hugged', () => {
+    const file = renderDrizzleSchema();
+    // A short table on one line; a long one with its columns object hugged; constraints collapsed
+    expect(file).toContain(
+      "export const workflowIr = workflowSchema.table('ir', {\n  contentHash: text('content_hash').primaryKey().notNull(),"
+    );
+    expect(file).toContain('  (table) => [index().on(table.userId)]\n);');
+    expect(file).toContain(
+      "  versionCreatedAt: timestamp('version_created_at', {\n    mode: 'string',\n    withTimezone: true,\n  }).notNull(),"
+    );
+    // Doc comments are the one thing left past the width: a formatter does not rewrap them
+    const long = file
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('/**') && line.length > 100);
+    expect(long).toEqual([]);
+  });
+
+  test.skipIf(!existsSync(OXFMT))('…so the repo formatter leaves it unchanged', () => {
+    const dir = mkdtempSync(resolve(import.meta.dirname, 'generated-'));
+    try {
+      const file = resolve(dir, 'schema.ts');
+      writeFileSync(file, renderDrizzleSchema());
+      // --check exits non-zero on a file it would change; the repo's .oxfmtrc.json applies
+      expect(() => execFileSync(OXFMT, ['--check', file], { encoding: 'utf8' })).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

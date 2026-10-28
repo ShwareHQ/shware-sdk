@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * The lock-screen half of U1: sent in the same step as the upgrade-recovery

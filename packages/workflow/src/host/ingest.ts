@@ -772,9 +772,6 @@ export interface ChannelSubscriptions<T extends string = string> {
   topics: Record<T, boolean>;
 }
 
-/** @deprecated The same record per channel: `ChannelSubscriptions`. */
-export type EmailSubscriptions<T extends string = string> = ChannelSubscriptions<T>;
-
 /**
  * A user's subscriptions, topic × channel — what `GET /subscriptions/:userId` answers. Every
  * channel lists every declared topic: a topic is a content category, and the user chooses per

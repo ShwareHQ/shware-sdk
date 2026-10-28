@@ -1,6 +1,6 @@
 import { Button, Container, Head, Html, Preview, Text } from '@react-email/components';
-import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { emailTemplate } from '../contract';
 import { senders } from './senders';
 
 export default emailTemplate({
