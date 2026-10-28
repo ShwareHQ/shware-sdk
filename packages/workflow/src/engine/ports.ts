@@ -135,6 +135,12 @@ export type LinkPurpose = 'link' | 'unsubscribe';
  */
 export interface MessageTracking {
   /**
+   * The copy's id in the reporting tables: what its tracking URLs name, and what an email's
+   * preferences link carries (`email.preferencesUrl`), so the app's page can read the recipient's
+   * subscriptions by it. The email sender hands it to the renderer.
+   */
+  messageId?: string;
+  /**
    * The original `http(s)` URL in, the URL that records the click and redirects out — or, for the
    * email's unsubscribe link, asks the recipient to confirm.
    */

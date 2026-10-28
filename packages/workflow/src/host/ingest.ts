@@ -8,6 +8,7 @@ import {
 import { RECIPIENT_PROPERTY } from '../engine/recipient';
 import { semanticHash } from '../hash';
 import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
+import { isMessageId } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
 import {
   type BundleVersion,
@@ -918,4 +919,70 @@ export async function setSubscriptions(
     }
   }
   return readSubscriptions(store, userId, topics);
+}
+
+/** The copy a message-scoped request came from: the channel it went out on, and its topic. */
+export interface MessageOrigin<T extends string = string> {
+  channel: SubscriptionChannel;
+  topic: T;
+}
+
+/**
+ * A user's subscriptions reached through one of their copies — what
+ * `GET` / `PUT /subscriptions/by-message/:messageId` answer: the record, plus which channel and
+ * topic that copy belonged to, so a preference page opened from an email can highlight it.
+ */
+export interface MessageSubscriptions<T extends string = string> extends Subscriptions<T> {
+  message: MessageOrigin<T>;
+}
+
+/**
+ * The recipient of a topic copy, by the copy's id. The id is the capability: a UUID nobody can
+ * guess, the same trust `/t/u/<message>` runs on. Undefined — a 404 — for an id that names no
+ * copy (never sent, or erased with its user by `forgetUser`), and for a transactional one, which
+ * has nothing to opt out of; the same rule as `/t/u`. A push copy's `push_<platform>` channel
+ * reads as `push`, the channel its subscriptions are keyed on.
+ */
+export async function resolveMessageOwner(
+  store: JourneyStore,
+  messageId: string
+): Promise<{ userId: string; message: MessageOrigin } | undefined> {
+  if (!isMessageId(messageId)) return undefined;
+  const found = await store.reporting.lookupMessage(messageId);
+  if (found === undefined) return undefined;
+  const { userId, topic } = found;
+  // A transactional copy has no topic, and a Slack or Discord copy no subscriptions at all
+  if (topic === null) return undefined;
+  const channel =
+    found.channel === 'email' ? 'email' : found.channel.startsWith('push') ? 'push' : undefined;
+  if (channel === undefined) return undefined;
+  return { userId, message: { channel, topic } };
+}
+
+/** `getSubscriptions` for the copy's recipient, with the copy's channel and topic; undefined when `resolveMessageOwner` is. */
+export async function getSubscriptionsByMessage(
+  store: JourneyStore,
+  messageId: string,
+  topics: readonly string[]
+): Promise<MessageSubscriptions | undefined> {
+  const owner = await resolveMessageOwner(store, messageId);
+  if (owner === undefined) return undefined;
+  return { ...(await getSubscriptions(store, owner.userId, topics)), message: owner.message };
+}
+
+/** `setSubscriptions` for the copy's recipient, answering as `getSubscriptionsByMessage` does; undefined when `resolveMessageOwner` is. */
+export async function setSubscriptionsByMessage(
+  env: JourneyEnv,
+  store: JourneyStore,
+  messageId: string,
+  patch: SubscriptionsPatch,
+  topics: readonly string[],
+  now = Date.now()
+): Promise<MessageSubscriptions | undefined> {
+  const owner = await resolveMessageOwner(store, messageId);
+  if (owner === undefined) return undefined;
+  return {
+    ...(await setSubscriptions(env, store, owner.userId, patch, topics, now)),
+    message: owner.message,
+  };
 }

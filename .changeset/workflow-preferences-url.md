@@ -1,0 +1,10 @@
+---
+'@shware/workflow': minor
+---
+
+Message-scoped subscription management, for an email preference page that works without a sign-in.
+
+- **`email.preferencesUrl`** names the app's preference page. A topic email sent with reporting on (a message id exists: the same condition as the one-click header) renders with `useEmailContext().preferencesUrl`, that page with the copy's message id as the `m` query parameter (any query the page already has is kept); a transactional email, or a send without reporting or without the config, has none, so a layout renders the link conditionally like `unsubscribeUrl`. It is tracked as an ordinary click, never as an unsubscribe, and the config refuses a `preferencesUrl` that shares its origin and path with `email.unsubscribeUrl` or a template's own. `GET /preview` renders it with the placeholder `PREVIEW_MESSAGE_ID`, so the footer shows.
+- **`GET` / `PUT /subscriptions/by-message/:messageId`** (bearer-protected, beside `/subscriptions/:userId`) read and set the recipient's subscriptions by one of their copies: the answer is the user endpoint's `{ email, push }` plus `message: { channel: 'email' | 'push', topic }`, the copy the page was opened from; the `PUT` takes the same patch. An id that names no copy — never sent, not a UUID, or erased with its user — or a transactional copy answers 404, the rule `/t/u` applies. The message id is the capability, so the app proxies and rate-limits the routes behind its own API.
+- **`JourneyClient.getSubscriptionsByMessage(messageId)`** and **`setSubscriptionsByMessage(messageId, patch)`**, typed like the user pair (`MessageSubscriptions<T>`, `MessageOrigin<T>`).
+- For custom hosts: `resolveEmail(template, config, { messageId })` builds the link, `EmailRenderer` takes an optional third argument `{ messageId }` that `EmailSender` fills from `MessageTracking.messageId` (new, set by `reportingObserver` for emails), and `ResolvedEmail` / `RenderedEmail` carry `preferencesUrl`. `assertUnsubscribeUrl` is now `assertHttpUrl` (the old name stays as an alias).

@@ -1,4 +1,9 @@
-import { type EmailAddress, type ResolvedEmail, isUnsubscribeLink } from './email';
+import {
+  type EmailAddress,
+  type EmailRenderOptions,
+  type ResolvedEmail,
+  isUnsubscribeLink,
+} from './email';
 import type { MessageSender, MessageTracking, OutboundMessage } from './engine/ports';
 import type { ScalarIR } from './ir';
 
@@ -20,11 +25,13 @@ export interface RenderedEmail extends ResolvedEmail {
  * any react-email dependency (`@shware/workflow/react-email` ships one over a
  * registry). The subject comes back final: it is sent exactly as written, from
  * the template's own sender, and the unsubscribe link is the one the HTML was
- * rendered with.
+ * rendered with. `options` carries the copy's message id when reporting records one, for the
+ * preferences link (`resolveEmail`).
  */
 export type EmailRenderer = (
   template: string,
-  props: Record<string, ScalarIR | undefined>
+  props: Record<string, ScalarIR | undefined>,
+  options?: EmailRenderOptions
 ) => Promise<RenderedEmail>;
 
 /** A finished email, as a transport takes it: rendered, tracked, addressed. */
@@ -75,9 +82,11 @@ export class EmailSender implements MessageSender {
     if (message.recipient === undefined) {
       throw new Error(`EmailSender: no recipient for user '${message.userId}'`);
     }
+    const messageId = message.tracking?.messageId;
     const { subject, html, from, replyTo, unsubscribeUrl } = await this.options.render(
       message.template,
-      message.props
+      message.props,
+      messageId === undefined ? {} : { messageId }
     );
     const tracked =
       message.tracking === undefined ? html : trackEmail(html, message.tracking, unsubscribeUrl);
