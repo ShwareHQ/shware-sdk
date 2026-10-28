@@ -39,6 +39,7 @@ function fakeBinding() {
 
 const render = async (template: string) => ({
   from: 'noreply@acme.test',
+  topic: null,
   subject: `${template} for {{ user.first_name }}`,
   html: `<p>${template}</p>`,
 });
@@ -206,6 +207,7 @@ describe('trackEmail', () => {
       },
       render: async () => ({
         from: 'a@acme.test',
+        topic: null,
         subject: 's',
         html: '<body><a href="https://acme.test">go</a></body>',
       }),
@@ -221,6 +223,7 @@ describe('trackEmail', () => {
       binding: { send: async () => ({}) },
       render: async () => ({
         from: 'a@acme.test',
+        topic: 'newsletter',
         unsubscribeUrl: 'https://acme.test/bye',
         subject: 's',
         html: '<a href="https://acme.test">go</a><a href="https://acme.test/bye">bye</a>',

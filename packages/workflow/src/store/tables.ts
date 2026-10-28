@@ -21,16 +21,29 @@ export interface ColumnSpec {
   doc?: string;
 }
 
+/**
+ * A unique constraint whose key may hold nulls, with `NULLS NOT DISTINCT` (Postgres 15+) so two
+ * rows null in the same column still collide — the identity of a table whose key has an
+ * optional part, where a primary key (NOT NULL throughout) cannot be.
+ */
+export interface UniqueConstraintSpec<K extends string = string> {
+  columns: readonly K[];
+  nullsNotDistinct: true;
+}
+
 export interface TableSpec<K extends string = string> {
   /** Physical table name inside the schema. */
   name: string;
   doc: string;
   /** Keyed by the drizzle property name; the column name is its snake_case. */
   columns: Record<K, ColumnSpec>;
-  primaryKey: readonly K[];
+  /** Absent for a table whose identity is a `uniqueConstraints` entry (a nullable key part). */
+  primaryKey?: readonly K[];
   /** A uuid column whose values must be version 7. */
   uuidV7?: K;
   uniqueIndexes?: readonly (readonly K[])[];
+  /** Named `<table>_<columns>_unique`, as drizzle names an unnamed `unique()`. */
+  uniqueConstraints?: readonly UniqueConstraintSpec<K>[];
   indexes?: readonly (readonly K[])[];
   /** Foreign keys, to another table's logical key. */
   references?: readonly {
@@ -91,9 +104,17 @@ export const TABLES = {
   }),
   suppression: table({
     name: 'suppression',
-    doc: 'Channels a user opted out of (an email unsubscribe): the engine sends nothing there, and `reachable(channel)` is false.',
-    columns: { userId: text, channel: text, ts },
-    primaryKey: ['userId', 'channel'],
+    doc: "What a user opted out of: a channel's topic (an email unsubscribe from one topic), or the whole channel when `topic` is null — the engine sends nothing there, and `reachable(channel)` is false. One row per (user, channel, topic), nulls included.",
+    columns: {
+      userId: text,
+      channel: text,
+      topic: nullable(
+        text,
+        'The subscription topic opted out of; null for the whole channel (every row from before topics existed).'
+      ),
+      ts,
+    },
+    uniqueConstraints: [{ columns: ['userId', 'channel', 'topic'], nullsNotDistinct: true }],
   }),
   segment: table({
     name: 'segment',
@@ -258,6 +279,10 @@ export const TABLES = {
       template: text,
       channel: text,
       userId: text,
+      topic: nullable(
+        text,
+        "An email copy: its template's subscription topic (what its unsubscribe link opts out of); null for a transactional email, and for every other channel."
+      ),
       sentAt: ts,
       deliveredAt: nullable(ts, 'The transport accepted it.'),
       deviceDeliveredAt: nullable(
@@ -340,6 +365,16 @@ export function columnName(key: string): string {
 
 const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
+/** `<table>_<columns>_unique`: drizzle's name for an unnamed `unique()`, and the index behind it. */
+export function uniqueConstraintName(spec: TableSpec, unique: UniqueConstraintSpec): string {
+  return `${spec.name}_${unique.columns.map(columnName).join('_')}_unique`;
+}
+
+/** `<table>_<columns>_index`: the name drizzle-kit and `renderPostgresDdl` both give an unnamed index. */
+export function indexName(spec: TableSpec, keys: readonly string[]): string {
+  return `${spec.name}_${keys.map(columnName).join('_')}_index`;
+}
+
 const SQL_TYPES: Record<ColumnType, string> = {
   uuid: 'uuid',
   text: 'text',
@@ -362,7 +397,15 @@ export function renderPostgresDdl(schema = DEFAULT_SCHEMA): string {
       ([key, column]) =>
         `  ${quote(columnName(key))} ${SQL_TYPES[column.type]}${column.nullable ? '' : ' NOT NULL'}`
     );
-    lines.push(`  PRIMARY KEY (${spec.primaryKey.map((k) => quote(columnName(k))).join(', ')})`);
+    if (spec.primaryKey !== undefined) {
+      lines.push(`  PRIMARY KEY (${spec.primaryKey.map((k) => quote(columnName(k))).join(', ')})`);
+    }
+    for (const unique of spec.uniqueConstraints ?? []) {
+      const cols = unique.columns.map(columnName);
+      lines.push(
+        `  CONSTRAINT ${quote(uniqueConstraintName(spec, unique))} UNIQUE NULLS NOT DISTINCT (${cols.map(quote).join(', ')})`
+      );
+    }
     if (spec.uuidV7 !== undefined) {
       lines.push(
         `  CONSTRAINT ${quote(`${spec.name}_uuid_v7`)} CHECK (substring(${quote(columnName(spec.uuidV7))}::text, 15, 1) = '7')`
@@ -378,7 +421,7 @@ export function renderPostgresDdl(schema = DEFAULT_SCHEMA): string {
     const index = (unique: boolean) => (keys: readonly string[]) => {
       const cols = keys.map(columnName);
       out.push(
-        `CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${quote(`${spec.name}_${cols.join('_')}_index`)} ON ${s}.${quote(spec.name)} (${cols.map(quote).join(', ')});`
+        `CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${quote(indexName(spec, keys))} ON ${s}.${quote(spec.name)} (${cols.map(quote).join(', ')});`
       );
     };
     (spec.uniqueIndexes ?? []).forEach(index(true));
@@ -415,11 +458,11 @@ export function renderDrizzleSchema(schema = DEFAULT_SCHEMA): string {
       used.add(column.type === 'timestamptz' ? 'timestamp' : column.type);
       const doc = column.doc === undefined ? '' : `    /** ${column.doc} */\n`;
       const key =
-        spec.primaryKey.length === 1 && spec.primaryKey[0] === prop ? '.primaryKey()' : '';
+        spec.primaryKey?.length === 1 && spec.primaryKey[0] === prop ? '.primaryKey()' : '';
       return `${doc}    ${prop}: ${DRIZZLE_TYPES[column.type](columnName(prop))}${key}${column.nullable ? '' : '.notNull()'},`;
     });
     const extras: string[] = [];
-    if (spec.primaryKey.length > 1) {
+    if (spec.primaryKey !== undefined && spec.primaryKey.length > 1) {
       used.add('primaryKey');
       extras.push(
         `primaryKey({ columns: [${spec.primaryKey.map((k) => `table.${k}`).join(', ')}] })`
@@ -428,6 +471,12 @@ export function renderDrizzleSchema(schema = DEFAULT_SCHEMA): string {
     for (const keys of spec.uniqueIndexes ?? []) {
       used.add('uniqueIndex');
       extras.push(`uniqueIndex().on(${keys.map((k) => `table.${k}`).join(', ')})`);
+    }
+    for (const unique of spec.uniqueConstraints ?? []) {
+      used.add('unique');
+      extras.push(
+        `unique().on(${unique.columns.map((k) => `table.${k}`).join(', ')}).nullsNotDistinct()`
+      );
     }
     for (const keys of spec.indexes ?? []) {
       used.add('index');

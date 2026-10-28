@@ -20,6 +20,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
   test('accept a strict scalar schema and a matching preview', () => {
     const t = emailTemplate({
       id: 't',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Welcome',
       props: z.strictObject({
@@ -90,6 +91,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
     expect(() =>
       emailTemplate({
         id: 'welcome',
+        transactional: true,
         from: 'noreply@acme.test',
         title: 'Welcome',
         props: named,
@@ -105,6 +107,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
     const content = vi.fn<PushContent>(() => ({ title: 't', body: 'b' }));
     emailTemplate({
       id: 'e',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'E',
       props: named,
@@ -125,6 +128,7 @@ describe('email rendering', () => {
   const emails = {
     welcome: emailTemplate({
       id: 'welcome',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Welcome',
       props: named,
@@ -162,6 +166,7 @@ describe('email rendering', () => {
     const withContext = {
       ctx: emailTemplate({
         id: 'ctx',
+        transactional: true,
         from: 'noreply@acme.test',
         title: 'Ctx',
         props: named,
@@ -242,6 +247,7 @@ describe('registryValidator', () => {
     email: {
       welcome: emailTemplate({
         id: 'welcome',
+        transactional: true,
         from: 'noreply@acme.test',
         title: 'W',
         props: named,
@@ -281,6 +287,7 @@ describe('registryValidator', () => {
 describe('templates are found by id, never by the property holding them', () => {
   const welcome = emailTemplate({
     id: 'welcome',
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'W',
     props: named,
@@ -347,6 +354,7 @@ describe('email rendering waits for Suspense', () => {
     const emails = {
       slow: emailTemplate({
         id: 'slow',
+        transactional: true,
         from: 'noreply@acme.test',
         title: 'Slow',
         props: named,
@@ -364,6 +372,7 @@ describe('email rendering waits for Suspense', () => {
     const emails = {
       doc: emailTemplate({
         id: 'doc',
+        transactional: true,
         from: 'noreply@acme.test',
         title: 'Doc',
         props: named,
@@ -392,6 +401,7 @@ describe('email rendering waits for Suspense', () => {
     const emails = {
       broken: emailTemplate({
         id: 'broken',
+        transactional: true,
         from: 'noreply@acme.test',
         title: 'Broken',
         props: named,

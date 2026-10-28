@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'u1_upgrade_recovery',
+  topic: 'offers',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Upgrade Recovery',

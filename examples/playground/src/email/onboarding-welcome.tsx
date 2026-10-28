@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'onboarding_welcome',
+  transactional: true,
   from: senders.hello,
   replyTo: senders.support,
   title: 'Welcome · Day 0',

@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'onboarding_pro_tips',
+  topic: 'tips',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Onboarding · Pro tips',

@@ -3,10 +3,12 @@ import type { EmailTemplate } from './templates';
 /**
  * Email metadata: who a template's email comes from, where replies go, and the unsubscribe link
  * its layout carries. Each `emailTemplate` declares its own `from` (and `replyTo`, if replies should
- * go elsewhere); the unsubscribe link is the template's `unsubscribeUrl`, else the config's
- * `email.unsubscribeUrl`, else none. `resolveEmail` is that rule, and the sender, the renderer,
- * the Worker's preview and the studio all go through it. No React and no I/O here, so a browser
- * can import it.
+ * go elsewhere) and says what it is: a `topic` the recipient may unsubscribe from, or
+ * `transactional: true`. A topic email's unsubscribe link is the template's `unsubscribeUrl`,
+ * else the config's `email.unsubscribeUrl`, else none; a transactional email never has one,
+ * whatever the config says. `resolveEmail` is that rule, and the sender, the renderer, the
+ * Worker's preview and the studio all go through it. No React and no I/O here, so a browser can
+ * import it.
  */
 
 /** An address as the transports take it: bare, or with a display name. */
@@ -62,20 +64,30 @@ export interface EmailConfig {
 /** One template's email metadata, resolved against the config. */
 export interface ResolvedEmail {
   from: EmailAddress;
+  /** The template's subscription topic; null for a transactional email. */
+  topic: string | null;
   /** Absent when the template names none: the email goes out without a Reply-To. */
   replyTo?: EmailAddress;
-  /** Absent when neither the template nor the config names one: the email has no unsubscribe link. */
+  /**
+   * Absent when the email is transactional, or neither the template nor the config names one:
+   * the email has no unsubscribe link.
+   */
   unsubscribeUrl?: string;
 }
 
-/** The template's metadata, its `unsubscribeUrl` falling back to the config's. Leaves both untouched. */
+/**
+ * The template's metadata, its `unsubscribeUrl` falling back to the config's — for a topic
+ * email; a transactional one resolves to no unsubscribe link at all. Leaves both untouched.
+ */
 export function resolveEmail(
-  template: Pick<EmailTemplate, 'from' | 'replyTo' | 'unsubscribeUrl'>,
+  template: Pick<EmailTemplate, 'from' | 'replyTo' | 'unsubscribeUrl' | 'topic'>,
   config?: EmailConfig
 ): ResolvedEmail {
-  const unsubscribeUrl = template.unsubscribeUrl ?? config?.unsubscribeUrl;
+  const unsubscribeUrl =
+    template.topic === null ? undefined : (template.unsubscribeUrl ?? config?.unsubscribeUrl);
   return {
     from: template.from,
+    topic: template.topic,
     ...(template.replyTo === undefined ? {} : { replyTo: template.replyTo }),
     ...(unsubscribeUrl === undefined ? {} : { unsubscribeUrl }),
   };
@@ -139,18 +151,56 @@ export function assertEmailConfig(
     }
   }
   for (const template of templates)
-    assertEmailMetadata(template, `email template '${template.id}'`);
+    assertEmailMetadata(template, `email template '${template.id}'`, true);
 }
 
-/** A template's own `from` / `replyTo` / `unsubscribeUrl`, as `emailTemplate` checks them. */
+/**
+ * A template's own `from` / `replyTo` / `unsubscribeUrl` and what it is (`topic` or
+ * `transactional: true`), as `emailTemplate` checks them — and `compileConfig` again, for a
+ * definition that did not come through `emailTemplate`. A declared template carries `topic`
+ * (a string, or null for transactional); a definition carries one of the two options.
+ */
 export function assertEmailMetadata(
-  template: { from?: unknown; replyTo?: unknown; unsubscribeUrl?: unknown },
-  where: string
+  template: {
+    from?: unknown;
+    replyTo?: unknown;
+    unsubscribeUrl?: unknown;
+    topic?: unknown;
+    transactional?: unknown;
+  },
+  where: string,
+  /** True for a declared template (`topic: string | null`), false for `emailTemplate`'s argument. */
+  declared = false
 ): void {
   assertEmailAddress(template.from, `${where}: from`);
   if (template.replyTo !== undefined) assertEmailAddress(template.replyTo, `${where}: replyTo`);
   if (template.unsubscribeUrl !== undefined) {
     assertUnsubscribeUrl(template.unsubscribeUrl, `${where}: unsubscribeUrl`);
+  }
+  const { topic } = template;
+  // A declared template says `topic: null` for transactional; a definition says `transactional: true`
+  const transactional = template.transactional === true || (declared && topic === null);
+  if (template.transactional !== undefined && template.transactional !== true) {
+    throw new TypeError(
+      `${where}: 'transactional' must be the literal true (leave it out for a topic email)`
+    );
+  }
+  const hasTopic = topic !== undefined && topic !== null;
+  if (hasTopic && (typeof topic !== 'string' || topic.trim() === '')) {
+    throw new TypeError(`${where}: 'topic' must be a topic id the contract declares`);
+  }
+  if (hasTopic && transactional) {
+    throw new TypeError(`${where}: give either 'topic' or 'transactional: true', not both`);
+  }
+  if (!hasTopic && !transactional) {
+    throw new TypeError(
+      `${where}: every email template says what it is — 'topic: <id>' (one the contract's subscriptions.email declares) or 'transactional: true'`
+    );
+  }
+  if (transactional && template.unsubscribeUrl !== undefined) {
+    throw new TypeError(
+      `${where}: a transactional email has no unsubscribe link, so it takes no 'unsubscribeUrl'`
+    );
   }
 }
 

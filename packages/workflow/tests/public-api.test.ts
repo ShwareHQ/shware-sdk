@@ -43,6 +43,7 @@ const freeUser = segment({ id: 'free_user', condition: eq(u.plan, 'free') });
 const upgraded = segment({ id: 'upgraded', condition: performed(e.upgraded) });
 const welcome = emailTemplate({
   id: 'welcome',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Welcome',
   props: z.strictObject({ plan: z.enum(['free', 'pro']) }),

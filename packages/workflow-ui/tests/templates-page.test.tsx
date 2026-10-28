@@ -23,6 +23,7 @@ const pushRef: TemplateRefInfo = {
 
 const welcome = emailTemplate({
   id: 'welcome',
+  topic: 'tips',
   from: { email: 'hello@acme.io', name: 'Acme' },
   replyTo: { email: 'support@acme.io', name: 'Acme Support' },
   title: 'Welcome · display name',
@@ -87,6 +88,7 @@ describe('the envelope is read-only', () => {
   test('another template shows its own sender and link, and no reply-to it does not have', () => {
     const newsletter = emailTemplate({
       id: 'weekly_newsletter',
+      topic: 'newsletter',
       from: 'newsletter@acme.io',
       unsubscribeUrl: 'https://acme.io/newsletter/unsubscribe',
       title: 'Newsletter',

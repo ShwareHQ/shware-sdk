@@ -1,4 +1,5 @@
-import { action, event, performed, segment, trigger, user, workflow } from '@shware/workflow';
+import { action, defineContract, performed, segment, trigger, workflow } from '@shware/workflow';
+import * as z from 'zod/mini';
 import { email } from './email';
 
 /**
@@ -7,22 +8,23 @@ import { email } from './email';
  * render and send → goal exit.
  */
 
-type Empty = Record<string, never>;
+/**
+ * The demo's contract: its events and profile, and the one email topic its offer emails belong
+ * to (the welcome is transactional). The Worker validates ingest against it, and
+ * `JourneyClient.setSubscriptions` is typed by it.
+ */
+export const contract = defineContract({
+  events: {
+    demo_signup: z.looseObject({}),
+    demo_click: z.looseObject({}),
+    demo_purchase: z.looseObject({ value: z.number() }),
+  },
+  profile: z.strictObject({ email: z.string(), plan: z.string() }),
+  subscriptions: { email: ['offers'] },
+});
 
-interface DemoEvent {
-  demo_signup: Empty;
-  demo_click: Empty;
-  demo_purchase: { value: number };
-}
-
-interface DemoUser {
-  userId: string;
-  email: string;
-  plan: string;
-}
-
-const e = event<DemoEvent>();
-export const u = user<DemoUser>();
+const e = contract.events;
+export const u = contract.user;
 
 // email.typo ← fails to compile: there is no such template
 

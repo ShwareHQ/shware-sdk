@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'edu_collaboration',
+  topic: 'tips',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Education · Collaboration',

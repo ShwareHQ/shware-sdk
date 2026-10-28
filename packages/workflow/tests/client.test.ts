@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { JourneyClient, JourneyClientError } from '../src/client';
+import { z } from 'zod';
+import { JourneyClient, JourneyClientError, JourneyValidationError } from '../src/client';
+import { defineContract } from '../src/contract';
 
 function stub(status: number, body: unknown) {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -66,5 +68,51 @@ describe('JourneyClient', () => {
       status: 401,
       path: '/events',
     });
+  });
+});
+
+describe('JourneyClient subscriptions', () => {
+  test('getSubscriptions is a bare GET; setSubscriptions a PUT of the patch, both on the encoded user id', async () => {
+    const state = {
+      email: { all: true, topics: { promotions: false, newsletter: true } },
+    };
+    const { calls, fetchFn } = stub(200, state);
+    const client = new JourneyClient({ origin: 'https://wf.example', token: 't', fetch: fetchFn });
+
+    expect(await client.getSubscriptions('a/b')).toEqual(state);
+    expect(
+      await client.setSubscriptions('a/b', { email: { topics: { promotions: false } } })
+    ).toEqual(state);
+
+    expect(calls.map((c) => [c.url, c.init.method])).toEqual([
+      ['https://wf.example/subscriptions/a%2Fb', 'GET'],
+      ['https://wf.example/subscriptions/a%2Fb', 'PUT'],
+    ]);
+    expect(calls[0]?.init.body).toBeUndefined();
+    expect(calls[0]?.init.headers).toEqual({ authorization: 'Bearer t' });
+    expect(JSON.parse(calls[1]?.init.body as string)).toEqual({
+      email: { topics: { promotions: false } },
+    });
+    expect(calls[1]?.init.headers).toMatchObject({ 'content-type': 'application/json' });
+  });
+
+  test('with a contract, a topic it does not declare is refused before any request', async () => {
+    const contract = defineContract({
+      events: {},
+      profile: z.strictObject({}),
+      subscriptions: { email: ['promotions', 'newsletter'] },
+    });
+    const { calls, fetchFn } = stub(200, {});
+    const client = new JourneyClient({ origin: 'https://wf.example', contract, fetch: fetchFn });
+    const error = await client
+      .setSubscriptions('u1', { email: { topics: { digest: false } as never } })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(JourneyValidationError);
+    expect((error as JourneyValidationError).issues).toEqual([
+      { path: 'email.topics.digest', message: 'not a declared topic' },
+    ]);
+    expect(calls).toEqual([]);
+    await client.setSubscriptions('u1', { email: { all: false, topics: { newsletter: false } } });
+    expect(calls).toHaveLength(1);
   });
 });

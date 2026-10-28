@@ -26,6 +26,7 @@ function Footer() {
 
 const welcome = emailTemplate({
   id: 'welcome',
+  topic: 'tips',
   from: { email: 'hello@acme.io', name: 'Acme' },
   title: 'Welcome (display name)',
   description: 'First email after sign-up.',

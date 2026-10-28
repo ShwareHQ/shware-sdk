@@ -68,6 +68,7 @@ const e = event<{ login: Record<string, never>; purchase: { value: number } }>()
 const emails = {
   welcome: emailTemplate({
     id: 'welcome',
+    transactional: true,
     from: { email: 'hi@acme.test', name: 'Acme' },
     title: 'Welcome',
     props: z.strictObject({}),
@@ -77,6 +78,7 @@ const emails = {
   }),
   thanks: emailTemplate({
     id: 'thanks',
+    transactional: true,
     from: 'hi@acme.test',
     title: 'Thanks',
     props: z.strictObject({}),

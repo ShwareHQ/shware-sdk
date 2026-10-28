@@ -1,6 +1,12 @@
 import type * as core from 'zod/v4/core';
-import type { Contract, ContractIssue, ProfilePatch } from './contract';
-import type { DeployResult, IdentifyResult, IngestResult } from './host/ingest';
+import type { Contract, ContractIssue, EmailTopic, ProfilePatch } from './contract';
+import type {
+  DeployResult,
+  IdentifyResult,
+  IngestResult,
+  Subscriptions,
+  SubscriptionsPatch,
+} from './host/ingest';
 import type { ProfileProps } from './store';
 
 /**
@@ -64,6 +70,11 @@ type IdentifyProps<C> = [C] extends [undefined]
   : C extends Contract<Record<string, core.$ZodObject>, infer P>
     ? ProfilePatch<P>
     : never;
+
+/** The email topics the client's contract declares; any string without a contract. */
+export type ClientEmailTopic<C> = [C] extends [undefined] ? string : EmailTopic<C>;
+
+export type { EmailSubscriptions, Subscriptions, SubscriptionsPatch } from './host/ingest';
 
 export interface TrackOptions {
   /** The occurrence's identity: a retry with the same id is recorded once. */
@@ -159,21 +170,66 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
     return this.post('/devices/remove', { token });
   }
 
+  /**
+   * Where the user stands with email: `all` (false once they unsubscribed from every email) and
+   * each declared topic (false once they unsubscribed from it) — the engine's record, which a
+   * preference page shows as it is. Rejects with a 410 for an erased user.
+   */
+  getSubscriptions(userId: string): Promise<Subscriptions<ClientEmailTopic<C>>> {
+    return this.request('GET', subscriptionsPath(userId));
+  }
+
+  /**
+   * Set subscriptions: only what the patch names changes (`{ email: { topics: { newsletter:
+   * false } } }` unsubscribes from one topic, `{ email: { all: true } }` re-subscribes to every
+   * email). Answers the subscriptions as they now stand. With a contract, a topic it does not
+   * declare is refused here, before the request; the engine refuses it too.
+   */
+  setSubscriptions(
+    userId: string,
+    patch: SubscriptionsPatch<ClientEmailTopic<C>>
+  ): Promise<Subscriptions<ClientEmailTopic<C>>> {
+    const contract = this.options.contract;
+    if (contract !== undefined) {
+      const issues: ContractIssue[] = [];
+      for (const topic of Object.keys(patch.email?.topics ?? {})) {
+        // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
+        if (contract.topics.email.includes(topic)) continue;
+        issues.push({ path: `email.topics.${topic}`, message: 'not a declared topic' });
+      }
+      if (issues.length > 0) {
+        return Promise.reject(new JourneyValidationError('/subscriptions', undefined, issues));
+      }
+    }
+    return this.request('PUT', subscriptionsPath(userId), patch);
+  }
+
   /** Deploy a compiled bundle (BundleIR). */
   deploy(bundle: unknown): Promise<DeployResult> {
     return this.post<DeployResult>('/deploy', bundle);
   }
 
-  private async post<T>(path: string, body: unknown): Promise<T> {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+  private post<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
+
+  private async request<T>(
+    method: 'GET' | 'POST' | 'PUT',
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers['content-type'] = 'application/json';
     if (this.options.token !== undefined) headers.authorization = `Bearer ${this.options.token}`;
     const doFetch = this.options.fetch ?? fetch;
     const response = await doFetch(`${this.options.origin.replace(/\/$/, '')}${path}`, {
-      method: 'POST',
+      method,
       headers,
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     if (!response.ok) throw new JourneyClientError(path, response.status, await response.text());
     return (await response.json()) as T;
   }
 }
+
+const subscriptionsPath = (userId: string) => `/subscriptions/${encodeURIComponent(userId)}`;

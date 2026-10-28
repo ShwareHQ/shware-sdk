@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'reengage_miss_you',
+  topic: 'product_updates',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Re-engagement · Miss you',

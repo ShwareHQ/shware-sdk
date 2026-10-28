@@ -75,6 +75,7 @@ const named = z.strictObject({ name: z.string() });
 const emails = {
   welcome: emailTemplate({
     id: 'welcome',
+    transactional: true,
     from: { email: 'hi@acme.test', name: 'Acme' },
     title: 'Welcome',
     props: named,
@@ -84,6 +85,7 @@ const emails = {
   }),
   digest: emailTemplate({
     id: 'digest',
+    transactional: true,
     from: 'digest@acme.test',
     replyTo: 'help@acme.test',
     title: 'Digest',

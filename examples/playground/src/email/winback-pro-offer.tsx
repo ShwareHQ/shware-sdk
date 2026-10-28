@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'winback_pro_offer',
+  topic: 'offers',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Winback · Pro offer',

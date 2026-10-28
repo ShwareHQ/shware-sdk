@@ -238,6 +238,22 @@ function validate(
   }
 }
 
+/**
+ * Whether the user opted out of what this step sends. An email step checks its topic — an
+ * opt-out of the topic or of all email skips it — and a transactional email (`topic: null`) is
+ * never skipped: a receipt or a code goes out whatever the recipient unsubscribed from. An
+ * email node compiled before topics existed (no `topic`) checks the channel-wide opt-out only,
+ * as it always did. Other channels check the channel.
+ */
+async function suppressed(
+  node: Extract<NodeIR, { type: 'message' }>,
+  ctx: JourneyContext
+): Promise<boolean> {
+  if (node.channel === 'email' && node.topic === null) return false;
+  const topic = node.channel === 'email' ? node.topic : undefined;
+  return (await ctx.facts.isSuppressed?.(node.channel, topic ?? undefined)) === true;
+}
+
 type PushPlan = { props: Record<string, ScalarIR | undefined>; devices: PushDevice[] };
 
 /**
@@ -303,7 +319,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
       await ctx.step.do(`${node.id}:send`, async () => {
         const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
         // An opted-out channel (an email unsubscribe) is skipped, like a push with no device
-        if (await ctx.facts.isSuppressed?.(node.channel)) return;
+        if (await suppressed(node, ctx)) return;
         const recipientPath = RECIPIENT_PROPERTY[node.channel];
         const recipient =
           recipientPath === undefined ? undefined : await ctx.facts.getProperty(recipientPath);
@@ -318,6 +334,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             userId: ctx.userId,
             recipient: recipient === undefined ? undefined : String(recipient),
             idempotencyKey: `${ctx.instanceId}:${node.id}`,
+            ...(node.channel === 'email' ? { topic: node.topic ?? null } : {}),
           },
           ctx
         );

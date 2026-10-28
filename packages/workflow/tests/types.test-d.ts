@@ -10,11 +10,13 @@ import { expectTypeOf } from 'vitest';
 import {
   type Duration,
   type EmailAddress,
+  type EmailTopic,
   type PropsOf,
   type UserPropertyRef,
   action,
   between,
   contains,
+  defineConfig,
   defineContract,
   emailTemplate,
   eq,
@@ -147,6 +149,7 @@ const namedSchema = z.strictObject({ name: z.string(), plan: z.enum(['free', 'pr
 
 const welcomeEmail = emailTemplate({
   id: 'welcome',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Welcome',
   props: namedSchema,
@@ -163,6 +166,7 @@ const welcomeEmail = emailTemplate({
 // @ts-expect-error an email template must name its sender
 emailTemplate({
   id: 'x',
+  transactional: true,
   title: 'X',
   props: namedSchema,
   subject: 's',
@@ -171,6 +175,7 @@ emailTemplate({
 });
 emailTemplate({
   id: 'x',
+  transactional: true,
   // @ts-expect-error from is an address, a string or { email, name? }
   from: { name: 'Acme' },
   title: 'X',
@@ -181,6 +186,7 @@ emailTemplate({
 });
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'a@acme.test',
   // @ts-expect-error unsubscribeUrl is a URL string, not a switch
   unsubscribeUrl: false,
@@ -206,6 +212,7 @@ const creditsPush = pushTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
@@ -217,6 +224,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
@@ -228,6 +236,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
@@ -239,6 +248,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'No widening',
   props: namedSchema,
@@ -300,6 +310,7 @@ pushTemplate({
 emailTemplate({
   // @ts-expect-error an id is a string
   id: 1,
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'x',
   props: namedSchema,
@@ -401,3 +412,69 @@ workflow({ id: 'emit_ok', trigger: trigger.event(orders.events.note) }).sendEven
 workflow({ id: 'emit_nested', trigger: trigger.event(orders.events.note) })
   // @ts-expect-error a required nested field cannot be emitted from a journey
   .sendEvent(orders.events.order, { id: 'o', total: 1, items: ['a'] });
+
+/* ------------------------------ email topics ------------------------------ */
+
+const topical = defineContract({
+  events: {},
+  profile: z.strictObject({}),
+  subscriptions: { email: ['promotions', 'newsletter'] },
+});
+expectTypeOf(topical.topics.email).toEqualTypeOf<readonly ('promotions' | 'newsletter')[]>();
+expectTypeOf<EmailTopic<typeof topical>>().toEqualTypeOf<'promotions' | 'newsletter'>();
+expectTypeOf<EmailTopic<typeof shared>>().toEqualTypeOf<never>();
+
+const emailBase = {
+  from: 'noreply@acme.test',
+  title: 'T',
+  props: namedSchema,
+  subject: 's',
+  preview: { name: 'Ada' },
+  component: () => null,
+};
+
+// @ts-expect-error every email template says what it is: a topic, or transactional
+emailTemplate({ id: 'neither', ...emailBase });
+
+// @ts-expect-error not both
+emailTemplate({ id: 'both', topic: 'promotions', transactional: true, ...emailBase });
+
+// @ts-expect-error transactional is the literal true, never a boolean variable
+emailTemplate({ id: 'maybe', transactional: Boolean(1), ...emailBase });
+
+emailTemplate({
+  id: 'receipt',
+  transactional: true,
+  // @ts-expect-error a transactional email has no unsubscribe link
+  unsubscribeUrl: 'https://a.test/u',
+  ...emailBase,
+});
+
+const promo = emailTemplate({ id: 'promo', topic: 'promotions', ...emailBase });
+const digest = emailTemplate({ id: 'digest', topic: 'digest', ...emailBase });
+const receipt = emailTemplate({ id: 'receipt', transactional: true, ...emailBase });
+expectTypeOf(promo.topic).toEqualTypeOf<'promotions' | null>();
+expectTypeOf(receipt.topic).toEqualTypeOf<null>();
+
+// A config typed by its contract accepts the topics it declares, and transactional emails
+defineConfig({ contract: topical, workflows: [], templates: { email: { promo, receipt } } });
+
+// @ts-expect-error ...but not a topic the contract does not declare
+defineConfig({ contract: topical, workflows: [], templates: { email: { promo, digest } } });
+
+// @ts-expect-error without a contract there are no topics: transactional emails only
+defineConfig({ workflows: [], templates: { email: { promo } } });
+defineConfig({ workflows: [], templates: { email: { receipt } } });
+
+/* ------------------------------ subscriptions client ------------------------------ */
+
+const subscriptions = new JourneyClient({ contract: topical, origin: 'https://w.test' });
+expectTypeOf(subscriptions.getSubscriptions('u')).resolves.toEqualTypeOf<{
+  email: { all: boolean; topics: Record<'promotions' | 'newsletter', boolean> };
+}>();
+void subscriptions.setSubscriptions('u', { email: { all: false, topics: { promotions: false } } });
+// @ts-expect-error only declared topics can be set
+void subscriptions.setSubscriptions('u', { email: { topics: { digest: false } } });
+
+const untyped = new JourneyClient({ origin: 'https://w.test' });
+void untyped.setSubscriptions('u', { email: { topics: { anything: false } } });

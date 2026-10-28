@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'demo_offer',
+  topic: 'offers',
   from: senders.noreply,
   title: 'Demo · Offer',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),

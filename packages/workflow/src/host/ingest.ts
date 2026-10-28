@@ -5,6 +5,7 @@ import {
   matchesWhere,
   profileUpdatedEvent,
 } from '../engine/condition';
+import { RECIPIENT_PROPERTY } from '../engine/recipient';
 import { semanticHash } from '../hash';
 import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
 import { JourneyFactSource } from '../store/facts';
@@ -14,6 +15,7 @@ import {
   type ProfileProps,
   SchemaMismatchError,
   type SegmentTriggerRoute,
+  type SuppressionChange,
   UserErasedError,
 } from '../store/index';
 import {
@@ -29,7 +31,7 @@ import {
  * event does four things: it is stored, it wakes waiting instances, it is matched against event
  * triggers, and it re-evaluates segment-trigger membership. An identify merges a profile, which
  * wakes the waits on the properties it patched and re-evaluates segment triggers too. Plus
- * devices, erasure, the segment sweep and bundle deploys.
+ * devices, subscriptions, erasure, the segment sweep and bundle deploys.
  *
  * Storage goes through a JourneyStore; every entry point takes the one the host opened.
  */
@@ -743,4 +745,140 @@ export async function deployBundle(
     unrouted,
     applied,
   };
+}
+
+/* ------------------------------- subscriptions ------------------------------- */
+
+/** Where a user stands with email: `true` is subscribed, per topic and for the channel as a whole. */
+export interface EmailSubscriptions<T extends string = string> {
+  /** False once the user unsubscribed from all email (the channel-wide opt-out): no topic is sent then. */
+  all: boolean;
+  /** Each declared topic: false once the user unsubscribed from it. */
+  topics: Record<T, boolean>;
+}
+
+/** A user's subscriptions, per channel — what `GET /subscriptions/:userId` answers. */
+export interface Subscriptions<T extends string = string> {
+  email: EmailSubscriptions<T>;
+}
+
+/** What `PUT /subscriptions/:userId` takes: only what changes; an omitted field stays as it is. */
+export interface SubscriptionsPatch<T extends string = string> {
+  email?: {
+    all?: boolean;
+    topics?: Partial<Record<T, boolean>>;
+  };
+}
+
+/** One field of a patch refused, with the path the producer can fix. */
+export interface SubscriptionsIssue {
+  path: string;
+  message: string;
+}
+
+/**
+ * A subscriptions patch as it arrives over HTTP: untrusted JSON, read field by field and never
+ * cast. Every topic must be one the bundle declares — the engine's list, not the caller's word.
+ */
+export function parseSubscriptionsPatch(
+  body: unknown,
+  topics: readonly string[]
+): { ok: true; patch: SubscriptionsPatch } | { ok: false; issues: SubscriptionsIssue[] } {
+  const issues: SubscriptionsIssue[] = [];
+  const object = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (!object(body)) return { ok: false, issues: [{ path: '', message: 'must be an object' }] };
+  const patch: SubscriptionsPatch = {};
+  for (const [channel, value] of Object.entries(body)) {
+    if (channel !== 'email') {
+      issues.push({ path: channel, message: 'not a subscription channel' });
+      continue;
+    }
+    if (!object(value)) {
+      issues.push({ path: 'email', message: 'must be an object' });
+      continue;
+    }
+    const email: NonNullable<SubscriptionsPatch['email']> = {};
+    for (const [field, setting] of Object.entries(value)) {
+      if (field === 'all') {
+        if (typeof setting === 'boolean') email.all = setting;
+        else issues.push({ path: 'email.all', message: 'must be a boolean' });
+      } else if (field === 'topics') {
+        if (!object(setting)) {
+          issues.push({ path: 'email.topics', message: 'must be an object' });
+          continue;
+        }
+        const known = new Set(topics);
+        const chosen: Record<string, boolean> = {};
+        for (const [topic, subscribed] of Object.entries(setting)) {
+          if (!known.has(topic)) {
+            issues.push({ path: `email.topics.${topic}`, message: 'not a declared topic' });
+          } else if (typeof subscribed !== 'boolean') {
+            issues.push({ path: `email.topics.${topic}`, message: 'must be a boolean' });
+          } else {
+            chosen[topic] = subscribed;
+          }
+        }
+        email.topics = chosen;
+      } else {
+        issues.push({ path: `email.${field}`, message: 'unknown field' });
+      }
+    }
+    patch.email = email;
+  }
+  return issues.length > 0 ? { ok: false, issues } : { ok: true, patch };
+}
+
+async function readSubscriptions(
+  store: JourneyStore,
+  userId: string,
+  topics: readonly string[]
+): Promise<Subscriptions> {
+  const suppressed = new Set(await store.listSuppressions(userId, 'email'));
+  return {
+    email: {
+      all: !suppressed.has(null),
+      topics: Object.fromEntries(topics.map((topic) => [topic, !suppressed.has(topic)])),
+    },
+  };
+}
+
+/** The user's subscriptions over the declared `topics`; a user with an erasure tombstone is refused. */
+export async function getSubscriptions(
+  store: JourneyStore,
+  userId: string,
+  topics: readonly string[]
+): Promise<Subscriptions> {
+  await refuseIfErased(store, userId);
+  return readSubscriptions(store, userId, topics);
+}
+
+/**
+ * Apply a patch — each field given sets or clears the matching opt-out, in one transaction — and
+ * answer the subscriptions as they now stand. A change of `all` is a change of email
+ * reachability, so the waits reading it wake, both ways: an `exitWhen: not(reachable('email'))`
+ * fires on the opt-out, and a wait for the address to become reachable resumes on the opt-in.
+ */
+export async function setSubscriptions(
+  env: JourneyEnv,
+  store: JourneyStore,
+  userId: string,
+  patch: SubscriptionsPatch,
+  topics: readonly string[],
+  now = Date.now()
+): Promise<Subscriptions> {
+  await refuseIfErased(store, userId);
+  const email = patch.email ?? {};
+  const changes: SuppressionChange[] = [];
+  if (email.all !== undefined) changes.push({ topic: null, suppressed: !email.all });
+  for (const [topic, subscribed] of Object.entries(email.topics ?? {})) {
+    if (subscribed !== undefined) changes.push({ topic, suppressed: !subscribed });
+  }
+  await store.updateSuppressions(userId, 'email', changes, now);
+  if (email.all !== undefined) {
+    await wakeSubscribers(env, store, userId, [
+      profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email'),
+    ]);
+  }
+  return readSubscriptions(store, userId, topics);
 }

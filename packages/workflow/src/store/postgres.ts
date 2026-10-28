@@ -16,11 +16,20 @@ import type {
   ProfileProps,
   RunningInstance,
   SegmentTriggerRoute,
+  SuppressionChange,
   TriggerRoute,
 } from './index';
 import { PostgresReporting } from './postgres-reporting';
 import { type SqlClientLike, uuidv7 } from './sql';
-import { type ColumnType, DEFAULT_SCHEMA, TABLES, type TableKey, columnName } from './tables';
+import {
+  type ColumnType,
+  DEFAULT_SCHEMA,
+  TABLES,
+  type TableKey,
+  columnName,
+  indexName,
+  uniqueConstraintName,
+} from './tables';
 import { lockUserTransaction } from './user-lock';
 
 export { DEFAULT_SCHEMA } from './tables';
@@ -145,11 +154,23 @@ export class PostgresJourneyStore implements JourneyStore {
       }
       // The names drizzle-kit and renderPostgresDdl both give an unnamed unique index
       for (const keys of spec.uniqueIndexes ?? []) {
-        const name = `${spec.name}_${keys.map(columnName).join('_')}_index`;
+        const name = indexName(spec, keys);
         const row = liveIndexes.get(`${spec.name}.${name}`);
         if (row === undefined) problems.push(`missing unique index "${this.schema}"."${name}"`);
         else if (!/^CREATE UNIQUE INDEX/i.test(row.indexdef))
           problems.push(`index "${this.schema}"."${name}" is not unique`);
+      }
+      // A unique constraint is backed by an index of its name; its definition says how nulls compare
+      for (const unique of spec.uniqueConstraints ?? []) {
+        const name = uniqueConstraintName(spec, unique);
+        const row = liveIndexes.get(`${spec.name}.${name}`);
+        if (row === undefined) {
+          problems.push(`missing unique constraint "${this.schema}"."${name}"`);
+        } else if (!/^CREATE UNIQUE INDEX/i.test(row.indexdef)) {
+          problems.push(`index "${this.schema}"."${name}" is not unique`);
+        } else if (!/NULLS NOT DISTINCT/i.test(row.indexdef)) {
+          problems.push(`unique constraint "${this.schema}"."${name}" must be NULLS NOT DISTINCT`);
+        }
       }
     }
     return problems;
@@ -396,8 +417,8 @@ export class PostgresJourneyStore implements JourneyStore {
         this.t.subscription,
         this.t.segmentStart,
         this.t.segmentMember,
-        // Not suppression: an opt-out is a compliance record keyed by an opaque id, and it
-        // outlives the erasure
+        // The opt-outs too: the tombstone keeps the id from ever being sent to again
+        this.t.suppression,
         this.t.device,
         this.t.event,
         this.t.profile,
@@ -412,12 +433,51 @@ export class PostgresJourneyStore implements JourneyStore {
     });
   }
 
-  async isSuppressed(userId: string, channel: string): Promise<boolean> {
+  async isSuppressed(userId: string, channel: string, topic?: string): Promise<boolean> {
+    // The channel-wide row (topic null) covers every topic; a topic's row covers that topic
     const rows = await this.sql.query(
-      `SELECT 1 AS x FROM ${this.t.suppression} WHERE user_id = $1 AND channel = $2`,
-      [userId, channel]
+      `SELECT 1 AS x FROM ${this.t.suppression}
+       WHERE user_id = $1 AND channel = $2 AND (topic IS NULL OR topic = $3::text)`,
+      [userId, channel, topic ?? null]
     );
     return rows.length > 0;
+  }
+
+  async listSuppressions(userId: string, channel: string): Promise<(string | null)[]> {
+    const rows = await this.sql.query<{ topic: string | null }>(
+      `SELECT topic FROM ${this.t.suppression} WHERE user_id = $1 AND channel = $2
+       ORDER BY topic NULLS FIRST`,
+      [userId, channel]
+    );
+    return rows.map((row) => row.topic);
+  }
+
+  async updateSuppressions(
+    userId: string,
+    channel: string,
+    changes: readonly SuppressionChange[],
+    at: number
+  ): Promise<void> {
+    if (changes.length === 0) return;
+    await this.sql.transaction(async (tx) => {
+      await this.lockUser(tx, userId);
+      for (const { topic, suppressed } of changes) {
+        if (suppressed) {
+          // The first opt-out sets the time; a repeat keeps it
+          await tx.query(
+            `INSERT INTO ${this.t.suppression} (user_id, channel, topic, ts)
+             VALUES ($1, $2, $3::text, ${TS('$4')}) ON CONFLICT DO NOTHING`,
+            [userId, channel, topic, at]
+          );
+        } else {
+          await tx.query(
+            `DELETE FROM ${this.t.suppression}
+             WHERE user_id = $1 AND channel = $2 AND topic IS NOT DISTINCT FROM $3::text`,
+            [userId, channel, topic]
+          );
+        }
+      }
+    });
   }
 
   async removeDevice(token: string): Promise<string | undefined> {

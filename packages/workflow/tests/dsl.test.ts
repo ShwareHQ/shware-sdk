@@ -401,6 +401,15 @@ describe('bundle compilation', () => {
     );
   });
 
+  test('the bundle carries the subscription topics it is given, or none', () => {
+    const topical = compileBundle({ workflows: [], subscriptions: { email: ['promotions'] } });
+    expect(topical.subscriptions).toEqual({ email: ['promotions'] });
+    expect(compileBundle({ workflows: [] }).subscriptions).toEqual({ email: [] });
+    // A bundle from before topics existed still parses
+    const { subscriptions: _dropped, ...before } = topical;
+    expect(() => BundleIR.parse(before)).not.toThrow();
+  });
+
   test('actions form a manifest of names', () => {
     const sync = action('sync_crm', async () => {});
     const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).run(sync);

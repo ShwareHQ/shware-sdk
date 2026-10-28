@@ -23,6 +23,7 @@ const pu = user<{ userId: string; name: string; nick?: string; age: number }>();
 const email = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
   emailTemplate({
     id: 'e',
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'E',
     props,

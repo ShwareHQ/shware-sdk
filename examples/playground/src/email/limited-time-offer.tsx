@@ -5,6 +5,7 @@ import { senders } from './senders';
 
 export default emailTemplate({
   id: 'n2_limited_time_offer',
+  topic: 'offers',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Cart Recovery · Last touch',

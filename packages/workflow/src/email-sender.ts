@@ -103,7 +103,7 @@ export class EmailSender implements MessageSender {
  *   header names it, and `List-Unsubscribe-Post` says a POST there unsubscribes at once.
  * - Without one: the header names the email's own unsubscribe link, with no one-click claim —
  *   whether that page takes a POST is the app's.
- * - An email without an unsubscribe link (a receipt) gets neither.
+ * - An email without an unsubscribe link (a transactional one) gets neither.
  *
  * Only an https URL is named: mail clients and Cloudflare Email refuse any other.
  */

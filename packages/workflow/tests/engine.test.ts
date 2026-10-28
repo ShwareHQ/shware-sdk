@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { z } from 'zod';
 import { condIR } from '../src/dsl/condition';
 import { hashToBucket, murmur3 } from '../src/engine/bucket';
 import {
@@ -22,6 +23,7 @@ import {
   action,
   and,
   compileBundle,
+  emailTemplate,
   eq,
   performed,
   reachable,
@@ -81,6 +83,8 @@ class FakeFacts implements FactSource {
   events: { name: string; ts: number; payload?: Record<string, unknown> }[] = [];
   props: Record<string, ScalarIR> = {};
   devices: PushDevice[] = [];
+  /** Opt-outs as the store keeps them: `channel` for the whole channel, `channel:topic` for one topic. */
+  suppressed = new Set<string>();
 
   async countEvents(
     event: string,
@@ -102,6 +106,12 @@ class FakeFacts implements FactSource {
   }
   async listDevices(): Promise<PushDevice[]> {
     return this.devices;
+  }
+  async isSuppressed(channel: string, topic?: string): Promise<boolean> {
+    return (
+      this.suppressed.has(channel) ||
+      (topic !== undefined && this.suppressed.has(`${channel}:${topic}`))
+    );
   }
 }
 
@@ -254,6 +264,103 @@ describe('runJourney: reengagement (wait_until)', () => {
     // across many users both arms are used
     const results = await Promise.all(Array.from({ length: 40 }, (_, i) => run(`user_${i}`)));
     expect(new Set(results).size).toBe(2);
+  });
+});
+
+describe('email opt-outs are per topic', () => {
+  const offer = emailTemplate({
+    id: 'offer',
+    topic: 'promotions',
+    from: 'noreply@acme.test',
+    title: 'Offer',
+    props: z.strictObject({}),
+    subject: 'Offer',
+    preview: {},
+    component: () => null,
+  });
+  const digest = emailTemplate({
+    id: 'digest',
+    topic: 'newsletter',
+    from: 'noreply@acme.test',
+    title: 'Digest',
+    props: z.strictObject({}),
+    subject: 'Digest',
+    preview: {},
+    component: () => null,
+  });
+  const receipt = plainEmail('receipt'); // transactional
+  const ir = workflow({ id: 'topics', trigger: trigger.event(e.sign_up) })
+    .email(offer)
+    .email(digest)
+    .email(receipt)
+    .toIR();
+
+  test('the email node carries its topic, null for a transactional email', () => {
+    expect(ir.flow.map((node) => (node as { topic?: string | null }).topic)).toEqual([
+      'promotions',
+      'newsletter',
+      null,
+    ]);
+  });
+
+  test('an opt-out of one topic skips that topic alone; the copies carry their topic', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.props = { email: 'ada@acme.test' };
+    facts.suppressed.add('email:promotions');
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => [m.template, m.topic])).toEqual([
+      ['digest', 'newsletter'],
+      ['receipt', null],
+    ]);
+  });
+
+  test('an opt-out of all email skips every topic, never a transactional email', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.props = { email: 'ada@acme.test' };
+    facts.suppressed.add('email');
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => m.template)).toEqual(['receipt']);
+  });
+
+  test('an email node compiled before topics existed checks the whole channel only', async () => {
+    const legacy = structuredClone(ir);
+    for (const node of legacy.flow) delete (node as { topic?: unknown }).topic;
+    const { ctx, facts, sent } = makeContext();
+    facts.props = { email: 'ada@acme.test' };
+    facts.suppressed.add('email:promotions');
+    await runJourney(legacy, ctx);
+    expect(sent.map((m) => m.template)).toEqual(['offer', 'digest', 'receipt']);
+    const all = makeContext();
+    all.facts.props = { email: 'ada@acme.test' };
+    all.facts.suppressed.add('email');
+    await runJourney(legacy, all.ctx);
+    expect(all.sent).toEqual([]);
+  });
+
+  test("reachable('email') reads the channel-wide opt-out only", async () => {
+    const facts = new FakeFacts();
+    facts.props = { email: 'ada@acme.test' };
+    const now = Date.now();
+    const email = condIR(reachable('email'));
+    expect(await evaluateCondition(email, facts, now)).toBe(true);
+    facts.suppressed.add('email:promotions');
+    expect(await evaluateCondition(email, facts, now)).toBe(true);
+    facts.suppressed.add('email');
+    expect(await evaluateCondition(email, facts, now)).toBe(false);
+  });
+
+  test('push is untouched: a device opt-out is the channel, and a push carries no topic', async () => {
+    const tip = namedPush('tip');
+    const pushes = workflow({ id: 'p', trigger: trigger.event(e.sign_up) })
+      .push(tip, { name: 'Ada' })
+      .toIR();
+    expect(pushes.flow[0]).not.toHaveProperty('topic');
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [{ token: 't', platform: 'ios' }];
+    facts.suppressed.add('email');
+    await runJourney(pushes, ctx);
+    expect(sent.map((m) => m.channel)).toEqual(['push']);
+    expect(sent[0]).not.toHaveProperty('topic');
   });
 });
 

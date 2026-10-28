@@ -33,6 +33,7 @@ export function reportingObserver(
         template: message.template,
         channel: channelOf(message),
         userId: message.userId,
+        topic: message.channel === 'email' ? (message.topic ?? null) : null,
         sentAt: Date.now(),
       });
       if (message.channel === 'email' && base !== undefined) {

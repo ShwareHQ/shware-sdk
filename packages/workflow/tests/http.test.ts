@@ -10,6 +10,7 @@ import { WAKE_EVENT_TYPE } from '../src/host/platform';
 import {
   compileBundle,
   defineConfig,
+  defineContract,
   emailTemplate,
   eq,
   segment,
@@ -535,6 +536,7 @@ describe('bearer authentication', () => {
 const hostEmails = {
   bienvenue: emailTemplate({
     id: 'bienvenue',
+    transactional: true,
     from: 'hi@acme.test',
     title: 'Bienvenue',
     props: z.strictObject({}),
@@ -655,17 +657,19 @@ describe('an unsubscribe wakes the waits reading email reachability', () => {
         return true;
       },
       recordClick: async () => undefined,
-      recordUnsubscribe: async (id) => {
+      recordUnsubscribe: async (id, _at, scope) => {
         if (id !== messageId) return undefined;
-        unsubscribed.push(id);
-        return { userId: 'u1' };
+        unsubscribed.push(`${id}:${scope ?? 'topic'}`);
+        return { userId: 'u1', topic: 'promotions' };
       },
+      lookupMessage: async (id) =>
+        id === messageId ? { userId: 'u1', channel: 'email', topic: 'promotions' } : undefined,
       recordDeviceDelivered: unknown,
       snapshotSegments: async () => [],
     };
   }
 
-  test('POST /t/u records it and wakes the email-property channel of its recipient', async () => {
+  test('POST /t/u of one topic wakes nobody; of all email, the email-property channel of its recipient', async () => {
     const reports = reporting();
     const { journey, call } = host({ ENVIRONMENT: 'development' }, { reporting: reports });
     journey.known.add('inst-exit');
@@ -674,10 +678,15 @@ describe('an unsubscribe wakes the waits reading email reachability', () => {
     await subscribe('inst-plan', 'u1', profileUpdatedEvent('plan'));
     await subscribe('inst-other', 'u2', profileUpdatedEvent('email'));
 
-    const response = await call(`/t/u/${messageId}`, { method: 'POST' });
+    // The copy's topic: the user is still reachable by email, so no wait on that changes
+    const topic = await call(`/t/u/${messageId}`, { method: 'POST' });
+    expect(topic.status).toBe(200);
+    expect(reports.unsubscribed).toEqual([`${messageId}:topic`]);
+    expect(journey.wakes).toEqual([]);
 
-    expect(response.status).toBe(200);
-    expect(reports.unsubscribed).toEqual([messageId]);
+    const all = await call(`/t/u/${messageId}?scope=all`, { method: 'POST' });
+    expect(all.status).toBe(200);
+    expect(reports.unsubscribed).toEqual([`${messageId}:topic`, `${messageId}:all`]);
     expect(journey.wakes).toEqual([{ id: 'inst-exit', type: WAKE_EVENT_TYPE }]);
   });
 
@@ -687,5 +696,175 @@ describe('an unsubscribe wakes the waits reading email reachability', () => {
     const response = await call('/t/u/0190a3b8-0000-7000-8000-000000000002', { method: 'POST' });
     expect(response.status).toBe(200);
     expect(journey.wakes).toEqual([]);
+  });
+});
+
+describe('/subscriptions', () => {
+  const contract = defineContract({
+    events: { sign_up: z.looseObject({}) },
+    profile: z.strictObject({ email: z.email().optional() }),
+    subscriptions: { email: ['promotions', 'newsletter', 'tips'] },
+  });
+  const offer = emailTemplate({
+    id: 'offer',
+    topic: 'promotions',
+    from: 'hi@acme.test',
+    title: 'Offer',
+    props: z.strictObject({}),
+    subject: 'Offer',
+    preview: {},
+    component: () => createElement('p', null, 'offer'),
+  });
+  const config = defineConfig({
+    contract,
+    workflows: [
+      workflow({ id: 'offers', trigger: trigger.event(contract.events.sign_up) }).email(offer),
+    ],
+    templates: { email: { offer } },
+  });
+  const everything = {
+    email: { all: true, topics: { promotions: true, newsletter: true, tips: true } },
+  };
+
+  function topicsHost() {
+    const made = makeEnv({ ENVIRONMENT: 'development' });
+    const journeyHost = createJourneyHost({
+      config,
+      email: () => ({ send: async () => ({}) }),
+      store: () => database.store,
+    });
+    const call = (path: string, init?: RequestInit) =>
+      journeyHost.handle(new Request(`https://worker.test${path}`, init), made.env, database.store);
+    const put = (userId: string, body: unknown) =>
+      call(`/subscriptions/${encodeURIComponent(userId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    return { ...made, call, put };
+  }
+
+  test('a user nobody heard of is subscribed to everything; the bundle carries the topics', async () => {
+    const { call } = topicsHost();
+    const response = await call('/subscriptions/u1');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(everything);
+    expect(
+      ((await (await call('/bundle')).json()) as { subscriptions: unknown }).subscriptions
+    ).toEqual({
+      email: ['promotions', 'newsletter', 'tips'],
+    });
+  });
+
+  test('a patch changes only what it names, and the answer is the state after it', async () => {
+    const { call, put } = topicsHost();
+    const one = await put('u1', { email: { topics: { newsletter: false } } });
+    expect(one.status).toBe(200);
+    expect(await one.json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: false, tips: true } },
+    });
+    // The rows the engine reads: the topic's, and no channel-wide one
+    expect(await database.store.isSuppressed('u1', 'email', 'newsletter')).toBe(true);
+    expect(await database.store.isSuppressed('u1', 'email', 'promotions')).toBe(false);
+    expect(await database.store.isSuppressed('u1', 'email')).toBe(false);
+
+    const all = await put('u1', { email: { all: false } });
+    expect(await all.json()).toEqual({
+      email: { all: false, topics: { promotions: true, newsletter: false, tips: true } },
+    });
+    expect(await database.store.isSuppressed('u1', 'email', 'promotions')).toBe(true);
+
+    // Back on: the channel-wide row goes, the topic's row stays
+    const back = await put('u1', {
+      email: { all: true, topics: { newsletter: true, tips: false } },
+    });
+    expect(await back.json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
+    });
+    expect(await (await call('/subscriptions/u1')).json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
+    });
+    // An empty patch is a read
+    expect(await (await put('u1', {})).json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
+    });
+    // Another user is untouched
+    expect(await (await call('/subscriptions/u2')).json()).toEqual(everything);
+  });
+
+  test('a user id with specials travels percent-encoded', async () => {
+    const { call, put } = topicsHost();
+    await put('a/b c', { email: { topics: { tips: false } } });
+    expect(await database.store.listSuppressions('a/b c', 'email')).toEqual(['tips']);
+    expect(await (await call('/subscriptions/a%2Fb%20c')).json()).toMatchObject({
+      email: { topics: { tips: false } },
+    });
+  });
+
+  test('a topic the bundle does not declare, or a value that is not a boolean, is refused with its path', async () => {
+    const { put } = topicsHost();
+    const refused = await put('u1', {
+      email: { all: 'no', topics: { digest: false, tips: 1 }, extra: 1 },
+      sms: {},
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({
+      error: 'subscriptions refused',
+      issues: [
+        { path: 'email.all', message: 'must be a boolean' },
+        { path: 'email.topics.digest', message: 'not a declared topic' },
+        { path: 'email.topics.tips', message: 'must be a boolean' },
+        { path: 'email.extra', message: 'unknown field' },
+        { path: 'sms', message: 'not a subscription channel' },
+      ],
+    });
+    expect(await database.store.listSuppressions('u1', 'email')).toEqual([]);
+    expect((await put('u1', [])).status).toBe(400);
+    const notJson = await topicsHost().call('/subscriptions/u1', { method: 'PUT', body: '{' });
+    expect(notJson.status).toBe(400);
+  });
+
+  test('an erased user answers 410 on both, and nothing is written', async () => {
+    const { env, call, put } = topicsHost();
+    await forgetUser(env, 'gone', database.store);
+    expect((await call('/subscriptions/gone')).status).toBe(410);
+    expect((await put('gone', { email: { all: false } })).status).toBe(410);
+    expect(await database.store.listSuppressions('gone', 'email')).toEqual([]);
+  });
+
+  test('changing `all` wakes the waits on email reachability; a topic alone wakes nobody', async () => {
+    const { journey, put } = topicsHost();
+    journey.known.add('inst-exit');
+    await subscribe('inst-exit', 'u1', profileUpdatedEvent('email'));
+    await put('u1', { email: { topics: { promotions: false } } });
+    expect(journey.wakes).toEqual([]);
+    await put('u1', { email: { all: false } });
+    expect(journey.wakes).toEqual([{ id: 'inst-exit', type: WAKE_EVENT_TYPE }]);
+    // Re-subscribing is a change of reachability too: a wait for the address resumes
+    await put('u1', { email: { all: true } });
+    expect(journey.wakes).toHaveLength(2);
+  });
+
+  test('the bare API reads the topics from the contract it validates with', async () => {
+    const { env } = makeEnv();
+    const get = await handleRequest(
+      new Request('https://worker.test/subscriptions/u1'),
+      env,
+      database.store,
+      { contract }
+    );
+    expect(await get.json()).toEqual(everything);
+    // Without a contract there are no topics: only `all` can be set
+    const bare = await handleRequest(
+      new Request('https://worker.test/subscriptions/u1', {
+        method: 'PUT',
+        body: JSON.stringify({ email: { all: false, topics: { tips: false } } }),
+      }),
+      env,
+      database.store
+    );
+    expect(bare.status).toBe(400);
+    expect(await bare.json()).toMatchObject({
+      issues: [{ path: 'email.topics.tips', message: 'not a declared topic' }],
+    });
   });
 });

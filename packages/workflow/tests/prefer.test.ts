@@ -34,6 +34,7 @@ const templates = {
   email: {
     tip: emailTemplate({
       id: 'tip',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Tip',
       props: named,
@@ -43,6 +44,7 @@ const templates = {
     }),
     tip_long: emailTemplate({
       id: 'tip_long',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Tip',
       props: z.strictObject({ name: z.string().min(3) }),

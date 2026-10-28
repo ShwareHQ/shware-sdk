@@ -3,15 +3,18 @@ import type * as core from 'zod/v4/core';
 import { type EventRefs, type UserRefs, event, user } from './dsl';
 
 /**
- * `defineContract({ events, profile })` — the producer/engine contract as Zod
+ * `defineContract({ events, profile, subscriptions? })` — the producer/engine contract as Zod
  * schemas, written once in a package both sides import. From it:
  *
  * - `contract.events` / `contract.user` are the DSL's typed reference tables
  *   (what `event<E>()` / `user<U>()` used to be, now derived from the schemas);
+ * - `contract.topics.email` are the subscription topics: every email template names one (or
+ *   is transactional), a recipient unsubscribes from one at a time, and the compile refuses a
+ *   topic the contract does not declare;
  * - `JourneyClient({ contract })` types `track` / `identify` by event name and
- *   checks payloads before sending;
- * - `journeyWorker({ contract })` re-validates every inbound `/events` and
- *   `/identify` — never trusting the caller used the SDK — and refuses a bad
+ *   checks payloads before sending, and `getSubscriptions` / `setSubscriptions` by topic;
+ * - `journeyWorker({ contract })` re-validates every inbound `/events`,
+ *   `/identify` and `/subscriptions` — never trusting the caller used the SDK — and refuses a bad
  *   one with a 4xx before anything is stored, woken or started.
  *
  * Supported schemas (v1), synchronous and JSON-shaped: event payloads are
@@ -31,12 +34,25 @@ export type DeclaredOutput<S> =
     ? core.$InferObjectOutput<Shape, core.$strict['out']>
     : never;
 
+/**
+ * The subscription topics a producer and the engine agree on, per channel: the ids an email
+ * template declares (`emailTemplate({ topic })`) and a user opts out of one at a time. Ids only —
+ * display names belong to the app's i18n. Written `as const` so the union types the templates,
+ * the config and `JourneyClient.setSubscriptions`.
+ */
+export interface SubscriptionsDefinition<T extends string> {
+  email: readonly T[];
+}
+
 export interface ContractDefinition<
   E extends Record<string, ObjectSchema>,
   P extends ObjectSchema,
+  T extends string = never,
 > {
   events: E;
   profile: P;
+  /** The email topics, e.g. `{ email: ['promotions', 'newsletter'] }`; none without it (transactional email only). */
+  subscriptions?: SubscriptionsDefinition<T>;
 }
 
 /** One rejected field, with the dotted path the producer can fix. */
@@ -50,8 +66,12 @@ export type ContractResult<T> = { ok: true; data: T } | { ok: false; issues: Con
 export interface Contract<
   E extends Record<string, ObjectSchema> = Record<string, ObjectSchema>,
   P extends ObjectSchema = ObjectSchema,
+  T extends string = string,
 > {
   readonly kind: 'journey-contract';
+  /** The declared subscription topics per channel (`subscriptions`), empty when none were declared. */
+  readonly topics: { readonly email: readonly T[] };
+  isEmailTopic(topic: string): topic is T;
   /** The DSL's event reference table: `e.purchase` — payload refs from the declared fields only. */
   readonly events: EventRefs<{ [K in keyof E]: DeclaredOutput<E[K]> }>;
   /** The DSL's user-property reference table: `u.name`, plus the system `u.userId`. */
@@ -82,9 +102,29 @@ export type ProfilePatch<P> = { [K in keyof DeclaredOutput<P>]?: DeclaredOutput<
 export type EventPayload<C, K extends string> =
   C extends Contract<infer E> ? (K extends keyof E ? core.input<E[K]> : never) : never;
 
-export function defineContract<E extends Record<string, ObjectSchema>, P extends ObjectSchema>(
-  definition: ContractDefinition<E, P>
-): Contract<E, P> {
+/** The email topics a contract declares, as a union: `EmailTopic<typeof contract>`; `never` without any. */
+export type EmailTopic<C> =
+  C extends Contract<Record<string, ObjectSchema>, ObjectSchema, infer T> ? T : never;
+
+/** A topic id: what goes in a URL, a JSON key and a database column, so no spaces or specials. */
+const TOPIC_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+
+export function defineContract<
+  E extends Record<string, ObjectSchema>,
+  P extends ObjectSchema,
+  const T extends string = never,
+>(definition: ContractDefinition<E, P, T>): Contract<E, P, T> {
+  const topics = [...(definition.subscriptions?.email ?? [])];
+  const seen = new Set<string>();
+  for (const topic of topics) {
+    if (typeof topic !== 'string' || !TOPIC_ID.test(topic)) {
+      throw new TypeError(
+        `contract subscriptions.email: '${topic as string}' is not a topic id (letters, digits, '_', '-' and '.', starting with a letter or digit)`
+      );
+    }
+    if (seen.has(topic)) throw new TypeError(`contract subscriptions.email lists '${topic}' twice`);
+    seen.add(topic);
+  }
   for (const [name, schema] of Object.entries(definition.events)) {
     if (name.startsWith('$')) {
       throw new TypeError(`contract event '${name}': names starting with $ are reserved`);
@@ -105,6 +145,8 @@ export function defineContract<E extends Record<string, ObjectSchema>, P extends
     user: user() as never,
     schemas: { events: definition.events, profile: definition.profile },
     eventNames: names,
+    topics: { email: topics },
+    isEmailTopic: (topic): topic is T => seen.has(topic),
     isEvent: (name): name is keyof E & string => Object.hasOwn(definition.events, name),
     parseEvent(name, payload) {
       if (!Object.hasOwn(definition.events, name)) {
