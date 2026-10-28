@@ -1,6 +1,6 @@
 {
   "name": "@shware/http",
-  "version": "4.0.0",
+  "version": "4.0.2",
   "private": false,
   "repository": {
     "type": "git",
@@ -83,8 +83,8 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "hono": "^4.13.9",
-    "i18next": "^26.4.2",
+    "hono": "^4.13.14",
+    "i18next": "^26.5.10",
     "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {

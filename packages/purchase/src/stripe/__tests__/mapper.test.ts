@@ -3,6 +3,10 @@ import {
   type CheckoutSession,
   getPurchaseProperties,
   mapCancellationDetails,
+  mapDisputeStatus,
+  mapPaymentType,
+  mapRefundStatus,
+  money,
   price,
 } from '../mapper';
 
@@ -118,5 +122,61 @@ describe('price', () => {
     expect(price(1999, 'usd')).toBe(19.99);
     expect(price(500, 'jpy')).toBe(500);
     expect(price(5120, 'kwd')).toBe(5.12);
+  });
+});
+
+describe('money', () => {
+  it('pairs the converted amount with its currency', () => {
+    expect(money(1999, 'usd')).toEqual({ amount: 19.99, currency: 'usd' });
+    expect(money(500, 'jpy')).toEqual({ amount: 500, currency: 'jpy' });
+  });
+});
+
+describe('mapPaymentType', () => {
+  it.each([
+    ['subscription_create', 'SUBSCRIPTION_START'],
+    ['subscription_cycle', 'SUBSCRIPTION_RENEWAL'],
+    ['subscription_update', 'SUBSCRIPTION_UPDATE'],
+    ['manual', 'SUBSCRIPTION_UPDATE'],
+    ['subscription_threshold', 'SUBSCRIPTION_UPDATE'],
+    [null, 'SUBSCRIPTION_UPDATE'],
+  ] as const)('maps billing_reason %s to %s', (reason, type) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(mapPaymentType({ id: 'in_1', billing_reason: reason })).toBe(type);
+    warn.mockRestore();
+  });
+});
+
+describe('mapRefundStatus', () => {
+  it.each([
+    ['pending', 'PENDING'],
+    ['requires_action', 'PENDING'],
+    [null, 'PENDING'],
+    ['succeeded', 'SUCCEEDED'],
+    ['failed', 'FAILED'],
+    ['canceled', 'CANCELED'],
+  ] as const)('maps %s to %s', (status, expected) => {
+    expect(mapRefundStatus({ id: 're_1', status })).toBe(expected);
+  });
+
+  it('throws on a status Stripe does not document', () => {
+    expect(() => mapRefundStatus({ id: 're_1', status: 'mystery' })).toThrow(
+      'Unknown refund status mystery: re_1'
+    );
+  });
+});
+
+describe('mapDisputeStatus', () => {
+  it('upper-cases every Stripe dispute status', () => {
+    expect(mapDisputeStatus({ id: 'dp_1', status: 'warning_needs_response' })).toBe(
+      'WARNING_NEEDS_RESPONSE'
+    );
+    expect(mapDisputeStatus({ id: 'dp_1', status: 'lost' })).toBe('LOST');
+  });
+
+  it('throws on a status it does not know', () => {
+    expect(() => mapDisputeStatus({ id: 'dp_1', status: 'mystery' })).toThrow(
+      'Unknown dispute status mystery: dp_1'
+    );
   });
 });

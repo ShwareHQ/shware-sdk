@@ -196,10 +196,12 @@ describe('contentHash is a permanent contract', () => {
      * Every fixture moved once more with IR v2, when the workflow's identity field became `id`
      * (it was `name`, which read like a label). The identity is part of the hashed content, so
      * the move is total and deliberate: anything deployed before it has to be republished.
+     * They moved again when email nodes gained `topic` (null here: the fixtures are
+     * transactional) — what an email step checks the opt-outs against is part of what it does.
      */
-    expect(checkoutRecovery.toIR().contentHash).toBe('5a2e2c7d1a5ccbbf73e251b86247b2fd');
-    expect(winback.toIR().contentHash).toBe('ba96293de9adcf59c0f077679ce61956');
-    expect(reengagement.toIR().contentHash).toBe('e3491a35d075b6a6c8591a1a6e846d73');
-    expect(nudge.toIR().contentHash).toBe('2f32da2a6298e3d5545816d1be45d60f');
+    expect(checkoutRecovery.toIR().contentHash).toBe('e21b8d538b1b2dd704fcba40fbc3e2cb');
+    expect(winback.toIR().contentHash).toBe('23c5eb32213fdc68004254dcd2a7bda1');
+    expect(reengagement.toIR().contentHash).toBe('2156e98408f831b372e44f8759f791e2');
+    expect(nudge.toIR().contentHash).toBe('1d63209b944241a3ebe2cd432f792e17');
   });
 });

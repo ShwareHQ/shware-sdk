@@ -426,6 +426,8 @@ export async function sendEvents(
   try {
     const response = await fetch(`https://graph.facebook.com/${version}/${pixelId}/events`, {
       method: 'POST',
+      // Retried although a POST: the platform deduplicates on the `event_id` each event carries.
+      retries: 3,
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         data: capiEvents,

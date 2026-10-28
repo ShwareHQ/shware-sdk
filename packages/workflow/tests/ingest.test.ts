@@ -744,6 +744,7 @@ class LateJourney implements WorkflowBindingLike {
 const te = event<{ login: Record<string, never> }>();
 const hi = emailTemplate({
   id: 'hi',
+  transactional: true,
   from: 'hi@acme.test',
   title: 'Hi',
   props: z.strictObject({}),

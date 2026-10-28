@@ -1,8 +1,11 @@
 import { invariant } from '@shware/utils';
 import ms from 'ms';
+import { type Catalog, assertCatalog, assertDeclared, assertInNamespace } from '../catalog';
 import type { Metadata } from '../types';
 
 const addMethod = Symbol('addMethod');
+/** The private constructor's one door, for this module's `define` function only. */
+const construct = Symbol('construct');
 
 class Subscription<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -36,6 +39,7 @@ class Subscription<
     productId: K extends PI ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ): Subscription<NS, PE, BP, PL, PI | K, I | K> => {
+    assertInNamespace(this.config.namespace, productId);
     invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.products.set(productId, metadata);
     return this as Subscription<NS, PE, BP, PL, PI | K, I | K>;
@@ -52,7 +56,11 @@ class Subscription<
   };
 }
 
-type Options = { appId: `${number}`; bundleId: string };
+type Options<NS extends Lowercase<string>, PE extends string, BP extends string> = Catalog<
+  NS,
+  PE,
+  BP
+> & { appId: `${number}`; bundleId: string };
 
 export class AppStoreConfig<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -63,6 +71,9 @@ export class AppStoreConfig<
 > {
   readonly appId: string;
   readonly bundleId: string;
+  readonly namespace: NS;
+  readonly plans: readonly PE[];
+  readonly billingPeriods: readonly BP[];
 
   private readonly products: Map<string, Metadata | null>;
   private readonly consumables: Set<string>;
@@ -86,7 +97,11 @@ export class AppStoreConfig<
     return this;
   };
 
-  private constructor(options: Options) {
+  private constructor(options: Options<NS, PE, BP>) {
+    assertCatalog(options);
+    this.namespace = options.namespace;
+    this.plans = options.plans;
+    this.billingPeriods = options.billingPeriods;
     this.appId = options.appId;
     this.bundleId = options.bundleId;
     this.products = new Map();
@@ -95,17 +110,16 @@ export class AppStoreConfig<
     this.nonConsumables = new Set();
   }
 
-  static create = <NS extends Lowercase<string>, PE extends string, BP extends string = string>(
-    options: Options
-  ) => {
-    return new AppStoreConfig<NS, PE, BP>(options);
-  };
+  static [construct] = <NS extends Lowercase<string>, PE extends string, BP extends string>(
+    options: Options<NS, PE, BP>
+  ) => new AppStoreConfig<NS, PE, BP>(options);
 
   /** The same plan may be declared once per billing period; duplicate pairs are rejected. */
   subscription = <K extends PE, P extends BP>(
     plan: K,
     billingPeriod: `${K}:${P}` extends PL ? never : P
   ) => {
+    assertDeclared(this, plan, billingPeriod);
     // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- tsc requires the cast (tsgolint false positive)
     return new Subscription<NS, PE, BP, `${K}:${P}` | PL, PI>(this as never, plan, billingPeriod);
   };
@@ -114,6 +128,7 @@ export class AppStoreConfig<
     productId: K extends PI ? never : K,
     metadata: Metadata = { credits: 0, expiresIn: '0' }
   ) => {
+    assertInNamespace(this.namespace, productId);
     invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.consumables.add(productId);
     this.products.set(productId, metadata);
@@ -121,6 +136,7 @@ export class AppStoreConfig<
   };
 
   nonConsumable = <K extends `${NS}.${Lowercase<string>}`>(productId: K extends PI ? never : K) => {
+    assertInNamespace(this.namespace, productId);
     invariant(!this.products.has(productId), `Duplicate product ${productId}`);
     this.nonConsumables.add(productId);
     this.products.set(productId, null);
@@ -177,4 +193,17 @@ export class AppStoreConfig<
     const expiresIn = this.getCreditExpiresIn(productId);
     return new Date(Date.now() + expiresIn).toISOString();
   };
+}
+
+/**
+ * Declare the AppStore product catalog. Every type parameter is inferred from the options:
+ * the namespace from `namespace`, the plans and billing periods from `plans` and `billingPeriods`
+ * (`const`, so a literal array needs no `as const`). Products are then added with the fluent chain.
+ */
+export function defineAppStoreConfig<
+  const NS extends Lowercase<string>,
+  const PE extends string,
+  const BP extends string,
+>(options: Options<NS, PE, BP>): AppStoreConfig<NS, PE, BP> {
+  return AppStoreConfig[construct](options);
 }

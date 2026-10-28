@@ -19,7 +19,7 @@ export function sendRedditEvent<T extends EventName>(
 ) {
   if (typeof window === 'undefined' || !window.rdt) {
     console.warn('rdt has not been initialized');
-    return;
+    return false;
   }
   if (metrics.includes(name)) return;
   if (window.location.host.includes('127.0.0.1')) return;

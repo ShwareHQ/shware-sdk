@@ -1,5 +1,10 @@
 import { render } from '@react-email/render';
-import { type EmailConfig, type EmailTemplate, resolveEmail } from '@shware/workflow';
+import {
+  type EmailConfig,
+  type EmailTemplate,
+  PREVIEW_MESSAGE_ID,
+  resolveEmail,
+} from '@shware/workflow';
 import { EmailProvider } from '@shware/workflow/email-context';
 import { useQuery } from '@tanstack/react-query';
 import { createElement } from 'react';
@@ -29,8 +34,9 @@ export type EmailPreviewResult =
  *
  * The component renders inside the `EmailProvider` the Worker's renderer gives it, with the
  * template resolved against the config's `email` the same way (`resolveEmail`): a layout's
- * unsubscribe link is the one the email would be sent with. The resolved URL is in the key, so a
- * changed config default renders again.
+ * unsubscribe link is the one the email would be sent with, and its preferences link renders
+ * with the placeholder message id a sent copy's would replace. The resolved URLs are in the key,
+ * so a changed config default renders again.
  */
 export function useEmailPreview(
   mod: EmailTemplate | undefined,
@@ -38,13 +44,15 @@ export function useEmailPreview(
   config: EmailConfig,
   props?: Props
 ) {
-  const email = mod === undefined ? undefined : resolveEmail(mod, config);
+  const email =
+    mod === undefined ? undefined : resolveEmail(mod, config, { messageId: PREVIEW_MESSAGE_ID });
   return useQuery({
     queryKey: [
       'email-preview',
       key,
       entryIdentity(mod),
       email?.unsubscribeUrl ?? null,
+      email?.preferencesUrl ?? null,
       props ?? null,
     ],
     queryFn: async (): Promise<EmailPreviewResult> => {

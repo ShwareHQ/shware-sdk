@@ -13,6 +13,8 @@ import { config } from '../setup/index';
  */
 export function visitorId(): string {
   const stored = config.storage.getItem(keys.visitor_id);
+  // An old client stored the string 'undefined' as the id (it wrote an unset id): not an id, so it
+  // is replaced below with a new one, which also clears the bad value from storage for good.
   if (stored && stored !== 'undefined') return stored;
   const id = uuidv7();
   config.storage.setItem(keys.visitor_id, id);

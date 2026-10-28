@@ -107,7 +107,7 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     expect(tags.fbclid).toBe('CLK99');
     expect(tags.page_location).toContain('/landing?fbclid=CLK99');
 
-    // And: the pixel fired the mapped event under the server-issued dedupe id.
+    // And: the pixel fired the mapped event under the event's own id, the one on the wire.
     const trackCalls =
       vi.mocked<
         (
@@ -124,7 +124,10 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
     expect(pixelCall[1]).toBe('Purchase');
     const pixelEventId = pixelCall[3]?.eventID;
     if (!pixelEventId) throw new Error('The purchase pixel must carry a deduplication id');
-    expect(pixelEventId).toMatch(/^event-\d$/);
+    expect(pixelEventId).toBe(purchase.id);
+    expect(pixelEventId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
 
     // And: the backend forwarding that same stored event to the Conversions API produces a
     // server event that deduplicates against the pixel and carries the same _fbc.

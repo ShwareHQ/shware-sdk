@@ -44,13 +44,18 @@ const email = (overrides: Partial<OutboundMessage> = {}): OutboundMessage => ({
   userId: 'u1',
   recipient: 'ada@example.com',
   idempotencyKey: 'i1:n1',
+  topic: 'promotions',
   ...overrides,
 });
 
 /** An email with these links sent; `unsubscribeUrl` is the one it was rendered with. */
-async function sendEmail(urls: string[], unsubscribeUrl?: string) {
+async function sendEmail(
+  urls: string[],
+  unsubscribeUrl?: string,
+  overrides: Partial<OutboundMessage> = {}
+) {
   const observer = reportingObserver(reporting(), 'https://wf.example.com/');
-  const message = email();
+  const message = email(overrides);
   const tracking = await observer.messagePrepared?.(message);
   const tracked = urls.map((url) =>
     tracking?.link?.(url, isUnsubscribeLink(url, unsubscribeUrl) ? 'unsubscribe' : 'link')
@@ -109,7 +114,7 @@ describe('observer', () => {
       nodeId: 'n1',
       at: 1_000,
     });
-    const { id, tracked } = await sendEmail([
+    const { id, tracked, tracking } = await sendEmail([
       'https://app.example.com/a',
       'https://app.example.com/b',
     ]);
@@ -117,6 +122,8 @@ describe('observer', () => {
       `https://wf.example.com/t/l/${id}/0`,
       `https://wf.example.com/t/l/${id}/1`,
     ]);
+    // The id the pixel and links name travels to the renderer too, for the preferences link
+    expect(tracking?.messageId).toBe(id);
     await observer.finished?.({
       workflow: 'welcome',
       instanceId: 'i1',
@@ -298,16 +305,81 @@ describe('tracking', () => {
       pg.query('SELECT unsubscribed_at IS NOT NULL AS u FROM workflow.message');
     expect((await unsubscribed()).rows).toEqual([{ u: false }]);
 
-    const post = () => new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
+    const post = (scope = '') =>
+      new Request(`https://wf.example.com/t/u/${id}${scope}`, { method: 'POST' });
     expect(await (await handleTracking(post(), reporting(), options))?.text()).toContain(
-      "You won't get these emails from Acme anymore."
+      "You won't get promotions emails from Acme anymore."
     );
     expect((await handleTracking(post(), reporting(), options))?.status).toBe(200);
     expect((await unsubscribed()).rows).toEqual([{ u: true }]);
-    // The opt-out the engine reads before every email: the whole email channel
+    // The opt-out the engine reads before every email: the copy's topic, not the whole channel
     const store = database.storeIn();
-    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+    expect(await store.isSuppressed('u1', 'email', 'promotions')).toBe(true);
+    expect(await store.isSuppressed('u1', 'email', 'newsletter')).toBe(false);
+    expect(await store.isSuppressed('u1', 'email')).toBe(false);
     expect(await store.isSuppressed('u1', 'push')).toBe(false);
+    expect(await store.listSuppressions('u1', 'email')).toEqual(['promotions']);
+
+    // The page's second button: every email, the channel-wide row every topic reads
+    expect(
+      await (await handleTracking(post('?scope=all'), reporting(), options))?.text()
+    ).toContain("You won't get emails from Acme anymore.");
+    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+    expect(await store.isSuppressed('u1', 'email', 'newsletter')).toBe(true);
+    expect(await store.listSuppressions('u1', 'email')).toEqual([null, 'promotions']);
+    const topics = await pg.query(
+      'SELECT topic FROM workflow.message UNION ALL SELECT topic FROM workflow.suppression ORDER BY 1'
+    );
+    expect(topics.rows).toEqual([
+      { topic: 'promotions' },
+      { topic: 'promotions' },
+      { topic: null },
+    ]);
+  });
+
+  test('the confirmation page names the topic and offers both buttons; nobody-knows and transactional copies are expired links', async () => {
+    const { id } = await sendEmail(['https://app.example.com/a'], undefined, {
+      topic: 'product_updates',
+    });
+    const options = { product: 'Acme' };
+    const page = await handleTracking(get(`/t/u/${id}`), reporting(), options);
+    expect(page?.status).toBe(200);
+    const html = await page?.text();
+    expect(html).toContain('Unsubscribe from product updates emails from Acme?');
+    expect(html).toContain(`action="/t/u/${id}"`);
+    expect(html).toContain('Unsubscribe from product updates</button>');
+    expect(html).toContain(`action="/t/u/${id}?scope=all"`);
+    expect(html).toContain('Unsubscribe from all emails');
+    // No copy on record: the question cannot be asked
+    const gone = await handleTracking(
+      get('/t/u/0190f000-0000-7000-8000-00000000dead'),
+      reporting(),
+      options
+    );
+    expect(gone?.status).toBe(404);
+
+    // A transactional copy never carried the link: every variant is an expired link, and
+    // neither the copy nor a suppression records anything
+    const receipt = await sendEmail(['https://app.example.com/a'], undefined, {
+      idempotencyKey: 'i1:n2',
+      nodeId: 'n2',
+      topic: null,
+    });
+    expect((await handleTracking(get(`/t/u/${receipt.id}`), reporting(), options))?.status).toBe(
+      404
+    );
+    const post = (scope = '') =>
+      new Request(`https://wf.example.com/t/u/${receipt.id}${scope}`, { method: 'POST' });
+    const heard: unknown[] = [];
+    const hooked = { ...options, onUnsubscribed: async (u: unknown) => void heard.push(u) };
+    expect((await handleTracking(post(), reporting(), hooked))?.status).toBe(404);
+    expect((await handleTracking(post('?scope=all'), reporting(), hooked))?.status).toBe(404);
+    expect(heard).toEqual([]);
+    const rows = await pg.query(
+      `SELECT unsubscribed_at IS NOT NULL AS u FROM workflow.message WHERE id = '${receipt.id}'`
+    );
+    expect(rows.rows).toEqual([{ u: false }]);
+    expect(await database.storeIn().listSuppressions('u1', 'email')).toEqual([]);
   });
 
   test("the List-Unsubscribe URL: a mail client's one-click POST unsubscribes, a browser asks", async () => {
@@ -333,7 +405,9 @@ describe('tracking', () => {
     });
     expect((await handleTracking(oneClick, reporting(), options))?.status).toBe(200);
     expect((await unsubscribed()).rows).toEqual([{ u: true }]);
-    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(true);
+    // One-click is the header's URL, which names no scope: the copy's topic, never every email
+    expect(await database.storeIn().isSuppressed('u1', 'email', 'promotions')).toBe(true);
+    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(false);
 
     // A copy no longer on record (its user erased): the one-click still succeeds, changing nothing
     const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
@@ -352,9 +426,15 @@ describe('tracking', () => {
 
   test('an unsubscribe yields the recipient from its own transaction, the same one every time', async () => {
     const { id } = await sendEmail([]);
-    expect(await reporting().recordUnsubscribe(id, 5_000)).toEqual({ userId: 'u1' });
+    expect(await reporting().recordUnsubscribe(id, 5_000)).toEqual({
+      userId: 'u1',
+      topic: 'promotions',
+    });
     // Repeated: the first time stands, the recipient is still named
-    expect(await reporting().recordUnsubscribe(id, 9_000)).toEqual({ userId: 'u1' });
+    expect(await reporting().recordUnsubscribe(id, 9_000)).toEqual({
+      userId: 'u1',
+      topic: 'promotions',
+    });
     const [row] = (
       await pg.query(
         'SELECT (extract(epoch from unsubscribed_at) * 1000)::int AS at FROM workflow.message'
@@ -368,7 +448,8 @@ describe('tracking', () => {
 
   test('the host hears the unsubscribe with its recipient; its failure never fails the page', async () => {
     const { id } = await sendEmail([]);
-    const heard: { messageId: string; userId: string; at: number }[] = [];
+    const heard: { messageId: string; userId: string; at: number; topic: string; all: boolean }[] =
+      [];
     const post = () => new Request(`https://wf.example.com/t/u/${id}`, { method: 'POST' });
     // The recipient comes from the unsubscribe itself: no read of the copy on the side
     const noReads = reporting();
@@ -379,7 +460,9 @@ describe('tracking', () => {
       onUnsubscribed: async (unsubscribe) => void heard.push(unsubscribe),
     });
     expect(first?.status).toBe(200);
-    expect(heard).toEqual([{ messageId: id, userId: 'u1', at: expect.any(Number) }]);
+    expect(heard).toEqual([
+      { messageId: id, userId: 'u1', at: expect.any(Number), topic: 'promotions', all: false },
+    ]);
 
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const second = await handleTracking(post(), noReads, {
@@ -390,7 +473,18 @@ describe('tracking', () => {
     expect(second?.status).toBe(200);
     expect(error).toHaveBeenCalledOnce();
     error.mockRestore();
-    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(true);
+    expect(await database.storeIn().isSuppressed('u1', 'email', 'promotions')).toBe(true);
+    // The "all emails" button: the host hears so, and acts on reachability
+    const all = new Request(`https://wf.example.com/t/u/${id}?scope=all`, { method: 'POST' });
+    await handleTracking(all, noReads, {
+      onUnsubscribed: async (unsubscribe) => void heard.push(unsubscribe),
+    });
+    expect(heard.at(-1)).toMatchObject({
+      messageId: id,
+      userId: 'u1',
+      topic: 'promotions',
+      all: true,
+    });
 
     // An unknown copy: nothing to tell the host, the page still answers success
     const gone = new Request('https://wf.example.com/t/u/0190f000-0000-7000-8000-00000000dead', {
@@ -399,7 +493,7 @@ describe('tracking', () => {
     expect((await handleTracking(gone, noReads, { onUnsubscribed: async () => {} }))?.status).toBe(
       200
     );
-    expect(heard).toHaveLength(1);
+    expect(heard).toHaveLength(2);
   });
 
   test('a suppression that fails to write rolls the unsubscribe back with it', async () => {
@@ -430,7 +524,7 @@ describe('tracking', () => {
       await pg.query('SELECT unsubscribed_at IS NULL AS untouched FROM workflow.message')
     ).rows;
     expect(row).toEqual({ untouched: true });
-    expect(await database.storeIn().isSuppressed('u1', 'email')).toBe(false);
+    expect(await database.storeIn().isSuppressed('u1', 'email', 'promotions')).toBe(false);
   });
 
   test('a scanner following every link at once: clicks judged one after another', async () => {
@@ -634,6 +728,7 @@ describe('reporting after a tombstone', () => {
       nodeId: 'n1',
       template: 'welcome',
       channel: 'email',
+      topic: null,
       userId: 'u1',
       sentAt: 1,
     };
@@ -683,8 +778,11 @@ describe('reporting after a tombstone', () => {
     expect((await pg.query('SELECT 1 FROM workflow.message_open')).rows).toEqual([]);
     expect((await pg.query('SELECT 1 FROM workflow.message_click')).rows).toEqual([]);
     // The unsubscribe is the compliance exception: recorded whatever the user's state
-    expect(await store.reporting.recordUnsubscribe(id, 6)).toEqual({ userId: 'u1' });
-    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+    expect(await store.reporting.recordUnsubscribe(id, 6)).toEqual({
+      userId: 'u1',
+      topic: 'promotions',
+    });
+    expect(await store.isSuppressed('u1', 'email', 'promotions')).toBe(true);
 
     await store.forgetUser('u1', 7);
     await store.reporting.recordLinks(id, ['https://example.com/c']);

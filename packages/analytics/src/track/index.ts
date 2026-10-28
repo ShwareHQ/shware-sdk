@@ -1,14 +1,28 @@
 import { TokenBucket, fetch } from '@shware/utils';
+import { v7 as uuidv7 } from 'uuid';
 import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import { visitorId } from '../visitor/id';
-import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
+import type {
+  EventName,
+  ThirdPartyTracker,
+  TrackEventResponse,
+  TrackName,
+  TrackProperties,
+  TrackTags,
+} from './types';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
-  onSucceed?: (response?: TrackEventResponse[number]) => void;
+  /**
+   * Called once the server (or a beacon) has taken the event, with the event's id: the one
+   * generated when it was tracked, which the third-party trackers were given too. `beacon` is
+   * set when the event went by `sendPendingEvents`: the browser queued it, but a beacon cannot
+   * tell delivered from dropped, so it is taken, not confirmed.
+   */
+  onSucceed?: (response?: TrackEventResponse[number] & { beacon?: true }) => void;
   onError?: (error: unknown) => void;
 }
 
@@ -27,6 +41,13 @@ function getTokenBucket() {
 }
 
 type Item = {
+  /**
+   * The event's id, a uuidv7 generated when it is tracked. The server stores the event under it
+   * (`on conflict (id) do nothing`, so a batch `fetch` retries is not stored twice), and the
+   * third-party trackers are given it at once as their deduplication id — the id the server's
+   * conversions API sends again for the same event.
+   */
+  id: string;
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   name: TrackName<any>;
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
@@ -39,6 +60,16 @@ type Item = {
   timestamp: string;
   options: TrackOptions;
 };
+
+/**
+ * How an event is created, for the SDK's own callers (`trackOnce`); not exported from the
+ * package. `id` carries over the id of an earlier attempt at the same occurrence, and
+ * `pixels: false` skips the third-party trackers that attempt has already fired.
+ */
+export interface EventInit {
+  id?: string;
+  pixels?: boolean;
+}
 
 /**
  * Tags belong to the moment the event happened, not to the moment its batch goes out: a queued
@@ -69,7 +100,47 @@ const delay = 2000;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Queues an event, preceded by a `session_start` when it is the one that opens a session.
+ * Hands the event to the third-party trackers now, as it is tracked, under its own id — not once
+ * the server has answered. An event followed by a full-page navigation (an outbound link,
+ * `begin_checkout` before the redirect to the payment page, a landing page left at once) reaches
+ * the pixels before the page goes, and the server's conversions API, sending the same id, still
+ * deduplicates against the browser event. A server that is down no longer takes the pixels down
+ * with it either.
+ *
+ * A tracker that returns `false` is not ready — its pixel's global is not on the page yet, the
+ * snippet still loading (the first `page_view` of a visit is tracked right as the page mounts).
+ * Those trackers, and only those, are called once more on the next macrotask, with the same event
+ * and id, after the inline snippets have had their turn; a tracker still not ready then is given
+ * up on, as it was when it ran after the server's answer. Never more than once: a pixel's global
+ * either exists by then or the script is blocked.
+ */
+function firePixels(event: Item) {
+  // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
+  // object wholesale, and leaving the flag out must not silently switch forwarding off.
+  if (event.options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
+    return;
+  }
+  const notReady = callTrackers(config.thirdPartyTrackers, event);
+  if (notReady.length === 0) return;
+  setTimeout(() => callTrackers(notReady, event), 0);
+}
+
+/** Calls each tracker with the event; returns the ones that said they were not ready. */
+function callTrackers(trackers: ThirdPartyTracker[], event: Item): ThirdPartyTracker[] {
+  return trackers.filter((tracker) => {
+    try {
+      return tracker(event.name, event.properties, event.id) === false;
+    } catch (e: unknown) {
+      // A third-party script does not get to take the tracking call, or the other trackers, with it.
+      if (e instanceof Error) console.log(e.message);
+      return false;
+    }
+  });
+}
+
+/**
+ * Queues an event, preceded by a `session_start` when it is the one that opens a session, and
+ * fires its third-party trackers.
  *
  * The session is decided here, when the event happens, as GA4 and PostHog decide it: the
  * `session_start` then sits in the queue right before the event that opened the session, so
@@ -78,22 +149,42 @@ let timer: ReturnType<typeof setTimeout> | null = null;
  * session: the landing page is where the session began, whatever the page has navigated to by
  * the time the batch goes out.
  */
-function enqueue(name: Item['name'], properties: Item['properties'], options: TrackOptions): Item {
+function enqueue(
+  name: Item['name'],
+  properties: Item['properties'],
+  options: TrackOptions,
+  init: EventInit = {}
+): Item {
   const timestamp = new Date().toISOString();
   const tags = captureTags();
   const { id: session_id, started } = getSession().touch(Date.parse(timestamp));
-  const item = (fields: Pick<Item, 'name' | 'properties' | 'options'>): Item => {
+  const item = (fields: Pick<Item, 'id' | 'name' | 'properties' | 'options'>): Item => {
     const result: Item = { ...fields, tags, timestamp, session_id };
     void tags.then((settled) => (result.settled = settled));
     return result;
   };
   if (started) {
     const options = { enableThirdPartyTracking: false };
-    list.push(item({ name: 'session_start', properties: {}, options }));
+    list.push(item({ id: uuidv7(), name: 'session_start', properties: {}, options }));
   }
-  const event = item({ name, properties, options });
+  const event = item({ id: init.id ?? uuidv7(), name, properties, options });
   list.push(event);
+  if (init.pixels !== false) firePixels(event);
   return event;
+}
+
+function toDTO(event: Item, visitor_id: string, tags: TrackTags): CreateTrackEventDTO[number] {
+  return {
+    id: event.id,
+    name: event.name,
+    properties: event.properties,
+    tags,
+    visitor_id,
+    session_id: event.session_id,
+    platform: config.platform,
+    environment: config.environment,
+    timestamp: event.timestamp,
+  };
 }
 
 /**
@@ -119,22 +210,16 @@ async function flush() {
     events = list.splice(0);
     if (events.length === 0) return;
     const dto: CreateTrackEventDTO = await Promise.all(
-      events.map(async (event) => ({
-        name: event.name,
-        properties: event.properties,
-        tags: await event.tags,
-        visitor_id,
-        session_id: event.session_id,
-        platform: config.platform,
-        environment: config.environment,
-        timestamp: event.timestamp,
-      }))
+      events.map(async (event) => toDTO(event, visitor_id, await event.tags))
     );
 
     const body = JSON.stringify(dto);
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
+      // Retried although a POST: every event carries its client-generated id, and the server stores
+      // a batch it already has `on conflict (id) do nothing`.
+      retries: 3,
       // keepalive lets the request survive the page being unloaded mid-flight, within a 64KB
       // budget shared by every such request of the page; a body that could not fit goes as a
       // plain POST rather than failing outright.
@@ -147,25 +232,11 @@ async function flush() {
       throw new Error(`Failed to send track event: ${response.status} ${await response.text()}`);
     }
 
-    const data = (await response.json()) as TrackEventResponse;
-
-    events.forEach((event, index) => {
-      const eventId = data.at(index)?.id;
-      event.options.onSucceed?.(eventId ? { id: eventId } : undefined);
-      // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
-      // object wholesale, and leaving the flag out must not silently switch forwarding off.
-      if (event.options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
-        return;
-      }
-      config.thirdPartyTrackers.forEach((tracker) => {
-        try {
-          tracker(event.name, event.properties, eventId);
-        } catch (e: unknown) {
-          // A third-party script does not get to take the rest of the batch with it.
-          if (e instanceof Error) console.log(e.message);
-        }
-      });
-    });
+    // The body is not read. Every event has had its id since it was tracked, and its trackers
+    // were fired with it then. Servers still answer one `{ id }` per event (`TrackEventResponse`),
+    // which a server predating client ids fills with ids of its own; neither is needed here, and
+    // an answer that is not even JSON does not turn a stored batch into a failure.
+    events.forEach((event) => event.options.onSucceed?.({ id: event.id }));
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
     // `fetch` has already retried the transient failures by the time a batch fails here; what
@@ -182,12 +253,14 @@ async function flush() {
   }
 }
 
-export function track<T extends EventName = EventName>(
+/** `track`, with the `EventInit` only the SDK itself passes. */
+export function queueEvent<T extends EventName = EventName>(
   name: TrackName<T>,
-  properties?: TrackProperties<T>,
-  options: TrackOptions = defaultOptions
+  properties: TrackProperties<T> | undefined,
+  options: TrackOptions,
+  init?: EventInit
 ) {
-  enqueue(name, properties, options);
+  enqueue(name, properties, options, init);
   if (list.length >= batchSize) {
     void flush();
     return;
@@ -197,35 +270,15 @@ export function track<T extends EventName = EventName>(
 }
 
 /**
- * Sends the event now, with whatever is queued, and resolves once it has been sent or lost — or,
- * when the send could not start (its headers or rate limit threw), at once, the event left queued
- * for the next send. It never rejects: tracking must not fail the step that awaits it.
+ * Queues the event for the next batch — up to 2 s away, at once when the batch is full — and
+ * hands it to the third-party trackers now, under the id it is sent with.
  */
-export async function trackAsync<T extends EventName = EventName>(
+export function track<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   options: TrackOptions = defaultOptions
 ) {
-  let settle!: () => void;
-  const settled = new Promise<void>((resolve) => {
-    settle = resolve;
-  });
-  const event = enqueue(name, properties, {
-    ...options,
-    onSucceed: (response) => {
-      options.onSucceed?.(response);
-      settle();
-    },
-    onError: (error) => {
-      options.onError?.(error);
-      settle();
-    },
-  });
-  await flush();
-  // Still queued: this send failed before taking it. It waits for the next send, but the caller,
-  // who may be holding a navigation on this, does not.
-  if (list.includes(event)) return;
-  await settled;
+  queueEvent(name, properties, options);
 }
 
 function beacon(dto: CreateTrackEventDTO): boolean {
@@ -244,24 +297,17 @@ function beacon(dto: CreateTrackEventDTO): boolean {
  * Call it before the engagement beacon: a new session's `session_start` is in this queue.
  *
  * Nothing can be awaited here, so the events go with the tags they have settled on (the last
- * built ones otherwise), and without the server's ids: their third-party trackers are not fired,
- * as an id-less browser event could not be deduplicated against the server's. The visitor id is
- * local (`visitorId`), so a first visit left within a second is sent like any other; when no
- * beacon can take them — no `sendBeacon`, a refused body — they stay queued for the usual send.
+ * built ones otherwise). Each goes with the id it was tracked with, and its third-party trackers
+ * were fired then, under that id: none is fired again here. The visitor id is local
+ * (`visitorId`), so a first visit left within a second is sent like any other; when no beacon
+ * can take them — no `sendBeacon`, a refused body — they stay queued for the usual send.
  */
 export function sendPendingEvents() {
   if (list.length === 0) return;
   const visitor_id = visitorId();
-  const dto: CreateTrackEventDTO = list.map((event) => ({
-    name: event.name,
-    properties: event.properties,
-    tags: event.settled ?? cache.tags ?? {},
-    visitor_id,
-    session_id: event.session_id,
-    platform: config.platform,
-    environment: config.environment,
-    timestamp: event.timestamp,
-  }));
+  const dto: CreateTrackEventDTO = list.map((event) =>
+    toDTO(event, visitor_id, event.settled ?? cache.tags ?? {})
+  );
   if (!beacon(dto)) {
     void flush();
     return;
@@ -270,7 +316,7 @@ export function sendPendingEvents() {
     clearTimeout(timer);
     timer = null;
   }
-  list.splice(0).forEach((event) => event.options.onSucceed?.(undefined));
+  list.splice(0).forEach((event) => event.options.onSucceed?.({ id: event.id, beacon: true }));
 }
 
 export function sendBeacon<T extends EventName = EventName>(
@@ -285,6 +331,7 @@ export function sendBeacon<T extends EventName = EventName>(
 
   const dto: CreateTrackEventDTO = [
     {
+      id: uuidv7(),
       name,
       properties,
       // Tags are worth less than the event carrying them: an empty set still reports the

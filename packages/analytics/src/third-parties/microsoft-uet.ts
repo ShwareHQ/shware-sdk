@@ -46,7 +46,7 @@ export function sendUETEvent<T extends EventName>(
 ) {
   if (typeof window === 'undefined' || !window.uetq) {
     console.warn('uetq has not been initialized');
-    return;
+    return false;
   }
   if (metrics.includes(name) || name === 'page_view') return;
   if (isLocal()) return;

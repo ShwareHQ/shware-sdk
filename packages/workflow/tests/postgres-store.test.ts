@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { cloudflareJourneyBinding } from '../src/cloudflare/bindings';
@@ -24,6 +27,9 @@ import { JourneyFactSource } from '../src/store/facts';
 import { UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, uuidv7 } from '../src/store/postgres';
 import { TABLES, renderDrizzleSchema, renderPostgresDdl } from '../src/store/tables';
+
+/** The repo's formatter, for the generated-file layout test; absent outside this monorepo. */
+const OXFMT = resolve(import.meta.dirname, '../../../node_modules/.bin/oxfmt');
 import { FakeJourney } from './fake-cloudflare';
 import { plainEmail } from './fixtures';
 import { type PgliteDatabase, pgliteClient, pgliteDatabase, truncateAll } from './pglite';
@@ -408,7 +414,7 @@ describe('erasure', () => {
       )
     ).rows;
 
-  test('erasing from the request until forgetUser, which keeps the tombstone and the suppressions', async () => {
+  test('erasing from the request until forgetUser, which keeps the tombstone and takes the suppressions', async () => {
     const { env, store } = setup();
     await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
     await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
@@ -417,9 +423,8 @@ describe('erasure', () => {
     await store.addSegmentMember('s', 'u1', 1, ['w']);
     await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
     await store.mergeProfile('u2', { plan: 'free' });
-    await pg.query(
-      "INSERT INTO workflow.suppression (user_id, channel, ts) VALUES ('u1', 'email', now())"
-    );
+    await store.updateSuppressions('u1', 'email', [{ topic: null, suppressed: true }], 1);
+    await store.updateSuppressions('u2', 'email', [{ topic: 'tips', suppressed: true }], 1);
 
     expect(await store.erasureState('u1')).toBe('none');
     await store.requestErasure('u1', 5);
@@ -440,8 +445,10 @@ describe('erasure', () => {
     expect(await store.pendingSegmentStarts('s', 'u1')).toEqual([]);
     expect(await store.runningInstances('u1')).toEqual([]);
     expect(await store.listUserIds()).toEqual(['u2']);
-    // An opt-out is a compliance record keyed by an opaque id: it outlives the erasure
-    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+    // The opt-outs go too: the tombstone keeps the id from ever being sent to again
+    expect(await store.isSuppressed('u1', 'email')).toBe(false);
+    expect(await store.listSuppressions('u1', 'email')).toEqual([]);
+    expect(await store.listSuppressions('u2', 'email')).toEqual(['tips']);
 
     // Erasing again: nothing to erase, the tombstone keeps its first time
     await store.requestErasure('u1', 8);
@@ -657,10 +664,104 @@ describe('uuidv7', () => {
   });
 });
 
+describe('suppressions', () => {
+  test('a topic row covers its topic; the channel-wide row (topic null) covers every topic', async () => {
+    const { store } = setup();
+    await store.updateSuppressions('u1', 'email', [{ topic: 'promotions', suppressed: true }], 1);
+    expect(await store.isSuppressed('u1', 'email', 'promotions')).toBe(true);
+    expect(await store.isSuppressed('u1', 'email', 'newsletter')).toBe(false);
+    expect(await store.isSuppressed('u1', 'email')).toBe(false);
+    expect(await store.isSuppressed('u1', 'push', 'promotions')).toBe(false);
+    expect(await store.isSuppressed('u2', 'email', 'promotions')).toBe(false);
+
+    await store.updateSuppressions('u1', 'email', [{ topic: null, suppressed: true }], 2);
+    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+    expect(await store.isSuppressed('u1', 'email', 'newsletter')).toBe(true);
+    expect(await store.listSuppressions('u1', 'email')).toEqual([null, 'promotions']);
+  });
+
+  test('setting an opt-out twice keeps one row and its first time; clearing removes exactly that row', async () => {
+    const { store } = setup();
+    await store.updateSuppressions(
+      'u1',
+      'email',
+      [
+        { topic: null, suppressed: true },
+        { topic: 'tips', suppressed: true },
+      ],
+      1_000
+    );
+    await store.updateSuppressions(
+      'u1',
+      'email',
+      [
+        { topic: null, suppressed: true },
+        { topic: 'tips', suppressed: true },
+      ],
+      9_000
+    );
+    const rows = await pg.query<{ topic: string | null; at: number }>(
+      `SELECT topic, (extract(epoch from ts) * 1000)::int AS at FROM workflow.suppression
+       ORDER BY topic NULLS FIRST`
+    );
+    expect(rows.rows).toEqual([
+      { topic: null, at: 1_000 },
+      { topic: 'tips', at: 1_000 },
+    ]);
+    await store.updateSuppressions('u1', 'email', [{ topic: null, suppressed: false }], 3);
+    expect(await store.listSuppressions('u1', 'email')).toEqual(['tips']);
+    await store.updateSuppressions('u1', 'email', [{ topic: 'tips', suppressed: false }], 4);
+    await store.updateSuppressions('u1', 'email', [{ topic: 'gone', suppressed: false }], 5);
+    expect(await store.listSuppressions('u1', 'email')).toEqual([]);
+    // Nothing to do is no transaction
+    await store.updateSuppressions('u1', 'email', [], 6);
+  });
+
+  test('a row from before topics existed (topic null) still means all email', async () => {
+    const { store } = setup();
+    await pg.query(
+      "INSERT INTO workflow.suppression (user_id, channel, topic, ts) VALUES ('u1', 'email', NULL, now())"
+    );
+    expect(await store.isSuppressed('u1', 'email')).toBe(true);
+    expect(await store.isSuppressed('u1', 'email', 'anything')).toBe(true);
+    // The identity holds nulls: a second channel-wide row is the same one
+    await store.updateSuppressions('u1', 'email', [{ topic: null, suppressed: true }], 1);
+    expect((await pg.query('SELECT count(*)::int AS c FROM workflow.suppression')).rows).toEqual([
+      { c: 1 },
+    ]);
+  });
+});
+
 describe('checkSchema', () => {
   test('a database migrated from the declared tables has no problems', async () => {
     const { store } = setup();
     expect(await store.checkSchema()).toEqual([]);
+  });
+
+  describe('a suppression table from before topics existed', () => {
+    let db: PGlite;
+
+    beforeAll(async () => {
+      db = await PGlite.create();
+      const before = schemaSql.replace(
+        /CREATE TABLE IF NOT EXISTS "workflow"\."suppression" \([^;]*\);/,
+        `CREATE TABLE "workflow"."suppression" ("user_id" text NOT NULL, "channel" text NOT NULL, "ts" timestamptz NOT NULL, PRIMARY KEY ("user_id", "channel"));`
+      );
+      if (before === schemaSql) throw new Error('the DDL no longer declares suppression');
+      await db.exec(before);
+    }, 30_000);
+
+    afterAll(async () => {
+      await db.close();
+    });
+
+    test('is refused: the topic column and the nulls-not-distinct identity are missing', async () => {
+      const store = new PostgresJourneyStore(pgliteClient(db));
+      expect(await store.checkSchema()).toEqual([
+        'column "workflow"."suppression"."topic" is missing',
+        'missing unique constraint "workflow"."suppression_user_id_channel_topic_unique"',
+      ]);
+    });
   });
 
   describe('a partially migrated database', () => {
@@ -762,12 +863,41 @@ describe('renderDrizzleSchema', () => {
     const file = renderDrizzleSchema('marketing');
     expect(file).toContain("export const workflowSchema = pgSchema('marketing');");
     for (const spec of Object.values(TABLES)) {
-      expect(file).toContain(`= workflowSchema.table(\n  '${spec.name}',`);
+      expect(file).toMatch(new RegExp(`= workflowSchema\\.table\\((\\n  )?'${spec.name}',`));
     }
     expect(file).not.toMatch(/defaultNow|default\(|gen_random_uuid/);
     expect(file).toContain(
       "check('event_uuid_v7', sql`substring(${table.id}::text, 15, 1) = '7'`)"
     );
     expect(renderDrizzleSchema('marketing')).toBe(file);
+  });
+
+  test('the file is laid out as a formatter at 100 columns lays it out: one line when it fits, else the last argument hugged', () => {
+    const file = renderDrizzleSchema();
+    // A short table on one line; a long one with its columns object hugged; constraints collapsed
+    expect(file).toContain(
+      "export const workflowIr = workflowSchema.table('ir', {\n  contentHash: text('content_hash').primaryKey().notNull(),"
+    );
+    expect(file).toContain('  (table) => [index().on(table.userId)]\n);');
+    expect(file).toContain(
+      "  versionCreatedAt: timestamp('version_created_at', {\n    mode: 'string',\n    withTimezone: true,\n  }).notNull(),"
+    );
+    // Doc comments are the one thing left past the width: a formatter does not rewrap them
+    const long = file
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('/**') && line.length > 100);
+    expect(long).toEqual([]);
+  });
+
+  test.skipIf(!existsSync(OXFMT))('…so the repo formatter leaves it unchanged', () => {
+    const dir = mkdtempSync(resolve(import.meta.dirname, 'generated-'));
+    try {
+      const file = resolve(dir, 'schema.ts');
+      writeFileSync(file, renderDrizzleSchema());
+      // --check exits non-zero on a file it would change; the repo's .oxfmtrc.json applies
+      expect(() => execFileSync(OXFMT, ['--check', file], { encoding: 'utf8' })).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

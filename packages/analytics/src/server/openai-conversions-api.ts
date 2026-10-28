@@ -206,6 +206,8 @@ export async function sendEvents(
   try {
     const response = await fetch(`${ENDPOINT}?pid=${pixelId}`, {
       method: 'POST',
+      // Retried although a POST: the platform deduplicates on the `event_id` each event carries.
+      retries: 3,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',

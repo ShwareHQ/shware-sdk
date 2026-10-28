@@ -8,7 +8,8 @@ import type { JourneyReporting } from '../store';
  * A copy is recorded before it goes out, so its id can travel with it: with a tracking origin,
  * an email's links become `<origin>/t/l/<message>/<position>` — `/t/u/...` for its unsubscribe
  * link, so what a click means is fixed when it is sent — and an open pixel `<origin>/t/o/<message>`
- * (served by the Worker, ./tracking.ts), and a push carries
+ * (served by the Worker, ./tracking.ts); the renderer gets the id too, for the email's
+ * preferences link (`email.preferencesUrl?m=<message>`), and a push carries
  * `message_id` in its payload for the app to report the tap (`JourneyClient.messageOpened`),
  * plus `delivered_url` / `opened_url` for a client that reports straight to the Worker.
  * The links are recorded when the sender commits the rewritten email, before it goes out.
@@ -35,11 +36,16 @@ export function reportingObserver(
         template: message.template,
         channel: channelOf(message),
         userId: message.userId,
+        topic:
+          message.channel === 'email' || message.channel === 'push'
+            ? (message.topic ?? null)
+            : null,
         sentAt: Date.now(),
       });
       if (message.channel === 'email' && base !== undefined) {
         const urls: string[] = [];
         return {
+          messageId: id,
           link: (url, purpose) => {
             urls.push(url);
             return `${base}/t/${purpose === 'unsubscribe' ? 'u' : 'l'}/${id}/${urls.length - 1}`;

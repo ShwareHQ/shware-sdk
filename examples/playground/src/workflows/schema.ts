@@ -1,4 +1,4 @@
-import { defineContract } from '@shware/workflow';
+import { defineContract, templatesFor } from '@shware/workflow';
 import * as z from 'zod/mini';
 
 /**
@@ -35,6 +35,12 @@ export const contract = defineContract({
     /** Workflow-emitted event: the activation nudge came due (no payload). */
     activation_nudge_due: z.strictObject({}),
   },
+  /**
+   * The subscription topics, opted out of one at a time per channel: every journey email and
+   * push names one (the welcome is transactional, and names none). Ids only — the preference
+   * page labels them.
+   */
+  subscriptions: { topics: ['tips', 'offers', 'product_updates'] },
   profile: z.strictObject({
     email: z.string(),
     name: z.string(),
@@ -48,3 +54,6 @@ export const contract = defineContract({
 /** Reference tables: `e.purchase`, `u.subscription_plan` (plus the system `u.userId`). */
 export const e = contract.events;
 export const u = contract.user;
+
+/** The template factories bound to the contract: a topic it does not declare fails at the template. */
+export const { emailTemplate, pushTemplate } = templatesFor(contract);

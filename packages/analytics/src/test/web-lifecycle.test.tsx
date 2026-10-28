@@ -7,6 +7,7 @@
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @vitest-environment jsdom
+import type { ThirdPartyTracker } from '../track/types';
 import { requestUrl } from './setup';
 
 const MINUTE = 60 * 1000;
@@ -220,6 +221,42 @@ describe('leaving through an outbound link', () => {
     const click = sent.find((e) => e.name === 'click');
     expect(click?.session_id).toBe(landing.body[0].session_id);
     expect(sent.some((e) => e.name === 'session_start')).toBe(false); // already announced
+    window.dispatchEvent(new Event('pageshow'));
+  });
+});
+
+describe('leaving for a payment page', () => {
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  it('the pixels have the event before the page goes, under the id the beacon carries', async () => {
+    const { memoryStorage } = await import('../test/setup');
+    const { Page, track } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
+    const { config } = await import('../setup/index');
+    const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
+    config.thirdPartyTrackers = [pixel];
+    render(<Page pathname="/pricing" />);
+    present();
+    await vi.advanceTimersByTimeAsync(2000); // the landing batch went out
+    pixel.mockClear(); // the landing page_view's own forward
+
+    track('begin_checkout', { value: 9.99, currency: 'USD', items: [] });
+    // Fired as it was tracked: no answer, no batch window, is waited for.
+    expect(pixel).toHaveBeenCalledTimes(1);
+    const [name, , id] = pixel.mock.calls[0];
+    expect(name).toBe('begin_checkout');
+
+    // The redirect: the tab is hidden, then the page is left.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('pagehide'));
+
+    const sent = (await beaconEvents()).filter((e) => e.name === 'begin_checkout');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].id).toBe(id);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(pixel).toHaveBeenCalledTimes(1); // the beacons fire nothing again
     window.dispatchEvent(new Event('pageshow'));
   });
 });

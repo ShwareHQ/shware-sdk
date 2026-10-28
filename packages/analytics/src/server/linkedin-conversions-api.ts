@@ -183,6 +183,8 @@ export async function sendEvents(
   try {
     const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
       method: 'POST',
+      // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
+      retries: 3,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',

@@ -39,6 +39,7 @@ function fakeBinding() {
 
 const render = async (template: string) => ({
   from: 'noreply@acme.test',
+  topic: null,
   subject: `${template} for {{ user.first_name }}`,
   html: `<p>${template}</p>`,
 });
@@ -220,6 +221,7 @@ describe('trackEmail', () => {
       },
       render: async () => ({
         from: 'a@acme.test',
+        topic: null,
         subject: 's',
         html: '<body><a href="https://acme.test">go</a></body>',
       }),
@@ -229,12 +231,42 @@ describe('trackEmail', () => {
     expect(htmls[0]).toContain('src="https://t.test/o"');
   });
 
+  test("the copy's message id reaches the renderer, and its preferences link is a plain tracked link", async () => {
+    const seen: unknown[] = [];
+    const purposes: string[] = [];
+    const sender = new CfEmailSender({
+      binding: { send: async () => ({}) },
+      render: async (_template, _props, options) => {
+        seen.push(options);
+        return {
+          from: 'a@acme.test',
+          topic: 'newsletter',
+          unsubscribeUrl: 'https://acme.test/bye',
+          preferencesUrl: 'https://acme.test/settings/email?m=m1',
+          subject: 's',
+          html: '<a href="https://acme.test/settings/email?m=m1">prefs</a><a href="https://acme.test/bye">bye</a>',
+        };
+      },
+    });
+    const link = (url: string, purpose: string) => {
+      purposes.push(purpose);
+      return url;
+    };
+    await sender.send({ ...message, tracking: { messageId: 'm1', link } });
+    expect(seen).toEqual([{ messageId: 'm1' }]);
+    expect(purposes).toEqual(['link', 'unsubscribe']);
+    // Without tracking there is no copy id: the renderer hears nothing of one
+    await sender.send(message);
+    expect(seen).toEqual([{ messageId: 'm1' }, {}]);
+  });
+
   test('CfEmailSender tracks the unsubscribe link the email was rendered with as one', async () => {
     const purposes: string[] = [];
     const sender = new CfEmailSender({
       binding: { send: async () => ({}) },
       render: async () => ({
         from: 'a@acme.test',
+        topic: 'newsletter',
         unsubscribeUrl: 'https://acme.test/bye',
         subject: 's',
         html: '<a href="https://acme.test">go</a><a href="https://acme.test/bye">bye</a>',

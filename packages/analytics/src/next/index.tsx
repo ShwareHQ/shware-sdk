@@ -8,7 +8,7 @@ import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics
 import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import type { PixelId as MetaPixelId } from '../track/fbq';
-import type { GaId, GtmId } from '../track/gtag';
+import type { GaId } from '../track/gtag';
 import { track } from '../track/index';
 import type { PixelId as RedditPixelId } from '../track/rdt';
 import type { UETConsent } from '../track/uetq';
@@ -16,7 +16,6 @@ import type { UETConsent } from '../track/uetq';
 interface Props {
   gaId?: GaId;
   gaSrc?: string;
-  gtmId?: GtmId;
   hotjarId?: `${number}`;
   metaPixelId?: MetaPixelId;
   redditPixelId?: RedditPixelId;
@@ -114,6 +113,7 @@ export function Analytics({
       {metaPixelId && (
         <Script
           id="meta-pixel"
+          nonce={nonce}
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
@@ -141,6 +141,7 @@ export function Analytics({
       {redditPixelId && (
         <Script
           id="reddit-pixel"
+          nonce={nonce}
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
@@ -165,6 +166,7 @@ export function Analytics({
       {linkedInPartnerId && (
         <Script
           id="linkedin-insight-tag"
+          nonce={nonce}
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
@@ -193,6 +195,7 @@ export function Analytics({
         <Script
           strategy="afterInteractive"
           id="uet-tag"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               (function (w, d, t, u, o) {
@@ -219,6 +222,7 @@ export function Analytics({
       {hotjarId && (
         <Script
           id="hotjar"
+          nonce={nonce}
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `

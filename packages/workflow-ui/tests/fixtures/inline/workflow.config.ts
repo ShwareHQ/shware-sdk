@@ -9,6 +9,7 @@ export default defineConfig({
     email: {
       welcome: emailTemplate({
         id: 'welcome',
+        transactional: true,
         from: 'hello@acme.test',
         title: 'Welcome',
         props: z.strictObject({}),

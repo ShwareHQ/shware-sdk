@@ -1,5 +1,11 @@
 import { UserErasedError } from './erasure';
-import type { ClickContext, Engagement, JourneyReporting, MessageRecord } from './index';
+import type {
+  ClickContext,
+  Engagement,
+  JourneyReporting,
+  MessageRecord,
+  MessageSummary,
+} from './index';
 import { type SqlClientLike, uuidv7 } from './sql';
 import type { TableKey } from './tables';
 import { beginReadCommitted, lockUser, lockUserTransaction } from './user-lock';
@@ -148,8 +154,8 @@ export class PostgresReporting implements JourneyReporting {
       await lockUserTransaction(tx, this.schema, message.userId);
       const rows = await tx.query<{ id: string }>(
         `INSERT INTO ${this.t.message}
-           (id, idempotency_key, workflow, instance_id, node_id, template, channel, user_id, sent_at)
-         SELECT $1, $2, $3, $4, $5, $6, $7, $8, ${TS('$9')} ${this.notErased('$8')}
+           (id, idempotency_key, workflow, instance_id, node_id, template, channel, user_id, topic, sent_at)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9::text, ${TS('$10')} ${this.notErased('$8')}
          ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
          RETURNING id`,
         [
@@ -161,6 +167,7 @@ export class PostgresReporting implements JourneyReporting {
           message.template,
           message.channel,
           message.userId,
+          message.topic,
           message.sentAt,
         ]
       );
@@ -347,34 +354,52 @@ export class PostgresReporting implements JourneyReporting {
     });
   }
 
-  async recordUnsubscribe(messageId: string, at: number): Promise<{ userId: string } | undefined> {
+  async lookupMessage(messageId: string): Promise<MessageSummary | undefined> {
+    const rows = await this.sql.query<{ user_id: string; channel: string; topic: string | null }>(
+      `SELECT user_id, channel, topic FROM ${this.t.message} WHERE id = $1`,
+      [messageId]
+    );
+    const row = rows.at(0);
+    return row === undefined
+      ? undefined
+      : { userId: row.user_id, channel: row.channel, topic: row.topic };
+  }
+
+  async recordUnsubscribe(
+    messageId: string,
+    at: number,
+    scope: 'topic' | 'all' = 'topic'
+  ): Promise<{ userId: string; topic: string | null } | undefined> {
     return this.sql.transaction(async (tx) => {
       // The lock order of the other message-id paths (user lock, then the copy's row), so an
       // unsubscribe and an erasure never wait on each other crosswise. Not the tombstone check:
       // an opt-out is recorded whatever the user's state, on the copy as long as it is there
       await beginReadCommitted(tx);
-      const owners = await tx.query<{ user_id: string }>(
-        `SELECT user_id FROM ${this.t.message} WHERE id = $1 AND channel = 'email'`,
+      const owners = await tx.query<{ user_id: string; topic: string | null }>(
+        `SELECT user_id, topic FROM ${this.t.message} WHERE id = $1 AND channel = 'email'`,
         [messageId]
       );
       const owner = owners.at(0);
       if (owner === undefined) return undefined;
+      // A transactional copy carries no unsubscribe link: nothing to record, and the caller
+      // answers as for a link that does not exist
+      if (owner.topic === null) return { userId: owner.user_id, topic: null };
       await lockUser(tx, this.schema, owner.user_id);
       // The first unsubscribe sets the time; a later one keeps it and still names the recipient
-      const rows = await tx.query<{ user_id: string }>(
+      const rows = await tx.query<{ user_id: string; topic: string | null }>(
         `UPDATE ${this.t.message} SET unsubscribed_at = coalesce(unsubscribed_at, ${TS('$2')})
-         WHERE id = $1 AND channel = 'email' RETURNING user_id`,
+         WHERE id = $1 AND channel = 'email' RETURNING user_id, topic`,
         [messageId, at]
       );
-      const userId = rows.at(0)?.user_id;
-      if (userId === undefined) return undefined;
-      // The opt-out itself: the engine sends this user no more email
+      const row = rows.at(0);
+      if (row === undefined) return undefined;
+      // The opt-out itself: the copy's topic, or every email (the channel-wide null-topic row)
       await tx.query(
-        `INSERT INTO ${this.t.suppression} (user_id, channel, ts) VALUES ($1, 'email', ${TS('$2')})
-         ON CONFLICT DO NOTHING`,
-        [userId, at]
+        `INSERT INTO ${this.t.suppression} (user_id, channel, topic, ts)
+         VALUES ($1, 'email', $2::text, ${TS('$3')}) ON CONFLICT DO NOTHING`,
+        [row.user_id, scope === 'all' ? null : row.topic, at]
       );
-      return { userId };
+      return { userId: row.user_id, topic: row.topic };
     });
   }
 

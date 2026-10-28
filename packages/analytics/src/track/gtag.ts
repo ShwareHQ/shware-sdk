@@ -170,7 +170,6 @@ export type UserProvidedData = {
 };
 
 export type GaId = `G-${Uppercase<string>}`;
-export type GtmId = `GTM-${Uppercase<string>}`;
 
 export type CampaignMedium =
   | 'email'
@@ -940,9 +939,9 @@ export interface Gtag {
    *
    * @param event
    * @param option
-   * @param userId - The user ID. Character limit 256
+   * @param userId - The user ID. Character limit 256. `null` clears it on sign-out.
    */
-  gtag(event: 'set', option: 'user_id', userId: string): void;
+  gtag(event: 'set', option: 'user_id', userId: string | null): void;
 
   /**
    * User properties are attributes that can be used to describe segments of your user base, such

@@ -29,7 +29,7 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
   ) => {
     if (typeof window === 'undefined' || !window.lintrk) {
       console.warn('lintrk has not been initialized');
-      return;
+      return false;
     }
     if (window.location.host.includes('127.0.0.1')) return;
     if (window.location.host.includes('localhost')) return;

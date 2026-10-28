@@ -26,6 +26,7 @@ function Footer() {
 
 const welcome = emailTemplate({
   id: 'welcome',
+  topic: 'tips',
   from: { email: 'hello@acme.io', name: 'Acme' },
   title: 'Welcome (display name)',
   description: 'First email after sign-up.',
@@ -42,6 +43,7 @@ const welcome = emailTemplate({
 
 const nudge = pushTemplate({
   id: 'nudge',
+  transactional: true,
   title: 'Nudge (display name)',
   props: named,
   preview: { name: 'Ada' },
@@ -73,6 +75,7 @@ describe('push content', () => {
     );
     const template = pushTemplate({
       id: 'template',
+      transactional: true,
       title: 'Spy',
       props: named,
       preview: { name: 'Ada' },
@@ -93,6 +96,7 @@ describe('push content', () => {
     const content = vi.fn<() => { title: string; body: string }>(() => ({ title: 't', body: 'b' }));
     const template = pushTemplate({
       id: 'spy',
+      transactional: true,
       title: 'Spy',
       props: named,
       preview: { name: 'A' },
@@ -111,6 +115,7 @@ describe('push content', () => {
   test('content that returns no notification is a content failure', () => {
     const template = pushTemplate({
       id: 'template',
+      transactional: true,
       title: 'Broken',
       props: named,
       preview: { name: 'A' },

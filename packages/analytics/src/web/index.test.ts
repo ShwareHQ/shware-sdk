@@ -98,6 +98,24 @@ describe('getTags', () => {
     expect(getPageReferrer()).toBe('http://localhost:3000/pricing');
   });
 
+  it('strips credential parameters from page_location and page_referrer', async () => {
+    vi.spyOn(document, 'referrer', 'get').mockReturnValue(
+      'https://accounts.example.com/authorize?client_id=c&state=s1'
+    );
+    const { getTags, getPageLocation } = await load();
+    window.history.replaceState(null, '', '/callback?code=abc&state=xyz&utm_source=x');
+
+    const tags = await getTags();
+    expect(tags.page_location).toBe('http://localhost:3000/callback?utm_source=x');
+    expect(getPageLocation()).toBe('http://localhost:3000/callback?utm_source=x');
+    expect(tags.page_referrer).toBe('https://accounts.example.com/authorize?client_id=c');
+    expect(tags.utm_source).toBe('x');
+
+    // The next page's referrer is the redacted URL too.
+    window.history.replaceState(null, '', '/account');
+    expect((await getTags()).page_referrer).toBe('http://localhost:3000/callback?utm_source=x');
+  });
+
   it('reports no referrer for a first page opened directly', async () => {
     const { getTags } = await load();
     expect((await getTags()).page_referrer).toBeUndefined();
@@ -218,15 +236,34 @@ describe('getTags', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('retries a link lookup that came back empty', async () => {
+  it('remembers that an id names no link, instead of asking again for every event', async () => {
     const { getTags, jsonResponse } = await load();
     window.history.replaceState(null, '', '/?s=abc');
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse('gone', 404))
-      .mockResolvedValue(jsonResponse(link({ utm_source: 'recovered' })));
+    fetchMock.mockResolvedValue(jsonResponse('gone', 404));
 
     expect((await getTags()).utm_source).toBeUndefined();
+    expect((await getTags()).utm_source).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a link lookup that failed for a reason other than the link', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { getTags, jsonResponse } = await load();
+    window.history.replaceState(null, '', '/?s=abc');
+    // The first lookup fails outright: the retrying `fetch` sees a 503 on every attempt.
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValueOnce(jsonResponse('down', 503))
+      .mockResolvedValue(jsonResponse(link({ utm_source: 'recovered' })));
+
+    const first = getTags();
+    await vi.advanceTimersByTimeAsync(10_000); // ride out the retry backoff
+    expect((await first).utm_source).toBeUndefined();
     expect((await getTags()).utm_source).toBe('recovered');
+    vi.useRealTimers();
   });
 });
 

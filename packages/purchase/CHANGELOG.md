@@ -1,5 +1,81 @@
 # @shware/purchase
 
+## 9.2.1
+
+### Patch Changes
+
+- ac5cb31: Update dependencies to their latest versions within the declared ranges (react 19.3.1, @tanstack/* , posthog-js, jose, stripe, discord-api-types and the rest); `tsdown` stays pinned at 0.23.1 because 0.23.2 pulls a dts plugin that refuses TypeScript 7 without `isolatedDeclarations`.
+- Updated dependencies [ac5cb31]
+  - @shware/utils@2.0.1
+
+## 9.2.0
+
+### Minor Changes
+
+- 082ed82: App Store `mapPaymentType` now labels an upgrade (`DID_CHANGE_RENEWAL_PREF` / `OFFER_REDEEMED` with subtype `UPGRADE`) `SUBSCRIPTION_UPDATE` instead of `SUBSCRIPTION_RENEWAL`, the label a change of plan gets on Stripe, so payment reports count plan changes the same way on every platform.
+
+## 9.1.0
+
+### Minor Changes
+
+- a0e0367: New `SUBSCRIPTION_STATUSES` value `BILLING_RETRY` for the App Store's billing retry without a grace period (status 3), where the customer is not served; `PAST_DUE` stays Stripe only and `ON_HOLD` Play only. This replaces the 9.0.0 advice to map that Apple state to `ON_HOLD`: map `BILLING_RETRY` to `BILLING_RETRY`. `AVAILABLE_STATUSES` is unchanged from 9.0.0 (`ACTIVE`, `TRIALING`, `IN_GRACE_PERIOD`, `PAST_DUE`).
+
+## 9.0.0
+
+### Major Changes
+
+- 70ea5f6: `PAST_DUE` is now in `AVAILABLE_STATUSES`: a Stripe subscription keeps granting access while Stripe retries a failed renewal (Smart Retries), the way an App Store or Play subscription does in `IN_GRACE_PERIOD`, instead of losing it the moment the first charge fails. Access still ends at `UNPAID` (Stripe gave up) and `ON_HOLD`. `ON_HOLD` is now documented for the App Store as well: a billing retry without a grace period, where the customer is not served, belongs there, so hosts whose Apple mapper returns `PAST_DUE` for `BILLING_RETRY` must change it to `ON_HOLD` before upgrading, or those subscribers gain access for the whole retry period.
+
+## 8.0.1
+
+### Patch Changes
+
+- Updated dependencies [214e552]
+  - @shware/utils@2.0.0
+
+## 8.0.0
+
+### Major Changes
+
+- f331040: The catalogs are declared with `defineStripeConfig`, `defineAppStoreConfig` and `defineGooglePlayConfig`, which take `namespace`, `plans` (lowest tier first) and `billingPeriods` (shortest first), all required, and infer their type parameters from them, so `StripeConfig.create<'io.example', Plan, BillingPeriod>({ ... })` (removed, as are `AppStoreConfig.create` and `GooglePlayConfig.create`) becomes `defineStripeConfig({ namespace: 'io.example', plans: PLANS, billingPeriods: BILLING_PERIODS, ... })`; a config with no subscriptions passes empty arrays. Product ids outside the namespace, and plans or periods not declared, are refused at runtime as well. Adds `StripeConfig.comparePlans` (upgrade, downgrade, or a longer or shorter period of the same plan) and `createPlanChange`: preview, apply and cancel a Stripe subscription's switch to another subscription product, with Apple's timing by default (an upgrade now, anything else at the period end), 3DS through a pending update, card declines as `PlanChangeError` with `mapDecline`'s reason, and period-end changes as a two-phase subscription schedule.
+
+## 7.6.0
+
+### Minor Changes
+
+- ac6dda4: Add `StripeConfig.isSubscription(productId)`, and `mapPaymentType` for the App Store (by notification type and subtype) and Google Play (by order id), matching the Stripe one.
+
+## 7.5.0
+
+### Minor Changes
+
+- e08ad99: Add `mapSubscription` (a Stripe subscription in the platform-neutral row shape), `mapListPrice` and `cancellationComment` to `@shware/purchase/stripe`; `mapCancellationDetails` now splits a `[maybe]` / `[no]` / `[yes]` comment prefix back into `resubscribeIntent`.
+
+## 7.4.0
+
+### Minor Changes
+
+- 123971a: Add `hasDelayedNotification(type)` and `DELAYED_NOTIFICATION_PAYMENT_METHOD_TYPES` to `@shware/purchase/stripe`: the saved payment method types (bank debits) whose charge outcome arrives days later.
+
+## 7.3.0
+
+### Minor Changes
+
+- cde365d: Add the cross-platform `REFUND_STATUSES` / `RefundStatus` (with `REFUND_STATUS_TRANSITIONS`) and `DISPUTE_STATUSES` / `DisputeStatus` (with `CLOSED_DISPUTE_STATUSES`), `mapRefundStatus` / `mapDisputeStatus` for Stripe refunds and disputes, and `mapDecline`, which sorts a Stripe card failure into `DECLINE_REASONS` a cardholder can act on.
+
+## 7.2.0
+
+### Minor Changes
+
+- 3cc8ecb: Add the cross-platform `PAYMENT_TYPES` / `PaymentType` and `mapPaymentType`, which reads a Stripe subscription invoice's `billing_reason` as a start, renewal or off-cycle update.
+- 3cc8ecb: Add `StripeConfig.getProductId(priceId)`, the product a price is declared on (test twins included) or null; declaring the same price on two products now throws.
+
+## 7.1.0
+
+### Minor Changes
+
+- d2c4ef9: Add `idOf` and `expanded` for Stripe's expandable fields, and `money` for turning a minor-unit amount into `{ amount, currency }`, to `@shware/purchase/stripe`.
+
 ## 7.0.0
 
 ### Major Changes

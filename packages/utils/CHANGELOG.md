@@ -1,5 +1,17 @@
 # @shware/utils
 
+## 2.0.1
+
+### Patch Changes
+
+- ac5cb31: Update dependencies to their latest versions within the declared ranges (react 19.3.1, @tanstack/* , posthog-js, jose, stripe, discord-api-types and the rest); `tsdown` stays pinned at 0.23.1 because 0.23.2 pulls a dts plugin that refuses TypeScript 7 without `isolatedDeclarations`.
+
+## 2.0.0
+
+### Major Changes
+
+- 214e552: `fetch` now retries only the idempotent methods by default (GET, HEAD, PUT, DELETE, OPTIONS get `retries: 3`; POST and PATCH get `0`, as RFC 9110 §9.2.2 allows repeating only a request known to be idempotent), never retries a `ReadableStream` body, and no longer retries 501, 505 or 511 (only 408, 429, 500, 502, 503 and 504). Pass `retries` explicitly for a POST the server deduplicates (a client-generated id or an `Idempotency-Key` header, which stays the caller's to choose).
+
 ## 1.8.0
 
 ### Minor Changes

@@ -1,5 +1,6 @@
 import * as z from 'zod/mini';
 import { type Contract, type ContractResult, checkEvent } from '../contract';
+import { PREVIEW_MESSAGE_ID } from '../email';
 import type { EmailRenderer } from '../email-sender';
 import type { BundleIR, ScalarIR } from '../ir';
 import { type TrackingOptions, handleTracking, recordPushOpen } from '../reporting/tracking';
@@ -18,10 +19,15 @@ import {
   type SweepResult,
   deployBundle,
   forgetUser,
+  getSubscriptions,
+  getSubscriptionsByMessage,
   identifyUser,
   ingestEvent,
+  parseSubscriptionsPatch,
   registerDevice,
   removeDevice,
+  setSubscriptions,
+  setSubscriptionsByMessage,
   unbindDevice,
 } from './ingest';
 import type { JourneyEnv } from './platform';
@@ -83,7 +89,7 @@ interface RouteContext {
 
 interface Route {
   /** '*' takes every method (the tracking routes answer GET, HEAD and POST themselves). */
-  method: 'GET' | 'POST' | '*';
+  method: 'GET' | 'POST' | 'PUT' | '*';
   path: string | RegExp | ((pathname: string) => boolean);
   /** `api`: the caller must be authorized (the host's `authorize`, or the bearer); `none`: public. */
   auth: 'none' | 'api';
@@ -176,6 +182,27 @@ function checked<T>(
     refused: json({ error: `${what} refused by the contract`, issues: result.issues }, 400),
   };
 }
+
+/**
+ * The topics the engine knows: the deployed bundle's list (compiled from the contract), or the
+ * contract's when the bare API runs without a host — never the caller's.
+ */
+function declaredTopics(ctx: Pick<RouteContext, 'host' | 'validation'>): readonly string[] {
+  return ctx.host.bundle?.().subscriptions?.topics ?? ctx.validation.contract?.topics ?? [];
+}
+
+const SUBSCRIPTIONS = /^\/subscriptions\/[^/]+$/;
+const subscriptionsUser = (url: URL) =>
+  decodeURIComponent(url.pathname.slice('/subscriptions/'.length));
+/**
+ * The same record, reached by one of the user's copies instead of their id: for the app's
+ * preference page opened from an email's `preferencesUrl?m=<message>` without a sign-in. The
+ * message id is the capability (an unguessable UUID, as `/t/u` trusts it); the bearer still
+ * guards the route, so the page's own API proxies it, and rate-limits it as it sees fit.
+ */
+const SUBSCRIPTIONS_BY_MESSAGE = /^\/subscriptions\/by-message\/[^/]+$/;
+const subscriptionsMessage = (url: URL) =>
+  decodeURIComponent(url.pathname.slice('/subscriptions/by-message/'.length));
 
 /* --------------------------------- routes ---------------------------------- */
 
@@ -306,6 +333,58 @@ const routes: readonly Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: SUBSCRIPTIONS,
+    auth: 'api',
+    async handle(ctx) {
+      const userId = subscriptionsUser(ctx.url);
+      if (userId === '') return json({ error: 'userId required' }, 400);
+      return json(await getSubscriptions(ctx.store, userId, declaredTopics(ctx)));
+    },
+  },
+  {
+    method: 'PUT',
+    path: SUBSCRIPTIONS,
+    auth: 'api',
+    async handle(ctx) {
+      const userId = subscriptionsUser(ctx.url);
+      if (userId === '') return json({ error: 'userId required' }, 400);
+      const topics = declaredTopics(ctx);
+      const parsed = parseSubscriptionsPatch(await readJson(ctx.request), topics);
+      if (!parsed.ok) return json({ error: 'subscriptions refused', issues: parsed.issues }, 400);
+      return json(await setSubscriptions(ctx.env, ctx.store, userId, parsed.patch, topics));
+    },
+  },
+  {
+    method: 'GET',
+    path: SUBSCRIPTIONS_BY_MESSAGE,
+    auth: 'api',
+    async handle(ctx) {
+      const messageId = subscriptionsMessage(ctx.url);
+      const found = await getSubscriptionsByMessage(ctx.store, messageId, declaredTopics(ctx));
+      return found === undefined ? json({ error: 'unknown message' }, 404) : json(found);
+    },
+  },
+  {
+    method: 'PUT',
+    path: SUBSCRIPTIONS_BY_MESSAGE,
+    auth: 'api',
+    async handle(ctx) {
+      const messageId = subscriptionsMessage(ctx.url);
+      const topics = declaredTopics(ctx);
+      const parsed = parseSubscriptionsPatch(await readJson(ctx.request), topics);
+      if (!parsed.ok) return json({ error: 'subscriptions refused', issues: parsed.issues }, 400);
+      const found = await setSubscriptionsByMessage(
+        ctx.env,
+        ctx.store,
+        messageId,
+        parsed.patch,
+        topics
+      );
+      return found === undefined ? json({ error: 'unknown message' }, 404) : json(found);
+    },
+  },
+  {
     method: 'POST',
     path: '/users/forget',
     auth: 'api',
@@ -368,7 +447,11 @@ const routes: readonly Route[] = [
         return json({ error: 'props must be a JSON object' }, 400);
       }
       if (!isPlainObject(props)) return json({ error: 'props must be a JSON object' }, 400);
-      const { subject, html } = await preview.render(key, props as Record<string, ScalarIR>);
+      // A preview is no copy, but it shows the footer a sent one has: the preferences link
+      // renders with a placeholder message id
+      const { subject, html } = await preview.render(key, props as Record<string, ScalarIR>, {
+        messageId: PREVIEW_MESSAGE_ID,
+      });
       // A header holds bytes, not text: a subject with a non-Latin-1 character would throw
       // here, so it travels percent-encoded (the reader `decodeURIComponent`s it)
       return new Response(html, {
@@ -480,7 +563,7 @@ export async function serve(request: Request, ctx: ServeContext): Promise<Respon
   }
 }
 
-/** The bare ingest API over one store: `/health`, `/events`, `/identify`, `/devices*`, `/messages/opened`, `/users/forget`, `/deploy`. */
+/** The bare ingest API over one store: `/health`, `/events`, `/identify`, `/devices*`, `/messages/opened`, `/subscriptions/:userId`, `/subscriptions/by-message/:messageId`, `/users/forget`, `/deploy`. */
 export function handleRequest(
   request: Request,
   env: JourneyEnv,

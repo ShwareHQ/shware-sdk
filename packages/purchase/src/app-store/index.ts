@@ -1,3 +1,8 @@
-export { AppStoreConfig } from './config';
+export { AppStoreConfig, defineAppStoreConfig } from './config';
 export { AppStoreNotificationHandler, type AppStoreNotificationEvent } from './handler';
-export { mapCancellationDetails, type AppStoreCancellationSource } from './mapper';
+export {
+  mapCancellationDetails,
+  mapPaymentType,
+  type AppStoreCancellationSource,
+  type AppStorePaymentSource,
+} from './mapper';

@@ -54,6 +54,7 @@ export const contract = defineContract({
     purchase: looseObject({ transaction_id: string(), currency: string(), value: number() }),
   },
   profile: strictObject({ email: optional(email()), name: string() }),
+  subscriptions: { topics: ['promotions', 'newsletter', 'tips'] },
 });
 
 /** The DSL's reference tables: `e.login`, `u.name`. */
@@ -66,6 +67,16 @@ The profile is a flat object of string, number, boolean, enum and literal
 fields. Defaults, transforms, coercion and custom refinements are refused when
 the contract is defined, because input and output must mean the same JSON.
 
+`subscriptions.topics` lists the subscription topics: content categories
+("offers", "tips"), not channels — ids only (a plain token; the app's i18n gives
+them names). A plain array literal is enough: `defineContract` keeps the
+literals, and the union they form types every email and push template's
+`topic`, the config and `JourneyClient.setSubscriptions`. A user opts out of a
+topic per channel (the preference page is topic × channel), or of a whole
+channel; the engine keeps that record and is the one source of truth for it
+(see [Email](#email), [Push](#push) and [`JourneyClient`](#journeyclient)).
+Leave the field out when every email and push is transactional.
+
 ### 2. Templates
 
 One object per template, identified by its own `id` (unique per channel): the
@@ -74,14 +85,20 @@ stable and rename `title` instead. Its strict Zod `props` schema is the only
 source of the props type: the DSL's arguments, the `preview` and the component
 are all derived from it, and every send parses the props against it first.
 
+```ts
+// src/contract.ts (continued): the template factories bound to the contract
+export const { emailTemplate, pushTemplate } = templatesFor(contract);
+```
+
 ```tsx
 // src/email/welcome.tsx
 import { Html, Text } from '@react-email/components';
-import { emailTemplate } from '@shware/workflow';
 import { strictObject, string } from 'zod/mini';
+import { emailTemplate } from '../contract';
 
 export default emailTemplate({
   id: 'welcome',
+  transactional: true,
   from: { email: 'noreply@acme.test', name: 'Acme' },
   title: 'Welcome',
   props: strictObject({ name: string() }),
@@ -94,6 +111,17 @@ export default emailTemplate({
   ),
 });
 ```
+
+Every email and push template says what it is: `topic: 'tips'` (a topic the
+contract declares, which the user can opt out of on that channel) or
+`transactional: true` (a receipt, a code, an invite: sent whatever they opted
+out of; for an email, with no unsubscribe link). Leaving both out, or giving
+both, is a type error and a compile error, and the error says so in words.
+`templatesFor(contract)` gives the factories with the topic typed by the
+contract, so a topic it does not declare is an error at the template's own
+`topic` line, in the editor and when the module loads; the bare `emailTemplate`
+/ `pushTemplate` from `@shware/workflow` are for a project without a contract
+(transactional templates only), and the compile checks every template again.
 
 Gather them per channel; the workflows send the definitions and the config
 registers the whole:
@@ -113,11 +141,13 @@ import { email } from './email';
 export const templates = { email };
 ```
 
-`tip.tsx` is written the same way. The property names are JavaScript names
-only. `.email(email.welcome, props)` checks `props` against that template's
-schema, and a push template is not accepted where an email is. The compile
-refuses an id registered twice in a channel, and a workflow sending a
-definition other than the one registered under its id.
+`tip.tsx` is written the same way, with `topic: 'tips'`, and so is a
+`pushTemplate`. The property names are JavaScript names only. `.email(email.welcome, props)` checks `props`
+against that template's schema, and a push template is not accepted where an
+email is. The compile refuses an id registered twice in a channel, a workflow
+sending a definition other than the one registered under its id, and a topic
+the contract does not declare (with a `contract` in the config, the editor
+refuses it first).
 
 ### 3. A workflow
 
@@ -463,35 +493,52 @@ the compile fails.
 
 ### Email
 
-`emailTemplate({ id, from, replyTo?, unsubscribeUrl?, title, description?, props, subject, preview, component })`
+`emailTemplate({ id, topic | transactional, from, replyTo?, unsubscribeUrl?, title, description?, props, subject, preview, component })`
 declares one. The Worker renders it with `@shware/workflow/react-email` (React's
 streaming renderer, which waits for react-email's `<Tailwind>`) and sends it
 through the host's email transport, from the template's own `from`:
 
 ```ts
-// src/email/welcome.tsx
+// src/email/tip.tsx
 export default emailTemplate({
-  id: 'welcome',
+  id: 'tip',
+  topic: 'tips',
   from: { email: 'noreply@acme.test', name: 'Acme' },
   replyTo: { email: 'support@acme.test', name: 'Acme Support' }, // left out: no Reply-To
-  title: 'Welcome',
+  title: 'Weekly tip',
   props: strictObject({ name: string() }),
-  subject: 'Welcome to Acme',
+  subject: 'One thing to try this week',
   preview: { name: 'John Doe' },
   component: ({ name }) => <Layout name={name}>…</Layout>,
 });
 ```
 
-There is no global sender: share addresses through a module of your own. The
-unsubscribe link is the template's `unsubscribeUrl`, else the config's
-`email.unsubscribeUrl`, else none (`resolveEmail` is the rule). A layout reads
-it from the render, never from a constant, so a template's own URL reaches
-its HTML:
+Every template is one of two kinds, by type: a **topic** email names one of the
+contract's `subscriptions.topics`, and a **transactional** email says
+`transactional: true` (and takes no `unsubscribeUrl`). The kind decides what
+the engine does before and after the send:
+
+| Email         | Before sending                                                 | Unsubscribe link, `List-Unsubscribe`  |
+| ------------- | -------------------------------------------------------------- | ------------------------------------- |
+| topic         | skipped when the user opted out of that topic, or of all email | yes                                   |
+| transactional | always sent (a receipt, a code, an invite)                     | none, whatever `email.unsubscribeUrl` |
+
+There is no global sender: share addresses through a module of your own. A
+topic email's unsubscribe link is the template's `unsubscribeUrl`, else the
+config's `email.unsubscribeUrl`, else none; its preferences link is the config's
+`email.preferencesUrl` with the copy's message id, when the copy has one; a
+transactional email never has either (`resolveEmail` is the rule). A layout
+reads them from the render, never from a constant, so a template's own URL
+reaches its HTML and each copy's link names that copy; the resolved `topic` is
+there too, for a line like "you get these because you subscribed to tips":
 
 ```tsx
 import { useEmailContext } from '@shware/workflow/email-context';
 
-const { unsubscribeUrl } = useEmailContext();
+const { unsubscribeUrl, preferencesUrl } = useEmailContext();
+{
+  preferencesUrl !== undefined && <Link href={preferencesUrl}>Email preferences</Link>;
+}
 {
   unsubscribeUrl !== undefined && <Link href={unsubscribeUrl}>Unsubscribe</Link>;
 }
@@ -501,6 +548,7 @@ const { unsubscribeUrl } = useEmailContext();
 // workflow.config.ts
 email: {
   unsubscribeUrl: 'https://acme.test/unsubscribe', // templates without their own
+  preferencesUrl: 'https://acme.test/settings/email', // the app's preference page
   tracking: { quickClickMs: 1_000 }, // the default
 },
 ```
@@ -527,10 +575,43 @@ An email with an unsubscribe link also carries `List-Unsubscribe` (RFC 2369), so
 a mail client's own unsubscribe button works. With reporting on (a Postgres store and
 `WORKFLOW_ORIGIN`), it names the copy's one-click endpoint `/t/u/<message>`, together with
 `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). Gmail and Yahoo require
-one-click unsubscribe for bulk senders. The provider's POST there unsubscribes at once, and the
-same URL opened in a browser asks first. Without reporting, the header names the template's own
-unsubscribe link, with no one-click claim. Only https URLs are named, so a local `http://`
-origin sends no header.
+one-click unsubscribe for bulk senders. The provider's POST there unsubscribes at once from
+the email's topic; the same URL opened in a browser (and the email's own link) asks first, with
+two buttons: the email's topic, and all email. Without reporting, the header names the
+template's own unsubscribe link, with no one-click claim. Only https URLs are named, so a local
+`http://` origin sends no header.
+
+So a topic email carries two ways out, for two readers. The **header** is for the mail client:
+`List-Unsubscribe` points at the Worker's own `/t/u/<message>`, which a one-click POST or the
+Worker's plain confirmation page settles without the app. The **footer** is for the person:
+`preferencesUrl` is the app's own page, branded, signed in or not, reached as
+`https://acme.test/settings/email?m=<message id>` (the page's own query is kept, `m` set beside
+it). The message id in `m` is how the page knows the recipient without a login: it is the
+capability, an unguessable UUID that only ever reached that mailbox, the same trust `/t/u` runs
+on. The page's API calls `GET /subscriptions/by-message/<m>` with the bearer
+(`JourneyClient.getSubscriptionsByMessage`), gets the recipient's record plus
+`message: { channel, topic }` to highlight the topic that email belonged to, and writes with
+`PUT /subscriptions/by-message/<m>` (`setSubscriptionsByMessage`), the same patch as the user
+endpoint. An id that names no copy (never sent, or erased with its user by `/users/forget`) or a
+transactional one answers 404, the rule `/t/u` applies: show the link as expired. The Worker
+does not rate-limit these routes; the app's proxy does, as it sees fit. The link is tracked as
+an ordinary click (`/t/l/...`), never as an unsubscribe: `preferencesUrl` must not share its
+origin and path with `unsubscribeUrl` (or a template's own), and the config refuses one that
+does. Without reporting (no Postgres reporting or no `WORKFLOW_ORIGIN`) there is no message id,
+so `preferencesUrl` is `undefined` in the render and the footer shows nothing; a preview
+(`GET /preview` and the studio) renders it with a placeholder id, `PREVIEW_MESSAGE_ID`.
+
+What a user opted out of is the engine's record, per topic and channel: a topic email is
+skipped while its topic (on email) or all email is opted out, a transactional email never is,
+and `reachable('email')` reads the all-email opt-out only — a user unsubscribed from one topic
+is still reachable, so an `exitWhen: not(reachable('email'))` fires on "all email", not on a
+topic. An email opt-out says nothing about push: the same topic is opted out per channel. The
+app reads and sets the record through `GET` / `PUT /subscriptions/:userId`
+(`JourneyClient.getSubscriptions` / `setSubscriptions`), which is how a signed-in preference
+page is built: the engine holds the truth, the page shows it. The all-email opt-out and the
+topic opt-outs are separate records: `all: false` masks every topic, whatever its own flag says,
+and `all: true` clears only the all-email opt-out — a topic opted out on its own stays off until
+a patch names it.
 
 An email step refuses to send when the profile has no `email`.
 `GET /preview/<id>?props=<JSON>` renders a template, with the subject in the
@@ -538,19 +619,32 @@ An email step refuses to send when the profile has no `email`.
 
 ### Push
 
-`pushTemplate({ id, title, description?, props, preview, content })`, where
-`content(props)` returns `{ title, body, image?, url? }`: final text, never
+`pushTemplate({ id, topic | transactional, title, description?, props, preview, content })`,
+where `content(props)` returns `{ title, body, image?, url? }`: final text, never
 placeholder-expanded. `url` is the page a browser push opens.
 
 ```ts
 export default pushTemplate({
   id: 'onboarding_tip_push',
+  topic: 'tips',
   title: 'Onboarding tip (push)',
   props: strictObject({ name: string() }),
   preview: { name: 'John Doe' },
   content: ({ name }) => ({ title: 'A tip for today', body: `Face a window, ${name}.` }),
 });
 ```
+
+A push is a **topic** push (one of the contract's `subscriptions.topics`) or a
+**transactional** one (`transactional: true`: a code, a receipt, a reply), like
+an email. A topic push is skipped while the user opted out of that topic on
+push, or of all push; a transactional push always goes. The app records the
+opt-outs through `PUT /subscriptions/:userId` (`JourneyClient.setSubscriptions`
+with `{ push: { all?, topics? } }`), which is the in-app switch App Store Review
+Guideline 4.5.4 requires for marketing pushes: `push.all: false` is "no
+promotional notifications", a topic `false` is one category off. The opt-outs are
+per channel: a topic switched off for push is still sent by email.
+`reachable('push')` is a device plus no all-push opt-out; a topic opt-out leaves
+it true. Changing `push.all` wakes the waits on it, as a device change does.
 
 Pushes go to the devices the engine keeps. The app registers each token with
 `JourneyClient.registerDevice(userId, { token, platform })`, and a token moves
@@ -636,20 +730,20 @@ Discord; supply anything else with `journeyWorker({ messages })`.
 
 `defineConfig` takes:
 
-| Field       | Holds                                                                          |
-| ----------- | ------------------------------------------------------------------------------ |
-| `title`     | The Studio title                                                               |
-| `contract`  | The `defineContract(...)` every `/events` and `/identify` is validated against |
-| `workflows` | The workflows to deploy                                                        |
-| `segments`  | Named segments                                                                 |
-| `actions`   | Custom actions `.run()` uses                                                   |
-| `templates` | The registries: `{ email?, push?, discord?, slack? }`                          |
-| `email`     | `{ unsubscribeUrl?, tracking? }`: what every email template shares             |
-| `runtime`   | Per mode (`development`, `production`, …): `{ timeScale?, logMessages? }`      |
-| `apns`      | `{ topic, keyId, teamId, environment? }`                                       |
-| `fcm`       | `{ androidChannelId? }`                                                        |
-| `webPush`   | `{ subject, openedEvent? }`                                                    |
-| `database`  | `{ schema? }`: the Postgres schema, `workflow` by default                      |
+| Field       | Holds                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| `title`     | The Studio title                                                                          |
+| `contract`  | The `defineContract(...)` every `/events` and `/identify` is validated against            |
+| `workflows` | The workflows to deploy                                                                   |
+| `segments`  | Named segments                                                                            |
+| `actions`   | Custom actions `.run()` uses                                                              |
+| `templates` | The registries: `{ email?, push?, discord?, slack? }`; topics typed by the contract       |
+| `email`     | `{ unsubscribeUrl?, preferencesUrl?, tracking? }`: what every topic email template shares |
+| `runtime`   | Per mode (`development`, `production`, …): `{ timeScale?, logMessages? }`                 |
+| `apns`      | `{ topic, keyId, teamId, environment? }`                                                  |
+| `fcm`       | `{ androidChannelId? }`                                                                   |
+| `webPush`   | `{ subject, openedEvent? }`                                                               |
+| `database`  | `{ schema? }`: the Postgres schema, `workflow` by default                                 |
 
 The `ENVIRONMENT` var picks the `runtime` entry (production when unset).
 `timeScale` fast-forwards every duration: 600 turns "1 day" into 2.4 minutes.
@@ -681,19 +775,59 @@ throws `JourneyClientError` with its status and body.
 const journeys = new JourneyClient({ contract, origin, token });
 ```
 
-| Method                                        | Endpoint                | Does                                                     |
-| --------------------------------------------- | ----------------------- | -------------------------------------------------------- |
-| `identify(userId, props)`                     | `POST /identify`        | Merge profile properties; `null` removes one             |
-| `track(userId, event, payload, { id?, ts? })` | `POST /events`          | Record an event; starts and wakes journeys               |
-| `registerDevice(userId, { token, platform })` | `POST /devices`         | Register a push token (`ios`, `android` or `web`)        |
-| `unbindDevice(token)`                         | `POST /devices/unbind`  | Signed out: the token stays, bound to nobody             |
-| `removeDevice(token)`                         | `POST /devices/remove`  | Forget a token for good                                  |
-| `messageOpened(userId, messageId)`            | `POST /messages/opened` | A journey push tapped open (the `message_id` it carried) |
-| `forgetUser(userId)`                          | `POST /users/forget`    | Stop the user's journeys and erase their data            |
-| `deploy(bundle)`                              | `POST /deploy`          | Deploy a compiled bundle                                 |
+| Method                                        | Endpoint                          | Does                                                                      |
+| --------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| `identify(userId, props)`                     | `POST /identify`                  | Merge profile properties; `null` removes one                              |
+| `track(userId, event, payload, { id?, ts? })` | `POST /events`                    | Record an event; starts and wakes journeys                                |
+| `registerDevice(userId, { token, platform })` | `POST /devices`                   | Register a push token (`ios`, `android` or `web`)                         |
+| `unbindDevice(token)`                         | `POST /devices/unbind`            | Signed out: the token stays, bound to nobody                              |
+| `removeDevice(token)`                         | `POST /devices/remove`            | Forget a token for good                                                   |
+| `messageOpened(userId, messageId)`            | `POST /messages/opened`           | A journey push tapped open (the `message_id` it carried)                  |
+| `getSubscriptions(userId)`                    | `GET /subscriptions/…`            | `{ email, push }`, each `{ all, topics }`, `true` = on                    |
+| `setSubscriptions(userId, patch)`             | `PUT /subscriptions/…`            | Change what the patch names; answers the new state                        |
+| `getSubscriptionsByMessage(messageId)`        | `GET /subscriptions/by-message/…` | The recipient's record by a copy's id, plus `message: { channel, topic }` |
+| `setSubscriptionsByMessage(messageId, patch)` | `PUT /subscriptions/by-message/…` | The same patch, for the copy's recipient; answers as the GET does         |
+| `forgetUser(userId)`                          | `POST /users/forget`              | Stop the user's journeys and erase their data                             |
+| `deploy(bundle)`                              | `POST /deploy`                    | Deploy a compiled bundle                                                  |
 
 Pass an `id` to `track` whenever a caller may retry; see
 [Give each event an `id`](#give-each-event-an-id).
+
+`getSubscriptions` and `setSubscriptions` are typed by the contract's
+`subscriptions.topics`, and a topic it does not declare is refused before the
+request. The record is topic × channel: `email` and `push` each list every
+topic. A preference page is a thin proxy over them:
+
+```ts
+const { email, push } = await journeys.getSubscriptions(userId);
+// email: { all: false, topics: { promotions: false, newsletter: true, tips: true } }
+// push:  { all: true, topics: { promotions: true, newsletter: true, tips: true } }
+// `all: false` masks every topic: newsletter reads true, but no email is sent until `all` is
+// true again. Each flag is its own record, so a preference page shows `all` as the master
+// switch and the topics as they are. Push is untouched by the email record.
+await journeys.setSubscriptions(userId, { email: { all: true } });
+// email: { all: true, topics: { promotions: false, newsletter: true, tips: true } }
+// `all: true` cleared only the all-email opt-out; promotions stays off until named:
+await journeys.setSubscriptions(userId, { email: { topics: { promotions: true } } });
+await journeys.setSubscriptions(userId, { email: { all: false } }); // unsubscribe from everything
+await journeys.setSubscriptions(userId, { push: { all: false } }); // the in-app "no promotional pushes"
+await journeys.setSubscriptions(userId, { push: { topics: { promotions: false } } }); // one category off, on push only
+```
+
+A "subscribe to all" button sends `all: true` plus every topic `true`; an
+"unsubscribe from all" sends `all: false` and leaves the topics as they are, so
+turning `all` back on restores the user's own choices.
+
+The same page opened from an email's footer, with no session, reads the `m` query parameter the
+`preferencesUrl` link carries and goes by the copy instead of the user (see
+[Email](#email)); a 404 (`JourneyClientError` with `status` 404) is an expired link:
+
+```ts
+// GET /api/email-preferences?m=<message id>, proxied by the app's API, rate-limited there
+const { email, push, message } = await journeys.getSubscriptionsByMessage(m);
+// message: { channel: 'email', topic: 'promotions' } — the email this page was opened from
+await journeys.setSubscriptionsByMessage(m, { email: { topics: { [message.topic]: false } } });
+```
 
 ## Compiling and planning
 
@@ -1016,13 +1150,24 @@ says `database: { schema }`, so their short names never meet the app's. The
 host owns the migrations. `npx workflow-ui generate --out <file>` (from
 `@shware/workflow-ui`) writes the tables as one drizzle file on that schema;
 re-export it from your drizzle schema and let drizzle-kit write the migration.
-Run `--check` in CI to catch an SDK upgrade that changed them. The unique index
+Run `--check` in CI to catch an SDK upgrade that changed them. The file is laid
+out the way a prettier-compatible formatter at 100 columns lays it out, so
+formatting it changes nothing and a regeneration shows only real changes. The unique index
 on `event` is on `(user_id, event_id)`: regenerate and migrate before deploying —
-the deploy check verifies the unique indexes as well as the columns, and refuses
+the deploy check verifies the unique indexes and constraints as well as the columns, and refuses
 to run until they match. Without drizzle,
 `renderPostgresDdl()` returns the same tables as plain DDL. Nothing creates or
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
+
+**Upgrading to 6.0 (topics).** `suppression` gains a nullable `topic`
+column, loses its `(user_id, channel)` primary key and gets a
+`UNIQUE NULLS NOT DISTINCT (user_id, channel, topic)` constraint (Postgres 15+),
+and `message` gains a nullable `topic` (written for email and push copies).
+Regenerate the drizzle file and let drizzle-kit write the migration; it needs no
+data step. Rows from before keep their meaning: a `suppression` row whose
+`topic` is null is an opt-out from the whole channel, which is what every
+unsubscribe recorded before topics was.
 
 ### Deploying is `wrangler deploy`
 
@@ -1090,14 +1235,40 @@ On Postgres the engine also keeps:
 - `POST /devices` takes `{ userId, token, platform, ts? }`;
   `POST /devices/unbind` and `POST /devices/remove` take `{ token }`.
 - `POST /messages/opened` takes `{ userId, messageId }`.
-- `POST /users/forget` takes `{ userId }`.
+- `GET /subscriptions/:userId` answers `{ email: { all, topics }, push: { all, topics } }`
+  (`true` is subscribed; each channel's `topics` has one key per topic the
+  deployed bundle declares). `PUT /subscriptions/:userId` takes a partial body
+  `{ email?: { all?, topics? }, push?: { all?, topics? } }` and changes only
+  what it names, per channel: `all: false` opts out of the whole channel,
+  `topics: { newsletter: false }` of one topic on it, and `all: true` clears
+  the channel-wide opt-out only (a topic opted out on its own stays off until
+  named). An answer's `all: false` masks every topic of that channel, whatever
+  the topic's own flag says. An undeclared topic, an unknown channel or a
+  non-boolean answers 400 with the field paths; an erased user 410. Changing
+  `email.all` wakes the waits on `reachable('email')`, `push.all` those on
+  `reachable('push')`.
+- `GET /subscriptions/by-message/:messageId` answers the same record for the
+  recipient of that copy, plus `message: { channel, topic }` (`channel` is
+  `email` or `push`, the channel the copy went out on); `PUT` takes the same
+  patch as `/subscriptions/:userId` and answers as the GET does. The message id
+  is the capability (the `m` of an email's `preferencesUrl` link), so the app
+  proxies and rate-limits these routes behind its own API; the bearer still
+  guards them. An id that names no copy — never sent, not a UUID, or erased
+  with its user — or a transactional copy (`topic` null) answers 404, the rule
+  `/t/u` applies; a user whose erasure is pending answers 410, as above.
+- `POST /users/forget` takes `{ userId }`; the erasure takes the user's opt-outs
+  with the rest, since nothing is ever sent to that id again.
 - `POST /deploy` takes a compiled bundle and swaps the routing table atomically.
 
 `journeyWorker` adds `GET /bundle` (the compiled config), `POST /bundle/deploy`
 (deploy it), `GET /preview/<key>`, `POST /segments/sweep`, and the `/t/...`
-tracking routes recipients open, which need no bearer. With a contract, an
-event or identify it refuses is answered with a 400 and the field paths, before
-anything is stored, woken or started.
+tracking routes recipients open, which need no bearer. `POST /t/u/<message>`
+(the one-click unsubscribe, and the confirmation page's first button) opts the
+recipient out of that email's topic; with `?scope=all` (the second button) out
+of every email. A transactional email never carried the link, so every `/t/u`
+variant answers 404 for it. With a contract, an event or identify it refuses is
+answered with a 400 and the field paths, before anything is stored, woken or
+started.
 
 ### Give each event an `id`
 

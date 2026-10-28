@@ -76,6 +76,7 @@ const empty = z.strictObject({});
 export const plainEmail = (id: string) =>
   emailTemplate({
     id,
+    transactional: true,
     from: 'noreply@acme.test',
     title: id,
     props: empty,
@@ -86,6 +87,7 @@ export const plainEmail = (id: string) =>
 export const namedEmail = (id: string) =>
   emailTemplate({
     id,
+    transactional: true,
     from: 'noreply@acme.test',
     title: id,
     props: named,
@@ -96,6 +98,7 @@ export const namedEmail = (id: string) =>
 export const plainPush = (id: string) =>
   pushTemplate({
     id,
+    transactional: true,
     title: id,
     props: empty,
     preview: {},
@@ -104,6 +107,7 @@ export const plainPush = (id: string) =>
 export const namedPush = (id: string) =>
   pushTemplate({
     id,
+    transactional: true,
     title: id,
     props: named,
     preview: { name: 'A' },
@@ -112,6 +116,7 @@ export const namedPush = (id: string) =>
 
 export const upgradeRecovery = emailTemplate({
   id: 'u1_upgrade_recovery',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Upgrade recovery',
   props: plan,
@@ -122,6 +127,7 @@ export const upgradeRecovery = emailTemplate({
 export const firstTimeRecovery = plainEmail('n1_first_time_recovery');
 export const limitedTimeOffer = emailTemplate({
   id: 'n2_limited_time_offer',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Limited time offer',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),

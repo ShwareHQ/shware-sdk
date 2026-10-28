@@ -1,5 +1,20 @@
 # @shware/workflow-ui
 
+## 2.1.5
+
+### Patch Changes
+
+- Updated dependencies [3368cd5]
+  - @shware/workflow@6.0.0
+
+## 2.1.4
+
+### Patch Changes
+
+- ac5cb31: Update dependencies to their latest versions within the declared ranges (react 19.3.1, @tanstack/* , posthog-js, jose, stripe, discord-api-types and the rest); `tsdown` stays pinned at 0.23.1 because 0.23.2 pulls a dts plugin that refuses TypeScript 7 without `isolatedDeclarations`.
+- Updated dependencies [ac5cb31]
+  - @shware/workflow@5.0.1
+
 ## 2.1.3
 
 ### Patch Changes

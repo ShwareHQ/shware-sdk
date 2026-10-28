@@ -291,6 +291,8 @@ export async function sendEvents(
     try {
       const response = await fetch(`${ENDPOINT}/${tagId}/events`, {
         method: 'POST',
+        // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
+        retries: 3,
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',

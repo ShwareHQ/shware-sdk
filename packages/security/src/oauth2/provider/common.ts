@@ -132,6 +132,8 @@ export async function verifyIdToken<T>(idToken: string, options: VerifyIdTokenOp
     return payload as T;
   } catch (error) {
     console.error('Failed to verify id_token', error);
-    throw new OAuth2Error(400, 'invalid_request', 'Failed to verify id_token');
+    // The token is the grant here: one for another audience or issuer is an invalid grant, not a
+    // malformed request.
+    throw new OAuth2Error(400, 'invalid_grant', 'Failed to verify id_token');
   }
 }

@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * The lock-screen half of U1: sent in the same step as the upgrade-recovery
@@ -7,6 +7,7 @@ import * as z from 'zod/mini';
  */
 export default pushTemplate({
   id: 'checkout_reminder_push',
+  topic: 'offers',
   title: 'Checkout · Reminder',
   description: 'Lands with the upgrade-recovery email an hour after an abandoned checkout.',
   props: z.strictObject({}),

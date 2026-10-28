@@ -7,6 +7,7 @@ export const registry = {
   email: {
     welcome: emailTemplate({
       id: 'welcome',
+      transactional: true,
       from: 'hello@acme.test',
       title: 'Welcome',
       props: z.strictObject({}),
@@ -18,6 +19,7 @@ export const registry = {
   push: {
     nudge: pushTemplate({
       id: 'nudge',
+      transactional: true,
       title: 'Nudge',
       props: z.strictObject({}),
       preview: {},

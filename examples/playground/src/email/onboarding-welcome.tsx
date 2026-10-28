@@ -1,10 +1,11 @@
-import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { emailTemplate } from '../workflows/schema';
 import { Cta, Heading, Paragraph, Shell } from './layout';
 import { senders } from './senders';
 
 export default emailTemplate({
   id: 'onboarding_welcome',
+  transactional: true,
   from: senders.hello,
   replyTo: senders.support,
   title: 'Welcome · Day 0',

@@ -4,7 +4,7 @@ import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { sendBeacon, sendPendingEvents, track } from '../track/index';
-import { getPageReferrer } from '../web/index';
+import { getPageLocation, getPageReferrer } from '../web/index';
 import { getPageKey } from '../web/page-key';
 
 function sendFirstVisit(pathname: string) {
@@ -13,7 +13,7 @@ function sendFirstVisit(pathname: string) {
     page_path: pathname,
     page_title: document.title,
     page_referrer: getPageReferrer(),
-    page_location: window.location.href,
+    page_location: getPageLocation(),
   });
   config.storage.setItem(keys.first_visit_time, new Date().toISOString());
 }
@@ -129,7 +129,7 @@ export function useWebAnalytics(pathname: string, search: string) {
       page_path: pathname,
       page_title: document.title,
       page_referrer: getPageReferrer(),
-      page_location: window.location.href,
+      page_location: getPageLocation(),
       previous_page_path: prevPathname,
       engagement_time_msec: prevPathname === undefined ? undefined : getSession().flush(),
     });

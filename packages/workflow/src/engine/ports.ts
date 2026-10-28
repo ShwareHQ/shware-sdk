@@ -90,8 +90,12 @@ export interface FactSource {
   getSegmentCondition(name: string): Promise<ConditionIR | undefined>;
   /** The user's push devices, most recently registered first (empty when the user registered none). */
   listDevices(): Promise<PushDevice[]>;
-  /** The user opted out of the channel (an email unsubscribe): nothing is sent there. */
-  isSuppressed?(channel: ChannelIR): Promise<boolean>;
+  /**
+   * The user opted out of the channel (an email unsubscribe, a push opt-out in the app): nothing
+   * is sent there. With a `topic`, an opt-out of that topic on the channel counts too; without
+   * one, only the channel-wide opt-out.
+   */
+  isSuppressed?(channel: ChannelIR, topic?: string): Promise<boolean>;
 }
 
 export interface OutboundMessage {
@@ -112,6 +116,8 @@ export interface OutboundMessage {
   recipient?: string | undefined;
   /** Push only: the device this copy goes to — its platform picks the provider. */
   device?: PushDevice | undefined;
+  /** Email and push: the template's subscription topic, null for a transactional message (absent for other channels). */
+  topic?: string | null | undefined;
   /**
    * `${instanceId}:${nodeId}` (plus `:${token}` for a push copy) — one per copy, stable across
    * replays and retries. The engine skips a copy the observer reports settled
@@ -134,6 +140,12 @@ export type LinkPurpose = 'link' | 'unsubscribe';
  * Each is optional, and a sender ignores what its channel has no use for.
  */
 export interface MessageTracking {
+  /**
+   * The copy's id in the reporting tables: what its tracking URLs name, and what an email's
+   * preferences link carries (`email.preferencesUrl`), so the app's page can read the recipient's
+   * subscriptions by it. The email sender hands it to the renderer.
+   */
+  messageId?: string;
   /**
    * The original `http(s)` URL in, the URL that records the click and redirects out — or, for the
    * email's unsubscribe link, asks the recipient to confirm.

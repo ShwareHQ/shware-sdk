@@ -168,6 +168,8 @@ export async function sendEvents(
       `https://ads-api.reddit.com/api/v3/pixels/${pixelId}/conversion_events`,
       {
         method: 'POST',
+        // Retried although a POST: the platform deduplicates on the `conversion_id` each event carries.
+        retries: 3,
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',

@@ -3,9 +3,52 @@ import type { UserProvidedData as GAUserProvidedData, StandardEvents } from './g
 export type AllowedPropertyValues = string | number | boolean | null;
 export type EventName = Lowercase<string> | 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB';
 
-export type TrackName<T extends EventName = EventName> = T extends keyof StandardEvents
-  ? T
-  : EventName;
+/**
+ * Type-level switches an application turns on by declaration merging, the way it fills
+ * `CustomEventProperties` — usually in the same file:
+ *
+ * ```ts
+ * declare module '@shware/analytics' {
+ *   interface AnalyticsOptions {
+ *     strict: true;
+ *   }
+ * }
+ * ```
+ *
+ * - `strict: true` — strict events: every function that takes an event name (`track`, `trackOnce`,
+ *   `sendBeacon`, `useTrackImpression`, the third-party senders) accepts only
+ *   GA4's standard events and the events declared in `CustomEventProperties`: a misspelled or
+ *   undeclared name (`'purchse'`, `'begin_checkout '`) is a compile error instead of a new event.
+ *
+ * Empty by default, so nothing changes for an application that never merges into it.
+ */
+// oxlint-disable-next-line typescript/no-empty-object-type
+export interface AnalyticsOptions {}
+
+/** Whether the application turned on `AnalyticsOptions['strict']`. */
+type Strict = AnalyticsOptions extends { strict: true } ? true : false;
+
+/**
+ * The names `track` accepts with `strict` on: GA4's standard events and the events
+ * the application declared. Only declared keys that are themselves valid event names, so the
+ * set stays within `EventName`.
+ */
+export type DeclaredEventName =
+  | keyof StandardEvents
+  | Extract<keyof CustomEventProperties, EventName>;
+
+/**
+ * The type of an event-name parameter. `T` is inferred from the argument through both branches;
+ * the false branch is what the argument is checked against when it is not a known event — any
+ * event name by default, only a declared one with `strict` on.
+ */
+export type TrackName<T extends EventName = EventName> = Strict extends true
+  ? T extends DeclaredEventName
+    ? T
+    : DeclaredEventName
+  : T extends keyof StandardEvents
+    ? T
+    : EventName;
 
 /**
  * Properties an application defines for its own events, keyed by event name.
@@ -13,7 +56,8 @@ export type TrackName<T extends EventName = EventName> = T extends keyof Standar
  * Empty here on purpose. Applications fill it by declaration merging, and it does two jobs:
  * it adds custom properties to GA4's standard events, which are otherwise closed shapes and
  * would need a cast; and it gives an application's own events a real type instead of the
- * open record they fall back to.
+ * open record they fall back to. With `AnalyticsOptions['strict']` on, it is also the
+ * list of the custom event names `track` accepts.
  *
  * ```ts
  * declare module '@shware/analytics' {
@@ -52,7 +96,11 @@ export type TrackProperties<T extends EventName = EventName> = T extends keyof S
   ? StandardEvents[T] & CustomPropertiesFor<T>
   : T extends keyof CustomEventProperties
     ? CustomEventProperties[T]
-    : Record<Lowercase<string>, AllowedPropertyValues>;
+    : // With `strict` on, an undeclared event cannot be tracked, so it has no
+      // properties to type; the open record is only the loose mode's fallback.
+      Strict extends true
+      ? never
+      : Record<Lowercase<string>, AllowedPropertyValues>;
 
 export type Platform = 'ios' | 'android' | 'web' | 'macos' | 'windows' | 'linux' | 'unknown';
 export type Environment = 'development' | 'production';
@@ -82,11 +130,20 @@ export interface UserProvidedData extends GAUserProvidedData {
   fb_page_id?: string;
 }
 
+/**
+ * A browser pixel or app SDK an event is forwarded to. Called synchronously when the event is
+ * tracked, before it is sent, with `event_id` — the client-generated id the event is stored and
+ * sent to the conversions APIs under — as the platform's deduplication id.
+ *
+ * Returning `false` means "not ready": the pixel's global (`fbq`, `rdt`, `gtag`, …) is not on the
+ * page yet, its snippet still loading. The SDK then calls the tracker once more, with the same
+ * event and id, on the next macrotask. Any other return value (`void` included) is a handled call.
+ */
 export type ThirdPartyTracker = <T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>,
   event_id?: string
-) => void;
+) => void | boolean;
 
 export interface PlatformInfo {
   os?: string;
@@ -387,7 +444,15 @@ export interface TrackEvent<T extends EventName = EventName> {
   created_at: string;
 }
 
+/**
+ * What `POST /events` answers: one `{ id }` per event, in the order sent.
+ *
+ * Since 12.1 the client generates each event's id and sends it in the DTO; the SDK no longer
+ * reads this answer, and `onSucceed` reports the client's id. Servers keep answering it for
+ * clients before 12.1, which fire their pixels with the id found here. To be removed in the next
+ * major.
+ */
 export type TrackEventResponse = {
-  /** track event id: Meta Pixel will use event_id and event_name for deduplication */
+  /** The event's id, the one the pixels and the conversions APIs deduplicate on. */
   id: string;
 }[];

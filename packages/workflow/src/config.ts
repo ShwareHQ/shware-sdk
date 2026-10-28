@@ -1,14 +1,16 @@
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
-import type { Contract } from './contract';
+import type { Contract, Topic } from './contract';
 import { type ActionRef, type SegmentRef, type WorkflowBuilder, compileBundle } from './dsl';
 import { templateUses } from './dsl/flow';
-import { type EmailConfig, assertEmailConfig } from './email';
+import { type EmailConfig, assertEmailConfig, assertTemplateTopic } from './email';
 import type { BundleIR, ChannelIR, NodeIR, WorkflowIR } from './ir';
 import type { JourneyMode, JourneyRuntimeConfig } from './runtime';
 import {
   type AnyTemplate,
   CHANNEL_OF,
+  type EmailTemplate,
+  type PushTemplate,
   type TemplateChannel,
   type TemplateRegistry,
   indexTemplates,
@@ -89,16 +91,20 @@ export interface DatabaseConfig {
   schema?: string;
 }
 
-export interface JourneyConfigDefinition {
+export interface JourneyConfigDefinition<C extends Contract | undefined = Contract | undefined> {
   /** Studio title (the browser tab names the project). */
   title?: string;
   /** The shared `defineContract(...)` the Worker validates ingest against. */
-  contract?: Contract;
+  contract?: C;
   workflows: readonly WorkflowBuilder[];
   segments?: readonly SegmentRef[];
   actions?: readonly ActionRef[];
-  /** The template definitions, per channel; each is identified by its own `id`. */
-  templates?: TemplateRegistry;
+  /**
+   * The template definitions, per channel; each is identified by its own `id`. With a
+   * `contract`, an email or push template's `topic` must be one it declares — in the editor
+   * here, and at compile for anything the types did not see.
+   */
+  templates?: TemplateRegistry<Topic<C>>;
   /** What every email template shares: the default unsubscribe link, how opens and clicks are judged. */
   email?: EmailConfig;
   /** How the engine behaves per mode (`development`, `production`, …): time scale, message logging. */
@@ -114,8 +120,10 @@ export interface JourneyConfig extends JourneyConfigDefinition {
   readonly kind: 'journey-config';
 }
 
-export function defineConfig(definition: JourneyConfigDefinition): JourneyConfig {
-  return { kind: 'journey-config', ...definition };
+export function defineConfig<C extends Contract | undefined = undefined>(
+  definition: JourneyConfigDefinition<C>
+): JourneyConfig {
+  return { kind: 'journey-config', ...(definition as JourneyConfigDefinition) };
 }
 
 export function isConfig(value: unknown): value is JourneyConfig {
@@ -142,7 +150,9 @@ export class ConfigCompileError extends Error {
  * by id, not a hand-kept list). The registry is checked first, used or not:
  * every entry is a template of its channel with an id, an id is registered
  * once per channel, and every email template's metadata is valid, as is the
- * config's `email` (which replaced `emails`: a config still carrying it fails).
+ * config's `email` (which replaced `emails`: a config still carrying it fails),
+ * and every email and push template's `topic` is one the contract declares (a
+ * template with a topic under a config whose contract declares none fails too).
  * Then every message node is checked against it — an
  * unregistered or cross-channel template fails with the workflow, node and
  * channel named, and so does a literal prop the template's schema refuses (a
@@ -156,10 +166,17 @@ export function compileConfig(config: JourneyConfig): BundleIR {
   let index: RegistryIndex;
   try {
     const email = indexTemplates('email', config.templates?.email);
+    const push = indexTemplates('push', config.templates?.push);
     assertEmailConfig(config, email.values());
+    for (const template of push.values()) {
+      assertTemplateTopic(template, `push template '${template.id}'`, 'push', true);
+    }
+    const declared = config.contract?.topics ?? [];
+    assertTopicsDeclared('email', email.values(), declared);
+    assertTopicsDeclared('push', push.values(), declared);
     index = {
       email,
-      push: indexTemplates('push', config.templates?.push),
+      push,
       discord: indexTemplates('discord', config.templates?.discord),
       slack: indexTemplates('slack', config.templates?.slack),
     };
@@ -171,6 +188,7 @@ export function compileConfig(config: JourneyConfig): BundleIR {
     ...(config.segments === undefined ? {} : { segments: config.segments }),
     ...(config.actions === undefined ? {} : { actions: config.actions }),
     templates: TEMPLATE_CHANNELS.flatMap((channel) => [...index[channel].values()]),
+    subscriptions: { topics: config.contract?.topics ?? [] },
   });
   bundle.workflows.forEach((workflow, i) => {
     checkMessages(workflow, workflow.flow, index, config);
@@ -180,6 +198,29 @@ export function compileConfig(config: JourneyConfig): BundleIR {
 }
 
 const TEMPLATE_CHANNELS = ['email', 'push', 'discord', 'slack'] as const;
+
+/**
+ * Every topic template names a topic the contract declares: the engine checks opt-outs by topic,
+ * so one the producer cannot set (`JourneyClient.setSubscriptions`) would be a topic nobody
+ * can opt out of through the app.
+ */
+function assertTopicsDeclared(
+  channel: 'email' | 'push',
+  templates: Iterable<EmailTemplate | PushTemplate>,
+  declared: readonly string[]
+) {
+  const known = new Set(declared);
+  for (const template of templates) {
+    if (template.topic === null || known.has(template.topic)) continue;
+    const list =
+      declared.length === 0
+        ? 'the contract declares no topics (defineContract({ subscriptions: { topics: [...] } }))'
+        : `the contract declares ${declared.map((topic) => `'${topic}'`).join(', ')}`;
+    throw new TypeError(
+      `${channel} template '${template.id}': topic '${template.topic}' is not declared — ${list}`
+    );
+  }
+}
 
 /** The registry by id, per channel. */
 type RegistryIndex = Record<TemplateChannel, ReadonlyMap<string, AnyTemplate>>;

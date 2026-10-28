@@ -1,5 +1,20 @@
 # @shware/http
 
+## 4.0.2
+
+### Patch Changes
+
+- ac5cb31: Update dependencies to their latest versions within the declared ranges (react 19.3.1, @tanstack/* , posthog-js, jose, stripe, discord-api-types and the rest); `tsdown` stays pinned at 0.23.1 because 0.23.2 pulls a dts plugin that refuses TypeScript 7 without `isolatedDeclarations`.
+- Updated dependencies [ac5cb31]
+  - @shware/utils@2.0.1
+
+## 4.0.1
+
+### Patch Changes
+
+- Updated dependencies [214e552]
+  - @shware/utils@2.0.0
+
 ## 4.0.0
 
 ### Major Changes

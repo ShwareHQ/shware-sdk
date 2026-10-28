@@ -1,10 +1,11 @@
-import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { emailTemplate } from '../workflows/schema';
 import { Cta, FinePrint, Heading, Paragraph, Shell } from './layout';
 import { senders } from './senders';
 
 export default emailTemplate({
   id: 'u1_upgrade_recovery',
+  topic: 'offers',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Upgrade Recovery',

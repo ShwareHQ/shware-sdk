@@ -1,5 +1,6 @@
 import { invariant } from '@shware/utils';
 import ms from 'ms';
+import { type Catalog, assertCatalog, assertDeclared, assertInNamespace } from '../catalog';
 import type { Metadata } from '../types';
 
 export type PriceId = `price_${string}`;
@@ -13,6 +14,8 @@ export type PriceId = `price_${string}`;
 export type StripeMode = 'live' | 'test';
 
 const addMethod = Symbol('addMethod');
+/** The private constructor's one door, for this module's `define` function only. */
+const construct = Symbol('construct');
 
 class Product<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -82,7 +85,12 @@ class Product<
   };
 }
 
-type Options = {
+/** `plans` and `billingPeriods` are the order {@link StripeConfig.comparePlans} reads. */
+type Options<NS extends Lowercase<string>, PE extends string, BP extends string> = Catalog<
+  NS,
+  PE,
+  BP
+> & {
   mode: StripeMode;
   returnUrl: string;
   cancelUrl: string;
@@ -90,6 +98,16 @@ type Options = {
   cancellationCouponId: string;
   allowPromotionCodes: boolean;
 };
+
+/**
+ * How a switch between two subscription products relates them, by plan level first and billing
+ * period second:
+ * - `upgrade` / `downgrade`: a higher or lower plan, whatever the periods.
+ * - `longer` / `shorter`: the same plan billed over a longer or shorter period (monthly → yearly
+ *   is `longer`). Apple calls these crossgrades.
+ * - `same`: the same plan and period.
+ */
+export type PlanComparison = 'upgrade' | 'downgrade' | 'longer' | 'shorter' | 'same';
 
 export class StripeConfig<
   NS extends Lowercase<string> = Lowercase<string>,
@@ -106,6 +124,9 @@ export class StripeConfig<
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
   public cancellationCouponId: string;
   public allowPromotionCodes: boolean;
+  public readonly namespace: NS;
+  public readonly plans: readonly PE[];
+  public readonly billingPeriods: readonly BP[];
 
   get productIds(): string[] {
     return Array.from(this.products.keys());
@@ -115,6 +136,12 @@ export class StripeConfig<
   // protects a single fluent chain, not statement-style re-entry or casts
   [addMethod] = (product: Product<NS, PE, BP, PL, PI>) => {
     invariant(!this.products.has(product.id), `Duplicate product ${product.id}`);
+    // A Stripe price belongs to one Stripe product, and getProductId must have one answer.
+    for (const existing of this.products.values()) {
+      for (const priceId of product.prices.keys()) {
+        invariant(!existing.prices.has(priceId), `Duplicate price ${priceId} on ${existing.id}`);
+      }
+    }
     if (product.plan !== null) {
       for (const existing of this.products.values()) {
         invariant(
@@ -127,7 +154,11 @@ export class StripeConfig<
     return this;
   };
 
-  private constructor(options: Options) {
+  private constructor(options: Options<NS, PE, BP>) {
+    assertCatalog(options);
+    this.namespace = options.namespace;
+    this.plans = options.plans;
+    this.billingPeriods = options.billingPeriods;
     this.mode = options.mode;
     this.returnUrl = options.returnUrl;
     this.cancelUrl = options.cancelUrl;
@@ -136,11 +167,9 @@ export class StripeConfig<
     this.allowPromotionCodes = options.allowPromotionCodes;
   }
 
-  static create = <NS extends Lowercase<string>, PE extends string, BP extends string = string>(
-    options: Options
-  ) => {
-    return new StripeConfig<NS, PE, BP>(options);
-  };
+  static [construct] = <NS extends Lowercase<string>, PE extends string, BP extends string>(
+    options: Options<NS, PE, BP>
+  ) => new StripeConfig<NS, PE, BP>(options);
 
   /**
    * One-time products take no extra args; subscriptions require both plan and billingPeriod.
@@ -155,9 +184,12 @@ export class StripeConfig<
       plan: L,
       billingPeriod: `${L}:${P}` extends PL ? never : P
     ): Product<NS, PE, BP, `${L}:${P}` | PL, K | PI>;
-  } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) =>
+  } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) => {
+    assertInNamespace(this.namespace, productId);
+    assertDeclared(this, plan, billingPeriod);
     // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- widens to the overloads' accumulated generics
-    new Product(this, productId, plan, billingPeriod) as never;
+    return new Product(this, productId, plan, billingPeriod) as never;
+  };
 
   getPlan = (productId: string): PE => {
     const product = this.products.get(productId);
@@ -179,12 +211,52 @@ export class StripeConfig<
     return product.plan === null ? 'payment' : 'subscription';
   };
 
+  /**
+   * Whether the config declares `productId` and sells it as a subscription, so `getPlan` and
+   * `getBillingPeriod` hold for it. False, not a throw, for an id it does not know: a product that
+   * left the config (renamed, retired) or one named by metadata set outside the app.
+   */
+  isSubscription = (productId: string): boolean => {
+    const product = this.products.get(productId);
+    return product !== undefined && product.plan !== null;
+  };
+
   /** The price new checkouts are created with: the default, or its test twin in test mode. */
   getPriceId = (productId: string): PriceId => {
     const product = this.products.get(productId);
     invariant(product, `Product not found for ${productId}`);
     invariant(product.defaultPriceId, `Default price not found for product ${productId}`);
     return product.defaultPriceId;
+  };
+
+  /**
+   * The product that declares `priceId` (a legacy price or the test twin included), or null for a
+   * price this config does not know: one set up by hand in the dashboard, or a test price reaching
+   * a live config. Reading the product from the price a Stripe object charged, rather than from
+   * metadata that may already name the next plan, is what an invoice should be credited by.
+   */
+  getProductId = (priceId: string): string | null => {
+    for (const product of this.products.values()) {
+      if (product.prices.has(priceId as PriceId)) return product.id;
+    }
+    return null;
+  };
+
+  /**
+   * How switching from one subscription product to another relates them (see
+   * {@link PlanComparison}), by the order `plans` and `billingPeriods` were declared in. Throws for
+   * a product that is not a subscription.
+   */
+  comparePlans = (fromProductId: string, toProductId: string): PlanComparison => {
+    const level = (productId: string) => ({
+      plan: this.plans.indexOf(this.getPlan(productId)),
+      period: this.billingPeriods.indexOf(this.getBillingPeriod(productId)),
+    });
+    const from = level(fromProductId);
+    const to = level(toProductId);
+    if (to.plan !== from.plan) return to.plan > from.plan ? 'upgrade' : 'downgrade';
+    if (to.period !== from.period) return to.period > from.period ? 'longer' : 'shorter';
+    return 'same';
   };
 
   getCreditAmount = (productId: string, priceId?: string): number => {
@@ -217,4 +289,17 @@ export class StripeConfig<
     const expiresIn = this.getCreditExpiresIn(productId, priceId);
     return new Date(Date.now() + expiresIn).toISOString();
   };
+}
+
+/**
+ * Declare the Stripe product catalog. Every type parameter is inferred from the options:
+ * the namespace from `namespace`, the plans and billing periods from `plans` and `billingPeriods`
+ * (`const`, so a literal array needs no `as const`). Products are then added with the fluent chain.
+ */
+export function defineStripeConfig<
+  const NS extends Lowercase<string>,
+  const PE extends string,
+  const BP extends string,
+>(options: Options<NS, PE, BP>): StripeConfig<NS, PE, BP> {
+  return StripeConfig[construct](options);
 }

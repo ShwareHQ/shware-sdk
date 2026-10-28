@@ -10,7 +10,9 @@ import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
  *   GET /t/u/<message>/<position>  the unsubscribe link: records the click, asks to confirm
  *   GET  /t/u/<message>            the List-Unsubscribe header's URL, opened: asks to confirm
  *   POST /t/u/<message>            the unsubscribe confirmation, and the header's one-click
- *                                  unsubscribe (RFC 8058: a mail client's button posts here)
+ *                                  unsubscribe (RFC 8058: a mail client's button posts here):
+ *                                  opts out of the email's topic; `?scope=all` (the page's
+ *                                  second button) of every email
  *   POST /t/d/<message>            a push the device received (iOS's notification service
  *                                  extension, a browser's service worker)
  *   POST /t/p/<message>            a push opened, reported by a browser's service worker
@@ -20,8 +22,10 @@ import { BURST_WINDOW_MS, classifyClick, classifyOpen } from './classify';
  * never to one the request carries, so the endpoint cannot bounce visitors anywhere else. An
  * email's unsubscribe link is a tracked link too, and which link it is was fixed when the email was
  * sent (its route): following it shows a confirmation page, and only the confirmation — a POST,
- * which no link scanner sends — counts. Changing a template's or the config's unsubscribe URL, or
- * removing the template, changes nothing for emails already sent.
+ * which no link scanner sends — counts. The page offers the email's topic (the default, and what
+ * a mail client's one-click POST does) and every email. Changing a template's or the config's
+ * unsubscribe URL, or removing the template, changes nothing for emails already sent. A
+ * transactional email (no topic) never carried the link: every `/t/u` variant answers 404 for it.
  */
 
 export interface TrackingOptions {
@@ -34,12 +38,19 @@ export interface TrackingOptions {
     | ((open: { messageId: string; userId: string; at: number }) => Promise<void>)
     | undefined;
   /**
-   * An unsubscribe was recorded (`POST /t/u`): the host wakes the user's waits that read email
-   * reachability, so an `exitWhen: not(reachable('email'))` takes effect at once. Its failure is
-   * logged, never a reason to fail the unsubscribe.
+   * An unsubscribe was recorded (`POST /t/u`): from the email's `topic`, or with `all` from every
+   * email — then the host wakes the user's waits that read email reachability, so an
+   * `exitWhen: not(reachable('email'))` takes effect at once. Its failure is logged, never a
+   * reason to fail the unsubscribe.
    */
   onUnsubscribed?:
-    | ((unsubscribe: { messageId: string; userId: string; at: number }) => Promise<void>)
+    | ((unsubscribe: {
+        messageId: string;
+        userId: string;
+        at: number;
+        topic: string;
+        all: boolean;
+      }) => Promise<void>)
     | undefined;
 }
 
@@ -48,6 +59,9 @@ const GIF = Uint8Array.from(
   (char) => char.charCodeAt(0)
 );
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether `id` has the shape of a message id (a UUID); anything else names no copy. */
+export const isMessageId = (id: string): boolean => UUID.test(id);
 
 interface Requester {
   method: string;
@@ -94,11 +108,12 @@ export async function handleTracking(
   if ((kind === 'l' || kind === 'u') && position !== undefined && read) {
     const target = await recordClick(reporting, id, Number(position), who, options);
     if (target === undefined) return page(options, 'This link has expired.', 404);
-    if (kind === 'u') return confirmUnsubscribe(options, id);
+    if (kind === 'u') return confirmUnsubscribe(reporting, options, id);
     return Response.redirect(target, 302);
   }
   // The List-Unsubscribe URL opened in a browser (a client without one-click): the same question
-  if (kind === 'u' && position === undefined && read) return confirmUnsubscribe(options, id);
+  if (kind === 'u' && position === undefined && read)
+    return confirmUnsubscribe(reporting, options, id);
   if (kind === 'd' && who.method === 'POST') {
     const known = await reporting.recordDeviceDelivered(id, Date.now());
     return new Response(null, { status: known ? 204 : 404 });
@@ -123,34 +138,65 @@ export async function handleTracking(
   }
   if (kind === 'u' && who.method === 'POST') {
     const at = Date.now();
-    const unsubscribed = await reporting.recordUnsubscribe(id, at);
+    // The page's "all emails" button; a mail client's one-click POST carries no scope
+    const all = url.searchParams.get('scope') === 'all';
+    const unsubscribed = await reporting.recordUnsubscribe(id, at, all ? 'all' : 'topic');
     // A mail client's one-click POST must succeed: for a copy no longer on record (its user
     // erased) there is nothing left to send to, so the answer is the same
     if (unsubscribed === undefined) return page(options, "You won't get these emails anymore.");
+    // A transactional email never carried the link
+    if (unsubscribed.topic === null) return page(options, 'This link has expired.', 404);
     if (options.onUnsubscribed !== undefined) {
       try {
-        await options.onUnsubscribed({ messageId: id, userId: unsubscribed.userId, at });
+        await options.onUnsubscribed({
+          messageId: id,
+          userId: unsubscribed.userId,
+          at,
+          topic: unsubscribed.topic,
+          all,
+        });
       } catch (error) {
         console.error(`[workflow] acting on the unsubscribe of ${id} failed`, error);
       }
     }
+    const from = options.product === undefined ? '' : ` from ${escape(options.product)}`;
     return page(
       options,
-      options.product === undefined
-        ? "You won't get these emails anymore."
-        : `You won't get these emails from ${escape(options.product)} anymore.`
+      all
+        ? `You won't get emails${from} anymore.`
+        : `You won't get ${escape(topicName(unsubscribed.topic))} emails${from} anymore.`
     );
   }
   return undefined;
 }
 
-/** The question an unsubscribe link, or the List-Unsubscribe URL opened in a browser, asks. */
-function confirmUnsubscribe(options: TrackingOptions, id: string): Response {
+/** A topic id as the page shows it: `product_updates` reads as "product updates". */
+function topicName(topic: string): string {
+  return topic.replace(/[_-]+/g, ' ');
+}
+
+/**
+ * The question an unsubscribe link, or the List-Unsubscribe URL opened in a browser, asks: the
+ * email's topic (the default), or every email. A copy nobody knows, or a transactional one (the
+ * link was never in it), is an expired link.
+ */
+async function confirmUnsubscribe(
+  reporting: JourneyReporting,
+  options: TrackingOptions,
+  id: string
+): Promise<Response> {
+  const message = await reporting.lookupMessage(id);
+  if (message?.channel !== 'email' || message.topic === null) {
+    return page(options, 'This link has expired.', 404);
+  }
+  const product = options.product === undefined ? '' : ` from ${escape(options.product)}`;
+  const topic = escape(topicName(message.topic));
   return page(
     options,
-    `Unsubscribe from ${escape(options.product ?? 'these')} emails?`,
+    `Unsubscribe from ${topic} emails${product}?`,
     200,
-    `<form method="post" action="/t/u/${id}"><button type="submit">Unsubscribe</button></form>`
+    `<form method="post" action="/t/u/${id}"><button type="submit">Unsubscribe from ${topic}</button></form>` +
+      `<form method="post" action="/t/u/${id}?scope=all"><button type="submit" class="secondary">Unsubscribe from all emails</button></form>`
   );
 }
 
@@ -237,6 +283,6 @@ function escape(text: string): string {
 
 function page(options: TrackingOptions, message: string, status = 200, extra = ''): Response {
   const title = escape(options.product ?? 'Email');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#fafafa;color:#18181b}main{text-align:center;padding:24px}button{font:inherit;padding:10px 20px;border-radius:9999px;border:0;background:#18181b;color:#fff;cursor:pointer}</style></head><body><main><p>${message}</p>${extra}</main></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px system-ui;margin:0;display:grid;place-items:center;min-height:100vh;background:#fafafa;color:#18181b}main{text-align:center;padding:24px}form{margin:12px 0}button{font:inherit;padding:10px 20px;border-radius:9999px;border:0;background:#18181b;color:#fff;cursor:pointer}button.secondary{background:#e4e4e7;color:#18181b}</style></head><body><main><p>${message}</p>${extra}</main></body></html>`;
   return new Response(html, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
 }

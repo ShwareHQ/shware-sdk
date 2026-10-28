@@ -1,11 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { PRINCIPAL_NAME_INDEX_NAME, resolveIndexesFor } from './common';
+import { PRINCIPAL_NAME_INDEX_NAME, principalNameOf } from './common';
 import { MapSession } from './map-session';
 import type { SessionRepository } from './types';
 
 interface SessionEntity {
   primaryId: string;
   sessionId: string;
+  /**
+   * Set on the entity `save` hands the adapter: `true` for a session created in this request and
+   * never stored, `false` for one the adapter returned from `findById` / `findByPrincipalName`. As
+   * in Spring Session's `JdbcIndexedSessionRepository`, it is what decides between an INSERT and
+   * an UPDATE — an UPDATE that touches no row then means the session was deleted meanwhile
+   * (logout, kick) and must not be written back. Absent on entities the adapter returns.
+   */
+  isNew?: boolean;
   creationTime: number;
   lastAccessTime: number;
   maxInactiveInterval: number;
@@ -51,11 +59,12 @@ export class DBIndexedSessionRepository implements SessionRepository<DBSession> 
     for (const name of session.getAttributeNames()) {
       attributes[name] = session.getAttribute(name);
     }
-    const principalName = resolveIndexesFor(session);
+    const principalName = principalNameOf(session);
 
     return {
       primaryId: session.primaryId,
       sessionId: session.getId(),
+      isNew: session.isNew,
       creationTime: session.getCreationTime(),
       lastAccessTime: session.getLastAccessedTime(),
       maxInactiveInterval: session.getMaxInactiveInterval(),

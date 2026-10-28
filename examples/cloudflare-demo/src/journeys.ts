@@ -1,4 +1,5 @@
-import { action, event, performed, segment, trigger, user, workflow } from '@shware/workflow';
+import { action, performed, segment, trigger, workflow } from '@shware/workflow';
+import { contract } from './contract';
 import { email } from './email';
 
 /**
@@ -7,22 +8,8 @@ import { email } from './email';
  * render and send → goal exit.
  */
 
-type Empty = Record<string, never>;
-
-interface DemoEvent {
-  demo_signup: Empty;
-  demo_click: Empty;
-  demo_purchase: { value: number };
-}
-
-interface DemoUser {
-  userId: string;
-  email: string;
-  plan: string;
-}
-
-const e = event<DemoEvent>();
-export const u = user<DemoUser>();
+const e = contract.events;
+export const u = contract.user;
 
 // email.typo ← fails to compile: there is no such template
 

@@ -428,6 +428,7 @@ describe('EmailSender', () => {
     const sender = new EmailSender({
       render: async () => ({
         from: 'hi@acme.test',
+        topic: 'newsletter',
         replyTo: 'support@acme.test',
         unsubscribeUrl: 'https://acme.test/unsubscribe',
         subject: 'Welcome',
@@ -493,11 +494,17 @@ describe('List-Unsubscribe headers', () => {
       },
     };
     const newsletter = new EmailSender({
-      render: async () => ({ from: 'hi@acme.test', unsubscribeUrl: page, subject: 'S', html: '' }),
+      render: async () => ({
+        from: 'hi@acme.test',
+        topic: 'newsletter',
+        unsubscribeUrl: page,
+        subject: 'S',
+        html: '',
+      }),
       transport,
     });
     const receipt = new EmailSender({
-      render: async () => ({ from: 'hi@acme.test', subject: 'Receipt', html: '' }),
+      render: async () => ({ from: 'hi@acme.test', topic: null, subject: 'Receipt', html: '' }),
       transport,
     });
     const copy = {

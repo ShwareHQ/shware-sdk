@@ -40,9 +40,14 @@ import {
 
 - `PLATFORMS`: `'APPLE' | 'GOOGLE' | 'STRIPE'`.
 - `SUBSCRIPTION_STATUSES`: the union of every store's states (`TRIALING`, `ACTIVE`,
-  `IN_GRACE_PERIOD`, `PAST_DUE`, `ON_HOLD`, `PAUSED`, `CANCELED`, `EXPIRED`, ...). Each platform
+  `IN_GRACE_PERIOD`, `PAST_DUE`, `BILLING_RETRY`, `ON_HOLD`, `PAUSED`, `CANCELED`, `EXPIRED`, ...). Each platform
   mapper returns one of these.
-- `AVAILABLE_STATUSES`: `ACTIVE`, `TRIALING`, `IN_GRACE_PERIOD`, the statuses that grant access.
+- `AVAILABLE_STATUSES`: `ACTIVE`, `TRIALING`, `IN_GRACE_PERIOD`, `PAST_DUE`, the statuses that
+  grant access. A failing renewal keeps access while the store retries and means the customer to
+  be served: `IN_GRACE_PERIOD` on the App Store and Play, `PAST_DUE` on Stripe (Smart Retries are
+  Stripe's grace period). It loses access once the store has given up (`UNPAID`) or retries
+  without serving the customer: `BILLING_RETRY` (an App Store billing retry without a grace
+  period) and `ON_HOLD` (Play's account hold).
 - `CancellationDetails`: why a subscription stopped renewing, one record for all platforms:
   `initiator` (`CANCELLATION_INITIATORS`: `user`, `system`, `developer`), the store's own `reason`,
   `feedback` (`CANCELLATION_FEEDBACKS`), `comment` and `resubscribeIntent` (`RESUBSCRIBE_INTENTS`).
@@ -63,19 +68,24 @@ const entitled = (AVAILABLE_STATUSES as readonly SubscriptionStatus[]).includes(
 
 ## Product catalogs
 
-Each config is built with a fluent, type-checked chain. Type parameters are the product id
-namespace, your plan type and your billing period type; product ids must start with the namespace,
-and duplicate products or plan/period pairs fail at compile time and at runtime. Credit metadata
+Each config is built with a fluent, type-checked chain. Every config takes the product id
+`namespace`, your `plans` (lowest tier first) and your `billingPeriods` (shortest first), and infers
+its types from them, so no type arguments are needed; a config with no subscriptions passes empty
+arrays. Product ids must start with the namespace, plans and periods must be declared ones, and
+duplicate products or plan/period pairs fail at compile time and at runtime. Credit metadata
 is `{ credits: number; expiresIn: string }` where `expiresIn` is an
 [`ms`](https://github.com/vercel/ms) duration.
 
 ```ts
-import { AppStoreConfig, GooglePlayConfig, StripeConfig } from '@shware/purchase';
+import { defineAppStoreConfig, defineGooglePlayConfig, defineStripeConfig } from '@shware/purchase';
 
-type Plan = 'STARTER' | 'PRO';
-type BillingPeriod = 'MONTHLY' | 'YEARLY';
+const PLANS = ['STARTER', 'PRO'] as const;
+const BILLING_PERIODS = ['MONTHLY', 'YEARLY'] as const;
 
-export const stripe = StripeConfig.create<'com.example.stripe', Plan, BillingPeriod>({
+export const stripe = defineStripeConfig({
+  namespace: 'com.example.stripe',
+  plans: PLANS,
+  billingPeriods: BILLING_PERIODS,
   mode: env.STRIPE_SECRET_KEY.startsWith('sk_test_') ? 'test' : 'live',
   allowPromotionCodes: false,
   cancellationCouponId: 'retention_30pct_3mo',
@@ -93,7 +103,10 @@ export const stripe = StripeConfig.create<'com.example.stripe', Plan, BillingPer
   .price('price_live_starter_v1', { credits: 100, expiresIn: '30 days' }) // grandfathered
   .default('price_live_starter_v2', { test: 'price_test_starter' });
 
-export const appStore = AppStoreConfig.create<'com.example.appstore', Plan, BillingPeriod>({
+export const appStore = defineAppStoreConfig({
+  namespace: 'com.example.appstore',
+  plans: PLANS,
+  billingPeriods: BILLING_PERIODS,
   appId: '1234567890',
   bundleId: 'com.example.app',
 })
@@ -102,7 +115,10 @@ export const appStore = AppStoreConfig.create<'com.example.appstore', Plan, Bill
   .product('com.example.appstore.sub.monthly.starter.v1', { credits: 100, expiresIn: '30d' })
   .default('com.example.appstore.sub.monthly.starter.v1');
 
-export const googlePlay = GooglePlayConfig.create<'com.example.googleplay', Plan, BillingPeriod>({
+export const googlePlay = defineGooglePlayConfig({
+  namespace: 'com.example.googleplay',
+  plans: PLANS,
+  billingPeriods: BILLING_PERIODS,
   package: 'com.example.app',
   audience: 'api.example.com', // expected audience of the RTDN push OIDC token
 })
@@ -115,11 +131,11 @@ export const googlePlay = GooglePlayConfig.create<'com.example.googleplay', Plan
 
 Lookups:
 
-| Config             | Methods                                                                                                                                                                                                       |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `StripeConfig`     | `productIds`, `getPriceId(productId)`, `getPlan`, `getBillingPeriod`, `getMode`, `getCreditAmount(productId, priceId?)`, `getCreditExpiresAt(productId, priceId?)`                                            |
-| `AppStoreConfig`   | `productIds`, `getDefaultProductId(plan, billingPeriod)`, `getPlan`, `getBillingPeriod`, `getMode`, `getCreditAmount`, `getCreditExpiresAt`                                                                   |
-| `GooglePlayConfig` | `productIds`, `getDefaultPlanIds(productId)`, `getPlan(productId, planId)`, `getBillingPeriod(productId, planId)`, `getMode`, `getCreditAmount(productId, planId?)`, `getCreditExpiresAt(productId, planId?)` |
+| Config             | Methods                                                                                                                                                                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StripeConfig`     | `productIds`, `getPriceId(productId)`, `getProductId(priceId)`, `getPlan`, `getBillingPeriod`, `getMode`, `isSubscription`, `comparePlans(from, to)`, `getCreditAmount(productId, priceId?)`, `getCreditExpiresAt(productId, priceId?)` |
+| `AppStoreConfig`   | `productIds`, `getDefaultProductId(plan, billingPeriod)`, `getPlan`, `getBillingPeriod`, `getMode`, `getCreditAmount`, `getCreditExpiresAt`                                                                                             |
+| `GooglePlayConfig` | `productIds`, `getDefaultPlanIds(productId)`, `getPlan(productId, planId)`, `getBillingPeriod(productId, planId)`, `getMode`, `getCreditAmount(productId, planId?)`, `getCreditExpiresAt(productId, planId?)`                           |
 
 In Stripe test mode the `test` twin of the default price is what `getPriceId` returns, and it
 resolves to the default price's credits. Non-default prices, products and base plans stay declared

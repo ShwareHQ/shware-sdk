@@ -205,7 +205,22 @@ export interface MessageRecord {
   /** Where the copy lands: `email`, `push_ios`, `push_android`. */
   channel: string;
   userId: string;
+  /** An email's subscription topic; null for a transactional email and for every other channel. */
+  topic: string | null;
   sentAt: number;
+}
+
+/** What is known of a copy without its engagement: whose it is, where it went, its topic. */
+export interface MessageSummary {
+  userId: string;
+  channel: string;
+  topic: string | null;
+}
+
+/** One opt-out to set or clear: a topic of the channel, or the whole channel (`topic: null`). */
+export interface SuppressionChange {
+  topic: string | null;
+  suppressed: boolean;
 }
 
 /** What a click is judged by. */
@@ -313,11 +328,20 @@ export interface JourneyReporting {
     judge: (link: ClickContext) => { engagement: Engagement; backdate: boolean }
   ): Promise<{ url: string; engagement: Engagement } | undefined>;
   /**
-   * The email copy's recipient opted out of email: recorded on the copy and as a suppression, in
-   * one transaction, which also yields who the recipient is — so the caller acts on the
-   * unsubscribe without a second read. Undefined for an unknown copy.
+   * The email copy's recipient opted out: of the copy's topic, or with `scope: 'all'` of every
+   * email. Recorded on the copy and as a suppression (the topic's row, or the channel-wide
+   * null-topic row), in one transaction, which also yields who the recipient is and the topic —
+   * so the caller acts on the unsubscribe without a second read. A transactional copy
+   * (`topic: null`) has nothing to opt out of: nothing is recorded, and the answer says so.
+   * Undefined for an unknown copy.
    */
-  recordUnsubscribe(messageId: string, at: number): Promise<{ userId: string } | undefined>;
+  recordUnsubscribe(
+    messageId: string,
+    at: number,
+    scope?: 'topic' | 'all'
+  ): Promise<{ userId: string; topic: string | null } | undefined>;
+  /** The copy's owner, channel and topic; undefined for an unknown copy. */
+  lookupMessage(messageId: string): Promise<MessageSummary | undefined>;
   /** A push copy the device reported it received. False for an unknown copy. */
   recordDeviceDelivered(messageId: string, at: number): Promise<boolean>;
   /** Drop members of segments no longer deployed, then record every deployed segment's size. */
@@ -367,16 +391,33 @@ export interface JourneyStore {
    * Erase everything kept about the user — profile, devices, events, wake subscriptions, segment
    * memberships, entries and reporting — and mark the tombstone erased (`erased_at`), which
    * stays: a write that was in flight when the data went cannot bring the user back, and the
-   * same id is never reactivated by ingest. Suppressions stay too: an opt-out is a compliance
-   * record keyed by an opaque id, and it outlives the erasure. Run only once no instance of
-   * theirs runs any more, or one could write some of it back. Idempotent. Mutually exclusive
-   * with every write about the user (the user's advisory lock), so
-   * the data is gone when this returns — nothing of theirs lands afterwards.
+   * same id is never reactivated by ingest — which is also why the suppressions go with the
+   * rest: nothing is ever sent to the id again, so no opt-out needs keeping. Run only once no
+   * instance of theirs runs any more, or one could write some of it back. Idempotent. Mutually
+   * exclusive with every write about the user (the user's advisory lock), so the data is gone
+   * when this returns — nothing of theirs lands afterwards.
    */
   forgetUser(userId: string, at: number): Promise<void>;
 
-  /** The user opted out of the channel (recorded by an unsubscribe). */
-  isSuppressed(userId: string, channel: string): Promise<boolean>;
+  /**
+   * The user opted out of the channel (recorded by an unsubscribe, or set through
+   * `/subscriptions`): with a `topic`, an opt-out of that topic or of the whole channel; without
+   * one, only the whole channel.
+   */
+  isSuppressed(userId: string, channel: string, topic?: string): Promise<boolean>;
+  /** Every opt-out of the user on the channel: the topics, and `null` for the whole channel. */
+  listSuppressions(userId: string, channel: string): Promise<(string | null)[]>;
+  /**
+   * Set or clear opt-outs, all in one transaction: a suppressed change inserts the row (keeping
+   * the time of one already there), an unsuppressed one deletes it. Written whatever the user's
+   * erasure state — the caller refuses an erased user first — since an opt-out is never refused.
+   */
+  updateSuppressions(
+    userId: string,
+    channel: string,
+    changes: readonly SuppressionChange[],
+    at: number
+  ): Promise<void>;
 
   /**
    * What the live database lacks against the engine's tables (read-only); a deploy refuses to
@@ -536,5 +577,6 @@ export {
   renderDrizzleSchema,
   renderPostgresDdl,
   type TableSpec,
+  type UniqueConstraintSpec,
 } from './tables';
 export type { PostgresJourneyStoreOptions, SqlClientLike } from './postgres';

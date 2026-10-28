@@ -1,6 +1,52 @@
 import { invariant } from '@shware/utils';
-import { OAuth2Error } from '../error';
+import { OAuth2Error, type OAuth2ErrorType } from '../error';
 import type { OAuth2Token, Provider } from '../types';
+
+/**
+ * WeChat error codes mapped to the closest OAuth2 error. Anything not listed is a `server_error`.
+ * reference: https://developers.weixin.qq.com/doc/oplatform/Return_codes/Return_code_descriptions_new.html
+ */
+const WECHAT_ERRORS: Record<number, { status: number; error: OAuth2ErrorType }> = {
+  [-1]: { status: 503, error: 'temporarily_unavailable' }, // system busy
+  40001: { status: 401, error: 'invalid_token' }, // invalid credential / access_token
+  40014: { status: 401, error: 'invalid_token' }, // invalid access_token
+  42001: { status: 401, error: 'invalid_token' }, // access_token expired
+  40013: { status: 401, error: 'invalid_client' }, // invalid appid
+  40125: { status: 401, error: 'invalid_client' }, // invalid appsecret
+  40029: { status: 400, error: 'invalid_grant' }, // invalid code
+  40163: { status: 400, error: 'invalid_grant' }, // code been used
+  40030: { status: 400, error: 'invalid_grant' }, // invalid refresh_token
+  42002: { status: 400, error: 'invalid_grant' }, // refresh_token expired
+  40003: { status: 400, error: 'invalid_request' }, // invalid openid
+};
+
+/**
+ * WeChat answers most failures with HTTP 200 and a `{ errcode, errmsg }` body, so the body decides
+ * whether the call succeeded, not the status. The raw errcode is kept in the message for the logs.
+ */
+async function readWechatResponse<T>(response: Response): Promise<T> {
+  const body = (await response.json().catch(() => null)) as
+    | (T & Partial<WechatErrorResponse>)
+    | null;
+  const errcode = body?.errcode;
+  if (typeof errcode === 'number' && errcode !== 0) {
+    const mapped = WECHAT_ERRORS[errcode] ?? { status: 500, error: 'server_error' };
+    const status = response.ok ? mapped.status : response.status;
+    throw new OAuth2Error(
+      status,
+      mapped.error,
+      `${body?.errmsg ?? 'wechat error'} (errcode: ${errcode})`
+    );
+  }
+  if (!response.ok || !body) {
+    throw new OAuth2Error(
+      response.ok ? 502 : response.status,
+      'server_error',
+      `Unexpected wechat response (HTTP ${response.status})`
+    );
+  }
+  return body;
+}
 
 export type Options = { isWechatBrowser: boolean };
 
@@ -33,12 +79,7 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
       url.searchParams.set('secret', params.clientSecret);
       url.searchParams.set('code', params.code);
       url.searchParams.set('grant_type', 'authorization_code');
-      const response = await fetch(url.href);
-      if (!response.ok) {
-        const { errcode, errmsg } = (await response.json()) as WechatErrorResponse;
-        throw new OAuth2Error(response.status, errmsg, `errcode: ${errcode}`);
-      }
-      return (await response.json()) as WechatToken;
+      return readWechatResponse<WechatToken>(await fetch(url.href));
     },
     async getUserInfo({ access_token, openid }) {
       invariant(this.userInfoUri, 'userInfoUri is required');
@@ -46,19 +87,16 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
       const url = new URL(this.userInfoUri);
       url.searchParams.set('access_token', access_token);
       url.searchParams.set('openid', openid);
-      const response = await fetch(url.href);
-      if (!response.ok) {
-        const { errcode, errmsg } = (await response.json()) as WechatErrorResponse;
-        throw new OAuth2Error(response.status, errmsg, `errcode: ${errcode}`);
-      }
-      const data = (await response.json()) as WechatUserInfo;
+      const data = await readWechatResponse<WechatUserInfo>(await fetch(url.href));
 
       return {
         data,
         claims: {
           sub: data.unionid ?? data.openid,
           name: data.nickname,
-          picture: `${data.headimgurl.split('/').slice(0, -1).join('/')}/0`,
+          picture: data.headimgurl
+            ? `${data.headimgurl.split('/').slice(0, -1).join('/')}/0`
+            : undefined,
           gender: data.sex === 1 ? 'male' : data.sex === 2 ? 'female' : undefined,
         },
       };
@@ -69,12 +107,7 @@ export function createWechatProvider(options: Options = { isWechatBrowser: false
       url.searchParams.set('appid', params.clientId);
       url.searchParams.set('grant_type', 'refresh_token');
       url.searchParams.set('refresh_token', params.refreshToken);
-      const response = await fetch(url.href);
-      if (!response.ok) {
-        const { errcode, errmsg } = (await response.json()) as WechatErrorResponse;
-        throw new OAuth2Error(response.status, errmsg, `errcode: ${errcode}`);
-      }
-      return (await response.json()) as WechatToken;
+      return readWechatResponse<WechatToken>(await fetch(url.href));
     },
   };
 }

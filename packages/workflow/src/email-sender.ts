@@ -1,4 +1,10 @@
-import { type EmailAddress, type ResolvedEmail, isEmailAddress, isUnsubscribeLink } from './email';
+import {
+  type EmailAddress,
+  type EmailRenderOptions,
+  type ResolvedEmail,
+  isEmailAddress,
+  isUnsubscribeLink,
+} from './email';
 import type { MessageSender, MessageTracking, OutboundMessage, SendResult } from './engine/ports';
 import type { ScalarIR } from './ir';
 
@@ -20,11 +26,13 @@ export interface RenderedEmail extends ResolvedEmail {
  * any react-email dependency (`@shware/workflow/react-email` ships one over a
  * registry). The subject comes back final: it is sent exactly as written, from
  * the template's own sender, and the unsubscribe link is the one the HTML was
- * rendered with.
+ * rendered with. `options` carries the copy's message id when reporting records one, for the
+ * preferences link (`resolveEmail`).
  */
 export type EmailRenderer = (
   template: string,
-  props: Record<string, ScalarIR | undefined>
+  props: Record<string, ScalarIR | undefined>,
+  options?: EmailRenderOptions
 ) => Promise<RenderedEmail>;
 
 /** A finished email, as a transport takes it: rendered, tracked, addressed. */
@@ -79,9 +87,11 @@ export class EmailSender implements MessageSender {
     if (!isEmailAddress(message.recipient)) {
       return { delivered: false, reason: 'invalid_recipient' };
     }
+    const messageId = message.tracking?.messageId;
     const { subject, html, from, replyTo, unsubscribeUrl } = await this.options.render(
       message.template,
-      message.props
+      message.props,
+      messageId === undefined ? {} : { messageId }
     );
     const tracked =
       message.tracking === undefined ? html : trackEmail(html, message.tracking, unsubscribeUrl);
@@ -107,7 +117,7 @@ export class EmailSender implements MessageSender {
  *   header names it, and `List-Unsubscribe-Post` says a POST there unsubscribes at once.
  * - Without one: the header names the email's own unsubscribe link, with no one-click claim —
  *   whether that page takes a POST is the app's.
- * - An email without an unsubscribe link (a receipt) gets neither.
+ * - An email without an unsubscribe link (a transactional one) gets neither.
  *
  * Only an https URL is named: mail clients and Cloudflare Email refuse any other.
  */

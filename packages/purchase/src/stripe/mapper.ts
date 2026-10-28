@@ -4,6 +4,12 @@ import {
   CANCELLATION_FEEDBACKS,
   type CancellationDetails,
   type CancellationFeedback,
+  DISPUTE_STATUSES,
+  type DisputeStatus,
+  type PaymentType,
+  RESUBSCRIBE_INTENTS,
+  type RefundStatus,
+  type ResubscribeIntent,
   type SubscriptionStatus,
 } from '../subscription/index';
 
@@ -207,6 +213,57 @@ export function mapSubscriptionStatus(status: Stripe.Subscription.Status): Subsc
   }
 }
 
+/**
+ * What a paid subscription invoice was for, by its `billing_reason`. Only `subscription_cycle` is
+ * a renewal: a plan change invoices its proration mid-period (`subscription_update`), and counting
+ * that as a renewal would inflate the renewal rate by every upgrade.
+ */
+export function mapPaymentType(
+  invoice: Pick<Stripe.Invoice, 'id' | 'billing_reason'>
+): Exclude<PaymentType, 'ONE_TIME'> {
+  switch (invoice.billing_reason) {
+    // Exactly once per subscription: its first invoice (after a trial, the first paid one is a cycle).
+    case 'subscription_create':
+      return 'SUBSCRIPTION_START';
+    case 'subscription_cycle':
+      return 'SUBSCRIPTION_RENEWAL';
+    case 'subscription_update':
+      return 'SUBSCRIPTION_UPDATE';
+    // An invoice made by hand on the subscription (dashboard or API): off-cycle money, not a renewal.
+    case 'manual':
+      return 'SUBSCRIPTION_UPDATE';
+    default:
+      // subscription_threshold (metered billing) and the rest are not reasons flat-priced
+      // subscriptions produce. Off-cycle is the safe reading: it leaves renewals alone.
+      console.warn(`Invoice ${invoice.id} has billing_reason ${invoice.billing_reason}`);
+      return 'SUBSCRIPTION_UPDATE';
+  }
+}
+
+/** `refund.status` is an untyped string in stripe-node; these are the documented values. */
+const REFUND_STATUS: Partial<Record<string, RefundStatus>> = {
+  pending: 'PENDING',
+  requires_action: 'PENDING',
+  succeeded: 'SUCCEEDED',
+  failed: 'FAILED',
+  canceled: 'CANCELED',
+};
+
+/** A Stripe refund's status; a refund that has none yet is pending. Throws on an unknown one. */
+export function mapRefundStatus(refund: Pick<Stripe.Refund, 'id' | 'status'>): RefundStatus {
+  const status = REFUND_STATUS[refund.status ?? 'pending'];
+  if (!status) throw new Error(`Unknown refund status ${refund.status}: ${refund.id}`);
+  return status;
+}
+
+/** A Stripe dispute's status, upper-cased into {@link DISPUTE_STATUSES}. Throws on an unknown one. */
+export function mapDisputeStatus(dispute: Pick<Stripe.Dispute, 'id' | 'status'>): DisputeStatus {
+  const status = dispute.status.toUpperCase();
+  const known = DISPUTE_STATUSES.find((item) => item === status);
+  if (!known) throw new Error(`Unknown dispute status ${dispute.status}: ${dispute.id}`);
+  return known;
+}
+
 export { ZERO_DECIMAL_CURRENCIES } from '@shware/utils';
 
 /** How many Stripe API amount units make one unit of `currency` (1, 100 or 1000). */
@@ -216,6 +273,13 @@ export function minorUnits(currency: string) {
 
 export function price(value: number, currency: string) {
   return value / minorUnits(currency);
+}
+
+export type Money = { amount: number; currency: string };
+
+/** A Stripe amount in minor units (cents, yen, fils) as an amount in `currency` itself. */
+export function money(value: number, currency: string): Money {
+  return { amount: price(value, currency), currency };
 }
 
 export interface Item {
@@ -332,10 +396,32 @@ export function getBeginCheckoutProperties(p: ProductPrice): BeginCheckoutProper
 }
 
 /**
+ * The `cancellation_details.comment` to send Stripe for a cancel dialog's answers. Stripe stores
+ * reason, feedback and comment, one field short of `resubscribeIntent`, so the intent travels as a
+ * `[maybe]` / `[no]` / `[yes]` prefix on the comment, which {@link mapCancellationDetails} takes
+ * back out.
+ */
+export function cancellationComment({
+  comment,
+  resubscribeIntent,
+}: Pick<CancellationDetails, 'comment' | 'resubscribeIntent'>): string {
+  return `${resubscribeIntent ? `[${resubscribeIntent}]` : ''}${comment ?? ''}`;
+}
+
+function parseCancellationComment(
+  comment: string | null
+): Pick<CancellationDetails, 'comment' | 'resubscribeIntent'> {
+  const [, intent, rest] = (comment && /^\[(\w+)\](.*)$/s.exec(comment)) || [];
+  if (!intent || !(RESUBSCRIBE_INTENTS as readonly string[]).includes(intent)) return { comment };
+  return { comment: rest || null, resubscribeIntent: intent as ResubscribeIntent };
+}
+
+/**
  * Stripe's `cancellation_details` in the shared shape. The object is present on every
  * subscription with all three fields null, so an active one maps to null rather than an empty
  * record. `reason` says who acted: `cancellation_requested` is the customer (or us on their
- * behalf), the payment reasons are Stripe ending it.
+ * behalf), the payment reasons are Stripe ending it. A comment written by
+ * {@link cancellationComment} is split back into the comment and `resubscribeIntent`.
  */
 export function mapCancellationDetails(
   subscription: Pick<Stripe.Subscription, 'cancellation_details'>
@@ -354,6 +440,6 @@ export function mapCancellationDetails(
         ? (details.feedback as CancellationFeedback)
         : 'other'
       : null,
-    comment: details.comment ?? null,
+    ...parseCancellationComment(details.comment ?? null),
   };
 }

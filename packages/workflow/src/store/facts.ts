@@ -87,9 +87,9 @@ export class JourneyFactSource implements FactSource {
     return this.store.getSegmentCondition(name);
   }
 
-  /** The user's registered devices; none, and push skips while `reachable('push')` is false. */
-  async isSuppressed(channel: string): Promise<boolean> {
-    return this.store.isSuppressed(this.userId, channel);
+  /** The user's opt-outs: the channel's, or with a topic that topic's as well. */
+  async isSuppressed(channel: string, topic?: string): Promise<boolean> {
+    return this.store.isSuppressed(this.userId, channel, topic);
   }
 
   listDevices(): Promise<PushDevice[]> {

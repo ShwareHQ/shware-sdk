@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * The rich-image variant: `image` becomes the iOS attachment thumbnail and the
@@ -11,6 +11,7 @@ const image =
 
 export default pushTemplate({
   id: 'winback_final_offer_push',
+  topic: 'offers',
   title: 'Winback · Final offer',
   description: 'Last-call discount push, paired with the final offer email.',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),

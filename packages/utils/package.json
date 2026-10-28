@@ -1,6 +1,6 @@
 {
   "name": "@shware/utils",
-  "version": "1.8.0",
+  "version": "2.0.1",
   "private": false,
   "repository": {
     "type": "git",
@@ -40,7 +40,7 @@
     "vitest": "^5.0.5"
   },
   "peerDependencies": {
-    "react": "^19.3.0"
+    "react": "^19.3.1"
   },
   "peerDependenciesMeta": {}
 }

@@ -18,9 +18,6 @@ export function sendPosthogEvent<T extends EventName>(
   if (window.location.host.includes('localhost')) return;
 
   posthog.capture(name, properties);
-  if (name === 'logout') {
-    posthog.reset();
-  }
 }
 
 /**
@@ -28,8 +25,14 @@ export function sendPosthogEvent<T extends EventName>(
  * id once someone has signed in. Only then: identifying an anonymous visitor by its own id would
  * make PostHog treat it as an identified person, and PostHog does not merge one identified person
  * into another when the user later signs in, so the pre-sign-in events would stay split off.
+ *
+ * Without a user it is sign-out (`setVisitor({})`): PostHog's identity is reset, so the next
+ * person on this page starts anonymous instead of merging into the one who left.
  */
 export function setPosthogUser({ user_id, distinct_id, user_data }: VisitorIdentity) {
-  if (!user_id) return;
+  if (!user_id) {
+    posthog.reset();
+    return;
+  }
   posthog.identify(distinct_id ?? user_id, { email: getFirst(user_data?.email) });
 }

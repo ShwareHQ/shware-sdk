@@ -1,5 +1,115 @@
 # @shware/security
 
+## 8.0.0
+
+### Major Changes
+
+- 594d32c: The JSON login routes (native, One Tap, email, desktop) now answer every failure they know with one google.rpc error body, so a client branches on `ErrorInfo.reason` everywhere and the host's error handler only sees server faults. What changed on the wire: a wrong or exhausted email code is `403 PERMISSION_DENIED` (was 400); a missing or replayed One Tap / native nonce is `403 NONCE_MISSING` / `NONCE_MISMATCH` (was a raw `{ error: 'invalid_request', error_description }` with 401 or 400); a bad `code_verifier`, `attributes`, content type or non-JSON body is `400 INVALID_ARGUMENT` with a reason (`INVALID_CODE_VERIFIER`, `INVALID_ATTRIBUTES`, `INVALID_CONTENT_TYPE`, `INVALID_JSON`) instead of a raw OAuth2-style body or a 500; an `OAuth2Error` from the provider client is answered by what it means (`400` for a malformed request, `403` for a refused code or token, `503` for a provider outage) with `OAUTH2_<error>` as the reason instead of propagating to the host; `EMAIL_DELIVERY_FAILED` is `503 UNAVAILABLE` (was 400); a desktop code with the wrong verifier is `403 INVALID_DESKTOP_CODE` (was 400). An id token that fails verification is now an `invalid_grant` `OAuth2Error` (was `invalid_request`), so the redirect flow reports it as such. Removed: the never-implemented `loginPhone`, `sendPhoneVerificationCode`, `PATH.LOGIN_PHONE` and `PATH.SEND_PHONE_VERIFICATION_CODE`; the `EmailCodeVerification` type. `AuthService` now declares `desktopAuthorize` and `desktopExchange`. `oauth2Authorization` answers an unknown provider as `400 OAUTH2_INVALID_REQUEST` instead of throwing. `errorResponse(error)` is exported for the host's error handler, so a flow that calls `Auth` directly answers its errors the same way. The session id is no longer read from `Authorization: Bearer`. For a client without a cookie jar, `session: { header: true }` (off by default) carries it in `X-Auth-Token` both ways, as Spring Session does, leaving `Authorization` to a future API-token credential. The session attribute that names the signed-in principal is now `principalName` (`PRINCIPAL_NAME_INDEX_NAME`), not Spring Session's `org.springframework.session.FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME`, and the Spring `SPRING_SECURITY_CONTEXT` fallback is gone: sessions stored before this release no longer resolve to a principal, so users sign in again (or migrate the attribute key); the Redis repository's default namespace is `app:session`.
+
+### Minor Changes
+
+- 8952eeb: `AuthenticationError(reason, { metadata, message })` lets `onAuthorized` refuse a sign-in with a reason the client can act on. The built-in reasons (`ACCOUNT_DISABLED`, `ACCOUNT_LOCKED`, `EMAIL_ALREADY_USED`, `EMAIL_NOT_VERIFIED`, `SIGNUP_DISABLED`, plus the ones the SDK throws itself, all listed in `AUTHENTICATION_REASONS`) cover the usual account states; hosts add their own with their metadata shapes by augmenting `AuthenticationReasons`, and only those type-check (`AuthenticationReason` is the union). `Auth` answers it itself: the redirect flow lands on `errorUri` with `error=access_denied&reason=…` and the metadata entries as parameters (it was a bare `server_error`), the JSON routes answer `403 PERMISSION_DENIED` with a google.rpc `ErrorInfo` carrying the reason and metadata (the error used to reach the host's error handler).
+- 8952eeb: The Facebook provider no longer sets `email_verified`: the Graph API does not state it, so the flag was a hardcoded `true`. Hosts can now trust `email_verified === true` from any provider.
+- 8952eeb: `auth.verifyEmailCode(email, code)` spends a mailed verification code without signing in, for hosts that verify or change a signed-in user's address; same storage and attempt limits as `loginEmail`, which now uses it. A wrong code throws the `AuthenticationError` `loginEmail` answers with.
+- 8952eeb: The X provider requests `confirmed_email` with the `users.email` scope (both in the defaults) and actually sends its `user.fields` (the built URL was never used), so `claims.email` is the address X confirmed and `email_verified` is `true` only then; the old flag was the blue check.
+
+## 7.1.1
+
+### Patch Changes
+
+- ac5cb31: Update dependencies to their latest versions within the declared ranges (react 19.3.1, @tanstack/* , posthog-js, jose, stripe, discord-api-types and the rest); `tsdown` stays pinned at 0.23.1 because 0.23.2 pulls a dts plugin that refuses TypeScript 7 without `isolatedDeclarations`.
+- Updated dependencies [ac5cb31]
+  - @shware/utils@2.0.1
+
+## 7.1.0
+
+### Minor Changes
+
+- 2232418: `getPrincipal` and `isAuthenticated` now renew the session they authenticate (sliding expiration), so a user who keeps using the app is no longer signed out after `maxInactiveInterval` unless they also call `logged`. No extra read: the loaded session's `lastAccessedTime` is compared in memory, and writes are spaced by the new `AuthConfig.session.touchInterval` (seconds, default 3600), so an active session costs one write per interval.
+
+## 7.0.0
+
+### Major Changes
+
+- 22ba466: `loginOAuth2Onetap` now requires the One Tap `credential` to carry a single-use nonce issued by `GET /oauth2/nonce/google` (`oauth2Nonce`), consuming it on sign-in so a leaked ID token cannot be replayed for new sessions; a missing, unknown or reused nonce is answered `401 invalid_request`. Migration: before calling `prompt`, the web app fetches `GET /oauth2/nonce/google` and passes `nonce` to `prompt({ client_id, nonce })` (`@shware/http/google-one-tap`). Hosts that still serve a front end without it can set `oauth2: { onetap: { requireNonce: false } }` (default `true`) during the rollout; a nonce the credential carries is still checked. The commented-out `g_csrf_token` double-submit check, which FedCM mode cannot use, is removed.
+
+## 6.3.1
+
+### Patch Changes
+
+- fd6f005: Sign an OAuth2 redirect login in on a new session id instead of the one the authorization started on, and delete the old session, so a planted session id never becomes authenticated (session fixation).
+
+## 6.3.0
+
+### Minor Changes
+
+- b6c8ec5: `DBIndexedSessionRepository` passes `isNew` on the entity it hands `DBAdapter.save`: `true` for a session created in this request, `false` for one the adapter loaded. Adapters can insert or update on it (as Spring Session's JDBC repository does) instead of upserting, so a save racing a logout or kick cannot write a deleted session back. Entities the adapter returns need not carry it.
+
+## 6.2.2
+
+### Patch Changes
+
+- f25cbbb: `logout` now clears the session cookie with the same `domain`, `path`, `sameSite` and `secure` attributes it was set with, so cookies set with a `Domain` are actually removed.
+
+## 6.2.1
+
+### Patch Changes
+
+- Updated dependencies [214e552]
+  - @shware/utils@2.0.0
+
+## 6.2.0
+
+### Minor Changes
+
+- 64a630b: Accept an optional PKCE `code_verifier` in the native OAuth2 login body (`NativeCredential.code_verifier`) and send it with the provider's code exchange (Google); a malformed verifier is a 400, and logins without one behave as before. `LoginOAuth2NativeParams.pkce` now carries only `code_verifier`.
+
+## 6.1.2
+
+### Patch Changes
+
+- 1543c2c: Treat WeChat HTTP 200 `{ errcode, errmsg }` bodies on the token, refresh and user info endpoints as `OAuth2Error`s mapped to standard OAuth2 error codes, instead of returning them as tokens or user info.
+
+## 6.1.1
+
+### Patch Changes
+
+- b516ffb: An `OAuth2Error` thrown during the OAuth callback is now logged and reported on `errorUri` by code only (`invalid_grant`, `access_denied` or `temporarily_unavailable` as is, anything else as `server_error`), so its message no longer leaks a client id or a provider response into the URL.
+
+## 6.1.0
+
+### Minor Changes
+
+- cf7140c: Send every OAuth redirect callback failure to `errorUri`: provider errors such as `access_denied` are forwarded with their `error_description` instead of being reported as an invalid query, and failures of the code exchange, user info, `onAuthorized` or session save redirect with the `OAuth2Error` type or `server_error` instead of escaping as a JSON error response.
+
+## 6.0.0
+
+### Major Changes
+
+- 04fc104: Email sign-in now trims and lowercases the email address before validating it, so every casing of an address shares one verification code, attempt budget and resend cooldown, and `loginEmail` presents the lowercased address as `claims.sub` and `claims.email`.
+
+  **Migration**
+
+  Existing `EMAIL` identities stored with a mixed-case subject must be lowercased before deploying (merging any accounts whose subjects differ only in case), otherwise those users get a new account on their next sign-in because `sub` now arrives in lowercase.
+
+- e6490b5: Cap guesses per email verification code and throttle resends.
+
+  **Security fix.** `loginEmail` compared the six-digit code without counting attempts, so the code could be brute-forced within its 10-minute lifetime. Each login attempt is now counted atomically before the comparison; after `maxAttempts` (default 5) the code is discarded and `loginEmail` answers `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`. `sendEmailVerificationCode` allows one send per email per `resendCooldown` seconds (default 60) and answers `429 VERIFICATION_CODE_RESEND_TOO_SOON` otherwise; a failed delivery releases the cooldown, and a new code resets the attempt budget. Both limits are set through the new `verificationCode: { maxAttempts, resendCooldown }` option of `Auth`.
+
+  **Migration**
+
+  `KVRepository` has a new required method, `increment(key, expiresIn): Promise<number>`. `RedisKVRepository` implements it; custom implementations must add it. It must be atomic: an absent or expired key is created with value 1 expiring in `expiresIn` seconds, an existing key is incremented and keeps its expiry, and the new count is returned. On Postgres, with `kv(key text primary key, value text, expires_at timestamptz)`:
+
+  ```sql
+  insert into kv (key, value, expires_at) values ($1, '1', now() + make_interval(secs => $2))
+  on conflict (key) do update set
+    value = case when kv.expires_at <= now() then '1' else (kv.value::int + 1)::text end,
+    expires_at = case when kv.expires_at <= now() then excluded.expires_at else kv.expires_at end
+  returning value::int;
+  ```
+
+  Clients may want to handle the two new error reasons: ask for a new code on `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`, and wait before resending on `VERIFICATION_CODE_RESEND_TOO_SOON`.
+
 ## 5.0.1
 
 ### Patch Changes

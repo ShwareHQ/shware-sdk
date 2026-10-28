@@ -214,14 +214,18 @@ export class OAuth2Client {
     await implementation.revokeToken({ token, clientId, clientSecret });
   }
 
+  /**
+   * Signs in with what a native app posted. `credentials.code_verifier`, when present, is the PKCE
+   * verifier for the code exchange and reaches the provider as `pkce`, not in `credentials`.
+   */
   async loginOAuth2Native({
     provider,
-    credentials,
-    pkce,
+    credentials: { code_verifier, ...credentials },
+    pkce = code_verifier === undefined ? undefined : { code_verifier },
   }: {
     provider: string;
     credentials: NativeCredential;
-    pkce?: PkceParameters;
+    pkce?: Omit<PkceParameters, 'code_challenge' | 'code_challenge_method'>;
   }) {
     const { implementation, client } = await this.getNativeClient(provider, credentials.client_id);
     invariant(implementation.loginOAuth2Native, 'Provider does not support loginOAuth2Native');

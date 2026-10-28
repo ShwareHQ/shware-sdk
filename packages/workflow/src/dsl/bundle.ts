@@ -25,6 +25,8 @@ export function compileBundle(input: {
   /** The template manifest: these definitions, by channel and id. */
   templates?: readonly AnyTemplate[];
   actions?: readonly ActionRef[];
+  /** The contract's subscription topics, carried for the engine (`compileConfig` passes them). */
+  subscriptions?: { topics: readonly string[] };
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
     const { id, definition, loc, meta } = segment as SegmentInternal;
@@ -97,7 +99,14 @@ export function compileBundle(input: {
   // one identity (the IR names it; only the compile can tell them apart).
   assertActionRefsResolve(workflows, input.workflows, input.actions ?? []);
 
-  return BundleIRSchema.parse({ irVersion: IR_VERSION, workflows, segments, templates, actions });
+  return BundleIRSchema.parse({
+    irVersion: IR_VERSION,
+    workflows,
+    segments,
+    templates,
+    actions,
+    subscriptions: { topics: [...(input.subscriptions?.topics ?? [])] },
+  });
 }
 
 function assertUniqueNames(names: readonly string[], kind: string): void {

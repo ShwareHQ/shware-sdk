@@ -102,6 +102,7 @@ const copy = (userId: string, key: string): MessageRecord => ({
   nodeId: 'n1',
   template: 'welcome',
   channel: 'email',
+  topic: null,
   userId,
   sentAt: 1,
 });

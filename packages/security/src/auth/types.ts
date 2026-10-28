@@ -2,6 +2,7 @@ import type { Principal } from '../core';
 import type { OAuth2ClientConfig, OAuth2Token, UserInfo } from '../oauth2/types';
 import type { KVRepository, Session, SessionRepository } from '../session/types';
 import type { CookieOptions } from '../utils/http';
+import type { EmailSender } from './email-codes';
 
 export type LoggedHandler = (principal: Principal) => Promise<void>;
 /**
@@ -26,7 +27,11 @@ export interface Authorization {
   attributes: Record<string, string>;
 }
 
-/** Creates or updates the user and returns the principal whose `name` the session stores. */
+/**
+ * Creates or updates the user and returns the principal whose `name` the session stores. Throw an
+ * `AuthenticationError` to refuse the sign-in with a reason the client can act on; any other error
+ * is treated as a server fault.
+ */
 export type AuthorizedHandler = (
   request: Request,
   authorization: Authorization
@@ -51,12 +56,34 @@ export interface AuthConfig {
   kvRepository: KVRepository;
   sessionRepository: SessionRepository;
   cookie?: CookieOptions & { name?: string };
+  session?: {
+    /**
+     * Seconds between two writes of a session's `lastAccessedTime` from authenticated access
+     * (`getPrincipal`, `isAuthenticated`): every request that authenticates renews the session's
+     * expiry (sliding expiration, as Spring Session and `express-session`'s `rolling` do), but
+     * the row is only rewritten when the previous access is older than this, so expiry lags real
+     * activity by at most this much while active sessions cost one write per interval. Default
+     * 3600 (an hour); `0` writes on every authenticated request.
+     */
+    touchInterval?: number;
+    /**
+     * Also carry the session id in the `X-Auth-Token` header, for clients without a cookie jar
+     * (a CLI, a desktop shell), as Spring Session's `HeaderHttpSessionIdResolver` does: every
+     * response that sets the session cookie (a login, `logged`) also answers `X-Auth-Token: <id>`,
+     * and a request without the cookie is read from the same header. Default `false`. Turning it
+     * on exposes the id to same-origin scripts, which the cookie's `HttpOnly` kept it from, and a
+     * cross-origin client needs the header in `Access-Control-Expose-Headers`. The header is for
+     * the session id only: an API token for programmatic access is a different credential and
+     * is not read here.
+     */
+    header?: boolean;
+  };
   turnstileSecretKey?: string;
   /** Limits of email verification codes (a code itself is valid for 10 minutes). */
   verificationCode?: {
     /**
      * Wrong guesses a code survives: once a login exceeds this many attempts the code is discarded
-     * and `loginEmail` answers `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`. Default 5.
+     * and `loginEmail` answers `403 VERIFICATION_CODE_ATTEMPTS_EXCEEDED`. Default 5.
      */
     maxAttempts?: number;
     /**
@@ -67,6 +94,17 @@ export interface AuthConfig {
   };
   oauth2?: {
     client?: OAuth2ClientConfig;
+    /** Google One Tap / FedCM sign-in (`loginOAuth2Onetap`). */
+    onetap?: {
+      /**
+       * Require the One Tap `credential` to carry a `nonce` claim issued by `GET
+       * /oauth2/nonce/google` (`oauth2Nonce`) and unused so far; each nonce signs in once. Without
+       * it, anyone holding a user's ID token could replay it for a new session until it expires.
+       * Turn off only while a front end that does not yet pass `nonce` to `prompt` is phased out.
+       * Default `true`.
+       */
+      requireNonce?: boolean;
+    };
   };
 }
 
@@ -91,18 +129,19 @@ export interface AuthService {
     provider?: string
   ) => Promise<Response>;
 
-  // email & phone
-  sendEmailVerificationCode: (
-    request: Request,
-    sender: (data: { email: string; verificationCode: string }) => Promise<void>
-  ) => Promise<Response>;
-  sendPhoneVerificationCode: (
-    request: Request,
-    sender: (data: { phone: string; verificationCode: string }) => Promise<void>
-  ) => Promise<Response>;
-
+  // email
+  sendEmailVerificationCode: (request: Request, sender: EmailSender) => Promise<Response>;
   loginEmail: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
-  loginPhone: (request: Request, onAuthorized: AuthorizedHandler) => Promise<Response>;
+  /**
+   * Spends a mailed code without signing in, for a host flow that only needs proof of the address
+   * (verifying or changing a signed-in user's email). Throws `AuthenticationError`
+   * (`INVALID_VERIFICATION_CODE`, `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`) as `loginEmail` answers.
+   */
+  verifyEmailCode: (email: string, verificationCode: string) => Promise<void>;
+
+  // desktop
+  desktopAuthorize: (request: Request) => Promise<Response>;
+  desktopExchange: (request: Request) => Promise<Response>;
 
   // session management
   kick: (principal: Principal) => Promise<void>;

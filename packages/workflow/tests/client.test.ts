@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { JourneyClient, JourneyClientError } from '../src/client';
+import { z } from 'zod';
+import { JourneyClient, JourneyClientError, JourneyValidationError } from '../src/client';
+import { defineContract } from '../src/contract';
 
 function stub(status: number, body: unknown) {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -66,5 +68,92 @@ describe('JourneyClient', () => {
       status: 401,
       path: '/events',
     });
+  });
+});
+
+describe('JourneyClient subscriptions', () => {
+  test('getSubscriptions is a bare GET; setSubscriptions a PUT of the patch, both on the encoded user id', async () => {
+    const state = {
+      email: { all: true, topics: { promotions: false, newsletter: true } },
+    };
+    const { calls, fetchFn } = stub(200, state);
+    const client = new JourneyClient({ origin: 'https://wf.example', token: 't', fetch: fetchFn });
+
+    expect(await client.getSubscriptions('a/b')).toEqual(state);
+    expect(
+      await client.setSubscriptions('a/b', { email: { topics: { promotions: false } } })
+    ).toEqual(state);
+
+    expect(calls.map((c) => [c.url, c.init.method])).toEqual([
+      ['https://wf.example/subscriptions/a%2Fb', 'GET'],
+      ['https://wf.example/subscriptions/a%2Fb', 'PUT'],
+    ]);
+    expect(calls[0]?.init.body).toBeUndefined();
+    expect(calls[0]?.init.headers).toEqual({ authorization: 'Bearer t' });
+    expect(JSON.parse(calls[1]?.init.body as string)).toEqual({
+      email: { topics: { promotions: false } },
+    });
+    expect(calls[1]?.init.headers).toMatchObject({ 'content-type': 'application/json' });
+  });
+
+  test('the by-message pair does the same on /subscriptions/by-message/<id>, answering the copy too', async () => {
+    const state = {
+      email: { all: true, topics: { promotions: false, newsletter: true } },
+      push: { all: true, topics: { promotions: true, newsletter: true } },
+      message: { channel: 'email', topic: 'promotions' },
+    };
+    const { calls, fetchFn } = stub(200, state);
+    const client = new JourneyClient({ origin: 'https://wf.example', token: 't', fetch: fetchFn });
+    const id = '0190a3b8-0000-7000-8000-000000000001';
+    expect(await client.getSubscriptionsByMessage(id)).toEqual(state);
+    expect(await client.setSubscriptionsByMessage(id, { email: { all: false } })).toEqual(state);
+    expect(calls.map((c) => [c.url, c.init.method])).toEqual([
+      [`https://wf.example/subscriptions/by-message/${id}`, 'GET'],
+      [`https://wf.example/subscriptions/by-message/${id}`, 'PUT'],
+    ]);
+    expect(JSON.parse(calls[1]?.init.body as string)).toEqual({ email: { all: false } });
+    // A 404 — no such copy, erased, or transactional — is the error the page shows as expired
+    const gone = stub(404, { error: 'unknown message' });
+    const expired = new JourneyClient({ origin: 'https://wf.example', fetch: gone.fetchFn });
+    const error = await expired.getSubscriptionsByMessage('nope').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(JourneyClientError);
+    expect((error as JourneyClientError).status).toBe(404);
+  });
+
+  test('with a contract, a topic it does not declare is refused before any request', async () => {
+    const contract = defineContract({
+      events: {},
+      profile: z.strictObject({}),
+      subscriptions: { topics: ['promotions', 'newsletter'] },
+    });
+    const { calls, fetchFn } = stub(200, {});
+    const client = new JourneyClient({ origin: 'https://wf.example', contract, fetch: fetchFn });
+    const error = await client
+      .setSubscriptions('u1', { email: { topics: { digest: false } as never } })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(JourneyValidationError);
+    expect((error as JourneyValidationError).issues).toEqual([
+      { path: 'email.topics.digest', message: 'not a declared topic' },
+    ]);
+    expect(calls).toEqual([]);
+    const pushError = await client
+      .setSubscriptions('u1', { push: { all: false, topics: { digest: false } as never } })
+      .catch((e: unknown) => e);
+    expect((pushError as JourneyValidationError).issues).toEqual([
+      { path: 'push.topics.digest', message: 'not a declared topic' },
+    ]);
+    expect(calls).toEqual([]);
+    await client.setSubscriptions('u1', { push: { topics: { promotions: false } } });
+    expect(calls).toHaveLength(1);
+    await client.setSubscriptions('u1', { email: { all: false, topics: { newsletter: false } } });
+    expect(calls).toHaveLength(2);
+    // The by-message variant is checked the same way
+    const byMessage = await client
+      .setSubscriptionsByMessage('m1', { email: { topics: { digest: false } as never } })
+      .catch((e: unknown) => e);
+    expect(byMessage).toBeInstanceOf(JourneyValidationError);
+    expect(calls).toHaveLength(2);
+    await client.setSubscriptionsByMessage('m1', { email: { topics: { promotions: false } } });
+    expect(calls).toHaveLength(3);
   });
 });
