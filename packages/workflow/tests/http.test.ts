@@ -904,6 +904,109 @@ describe('/subscriptions', () => {
     expect(journey.wakes.map((w) => w.id)).toEqual(['inst-push', 'inst-push']);
   });
 
+  /** A copy of `template` sent to `userId` on `channel`, as reporting records one; its id. */
+  const sentCopy = (userId: string, topic: string | null, channel = 'email', key = 'i1:n1') =>
+    database.store.reporting.recordMessage({
+      idempotencyKey: key,
+      workflow: 'offers',
+      instanceId: key.split(':')[0] ?? 'i1',
+      nodeId: 'n1',
+      template: 'offer',
+      channel,
+      userId,
+      topic,
+      sentAt: Date.now(),
+    });
+
+  test('by message: the copy names its recipient, the answer adds the copy, and a patch lands on the user', async () => {
+    const { call, put } = topicsHost();
+    const id = await sentCopy('u1', 'promotions');
+    const read = await call(`/subscriptions/by-message/${id}`);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toEqual({
+      ...everything,
+      message: { channel: 'email', topic: 'promotions' },
+    });
+
+    const changed = await call(`/subscriptions/by-message/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ email: { topics: { promotions: false } } }),
+    });
+    expect(changed.status).toBe(200);
+    const after = {
+      ...everything,
+      email: { all: true, topics: { promotions: false, newsletter: true, tips: true } },
+    };
+    expect(await changed.json()).toEqual({
+      ...after,
+      message: { channel: 'email', topic: 'promotions' },
+    });
+    // The same record the user's own endpoint reads and writes
+    expect(await (await call('/subscriptions/u1')).json()).toEqual(after);
+    await put('u1', { email: { all: false } });
+    expect(await (await call(`/subscriptions/by-message/${id}`)).json()).toMatchObject({
+      email: { all: false },
+    });
+    // A push copy reads as the push channel its subscriptions are keyed on
+    const pushed = await sentCopy('u1', 'tips', 'push_ios', 'i2:n1');
+    expect(await (await call(`/subscriptions/by-message/${pushed}`)).json()).toMatchObject({
+      message: { channel: 'push', topic: 'tips' },
+    });
+  });
+
+  test('by message: a patch is checked before the copy is looked up, and the bearer guards both routes', async () => {
+    const { call } = topicsHost();
+    const id = await sentCopy('u1', 'promotions');
+    const refused = await call(`/subscriptions/by-message/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ email: { topics: { digest: false } } }),
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({
+      issues: [{ path: 'email.topics.digest', message: 'not a declared topic' }],
+    });
+    expect(await database.store.listSuppressions('u1', 'email')).toEqual([]);
+
+    const { env } = makeEnv({ ENVIRONMENT: 'production', API_TOKEN: 'secret' });
+    const store = database.store;
+    const bare = (init?: RequestInit) =>
+      handleRequest(
+        new Request(`https://worker.test/subscriptions/by-message/${id}`, init),
+        env,
+        store,
+        { contract }
+      );
+    expect((await bare()).status).toBe(401);
+    expect((await bare({ method: 'PUT', body: '{}' })).status).toBe(401);
+    const allowed = await bare({ headers: { authorization: 'Bearer secret' } });
+    expect(allowed.status).toBe(200);
+  });
+
+  test('by message: no copy, a transactional one, or one erased with its user is a 404', async () => {
+    const { env, call } = topicsHost();
+    const expired = async (id: string) => {
+      const read = await call(`/subscriptions/by-message/${id}`);
+      expect(read.status).toBe(404);
+      expect(await read.json()).toEqual({ error: 'unknown message' });
+      const write = await call(`/subscriptions/by-message/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ email: { all: false } }),
+      });
+      expect(write.status).toBe(404);
+    };
+    // Never sent, and not even the shape of a message id
+    await expired('0190a3b8-0000-7000-8000-00000000dead');
+    await expired('nope');
+    // A transactional copy carried no link: nothing to manage through it
+    await expired(await sentCopy('u1', null, 'email', 'i3:n1'));
+    expect(await database.store.listSuppressions('u1', 'email')).toEqual([]);
+    // Erased with its user: the id names nothing any more
+    const gone = await sentCopy('u2', 'promotions', 'email', 'i4:n1');
+    expect((await call(`/subscriptions/by-message/${gone}`)).status).toBe(200);
+    await forgetUser(env, 'u2', database.store);
+    await expired(gone);
+  });
+
   test('the bare API reads the topics from the contract it validates with', async () => {
     const { env } = makeEnv();
     const get = await handleRequest(

@@ -35,16 +35,19 @@ const contract = defineContract({
 });
 const e = contract.events;
 
-/** A shared layout: renders the resolved unsubscribe link, when there is one. */
+/** A shared layout: renders the resolved unsubscribe and preferences links, when there are any. */
 function Layout({ name }: { name: string }) {
-  const { unsubscribeUrl } = useEmailContext();
+  const { unsubscribeUrl, preferencesUrl } = useEmailContext();
   return createElement(
     'div',
     null,
     createElement('p', null, `Hi ${name}`),
     unsubscribeUrl === undefined
       ? null
-      : createElement('a', { href: unsubscribeUrl }, 'Unsubscribe')
+      : createElement('a', { href: unsubscribeUrl }, 'Unsubscribe'),
+    preferencesUrl === undefined
+      ? null
+      : createElement('a', { href: preferencesUrl }, 'Email preferences')
   );
 }
 
@@ -219,6 +222,51 @@ describe('the renderer provides the resolved email to its components', () => {
     expect(email).not.toHaveProperty('unsubscribeUrl');
   });
 
+  test('the preferences link is the config page with the copy as `m`, for a topic email with a message id', async () => {
+    const messageId = '0190a3b8-0000-7000-8000-000000000001';
+    const render = registryRenderer(emails, {
+      unsubscribeUrl: 'https://acme.test/unsubscribe',
+      preferencesUrl: 'https://acme.test/settings/email?lang=en',
+    });
+    const sent = await render('welcome', { name: 'Ada' }, { messageId });
+    // The page's own query is kept; `m` is set beside it
+    const expected = `https://acme.test/settings/email?lang=en&m=${messageId}`;
+    expect(sent.preferencesUrl).toBe(expected);
+    expect(sent.html).toContain(`href="${expected.replace('&', '&amp;')}"`);
+    expect(sent.html).toContain('href="https://acme.test/unsubscribe"');
+    // Without a message id (reporting off, or no origin) there is no link to a copy
+    const untracked = await render('welcome', { name: 'Ada' });
+    expect(untracked).not.toHaveProperty('preferencesUrl');
+    expect(untracked.html).not.toContain('Email preferences');
+    // Without the page configured, a message id gives nothing to link to
+    const { html } = await registryRenderer(emails)('welcome', { name: 'Ada' }, { messageId });
+    expect(html).not.toContain('Email preferences');
+  });
+
+  test('a transactional email never links to the preference page, message id or not', async () => {
+    const { topic: _topic, ...untyped } = base;
+    const receipt = emailTemplate({
+      ...untyped,
+      from: 'a@b.c',
+      transactional: true,
+      component: ({ name }) => createElement(Layout, { name }),
+    });
+    const config = {
+      unsubscribeUrl: 'https://acme.test/unsubscribe',
+      preferencesUrl: 'https://acme.test/settings/email',
+    };
+    const messageId = '0190a3b8-0000-7000-8000-000000000001';
+    expect(resolveEmail(receipt, config, { messageId })).toEqual({ from: 'a@b.c', topic: null });
+    const { html, ...resolved } = await registryRenderer({ receipt }, config)(
+      'x',
+      { name: 'Ada' },
+      { messageId }
+    );
+    expect(resolved).not.toHaveProperty('preferencesUrl');
+    expect(html).not.toContain('preferences');
+    expect(html).not.toContain('Unsubscribe');
+  });
+
   test('outside a render that provides it, useEmailContext() says so', async () => {
     const { renderToStaticMarkup } = await import('react-dom/server');
     expect(() => renderToStaticMarkup(createElement(Layout, { name: 'Ada' }))).toThrow(
@@ -251,6 +299,35 @@ describe('the config', () => {
     expect(() => compileConfig(config({ unsubscribeUrl: 'https://acme.test/u' }))).not.toThrow();
     expect(() => compileConfig(config({ unsubscribeUrl: '' }))).toThrow(/email.unsubscribeUrl/);
     expect(() => compileConfig(config({ tracking: { quickClickMs: -1 } }))).toThrow(/quickClickMs/);
+  });
+
+  test('email.preferencesUrl is a URL, and never the unsubscribe link in disguise', () => {
+    const config = (email: object, template: typeof welcome | typeof newsletter = welcome) =>
+      defineConfig({
+        contract,
+        workflows: [flow],
+        templates: { email: { welcome: template } },
+        email,
+      });
+    const preferencesUrl = 'https://acme.test/settings/email';
+    expect(() => compileConfig(config({ preferencesUrl }))).not.toThrow();
+    expect(() => compileConfig(config({ preferencesUrl: '' }))).toThrow(/email.preferencesUrl/);
+    expect(() => compileConfig(config({ preferencesUrl: 'acme.test/p' }))).toThrow(
+      /email.preferencesUrl must be an http\(s\) URL/
+    );
+    // The sender tells the unsubscribe link from the rest by origin and path: the same address
+    // (whatever the query) would send the preferences link into the /t/u flow
+    const unsubscribeUrl = 'https://acme.test/unsubscribe';
+    expect(() => compileConfig(config({ unsubscribeUrl, preferencesUrl }))).not.toThrow();
+    expect(() =>
+      compileConfig(config({ unsubscribeUrl, preferencesUrl: `${unsubscribeUrl}?page=1` }))
+    ).toThrow(/email.preferencesUrl must not share its origin and path with email.unsubscribeUrl/);
+    // A template's own unsubscribe link at that address hijacks it the same way
+    expect(() =>
+      compileConfig(
+        config({ preferencesUrl: 'https://acme.test/newsletter/unsubscribe' }, newsletter)
+      )
+    ).toThrow(/email template 'weekly_newsletter': its unsubscribeUrl shares/);
   });
 
   test('every registered template is checked, used or not, naming its id', () => {
@@ -349,12 +426,15 @@ describe("the Worker's preview", () => {
     await database.close();
   });
 
-  test('finds a template by id, with the resolved unsubscribe link', async () => {
+  test('finds a template by id, with the resolved unsubscribe and preferences links', async () => {
     const config = defineConfig({
       contract,
       workflows: [],
       templates: { email: { welcomeAlias: welcome } },
-      email: { unsubscribeUrl: 'https://acme.test/unsubscribe' },
+      email: {
+        unsubscribeUrl: 'https://acme.test/unsubscribe',
+        preferencesUrl: 'https://acme.test/settings/email',
+      },
     });
     // Development: a production host refuses to serve without API_TOKEN
     const env = { JOURNEY: new FakeJourney(), ENVIRONMENT: 'development' };
@@ -365,7 +445,12 @@ describe("the Worker's preview", () => {
     const props = encodeURIComponent('{"name":"Ada"}');
     const found = await worker.fetch(new Request(`http://w/preview/welcome?props=${props}`), env);
     expect(found.status).toBe(200);
-    expect(await found.text()).toContain('href="https://acme.test/unsubscribe"');
+    const html = await found.text();
+    expect(html).toContain('href="https://acme.test/unsubscribe"');
+    // No copy to name: the placeholder id, so the footer shows as a sent email's would
+    expect(html).toContain(
+      'href="https://acme.test/settings/email?m=00000000-0000-0000-0000-000000000000"'
+    );
     const alias = await worker.fetch(
       new Request(`http://w/preview/welcomeAlias?props=${props}`),
       env

@@ -19,9 +19,10 @@ import {
  * parsed against the template's schema before the component renders — a
  * failure throws TemplateValidationError and nothing renders — and the
  * component renders as an element inside an `EmailProvider` carrying the
- * template's resolved metadata (`resolveEmail` against the config's `email`),
- * so hooks and context work and a layout's `useEmailContext()` reads the
- * unsubscribe link the email is sent with; the render returns that metadata
+ * template's resolved metadata (`resolveEmail` against the config's `email`
+ * and the copy's message id, when the sender has one), so hooks and context
+ * work and a layout's `useEmailContext()` reads the unsubscribe and
+ * preferences links the email is sent with; the render returns that metadata
  * with the subject and HTML, for the sender. Rendering
  * streams and waits for every Suspense boundary (`allReady`) — react-email's
  * `<Tailwind>` suspends while it compiles the classes, which synchronous
@@ -38,10 +39,10 @@ export function registryRenderer(
   config?: EmailConfig
 ): EmailRenderer {
   const index = indexTemplates('email', emails);
-  return async (id, props) => {
+  return async (id, props, options) => {
     const template = lookupTemplate(index, 'email', id);
     const parsed = parseTemplateProps(template, props);
-    const email = resolveEmail(template, config);
+    const email = resolveEmail(template, config, options);
     const element = createElement(
       EmailProvider,
       { email },

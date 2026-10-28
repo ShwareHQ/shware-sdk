@@ -60,6 +60,9 @@ const GIF = Uint8Array.from(
 );
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Whether `id` has the shape of a message id (a UUID); anything else names no copy. */
+export const isMessageId = (id: string): boolean => UUID.test(id);
+
 interface Requester {
   method: string;
   userAgent: string | null;

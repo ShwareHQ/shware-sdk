@@ -553,3 +553,13 @@ void subscriptions.setSubscriptions('u', { topics: { promotions: false } });
 
 const untyped = new JourneyClient({ origin: 'https://w.test' });
 void untyped.setSubscriptions('u', { email: { topics: { anything: false } } });
+
+// By message: the same record, plus the copy's channel and topic, typed by the contract
+expectTypeOf(subscriptions.getSubscriptionsByMessage('m')).resolves.toEqualTypeOf<{
+  email: { all: boolean; topics: Record<'promotions' | 'newsletter', boolean> };
+  push: { all: boolean; topics: Record<'promotions' | 'newsletter', boolean> };
+  message: { channel: 'email' | 'push'; topic: 'promotions' | 'newsletter' };
+}>();
+void subscriptions.setSubscriptionsByMessage('m', { email: { topics: { promotions: false } } });
+// @ts-expect-error only declared topics can be set
+void subscriptions.setSubscriptionsByMessage('m', { email: { topics: { digest: false } } });

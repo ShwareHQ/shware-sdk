@@ -114,7 +114,7 @@ describe('observer', () => {
       nodeId: 'n1',
       at: 1_000,
     });
-    const { id, tracked } = await sendEmail([
+    const { id, tracked, tracking } = await sendEmail([
       'https://app.example.com/a',
       'https://app.example.com/b',
     ]);
@@ -122,6 +122,8 @@ describe('observer', () => {
       `https://wf.example.com/t/l/${id}/0`,
       `https://wf.example.com/t/l/${id}/1`,
     ]);
+    // The id the pixel and links name travels to the renderer too, for the preferences link
+    expect(tracking?.messageId).toBe(id);
     await observer.finished?.({
       workflow: 'welcome',
       instanceId: 'i1',

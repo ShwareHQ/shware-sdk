@@ -4,6 +4,7 @@ import {
   type DeployResult,
   type IdentifyResult,
   type IngestResult,
+  type MessageSubscriptions,
   SUBSCRIPTION_CHANNELS,
   type Subscriptions,
   type SubscriptionsPatch,
@@ -78,6 +79,8 @@ export type ClientTopic<C> = [C] extends [undefined] ? string : Topic<C>;
 export type {
   ChannelSubscriptions,
   ChannelSubscriptionsPatch,
+  MessageOrigin,
+  MessageSubscriptions,
   SubscriptionChannel,
   Subscriptions,
   SubscriptionsPatch,
@@ -202,21 +205,51 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
     userId: string,
     patch: SubscriptionsPatch<ClientTopic<C>>
   ): Promise<Subscriptions<ClientTopic<C>>> {
+    const refused = this.undeclaredTopics(patch);
+    if (refused !== undefined) return Promise.reject(refused);
+    return this.request('PUT', subscriptionsPath(userId), patch);
+  }
+
+  /**
+   * `getSubscriptions` for the recipient of one copy, by the message id an email's preferences
+   * link carries (`email.preferencesUrl?m=<message id>`): how a preference page works without a
+   * sign-in. The answer adds `message: { channel, topic }`, the copy the page was opened from,
+   * so it can highlight that topic. Rejects with a 404 for an id that names no copy — never
+   * sent, or erased with its user — and for a transactional one; the page should show the link
+   * as expired. The message id is the capability, so the app proxies this behind its own API
+   * and rate-limits it.
+   */
+  getSubscriptionsByMessage(messageId: string): Promise<MessageSubscriptions<ClientTopic<C>>> {
+    return this.request('GET', subscriptionsByMessagePath(messageId));
+  }
+
+  /** `setSubscriptions` for the recipient of one copy; the patch and the answer are those of `getSubscriptionsByMessage`. */
+  setSubscriptionsByMessage(
+    messageId: string,
+    patch: SubscriptionsPatch<ClientTopic<C>>
+  ): Promise<MessageSubscriptions<ClientTopic<C>>> {
+    const refused = this.undeclaredTopics(patch);
+    if (refused !== undefined) return Promise.reject(refused);
+    return this.request('PUT', subscriptionsByMessagePath(messageId), patch);
+  }
+
+  /** With a contract, the refusal of a patch naming a topic it does not declare; undefined when the patch is fine. */
+  private undeclaredTopics(
+    patch: SubscriptionsPatch<ClientTopic<C>>
+  ): JourneyValidationError | undefined {
     const contract = this.options.contract;
-    if (contract !== undefined) {
-      const issues: ContractIssue[] = [];
-      for (const channel of SUBSCRIPTION_CHANNELS) {
-        for (const topic of Object.keys(patch[channel]?.topics ?? {})) {
-          // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
-          if (contract.topics.includes(topic)) continue;
-          issues.push({ path: `${channel}.topics.${topic}`, message: 'not a declared topic' });
-        }
-      }
-      if (issues.length > 0) {
-        return Promise.reject(new JourneyValidationError('/subscriptions', undefined, issues));
+    if (contract === undefined) return undefined;
+    const issues: ContractIssue[] = [];
+    for (const channel of SUBSCRIPTION_CHANNELS) {
+      for (const topic of Object.keys(patch[channel]?.topics ?? {})) {
+        // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
+        if (contract.topics.includes(topic)) continue;
+        issues.push({ path: `${channel}.topics.${topic}`, message: 'not a declared topic' });
       }
     }
-    return this.request('PUT', subscriptionsPath(userId), patch);
+    return issues.length > 0
+      ? new JourneyValidationError('/subscriptions', undefined, issues)
+      : undefined;
   }
 
   /** Deploy a compiled bundle (BundleIR). */
@@ -248,3 +281,5 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
 }
 
 const subscriptionsPath = (userId: string) => `/subscriptions/${encodeURIComponent(userId)}`;
+const subscriptionsByMessagePath = (messageId: string) =>
+  `/subscriptions/by-message/${encodeURIComponent(messageId)}`;
