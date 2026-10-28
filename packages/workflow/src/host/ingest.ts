@@ -749,11 +749,22 @@ export async function deployBundle(
 
 /* ------------------------------- subscriptions ------------------------------- */
 
-/** Where a user stands with email: `true` is subscribed, per topic and for the channel as a whole. */
+/**
+ * Where a user stands with email: `true` is subscribed, per topic and for the channel as a
+ * whole. The two are independent records: `all: false` masks every topic, whatever `topics`
+ * says about it, and `all: true` does not switch a topic back on.
+ */
 export interface EmailSubscriptions<T extends string = string> {
-  /** False once the user unsubscribed from all email (the channel-wide opt-out): no topic is sent then. */
+  /**
+   * False once the user unsubscribed from all email (the channel-wide opt-out). No topic is sent
+   * while it is false, however `topics` reads, so a consumer treats it as masking every topic.
+   */
   all: boolean;
-  /** Each declared topic: false once the user unsubscribed from it. */
+  /**
+   * Each declared topic: false once the user unsubscribed from it on its own. A topic's flag is
+   * its own record, answered as it is even while `all` is false, and it stays false when `all`
+   * turns true again until a patch names the topic.
+   */
   topics: Record<T, boolean>;
 }
 
@@ -762,7 +773,11 @@ export interface Subscriptions<T extends string = string> {
   email: EmailSubscriptions<T>;
 }
 
-/** What `PUT /subscriptions/:userId` takes: only what changes; an omitted field stays as it is. */
+/**
+ * What `PUT /subscriptions/:userId` takes: only what changes; an omitted field stays as it is.
+ * `all: true` clears the all-email opt-out only — a topic opted out on its own stays off until
+ * the patch names it (a "subscribe to all" sends `all: true` plus every topic `true`).
+ */
 export interface SubscriptionsPatch<T extends string = string> {
   email?: {
     all?: boolean;

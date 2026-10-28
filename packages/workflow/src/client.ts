@@ -173,7 +173,9 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
   /**
    * Where the user stands with email: `all` (false once they unsubscribed from every email) and
    * each declared topic (false once they unsubscribed from it) — the engine's record, which a
-   * preference page shows as it is. Rejects with a 410 for an erased user.
+   * preference page shows as it is. The two are independent flags: a topic answers its own
+   * opt-out even while `all` is false, so `all: false` masks every topic however they read
+   * (nothing is sent until it is true again). Rejects with a 410 for an erased user.
    */
   getSubscriptions(userId: string): Promise<Subscriptions<ClientEmailTopic<C>>> {
     return this.request('GET', subscriptionsPath(userId));
@@ -181,9 +183,11 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
 
   /**
    * Set subscriptions: only what the patch names changes (`{ email: { topics: { newsletter:
-   * false } } }` unsubscribes from one topic, `{ email: { all: true } }` re-subscribes to every
-   * email). Answers the subscriptions as they now stand. With a contract, a topic it does not
-   * declare is refused here, before the request; the engine refuses it too.
+   * false } } }` unsubscribes from one topic, `{ email: { all: false } }` from every email).
+   * `all: true` clears the all-email opt-out only: a topic opted out on its own stays off until
+   * the patch names it, so a preference page's "subscribe to all" sends `all: true` plus every
+   * topic `true`. Answers the subscriptions as they now stand. With a contract, a topic it does
+   * not declare is refused here, before the request; the engine refuses it too.
    */
   setSubscriptions(
     userId: string,

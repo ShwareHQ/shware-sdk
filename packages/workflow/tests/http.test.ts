@@ -791,6 +791,20 @@ describe('/subscriptions', () => {
     expect(await (await call('/subscriptions/u2')).json()).toEqual(everything);
   });
 
+  test("'all: true' clears the all-email opt-out only: a topic's own opt-out survives it", async () => {
+    const { put } = topicsHost();
+    await put('u1', { email: { all: false, topics: { newsletter: false } } });
+    const back = await put('u1', { email: { all: true } });
+    expect(await back.json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: false, tips: true } },
+    });
+    expect(await database.store.listSuppressions('u1', 'email')).toEqual(['newsletter']);
+    expect(await database.store.isSuppressed('u1', 'email', 'newsletter')).toBe(true);
+    // "Subscribe to all" is `all: true` plus every topic `true`
+    await put('u1', { email: { all: true, topics: { newsletter: true } } });
+    expect(await database.store.listSuppressions('u1', 'email')).toEqual([]);
+  });
+
   test('a user id with specials travels percent-encoded', async () => {
     const { call, put } = topicsHost();
     await put('a/b c', { email: { topics: { tips: false } } });

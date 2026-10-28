@@ -569,7 +569,9 @@ the all-email opt-out only — a user unsubscribed from one topic is still reach
 `exitWhen: not(reachable('email'))` fires on "all email", not on a topic. The app reads and sets
 the record through `GET` / `PUT /subscriptions/:userId` (`JourneyClient.getSubscriptions` /
 `setSubscriptions`), which is how a signed-in preference page is built: the engine holds the
-truth, the page shows it.
+truth, the page shows it. The all-email opt-out and the topic opt-outs are separate records:
+`all: false` masks every topic, whatever its own flag says, and `all: true` clears only the
+all-email opt-out — a topic opted out on its own stays off until a patch names it.
 
 An email step refuses to send when the profile has no `email`.
 `GET /preview/<id>?props=<JSON>` renders a template, with the subject in the
@@ -742,10 +744,20 @@ request. A preference page is a thin proxy over them:
 
 ```ts
 const { email } = await journeys.getSubscriptions(userId);
+// email: { all: false, topics: { promotions: false, newsletter: true, tips: true } }
+// `all: false` masks every topic: newsletter reads true, but nothing is sent until `all` is
+// true again. Each flag is its own record, so a preference page shows `all` as the master
+// switch and the topics as they are.
+await journeys.setSubscriptions(userId, { email: { all: true } });
 // email: { all: true, topics: { promotions: false, newsletter: true, tips: true } }
+// `all: true` cleared only the all-email opt-out; promotions stays off until named:
 await journeys.setSubscriptions(userId, { email: { topics: { promotions: true } } });
 await journeys.setSubscriptions(userId, { email: { all: false } }); // unsubscribe from everything
 ```
+
+A "subscribe to all" button sends `all: true` plus every topic `true`; a
+"unsubscribe from all" sends `all: false` and leaves the topics as they are, so
+turning `all` back on restores the user's own choices.
 
 ## Compiling and planning
 
@@ -1152,7 +1164,10 @@ On Postgres the engine also keeps:
   subscribed; `topics` has one key per topic the deployed bundle declares).
   `PUT /subscriptions/:userId` takes a partial body `{ email?: { all?, topics? } }`
   and changes only what it names: `all: false` opts out of every email,
-  `topics: { newsletter: false }` of one. An undeclared topic or a non-boolean
+  `topics: { newsletter: false }` of one, and `all: true` clears the all-email
+  opt-out only (a topic opted out on its own stays off until named). An
+  answer's `all: false` masks every topic, whatever the topic's own flag says.
+  An undeclared topic or a non-boolean
   answers 400 with the field paths; an erased user 410. Changing `all` wakes
   the waits on `reachable('email')`.
 - `POST /users/forget` takes `{ userId }`; the erasure takes the user's opt-outs
