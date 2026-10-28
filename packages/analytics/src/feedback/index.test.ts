@@ -11,7 +11,7 @@ async function load() {
   return { jsonResponse, ...feedback };
 }
 
-const dto = { name: 'Ada', email: 'ada@example.com', message: 'Love it' };
+const dto = { name: 'Ada', email: 'ada@example.com', message: 'Love it', turnstileToken: 'tok' };
 
 beforeEach(() => {
   vi.resetModules();

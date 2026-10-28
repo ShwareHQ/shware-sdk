@@ -338,6 +338,13 @@ export const createFeedbackSchema = object({
   // normalized form without wrapping the schema.
   email: emailValue,
   message: string().check(minLength(1), maxLength(65536)),
+  /**
+   * The Cloudflare Turnstile token the host verifies before storing the feedback (the same field
+   * `@shware/security`'s email-code request carries). Required: without it `POST /feedback` is an
+   * open free-text write that only a rate limit protects. Single-use: Turnstile spends the token
+   * at verification, so the caller resets the widget after every submit, success or failure.
+   */
+  turnstileToken: string().check(minLength(1), maxLength(2048)),
 });
 
 const noEmptyString = pipe(
