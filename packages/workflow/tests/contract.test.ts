@@ -115,18 +115,18 @@ describe('subscription topics', () => {
     const topical = defineContract({
       events: {},
       profile: z.strictObject({}),
-      subscriptions: { email: ['promotions', 'newsletter'] },
+      subscriptions: { topics: ['promotions', 'newsletter'] },
     });
-    expect(topical.topics).toEqual({ email: ['promotions', 'newsletter'] });
-    expect(topical.isEmailTopic('promotions')).toBe(true);
-    expect(topical.isEmailTopic('digest')).toBe(false);
-    expect(contract.topics).toEqual({ email: [] });
-    expect(contract.isEmailTopic('promotions')).toBe(false);
+    expect(topical.topics).toEqual(['promotions', 'newsletter']);
+    expect(topical.isTopic('promotions')).toBe(true);
+    expect(topical.isTopic('digest')).toBe(false);
+    expect(contract.topics).toEqual([]);
+    expect(contract.isTopic('promotions')).toBe(false);
   });
 
   test('a topic id is a plain token, listed once', () => {
     const declare = (email: string[]) => () =>
-      defineContract({ events: {}, profile: z.strictObject({}), subscriptions: { email } });
+      defineContract({ events: {}, profile: z.strictObject({}), subscriptions: { topics: email } });
     expect(declare(['a', 'b-c', 'd_e', 'f.g', 'h1'])).not.toThrow();
     for (const bad of ['', ' tips', 'tips news', '-tips', 'tips/news', 'tips?']) {
       expect(declare([bad])).toThrow(/is not a topic id/);

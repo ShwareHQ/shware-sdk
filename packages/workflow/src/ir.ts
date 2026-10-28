@@ -254,9 +254,9 @@ export type NodeIR =
        */
       devices?: 'latest' | undefined;
       /**
-       * Email only: the template's subscription topic, or null for a transactional email (sent
-       * whatever the recipient opted out of). Absent in IR compiled before topics existed: such
-       * a step checks the channel-level opt-out only, as it always did.
+       * Email and push: the template's subscription topic, or null for a transactional message
+       * (sent whatever the user opted out of). Absent for other channels, and in IR compiled
+       * before topics existed: such a step checks the channel-level opt-out only, as it always did.
        */
       topic?: string | null | undefined;
     })
@@ -466,7 +466,7 @@ export type ActionIR = z.infer<typeof ActionIR>;
  * `/subscriptions` and the templates' topics against the deployed list, not the SDK's word.
  */
 export const SubscriptionsIR = z.object({
-  email: z.array(z.string()),
+  topics: z.array(z.string()),
 });
 export type SubscriptionsIR = z.infer<typeof SubscriptionsIR>;
 
@@ -476,7 +476,7 @@ export const BundleIR = z.object({
   segments: z.array(SegmentIR),
   templates: z.array(TemplateIR),
   actions: z.array(ActionIR),
-  /** Absent in a bundle compiled before topics existed: no email topics. */
+  /** Absent in a bundle compiled before topics existed: no topics. */
   subscriptions: z.optional(SubscriptionsIR),
 });
 export type BundleIR = z.infer<typeof BundleIR>;

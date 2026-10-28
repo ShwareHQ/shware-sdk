@@ -1,11 +1,12 @@
 import type * as core from 'zod/v4/core';
-import type { Contract, ContractIssue, EmailTopic, ProfilePatch } from './contract';
-import type {
-  DeployResult,
-  IdentifyResult,
-  IngestResult,
-  Subscriptions,
-  SubscriptionsPatch,
+import type { Contract, ContractIssue, ProfilePatch, Topic } from './contract';
+import {
+  type DeployResult,
+  type IdentifyResult,
+  type IngestResult,
+  SUBSCRIPTION_CHANNELS,
+  type Subscriptions,
+  type SubscriptionsPatch,
 } from './host/ingest';
 import type { ProfileProps } from './store';
 
@@ -71,10 +72,18 @@ type IdentifyProps<C> = [C] extends [undefined]
     ? ProfilePatch<P>
     : never;
 
-/** The email topics the client's contract declares; any string without a contract. */
-export type ClientEmailTopic<C> = [C] extends [undefined] ? string : EmailTopic<C>;
+/** The topics the client's contract declares; any string without a contract. */
+export type ClientTopic<C> = [C] extends [undefined] ? string : Topic<C>;
+/** @deprecated Topics are no longer per channel: use `ClientTopic<C>`. */
+export type ClientEmailTopic<C> = ClientTopic<C>;
 
-export type { EmailSubscriptions, Subscriptions, SubscriptionsPatch } from './host/ingest';
+export type {
+  ChannelSubscriptions,
+  ChannelSubscriptionsPatch,
+  SubscriptionChannel,
+  Subscriptions,
+  SubscriptionsPatch,
+} from './host/ingest';
 
 export interface TrackOptions {
   /** The occurrence's identity: a retry with the same id is recorded once. */
@@ -171,35 +180,39 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
   }
 
   /**
-   * Where the user stands with email: `all` (false once they unsubscribed from every email) and
-   * each declared topic (false once they unsubscribed from it) — the engine's record, which a
-   * preference page shows as it is. The two are independent flags: a topic answers its own
-   * opt-out even while `all` is false, so `all: false` masks every topic however they read
-   * (nothing is sent until it is true again). Rejects with a 410 for an erased user.
+   * Where the user stands, topic × channel: for `email` and for `push`, `all` (false once they
+   * opted out of the whole channel) and each declared topic (false once they opted out of it on
+   * that channel) — the engine's record, which a preference page shows as it is. The two are
+   * independent flags: a topic answers its own opt-out even while `all` is false, so `all: false`
+   * masks every topic however they read (nothing is sent on the channel until it is true again).
+   * Rejects with a 410 for an erased user.
    */
-  getSubscriptions(userId: string): Promise<Subscriptions<ClientEmailTopic<C>>> {
+  getSubscriptions(userId: string): Promise<Subscriptions<ClientTopic<C>>> {
     return this.request('GET', subscriptionsPath(userId));
   }
 
   /**
-   * Set subscriptions: only what the patch names changes (`{ email: { topics: { newsletter:
-   * false } } }` unsubscribes from one topic, `{ email: { all: false } }` from every email).
-   * `all: true` clears the all-email opt-out only: a topic opted out on its own stays off until
-   * the patch names it, so a preference page's "subscribe to all" sends `all: true` plus every
-   * topic `true`. Answers the subscriptions as they now stand. With a contract, a topic it does
-   * not declare is refused here, before the request; the engine refuses it too.
+   * Set subscriptions: only what the patch names changes, per channel (`{ email: { topics: {
+   * newsletter: false } } }` opts out of one topic's emails, `{ push: { all: false } }` of every
+   * push — the in-app opt-out App Store Review Guideline 4.5.4 asks for). `all: true` clears the
+   * channel-wide opt-out only: a topic opted out on its own stays off until the patch names it,
+   * so a preference page's "subscribe to all" sends `all: true` plus every topic `true`. Answers
+   * the subscriptions as they now stand. With a contract, a topic it does not declare is refused
+   * here, before the request; the engine refuses it too.
    */
   setSubscriptions(
     userId: string,
-    patch: SubscriptionsPatch<ClientEmailTopic<C>>
-  ): Promise<Subscriptions<ClientEmailTopic<C>>> {
+    patch: SubscriptionsPatch<ClientTopic<C>>
+  ): Promise<Subscriptions<ClientTopic<C>>> {
     const contract = this.options.contract;
     if (contract !== undefined) {
       const issues: ContractIssue[] = [];
-      for (const topic of Object.keys(patch.email?.topics ?? {})) {
-        // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
-        if (contract.topics.email.includes(topic)) continue;
-        issues.push({ path: `email.topics.${topic}`, message: 'not a declared topic' });
+      for (const channel of SUBSCRIPTION_CHANNELS) {
+        for (const topic of Object.keys(patch[channel]?.topics ?? {})) {
+          // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
+          if (contract.topics.includes(topic)) continue;
+          issues.push({ path: `${channel}.topics.${topic}`, message: 'not a declared topic' });
+        }
       }
       if (issues.length > 0) {
         return Promise.reject(new JourneyValidationError('/subscriptions', undefined, issues));

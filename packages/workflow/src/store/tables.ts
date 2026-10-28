@@ -104,7 +104,7 @@ export const TABLES = {
   }),
   suppression: table({
     name: 'suppression',
-    doc: "What a user opted out of: a channel's topic (an email unsubscribe from one topic), or the whole channel when `topic` is null — the engine sends nothing there, and `reachable(channel)` is false. One row per (user, channel, topic), nulls included.",
+    doc: 'What a user opted out of: a topic on a channel (an email unsubscribe from one topic, a push topic switched off in the app), or the whole channel when `topic` is null — the engine sends nothing there, and `reachable(channel)` is false. One row per (user, channel, topic), nulls included.',
     columns: {
       userId: text,
       channel: text,
@@ -281,7 +281,7 @@ export const TABLES = {
       userId: text,
       topic: nullable(
         text,
-        "An email copy: its template's subscription topic (what its unsubscribe link opts out of); null for a transactional email, and for every other channel."
+        "An email or push copy: its template's subscription topic (what an email's unsubscribe link opts out of); null for a transactional message, and for every other channel."
       ),
       sentAt: ts,
       deliveredAt: nullable(ts, 'The transport accepted it.'),

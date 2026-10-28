@@ -79,6 +79,7 @@ describe('emailTemplate / pushTemplate declarations', () => {
     expect(() =>
       pushTemplate({
         id: 'bad',
+        transactional: true,
         title: 'Bad',
         props: schema as never,
         preview: {} as never,
@@ -115,7 +116,14 @@ describe('emailTemplate / pushTemplate declarations', () => {
       preview: { name: 'A' },
       component,
     });
-    pushTemplate({ id: 'p', title: 'P', props: named, preview: { name: 'A' }, content });
+    pushTemplate({
+      id: 'p',
+      transactional: true,
+      title: 'P',
+      props: named,
+      preview: { name: 'A' },
+      content,
+    });
     expect(component).not.toHaveBeenCalled();
     expect(content).not.toHaveBeenCalled();
   });
@@ -187,6 +195,7 @@ describe('push rendering', () => {
     const pushes = {
       tip: pushTemplate({
         id: 'tip',
+        transactional: true,
         title: 'Tip (studio name)',
         props: named,
         preview: { name: 'A' },
@@ -203,6 +212,7 @@ describe('push rendering', () => {
     const pushes = {
       offer: pushTemplate({
         id: 'offer',
+        transactional: true,
         title: 'Offer',
         props: named,
         preview: { name: 'A' },
@@ -219,7 +229,14 @@ describe('push rendering', () => {
   test('an input failure never calls content; a bad result was called but is refused', async () => {
     const content = vi.fn<PushContent>(() => ({ title: 't', body: 'b' }));
     const pushes = {
-      tip: pushTemplate({ id: 'tip', title: 'Tip', props: named, preview: { name: 'A' }, content }),
+      tip: pushTemplate({
+        id: 'tip',
+        transactional: true,
+        title: 'Tip',
+        props: named,
+        preview: { name: 'A' },
+        content,
+      }),
     };
     const error = await registryPushRenderer(pushes)('tip', {}).catch((e: unknown) => e);
     expect(error).toMatchObject({ name: 'TemplateValidationError', phase: 'props' });
@@ -228,6 +245,7 @@ describe('push rendering', () => {
     const broken = {
       tip: pushTemplate({
         id: 'tip',
+        transactional: true,
         title: 'Tip',
         props: named,
         preview: { name: 'A' },
@@ -257,7 +275,14 @@ describe('registryValidator', () => {
       }),
     },
     push: {
-      tip: pushTemplate({ id: 'tip', title: 'T', props: named, preview: { name: 'A' }, content }),
+      tip: pushTemplate({
+        id: 'tip',
+        transactional: true,
+        title: 'T',
+        props: named,
+        preview: { name: 'A' },
+        content,
+      }),
     },
   });
 
@@ -297,6 +322,7 @@ describe('templates are found by id, never by the property holding them', () => 
   });
   const tip = pushTemplate({
     id: 'onboarding_tip_push',
+    transactional: true,
     title: 'T',
     props: named,
     preview: { name: 'A' },

@@ -177,12 +177,32 @@ export function assertEmailMetadata(
   if (template.unsubscribeUrl !== undefined) {
     assertUnsubscribeUrl(template.unsubscribeUrl, `${where}: unsubscribeUrl`);
   }
+  const transactional = assertTemplateTopic(template, where, 'email', declared);
+  if (transactional && template.unsubscribeUrl !== undefined) {
+    throw new TypeError(
+      `${where}: a transactional email has no unsubscribe link, so it takes no 'unsubscribeUrl'`
+    );
+  }
+}
+
+/**
+ * What a template is — `topic: <id>` or `transactional: true`, one of the two — as `emailTemplate`
+ * and `pushTemplate` check their argument and `compileConfig` checks a declared template (where
+ * `topic: null` is transactional). Answers whether the template is transactional. Whether the
+ * topic is one the contract declares is `compileConfig`'s check, where the contract is at hand.
+ */
+export function assertTemplateTopic(
+  template: { topic?: unknown; transactional?: unknown },
+  where: string,
+  channel: 'email' | 'push',
+  declared = false
+): boolean {
   const { topic } = template;
   // A declared template says `topic: null` for transactional; a definition says `transactional: true`
   const transactional = template.transactional === true || (declared && topic === null);
   if (template.transactional !== undefined && template.transactional !== true) {
     throw new TypeError(
-      `${where}: 'transactional' must be the literal true (leave it out for a topic email)`
+      `${where}: 'transactional' must be the literal true (leave it out for a topic ${channel})`
     );
   }
   const hasTopic = topic !== undefined && topic !== null;
@@ -194,14 +214,10 @@ export function assertEmailMetadata(
   }
   if (!hasTopic && !transactional) {
     throw new TypeError(
-      `${where}: every email template says what it is — 'topic: <id>' (one the contract's subscriptions.email declares) or 'transactional: true'`
+      `${where}: every ${channel} template says what it is — 'topic: <id>' (one the contract's subscriptions.topics declares) or 'transactional: true'`
     );
   }
-  if (transactional && template.unsubscribeUrl !== undefined) {
-    throw new TypeError(
-      `${where}: a transactional email has no unsubscribe link, so it takes no 'unsubscribeUrl'`
-    );
-  }
+  return transactional;
 }
 
 /** The unsubscribe link may carry its own query (a token, a list): the path names it. */

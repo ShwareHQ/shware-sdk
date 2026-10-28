@@ -749,40 +749,56 @@ export async function deployBundle(
 
 /* ------------------------------- subscriptions ------------------------------- */
 
+/** The channels a user opts out of per topic: `suppression` rows are keyed by (user, channel, topic). */
+export const SUBSCRIPTION_CHANNELS = ['email', 'push'] as const;
+export type SubscriptionChannel = (typeof SUBSCRIPTION_CHANNELS)[number];
+
 /**
- * Where a user stands with email: `true` is subscribed, per topic and for the channel as a
- * whole. The two are independent records: `all: false` masks every topic, whatever `topics`
+ * Where a user stands with one channel: `true` is subscribed, per topic and for the channel as
+ * a whole. The two are independent records: `all: false` masks every topic, whatever `topics`
  * says about it, and `all: true` does not switch a topic back on.
  */
-export interface EmailSubscriptions<T extends string = string> {
+export interface ChannelSubscriptions<T extends string = string> {
   /**
-   * False once the user unsubscribed from all email (the channel-wide opt-out). No topic is sent
+   * False once the user opted out of the whole channel (all email, all push). No topic is sent
    * while it is false, however `topics` reads, so a consumer treats it as masking every topic.
    */
   all: boolean;
   /**
-   * Each declared topic: false once the user unsubscribed from it on its own. A topic's flag is
+   * Each declared topic: false once the user opted out of it on this channel. A topic's flag is
    * its own record, answered as it is even while `all` is false, and it stays false when `all`
    * turns true again until a patch names the topic.
    */
   topics: Record<T, boolean>;
 }
 
-/** A user's subscriptions, per channel — what `GET /subscriptions/:userId` answers. */
+/** @deprecated The same record per channel: `ChannelSubscriptions`. */
+export type EmailSubscriptions<T extends string = string> = ChannelSubscriptions<T>;
+
+/**
+ * A user's subscriptions, topic × channel — what `GET /subscriptions/:userId` answers. Every
+ * channel lists every declared topic: a topic is a content category, and the user chooses per
+ * channel whether to get it.
+ */
 export interface Subscriptions<T extends string = string> {
-  email: EmailSubscriptions<T>;
+  email: ChannelSubscriptions<T>;
+  push: ChannelSubscriptions<T>;
+}
+
+/** One channel's part of a patch: only what changes. */
+export interface ChannelSubscriptionsPatch<T extends string = string> {
+  all?: boolean;
+  topics?: Partial<Record<T, boolean>>;
 }
 
 /**
- * What `PUT /subscriptions/:userId` takes: only what changes; an omitted field stays as it is.
- * `all: true` clears the all-email opt-out only — a topic opted out on its own stays off until
- * the patch names it (a "subscribe to all" sends `all: true` plus every topic `true`).
+ * What `PUT /subscriptions/:userId` takes: only what changes; an omitted channel or field stays
+ * as it is. `all: true` clears the channel-wide opt-out only — a topic opted out on its own stays
+ * off until the patch names it (a "subscribe to all" sends `all: true` plus every topic `true`).
  */
 export interface SubscriptionsPatch<T extends string = string> {
-  email?: {
-    all?: boolean;
-    topics?: Partial<Record<T, boolean>>;
-  };
+  email?: ChannelSubscriptionsPatch<T>;
+  push?: ChannelSubscriptionsPatch<T>;
 }
 
 /** One field of a patch refused, with the path the producer can fix. */
@@ -803,43 +819,43 @@ export function parseSubscriptionsPatch(
   const object = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
   if (!object(body)) return { ok: false, issues: [{ path: '', message: 'must be an object' }] };
+  const known = new Set(topics);
   const patch: SubscriptionsPatch = {};
   for (const [channel, value] of Object.entries(body)) {
-    if (channel !== 'email') {
+    if (!(SUBSCRIPTION_CHANNELS as readonly string[]).includes(channel)) {
       issues.push({ path: channel, message: 'not a subscription channel' });
       continue;
     }
     if (!object(value)) {
-      issues.push({ path: 'email', message: 'must be an object' });
+      issues.push({ path: channel, message: 'must be an object' });
       continue;
     }
-    const email: NonNullable<SubscriptionsPatch['email']> = {};
+    const part: ChannelSubscriptionsPatch = {};
     for (const [field, setting] of Object.entries(value)) {
       if (field === 'all') {
-        if (typeof setting === 'boolean') email.all = setting;
-        else issues.push({ path: 'email.all', message: 'must be a boolean' });
+        if (typeof setting === 'boolean') part.all = setting;
+        else issues.push({ path: `${channel}.all`, message: 'must be a boolean' });
       } else if (field === 'topics') {
         if (!object(setting)) {
-          issues.push({ path: 'email.topics', message: 'must be an object' });
+          issues.push({ path: `${channel}.topics`, message: 'must be an object' });
           continue;
         }
-        const known = new Set(topics);
         const chosen: Record<string, boolean> = {};
         for (const [topic, subscribed] of Object.entries(setting)) {
           if (!known.has(topic)) {
-            issues.push({ path: `email.topics.${topic}`, message: 'not a declared topic' });
+            issues.push({ path: `${channel}.topics.${topic}`, message: 'not a declared topic' });
           } else if (typeof subscribed !== 'boolean') {
-            issues.push({ path: `email.topics.${topic}`, message: 'must be a boolean' });
+            issues.push({ path: `${channel}.topics.${topic}`, message: 'must be a boolean' });
           } else {
             chosen[topic] = subscribed;
           }
         }
-        email.topics = chosen;
+        part.topics = chosen;
       } else {
-        issues.push({ path: `email.${field}`, message: 'unknown field' });
+        issues.push({ path: `${channel}.${field}`, message: 'unknown field' });
       }
     }
-    patch.email = email;
+    patch[channel as SubscriptionChannel] = part;
   }
   return issues.length > 0 ? { ok: false, issues } : { ok: true, patch };
 }
@@ -849,13 +865,14 @@ async function readSubscriptions(
   userId: string,
   topics: readonly string[]
 ): Promise<Subscriptions> {
-  const suppressed = new Set(await store.listSuppressions(userId, 'email'));
-  return {
-    email: {
+  const read = async (channel: SubscriptionChannel): Promise<ChannelSubscriptions> => {
+    const suppressed = new Set(await store.listSuppressions(userId, channel));
+    return {
       all: !suppressed.has(null),
       topics: Object.fromEntries(topics.map((topic) => [topic, !suppressed.has(topic)])),
-    },
+    };
   };
+  return { email: await read('email'), push: await read('push') };
 }
 
 /** The user's subscriptions over the declared `topics`; a user with an erasure tombstone is refused. */
@@ -869,10 +886,12 @@ export async function getSubscriptions(
 }
 
 /**
- * Apply a patch — each field given sets or clears the matching opt-out, in one transaction — and
- * answer the subscriptions as they now stand. A change of `all` is a change of email
- * reachability, so the waits reading it wake, both ways: an `exitWhen: not(reachable('email'))`
- * fires on the opt-out, and a wait for the address to become reachable resumes on the opt-in.
+ * Apply a patch — each field given sets or clears the matching opt-out, one transaction per
+ * channel — and answer the subscriptions as they now stand. A change of a channel's `all` is a
+ * change of its reachability, so the waits reading it wake, both ways: an
+ * `exitWhen: not(reachable('email'))` fires on the opt-out, and a wait for the channel to become
+ * reachable resumes on the opt-in. Email waits key on the address property, push waits on the
+ * device channel (`reachable('push')` subscribes to device changes).
  */
 export async function setSubscriptions(
   env: JourneyEnv,
@@ -883,17 +902,23 @@ export async function setSubscriptions(
   now = Date.now()
 ): Promise<Subscriptions> {
   await refuseIfErased(store, userId);
-  const email = patch.email ?? {};
-  const changes: SuppressionChange[] = [];
-  if (email.all !== undefined) changes.push({ topic: null, suppressed: !email.all });
-  for (const [topic, subscribed] of Object.entries(email.topics ?? {})) {
-    if (subscribed !== undefined) changes.push({ topic, suppressed: !subscribed });
-  }
-  await store.updateSuppressions(userId, 'email', changes, now);
-  if (email.all !== undefined) {
-    await wakeSubscribers(env, store, userId, [
-      profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email'),
-    ]);
+  for (const channel of SUBSCRIPTION_CHANNELS) {
+    const part = patch[channel];
+    if (part === undefined) continue;
+    const changes: SuppressionChange[] = [];
+    if (part.all !== undefined) changes.push({ topic: null, suppressed: !part.all });
+    for (const [topic, subscribed] of Object.entries(part.topics ?? {})) {
+      if (subscribed !== undefined) changes.push({ topic, suppressed: !subscribed });
+    }
+    if (changes.length === 0) continue;
+    await store.updateSuppressions(userId, channel, changes, now);
+    if (part.all !== undefined) {
+      const wake =
+        channel === 'push'
+          ? DEVICES_UPDATED_EVENT
+          : profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email');
+      await wakeSubscribers(env, store, userId, [wake]);
+    }
   }
   return readSubscriptions(store, userId, topics);
 }

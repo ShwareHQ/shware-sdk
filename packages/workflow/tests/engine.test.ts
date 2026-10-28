@@ -26,6 +26,7 @@ import {
   emailTemplate,
   eq,
   performed,
+  pushTemplate,
   reachable,
   trigger,
   workflow,
@@ -348,19 +349,93 @@ describe('email opt-outs are per topic', () => {
     facts.suppressed.add('email');
     expect(await evaluateCondition(email, facts, now)).toBe(false);
   });
+});
 
-  test('push is untouched: a device opt-out is the channel, and a push carries no topic', async () => {
-    const tip = namedPush('tip');
-    const pushes = workflow({ id: 'p', trigger: trigger.event(e.sign_up) })
-      .push(tip, { name: 'Ada' })
-      .toIR();
-    expect(pushes.flow[0]).not.toHaveProperty('topic');
+describe('push opt-outs are per topic', () => {
+  const offer = pushTemplate({
+    id: 'offer_push',
+    topic: 'promotions',
+    title: 'Offer',
+    props: z.strictObject({}),
+    preview: {},
+    content: () => ({ title: 'Offer', body: '25% off' }),
+  });
+  const code = pushTemplate({
+    id: 'code_push',
+    transactional: true,
+    title: 'Code',
+    props: z.strictObject({}),
+    preview: {},
+    content: () => ({ title: 'Your code', body: '123456' }),
+  });
+  const ir = workflow({ id: 'push_topics', trigger: trigger.event(e.sign_up) })
+    .push(offer)
+    .push(code)
+    .toIR();
+  const phone: PushDevice = { token: 'tok-phone', platform: 'ios' };
+  const tablet: PushDevice = { token: 'tok-tablet', platform: 'android' };
+
+  test('the push node carries its topic, null for a transactional push', () => {
+    expect(ir.flow.map((node) => (node as { topic?: string | null }).topic)).toEqual([
+      'promotions',
+      null,
+    ]);
+  });
+
+  test('an opt-out of the topic skips the step before any device; the copies carry the topic', async () => {
     const { ctx, facts, sent } = makeContext();
-    facts.devices = [{ token: 't', platform: 'ios' }];
-    facts.suppressed.add('email');
-    await runJourney(pushes, ctx);
-    expect(sent.map((m) => m.channel)).toEqual(['push']);
-    expect(sent[0]).not.toHaveProperty('topic');
+    facts.devices = [phone, tablet];
+    facts.suppressed.add('push:promotions');
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => [m.template, m.recipient, m.topic])).toEqual([
+      ['code_push', 'tok-phone', null],
+      ['code_push', 'tok-tablet', null],
+    ]);
+    // An email opt-out of the same topic is another channel's record
+    const other = makeContext();
+    other.facts.devices = [phone];
+    other.facts.suppressed.add('email:promotions');
+    await runJourney(ir, other.ctx);
+    expect(other.sent.map((m) => [m.template, m.topic])).toEqual([
+      ['offer_push', 'promotions'],
+      ['code_push', null],
+    ]);
+  });
+
+  test('an opt-out of all push skips every topic, never a transactional push', async () => {
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [phone];
+    facts.suppressed.add('push');
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => m.template)).toEqual(['code_push']);
+  });
+
+  test('a push node compiled before topics existed checks the whole channel only', async () => {
+    const legacy = structuredClone(ir);
+    for (const node of legacy.flow) delete (node as { topic?: unknown }).topic;
+    const { ctx, facts, sent } = makeContext();
+    facts.devices = [phone];
+    facts.suppressed.add('push:promotions');
+    await runJourney(legacy, ctx);
+    expect(sent.map((m) => m.template)).toEqual(['offer_push', 'code_push']);
+    const all = makeContext();
+    all.facts.devices = [phone];
+    all.facts.suppressed.add('push');
+    await runJourney(legacy, all.ctx);
+    expect(all.sent).toEqual([]);
+  });
+
+  test("reachable('push') is a device and no channel-wide opt-out; a topic opt-out leaves it true", async () => {
+    const facts = new FakeFacts();
+    const now = Date.now();
+    const push = condIR(reachable('push'));
+    expect(await evaluateCondition(push, facts, now)).toBe(false);
+    facts.devices = [phone];
+    expect(await evaluateCondition(push, facts, now)).toBe(true);
+    facts.suppressed.add('push:promotions');
+    expect(await evaluateCondition(push, facts, now)).toBe(true);
+    facts.suppressed.add('push');
+    expect(await evaluateCondition(push, facts, now)).toBe(false);
   });
 });
 

@@ -35,6 +35,7 @@ const welcome = emailTemplate({
 
 const nudge = pushTemplate({
   id: 'nudge',
+  transactional: true,
   title: 'Nudge · display name',
   props: z.strictObject({}),
   preview: {},

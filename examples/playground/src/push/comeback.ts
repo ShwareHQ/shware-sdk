@@ -7,6 +7,7 @@ import * as z from 'zod/mini';
  */
 export default pushTemplate({
   id: 'reengage_comeback_push',
+  topic: 'product_updates',
   title: 'Re-engagement · Come back',
   description: 'First touch for dormant users, sent before the win-back emails.',
   props: z.strictObject({ name: z.string() }),

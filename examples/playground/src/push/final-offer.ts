@@ -11,6 +11,7 @@ const image =
 
 export default pushTemplate({
   id: 'winback_final_offer_push',
+  topic: 'offers',
   title: 'Winback · Final offer',
   description: 'Last-call discount push, paired with the final offer email.',
   props: z.strictObject({ coupon: z.string(), expiresIn: z.string() }),

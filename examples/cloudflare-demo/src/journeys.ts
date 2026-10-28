@@ -9,8 +9,8 @@ import { email } from './email';
  */
 
 /**
- * The demo's contract: its events and profile, and the one email topic its offer emails belong
- * to (the welcome is transactional). The Worker validates ingest against it, and
+ * The demo's contract: its events and profile, and the one topic its offer emails belong to
+ * (the welcome is transactional). The Worker validates ingest against it, and
  * `JourneyClient.setSubscriptions` is typed by it.
  */
 export const contract = defineContract({
@@ -20,7 +20,7 @@ export const contract = defineContract({
     demo_purchase: z.looseObject({ value: z.number() }),
   },
   profile: z.strictObject({ email: z.string(), plan: z.string() }),
-  subscriptions: { email: ['offers'] },
+  subscriptions: { topics: ['offers'] },
 });
 
 const e = contract.events;

@@ -100,7 +100,7 @@ describe('JourneyClient subscriptions', () => {
     const contract = defineContract({
       events: {},
       profile: z.strictObject({}),
-      subscriptions: { email: ['promotions', 'newsletter'] },
+      subscriptions: { topics: ['promotions', 'newsletter'] },
     });
     const { calls, fetchFn } = stub(200, {});
     const client = new JourneyClient({ origin: 'https://wf.example', contract, fetch: fetchFn });
@@ -112,7 +112,16 @@ describe('JourneyClient subscriptions', () => {
       { path: 'email.topics.digest', message: 'not a declared topic' },
     ]);
     expect(calls).toEqual([]);
-    await client.setSubscriptions('u1', { email: { all: false, topics: { newsletter: false } } });
+    const pushError = await client
+      .setSubscriptions('u1', { push: { all: false, topics: { digest: false } as never } })
+      .catch((e: unknown) => e);
+    expect((pushError as JourneyValidationError).issues).toEqual([
+      { path: 'push.topics.digest', message: 'not a declared topic' },
+    ]);
+    expect(calls).toEqual([]);
+    await client.setSubscriptions('u1', { push: { topics: { promotions: false } } });
     expect(calls).toHaveLength(1);
+    await client.setSubscriptions('u1', { email: { all: false, topics: { newsletter: false } } });
+    expect(calls).toHaveLength(2);
   });
 });

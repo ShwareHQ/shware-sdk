@@ -178,11 +178,11 @@ function checked<T>(
 }
 
 /**
- * The email topics the engine knows: the deployed bundle's list (compiled from the contract),
- * or the contract's when the bare API runs without a host — never the caller's.
+ * The topics the engine knows: the deployed bundle's list (compiled from the contract), or the
+ * contract's when the bare API runs without a host — never the caller's.
  */
-function emailTopics(ctx: Pick<RouteContext, 'host' | 'validation'>): readonly string[] {
-  return ctx.host.bundle?.().subscriptions?.email ?? ctx.validation.contract?.topics.email ?? [];
+function declaredTopics(ctx: Pick<RouteContext, 'host' | 'validation'>): readonly string[] {
+  return ctx.host.bundle?.().subscriptions?.topics ?? ctx.validation.contract?.topics ?? [];
 }
 
 const SUBSCRIPTIONS = /^\/subscriptions\/[^/]+$/;
@@ -324,7 +324,7 @@ const routes: readonly Route[] = [
     async handle(ctx) {
       const userId = subscriptionsUser(ctx.url);
       if (userId === '') return json({ error: 'userId required' }, 400);
-      return json(await getSubscriptions(ctx.store, userId, emailTopics(ctx)));
+      return json(await getSubscriptions(ctx.store, userId, declaredTopics(ctx)));
     },
   },
   {
@@ -334,7 +334,7 @@ const routes: readonly Route[] = [
     async handle(ctx) {
       const userId = subscriptionsUser(ctx.url);
       if (userId === '') return json({ error: 'userId required' }, 400);
-      const topics = emailTopics(ctx);
+      const topics = declaredTopics(ctx);
       const parsed = parseSubscriptionsPatch(await readJson(ctx.request), topics);
       if (!parsed.ok) return json({ error: 'subscriptions refused', issues: parsed.issues }, 400);
       return json(await setSubscriptions(ctx.env, ctx.store, userId, parsed.patch, topics));

@@ -98,6 +98,7 @@ export const namedEmail = (id: string) =>
 export const plainPush = (id: string) =>
   pushTemplate({
     id,
+    transactional: true,
     title: id,
     props: empty,
     preview: {},
@@ -106,6 +107,7 @@ export const plainPush = (id: string) =>
 export const namedPush = (id: string) =>
   pushTemplate({
     id,
+    transactional: true,
     title: id,
     props: named,
     preview: { name: 'A' },

@@ -1677,6 +1677,7 @@ describe('the provider clients live with the host, across invocations', () => {
   const pushes = {
     nudge: pushTemplate({
       id: 'nudge',
+      transactional: true,
       title: 'Nudge',
       props: z.strictObject({}),
       preview: {},

@@ -98,6 +98,7 @@ const emails = {
 const pushes = {
   nudge: pushTemplate({
     id: 'nudge',
+    transactional: true,
     title: 'Nudge',
     props: named,
     preview: { name: 'A' },
@@ -356,6 +357,7 @@ describe('the provider cache', () => {
     const registry = (body: string) => ({
       nudge: pushTemplate({
         id: 'nudge',
+        transactional: true,
         title: 'Nudge',
         props: named,
         preview: { name: 'A' },

@@ -10,6 +10,7 @@ import {
   defineConfig,
   defineContract,
   emailTemplate,
+  pushTemplate,
   resolveEmail,
   trigger,
   workflow,
@@ -30,7 +31,7 @@ const named = z.strictObject({ name: z.string() });
 const contract = defineContract({
   events: { login: z.looseObject({ method: z.string() }) },
   profile: z.strictObject({}),
-  subscriptions: { email: ['tips', 'newsletter'] },
+  subscriptions: { topics: ['tips', 'newsletter'] },
 });
 const e = contract.events;
 
@@ -282,7 +283,38 @@ describe('the config', () => {
       workflows: [flow],
       templates: { email: { welcome: welcome as never } },
     });
-    expect(() => compileConfig(bare)).toThrow(/the contract declares no email topics/);
+    expect(() => compileConfig(bare)).toThrow(/the contract declares no topics/);
+  });
+
+  test('a push template is checked the same way, and the error names it as a push', () => {
+    const stray = pushTemplate({
+      id: 'nudge',
+      topic: 'digest',
+      title: 'Nudge',
+      props: z.strictObject({}),
+      preview: {},
+      content: () => ({ title: 't', body: 'b' }),
+    });
+    const config = defineConfig({
+      contract,
+      workflows: [flow],
+      templates: { email: { welcome }, push: { stray: stray as never } },
+    });
+    expect(() => compileConfig(config)).toThrow(ConfigCompileError);
+    expect(() => compileConfig(config)).toThrow(
+      "push template 'nudge': topic 'digest' is not declared — the contract declares 'tips', 'newsletter'"
+    );
+    // A push definition that did not come through pushTemplate() is checked for its kind too
+    const { topic: _topic, ...neither } = stray;
+    expect(() =>
+      compileConfig(
+        defineConfig({
+          contract,
+          workflows: [],
+          templates: { push: { neither: neither as never } },
+        })
+      )
+    ).toThrow(/push template 'nudge': every push template says what it is/);
   });
 
   test('a template that did not come through emailTemplate() is checked for its kind too', () => {

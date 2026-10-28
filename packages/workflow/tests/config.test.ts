@@ -58,6 +58,7 @@ const emails = {
 const pushes = {
   nudge: pushTemplate({
     id: 'nudge',
+    transactional: true,
     title: 'Nudge',
     props: named,
     preview: { name: 'A' },
@@ -242,6 +243,7 @@ describe('compileConfig', () => {
     const crossed = workflow({ id: 'x', trigger: trigger.event(e.login) }).push(
       pushTemplate({
         id: 'welcome',
+        transactional: true,
         title: 'Welcome',
         props: named,
         preview: { name: 'A' },

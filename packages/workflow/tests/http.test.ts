@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { profileUpdatedEvent } from '../src/engine/condition';
+import { DEVICES_UPDATED_EVENT, profileUpdatedEvent } from '../src/engine/condition';
 import { bearerMatches } from '../src/host/auth';
 import { handleRequest } from '../src/host/http';
 import { deployBundle, forgetUser, ingestEvent } from '../src/host/ingest';
@@ -703,7 +703,7 @@ describe('/subscriptions', () => {
   const contract = defineContract({
     events: { sign_up: z.looseObject({}) },
     profile: z.strictObject({ email: z.email().optional() }),
-    subscriptions: { email: ['promotions', 'newsletter', 'tips'] },
+    subscriptions: { topics: ['promotions', 'newsletter', 'tips'] },
   });
   const offer = emailTemplate({
     id: 'offer',
@@ -724,6 +724,7 @@ describe('/subscriptions', () => {
   });
   const everything = {
     email: { all: true, topics: { promotions: true, newsletter: true, tips: true } },
+    push: { all: true, topics: { promotions: true, newsletter: true, tips: true } },
   };
 
   function topicsHost() {
@@ -751,7 +752,7 @@ describe('/subscriptions', () => {
     expect(
       ((await (await call('/bundle')).json()) as { subscriptions: unknown }).subscriptions
     ).toEqual({
-      email: ['promotions', 'newsletter', 'tips'],
+      topics: ['promotions', 'newsletter', 'tips'],
     });
   });
 
@@ -760,6 +761,7 @@ describe('/subscriptions', () => {
     const one = await put('u1', { email: { topics: { newsletter: false } } });
     expect(one.status).toBe(200);
     expect(await one.json()).toEqual({
+      ...everything,
       email: { all: true, topics: { promotions: true, newsletter: false, tips: true } },
     });
     // The rows the engine reads: the topic's, and no channel-wide one
@@ -769,6 +771,7 @@ describe('/subscriptions', () => {
 
     const all = await put('u1', { email: { all: false } });
     expect(await all.json()).toEqual({
+      ...everything,
       email: { all: false, topics: { promotions: true, newsletter: false, tips: true } },
     });
     expect(await database.store.isSuppressed('u1', 'email', 'promotions')).toBe(true);
@@ -777,16 +780,14 @@ describe('/subscriptions', () => {
     const back = await put('u1', {
       email: { all: true, topics: { newsletter: true, tips: false } },
     });
-    expect(await back.json()).toEqual({
+    const after = {
+      ...everything,
       email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
-    });
-    expect(await (await call('/subscriptions/u1')).json()).toEqual({
-      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
-    });
+    };
+    expect(await back.json()).toEqual(after);
+    expect(await (await call('/subscriptions/u1')).json()).toEqual(after);
     // An empty patch is a read
-    expect(await (await put('u1', {})).json()).toEqual({
-      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
-    });
+    expect(await (await put('u1', {})).json()).toEqual(after);
     // Another user is untouched
     expect(await (await call('/subscriptions/u2')).json()).toEqual(everything);
   });
@@ -796,6 +797,7 @@ describe('/subscriptions', () => {
     await put('u1', { email: { all: false, topics: { newsletter: false } } });
     const back = await put('u1', { email: { all: true } });
     expect(await back.json()).toEqual({
+      ...everything,
       email: { all: true, topics: { promotions: true, newsletter: false, tips: true } },
     });
     expect(await database.store.listSuppressions('u1', 'email')).toEqual(['newsletter']);
@@ -803,6 +805,33 @@ describe('/subscriptions', () => {
     // "Subscribe to all" is `all: true` plus every topic `true`
     await put('u1', { email: { all: true, topics: { newsletter: true } } });
     expect(await database.store.listSuppressions('u1', 'email')).toEqual([]);
+  });
+
+  test('push is its own record per topic: the same topic, opted out on one channel, stays on the other', async () => {
+    const { call, put } = topicsHost();
+    const one = await put('u1', { push: { topics: { promotions: false } } });
+    expect(one.status).toBe(200);
+    expect(await one.json()).toEqual({
+      ...everything,
+      push: { all: true, topics: { promotions: false, newsletter: true, tips: true } },
+    });
+    expect(await database.store.isSuppressed('u1', 'push', 'promotions')).toBe(true);
+    expect(await database.store.isSuppressed('u1', 'email', 'promotions')).toBe(false);
+    expect(await database.store.isSuppressed('u1', 'push')).toBe(false);
+
+    // Both channels in one patch; the all-push opt-out (the in-app switch) masks every push topic
+    const both = await put('u1', { email: { topics: { tips: false } }, push: { all: false } });
+    expect(await both.json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
+      push: { all: false, topics: { promotions: false, newsletter: true, tips: true } },
+    });
+    expect(await database.store.isSuppressed('u1', 'push', 'newsletter')).toBe(true);
+    expect(await database.store.listSuppressions('u1', 'push')).toEqual([null, 'promotions']);
+    expect(await database.store.listSuppressions('u1', 'email')).toEqual(['tips']);
+    expect(await (await call('/subscriptions/u1')).json()).toEqual({
+      email: { all: true, topics: { promotions: true, newsletter: true, tips: false } },
+      push: { all: false, topics: { promotions: false, newsletter: true, tips: true } },
+    });
   });
 
   test('a user id with specials travels percent-encoded', async () => {
@@ -818,6 +847,7 @@ describe('/subscriptions', () => {
     const { put } = topicsHost();
     const refused = await put('u1', {
       email: { all: 'no', topics: { digest: false, tips: 1 }, extra: 1 },
+      push: { topics: { digest: false } },
       sms: {},
     });
     expect(refused.status).toBe(400);
@@ -828,6 +858,7 @@ describe('/subscriptions', () => {
         { path: 'email.topics.digest', message: 'not a declared topic' },
         { path: 'email.topics.tips', message: 'must be a boolean' },
         { path: 'email.extra', message: 'unknown field' },
+        { path: 'push.topics.digest', message: 'not a declared topic' },
         { path: 'sms', message: 'not a subscription channel' },
       ],
     });
@@ -856,6 +887,21 @@ describe('/subscriptions', () => {
     // Re-subscribing is a change of reachability too: a wait for the address resumes
     await put('u1', { email: { all: true } });
     expect(journey.wakes).toHaveLength(2);
+  });
+
+  test("changing push `all` wakes the waits on reachable('push'), as a device change does", async () => {
+    const { journey, put } = topicsHost();
+    journey.known.add('inst-push');
+    journey.known.add('inst-email');
+    await subscribe('inst-push', 'u1', DEVICES_UPDATED_EVENT);
+    await subscribe('inst-email', 'u1', profileUpdatedEvent('email'));
+    await put('u1', { push: { topics: { promotions: false } } });
+    expect(journey.wakes).toEqual([]);
+    await put('u1', { push: { all: false } });
+    expect(journey.wakes).toEqual([{ id: 'inst-push', type: WAKE_EVENT_TYPE }]);
+    await put('u1', { push: { all: true } });
+    expect(journey.wakes).toHaveLength(2);
+    expect(journey.wakes.map((w) => w.id)).toEqual(['inst-push', 'inst-push']);
   });
 
   test('the bare API reads the topics from the contract it validates with', async () => {

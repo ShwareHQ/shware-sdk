@@ -56,6 +56,7 @@ const templates = {
   push: {
     tip_push: pushTemplate({
       id: 'tip_push',
+      transactional: true,
       title: 'Tip',
       props: named,
       preview: { name: 'Ada' },

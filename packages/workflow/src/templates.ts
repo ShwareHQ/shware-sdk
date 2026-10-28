@@ -2,7 +2,7 @@ import type { Block, KnownBlock } from '@slack/types';
 import type { RESTPostAPIWebhookWithTokenJSONBody } from 'discord-api-types/v10';
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
-import { type EmailAddress, assertEmailMetadata } from './email';
+import { type EmailAddress, assertEmailMetadata, assertTemplateTopic } from './email';
 import type { ScalarIR } from './ir';
 
 /**
@@ -88,10 +88,17 @@ export interface EmailMetadata {
 }
 
 /**
- * What kind of email a template is, by type: a `topic` the contract declares (a recipient can
- * unsubscribe from it, and the email carries the link and the `List-Unsubscribe` headers), or
- * `transactional: true` (a receipt, a code, an invite: sent whatever the recipient opted out of,
- * with no unsubscribe link — so no `unsubscribeUrl` either). One of the two, never neither.
+ * What kind of message a template is, by type: a `topic` the contract declares (a user can opt
+ * out of it, per channel), or `transactional: true` (a receipt, a code, an invite: sent whatever
+ * the user opted out of). One of the two, never neither.
+ */
+export type TemplateTopic<T extends string = string> =
+  | { readonly topic: T; readonly transactional?: never }
+  | { readonly transactional: true; readonly topic?: never };
+
+/**
+ * The email form of `TemplateTopic`: a topic email carries the unsubscribe link and the
+ * `List-Unsubscribe` headers; a transactional one has no link — so no `unsubscribeUrl` either.
  */
 export type EmailTemplateTopic<T extends string = string> =
   | { readonly topic: T; readonly transactional?: never }
@@ -113,9 +120,18 @@ export interface EmailTemplate<S extends PropsSchema = PropsSchema, T extends st
   readonly component: (props: Readonly<core.output<S>>) => unknown;
 }
 
-export interface PushTemplate<S extends PropsSchema = PropsSchema> extends TemplateBase<S> {
+/**
+ * `T` is the template's topic (`never` for a transactional one): a registry typed by the
+ * contract's topics accepts only push templates whose topic the contract declares.
+ */
+export interface PushTemplate<
+  S extends PropsSchema = PropsSchema,
+  T extends string = string,
+> extends TemplateBase<S> {
   readonly kind: 'push-template';
   readonly version: 1;
+  /** The subscription topic the push belongs to; null for a transactional push. */
+  readonly topic: T | null;
   /** The notification, from the parsed props. Synchronous and pure; its result is checked before sending. */
   readonly content: (props: Readonly<core.output<S>>) => PushContent;
 }
@@ -172,7 +188,7 @@ export type EmailTemplateDefinition<
   T extends string = string,
 > = EmailTemplateBase<S> & EmailTemplateTopic<T>;
 
-export interface PushTemplateDefinition<S extends PropsSchema, R> {
+export interface PushTemplateBase<S extends PropsSchema, R> {
   id: string;
   title: string;
   description?: string;
@@ -180,6 +196,13 @@ export interface PushTemplateDefinition<S extends PropsSchema, R> {
   preview: NoInfer<core.input<S>>;
   content: (props: NoInfer<Readonly<core.output<S>>>) => Sync<R> & PushContent;
 }
+
+/** `pushTemplate`'s argument: the props schema and the notification, plus `topic` or `transactional: true`. */
+export type PushTemplateDefinition<
+  S extends PropsSchema,
+  R,
+  T extends string = string,
+> = PushTemplateBase<S, R> & TemplateTopic<T>;
 
 export interface WebhookTemplateDefinition<S extends PropsSchema, Env, C> {
   id: string;
@@ -244,14 +267,37 @@ export function emailTemplate<S extends PropsSchema, T extends string>(
   return { kind: 'email-template', version: 1, ...rest, topic: topic ?? null };
 }
 
-/** Declare a push template. Throws when `props` uses an unsupported schema or `preview` does not parse. */
+/**
+ * Declare a push template: with a `topic` the contract declares (the user can opt out of it in
+ * the app — App Store Review Guideline 4.5.4 requires that for marketing pushes), or
+ * `transactional: true` (a code, a receipt, a reply). Throws when neither (or both) is given,
+ * `props` uses an unsupported schema or `preview` does not parse. Whether the topic is one the
+ * contract declares is checked by `compileConfig`, where the contract is at hand.
+ */
+export function pushTemplate<S extends PropsSchema, R extends PushContent, T extends string>(
+  definition: PushTemplateBase<S, R> & { topic: T; transactional?: never }
+): PushTemplate<S, T>;
 export function pushTemplate<S extends PropsSchema, R extends PushContent>(
-  definition: PushTemplateDefinition<S, R>
-): PushTemplate<S> {
+  definition: PushTemplateBase<S, R> & { transactional: true; topic?: never }
+): PushTemplate<S, never>;
+export function pushTemplate<S extends PropsSchema, R extends PushContent, T extends string>(
+  definition: PushTemplateDefinition<S, R, T>
+): PushTemplate<S, T> {
   assertTemplateId(definition.id, 'pushTemplate');
+  assertTemplateTopic(definition, `pushTemplate('${definition.id}')`, 'push');
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'push', definition.title);
-  return { kind: 'push-template', version: 1, ...definition } as unknown as PushTemplate<S>;
+  const { topic, transactional, ...rest } = definition as PushTemplateBase<S, R> & {
+    topic?: T;
+    transactional?: true;
+  };
+  void transactional;
+  return {
+    kind: 'push-template',
+    version: 1,
+    ...rest,
+    topic: topic ?? null,
+  } as unknown as PushTemplate<S, T>;
 }
 
 function assertTemplateId(id: unknown, factory: string): void {
@@ -319,7 +365,8 @@ export function isTemplate(value: unknown): value is AnyTemplate {
 export interface TemplateRegistry<T extends string = string> {
   /** Email templates; typed by the contract's topics under `defineConfig({ contract, templates })`. */
   readonly email?: Readonly<Record<string, EmailTemplate<PropsSchema, T>>>;
-  readonly push?: Readonly<Record<string, PushTemplate>>;
+  /** Push templates; typed by the contract's topics the same way. */
+  readonly push?: Readonly<Record<string, PushTemplate<PropsSchema, T>>>;
   /** Discord webhook templates, each typed by the host's Env its `webhook` reads. */
   readonly discord?: Readonly<Record<string, DiscordTemplate<PropsSchema, never>>>;
   readonly slack?: Readonly<Record<string, SlackTemplate<PropsSchema, never>>>;

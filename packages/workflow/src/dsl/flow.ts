@@ -382,8 +382,10 @@ function messageNode(
     props: (props ?? {}) as Record<string, PropValueIR>,
     // Absent for 'all', so adding the option left every existing push's hash as it was
     ...(devices !== undefined ? { devices } : {}),
-    // An email's topic (null: transactional) is what the engine checks the opt-outs against
-    ...(channel === 'email' ? { topic: (tpl as EmailTemplate).topic ?? null } : {}),
+    // An email's or push's topic (null: transactional) is what the engine checks the opt-outs against
+    ...(channel === 'email' || channel === 'push'
+      ? { topic: (tpl as EmailTemplate | PushTemplate).topic ?? null }
+      : {}),
   };
 }
 

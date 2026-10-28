@@ -36,10 +36,11 @@ export const contract = defineContract({
     activation_nudge_due: z.strictObject({}),
   },
   /**
-   * The email topics a user subscribes to one at a time: every journey email names one (the
-   * welcome is transactional, and names none). Ids only — the preference page labels them.
+   * The subscription topics, opted out of one at a time per channel: every journey email and
+   * push names one (the welcome is transactional, and names none). Ids only — the preference
+   * page labels them.
    */
-  subscriptions: { email: ['tips', 'offers', 'product_updates'] },
+  subscriptions: { topics: ['tips', 'offers', 'product_updates'] },
   profile: z.strictObject({
     email: z.string(),
     name: z.string(),

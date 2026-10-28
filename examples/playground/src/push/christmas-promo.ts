@@ -7,6 +7,7 @@ import * as z from 'zod/mini';
  */
 export default pushTemplate({
   id: 'christmas_promo_push',
+  topic: 'offers',
   title: 'Christmas · 25% off',
   description: 'Holiday discount push for active subscribers, paired with the offer email.',
   props: z.strictObject({ coupon: z.string() }),

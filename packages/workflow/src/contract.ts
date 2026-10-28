@@ -8,8 +8,8 @@ import { type EventRefs, type UserRefs, event, user } from './dsl';
  *
  * - `contract.events` / `contract.user` are the DSL's typed reference tables
  *   (what `event<E>()` / `user<U>()` used to be, now derived from the schemas);
- * - `contract.topics.email` are the subscription topics: every email template names one (or
- *   is transactional), a recipient unsubscribes from one at a time, and the compile refuses a
+ * - `contract.topics` are the subscription topics: every email and push template names one (or
+ *   is transactional), a user opts out of one at a time per channel, and the compile refuses a
  *   topic the contract does not declare;
  * - `JourneyClient({ contract })` types `track` / `identify` by event name and
  *   checks payloads before sending, and `getSubscriptions` / `setSubscriptions` by topic;
@@ -35,13 +35,14 @@ export type DeclaredOutput<S> =
     : never;
 
 /**
- * The subscription topics a producer and the engine agree on, per channel: the ids an email
- * template declares (`emailTemplate({ topic })`) and a user opts out of one at a time. Ids only —
- * display names belong to the app's i18n. Written `as const` so the union types the templates,
- * the config and `JourneyClient.setSubscriptions`.
+ * The subscription topics a producer and the engine agree on: content categories ('offers',
+ * 'tips'), not channels — an email or push template declares one (`emailTemplate({ topic })`,
+ * `pushTemplate({ topic })`), and a user opts out of a topic per channel (the preference page is
+ * topic × channel). Ids only — display names belong to the app's i18n. Written `as const` so the
+ * union types the templates, the config and `JourneyClient.setSubscriptions`.
  */
 export interface SubscriptionsDefinition<T extends string> {
-  email: readonly T[];
+  topics: readonly T[];
 }
 
 export interface ContractDefinition<
@@ -51,7 +52,7 @@ export interface ContractDefinition<
 > {
   events: E;
   profile: P;
-  /** The email topics, e.g. `{ email: ['promotions', 'newsletter'] }`; none without it (transactional email only). */
+  /** The topics, e.g. `{ topics: ['promotions', 'newsletter'] }`; none without it (transactional email and push only). */
   subscriptions?: SubscriptionsDefinition<T>;
 }
 
@@ -69,9 +70,9 @@ export interface Contract<
   T extends string = string,
 > {
   readonly kind: 'journey-contract';
-  /** The declared subscription topics per channel (`subscriptions`), empty when none were declared. */
-  readonly topics: { readonly email: readonly T[] };
-  isEmailTopic(topic: string): topic is T;
+  /** The declared subscription topics (`subscriptions.topics`), empty when none were declared. */
+  readonly topics: readonly T[];
+  isTopic(topic: string): topic is T;
   /** The DSL's event reference table: `e.purchase` — payload refs from the declared fields only. */
   readonly events: EventRefs<{ [K in keyof E]: DeclaredOutput<E[K]> }>;
   /** The DSL's user-property reference table: `u.name`, plus the system `u.userId`. */
@@ -102,9 +103,11 @@ export type ProfilePatch<P> = { [K in keyof DeclaredOutput<P>]?: DeclaredOutput<
 export type EventPayload<C, K extends string> =
   C extends Contract<infer E> ? (K extends keyof E ? core.input<E[K]> : never) : never;
 
-/** The email topics a contract declares, as a union: `EmailTopic<typeof contract>`; `never` without any. */
-export type EmailTopic<C> =
+/** The topics a contract declares, as a union: `Topic<typeof contract>`; `never` without any. */
+export type Topic<C> =
   C extends Contract<Record<string, ObjectSchema>, ObjectSchema, infer T> ? T : never;
+/** @deprecated Topics are no longer per channel: use `Topic<C>`. */
+export type EmailTopic<C> = Topic<C>;
 
 /** A topic id: what goes in a URL, a JSON key and a database column, so no spaces or specials. */
 const TOPIC_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
@@ -114,15 +117,16 @@ export function defineContract<
   P extends ObjectSchema,
   const T extends string = never,
 >(definition: ContractDefinition<E, P, T>): Contract<E, P, T> {
-  const topics = [...(definition.subscriptions?.email ?? [])];
+  const topics = [...(definition.subscriptions?.topics ?? [])];
   const seen = new Set<string>();
   for (const topic of topics) {
     if (typeof topic !== 'string' || !TOPIC_ID.test(topic)) {
       throw new TypeError(
-        `contract subscriptions.email: '${topic as string}' is not a topic id (letters, digits, '_', '-' and '.', starting with a letter or digit)`
+        `contract subscriptions.topics: '${topic as string}' is not a topic id (letters, digits, '_', '-' and '.', starting with a letter or digit)`
       );
     }
-    if (seen.has(topic)) throw new TypeError(`contract subscriptions.email lists '${topic}' twice`);
+    if (seen.has(topic))
+      throw new TypeError(`contract subscriptions.topics lists '${topic}' twice`);
     seen.add(topic);
   }
   for (const [name, schema] of Object.entries(definition.events)) {
@@ -145,8 +149,8 @@ export function defineContract<
     user: user() as never,
     schemas: { events: definition.events, profile: definition.profile },
     eventNames: names,
-    topics: { email: topics },
-    isEmailTopic: (topic): topic is T => seen.has(topic),
+    topics,
+    isTopic: (topic): topic is T => seen.has(topic),
     isEvent: (name): name is keyof E & string => Object.hasOwn(definition.events, name),
     parseEvent(name, payload) {
       if (!Object.hasOwn(definition.events, name)) {

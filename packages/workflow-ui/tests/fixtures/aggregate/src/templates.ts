@@ -19,6 +19,7 @@ export const registry = {
   push: {
     nudge: pushTemplate({
       id: 'nudge',
+      transactional: true,
       title: 'Nudge',
       props: z.strictObject({}),
       preview: {},

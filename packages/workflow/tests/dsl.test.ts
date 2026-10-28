@@ -402,9 +402,9 @@ describe('bundle compilation', () => {
   });
 
   test('the bundle carries the subscription topics it is given, or none', () => {
-    const topical = compileBundle({ workflows: [], subscriptions: { email: ['promotions'] } });
-    expect(topical.subscriptions).toEqual({ email: ['promotions'] });
-    expect(compileBundle({ workflows: [] }).subscriptions).toEqual({ email: [] });
+    const topical = compileBundle({ workflows: [], subscriptions: { topics: ['promotions'] } });
+    expect(topical.subscriptions).toEqual({ topics: ['promotions'] });
+    expect(compileBundle({ workflows: [] }).subscriptions).toEqual({ topics: [] });
     // A bundle from before topics existed still parses
     const { subscriptions: _dropped, ...before } = topical;
     expect(() => BundleIR.parse(before)).not.toThrow();

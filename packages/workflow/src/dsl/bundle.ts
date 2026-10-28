@@ -26,7 +26,7 @@ export function compileBundle(input: {
   templates?: readonly AnyTemplate[];
   actions?: readonly ActionRef[];
   /** The contract's subscription topics, carried for the engine (`compileConfig` passes them). */
-  subscriptions?: { email: readonly string[] };
+  subscriptions?: { topics: readonly string[] };
 }): BundleIR {
   const segments = (input.segments ?? []).map((segment) => {
     const { id, definition, loc, meta } = segment as SegmentInternal;
@@ -105,7 +105,7 @@ export function compileBundle(input: {
     segments,
     templates,
     actions,
-    subscriptions: { email: [...(input.subscriptions?.email ?? [])] },
+    subscriptions: { topics: [...(input.subscriptions?.topics ?? [])] },
   });
 }
 

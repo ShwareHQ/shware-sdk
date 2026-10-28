@@ -88,8 +88,9 @@ export interface FactSource {
   /** The user's push devices, most recently registered first (empty when the user registered none). */
   listDevices(): Promise<PushDevice[]>;
   /**
-   * The user opted out of the channel (an email unsubscribe): nothing is sent there. With a
-   * `topic`, an opt-out of that topic counts too; without one, only the channel-wide opt-out.
+   * The user opted out of the channel (an email unsubscribe, a push opt-out in the app): nothing
+   * is sent there. With a `topic`, an opt-out of that topic on the channel counts too; without
+   * one, only the channel-wide opt-out.
    */
   isSuppressed?(channel: ChannelIR, topic?: string): Promise<boolean>;
 }
@@ -112,7 +113,7 @@ export interface OutboundMessage {
   recipient?: string | undefined;
   /** Push only: the device this copy goes to — its platform picks the provider. */
   device?: PushDevice | undefined;
-  /** Email only: the template's subscription topic, null for a transactional email (absent for other channels). */
+  /** Email and push: the template's subscription topic, null for a transactional message (absent for other channels). */
   topic?: string | null | undefined;
   /**
    * `${instanceId}:${nodeId}` (plus `:${token}` for a push copy) — one per copy. Senders
