@@ -1,5 +1,13 @@
 # @shware/workflow-ui
 
+## 2.1.6
+
+### Patch Changes
+
+- ebda232: The templates page previews an email's preferences link (`email.preferencesUrl`) with the placeholder message id a sent copy's would replace, so a layout's footer shows as it is sent.
+- Updated dependencies [ebda232]
+  - @shware/workflow@6.1.0
+
 ## 2.1.5
 
 ### Patch Changes
