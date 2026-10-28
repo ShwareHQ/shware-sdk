@@ -1,10 +1,11 @@
-import { emailTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { emailTemplate } from '../workflows/schema';
 import { Cta, Heading, Paragraph, Shell } from './layout';
 import { senders } from './senders';
 
 export default emailTemplate({
   id: 'n2_limited_time_offer',
+  topic: 'offers',
   from: senders.hello,
   replyTo: senders.support,
   title: 'Cart Recovery · Last touch',

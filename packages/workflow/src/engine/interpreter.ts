@@ -238,6 +238,26 @@ function validate(
   }
 }
 
+/**
+ * Whether the user opted out of what this step sends. An email or push step checks its topic —
+ * an opt-out of the topic on that channel or of the whole channel skips it — and a transactional
+ * message (`topic: null`) is never skipped: a receipt or a code goes out whatever the user opted
+ * out of. A node compiled before topics existed (no `topic`) checks the channel-wide opt-out
+ * only, as it always did. Other channels check the channel.
+ */
+async function suppressed(
+  node: Extract<NodeIR, { type: 'message' }>,
+  ctx: JourneyContext
+): Promise<boolean> {
+  if (node.topic === null) return false;
+  return (await ctx.facts.isSuppressed?.(node.channel, node.topic)) === true;
+}
+
+/** The copy's topic, for the channels that have one: what the observer records and the senders may read. */
+function topicOf(node: Extract<NodeIR, { type: 'message' }>): { topic?: string | null } {
+  return node.channel === 'email' || node.channel === 'push' ? { topic: node.topic ?? null } : {};
+}
+
 type PushPlan = { props: Record<string, ScalarIR | undefined>; devices: PushDevice[] };
 
 /**
@@ -261,12 +281,13 @@ async function sendPush(
 ): Promise<void> {
   const plan = await ctx.step.do<PushPlan | null>(`${node.id}:send`, async () => {
     const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
-    if (await ctx.facts.isSuppressed?.(node.channel)) return null;
+    // Once per step, before any device: the topic's opt-out or the channel's (never a transactional push)
+    if (await suppressed(node, ctx)) return null;
     const listed = await ctx.facts.listDevices();
     const devices = node.devices === 'latest' ? listed.slice(0, 1) : listed;
     return { props, devices };
   });
-  // null: the channel is opted out
+  // null: the topic or the channel is opted out
   if (plan === null) return;
   if (plan.devices.length === 0) {
     console.log(`[journey] push ${node.template} skipped: no device for user ${ctx.userId}`);
@@ -286,6 +307,7 @@ async function sendPush(
           recipient: device.token,
           device,
           idempotencyKey: `${ctx.instanceId}:${node.id}:${device.token}`,
+          ...topicOf(node),
         },
         ctx
       );
@@ -303,7 +325,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
       await ctx.step.do(`${node.id}:send`, async () => {
         const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
         // An opted-out channel (an email unsubscribe) is skipped, like a push with no device
-        if (await ctx.facts.isSuppressed?.(node.channel)) return;
+        if (await suppressed(node, ctx)) return;
         const recipientPath = RECIPIENT_PROPERTY[node.channel];
         const recipient =
           recipientPath === undefined ? undefined : await ctx.facts.getProperty(recipientPath);
@@ -318,6 +340,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             userId: ctx.userId,
             recipient: recipient === undefined ? undefined : String(recipient),
             idempotencyKey: `${ctx.instanceId}:${node.id}`,
+            ...topicOf(node),
           },
           ctx
         );

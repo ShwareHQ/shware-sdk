@@ -23,6 +23,7 @@ const pu = user<{ userId: string; name: string; nick?: string; age: number }>();
 const email = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
   emailTemplate({
     id: 'e',
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'E',
     props,
@@ -31,7 +32,14 @@ const email = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
     component: () => null,
   });
 const push = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
-  pushTemplate({ id: 'p', title: 'P', props, preview, content: () => ({ title: 't', body: 'b' }) });
+  pushTemplate({
+    id: 'p',
+    transactional: true,
+    title: 'P',
+    props,
+    preview,
+    content: () => ({ title: 't', body: 'b' }),
+  });
 
 const templates = {
   email: {

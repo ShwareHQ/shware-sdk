@@ -242,9 +242,10 @@ export function createJourneyHost<Env extends JourneyEnv>(
   /**
    * The recipients' routes (`/t/*`): a push tapped open is recorded as the config's
    * `webPush.openedEvent` — keyed by the copy, so a second tap of the same notification is the
-   * same event — and an unsubscribe wakes the waits reading email reachability (`reachable
-   * ('email')` subscribes to the email property's channel), so an `exitWhen:
-   * not(reachable('email'))` takes effect without waiting for a timeout.
+   * same event — and an unsubscribe from all email wakes the waits reading email reachability
+   * (`reachable('email')` subscribes to the email property's channel), so an `exitWhen:
+   * not(reachable('email'))` takes effect without waiting for a timeout. An unsubscribe from one
+   * topic wakes nothing: the user is still reachable.
    */
   const tracking = (env: Env, store: JourneyStore): TrackingOptions => {
     const opened = config.webPush?.openedEvent;
@@ -265,7 +266,9 @@ export function createJourneyHost<Env extends JourneyEnv>(
               };
               await ingestEvent(env, input, store);
             },
-      onUnsubscribed: async ({ userId }) => {
+      onUnsubscribed: async ({ userId, all }) => {
+        // A topic opt-out leaves the user reachable by email: only the channel-wide one wakes
+        if (!all) return;
         const email = profileUpdatedEvent(RECIPIENT_PROPERTY.email ?? 'email');
         await wakeSubscribers(env, store, userId, [email]);
       },

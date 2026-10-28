@@ -253,6 +253,12 @@ export type NodeIR =
        * device the directory lists; 'latest' only the most recently registered.
        */
       devices?: 'latest' | undefined;
+      /**
+       * Email and push: the template's subscription topic, or null for a transactional message
+       * (sent whatever the user opted out of). Absent for other channels, and in IR compiled
+       * before topics existed: such a step checks the channel-level opt-out only, as it always did.
+       */
+      topic?: string | null | undefined;
     })
   | (NodeBaseIR & { type: 'delay'; duration: DurationIR })
   | (NodeBaseIR & { type: 'random_delay'; min: DurationIR; max: DurationIR })
@@ -322,6 +328,7 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
       template: z.string(),
       props: z.record(z.string(), PropValueIR),
       devices: z.optional(z.literal('latest')),
+      topic: z.optional(z.nullable(z.string())),
     }),
     z.object({ ...nodeBase, type: z.literal('delay'), duration: DurationIR }),
     z.object({ ...nodeBase, type: z.literal('random_delay'), min: DurationIR, max: DurationIR }),
@@ -454,11 +461,22 @@ export type ActionIR = z.infer<typeof ActionIR>;
  * apply, same mental model). The server diffs each definition's contentHash to
  * decide publish / skip / retire.
  */
+/**
+ * The subscription topics the contract declares, carried by the bundle so the engine validates
+ * `/subscriptions` and the templates' topics against the deployed list, not the SDK's word.
+ */
+export const SubscriptionsIR = z.object({
+  topics: z.array(z.string()),
+});
+export type SubscriptionsIR = z.infer<typeof SubscriptionsIR>;
+
 export const BundleIR = z.object({
   irVersion: z.literal(IR_VERSION),
   workflows: z.array(WorkflowIR),
   segments: z.array(SegmentIR),
   templates: z.array(TemplateIR),
   actions: z.array(ActionIR),
+  /** Absent in a bundle compiled before topics existed: no topics. */
+  subscriptions: z.optional(SubscriptionsIR),
 });
 export type BundleIR = z.infer<typeof BundleIR>;

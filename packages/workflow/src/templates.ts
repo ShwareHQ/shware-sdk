@@ -2,7 +2,8 @@ import type { Block, KnownBlock } from '@slack/types';
 import type { RESTPostAPIWebhookWithTokenJSONBody } from 'discord-api-types/v10';
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
-import { type EmailAddress, assertEmailMetadata } from './email';
+import type { Contract, Topic } from './contract';
+import { type EmailAddress, assertEmailMetadata, assertTemplateTopic } from './email';
 import type { ScalarIR } from './ir';
 
 /**
@@ -87,18 +88,83 @@ export interface EmailMetadata {
   readonly unsubscribeUrl?: string | undefined;
 }
 
-export interface EmailTemplate<S extends PropsSchema = PropsSchema>
+/**
+ * What kind of message a template is, by type: a `topic` the contract declares (a user can opt
+ * out of it, per channel), or `transactional: true` (a receipt, a code, an invite: sent whatever
+ * the user opted out of). One of the two, never neither.
+ *
+ * The slots nothing real fits are string-literal types that read as the error: an editor
+ * reports a mistake at the property itself ("Type 'true' is not assignable to type 'give
+ * either …'"), and the third member catches a template that says neither, with the property
+ * it reports missing naming both options. Written out in full (no aliases): TypeScript prints
+ * an alias by name, and the point is the text.
+ */
+export type TemplateTopic<T extends string = string> =
+  | {
+      readonly topic: T;
+      readonly transactional?: "give either 'topic' or 'transactional: true', not both";
+    }
+  | {
+      readonly transactional: true;
+      readonly topic?: "a topic the contract declares, or none: 'topic' and 'transactional: true' are exclusive";
+    }
+  | {
+      readonly 'topic | transactional': "every template says what it is: 'topic: <id>' (one the contract declares) or 'transactional: true'";
+      readonly topic?: never;
+      readonly transactional?: never;
+    };
+
+/**
+ * The email form of `TemplateTopic`: a topic email carries the unsubscribe link and the
+ * `List-Unsubscribe` headers; a transactional one has no link — so no `unsubscribeUrl` either,
+ * which the type says in its own words.
+ */
+export type EmailTemplateTopic<T extends string = string> =
+  | {
+      readonly topic: T;
+      readonly transactional?: "give either 'topic' or 'transactional: true', not both";
+      readonly unsubscribeUrl?: string;
+    }
+  | {
+      readonly transactional: true;
+      readonly topic?: "a topic the contract declares, or none: 'topic' and 'transactional: true' are exclusive";
+      readonly unsubscribeUrl?: "a transactional email has no unsubscribe link, so it takes no 'unsubscribeUrl'";
+    }
+  | {
+      readonly 'topic | transactional': "every template says what it is: 'topic: <id>' (one the contract declares) or 'transactional: true'";
+      readonly topic?: never;
+      readonly transactional?: never;
+      readonly unsubscribeUrl?: string;
+    };
+
+/**
+ * `T` is the template's topic (`never` for a transactional one): a registry typed by the
+ * contract's topics (`defineConfig({ contract, templates })`) accepts only templates whose topic
+ * the contract declares.
+ */
+export interface EmailTemplate<S extends PropsSchema = PropsSchema, T extends string = string>
   extends TemplateBase<S>, EmailMetadata {
   readonly kind: 'email-template';
   readonly version: 1;
   readonly subject: string;
+  /** The subscription topic the email belongs to; null for a transactional email. */
+  readonly topic: T | null;
   /** The email body: a component over the parsed props (rendered by `@shware/workflow/react-email`). */
   readonly component: (props: Readonly<core.output<S>>) => unknown;
 }
 
-export interface PushTemplate<S extends PropsSchema = PropsSchema> extends TemplateBase<S> {
+/**
+ * `T` is the template's topic (`never` for a transactional one): a registry typed by the
+ * contract's topics accepts only push templates whose topic the contract declares.
+ */
+export interface PushTemplate<
+  S extends PropsSchema = PropsSchema,
+  T extends string = string,
+> extends TemplateBase<S> {
   readonly kind: 'push-template';
   readonly version: 1;
+  /** The subscription topic the push belongs to; null for a transactional push. */
+  readonly topic: T | null;
   /** The notification, from the parsed props. Synchronous and pure; its result is checked before sending. */
   readonly content: (props: Readonly<core.output<S>>) => PushContent;
 }
@@ -136,20 +202,25 @@ export interface SlackTemplate<
 /** Strips a Promise return out of the accepted callback types: async content is rejected at the type level. */
 type Sync<T> = T extends Promise<unknown> ? never : T;
 
-export interface EmailTemplateDefinition<S extends PropsSchema> {
+export interface EmailTemplateBase<S extends PropsSchema> {
   id: string;
   title: string;
   description?: string;
   from: EmailAddress;
   replyTo?: EmailAddress;
-  unsubscribeUrl?: string;
   props: S;
   subject: string;
   preview: NoInfer<core.input<S>>;
   component: (props: NoInfer<Readonly<core.output<S>>>) => unknown;
 }
 
-export interface PushTemplateDefinition<S extends PropsSchema, R> {
+/** `emailTemplate`'s argument: the metadata, the props schema and the body, plus `topic` or `transactional: true`. */
+export type EmailTemplateDefinition<
+  S extends PropsSchema,
+  T extends string = string,
+> = EmailTemplateBase<S> & EmailTemplateTopic<T>;
+
+export interface PushTemplateBase<S extends PropsSchema, R> {
   id: string;
   title: string;
   description?: string;
@@ -157,6 +228,13 @@ export interface PushTemplateDefinition<S extends PropsSchema, R> {
   preview: NoInfer<core.input<S>>;
   content: (props: NoInfer<Readonly<core.output<S>>>) => Sync<R> & PushContent;
 }
+
+/** `pushTemplate`'s argument: the props schema and the notification, plus `topic` or `transactional: true`. */
+export type PushTemplateDefinition<
+  S extends PropsSchema,
+  R,
+  T extends string = string,
+> = PushTemplateBase<S, R> & TemplateTopic<T>;
 
 export interface WebhookTemplateDefinition<S extends PropsSchema, Env, C> {
   id: string;
@@ -190,27 +268,122 @@ export function slackTemplate<S extends PropsSchema, Env = Record<string, unknow
 }
 
 /**
- * Declare an email template. Throws when `from` is missing or invalid, `replyTo` or `unsubscribeUrl`
- * is invalid, `props` uses an unsupported schema or `preview` does not parse.
+ * Declare an email template: with a `topic` the contract declares, or `transactional: true`
+ * (then `T` is `never`, and the template's `topic` is null). Throws when neither (or both) is
+ * given, a transactional template carries an `unsubscribeUrl`, `from` is missing or invalid,
+ * `replyTo` or `unsubscribeUrl` is invalid, `props` uses an unsupported schema or `preview` does
+ * not parse. Whether the topic is one the contract declares is checked by `compileConfig`,
+ * where the contract is at hand — or at the template itself by `templatesFor(contract)`'s
+ * `emailTemplate`, the form to prefer in a project with a contract.
  */
-export function emailTemplate<S extends PropsSchema>(
-  definition: EmailTemplateDefinition<S>
-): EmailTemplate<S> {
-  assertTemplateId(definition.id, 'emailTemplate');
-  assertEmailMetadata(definition, `emailTemplate('${definition.id}')`);
-  assertSupportedSchema(definition.props, definition.title);
-  parsePreview(definition.props, definition.preview, 'email', definition.title);
-  return { kind: 'email-template', version: 1, ...definition };
+export function emailTemplate<S extends PropsSchema, T extends string = never>(
+  definition: EmailTemplateDefinition<S, T>
+): EmailTemplate<S, T> {
+  return declareEmail(definition, undefined);
 }
 
-/** Declare a push template. Throws when `props` uses an unsupported schema or `preview` does not parse. */
-export function pushTemplate<S extends PropsSchema, R extends PushContent>(
-  definition: PushTemplateDefinition<S, R>
-): PushTemplate<S> {
+/**
+ * Declare a push template: with a `topic` the contract declares (the user can opt out of it in
+ * the app — App Store Review Guideline 4.5.4 requires that for marketing pushes), or
+ * `transactional: true` (then `T` is `never`, and the template's `topic` is null). Throws when
+ * neither (or both) is given, `props` uses an unsupported schema or `preview` does not parse.
+ * Whether the topic is one the contract declares is checked by `compileConfig`, where the
+ * contract is at hand — or at the template itself by `templatesFor(contract)`'s `pushTemplate`.
+ */
+export function pushTemplate<
+  S extends PropsSchema,
+  R extends PushContent,
+  T extends string = never,
+>(definition: PushTemplateDefinition<S, R, T>): PushTemplate<S, T> {
+  return declarePush(definition, undefined);
+}
+
+/**
+ * The template factories bound to a contract: the same `emailTemplate` and `pushTemplate`, with
+ * the topic typed by the contract's `subscriptions.topics` — so a topic the contract does not
+ * declare is an error at the template's own `topic` line (in the editor, and when the module
+ * loads), not a type chain at the config's `templates` where the registry meets the contract.
+ * The form to use wherever a contract exists:
+ *
+ *   const { emailTemplate, pushTemplate } = templatesFor(contract);
+ *
+ * The bare `emailTemplate` / `pushTemplate` stay for a project without a contract (transactional
+ * templates only) and for the compile, which checks every template again.
+ */
+export function templatesFor<C extends Contract>(
+  contract: C
+): {
+  // Properties, not methods: the factories are meant to be destructured
+  emailTemplate: <S extends PropsSchema, T extends Topic<C> = never>(
+    definition: EmailTemplateDefinition<S, T>
+  ) => EmailTemplate<S, T>;
+  pushTemplate: <S extends PropsSchema, R extends PushContent, T extends Topic<C> = never>(
+    definition: PushTemplateDefinition<S, R, T>
+  ) => PushTemplate<S, T>;
+} {
+  return {
+    emailTemplate: (definition) => declareEmail(definition, contract),
+    pushTemplate: (definition) => declarePush(definition, contract),
+  };
+}
+
+function declareEmail<S extends PropsSchema, T extends string>(
+  definition: EmailTemplateDefinition<S, T>,
+  contract: Contract | undefined
+): EmailTemplate<S, T> {
+  assertTemplateId(definition.id, 'emailTemplate');
+  const where = `emailTemplate('${definition.id}')`;
+  assertEmailMetadata(definition, where);
+  assertDeclaredTopic(definition, where, contract);
+  assertSupportedSchema(definition.props, definition.title);
+  parsePreview(definition.props, definition.preview, 'email', definition.title);
+  const { topic, transactional, ...rest } = definition as EmailTemplateBase<S> & {
+    topic?: T;
+    transactional?: true;
+    unsubscribeUrl?: string;
+  };
+  void transactional;
+  return { kind: 'email-template', version: 1, ...rest, topic: topic ?? null };
+}
+
+function declarePush<S extends PropsSchema, R extends PushContent, T extends string>(
+  definition: PushTemplateDefinition<S, R, T>,
+  contract: Contract | undefined
+): PushTemplate<S, T> {
   assertTemplateId(definition.id, 'pushTemplate');
+  const where = `pushTemplate('${definition.id}')`;
+  assertTemplateTopic(definition, where, 'push');
+  assertDeclaredTopic(definition, where, contract);
   assertSupportedSchema(definition.props, definition.title);
   parsePreview(definition.props, definition.preview, 'push', definition.title);
-  return { kind: 'push-template', version: 1, ...definition } as unknown as PushTemplate<S>;
+  const { topic, transactional, ...rest } = definition as PushTemplateBase<S, R> & {
+    topic?: T;
+    transactional?: true;
+  };
+  void transactional;
+  return {
+    kind: 'push-template',
+    version: 1,
+    ...rest,
+    topic: topic ?? null,
+  } as unknown as PushTemplate<S, T>;
+}
+
+/** With a contract at hand (`templatesFor`), a topic it does not declare fails here, naming the list. */
+function assertDeclaredTopic(
+  definition: { topic?: unknown },
+  where: string,
+  contract: Contract | undefined
+): void {
+  const { topic } = definition;
+  // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
+  if (contract === undefined || typeof topic !== 'string' || contract.topics.includes(topic))
+    return;
+  const list =
+    contract.topics.length === 0
+      ? 'the contract declares no topics (defineContract({ subscriptions: { topics: [...] } }))'
+      : `the contract declares ${contract.topics.map((t) => `'${t}'`).join(', ')}`;
+  throw new TypeError(`${where}: topic '${topic}' is not declared — ${list}`);
 }
 
 function assertTemplateId(id: unknown, factory: string): void {
@@ -275,9 +448,11 @@ export function isTemplate(value: unknown): value is AnyTemplate {
  * plain object whose property names are JavaScript names only — a template is identified by its
  * own `id` (`indexTemplates`).
  */
-export interface TemplateRegistry {
-  readonly email?: Readonly<Record<string, EmailTemplate>>;
-  readonly push?: Readonly<Record<string, PushTemplate>>;
+export interface TemplateRegistry<T extends string = string> {
+  /** Email templates; typed by the contract's topics under `defineConfig({ contract, templates })`. */
+  readonly email?: Readonly<Record<string, EmailTemplate<PropsSchema, T>>>;
+  /** Push templates; typed by the contract's topics the same way. */
+  readonly push?: Readonly<Record<string, PushTemplate<PropsSchema, T>>>;
   /** Discord webhook templates, each typed by the host's Env its `webhook` reads. */
   readonly discord?: Readonly<Record<string, DiscordTemplate<PropsSchema, never>>>;
   readonly slack?: Readonly<Record<string, SlackTemplate<PropsSchema, never>>>;

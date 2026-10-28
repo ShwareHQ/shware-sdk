@@ -48,6 +48,7 @@ describe('SQL row boundaries', () => {
         nodeId: '0',
         template: 'hello',
         channel: 'email',
+        topic: null,
         userId: 'user-1',
         sentAt: 1000,
       })

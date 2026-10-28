@@ -36,6 +36,7 @@ const named = z.strictObject({ name: z.string(), tone: z.enum(['warm', 'brief'])
 const emails = {
   welcome: emailTemplate({
     id: 'welcome',
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'Welcome',
     props: named,
@@ -45,6 +46,7 @@ const emails = {
   }),
   nudge: emailTemplate({
     id: 'nudge',
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'Nudge',
     props: named,
@@ -56,6 +58,7 @@ const emails = {
 const pushes = {
   nudge: pushTemplate({
     id: 'nudge',
+    transactional: true,
     title: 'Nudge',
     props: named,
     preview: { name: 'A' },
@@ -80,6 +83,7 @@ const config = (flows = [onboarding]) =>
 const welcomeTwin = (id = 'welcome') =>
   emailTemplate({
     id,
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'Twin',
     props: named,
@@ -90,7 +94,9 @@ const welcomeTwin = (id = 'welcome') =>
 
 describe('template ids', () => {
   test('a factory refuses a missing, empty or blank id', () => {
-    const define = (id: unknown) => () => emailTemplate({ ...emails.welcome, id: id as string });
+    const { topic: _topic, unsubscribeUrl: _url, ...welcome } = emails.welcome;
+    const define = (id: unknown) => () =>
+      emailTemplate({ ...welcome, transactional: true, id: id as string });
     expect(define(undefined)).toThrow(
       new TypeError("emailTemplate(): 'id' must be a non-empty string")
     );
@@ -237,6 +243,7 @@ describe('compileConfig', () => {
     const crossed = workflow({ id: 'x', trigger: trigger.event(e.login) }).push(
       pushTemplate({
         id: 'welcome',
+        transactional: true,
         title: 'Welcome',
         props: named,
         preview: { name: 'A' },
@@ -366,6 +373,7 @@ test('/preview takes typed JSON props, so number and boolean fields can be previ
   const typed = {
     credits: emailTemplate({
       id: 'credits',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Credits',
       props: z.strictObject({ credits: z.number(), trial: z.boolean() }),

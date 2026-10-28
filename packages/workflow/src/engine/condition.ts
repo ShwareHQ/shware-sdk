@@ -91,6 +91,9 @@ async function evaluate(
       return compareProperty(condition, actual);
     }
     case 'reachable': {
+      // The channel-wide opt-out only: a user opted out of one topic (an email topic, a push
+      // topic) is still reachable on the channel, so `exitWhen: not(reachable('email'))` does
+      // not fire on it
       if (await facts.isSuppressed?.(condition.channel)) return false;
       if (condition.channel === 'push') return (await facts.listDevices()).length > 0;
       const path = RECIPIENT_PROPERTY[condition.channel];

@@ -44,6 +44,7 @@ const e = event<{ login: { method: string } }>();
 const emails = {
   welcome: emailTemplate({
     id: 'welcome',
+    transactional: true,
     from: 'noreply@acme.test',
     title: 'Welcome',
     props: z.strictObject({ name: z.string() }),

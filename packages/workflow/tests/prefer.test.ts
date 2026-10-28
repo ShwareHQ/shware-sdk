@@ -34,6 +34,7 @@ const templates = {
   email: {
     tip: emailTemplate({
       id: 'tip',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Tip',
       props: named,
@@ -43,6 +44,7 @@ const templates = {
     }),
     tip_long: emailTemplate({
       id: 'tip_long',
+      transactional: true,
       from: 'noreply@acme.test',
       title: 'Tip',
       props: z.strictObject({ name: z.string().min(3) }),
@@ -54,6 +56,7 @@ const templates = {
   push: {
     tip_push: pushTemplate({
       id: 'tip_push',
+      transactional: true,
       title: 'Tip',
       props: named,
       preview: { name: 'Ada' },

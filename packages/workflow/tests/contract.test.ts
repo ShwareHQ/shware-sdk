@@ -110,6 +110,31 @@ test('tuples, intersections, records and catchalls of supported types are accept
   ).not.toThrow();
 });
 
+describe('subscription topics', () => {
+  test('declared topics are listed, checked and typed; none without the field', () => {
+    const topical = defineContract({
+      events: {},
+      profile: z.strictObject({}),
+      subscriptions: { topics: ['promotions', 'newsletter'] },
+    });
+    expect(topical.topics).toEqual(['promotions', 'newsletter']);
+    expect(topical.isTopic('promotions')).toBe(true);
+    expect(topical.isTopic('digest')).toBe(false);
+    expect(contract.topics).toEqual([]);
+    expect(contract.isTopic('promotions')).toBe(false);
+  });
+
+  test('a topic id is a plain token, listed once', () => {
+    const declare = (email: string[]) => () =>
+      defineContract({ events: {}, profile: z.strictObject({}), subscriptions: { topics: email } });
+    expect(declare(['a', 'b-c', 'd_e', 'f.g', 'h1'])).not.toThrow();
+    for (const bad of ['', ' tips', 'tips news', '-tips', 'tips/news', 'tips?']) {
+      expect(declare([bad])).toThrow(/is not a topic id/);
+    }
+    expect(declare(['tips', 'tips'])).toThrow(/lists 'tips' twice/);
+  });
+});
+
 describe('JourneyClient with a contract', () => {
   test('refuses a bad payload before any request, with field paths', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();

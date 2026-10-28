@@ -1,6 +1,13 @@
 import type * as core from 'zod/v4/core';
-import type { Contract, ContractIssue, ProfilePatch } from './contract';
-import type { DeployResult, IdentifyResult, IngestResult } from './host/ingest';
+import type { Contract, ContractIssue, ProfilePatch, Topic } from './contract';
+import {
+  type DeployResult,
+  type IdentifyResult,
+  type IngestResult,
+  SUBSCRIPTION_CHANNELS,
+  type Subscriptions,
+  type SubscriptionsPatch,
+} from './host/ingest';
 import type { ProfileProps } from './store';
 
 /**
@@ -64,6 +71,17 @@ type IdentifyProps<C> = [C] extends [undefined]
   : C extends Contract<Record<string, core.$ZodObject>, infer P>
     ? ProfilePatch<P>
     : never;
+
+/** The topics the client's contract declares; any string without a contract. */
+export type ClientTopic<C> = [C] extends [undefined] ? string : Topic<C>;
+
+export type {
+  ChannelSubscriptions,
+  ChannelSubscriptionsPatch,
+  SubscriptionChannel,
+  Subscriptions,
+  SubscriptionsPatch,
+} from './host/ingest';
 
 export interface TrackOptions {
   /** The occurrence's identity: a retry with the same id is recorded once. */
@@ -159,21 +177,74 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
     return this.post('/devices/remove', { token });
   }
 
+  /**
+   * Where the user stands, topic × channel: for `email` and for `push`, `all` (false once they
+   * opted out of the whole channel) and each declared topic (false once they opted out of it on
+   * that channel) — the engine's record, which a preference page shows as it is. The two are
+   * independent flags: a topic answers its own opt-out even while `all` is false, so `all: false`
+   * masks every topic however they read (nothing is sent on the channel until it is true again).
+   * Rejects with a 410 for an erased user.
+   */
+  getSubscriptions(userId: string): Promise<Subscriptions<ClientTopic<C>>> {
+    return this.request('GET', subscriptionsPath(userId));
+  }
+
+  /**
+   * Set subscriptions: only what the patch names changes, per channel (`{ email: { topics: {
+   * newsletter: false } } }` opts out of one topic's emails, `{ push: { all: false } }` of every
+   * push — the in-app opt-out App Store Review Guideline 4.5.4 asks for). `all: true` clears the
+   * channel-wide opt-out only: a topic opted out on its own stays off until the patch names it,
+   * so a preference page's "subscribe to all" sends `all: true` plus every topic `true`. Answers
+   * the subscriptions as they now stand. With a contract, a topic it does not declare is refused
+   * here, before the request; the engine refuses it too.
+   */
+  setSubscriptions(
+    userId: string,
+    patch: SubscriptionsPatch<ClientTopic<C>>
+  ): Promise<Subscriptions<ClientTopic<C>>> {
+    const contract = this.options.contract;
+    if (contract !== undefined) {
+      const issues: ContractIssue[] = [];
+      for (const channel of SUBSCRIPTION_CHANNELS) {
+        for (const topic of Object.keys(patch[channel]?.topics ?? {})) {
+          // `includes`, not the predicate: narrowing `string` by a `topic is string` leaves `never`
+          if (contract.topics.includes(topic)) continue;
+          issues.push({ path: `${channel}.topics.${topic}`, message: 'not a declared topic' });
+        }
+      }
+      if (issues.length > 0) {
+        return Promise.reject(new JourneyValidationError('/subscriptions', undefined, issues));
+      }
+    }
+    return this.request('PUT', subscriptionsPath(userId), patch);
+  }
+
   /** Deploy a compiled bundle (BundleIR). */
   deploy(bundle: unknown): Promise<DeployResult> {
     return this.post<DeployResult>('/deploy', bundle);
   }
 
-  private async post<T>(path: string, body: unknown): Promise<T> {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+  private post<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('POST', path, body);
+  }
+
+  private async request<T>(
+    method: 'GET' | 'POST' | 'PUT',
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers['content-type'] = 'application/json';
     if (this.options.token !== undefined) headers.authorization = `Bearer ${this.options.token}`;
     const doFetch = this.options.fetch ?? fetch;
     const response = await doFetch(`${this.options.origin.replace(/\/$/, '')}${path}`, {
-      method: 'POST',
+      method,
       headers,
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     if (!response.ok) throw new JourneyClientError(path, response.status, await response.text());
     return (await response.json()) as T;
   }
 }
+
+const subscriptionsPath = (userId: string) => `/subscriptions/${encodeURIComponent(userId)}`;

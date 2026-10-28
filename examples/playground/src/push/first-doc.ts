@@ -1,5 +1,5 @@
-import { pushTemplate } from '@shware/workflow';
 import * as z from 'zod/mini';
+import { pushTemplate } from '../workflows/schema';
 
 /**
  * Onboarding's activation nudge: only the sign-ups who still have no document
@@ -8,6 +8,7 @@ import * as z from 'zod/mini';
  */
 export default pushTemplate({
   id: 'onboarding_first_doc_push',
+  topic: 'tips',
   title: 'Onboarding · First doc',
   description: 'For new users three days in without a single document.',
   props: z.strictObject({}),

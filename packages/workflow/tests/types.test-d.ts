@@ -11,10 +11,12 @@ import {
   type Duration,
   type EmailAddress,
   type PropsOf,
+  type Topic,
   type UserPropertyRef,
   action,
   between,
   contains,
+  defineConfig,
   defineContract,
   emailTemplate,
   eq,
@@ -28,6 +30,7 @@ import {
   performed,
   pushTemplate,
   slackTemplate,
+  templatesFor,
   trigger,
   workflow,
 } from '../src/index';
@@ -147,6 +150,7 @@ const namedSchema = z.strictObject({ name: z.string(), plan: z.enum(['free', 'pr
 
 const welcomeEmail = emailTemplate({
   id: 'welcome',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Welcome',
   props: namedSchema,
@@ -163,6 +167,7 @@ const welcomeEmail = emailTemplate({
 // @ts-expect-error an email template must name its sender
 emailTemplate({
   id: 'x',
+  transactional: true,
   title: 'X',
   props: namedSchema,
   subject: 's',
@@ -171,6 +176,7 @@ emailTemplate({
 });
 emailTemplate({
   id: 'x',
+  transactional: true,
   // @ts-expect-error from is an address, a string or { email, name? }
   from: { name: 'Acme' },
   title: 'X',
@@ -181,6 +187,7 @@ emailTemplate({
 });
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'a@acme.test',
   // @ts-expect-error unsubscribeUrl is a URL string, not a switch
   unsubscribeUrl: false,
@@ -198,6 +205,7 @@ expectTypeOf(welcomeEmail.from).toEqualTypeOf<EmailAddress>();
 
 const creditsPush = pushTemplate({
   id: 'credits',
+  transactional: true,
   title: 'Credits',
   props: z.strictObject({ credits: z.number() }),
   preview: { credits: 3 },
@@ -206,6 +214,7 @@ const creditsPush = pushTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
@@ -217,6 +226,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
@@ -228,6 +238,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'Bad preview',
   props: namedSchema,
@@ -239,6 +250,7 @@ emailTemplate({
 
 emailTemplate({
   id: 'x',
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'No widening',
   props: namedSchema,
@@ -250,6 +262,7 @@ emailTemplate({
 
 pushTemplate({
   id: 'x',
+  transactional: true,
   title: 'Async',
   props: namedSchema,
   preview: { name: 'Ada' },
@@ -259,6 +272,7 @@ pushTemplate({
 
 pushTemplate({
   id: 'x',
+  transactional: true,
   title: 'Empty',
   props: z.strictObject({}),
   preview: {},
@@ -267,6 +281,7 @@ pushTemplate({
 
 pushTemplate({
   id: 'x',
+  transactional: true,
   title: 'Empty',
   props: z.strictObject({}),
   // @ts-expect-error an empty schema accepts only an empty preview
@@ -277,6 +292,7 @@ pushTemplate({
 // the definitions themselves type the calls: props from each template's schema
 const emptyPush = pushTemplate({
   id: 'ping',
+  transactional: true,
   title: 'Ping',
   props: z.strictObject({}),
   preview: {},
@@ -300,6 +316,7 @@ pushTemplate({
 emailTemplate({
   // @ts-expect-error an id is a string
   id: 1,
+  transactional: true,
   from: 'noreply@acme.test',
   title: 'x',
   props: namedSchema,
@@ -401,3 +418,138 @@ workflow({ id: 'emit_ok', trigger: trigger.event(orders.events.note) }).sendEven
 workflow({ id: 'emit_nested', trigger: trigger.event(orders.events.note) })
   // @ts-expect-error a required nested field cannot be emitted from a journey
   .sendEvent(orders.events.order, { id: 'o', total: 1, items: ['a'] });
+
+/* ------------------------------ email topics ------------------------------ */
+
+const topical = defineContract({
+  events: {},
+  profile: z.strictObject({}),
+  subscriptions: { topics: ['promotions', 'newsletter'] },
+});
+expectTypeOf(topical.topics).toEqualTypeOf<readonly ('promotions' | 'newsletter')[]>();
+expectTypeOf<Topic<typeof topical>>().toEqualTypeOf<'promotions' | 'newsletter'>();
+expectTypeOf<Topic<typeof shared>>().toEqualTypeOf<never>();
+
+const emailBase = {
+  from: 'noreply@acme.test',
+  title: 'T',
+  props: namedSchema,
+  subject: 's',
+  preview: { name: 'Ada' },
+  component: () => null,
+};
+
+// @ts-expect-error every email template says what it is: a topic, or transactional
+emailTemplate({ id: 'neither', ...emailBase });
+
+// @ts-expect-error not both
+emailTemplate({ id: 'both', topic: 'promotions', transactional: true, ...emailBase });
+
+// @ts-expect-error transactional is the literal true, never a boolean variable
+emailTemplate({ id: 'maybe', transactional: Boolean(1), ...emailBase });
+
+// @ts-expect-error a transactional email has no unsubscribe link
+emailTemplate({
+  id: 'receipt',
+  transactional: true,
+  unsubscribeUrl: 'https://a.test/u',
+  ...emailBase,
+});
+
+const promo = emailTemplate({ id: 'promo', topic: 'promotions', ...emailBase });
+const digest = emailTemplate({ id: 'digest', topic: 'digest', ...emailBase });
+const receipt = emailTemplate({ id: 'receipt', transactional: true, ...emailBase });
+expectTypeOf(promo.topic).toEqualTypeOf<'promotions' | null>();
+expectTypeOf(receipt.topic).toEqualTypeOf<null>();
+
+// A config typed by its contract accepts the topics it declares, and transactional emails
+defineConfig({ contract: topical, workflows: [], templates: { email: { promo, receipt } } });
+
+// @ts-expect-error ...but not a topic the contract does not declare
+defineConfig({ contract: topical, workflows: [], templates: { email: { promo, digest } } });
+
+// @ts-expect-error without a contract there are no topics: transactional emails only
+defineConfig({ workflows: [], templates: { email: { promo } } });
+defineConfig({ workflows: [], templates: { email: { receipt } } });
+
+/* ------------------------------ templatesFor ------------------------------ */
+
+// The bound factories: the topic is typed by the contract, at the template itself
+const bound = templatesFor(topical);
+const boundPromo = bound.emailTemplate({ id: 'promo', topic: 'promotions', ...emailBase });
+const boundReceipt = bound.emailTemplate({ id: 'receipt', transactional: true, ...emailBase });
+expectTypeOf(boundPromo.topic).toEqualTypeOf<'promotions' | null>();
+expectTypeOf(boundReceipt.topic).toEqualTypeOf<null>();
+// @ts-expect-error a topic the contract does not declare fails here, not at the config
+bound.emailTemplate({ id: 'digest', topic: 'digest', ...emailBase });
+// @ts-expect-error neither, here too
+bound.emailTemplate({ id: 'neither', ...emailBase });
+defineConfig({
+  contract: topical,
+  workflows: [],
+  templates: { email: { boundPromo, boundReceipt } },
+});
+
+/* ------------------------------ push topics ------------------------------ */
+
+const pushBase = {
+  title: 'P',
+  props: namedSchema,
+  preview: { name: 'Ada' },
+  content: () => ({ title: 't', body: 'b' }),
+};
+
+// @ts-expect-error every push template says what it is: a topic, or transactional
+pushTemplate({ id: 'neither', ...pushBase });
+
+// @ts-expect-error not both
+pushTemplate({ id: 'both', topic: 'promotions', transactional: true, ...pushBase });
+
+// @ts-expect-error transactional is the literal true, never a boolean variable
+pushTemplate({ id: 'maybe', transactional: Boolean(1), ...pushBase });
+
+const promoPush = pushTemplate({ id: 'promo_push', topic: 'promotions', ...pushBase });
+const digestPush = pushTemplate({ id: 'digest_push', topic: 'digest', ...pushBase });
+const codePush = pushTemplate({ id: 'code_push', transactional: true, ...pushBase });
+expectTypeOf(promoPush.topic).toEqualTypeOf<'promotions' | null>();
+expectTypeOf(codePush.topic).toEqualTypeOf<null>();
+const boundPush = bound.pushTemplate({ id: 'promo_push', topic: 'newsletter', ...pushBase });
+expectTypeOf(boundPush.topic).toEqualTypeOf<'newsletter' | null>();
+// @ts-expect-error a push topic the contract does not declare fails at the template
+bound.pushTemplate({ id: 'digest_push', topic: 'digest', ...pushBase });
+
+// The same topics type both channels' registries
+defineConfig({
+  contract: topical,
+  workflows: [],
+  templates: { email: { promo, receipt }, push: { promoPush, codePush } },
+});
+
+// @ts-expect-error a push topic the contract does not declare
+defineConfig({ contract: topical, workflows: [], templates: { push: { promoPush, digestPush } } });
+
+// @ts-expect-error without a contract there are no topics: transactional pushes only
+defineConfig({ workflows: [], templates: { push: { promoPush } } });
+defineConfig({ workflows: [], templates: { push: { codePush } } });
+
+/* ------------------------------ subscriptions client ------------------------------ */
+
+const subscriptions = new JourneyClient({ contract: topical, origin: 'https://w.test' });
+expectTypeOf(subscriptions.getSubscriptions('u')).resolves.toEqualTypeOf<{
+  email: { all: boolean; topics: Record<'promotions' | 'newsletter', boolean> };
+  push: { all: boolean; topics: Record<'promotions' | 'newsletter', boolean> };
+}>();
+void subscriptions.setSubscriptions('u', { email: { all: false, topics: { promotions: false } } });
+void subscriptions.setSubscriptions('u', {
+  push: { all: false },
+  email: { topics: { newsletter: true } },
+});
+// @ts-expect-error only declared topics can be set
+void subscriptions.setSubscriptions('u', { email: { topics: { digest: false } } });
+// @ts-expect-error ...on push too
+void subscriptions.setSubscriptions('u', { push: { topics: { digest: false } } });
+// @ts-expect-error topics are per channel: there is no bare `topics`
+void subscriptions.setSubscriptions('u', { topics: { promotions: false } });
+
+const untyped = new JourneyClient({ origin: 'https://w.test' });
+void untyped.setSubscriptions('u', { email: { topics: { anything: false } } });

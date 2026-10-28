@@ -22,6 +22,7 @@ import { SesSendError } from '../src/transports/ses';
 const e = event<{ login: Record<string, never>; purchase: { value: number } }>();
 const hi = emailTemplate({
   id: 'hi',
+  transactional: true,
   from: 'hi@acme.test',
   title: 'Hi',
   props: z.strictObject({}),
