@@ -185,7 +185,7 @@ describe('ingest validation in the Worker', () => {
     )[0].c;
 
   async function setup() {
-    const { env, journey } = makeEnv();
+    const { env, journey } = makeEnv({ ENVIRONMENT: 'development' });
     const store = database.store;
     const welcome = workflow({
       id: 'welcome',

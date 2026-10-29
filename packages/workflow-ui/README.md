@@ -110,8 +110,11 @@ export default postgresStats({
 ```
 
 The dev server serves the project's source to the page (Vite's `/@fs/`), except
-`workflow.config.ts` and the stats file, which the page never imports; still,
-keep credentials in environment variables rather than literals.
+`workflow.config.ts` and the stats file, which the page never imports, and the
+credential files a project keeps beside its code (`.env*`, `.dev.vars*`, `*.p8`,
+`*.plist`, `google-services.json`, `*.pfx`, `*.pem`, `*.key`). It sends no CORS
+headers, so no other origin can read it. Still, keep credentials in environment
+variables rather than literals.
 
 ## generate
 

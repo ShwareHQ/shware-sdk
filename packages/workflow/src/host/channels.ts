@@ -53,6 +53,26 @@ export function journeyMode(env: JourneyEnv): JourneyMode {
   return env.ENVIRONMENT ?? 'production';
 }
 
+let relayIgnoredLogged = false;
+
+/**
+ * Where APNs requests go: the dev relay `APNS_RELAY_ORIGIN` names, except in production. The relay
+ * sees the provider JWT, so a production deploy that inherited the variable (a copied `.dev.vars`,
+ * a leftover `vars` entry) goes straight to APNs rather than hand the credential to whatever
+ * answers there, and says so once.
+ */
+function apnsRelayOrigin(env: JourneyEnv, mode: JourneyMode): string | undefined {
+  const origin = env.APNS_RELAY_ORIGIN;
+  if (origin === undefined || mode !== 'production') return origin;
+  if (!relayIgnoredLogged) {
+    relayIgnoredLogged = true;
+    console.error(
+      `[workflow] APNS_RELAY_ORIGIN (${origin}) is ignored in production: APNs is called directly. The relay is for wrangler dev only; unset it in this environment.`
+    );
+  }
+  return undefined;
+}
+
 /** The runtime options for this environment's mode. */
 export function runtimeFromConfig(
   config: Pick<JourneyConfig, 'runtime'> | undefined,
@@ -244,12 +264,13 @@ export function channelsFromConfig(
                 privateKey: apnsKeyFromBase64(secret),
               })
           );
+          const origin = apnsRelayOrigin(env, mode);
           return new ApnsPushSender({
             credentials,
             topic: apns.topic,
             environment,
             render,
-            ...(env.APNS_RELAY_ORIGIN === undefined ? {} : { origin: env.APNS_RELAY_ORIGIN }),
+            ...(origin === undefined ? {} : { origin }),
             ...(apnsFetch === undefined ? {} : { fetch: apnsFetch }),
           });
         }),
