@@ -72,7 +72,8 @@ export function createGithubProvider(): Provider {
       return {
         data,
         claims: {
-          sub: data.id,
+          // GitHub answers the account id as a number; `sub` is a string claim.
+          sub: String(data.id),
           name: data.name || data.login,
           email_verified,
           email: data.email,
@@ -90,7 +91,7 @@ export const github = createGithubProvider();
 
 export interface GithubUserInfo {
   login: string;
-  id: string;
+  id: number;
   node_id: string;
   avatar_url: string;
   gravatar_id: string;
