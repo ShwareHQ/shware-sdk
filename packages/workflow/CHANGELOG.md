@@ -1,5 +1,13 @@
 # @shware/workflow
 
+## 6.1.1
+
+### Patch Changes
+
+- 9168625: Production ignores `APNS_RELAY_ORIGIN`: with `ENVIRONMENT` unset or `production`, iOS pushes (and the APNs provider JWT) go straight to APNs, and one `console.error` says the variable was ignored. The relay stays available in every other mode for `wrangler dev`.
+- 9168625: The bare `handleRequest` applies the production gate the journey host does: with `ENVIRONMENT` resolving to `production`, no `API_TOKEN` and no authorizer, every route but `GET /health` answers 503 instead of serving open.
+- 9168625: A failed wake (`sendEvent` to a waiting instance) is logged with `console.warn`, naming the instance and the error, instead of being swallowed; the subscription is still kept for the next attempt.
+
 ## 6.1.0
 
 ### Minor Changes

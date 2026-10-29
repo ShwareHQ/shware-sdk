@@ -1,5 +1,15 @@
 # @shware/workflow-ui
 
+## 2.1.7
+
+### Patch Changes
+
+- 9168625: The Studio dev server sends no CORS headers (`server.cors: false`) and refuses to serve credential files through `/@fs/`: `.dev.vars*`, `*.p8`, `*.plist`, `google-services.json`, `*.pfx`, `*.pem` and `*.key`, on top of Vite's default deny list.
+- Updated dependencies [9168625]
+- Updated dependencies [9168625]
+- Updated dependencies [9168625]
+  - @shware/workflow@6.1.1
+
 ## 2.1.6
 
 ### Patch Changes
