@@ -392,7 +392,13 @@ export class Auth implements AuthService {
       const state = randomUUID();
       const pkce = this.createPkceParameters();
       const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce });
-      const session = (await this.loadSession(request)) ?? this.repository.createSession();
+      let session = await this.loadSession(request);
+      if (!session) {
+        // A session made for the flow only has to outlive the state: an abandoned flow must not
+        // keep a row for the default interval. Sign-in moves to a new session, with the default.
+        session = this.repository.createSession();
+        session.setMaxInactiveInterval(OAUTH2_PARAMETER_TTL);
+      }
       mark('fetch_session');
 
       const authorizationRequest: OAuth2AuthorizationRequest = {

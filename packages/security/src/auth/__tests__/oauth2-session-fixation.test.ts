@@ -231,6 +231,45 @@ describe.each(repositories)('session fixation on the redirect flow ($name)', (re
     const sessions = await auth.listSessions({ name: 'user-b' });
     expect(sessions.map((s) => s.getId())).toEqual([sessionId(response)]);
   });
+
+  it.skipIf(!repo.available)('keeps a flow-only session for the state TTL', async () => {
+    const repository = repo.create();
+    const auth = createAuth(repository);
+    const defaultInterval = repository.createSession().getMaxInactiveInterval();
+    const response = await auth.oauth2Authorization(
+      new Request('https://api.test/oauth2/authorization/apple')
+    );
+    const started = sessionId(response);
+
+    // An abandoned flow's session expires with its state, cookie and row alike.
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=600');
+    expect((await repository.findById(started))?.getMaxInactiveInterval()).toBe(600);
+
+    const location = new URL(response.headers.get('location') ?? '');
+    const state = location.searchParams.get('state') ?? '';
+    const login = await auth.loginOAuth2Code(callback(started, state), async () => ({
+      name: 'user-1',
+    }));
+    const signedIn = await repository.findById(sessionId(login));
+    expect(signedIn?.getMaxInactiveInterval()).toBe(defaultInterval);
+    expect(login.headers.get('set-cookie')).toContain(`Max-Age=${defaultInterval}`);
+  });
+
+  it.skipIf(!repo.available)('leaves the interval of a session the flow reuses', async () => {
+    const repository = repo.create();
+    const auth = createAuth(repository);
+    const first = await start(auth);
+    const login = await auth.loginOAuth2Code(callback(first.id, first.state), async () => ({
+      name: 'user-a',
+    }));
+    const signedIn = sessionId(login);
+    const interval = (await repository.findById(signedIn))?.getMaxInactiveInterval();
+
+    await start(auth, `SESSION=${signedIn}`);
+
+    expect((await repository.findById(signedIn))?.getMaxInactiveInterval()).toBe(interval);
+    expect(interval).not.toBe(600);
+  });
 });
 
 describe('PKCE parameters of the redirect flow', () => {
