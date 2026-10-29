@@ -3,6 +3,7 @@ import {
   enum as _enum,
   gte,
   int,
+  lte,
   maxLength,
   nullable,
   object,
@@ -81,7 +82,7 @@ export function createCheckoutSessionSchema(
   { allowedOrigins }: CreateCheckoutSessionSchemaOptions
 ) {
   return object({
-    quantity: _default(int().check(gte(1)), 1),
+    quantity: _default(int().check(gte(1), lte(100)), 1),
     productId: _enum(productIds),
     cancelUrl: optional(returnUrlSchema(allowedOrigins)),
     successUrl: optional(returnUrlSchema(allowedOrigins)),
