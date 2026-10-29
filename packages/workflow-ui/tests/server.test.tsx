@@ -13,6 +13,7 @@ import {
 } from 'vite';
 import { describe, expect, test } from 'vitest';
 import {
+  STUDIO_FS_DENY,
   isInsideDir,
   isInsideProject,
   projectFileDeny,
@@ -379,5 +380,36 @@ describe('the config and the stats file are not served to the page', () => {
 
     expect(serves(link)).toBe(false);
     expect(serves(real)).toBe(false);
+  });
+});
+
+describe('credentials beside the project are not served to the page', () => {
+  test('wrangler vars, signing keys and platform credentials are denied; source is not', async () => {
+    const cwd = tempProject();
+    const config = await resolveConfig(
+      {
+        root: cwd,
+        configFile: false,
+        envDir: false,
+        server: { fs: { allow: [cwd], deny: [...STUDIO_FS_DENY] } },
+      },
+      'serve'
+    );
+    const serves = (file: string) =>
+      isFileLoadingAllowed(config, normalizePath(resolve(cwd, file)));
+
+    const secrets = [
+      '.dev.vars',
+      'apps/worker/.dev.vars.production',
+      'keys/AuthKey_ABC123.p8',
+      'ios/GoogleService-Info.plist',
+      'android/app/google-services.json',
+      'certs/push.pfx',
+      'certs/push.pem',
+      'certs/server.key',
+      '.env',
+    ];
+    expect(secrets.filter((file) => serves(file))).toEqual([]);
+    expect(serves('src/email/index.ts')).toBe(true);
   });
 });

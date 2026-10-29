@@ -438,6 +438,23 @@ function sourcePosition(cwd: string, rawFile: string, line: number): Located {
 const VITE_DEFAULT_DENY = ['.env', '.env.*', '*.{crt,pem}', '**/.git/**'];
 
 /**
+ * What `server.fs.deny` refuses whatever the project: Vite's default, plus the credentials a
+ * journey project keeps beside its code. `fs.allow` spans the workspace, so without these
+ * `/@fs/<path>/.dev.vars` (wrangler's secrets), an APNs `.p8` or a Firebase service account would
+ * be one request away for any page that can reach the port.
+ */
+export const STUDIO_FS_DENY: readonly string[] = [
+  ...VITE_DEFAULT_DENY,
+  '**/.dev.vars*',
+  '**/*.p8',
+  '**/*.plist',
+  '**/google-services.json',
+  '**/*.pfx',
+  '**/*.pem',
+  '**/*.key',
+];
+
+/**
  * `server.fs.deny` patterns for files the page must never be served.
  *
  * `fs.allow` covers the whole workspace so the browser can import the
@@ -509,8 +526,10 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
           searchForWorkspaceRoot(packageRoot),
           appRoot,
         ],
-        deny: [...VITE_DEFAULT_DENY, ...projectFileDeny([configPath, statsPath])],
+        deny: [...STUDIO_FS_DENY, ...projectFileDeny([configPath, statsPath])],
       },
+      // The studio is its own origin and calls no one else's; no page elsewhere may read it
+      cors: false,
     },
     // The app and the user's project each have their own react; one copy only. One
     // @shware/workflow too: the preview's <EmailProvider> and the project's layout calling
