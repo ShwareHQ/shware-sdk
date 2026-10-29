@@ -12,8 +12,9 @@ export type DebounceOptions = {
    */
   trailing?: boolean;
   /**
-   * The maximum time func is allowed to be delayed before it's invoked.
-   * Only works when leading is false.
+   * The maximum time func is allowed to be delayed before it's invoked, counted from the first
+   * call of a burst. Applies with `leading` too: calls made after the leading invocation are
+   * flushed once `maxWait` elapses even if the calls keep coming.
    */
   maxWait?: number;
 };
