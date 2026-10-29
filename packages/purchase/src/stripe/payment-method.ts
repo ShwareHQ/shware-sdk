@@ -29,3 +29,34 @@ export const DELAYED_NOTIFICATION_PAYMENT_METHOD_TYPES: ReadonlySet<Stripe.Payme
 export function hasDelayedNotification(type: Stripe.PaymentMethod.Type): boolean {
   return DELAYED_NOTIFICATION_PAYMENT_METHOD_TYPES.has(type);
 }
+
+export type PaymentMethodType = Stripe.PaymentMethod.Type;
+
+/** A saved payment method as the host lists it to a client; `card` is null for other types. */
+export interface PaymentMethod {
+  id: string;
+  type: PaymentMethodType;
+  card: { brand: string; last4: string; expMonth: number; expYear: number } | null;
+  /** The one the next invoice charges: the host decides (a subscription's or the customer's default). */
+  isDefault: boolean;
+}
+
+/**
+ * `brand` is Stripe's `display_brand` when it has one (a co-badged card's chosen network, as
+ * the customer sees it on the statement), else the card's `brand`.
+ */
+export function mapPaymentMethod(method: Stripe.PaymentMethod, isDefault: boolean): PaymentMethod {
+  return {
+    id: method.id,
+    type: method.type,
+    card: method.card
+      ? {
+          brand: method.card.display_brand ?? method.card.brand,
+          last4: method.card.last4,
+          expMonth: method.card.exp_month,
+          expYear: method.card.exp_year,
+        }
+      : null,
+    isDefault,
+  };
+}

@@ -21,7 +21,12 @@ export {
   type Price,
   type LineItem,
   type CheckoutSession,
+  type CustomerType,
   type PaymentStatus,
+  type PaymentIntent,
+  type PaymentIntentStatus,
+  type Charge,
+  type ChargeStatus,
   type PurchaseProperties,
   type ProductPrice,
   type BeginCheckoutProperties,
@@ -38,6 +43,9 @@ export {
 export {
   DELAYED_NOTIFICATION_PAYMENT_METHOD_TYPES,
   hasDelayedNotification,
+  mapPaymentMethod,
+  type PaymentMethod,
+  type PaymentMethodType,
 } from './payment-method';
 export { StripeEventHandler } from './handler';
 export {
