@@ -1,5 +1,15 @@
 # @shware/security
 
+## 8.0.1
+
+### Patch Changes
+
+- 578e6a5: The GitHub provider sets `sub` to the account id as a string (`String(id)`); GitHub answers it as a number, which reached hosts typed as a string claim.
+- 578e6a5: `verifyIdToken` keeps one remote key set per JWKS endpoint for the life of the process, so jose's key cache applies and the keys are no longer fetched for every id token.
+- 578e6a5: The redirect flow's PKCE `code_verifier` is 32 random bytes in base64url (43 characters, the RFC 7636 minimum) instead of a 36-character UUID, which strict providers could refuse.
+- 578e6a5: `oauth2Authorization` gives the session it creates for a browser without one a 10-minute inactive interval (the life of the OAuth2 state), so abandoned flows no longer keep a row and cookie for the default interval. A session the browser already carries keeps its interval, and sign-in still moves to a new session with the default.
+- 578e6a5: A failed token revocation logs `Revoke token error` instead of the misleading `Refresh token error`.
+
 ## 8.0.0
 
 ### Major Changes

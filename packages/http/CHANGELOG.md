@@ -1,5 +1,12 @@
 # @shware/http
 
+## 4.0.3
+
+### Patch Changes
+
+- 578e6a5: `authorizer` matches a `HEAD` request against the `GET` rules: Hono serves `HEAD` with the `GET` handler, so a rule like `{ path, methods: ['GET'] }` let `HEAD` through unauthenticated.
+- 578e6a5: `verifyStandardWebhook` refuses a `v1` signature that is missing or of another length as an invalid signature (`INVALID_ARGUMENT`), instead of failing with a `RangeError` from `timingSafeEqual` (a 500).
+
 ## 4.0.2
 
 ### Patch Changes
