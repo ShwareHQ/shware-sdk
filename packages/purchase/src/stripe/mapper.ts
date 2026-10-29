@@ -13,11 +13,17 @@ import {
   type SubscriptionStatus,
 } from '../subscription/index';
 
-export function mapTime<T extends number | null>(
+type MappedTime<T> = T extends number ? string : null;
+
+/**
+ * A Stripe timestamp (seconds) as an ISO string; a missing one (`null` / `undefined`) stays `null`.
+ * `0` is a real time (the epoch), not a missing one.
+ */
+export function mapTime<T extends number | null | undefined>(
   stripeTimestampSeconds: T
-): T extends number ? string : null {
-  if (!stripeTimestampSeconds) return null as T extends number ? string : null;
-  return new Date(stripeTimestampSeconds * 1000).toISOString() as T extends number ? string : null;
+): MappedTime<T> {
+  if (typeof stripeTimestampSeconds !== 'number') return null as MappedTime<T>;
+  return new Date(stripeTimestampSeconds * 1000).toISOString() as MappedTime<T>;
 }
 
 export type Price = {

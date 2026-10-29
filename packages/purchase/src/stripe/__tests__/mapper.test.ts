@@ -6,6 +6,7 @@ import {
   mapDisputeStatus,
   mapPaymentType,
   mapRefundStatus,
+  mapTime,
   money,
   price,
 } from '../mapper';
@@ -178,5 +179,19 @@ describe('mapDisputeStatus', () => {
     expect(() => mapDisputeStatus({ id: 'dp_1', status: 'mystery' })).toThrow(
       'Unknown dispute status mystery: dp_1'
     );
+  });
+});
+
+describe('mapTime', () => {
+  it('maps seconds to an ISO string', () => {
+    expect(mapTime(1_700_000_000)).toBe('2023-11-14T22:13:20.000Z');
+  });
+
+  it('maps 0 to the epoch instead of treating it as missing', () => {
+    expect(mapTime(0)).toBe('1970-01-01T00:00:00.000Z');
+  });
+
+  it.each([null, undefined])('maps %s to null', (value) => {
+    expect(mapTime(value)).toBeNull();
   });
 });
