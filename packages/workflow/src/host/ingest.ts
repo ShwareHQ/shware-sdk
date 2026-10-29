@@ -148,10 +148,12 @@ export async function wakeSubscribers(
     try {
       await instance.sendEvent({ type: WAKE_EVENT_TYPE, payload: { event } });
       woke++;
-    } catch {
+    } catch (error) {
       // Transient send failure (or an instance finishing right now): keep the
       // subscription — a later event retries it, and the wait's own timeout
       // bounds the damage. Deleting here would silence all future wake-ups.
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[workflow] waking ${handle} on ${event} failed: ${message}`);
     }
   }
   return woke;

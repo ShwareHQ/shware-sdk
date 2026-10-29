@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { DEVICES_UPDATED_EVENT, profileUpdatedEvent } from '../src/engine/condition';
 import { bearerMatches } from '../src/host/auth';
@@ -130,6 +130,7 @@ describe('identify', () => {
     journey.known.add('inst-flaky');
     journey.failingSends.add('inst-flaky');
     await subscribe('inst-flaky', 'u1', profileUpdatedEvent('plan'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const response = await handleRequest(
       identifyRequest('u1', { plan: 'pro' }),
@@ -141,6 +142,11 @@ describe('identify', () => {
     expect(response.status).toBe(200);
     expect(body.woke).toBe(0);
     expect(await rows('subscription')).toBe(1);
+    // Kept, but not silently: the failure says which instance and why
+    expect(warn).toHaveBeenCalledWith(
+      `[workflow] waking inst-flaky on ${profileUpdatedEvent('plan')} failed: send failed`
+    );
+    warn.mockRestore();
   });
 
   /*
