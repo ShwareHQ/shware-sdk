@@ -1216,7 +1216,9 @@ On Postgres the engine also keeps:
 
 ## HTTP surface
 
-`handleRequest` serves the ingest API:
+`handleRequest` serves the ingest API. It applies the same production gate as
+the full host: with `ENVIRONMENT` resolving to `production` and no `API_TOKEN`,
+everything but `GET /health` answers 503.
 
 - `GET /health` is the only unauthenticated one. Every other route asks the
   host's `authorize`, or without one the `API_TOKEN` bearer: its scheme is

@@ -137,6 +137,7 @@ describe('deployBundle rejects a bundle that misdescribes itself', () => {
 
   test('the HTTP surface reports it as the caller error, not a server fault', async () => {
     const { env, store } = setup();
+    env.ENVIRONMENT = 'development'; // no API_TOKEN: production would refuse with a 503
     const tampered = bundle();
     tampered.workflows[0].flow.push({ id: '99', type: 'exit' });
 

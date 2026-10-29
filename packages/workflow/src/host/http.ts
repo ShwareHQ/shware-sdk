@@ -517,7 +517,7 @@ function failure(error: unknown): Response {
 /** One request through the table: the production gate, the bearer, the route, the error mapping. */
 export async function serve(request: Request, ctx: ServeContext): Promise<Response> {
   const url = new URL(request.url);
-  if (ctx.host !== undefined && refusesOpen(request, ctx, url.pathname)) {
+  if (refusesOpen(request, ctx, url.pathname)) {
     return json(
       {
         error:

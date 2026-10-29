@@ -75,7 +75,7 @@ describe('identify', () => {
     });
 
   test('merges the profile and wakes property-condition waits', async () => {
-    const { env, journey } = makeEnv();
+    const { env, journey } = makeEnv({ ENVIRONMENT: 'development' });
     journey.known.add('inst-wait');
     await subscribe('inst-wait', 'u1', profileUpdatedEvent('plan'));
 
@@ -93,7 +93,7 @@ describe('identify', () => {
   });
 
   test('a lookup that fails for another reason keeps the subscription', async () => {
-    const { env, journey } = makeEnv();
+    const { env, journey } = makeEnv({ ENVIRONMENT: 'development' });
     await subscribe('inst-1', 'u1', profileUpdatedEvent('plan'));
     journey.get = async () => {
       throw new Error('connection reset by peer');
@@ -112,7 +112,7 @@ describe('identify', () => {
   test('a dangling subscription (unknown instance) is pruned, not fatal', async () => {
     // The fake fails `get` the way Cloudflare does; the adapter in makeEnv's env turns that into
     // the port's InstanceNotFoundError, the one failure the host drops a subscription on
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await subscribe('gone', 'u1', profileUpdatedEvent('plan'));
 
     const response = await handleRequest(
@@ -126,7 +126,7 @@ describe('identify', () => {
   });
 
   test('a transient send failure keeps the subscription for the next attempt', async () => {
-    const { env, journey } = makeEnv();
+    const { env, journey } = makeEnv({ ENVIRONMENT: 'development' });
     journey.known.add('inst-flaky');
     journey.failingSends.add('inst-flaky');
     await subscribe('inst-flaky', 'u1', profileUpdatedEvent('plan'));
@@ -149,7 +149,7 @@ describe('identify', () => {
    * whichever wrote second replaced the other's fields wholesale.
    */
   test('a field written by a concurrent identify survives', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
 
     await Promise.all([
       handleRequest(identifyRequest('u1', { plan: 'pro' }), env, database.store),
@@ -160,7 +160,7 @@ describe('identify', () => {
   });
 
   test('later identifies add to the profile rather than replacing it', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await handleRequest(identifyRequest('u1', { plan: 'pro', seats: 3 }), env, database.store);
     await handleRequest(identifyRequest('u1', { seats: 5 }), env, database.store);
 
@@ -168,7 +168,7 @@ describe('identify', () => {
   });
 
   test('null removes a property, which is the only way this API can unset one', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await handleRequest(identifyRequest('u1', { plan: 'pro', trial_ends: 1 }), env, database.store);
 
     const response = await handleRequest(
@@ -183,7 +183,7 @@ describe('identify', () => {
   });
 
   test('a non-object props is refused rather than replacing the profile wholesale', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const response = await handleRequest(
       new Request('https://worker.test/identify', {
         method: 'POST',
@@ -196,7 +196,7 @@ describe('identify', () => {
   });
 
   test('a profile change can move the user into a trigger-routed segment', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const vip = segment({ id: 'vip', condition: eq(u.subscription_plan, 'business') });
     const vipWelcome = workflow({ id: 'vip_welcome', trigger: trigger.segment(vip) }).email(
       firstTimeRecovery
@@ -253,7 +253,7 @@ describe('http surface', () => {
   });
 
   test('an invalid deploy payload is a 400, not a leaked 500', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const response = await handleRequest(
       new Request('https://worker.test/deploy', { method: 'POST', body: '{}' }),
       env,
@@ -265,7 +265,7 @@ describe('http surface', () => {
   });
 
   test('reserved event names are a 400 at the HTTP layer', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const response = await handleRequest(
       new Request('https://worker.test/events', {
         method: 'POST',
@@ -302,7 +302,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
   };
 
   test('ingestEvent, identifyUser and registerDevice throw UserErasedError', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await erasing('u1');
     await expect(
       ingestEvent(env, { userId: 'u1', event: 'login' }, database.store)
@@ -314,7 +314,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
     ['being erased', erasing],
     ['erased', erased],
   ])('/events, /identify and /devices answer 410 for a user %s', async (_, tombstone) => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await tombstone('u1');
     const requests = [
       post('/events', { userId: 'u1', event: 'login' }),
@@ -362,7 +362,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
   });
 
   test('forgetUser leaves the tombstone erased, and a repeat is idempotent', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await ingestEvent(env, { userId: 'u1', event: 'login' }, database.store);
     await ingestEvent(env, { userId: 'u2', event: 'login' }, database.store);
 
@@ -403,7 +403,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
 
 describe('request validation', () => {
   test('a body that is not JSON is a 400, not a 500', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     for (const path of ['/events', '/identify', '/devices', '/deploy']) {
       const response = await handleRequest(post(path, '{not json'), env, database.store);
       expect(response.status).toBe(400);
@@ -412,7 +412,7 @@ describe('request validation', () => {
   });
 
   test('ts must be a whole, non-negative epoch no later than 5 minutes ahead', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const refused = [-1, 1.5, Date.now() + 6 * 60_000, Number.MAX_SAFE_INTEGER + 2, '123'];
     for (const ts of refused) {
       const events = await handleRequest(
@@ -443,7 +443,7 @@ describe('request validation', () => {
   });
 
   test('/identify takes scalars and null only, contract or not', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     for (const props of [{ address: { city: 'Paris' } }, { tags: ['a'] }]) {
       const response = await handleRequest(
         post('/identify', { userId: 'u1', props }),
@@ -467,7 +467,7 @@ describe('request validation', () => {
 
 describe('identify wakes the waits on the properties it patched', () => {
   test('a wait on another property sleeps on', async () => {
-    const { env, journey } = makeEnv();
+    const { env, journey } = makeEnv({ ENVIRONMENT: 'development' });
     for (const handle of ['inst-plan', 'inst-email']) journey.known.add(handle);
     await subscribe('inst-plan', 'u1', profileUpdatedEvent('plan'));
     await subscribe('inst-email', 'u1', profileUpdatedEvent('email'));
@@ -483,7 +483,7 @@ describe('identify wakes the waits on the properties it patched', () => {
   });
 
   test('an instance subscribed to several patched properties is woken once', async () => {
-    const { env, journey } = makeEnv();
+    const { env, journey } = makeEnv({ ENVIRONMENT: 'development' });
     journey.known.add('inst-both');
     await subscribe('inst-both', 'u1', profileUpdatedEvent('plan'));
     await subscribe('inst-both', 'u1', profileUpdatedEvent('seats'));
@@ -600,6 +600,30 @@ describe('production refuses to serve without API_TOKEN', () => {
     const pixel = await call('/t/o/0190a3b8-0000-7000-8000-000000000001');
     expect(pixel.status).toBe(200);
     expect(pixel.headers.get('content-type')).toBe('image/gif');
+  });
+
+  test('the bare API refuses the same way, the health check aside', async () => {
+    const { env } = makeEnv(); // no ENVIRONMENT: production
+    const refused = await handleRequest(
+      new Request('https://worker.test/identify', {
+        method: 'POST',
+        body: JSON.stringify({ userId: 'u1', props: { plan: 'pro' } }),
+      }),
+      env,
+      database.store
+    );
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({
+      error:
+        'API_TOKEN is not set: production refuses to serve without it (set ENVIRONMENT=development to run open)',
+    });
+    expect(await rows('profile')).toBe(0);
+    const health = await handleRequest(
+      new Request('https://worker.test/health'),
+      env,
+      database.store
+    );
+    expect(health.status).toBe(200);
   });
 
   test('development runs open; production with a token serves', async () => {
@@ -1008,7 +1032,7 @@ describe('/subscriptions', () => {
   });
 
   test('the bare API reads the topics from the contract it validates with', async () => {
-    const { env } = makeEnv();
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const get = await handleRequest(
       new Request('https://worker.test/subscriptions/u1'),
       env,
