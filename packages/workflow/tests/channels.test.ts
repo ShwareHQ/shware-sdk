@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto';
 import { createElement } from 'react';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import type { EmailBindingLike } from '../src/cloudflare/bindings';
 import type { OutboundMessage } from '../src/engine/ports';
@@ -197,6 +197,32 @@ describe('channelsFromConfig', () => {
         idempotencyKey: 'inst:1',
       },
     ]);
+  });
+
+  test('production ignores the relay: the provider JWT goes to APNs and nowhere else', async () => {
+    const { env, fetched, fetchImpl } = setup();
+    const production = {
+      ...env,
+      ENVIRONMENT: 'production',
+      APNS_RELAY_ORIGIN: 'http://127.0.0.1:1',
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Two runs' senders: the misconfiguration is said once, not on every run
+    for (let run = 0; run < 2; run++) {
+      const sender = channelsFromConfig(
+        { templates, apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },
+        production,
+        { fetch: fetchImpl }
+      );
+      await sender.send(message('push', 'devicetoken'));
+    }
+    expect(fetched.map((f) => f.url)).toEqual([
+      'https://api.push.apple.com/3/device/devicetoken',
+      'https://api.push.apple.com/3/device/devicetoken',
+    ]);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0][0]).toContain('APNS_RELAY_ORIGIN (http://127.0.0.1:1) is ignored');
+    error.mockRestore();
   });
 
   test('an iOS push goes to APNs through the dev relay, in the sandbox for development', async () => {

@@ -1696,7 +1696,8 @@ describe('the provider clients live with the host, across invocations', () => {
         fcm: {},
       }),
       env: {
-        ENVIRONMENT: 'production',
+        // Not production: production ignores the relay origin, and the stand-in is reached as one
+        ENVIRONMENT: 'development',
         API_TOKEN: 'secret',
         APNS_PRIVATE_KEY_BASE64: p8Base64,
         APNS_RELAY_ORIGIN: apnsOrigin,

@@ -691,6 +691,10 @@ const relay = await startApnsRelay({ port: 8280 });
 // wrangler dev --var APNS_RELAY_ORIGIN:http://localhost:8280
 ```
 
+The relay sees the provider JWT, so production (`ENVIRONMENT` unset or
+`production`) ignores `APNS_RELAY_ORIGIN`: it calls APNs directly and logs one
+`console.error` saying the variable was ignored.
+
 ### Slack and Discord
 
 Team-channel messages go through incoming webhooks. The URL is a secret, so the
@@ -935,7 +939,7 @@ database.
   bundle live (see [Postgres](#postgres)); `POST /bundle/deploy` forces it.
 - **APNs in development.** `wrangler dev` (workerd) cannot make HTTP/2 subrequests: run
   `@shware/workflow/apns-relay` and point `APNS_RELAY_ORIGIN` at it. A deployed Worker needs no
-  relay.
+  relay, and production ignores the variable.
 
 ## AWS Lambda
 
