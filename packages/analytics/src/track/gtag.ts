@@ -253,9 +253,18 @@ export type Config = {
   user_properties?: UserProperties;
 };
 
-export type Item = {
-  item_id: string;
-  item_name: string;
+/** GA4 wants one of `item_id` / `item_name` on every item; the rest is optional. */
+type ItemIdentity =
+  | { item_id: string; item_name?: string }
+  | { item_id?: string; item_name: string };
+
+/** The id an item is reported under elsewhere: `item_id`, or `item_name` when that is all it has. */
+export function itemKey(item: Item): string {
+  // One of the two is required by ItemIdentity; TypeScript cannot see that through the union.
+  return item.item_id ?? (item.item_name as string);
+}
+
+export type Item = ItemIdentity & {
   affiliation?: 'Google Store' | (string & {});
   coupon?: string;
   discount?: number;
@@ -494,9 +503,10 @@ export type RecommendedEvents = {
     items: Item[];
     source?: string; // added
   };
+  // The one lead event GA4 lists with both optional (each required if the other is set).
   close_convert_lead: {
-    currency: string;
-    value: number;
+    currency?: string;
+    value?: number;
   };
   close_unconvert_lead: {
     currency: string;
@@ -557,6 +567,11 @@ export type RecommendedEvents = {
     currency: string;
     value: number;
     transaction_id: string;
+    /**
+     * `new`: no purchase in the lookback window (GA4 defaults to 540 days); `returning`:
+     * one within it. Leave unset when unsure, e.g. a guest checkout.
+     */
+    customer_type?: 'new' | 'returning';
     coupon?: string;
     shipping?: number; // Shipping cost associated with a transaction.
     tax?: number;

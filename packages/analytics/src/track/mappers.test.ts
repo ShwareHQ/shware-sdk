@@ -87,6 +87,12 @@ describe('mapFBEvent', () => {
     expect(props.num_items).toBe(3);
   });
 
+  it('mapItems falls back to item_name as the id when an item has no item_id', () => {
+    const props = mapFBItems([{ item_name: 'Named only', price: 5 }]);
+    expect(props.contents?.[0]?.id).toBe('Named only');
+    expect(props.content_ids).toEqual(['Named only']);
+  });
+
   it('mapItems reports content_category only when every item agrees on one', () => {
     const same = [
       { item_id: 'a', item_name: 'A', item_category: 'plans' },

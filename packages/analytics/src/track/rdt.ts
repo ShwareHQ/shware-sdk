@@ -1,4 +1,4 @@
-import type { Item } from './gtag';
+import { type Item, itemKey } from './gtag';
 import type { EventName, TrackName, TrackProperties } from './types';
 
 /** https://business.reddithelp.com/s/article/about-event-metadata */
@@ -102,7 +102,7 @@ type Missed<F extends string> = ['Custom', CustomEventParams<F>];
 export function mapItems(items?: Item[]): undefined | Product[] {
   if (!items || items.length === 0) return undefined;
   return items.map((item) => ({
-    id: item.item_id,
+    id: itemKey(item),
     name: item.item_name,
     category: item.item_category,
   }));
