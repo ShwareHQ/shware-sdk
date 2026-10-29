@@ -1,5 +1,15 @@
 # @shware/utils
 
+## 2.0.2
+
+### Patch Changes
+
+- 06367f4: The `debounce` `maxWait` option is documented as applying with `leading` too, which is how it already behaves.
+- 06367f4: `expiringStorage.getItem` returns `null` instead of throwing when `localStorage` is undefined (SSR) or blocked, like `setItem` and `removeItem`.
+- 06367f4: `waitForRequestIdleCallback` removes its `abort` listener from the signal once it resolves, so a long-lived signal no longer accumulates listeners.
+- 06367f4: `once` tracks whether it has settled, so a falsy result (`0`, `''`, `false`, `null`) is returned from the cache like any other.
+- 06367f4: `TokenBucket.removeTokens` waits for the configured `interval` (`minute`, `hour`, `day`) instead of waking every second, and the refill timer is `unref()`ed so it no longer keeps a Node process alive.
+
 ## 2.0.1
 
 ### Patch Changes

@@ -1,5 +1,20 @@
 # @shware/purchase
 
+## 9.2.2
+
+### Patch Changes
+
+- 06367f4: The `CANCELED` and `EXPIRED` subscription statuses document what each platform maps to them: Stripe ends at CANCELED (including after `cancel_at_period_end`), Apple uses CANCELED only for `REVOKED` and EXPIRED for a natural end, and Google CANCELED means cancelled but not yet expired.
+- 06367f4: `createCheckoutSessionSchema` refuses a `quantity` above 100.
+- 06367f4: `mapTime` maps `0` to the epoch instead of `null`, maps only `null` / `undefined` to `null`, and accepts `undefined`.
+- 06367f4: Removes the unused `METADATA_KEYS.CREDIT_AMOUNT` and `METADATA_KEYS.CREDIT_EXPIRES_IN`; nothing in the SDK reads or writes `credit_amount` / `credit_expires_in` metadata.
+- Updated dependencies [06367f4]
+- Updated dependencies [06367f4]
+- Updated dependencies [06367f4]
+- Updated dependencies [06367f4]
+- Updated dependencies [06367f4]
+  - @shware/utils@2.0.2
+
 ## 9.2.1
 
 ### Patch Changes
