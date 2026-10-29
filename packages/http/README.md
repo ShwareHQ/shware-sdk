@@ -258,7 +258,7 @@ import { requestId } from 'hono/request-id';
 
 const csrfConfig: CSRFConfig = {
   origin: ['https://app.example.com'],
-  secFetchSite: ['same-origin', 'same-site', 'none'],
+  secFetchSite: ['same-origin', 'none'],
   ignores: [
     '/login/oauth2/code/*',
     '/v1/webhooks/*',
@@ -286,8 +286,11 @@ app.use(
 
 `csrf` lets safe methods (`GET`, `HEAD`, `OPTIONS` by default), allowed `origin`s, allowed
 `Sec-Fetch-Site` values and `ignores` through; otherwise it compares the cookie and header tokens
-and throws `PERMISSION_DENIED`. `authorizer` skips `OPTIONS` and throws `UNAUTHENTICATED` for
-matching paths when `auth.isAuthenticated()` is false.
+and throws `PERMISSION_DENIED`. A `secFetchSite` of `same-site` lets in every subdomain of the
+registrable domain, so leave it out when other sites share the root domain: allow `same-origin`
+and list your other origins in `origin`. `authorizer` skips `OPTIONS`, matches `HEAD` against the
+`GET` rules (Hono serves it with the `GET` handler), and throws `UNAUTHENTICATED` for matching
+paths when `auth.isAuthenticated()` is false.
 
 ### Validation
 

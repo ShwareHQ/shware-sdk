@@ -47,7 +47,12 @@ export interface CSRFConfig {
   origin?: string[];
 
   /**
-   * Sec-Fetch-Site allowed to bypass CSRF check
+   * Sec-Fetch-Site allowed to bypass CSRF check.
+   *
+   * `same-site` means the whole registrable domain: a request from any sibling subdomain
+   * (`evil.example.com` against `api.example.com`) is `same-site`, so do not allow it when other
+   * sites, or content you do not control, share the root domain. Prefer `same-origin` and list the
+   * other origins of your own apps in `origin`.
    * @default undefined
    */
   secFetchSite?: Array<'same-origin' | 'same-site' | 'none' | 'cross-origin'>;
