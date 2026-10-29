@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from '../../oauth2/client';
@@ -229,5 +230,21 @@ describe.each(repositories)('session fixation on the redirect flow ($name)', (re
     expect(await auth.listSessions({ name: 'user-a' })).toEqual([]);
     const sessions = await auth.listSessions({ name: 'user-b' });
     expect(sessions.map((s) => s.getId())).toEqual([sessionId(response)]);
+  });
+});
+
+describe('PKCE parameters of the redirect flow', () => {
+  it('sends a 43-128 char base64url verifier with its S256 challenge', async () => {
+    const authorize = vi.spyOn(OAuth2Client.prototype, 'createAuthorizationUri');
+    const auth = createAuth(memorySessions());
+    await auth.oauth2Authorization(new Request('https://api.test/oauth2/authorization/apple'));
+
+    const pkce = authorize.mock.calls[0]?.[0].pkce;
+    expect(pkce?.code_verifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+    expect(pkce?.code_challenge_method).toBe('S256');
+    const challenge = createHash('sha256')
+      .update(pkce?.code_verifier ?? '')
+      .digest('base64url');
+    expect(pkce?.code_challenge).toBe(challenge);
   });
 });

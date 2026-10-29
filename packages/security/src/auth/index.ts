@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { invariant } from '@shware/utils';
 import { extend, literal, object, regex, string } from 'zod/mini';
 import type { Principal } from '../core/index';
@@ -337,7 +337,8 @@ export class Auth implements AuthService {
   // ---- oauth2 ----------------------------------------------------------------------------------
 
   private createPkceParameters(): PkceParameters {
-    const code_verifier = randomUUID();
+    // 32 random bytes: a 43-char base64url verifier, the RFC 7636 minimum (a UUID is 36).
+    const code_verifier = randomBytes(32).toString('base64url');
     const code_challenge = createHash('sha256')
       .update(code_verifier)
       .digest()
