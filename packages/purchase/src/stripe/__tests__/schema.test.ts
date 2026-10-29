@@ -64,6 +64,15 @@ describe('createCheckoutSessionSchema', () => {
     expect(result.data?.quantity).toBe(1);
   });
 
+  it.each([1, 100])('accepts quantity %i', (quantity) => {
+    const result = schema.safeParse({ productId: 'com.example.pro', quantity });
+    expect(result.data?.quantity).toBe(quantity);
+  });
+
+  it.each([0, 101, 999_999, 1.5])('refuses quantity %d', (quantity) => {
+    expect(schema.safeParse({ productId: 'com.example.pro', quantity }).success).toBe(false);
+  });
+
   it('accepts a body without return URLs', () => {
     expect(schema.safeParse({ productId: 'com.example.pro' }).success).toBe(true);
   });

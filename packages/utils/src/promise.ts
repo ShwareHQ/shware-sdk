@@ -1,12 +1,14 @@
 export function once<A extends unknown[], T>(fn: (...args: A) => Promise<T>) {
-  let cache: T | null = null;
+  let settled = false;
+  let cache: T;
   let promise: Promise<T> | null = null;
 
   return async (...args: A) => {
-    if (cache) return cache;
+    if (settled) return cache;
     promise ??= fn(...args)
       .then((result) => {
         cache = result;
+        settled = true;
         return result;
       })
       .catch((error: unknown) => {

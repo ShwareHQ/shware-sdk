@@ -11,10 +11,9 @@ export const expiringStorage = {
     }
   },
   getItem: <T = unknown>(key: string): T | null => {
-    const itemStr = localStorage.getItem(key);
-    if (!itemStr) return null;
-
     try {
+      const itemStr = localStorage.getItem(key);
+      if (!itemStr) return null;
       const item: LocalStorageItemWithExpiry<T> = JSON.parse(itemStr);
       const now = Date.now();
       if (now > item.expiresAt) {

@@ -180,8 +180,19 @@ export const SUBSCRIPTION_STATUSES = [
   'ON_HOLD',
 
   /**
-   * The subscription has been canceled. During cancellation, automatic collection for all unpaid
-   * invoices is disabled (auto_advance=false). This is a terminal state that can’t be updated.
+   * The subscription has been canceled. What that covers differs per platform, so do not compare
+   * CANCELED counts across platforms without accounting for it:
+   *
+   * - Stripe: `canceled`, whether ended immediately or at the natural end of the period after
+   *   `cancel_at_period_end`. Stripe has no separate expired state, so a subscription that ran out
+   *   after the customer cancelled is CANCELED here. During cancellation, automatic collection for
+   *   all unpaid invoices is disabled (auto_advance=false). This is a terminal state that can’t be
+   *   updated.
+   * - Apple: `REVOKED` only (refunded, or revoked from Family Sharing). A subscription that runs out
+   *   at the end of its period is EXPIRED, not CANCELED.
+   * - Google: `SUBSCRIPTION_STATE_CANCELED`, the customer turned off auto-renew but the current
+   *   period has not ended yet; it is not terminal. Consumers keep the product available until the
+   *   expiry time, after which Google reports EXPIRED.
    *
    * Platform: Apple, Google, Stripe
    * */
@@ -232,7 +243,13 @@ export const SUBSCRIPTION_STATUSES = [
   'REPLACED',
 
   /**
-   * Google: Subscription is expired. All items have expiryTime in the past.
+   * The subscription ran out at the end of its period without renewing.
+   *
+   * - Apple: the natural end of a subscription, including one the customer cancelled (auto-renew
+   *   off), a billing retry that gave up, or a declined price increase.
+   * - Google: `SUBSCRIPTION_STATE_EXPIRED`, all items have expiryTime in the past; a cancelled
+   *   subscription reaches it once its period ends.
+   * - Stripe never reports EXPIRED: a subscription ending after `cancel_at_period_end` is CANCELED.
    *
    * Platform: Apple, Google
    * */

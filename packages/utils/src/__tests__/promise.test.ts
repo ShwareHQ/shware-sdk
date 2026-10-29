@@ -85,3 +85,14 @@ describe('once', () => {
     expect(fn).toHaveBeenCalledWith(5);
   });
 });
+
+describe('once with falsy results', () => {
+  it.each([0, '', false, null])('caches %j without calling again', async (value) => {
+    const fn = vi.fn<() => Promise<unknown>>().mockResolvedValue(value);
+    const onceFn = once(fn);
+
+    expect(await onceFn()).toBe(value);
+    expect(await onceFn()).toBe(value);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
