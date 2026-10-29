@@ -42,7 +42,9 @@ export function authorizer({
       return;
     }
 
-    const [matched] = router.match(c.req.method, c.req.path);
+    // Hono answers HEAD with the GET handler, so a GET rule guards HEAD too.
+    const method = c.req.method === 'HEAD' ? 'GET' : c.req.method;
+    const [matched] = router.match(method, c.req.path);
     if (matched.length === 0) {
       await next();
       return;

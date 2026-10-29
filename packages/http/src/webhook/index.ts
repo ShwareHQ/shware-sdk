@@ -44,13 +44,16 @@ export function verifyStandardWebhook<T = unknown>(
   const digest = hmac.update(toSign).digest();
 
   const computedSignature = `v1,${Buffer.from(digest).toString('base64')}`;
-  const expectedSignature = computedSignature.split(',')[1];
+  const expectedSignature = encoder.encode(computedSignature.split(',')[1]);
   const passedSignatures = webhookSignature.split(' ');
 
   for (const versionedSignature of passedSignatures) {
     const [version, signature] = versionedSignature.split(',');
-    if (version !== 'v1') continue;
-    if (timingSafeEqual(encoder.encode(signature), encoder.encode(expectedSignature))) {
+    if (version !== 'v1' || !signature) continue;
+    // timingSafeEqual throws on a length mismatch; a signature of another length is just wrong.
+    const passedSignature = encoder.encode(signature);
+    if (passedSignature.length !== expectedSignature.length) continue;
+    if (timingSafeEqual(passedSignature, expectedSignature)) {
       try {
         return JSON.parse(payload) as T;
       } catch {

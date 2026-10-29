@@ -107,7 +107,7 @@ export async function revokeToken(params: RevokeTokenParams) {
   const response = await fetch(params.tokenRevokeUri, { method: 'POST', headers, body });
   if (!response.ok) {
     const error = await response.json();
-    console.error('Refresh token error:', error);
+    console.error('Revoke token error:', error);
     throw new OAuth2Error(response.status, 'invalid_request', 'Failed to revoke token');
   }
 }
@@ -124,10 +124,26 @@ export interface VerifyIdTokenOptions {
   audience: string;
 }
 
+/**
+ * One key set per JWKS endpoint for the life of the process: jose caches the fetched keys,
+ * refetches on an unknown `kid` (with a cooldown) and when they go stale, so a set created per
+ * call would refetch the keys for every id token.
+ */
+const jwkSets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+
+function remoteJWKSet(jwkSetUri: string) {
+  let jwks = jwkSets.get(jwkSetUri);
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(jwkSetUri));
+    jwkSets.set(jwkSetUri, jwks);
+  }
+  return jwks;
+}
+
 export async function verifyIdToken<T>(idToken: string, options: VerifyIdTokenOptions) {
   const { jwkSetUri, issuer, audience } = options;
   try {
-    const jwks = createRemoteJWKSet(new URL(jwkSetUri));
+    const jwks = remoteJWKSet(jwkSetUri);
     const { payload } = await jwtVerify(idToken, jwks, { issuer, audience });
     return payload as T;
   } catch (error) {

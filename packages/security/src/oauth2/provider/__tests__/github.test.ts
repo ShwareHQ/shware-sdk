@@ -61,13 +61,16 @@ describe('github exchangeAuthorizationCode', () => {
 describe('github getUserInfo', () => {
   test('sends a User-Agent to the user and emails APIs', async () => {
     const fetch = stubFetch(
-      Response.json({ id: '1', login: 'octocat', name: 'The Octocat', email: null }),
+      Response.json({ id: 583231, login: 'octocat', name: 'The Octocat', email: null }),
       Response.json([{ email: 'octo@example.com', primary: true, verified: true }])
     );
     const { claims } = await createGithubProvider().getUserInfo(
       { access_token: 'at', token_type: 'bearer' },
       { clientId: client.clientId }
     );
+
+    // GitHub's numeric account id becomes the string `sub` claim.
+    expect(claims.sub).toBe('583231');
 
     expect(claims.email).toBe('octo@example.com');
     expect(claims.email_verified).toBe(true);

@@ -362,14 +362,17 @@ any app; it is sent with an `appsecret_proof`, so the client needs its `clientSe
 ### Web redirect flow
 
 1. The browser opens `GET /oauth2/authorization/:provider`. `oauth2Authorization` stores the
-   state and PKCE verifier in the session and redirects to the provider.
+   state and PKCE verifier in the session and redirects to the provider. A browser without a
+   session gets one that lives 10 minutes, the life of the state, so an abandoned flow does not
+   keep a row for the default interval; a session it already carries keeps its own.
 2. The provider calls back `GET|POST /login/oauth2/code/:provider` (Apple uses `form_post`,
    so register both). `loginOAuth2Code` checks state, exchanges the code as the `web` client,
    calls `onAuthorized` and redirects to `successUri` with `status=success&provider=<key>`, or to
    `errorUri` with `error` and `error_description`.
 3. On success the user is signed in on a new session id, not the one the flow started on, which
    is deleted (session fixation protection). The attributes the host kept in that session move to
-   the new one; the single-use authorization request (state, PKCE verifier) does not.
+   the new one; the single-use authorization request (state, PKCE verifier) does not. The new
+   session has the repository's default inactive interval.
 
 Every failure of the callback lands on `errorUri` — never a raw JSON error in the popup:
 

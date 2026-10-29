@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { invariant } from '@shware/utils';
 import { extend, literal, object, regex, string } from 'zod/mini';
 import type { Principal } from '../core/index';
@@ -337,7 +337,8 @@ export class Auth implements AuthService {
   // ---- oauth2 ----------------------------------------------------------------------------------
 
   private createPkceParameters(): PkceParameters {
-    const code_verifier = randomUUID();
+    // 32 random bytes: a 43-char base64url verifier, the RFC 7636 minimum (a UUID is 36).
+    const code_verifier = randomBytes(32).toString('base64url');
     const code_challenge = createHash('sha256')
       .update(code_verifier)
       .digest()
@@ -391,7 +392,13 @@ export class Auth implements AuthService {
       const state = randomUUID();
       const pkce = this.createPkceParameters();
       const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce });
-      const session = (await this.loadSession(request)) ?? this.repository.createSession();
+      let session = await this.loadSession(request);
+      if (!session) {
+        // A session made for the flow only has to outlive the state: an abandoned flow must not
+        // keep a row for the default interval. Sign-in moves to a new session, with the default.
+        session = this.repository.createSession();
+        session.setMaxInactiveInterval(OAUTH2_PARAMETER_TTL);
+      }
       mark('fetch_session');
 
       const authorizationRequest: OAuth2AuthorizationRequest = {

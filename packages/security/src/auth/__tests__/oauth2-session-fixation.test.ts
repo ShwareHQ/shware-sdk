@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import Redis from 'ioredis';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from '../../oauth2/client';
@@ -229,5 +230,60 @@ describe.each(repositories)('session fixation on the redirect flow ($name)', (re
     expect(await auth.listSessions({ name: 'user-a' })).toEqual([]);
     const sessions = await auth.listSessions({ name: 'user-b' });
     expect(sessions.map((s) => s.getId())).toEqual([sessionId(response)]);
+  });
+
+  it.skipIf(!repo.available)('keeps a flow-only session for the state TTL', async () => {
+    const repository = repo.create();
+    const auth = createAuth(repository);
+    const defaultInterval = repository.createSession().getMaxInactiveInterval();
+    const response = await auth.oauth2Authorization(
+      new Request('https://api.test/oauth2/authorization/apple')
+    );
+    const started = sessionId(response);
+
+    // An abandoned flow's session expires with its state, cookie and row alike.
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=600');
+    expect((await repository.findById(started))?.getMaxInactiveInterval()).toBe(600);
+
+    const location = new URL(response.headers.get('location') ?? '');
+    const state = location.searchParams.get('state') ?? '';
+    const login = await auth.loginOAuth2Code(callback(started, state), async () => ({
+      name: 'user-1',
+    }));
+    const signedIn = await repository.findById(sessionId(login));
+    expect(signedIn?.getMaxInactiveInterval()).toBe(defaultInterval);
+    expect(login.headers.get('set-cookie')).toContain(`Max-Age=${defaultInterval}`);
+  });
+
+  it.skipIf(!repo.available)('leaves the interval of a session the flow reuses', async () => {
+    const repository = repo.create();
+    const auth = createAuth(repository);
+    const first = await start(auth);
+    const login = await auth.loginOAuth2Code(callback(first.id, first.state), async () => ({
+      name: 'user-a',
+    }));
+    const signedIn = sessionId(login);
+    const interval = (await repository.findById(signedIn))?.getMaxInactiveInterval();
+
+    await start(auth, `SESSION=${signedIn}`);
+
+    expect((await repository.findById(signedIn))?.getMaxInactiveInterval()).toBe(interval);
+    expect(interval).not.toBe(600);
+  });
+});
+
+describe('PKCE parameters of the redirect flow', () => {
+  it('sends a 43-128 char base64url verifier with its S256 challenge', async () => {
+    const authorize = vi.spyOn(OAuth2Client.prototype, 'createAuthorizationUri');
+    const auth = createAuth(memorySessions());
+    await auth.oauth2Authorization(new Request('https://api.test/oauth2/authorization/apple'));
+
+    const pkce = authorize.mock.calls[0]?.[0].pkce;
+    expect(pkce?.code_verifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+    expect(pkce?.code_challenge_method).toBe('S256');
+    const challenge = createHash('sha256')
+      .update(pkce?.code_verifier ?? '')
+      .digest('base64url');
+    expect(pkce?.code_challenge).toBe(challenge);
   });
 });
