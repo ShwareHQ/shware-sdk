@@ -55,6 +55,32 @@ describe('authorizer', () => {
       expect(auth.isAuthenticated).toHaveBeenCalledTimes(1);
     });
 
+    it('should guard HEAD with a GET rule, as Hono serves it with the GET handler', async () => {
+      const auth: AuthorizerConfig['auth'] = {
+        isAuthenticated: vi.fn<(request: Request) => Promise<boolean>>().mockResolvedValue(false),
+      };
+
+      app.use(authorizer({ auth, rules: [{ path: '/protected', methods: ['GET'] }] }));
+      app.get('/protected', (c) => c.text('Protected content'));
+
+      const res = await app.request('/protected', { method: 'HEAD' });
+      expect(res.status).toBe(401);
+      expect(auth.isAuthenticated).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not guard HEAD with a rule for other methods only', async () => {
+      const auth: AuthorizerConfig['auth'] = {
+        isAuthenticated: vi.fn<(request: Request) => Promise<boolean>>().mockResolvedValue(false),
+      };
+
+      app.use(authorizer({ auth, rules: [{ path: '/protected', methods: ['POST'] }] }));
+      app.get('/protected', (c) => c.text('Protected content'));
+
+      const res = await app.request('/protected', { method: 'HEAD' });
+      expect(res.status).toBe(200);
+      expect(auth.isAuthenticated).not.toHaveBeenCalled();
+    });
+
     it('should support custom error messages', async () => {
       const auth: AuthorizerConfig['auth'] = {
         isAuthenticated: vi.fn<(request: Request) => Promise<boolean>>().mockResolvedValue(false),
