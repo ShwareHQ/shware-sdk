@@ -18,6 +18,7 @@ export class TokenBucket {
   readonly rate: number;
   readonly capacity: number;
   readonly requested: number;
+  private readonly intervalMs: number;
   private readonly timer: number | NodeJS.Timeout;
   private tokens: number;
 
@@ -31,12 +32,15 @@ export class TokenBucket {
     this.capacity = capacity;
     this.requested = requested;
     this.tokens = capacity;
+    this.intervalMs = INTERVAL_MAP[interval];
     this.timer = setInterval(() => {
       if (this.tokens < this.capacity) {
         const tokens = this.tokens + this.rate;
         this.tokens = Math.min(tokens, this.capacity);
       }
-    }, INTERVAL_MAP[interval]);
+    }, this.intervalMs);
+    // Refilling must not keep a Node process alive on its own (absent in browsers).
+    (this.timer as { unref?: () => void }).unref?.();
   }
 
   private wait(ms: number): Promise<void> {
@@ -47,7 +51,7 @@ export class TokenBucket {
 
   async removeTokens(): Promise<number> {
     while (this.tokens < this.requested) {
-      const ms = Math.ceil((1000 * (this.requested - this.tokens)) / this.rate);
+      const ms = Math.ceil((this.intervalMs * (this.requested - this.tokens)) / this.rate);
       await this.wait(ms);
     }
     this.tokens -= this.requested;
