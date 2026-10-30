@@ -39,5 +39,7 @@ export type {
   AuthService,
   Authorization,
   AuthorizedHandler,
+  LogoutOptions,
+  LogoutScope,
   OAuth2AuthorizationOptions,
 } from './auth/types';
