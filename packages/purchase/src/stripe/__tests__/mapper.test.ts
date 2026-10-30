@@ -1,8 +1,10 @@
+import type { Stripe } from 'stripe';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type CheckoutSession,
   getPurchaseProperties,
   mapCancellationDetails,
+  mapCharge,
   mapDisputeStatus,
   mapPaymentType,
   mapRefundStatus,
@@ -52,6 +54,13 @@ describe('getPurchaseProperties transaction_id', () => {
     expect(getPurchaseProperties(session(id)).transaction_id).toBe(
       getPurchaseProperties(session(id)).transaction_id
     );
+  });
+
+  it('carries the customer_type the host set on the session, and nothing when it set none', () => {
+    expect(
+      getPurchaseProperties({ ...session('cs_live_x'), customer_type: 'new' }).customer_type
+    ).toBe('new');
+    expect(getPurchaseProperties(session('cs_live_x')).customer_type).toBeUndefined();
   });
 
   it('leaves value and currency untouched', () => {
@@ -193,5 +202,28 @@ describe('mapTime', () => {
 
   it.each([null, undefined])('maps %s to null', (value) => {
     expect(mapTime(value)).toBeNull();
+  });
+});
+
+describe('mapCharge', () => {
+  it('keeps the receipt fields and maps an expanded payment intent', () => {
+    const charge = {
+      id: 'ch_1',
+      description: 'Pro',
+      currency: 'usd',
+      amount: 1999,
+      amount_captured: 1999,
+      amount_refunded: 0,
+      receipt_email: 'a@b.c',
+      receipt_number: null,
+      receipt_url: 'https://pay.stripe.com/receipts/x',
+      status: 'succeeded',
+      created: 1,
+      payment_intent: { id: 'pi_1', amount: 1999, status: 'succeeded', created: 1 },
+    } as unknown as Stripe.Charge;
+    const mapped = mapCharge(charge);
+    expect(mapped).toMatchObject({ id: 'ch_1', status: 'succeeded', receipt_number: null });
+    expect(mapped.payment_intent).toMatchObject({ id: 'pi_1', status: 'succeeded' });
+    expect(mapCharge({ ...charge, payment_intent: 'pi_1' }).payment_intent).toBeUndefined();
   });
 });

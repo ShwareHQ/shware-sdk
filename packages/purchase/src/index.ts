@@ -20,6 +20,7 @@ export {
   type CancellationFeedback,
   type ResubscribeIntent,
 } from './subscription/index';
+export type { CustomerType } from './types';
 
 export { AppStoreConfig, defineAppStoreConfig } from './app-store/config';
 export { GooglePlayConfig, defineGooglePlayConfig } from './google-play/config';

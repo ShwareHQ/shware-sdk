@@ -13,6 +13,7 @@ export {
   VoidedPurchaseRefundType,
 } from './real-time-developer-notification';
 export { GooglePlayConfig, defineGooglePlayConfig } from './config';
+export { googlePlayPurchaseSchema, type GooglePlayPurchase } from './schema';
 export {
   mapSubscriptionStatus,
   mapCancellationDetails,

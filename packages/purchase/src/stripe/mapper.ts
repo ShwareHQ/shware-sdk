@@ -12,6 +12,7 @@ import {
   type ResubscribeIntent,
   type SubscriptionStatus,
 } from '../subscription/index';
+import type { CustomerType } from '../types';
 
 type MappedTime<T> = T extends number ? string : null;
 
@@ -98,6 +99,12 @@ export interface CheckoutSession {
   currency: string | null;
   amount_total: number | null;
   line_items: LineItem[] | undefined;
+  /**
+   * Not on the Stripe object: the host sets it from its own records when it answers the session
+   * to a client (`{ ...mapCheckoutSession(session), customer_type }`), and `getPurchaseProperties`
+   * carries it into the `purchase` event. Left out when the host cannot tell (a guest checkout).
+   */
+  customer_type?: CustomerType;
 }
 
 export function mapCheckoutSession(session: Stripe.Checkout.Session): CheckoutSession {
@@ -147,7 +154,23 @@ export function mapInvoice(i: Stripe.Invoice) {
   };
 }
 
-export function mapPaymentIntent(intent: Stripe.PaymentIntent) {
+export type PaymentIntentStatus = Stripe.PaymentIntent.Status;
+
+// Declared, not inferred, for the same reason as CheckoutSession: `status` must not make a
+// consumer's declaration emit reach into stripe's module paths.
+export interface PaymentIntent {
+  id: string;
+  amount: number;
+  amount_capturable: number;
+  amount_received: number;
+  currency: string;
+  client_secret: string | null;
+  description: string | null;
+  status: PaymentIntentStatus;
+  created: number;
+}
+
+export function mapPaymentIntent(intent: Stripe.PaymentIntent): PaymentIntent {
   return {
     id: intent.id,
     amount: intent.amount,
@@ -161,7 +184,26 @@ export function mapPaymentIntent(intent: Stripe.PaymentIntent) {
   };
 }
 
-export function mapCharge(charge: Stripe.Charge) {
+export type ChargeStatus = Stripe.Charge.Status;
+
+/** A charge as the host lists it to a client (a billing history page). */
+export interface Charge {
+  id: string;
+  description: string | null;
+  currency: string;
+  amount: number;
+  amount_captured: number;
+  amount_refunded: number;
+  receipt_email: string | null;
+  receipt_number: string | null;
+  receipt_url: string | null;
+  status: ChargeStatus;
+  created: number;
+  /** Only when the charge was listed with `payment_intent` expanded. */
+  payment_intent?: PaymentIntent;
+}
+
+export function mapCharge(charge: Stripe.Charge): Charge {
   return {
     id: charge.id,
     description: charge.description,
@@ -317,6 +359,8 @@ export interface PurchaseProperties {
   shipping?: number;
   tax?: number;
   items?: Item[];
+  /** From `CheckoutSession.customer_type`, when the host set it. */
+  customer_type?: CustomerType;
 }
 
 export interface BeginCheckoutProperties {
@@ -376,6 +420,7 @@ export function getPurchaseProperties(session: CheckoutSession): PurchasePropert
     value: price(value, currency),
     currency: currency.toUpperCase(),
     coupon: session.coupon,
+    customer_type: session.customer_type,
     items: session.line_items?.map((item, index) => ({
       index,
       item_id: item.id,
