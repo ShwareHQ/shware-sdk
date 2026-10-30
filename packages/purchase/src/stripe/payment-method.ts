@@ -32,20 +32,23 @@ export function hasDelayedNotification(type: Stripe.PaymentMethod.Type): boolean
 
 export type PaymentMethodType = Stripe.PaymentMethod.Type;
 
-/** A saved payment method as the host lists it to a client; `card` is null for other types. */
+/**
+ * A saved payment method as the host lists it to a client; `card` is null for other types. Field
+ * names are Stripe's, as in every mapper here.
+ */
 export interface PaymentMethod {
   id: string;
   type: PaymentMethodType;
-  card: { brand: string; last4: string; expMonth: number; expYear: number } | null;
+  card: { brand: string; last4: string; exp_month: number; exp_year: number } | null;
   /** The one the next invoice charges: the host decides (a subscription's or the customer's default). */
-  isDefault: boolean;
+  is_default: boolean;
 }
 
 /**
  * `brand` is Stripe's `display_brand` when it has one (a co-badged card's chosen network, as
  * the customer sees it on the statement), else the card's `brand`.
  */
-export function mapPaymentMethod(method: Stripe.PaymentMethod, isDefault: boolean): PaymentMethod {
+export function mapPaymentMethod(method: Stripe.PaymentMethod, is_default: boolean): PaymentMethod {
   return {
     id: method.id,
     type: method.type,
@@ -53,10 +56,10 @@ export function mapPaymentMethod(method: Stripe.PaymentMethod, isDefault: boolea
       ? {
           brand: method.card.display_brand ?? method.card.brand,
           last4: method.card.last4,
-          expMonth: method.card.exp_month,
-          expYear: method.card.exp_year,
+          exp_month: method.card.exp_month,
+          exp_year: method.card.exp_year,
         }
       : null,
-    isDefault,
+    is_default,
   };
 }

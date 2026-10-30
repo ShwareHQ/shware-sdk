@@ -21,7 +21,6 @@ export {
   type Price,
   type LineItem,
   type CheckoutSession,
-  type CustomerType,
   type PaymentStatus,
   type PaymentIntent,
   type PaymentIntentStatus,

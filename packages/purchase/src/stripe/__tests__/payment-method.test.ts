@@ -32,8 +32,8 @@ describe('mapPaymentMethod', () => {
     expect(mapPaymentMethod(card, true)).toEqual({
       id: 'pm_card',
       type: 'card',
-      card: { brand: 'cartes_bancaires', last4: '4242', expMonth: 4, expYear: 2030 },
-      isDefault: true,
+      card: { brand: 'cartes_bancaires', last4: '4242', exp_month: 4, exp_year: 2030 },
+      is_default: true,
     });
   });
 
@@ -45,7 +45,7 @@ describe('mapPaymentMethod', () => {
       id: 'pm_sepa',
       type: 'sepa_debit',
       card: null,
-      isDefault: false,
+      is_default: false,
     });
   });
 });

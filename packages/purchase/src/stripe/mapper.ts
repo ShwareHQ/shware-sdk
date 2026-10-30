@@ -12,6 +12,7 @@ import {
   type ResubscribeIntent,
   type SubscriptionStatus,
 } from '../subscription/index';
+import type { CustomerType } from '../types';
 
 type MappedTime<T> = T extends number ? string : null;
 
@@ -83,13 +84,6 @@ export function mapLineItem(item: Stripe.LineItem): LineItem {
 // Re-exported under our own name so consumers need not reach into stripe's namespace.
 // Open-ended since stripe 22.4: a status the API adds later is not a type error.
 export type PaymentStatus = Stripe.Checkout.Session.PaymentStatus;
-
-/**
- * GA4's `purchase.customer_type`: `new` for a first-time buyer, `returning` for one who bought
- * before, by the host's own definition (its order history, its acquisition window). Google Ads'
- * new-customer acquisition goal reads it off the purchase conversion.
- */
-export type CustomerType = 'new' | 'returning';
 
 // Declared rather than inferred from mapCheckoutSession: an inferred shape is
 // structural, so a consumer's declaration emit has to spell out payment_status
