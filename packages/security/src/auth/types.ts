@@ -109,10 +109,22 @@ export interface AuthConfig {
   };
 }
 
+/**
+ * Which sessions `logout` ends, as Supabase's `signOut({ scope })` names them: `local`, the one
+ * the request carries (default); `global`, every session of its principal, this one included
+ * ("sign out everywhere"); `others`, every session of its principal but this one, which keeps the
+ * caller signed in and its cookie untouched ("sign out other devices").
+ */
+export type LogoutScope = 'local' | 'others' | 'global';
+
+export interface LogoutOptions {
+  scope?: LogoutScope;
+}
+
 export interface AuthService {
   // basic
   csrf: (request: Request) => Promise<Response>;
-  logout: (request: Request) => Promise<Response>;
+  logout: (request: Request, options?: LogoutOptions) => Promise<Response>;
   logged: (request: Request, onLogged?: LoggedHandler) => Promise<Response>;
 
   // oauth2

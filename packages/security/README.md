@@ -213,7 +213,11 @@ cookie's `HttpOnly` keeps it from, and a cross-origin client needs the header in
 `Access-Control-Expose-Headers`. `Authorization` is never read: an API token is a different
 credential from a session and is not handled here.
 `logout` clears the cookie with the same attributes it was set with (`domain`, `path`, …), so a
-cookie set with `Domain=.example.com` is actually removed.
+cookie set with `Domain=.example.com` is actually removed. `logout(request, { scope })` widens what
+it ends, named as Supabase's `signOut` names them: `local` (default) the request's own session,
+`global` every session of its principal ("sign out everywhere": deleting the account, a password
+change), `others` every session but this one, which keeps the caller signed in ("sign out other
+devices"). `kick(principal)` is the same eviction for a principal other than the caller.
 
 Besides the route handlers, `Auth` exposes session helpers: `getPrincipal(request)`,
 `isAuthenticated(request)`, `getSession(request, create)`, `listSessions(principal)`,

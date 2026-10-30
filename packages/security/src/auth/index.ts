@@ -39,6 +39,7 @@ import type {
   Authorization,
   AuthorizedHandler,
   LoggedHandler,
+  LogoutOptions,
   OAuth2AuthorizationOptions,
 } from './types';
 
@@ -313,10 +314,25 @@ export class Auth implements AuthService {
     return response;
   };
 
-  logout = async (request: Request): Promise<Response> => {
+  logout = async (request: Request, options?: LogoutOptions): Promise<Response> => {
+    const scope = options?.scope ?? 'local';
     const sessionId = this.getSessionId(request);
-    if (sessionId) await this.repository.deleteById(sessionId);
+    // `global` and `others` reach the principal's other sessions through the one the request
+    // carries; a request without a signed-in session has no principal to widen to, and ends as
+    // `local` would.
+    if (scope !== 'local' && sessionId) {
+      const session = await this.repository.findById(sessionId);
+      const principal = session && this.principalOf(session);
+      if (principal) {
+        const sessions = await this.repository.findByPrincipalName(principal.name);
+        for (const id of sessions.keys()) {
+          if (id !== sessionId) await this.repository.deleteById(id);
+        }
+      }
+    }
     const response = Response.json({});
+    if (scope === 'others') return response;
+    if (sessionId) await this.repository.deleteById(sessionId);
     // A Set-Cookie only replaces the stored cookie when Domain and Path match (RFC 6265),
     // so clear it with the same attributes it was set with.
     deleteCookie(response, this.cookieName, this.cookieOptions);
