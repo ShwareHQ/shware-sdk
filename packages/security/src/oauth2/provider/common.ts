@@ -9,11 +9,13 @@ export function createAuthorizationUri(options: {
   redirectUri: string;
   authorizationUri: string;
   pkce?: Omit<PkceParameters, 'code_verifier'>;
+  nonce?: string;
 }) {
   const url = new URL(options.authorizationUri);
   url.searchParams.append('response_type', 'code');
   url.searchParams.append('client_id', options.clientId);
   url.searchParams.append('state', options.state);
+  if (options.nonce) url.searchParams.append('nonce', options.nonce);
   url.searchParams.append('scope', options.scope.join(' '));
   url.searchParams.append('redirect_uri', options.redirectUri);
   if (options.pkce) {

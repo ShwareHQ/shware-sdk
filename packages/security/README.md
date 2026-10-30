@@ -200,7 +200,7 @@ server fault: `server_error` on the redirect, rethrown to your error handler on 
 | `kvRepository`       | `KVRepository`                      | Required. Short-lived values: OAuth2 state/nonce, verification and desktop codes.             |
 | `cookie`             | `CookieOptions & { name?: string }` | Session cookie. Defaults: name `SESSION`, `path: '/'`, `SameSite=None`, `Secure`, `HttpOnly`. |
 | `oauth2.client`      | `OAuth2ClientConfig`                | `baseUri`, `errorUri`, `successUri`, `providers` (object or async function).                  |
-| `oauth2.onetap`      | `{ requireNonce? }`                 | One Tap: refuse a `credential` without an issued nonce (default `true`, see Google One Tap).  |
+| `oauth2.nonce`       | `{ optional?: string[] }`           | Providers whose logins may come without a nonce; every id-token flow requires one otherwise.  |
 | `turnstileSecretKey` | `string`                            | Cloudflare Turnstile secret; required by `sendEmailVerificationCode`.                         |
 | `verificationCode`   | `{ maxAttempts?, resendCooldown? }` | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
 | `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
@@ -539,10 +539,15 @@ if (result.authorized) {
 }
 ```
 
-While a front end that does not pass `nonce` yet is still deployed, set
-`oauth2: { onetap: { requireNonce: false } }`: credentials without a nonce are then accepted, and a
-nonce a credential does carry is still checked and consumed. Turn it back on once that front end is
-gone.
+While a front end that does not pass `nonce` yet is still deployed, list the provider in
+`oauth2: { nonce: { optional: ['google'] } }`: credentials without a nonce are then accepted, and a
+nonce a credential does carry is still checked and consumed. Remove it once that front end is gone.
+
+The same rule covers every flow in which an id token comes back: a provider declares which of its
+flows echo a nonce (`Provider.nonce`: Apple web and native, Google web and One Tap, Facebook
+Limited Login), and `Auth` requires it there. The redirect flow sends its own nonce with the
+authorization request and refuses a callback whose id token does not carry it back; a native login
+must carry one issued by `GET /oauth2/nonce/:provider`, which it consumes.
 
 ## Email sign-in
 

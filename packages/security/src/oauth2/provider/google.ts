@@ -37,6 +37,9 @@ export function createGoogleProvider(): OneTapProvider {
       'https://www.googleapis.com/auth/userinfo.profile',
       'openid',
     ],
+    // The web flow and One Tap echo the nonce; an app signs in with a code it exchanges here,
+    // bound by PKCE, and Google's native SDKs put no nonce in that id token.
+    nonce: { web: true, native: false },
     createAuthorizationUri(params) {
       return createAuthorizationUri({
         ...params,

@@ -164,7 +164,8 @@ export class Auth implements AuthService {
   private readonly emailCodes: EmailVerificationCodes;
   private readonly desktopCodes: DesktopCodes;
   private readonly oauth2Client: OAuth2Client | null;
-  private readonly onetapRequireNonce: boolean;
+  /** Provider keys whose logins may come without a nonce (`oauth2.nonce.optional`). */
+  private readonly nonceOptional: ReadonlySet<string>;
   private readonly touchInterval: number;
   private readonly sessionHeader: boolean;
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
@@ -199,7 +200,7 @@ export class Auth implements AuthService {
       ...cookieOptions,
     };
     this.oauth2Client = oauth2?.client ? new OAuth2Client(oauth2.client) : null;
-    this.onetapRequireNonce = oauth2?.onetap?.requireNonce ?? true;
+    this.nonceOptional = new Set(oauth2?.nonce?.optional);
     this.touchInterval = (session?.touchInterval ?? 3600) * 1000;
     this.sessionHeader = session?.header ?? false;
     invariant(this.touchInterval >= 0, 'session.touchInterval must not be negative');
@@ -366,6 +367,29 @@ export class Auth implements AuthService {
     await this.kv.removeItem(key);
   }
 
+  /**
+   * The nonce check of the JSON logins (One Tap, native), where the client obtained the id token
+   * and the nonce came from `oauth2Nonce`: spends the one the token carries, and refuses a token
+   * without one when the provider's flow echoes nonces (`required`) and the host has not listed the
+   * provider as optional. An id token is replayable until it expires; the nonce makes it sign in
+   * once.
+   */
+  private async checkIssuedNonce(
+    userInfo: Authorization['userInfo'],
+    provider: string,
+    required: boolean
+  ): Promise<boolean> {
+    const { nonce } = userInfo.data as { nonce?: unknown };
+    if (typeof nonce === 'string' && nonce) {
+      await this.consumeNonce(nonce, provider);
+      return true;
+    }
+    if (required && !this.nonceOptional.has(provider)) {
+      throw new AuthenticationError('NONCE_MISSING');
+    }
+    return false;
+  }
+
   oauth2State = async (request: Request): Promise<Response> => {
     const { provider } = param(request, PATH.OAUTH2_STATE);
     const state = randomUUID();
@@ -391,7 +415,10 @@ export class Auth implements AuthService {
       const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
       const state = randomUUID();
       const pkce = this.createPkceParameters();
-      const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce });
+      // Sent only to a provider whose id token echoes it: the callback then requires it back, so
+      // a code that was swapped in for another sign-in's yields a token the session refuses.
+      const nonce = (await this.oauth2Client.nonceSupport(provider)).web ? randomUUID() : undefined;
+      const uri = await this.oauth2Client.createAuthorizationUri({ provider, state, pkce, nonce });
       let session = await this.loadSession(request);
       if (!session) {
         // A session made for the flow only has to outlive the state: an abandoned flow must not
@@ -406,6 +433,7 @@ export class Auth implements AuthService {
         provider,
         authorizationRequestUri: uri.href,
         additionalParameters: pkce,
+        ...(nonce ? { nonce } : {}),
         ...(attributes ? { attributes } : {}),
       };
       session.setAttribute(
@@ -480,6 +508,15 @@ export class Auth implements AuthService {
         response: user ? { user } : undefined,
       });
       mark('exchange_code');
+      // The id token must carry the nonce this flow sent (stored with the state, not in KV: it
+      // is bound to this session's request). A provider that gave no id token has nothing to
+      // carry it, as has a request stored before nonces were sent.
+      if (cached.nonce && token.id_token) {
+        const { nonce } = userInfo.data as { nonce?: unknown };
+        if (typeof nonce !== 'string' || !nonce) throw new AuthenticationError('NONCE_MISSING');
+        if (nonce !== cached.nonce) throw new AuthenticationError('NONCE_MISMATCH');
+        mark('check_nonce');
+      }
 
       const principal = await handler(request, {
         provider,
@@ -559,11 +596,10 @@ export class Auth implements AuthService {
       });
       mark('login_oauth2_native');
 
-      const { nonce } = userInfo.data as { nonce?: unknown };
-      if (typeof nonce === 'string' && nonce) {
-        await this.consumeNonce(nonce, provider);
-        mark('check_nonce');
-      }
+      // Required when the provider's native id token echoes a nonce and the login produced one
+      // (Facebook's access_token login has none to carry it).
+      const required = (await this.oauth2Client.nonceSupport(provider)).native && !!token.id_token;
+      if (await this.checkIssuedNonce(userInfo, provider, required)) mark('check_nonce');
 
       return this.authorize(
         request,
@@ -600,16 +636,11 @@ export class Auth implements AuthService {
         }));
         mark('verify_credential');
 
-        // A credential is replayable until it expires, so it must carry a single-use nonce from
-        // `oauth2Nonce`, which the front end passed to `prompt`. This replaces Google's
-        // `g_csrf_token` double-submit cookie, which FedCM mode no longer sets.
-        const { nonce } = userInfo.data as { nonce?: unknown };
-        if (typeof nonce === 'string' && nonce) {
-          await this.consumeNonce(nonce, provider);
-          mark('check_nonce');
-        } else if (this.onetapRequireNonce) {
-          throw new AuthenticationError('NONCE_MISSING');
-        }
+        // The credential must carry a single-use nonce from `oauth2Nonce`, which the front end
+        // passed to `prompt`. This replaces Google's `g_csrf_token` double-submit cookie, which
+        // FedCM mode no longer sets.
+        const required = (await this.oauth2Client.nonceSupport(provider)).web;
+        if (await this.checkIssuedNonce(userInfo, provider, required)) mark('check_nonce');
       } else if (parsed.code) {
         ({ clientId, token } = await this.oauth2Client.exchangeAuthorizationCode({
           provider,

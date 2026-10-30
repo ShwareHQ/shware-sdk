@@ -94,16 +94,17 @@ export interface AuthConfig {
   };
   oauth2?: {
     client?: OAuth2ClientConfig;
-    /** Google One Tap / FedCM sign-in (`loginOAuth2Onetap`). */
-    onetap?: {
+    nonce?: {
       /**
-       * Require the One Tap `credential` to carry a `nonce` claim issued by `GET
-       * /oauth2/nonce/google` (`oauth2Nonce`) and unused so far; each nonce signs in once. Without
-       * it, anyone holding a user's ID token could replay it for a new session until it expires.
-       * Turn off only while a front end that does not yet pass `nonce` to `prompt` is phased out.
-       * Default `true`.
+       * Provider keys whose logins may arrive without a nonce. By default every flow a provider
+       * declares as echoing one (`Provider.nonce`) must carry it: the redirect flow's id token the
+       * nonce `Auth` sent, a One Tap `credential` or a native id token one issued by `GET
+       * /oauth2/nonce/:provider` (`oauth2Nonce`) and unused so far, so each signs in once. Without
+       * that, anyone holding a user's id token could replay it for a new session until it expires.
+       * List a provider here only while a client that does not pass a nonce yet is phased out; a
+       * nonce such a login does carry is still checked and consumed.
        */
-      requireNonce?: boolean;
+      optional?: string[];
     };
   };
 }

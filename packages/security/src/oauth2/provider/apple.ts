@@ -23,6 +23,9 @@ export function createAppleProvider(): Provider {
     jwkSetUri: 'https://appleid.apple.com/auth/keys',
     userNameAttribute: 'sub',
     defaultScope: ['openid', 'name', 'email'],
+    // The web flow's id token echoes the request's nonce; the app's carries the one bound into
+    // ASAuthorizationAppleIDRequest, hashed or not (`nonce_supported`).
+    nonce: { web: true, native: true },
     createAuthorizationUri({ pkce: _, ...params }) {
       return createAuthorizationUri({
         ...params,
