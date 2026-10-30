@@ -39,12 +39,18 @@ export class AppStoreNotificationHandler {
     return this;
   };
 
+  /**
+   * Runs the handlers registered for the notification's type. A type with none (one Apple added
+   * after this was written, or one the host does not care about) is logged and returns normally,
+   * so the host acknowledges it: throwing would answer 5xx, and Apple retries a failed
+   * notification for days, every time to the same outcome.
+   */
   process = async (event: AppStoreNotificationEvent): Promise<void> => {
     const type = event.payload.notificationType as NotificationTypeV2 | undefined;
     const handlers = type ? this.handlers.get(type) : undefined;
     if (!handlers) {
-      console.error(`No app store notification handler found for type: ${type}`);
-      throw new Error(`No app store notification handler found for type: ${type}`);
+      console.warn(`No app store notification handler for type ${type}; acknowledged`);
+      return;
     }
     await Promise.all(handlers.map((handler) => handler(event)));
   };
