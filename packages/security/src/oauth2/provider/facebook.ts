@@ -22,6 +22,9 @@ export function createFacebookProvider(): Provider {
     jwkSetUri: 'https://limited.facebook.com/.well-known/oauth/openid/jwks/',
     userNameAttribute: 'id',
     defaultScope: ['profile', 'email'],
+    // The web flow reads the Graph API, no id token; Limited Login's id token must carry the
+    // nonce the app set (an `access_token` login has no id token and is exempt).
+    nonce: { web: false, native: true },
     createAuthorizationUri({ pkce: _, ...params }) {
       return createAuthorizationUri({
         ...params,

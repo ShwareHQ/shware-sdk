@@ -12,6 +12,12 @@ export interface OAuth2AuthorizationRequest {
   authorizationRequestUri: string;
   additionalParameters: PkceParameters;
   /**
+   * The `nonce` sent with the authorization request when the provider echoes one in its id token
+   * (`Provider.nonce.web`); the callback refuses an id token that does not carry it back. Absent
+   * for a provider without one, and on requests stored before this field existed.
+   */
+  nonce?: string;
+  /**
    * What the host attached when the flow started (`oauth2Authorization` options), kept on the
    * server and handed back to `onAuthorized` once the callback checks out. Never sent to the
    * provider, unlike `additionalParameters`. Absent on requests stored before this field existed.
@@ -25,6 +31,8 @@ interface CreateAuthorizationUriParams {
   redirectUri: string;
   scope: string[] | undefined;
   pkce?: Omit<PkceParameters, 'code_verifier'>;
+  /** OpenID Connect `nonce`, sent when `Provider.nonce.web` is set. */
+  nonce?: string;
 }
 
 export interface ExchangeCodeParams {
@@ -247,6 +255,17 @@ export interface Provider {
 
   /** Default scopes for the provider. */
   defaultScope: string[];
+
+  /**
+   * Whether the provider's id token carries back the `nonce` of the request it was issued for
+   * (OpenID Connect), per flow. `web`: the redirect flow and One Tap, where `Auth` sends a nonce
+   * with the authorization request (or the front end passes an issued one to One Tap) and refuses
+   * an id token without it. `native`: the app's sign-in, where the app binds a nonce issued by
+   * `GET /oauth2/nonce/:provider` into the platform's request and the login refuses an id token
+   * without it. A flow set here is protected by default; a host relaxes it per provider with
+   * `oauth2.nonce.optional`. Absent for a plain OAuth2 provider, which has no id token.
+   */
+  nonce?: { web?: boolean; native?: boolean };
 
   /** step 1: generate authorization uri and redirect user to it */
   createAuthorizationUri: (params: CreateAuthorizationUriParams) => URL;

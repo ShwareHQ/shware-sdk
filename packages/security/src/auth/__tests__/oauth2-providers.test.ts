@@ -134,12 +134,12 @@ let appleSecret: Mock<(clientId: string) => Promise<string>>;
 let kv: ReturnType<typeof memoryKV>;
 let handler: Mock<AuthorizedHandler>;
 
-function createAuth(onetap?: { requireNonce?: boolean }) {
+function createAuth(nonce?: { optional?: string[] }) {
   return new Auth({
     sessionRepository: memorySessions(),
     kvRepository: kv,
     oauth2: {
-      onetap,
+      nonce,
       client: {
         baseUri: 'https://api.test',
         errorUri: 'https://app.test/?status=error',
@@ -217,8 +217,12 @@ const CODE_VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk.~';
 
 describe('Sign in with Apple: app and web under one provider', () => {
   it('native: exchanges as the bundle id, with the secret minted for it', async () => {
-    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_APP });
     const auth = createAuth();
+    issuedIdToken = await sign({
+      iss: APPLE_ISS,
+      aud: APPLE_APP,
+      nonce: await issueNonce(auth, 'apple'),
+    });
 
     const response = await auth.loginOAuth2Native(
       postJson('/login/oauth2/native/apple', { code: 'c0de' }),
@@ -234,8 +238,13 @@ describe('Sign in with Apple: app and web under one provider', () => {
   });
 
   it('native: leaves a code_verifier out of the exchange, as Apple takes none', async () => {
-    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_APP });
-    const response = await createAuth().loginOAuth2Native(
+    const auth = createAuth();
+    issuedIdToken = await sign({
+      iss: APPLE_ISS,
+      aud: APPLE_APP,
+      nonce: await issueNonce(auth, 'apple'),
+    });
+    const response = await auth.loginOAuth2Native(
       postJson('/login/oauth2/native/apple', { code: 'c0de', code_verifier: CODE_VERIFIER }),
       handler
     );
@@ -244,29 +253,38 @@ describe('Sign in with Apple: app and web under one provider', () => {
     expect(tokenRequests()[0]?.has('code_verifier')).toBe(false);
   });
 
-  it('web: redirects and exchanges as the Services ID, and reports the provider', async () => {
-    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_WEB });
-    const auth = createAuth();
-
+  /** Starts the redirect flow: the session cookie, the state and the nonce the request sent. */
+  async function startWebFlow(auth: Auth, provider = 'apple') {
     const start = await auth.oauth2Authorization(
-      new Request('https://api.test/oauth2/authorization/apple')
+      new Request(`https://api.test/oauth2/authorization/${provider}`)
     );
     const location = new URL(start.headers.get('location') ?? '');
+    const cookie = (start.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const state = location.searchParams.get('state') ?? '';
+    const nonce = location.searchParams.get('nonce') ?? '';
+    return { location, cookie, state, nonce };
+  }
+
+  function appleCallback(cookie: string, state: string) {
+    return new Request('https://api.test/login/oauth2/code/apple', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code: 'c0de', state }).toString(),
+    });
+  }
+
+  it('web: redirects and exchanges as the Services ID, and reports the provider', async () => {
+    const auth = createAuth();
+
+    const { location, cookie, state, nonce } = await startWebFlow(auth);
     expect(location.searchParams.get('client_id')).toBe(APPLE_WEB);
     expect(location.searchParams.get('redirect_uri')).toBe(
       'https://api.test/login/oauth2/code/apple'
     );
-    const cookie = (start.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
-    const state = location.searchParams.get('state') ?? '';
+    expect(nonce).not.toBe('');
+    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_WEB, nonce });
 
-    const callback = await auth.loginOAuth2Code(
-      new Request('https://api.test/login/oauth2/code/apple', {
-        method: 'POST',
-        headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ code: 'c0de', state }).toString(),
-      }),
-      handler
-    );
+    const callback = await auth.loginOAuth2Code(appleCallback(cookie, state), handler);
 
     const success = new URL(callback.headers.get('location') ?? '');
     expect(success.searchParams.get('status')).toBe('success');
@@ -276,6 +294,19 @@ describe('Sign in with Apple: app and web under one provider', () => {
     expect(appleSecret).not.toHaveBeenCalledWith(APPLE_APP);
     expect(tokenRequests()[0]?.get('client_id')).toBe(APPLE_WEB);
     expect(handler.mock.calls[0]?.[1]).toMatchObject({ provider: 'apple', clientId: APPLE_WEB });
+  });
+
+  it('web: refuses a callback whose id token lacks the nonce it sent, or carries another', async () => {
+    const auth = createAuth();
+    for (const nonce of [undefined, 'another']) {
+      const { cookie, state } = await startWebFlow(auth);
+      issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_WEB, ...(nonce ? { nonce } : {}) });
+      const callback = await auth.loginOAuth2Code(appleCallback(cookie, state), handler);
+      const error = new URL(callback.headers.get('location') ?? '');
+      expect(error.searchParams.get('status')).toBe('error');
+      expect(error.searchParams.get('reason')).toBe(nonce ? 'NONCE_MISMATCH' : 'NONCE_MISSING');
+    }
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('native: refuses an id token issued to another client, even one of ours', async () => {
@@ -336,6 +367,28 @@ describe('nonce', () => {
     expect(replay.status).toBe(403);
     expect(await reasonOf(replay)).toBe('NONCE_MISMATCH');
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('native: refuses an Apple id token without a nonce, unless apple is listed as optional', async () => {
+    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_APP });
+    const login = (auth: Auth) =>
+      auth.loginOAuth2Native(postJson('/login/oauth2/native/apple', { code: 'c0de' }), handler);
+
+    await refused(login(createAuth()), 'NONCE_MISSING');
+    expect(handler).not.toHaveBeenCalled();
+    expect((await login(createAuth({ optional: ['apple'] }))).status).toBe(200);
+  });
+
+  it('native: still checks a nonce the token carries when apple is listed as optional', async () => {
+    issuedIdToken = await sign({ iss: APPLE_ISS, aud: APPLE_APP, nonce: 'made-up' });
+    await refused(
+      createAuth({ optional: ['apple'] }).loginOAuth2Native(
+        postJson('/login/oauth2/native/apple', { code: 'c0de' }),
+        handler
+      ),
+      'NONCE_MISMATCH'
+    );
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('refuses a nonce issued for another provider', async () => {
@@ -424,19 +477,19 @@ describe('Google', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('one tap: accepts a credential without a nonce when requireNonce is off', async () => {
+  it('one tap: accepts a credential without a nonce when google is listed as optional', async () => {
     const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB });
-    const response = await createAuth({ requireNonce: false }).loginOAuth2Onetap(
+    const response = await createAuth({ optional: ['google'] }).loginOAuth2Onetap(
       postJson('/login/oauth2/onetap/google', { credential }),
       handler
     );
     expect(response.status).toBe(200);
   });
 
-  it('one tap: still checks a nonce the credential carries when requireNonce is off', async () => {
+  it('one tap: still checks a nonce the credential carries when google is listed as optional', async () => {
     const credential = await sign({ iss: GOOGLE_ISS, aud: GOOGLE_WEB, nonce: 'made-up' });
     await refused(
-      createAuth({ requireNonce: false }).loginOAuth2Onetap(
+      createAuth({ optional: ['google'] }).loginOAuth2Onetap(
         postJson('/login/oauth2/onetap/google', { credential }),
         handler
       ),
@@ -582,7 +635,11 @@ describe('Google', () => {
 describe('Facebook', () => {
   it('limited login: accepts an id token for the app, refuses one for another app', async () => {
     const auth = createAuth();
-    const ok = await sign({ iss: FACEBOOK_ISS, aud: FACEBOOK_APP });
+    const ok = await sign({
+      iss: FACEBOOK_ISS,
+      aud: FACEBOOK_APP,
+      nonce: await issueNonce(auth, 'facebook'),
+    });
     const response = await auth.loginOAuth2Native(
       postJson('/login/oauth2/native/facebook', { id_token: ok }),
       handler
@@ -593,7 +650,11 @@ describe('Facebook', () => {
       clientId: FACEBOOK_APP,
     });
 
-    const foreign = await sign({ iss: FACEBOOK_ISS, aud: '777' });
+    const foreign = await sign({
+      iss: FACEBOOK_ISS,
+      aud: '777',
+      nonce: await issueNonce(auth, 'facebook'),
+    });
     await refused(
       auth.loginOAuth2Native(
         postJson('/login/oauth2/native/facebook', { id_token: foreign }),
@@ -602,6 +663,18 @@ describe('Facebook', () => {
       'OAUTH2_INVALID_GRANT'
     );
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('limited login: refuses an id token without the nonce the app must set', async () => {
+    const token = await sign({ iss: FACEBOOK_ISS, aud: FACEBOOK_APP });
+    await refused(
+      createAuth().loginOAuth2Native(
+        postJson('/login/oauth2/native/facebook', { id_token: token }),
+        handler
+      ),
+      'NONCE_MISSING'
+    );
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('access token: binds it to the app with appsecret_proof', async () => {

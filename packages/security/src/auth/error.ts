@@ -22,9 +22,12 @@ export interface AuthenticationReasons {
   INVALID_VERIFICATION_CODE: NoMetadata;
   /** More than `verificationCode.maxAttempts` guesses at the code; it is discarded. */
   VERIFICATION_CODE_ATTEMPTS_EXCEEDED: NoMetadata;
-  /** The id token carries no nonce and one is required (`oauth2.onetap.requireNonce`). */
+  /** The id token carries no nonce and the provider's flow requires one (`oauth2.nonce.optional`). */
   NONCE_MISSING: NoMetadata;
-  /** The id token's nonce was not issued for this provider, or was used already. */
+  /**
+   * The id token's nonce is not the one this sign-in was started with: not issued for this
+   * provider, used already, or (redirect flow) not the one sent with the authorization request.
+   */
   NONCE_MISMATCH: NoMetadata;
   /** The desktop sign-in code is unknown, expired, used, or its verifier does not match. */
   INVALID_DESKTOP_CODE: NoMetadata;

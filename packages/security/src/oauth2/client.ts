@@ -117,19 +117,28 @@ export class OAuth2Client {
     return typeof secret === 'function' ? secret(clientId) : secret;
   }
 
+  /** Which of the provider's flows echo a nonce in the id token (`Provider.nonce`). */
+  async nonceSupport(provider: string): Promise<{ web: boolean; native: boolean }> {
+    const { nonce } = (await this.getProviderConfig(provider)).provider;
+    return { web: nonce?.web ?? false, native: nonce?.native ?? false };
+  }
+
   async createAuthorizationUri({
     provider,
     state,
     pkce,
+    nonce,
   }: {
     provider: string;
     state: string;
     pkce?: PkceParameters;
+    nonce?: string;
   }): Promise<URL> {
     const { implementation, client } = await this.getWebClient(provider);
     return implementation.createAuthorizationUri({
       pkce,
       state,
+      nonce,
       scope: client.scope,
       clientId: client.clientId,
       redirectUri: client.redirectUri ?? this.defaultRedirectUri(provider),
