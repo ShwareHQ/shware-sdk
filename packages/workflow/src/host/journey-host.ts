@@ -111,8 +111,16 @@ export interface JourneyHost<Env extends JourneyEnv> {
   bundle(): BundleIR;
   /** The outlets one run is wired to (the store is the run's). */
   runParts(env: Env, store: JourneyStore, params: JourneyParams): JourneyRunParts;
-  /** The HTTP API over one store: the ingest API plus tracking, the sweep, the bundle and previews. */
-  handle(request: Request, env: Env, store: JourneyStore): Promise<Response>;
+  /**
+   * The HTTP API over one store: the ingest API plus tracking, the sweep, the bundle and previews.
+   * `version` is the code version serving the request, recorded by `POST /bundle/deploy`.
+   */
+  handle(
+    request: Request,
+    env: Env,
+    store: JourneyStore,
+    version?: BundleVersion
+  ): Promise<Response>;
   /** The scheduled sweep (`sweepSegments`) on a store of its own. */
   sweep(env: Env): Promise<SweepResult>;
   /**
@@ -275,7 +283,12 @@ export function createJourneyHost<Env extends JourneyEnv>(
     };
   };
 
-  const handle = (request: Request, env: Env, store: JourneyStore): Promise<Response> =>
+  const handle = (
+    request: Request,
+    env: Env,
+    store: JourneyStore,
+    version?: BundleVersion
+  ): Promise<Response> =>
     serve(request, {
       env,
       store,
@@ -283,6 +296,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
       authorize: options.authorize as Authorize<JourneyEnv> | undefined,
       host: {
         bundle,
+        bundleVersion: version,
         preview:
           preview === undefined ? undefined : { has: (id) => emailIds.has(id), render: preview },
         tracking: tracking(env, store),

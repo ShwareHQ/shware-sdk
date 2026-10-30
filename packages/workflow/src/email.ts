@@ -137,6 +137,11 @@ export function preferencesLink(preferencesUrl: string, messageId: string): stri
 
 const ADDRESS = /^[^\s@<>]+@[^\s@<>]+$/;
 
+/** Whether `value` is a bare `user@host` address — the shape a profile's email must have to be sent to. */
+export function isEmailAddress(value: string): boolean {
+  return ADDRESS.test(value);
+}
+
 /** Throws naming `where` when `address` is neither `user@host` nor `{ email: 'user@host', name? }`. */
 export function assertEmailAddress(address: unknown, where: string): void {
   const email =

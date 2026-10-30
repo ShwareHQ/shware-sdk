@@ -964,6 +964,38 @@ describe('cohort experiment key', () => {
     }
     expect(diverged).toBeGreaterThan(0);
   });
+
+  test('without a key, unrelated workflows bucket independently at the same position', async () => {
+    // Both cohorts sit at structural id '0'. Bucketing on the bare id would put
+    // every user in the same arm of both — two experiments silently correlated.
+    const first = workflow({ id: 'ab_first', trigger: trigger.event(e.sign_up) }).cohort(couponArm);
+    const second = workflow({ id: 'ab_second', trigger: trigger.event(e.sign_up) }).cohort(
+      couponArm
+    );
+
+    let diverged = 0;
+    for (let i = 0; i < 40; i++) {
+      if ((await armOf(first, `user_${i}`)) !== (await armOf(second, `user_${i}`))) diverged++;
+    }
+    expect(diverged).toBeGreaterThan(0);
+  });
+
+  test('a shared key buckets a user identically across workflows', async () => {
+    const first = workflow({ id: 'ab_first', trigger: trigger.event(e.sign_up) }).cohort(
+      couponArm,
+      {
+        key: 'exp_shared',
+      }
+    );
+    const second = workflow({ id: 'ab_second', trigger: trigger.event(e.sign_up) }).cohort(
+      couponArm,
+      { key: 'exp_shared' }
+    );
+
+    for (let i = 0; i < 25; i++) {
+      expect(await armOf(first, `user_${i}`)).toBe(await armOf(second, `user_${i}`));
+    }
+  });
 });
 
 describe('replay determinism', () => {
@@ -1526,5 +1558,25 @@ describe('the observer hears positions and copies', () => {
       .toIR();
     await expect(runJourney(ir, ctx)).resolves.toMatchObject({ status: 'completed' });
     expect(sent).toHaveLength(1);
+  });
+
+  test('a send step that re-runs after its copy settled skips the transport', async () => {
+    // The step body re-runs when the instance crashed after the send and its report but before
+    // the checkpoint committed; the settled copy must not reach the transport again
+    const { ctx, sent } = makeContext();
+    const settled = new Set<string>();
+    ctx.observer = {
+      messageSettled: async (m) => settled.has(m.idempotencyKey),
+      messageSent: async (m) => void settled.add(m.idempotencyKey),
+    };
+    const ir = workflow({ id: 'replayed_send', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+
+    await runJourney(ir, ctx);
+    await runJourney(ir, ctx); // the same instance, its send step's body run again
+
+    expect(sent).toHaveLength(1);
+    expect([...settled]).toEqual(['inst_1:0']);
   });
 });

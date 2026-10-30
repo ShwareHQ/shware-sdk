@@ -679,6 +679,7 @@ describe('an unsubscribe wakes the waits reading email reachability', () => {
       nodeReached: async () => {},
       instanceFinished: async () => {},
       recordMessage: async () => messageId,
+      messageSettled: async () => false,
       settleMessage: async () => {},
       recordLinks: async () => {},
       recordOpen: async (id, judge) => {

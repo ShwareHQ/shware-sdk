@@ -258,9 +258,50 @@ describe('ingest', () => {
     );
     expect(typed.rows).toEqual([{ t: 'object' }]);
     expect(await store.countEvents('u1', 'purchase', { sinceMs: 2_000 })).toBe(1);
-    expect(await store.listEventPayloads('u1', 'purchase', { sinceMs: 2_000 })).toEqual([
-      { value: 50 },
-    ]);
+    expect(
+      await store.pageEventPayloads('u1', 'purchase', { sinceMs: 2_000 }, { limit: 10 })
+    ).toEqual({ payloads: [{ value: 50 }] });
+  });
+
+  test('countEvents with atLeast stops counting at the threshold', async () => {
+    const { store } = setup();
+    for (let i = 0; i < 5; i++) {
+      await store.insertEvent({
+        id: `e${i}`,
+        userId: 'u1',
+        event: 'login',
+        ts: 1_000 + i,
+        payload: {},
+      });
+    }
+    expect(await store.countEvents('u1', 'login')).toBe(5);
+    expect(await store.countEvents('u1', 'login', undefined, 2)).toBe(2);
+    // Below the threshold the count is exact
+    expect(await store.countEvents('u1', 'login', undefined, 9)).toBe(5);
+  });
+
+  test('pageEventPayloads pages oldest first and keeps rows that share a timestamp', async () => {
+    const { store } = setup();
+    // Three events in the same millisecond: the (ts, id) keyset must neither repeat nor skip them
+    for (const [i, ts] of [1_000, 2_000, 2_000, 2_000, 3_000].entries()) {
+      await store.insertEvent({ id: `e${i}`, userId: 'u1', event: 'view', ts, payload: { n: i } });
+    }
+    const seen: unknown[] = [];
+    let after: Awaited<ReturnType<typeof store.pageEventPayloads>>['next'];
+    let pages = 0;
+    do {
+      const page = await store.pageEventPayloads('u1', 'view', undefined, { limit: 2, after });
+      seen.push(...page.payloads);
+      after = page.next;
+      pages += 1;
+    } while (after !== undefined);
+    // Oldest first; ties within one timestamp come in id order, so compare them as a set
+    const ns = seen.map((payload) => (payload as { n: number }).n);
+    expect(ns).toHaveLength(5);
+    expect(ns[0]).toBe(0);
+    expect(ns[4]).toBe(4);
+    expect([...ns].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
+    expect(pages).toBe(3);
   });
 });
 
@@ -772,7 +813,10 @@ describe('checkSchema', () => {
 
     beforeAll(async () => {
       db = await PGlite.create();
-      const without = schemaSql.replace(/\n\s*"admitted_at" timestamptz,?/, '');
+      const without = schemaSql
+        .replace(/\n\s*"admitted_at" timestamptz,?/, '')
+        // and the index over it, which could not be created without the column
+        .replace(/\nCREATE INDEX IF NOT EXISTS "entry_admitted_at_index"[^\n]*/, '');
       if (without === schemaSql) throw new Error('the DDL no longer declares admitted_at');
       await db.exec(without);
     }, 30_000);

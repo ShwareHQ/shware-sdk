@@ -170,6 +170,22 @@ describe('observer', () => {
     expect(row).toEqual({ channel: 'push_ios', undelivered_reason: 'Unregistered' });
   });
 
+  test('a copy counts as settled only once its send was reported, delivered or not', async () => {
+    const observer = reportingObserver(reporting(), undefined);
+    const copy = email();
+    // Recorded but not yet reported: a crash here still has to send it
+    await observer.messagePrepared?.(copy);
+    expect(await observer.messageSettled?.(copy)).toBe(false);
+
+    await observer.messageSent?.(copy, { delivered: true });
+    expect(await observer.messageSettled?.(copy)).toBe(true);
+
+    const bounced = email({ idempotencyKey: 'i1:n9' });
+    await observer.messagePrepared?.(bounced);
+    await observer.messageSent?.(bounced, { delivered: false, reason: 'no_recipient' });
+    expect(await observer.messageSettled?.(bounced)).toBe(true);
+  });
+
   test('without an origin, emails go out untracked', async () => {
     const observer = reportingObserver(reporting(), undefined);
     expect(await observer.messagePrepared?.(email())).toBeUndefined();
