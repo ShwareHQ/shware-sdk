@@ -51,7 +51,11 @@ export function identify(userId: string, userData?: UserProvidedData) {
   let visitor = '';
   try {
     const previous = config.storage.getItem(keys.user_id);
-    if (previous && previous !== userId) reset();
+    if (previous && previous !== userId) {
+      // Another user is on the device: start over whatever this page last identified.
+      startOver();
+      setUsers({});
+    }
     config.storage.setItem(keys.user_id, userId);
     visitor = visitorId();
   } catch (e: unknown) {
@@ -81,27 +85,36 @@ export function identify(userId: string, userData?: UserProvidedData) {
  *
  * The device id and the first visit or first open stay: they describe the device, not the person.
  *
- * Once per sign-out, however many times it is called: the session and visitor are only replaced
- * while a user is identified on the device (`keys.user_id`, which `identify` writes on every page
- * load and this clears). Every tab of a site sees the sign-out and calls this, and the storage is
- * shared: a second call would cut the anonymous visitor the first one started off from the next
- * sign-in, and end its session early. A page that identified someone still has its setters told,
- * since GA holds the user per page.
+ * Only the sign-out this page knows of: the session and visitor are replaced while the device's
+ * identity (`keys.user_id` and the visitor, shared by every tab) is still the one this page last
+ * identified, or the page identified no one. Every tab of a site sees a sign-out and calls this,
+ * some of them late — a tab frozen in the background handles it on resuming, after another tab
+ * may have signed out and in again. A call that finds no user, or someone else's binding, is
+ * stale: replacing that would cut the new anonymous visitor off from the next sign-in, or end the
+ * next user's session and leave their pages on a visitor nobody identified. It only clears this
+ * page: its setters are still told, since GA holds the user per page.
  *
  * Synchronous and never throws: sign-out must not fail on analytics.
  */
 export function reset() {
-  let signedIn = false;
+  let current = false;
   try {
-    signedIn = !!config.storage.getItem(keys.user_id);
-    if (signedIn) {
-      endSession();
-      newVisitorId();
-      config.storage.setItem(keys.user_id, '');
-    }
+    const user = config.storage.getItem(keys.user_id);
+    current = !!user && (!identified || identified === `${visitorId()}:${user}`);
+    if (current) startOver();
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
   }
-  if (signedIn || identified) setUsers({});
+  if (current || identified) setUsers({});
   identified = undefined;
+}
+
+/**
+ * Ends the device's session and starts a new visitor with no user: `reset()` for the sign-out it
+ * knows of, `identify` for a user signing in over another.
+ */
+function startOver() {
+  endSession();
+  newVisitorId();
+  config.storage.setItem(keys.user_id, '');
 }
