@@ -124,13 +124,15 @@ class Session {
 
   /**
    * Ends the stored session for `reset()`, so the next event starts a new one and announces it.
-   * The engagement it accrued is reported first (`endSession`); the timer restarts from now for
-   * the session that follows. The storage has no `removeItem`: an empty record reads as none.
+   * Returns the session's id and the engagement it accrued and has not reported, for the caller
+   * to report; one past its timeout still owns that engagement, as in `extend`, and is not
+   * revived. The storage has no `removeItem`: an empty record reads as none.
    */
-  end = () => {
+  end = (): { id: string | undefined; engagement_time_msec: number } => {
+    const engagement_time_msec = this.flush();
+    const id = readSession()?.id;
     config.storage.setItem(keys.session, '');
-    this.accumulatedTime = 0;
-    this.lastTickTime = Date.now();
+    return { id, engagement_time_msec };
   };
 
   isActive = () => this.active;

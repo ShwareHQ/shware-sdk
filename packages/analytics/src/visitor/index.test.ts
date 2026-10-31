@@ -141,17 +141,13 @@ describe('identify', () => {
 describe('reset', () => {
   it('ends the session, starts a new visitor and forgets the user', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { reset, storage, config } = await load({
-      visitor_id: 'visitor-a',
-      user_id: 'a',
-      session: `1.session-a.${Date.now()}`,
-    });
+    const { reset, storage, config } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
     config.thirdPartyUserSetters = [setter];
 
     reset();
 
+    // Ending the session (reporting it, clearing it) is the queue's: see track/index.test.ts.
     expect(endSession).toHaveBeenCalledTimes(1);
-    expect(storage.map.get('session')).toBe('');
     expect(storage.map.get('visitor_id')).not.toBe('visitor-a');
     expect(storage.map.get('visitor_id')).toMatch(uuidv7);
     expect(storage.map.get('user_id')).toBe('');

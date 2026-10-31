@@ -1,6 +1,5 @@
 import { keys } from '../constants/storage';
 import { config } from '../setup/index';
-import { getSession } from '../setup/session';
 import { endSession, track } from '../track/index';
 import type { UserProvidedData } from '../track/types';
 import { newVisitorId } from './id';
@@ -84,7 +83,6 @@ export function identify(userId: string, userData?: UserProvidedData) {
 export function reset() {
   try {
     endSession();
-    getSession().end();
     newVisitorId();
     config.storage.setItem(keys.user_id, '');
   } catch (e: unknown) {
