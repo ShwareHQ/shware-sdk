@@ -246,15 +246,17 @@ async function flush() {
   await Promise.all(byVisitor(list.splice(0)).map((batch) => send(batch, headers)));
 }
 
-/** The items grouped by the visitor they were tracked under, each group in queue order. */
+/**
+ * The items grouped by the visitor they were tracked under, each group in queue order. Not
+ * `Map.groupBy`: it is ES2024, missing from Safari before 17.4 and from Hermes before V1.
+ */
 function byVisitor(items: Item[]): Item[][] {
   const groups = new Map<string, Item[]>();
-  items.forEach((item) => {
-    const group = groups.get(item.event.visitor_id);
-    if (group) group.push(item);
-    else groups.set(item.event.visitor_id, [item]);
-  });
-  return Array.from(groups.values());
+  for (const item of items) {
+    const { visitor_id } = item.event;
+    groups.set(visitor_id, [...(groups.get(visitor_id) ?? []), item]);
+  }
+  return [...groups.values()];
 }
 
 /** One visitor's batch, as one request. */

@@ -123,6 +123,24 @@ describe('identify', () => {
     expect(setter.mock.calls.map(([identity]) => identity.distinct_id)).toEqual([null, 'b']);
   });
 
+  it('still identifies when the storage throws', async () => {
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { identify, storage, config, IDENTIFY_EVENT } = await load();
+    config.thirdPartyUserSetters = [setter];
+    storage.getItem = () => {
+      throw new Error('storage unavailable');
+    };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(() => identify('u1')).not.toThrow();
+    expect(track).toHaveBeenCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'u1' },
+      { enableThirdPartyTracking: false }
+    );
+    expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data: undefined, distinct_id: 'u1' });
+  });
+
   it('never throws: a setter that throws does not stop the others', async () => {
     const bad = vi.fn<ThirdPartyUserSetter>(() => {
       throw new Error('pixel not loaded');
