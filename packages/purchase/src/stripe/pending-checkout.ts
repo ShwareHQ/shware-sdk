@@ -18,8 +18,13 @@
 
 const KEY = 'pending-checkout';
 
-/** Drop a hint after this long — an abandoned/unpaid checkout shouldn't retry forever. */
-const TTL = 60 * 60 * 1000; // 1 hour
+/**
+ * Drop a hint after this long — an abandoned/unpaid checkout shouldn't retry forever. A week, so a
+ * user who paid but whose confirmation failed still has the purchase confirmed (and its
+ * conversion reported) when they come back days later; retrying is cheap, since confirm is
+ * idempotent and checks the session's owner, and the list holds at most `MAX` entries.
+ */
+const TTL = 7 * 24 * 60 * 60 * 1000;
 
 /** Cap the list so a string of abandoned checkouts can't grow it unbounded. */
 const MAX = 5;
