@@ -262,6 +262,33 @@ describe('reset', () => {
     expect(storage.map.get('user_id')).toBe('b');
     // This page still drops the user it told GA about.
     expect(setter).toHaveBeenLastCalledWith({});
+
+    // Handled twice (a second listener, a second notice): signed out here already, still stale.
+    setter.mockClear();
+    reset();
+    expect(endSession).not.toHaveBeenCalled();
+    expect(storage.map.get('visitor_id')).toBe('visitor-2');
+    expect(storage.map.get('user_id')).toBe('b');
+    expect(setter).not.toHaveBeenCalled();
+  });
+
+  it('signs the same user in and out again on a page that signed out before', async () => {
+    const { identify, reset, storage, IDENTIFY_EVENT } = await load({ visitor_id: 'visitor-1' });
+    identify('a');
+    reset();
+    const anonymous = storage.map.get('visitor_id');
+
+    identify('a');
+    expect(track).toHaveBeenLastCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'a' },
+      { enableThirdPartyTracking: false }
+    );
+    reset();
+
+    expect(endSession).toHaveBeenCalledTimes(2);
+    expect(storage.map.get('visitor_id')).not.toBe(anonymous);
+    expect(storage.map.get('user_id')).toBe('');
   });
 
   it('still takes the user back from the setters of a page that identified one', async () => {
