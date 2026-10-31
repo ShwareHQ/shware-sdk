@@ -49,6 +49,17 @@ export interface OAuth2AuthorizationOptions {
    * attribution or where to go next, not for authorization decisions.
    */
   attributes?: Record<string, string | undefined>;
+  /**
+   * Query parameters added to this flow's redirect back to the app, on `successUri` and on
+   * `errorUri` alike, e.g. an id the page that opened a sign-in popup matches the result against.
+   * Unlike `attributes` they reach the browser. Stored with the authorization request, so a
+   * callback that cannot find it (no session) goes without them. The names the redirects use
+   * themselves (`status`, `provider`, `error`, `error_description`, `reason`) are dropped, even
+   * where a redirect leaves one out, and a refusal's metadata wins over a parameter it shares a name
+   * with. `undefined` values are dropped, and the same 2 KB limit applies, as an invariant: a value
+   * from the browser (a query parameter) is the host's to check first.
+   */
+  redirectParams?: Record<string, string | undefined>;
 }
 
 export interface AuthConfig {

@@ -430,6 +430,37 @@ export async function onAuthorized(request: Request, { attributes }: Authorizati
 - They come from the browser that started the flow: trust them like a cookie — fine for
   attribution or a post-login destination, not for authorization decisions.
 
+#### Carrying data back to the app (`redirectParams`)
+
+`attributes` stay on the server. What the page needs back goes in `redirectParams`: query
+parameters added to the flow's redirect to `successUri` and to `errorUri` alike. For example, the
+page that opened a sign-in popup can tag the attempt, and match the result against it when the
+popup reports back without `window.opener` (cut off by a provider's
+`Cross-Origin-Opener-Policy`):
+
+```ts
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.get(PATH.OAUTH2_AUTHORIZATION, (c) => {
+  // From the browser: checked here, since an oversized value is an invariant failure (a 500).
+  const attempt = c.req.query('attempt');
+  return auth.oauth2Authorization(c.req.raw, {
+    redirectParams: { attempt: attempt && UUID.test(attempt) ? attempt : undefined },
+  });
+});
+// → https://app.example.com/?status=success&provider=google&attempt=…
+```
+
+- Stored with the authorization request like `attributes`, so every redirect of that flow carries
+  them, success or error, except the two that cannot find the request (no session, or no
+  authorization request in it).
+- The names the redirects use themselves — `status`, `provider`, `error`, `error_description`,
+  `reason` — are dropped, even on a redirect that leaves one out (a cancel has no `reason`): the
+  page would read it as the SDK's. A refusal's metadata wins over a parameter of the same name.
+- String values only; `undefined` values are dropped; at most 2 KB serialized, checked as an
+  invariant like `attributes`: validate a value taken from the request before passing it.
+- They reach the browser and its history: put nothing secret in them.
+
 ### Native login
 
 Mobile apps sign in with the platform SDK and post the result to

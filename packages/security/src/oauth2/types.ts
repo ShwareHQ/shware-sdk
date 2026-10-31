@@ -23,6 +23,8 @@ export interface OAuth2AuthorizationRequest {
    * provider, unlike `additionalParameters`. Absent on requests stored before this field existed.
    */
   attributes?: Record<string, string>;
+  /** Added to the callback's redirect back to the app (`oauth2Authorization` options). */
+  redirectParams?: Record<string, string>;
 }
 
 interface CreateAuthorizationUriParams {
