@@ -81,9 +81,13 @@ const CALLBACK_ERROR_TYPES: ReadonlySet<OAuth2ErrorType> = new Set([
   'temporarily_unavailable',
 ]);
 
-/** The host's values for the flow (`attributes`, `redirectParams`), `undefined` ones dropped. */
+/**
+ * The host's values for the flow (`attributes`, `redirectParams`, named by `name` in the error),
+ * `undefined` ones dropped.
+ */
 function authorizationAttributes(
-  attributes: OAuth2AuthorizationOptions['attributes']
+  attributes: OAuth2AuthorizationOptions['attributes'],
+  name = 'attributes'
 ): Record<string, string> | undefined {
   if (!attributes) return undefined;
   const defined: Record<string, string> = {};
@@ -95,7 +99,7 @@ function authorizationAttributes(
   const size = attributesSize(defined);
   invariant(
     size <= MAX_ATTRIBUTES_BYTES,
-    `oauth2 authorization attributes are ${size} bytes, at most ${MAX_ATTRIBUTES_BYTES} allowed`
+    `oauth2 authorization ${name} are ${size} bytes, at most ${MAX_ATTRIBUTES_BYTES} allowed`
   );
   return defined;
 }
@@ -105,6 +109,18 @@ interface RedirectDetails {
   refusal?: AuthenticationError;
   /** The flow's `redirectParams`. */
   params?: Record<string, string>;
+}
+
+/**
+ * What the callback's redirects say themselves. A host's `redirectParams` never carry these, even
+ * on a redirect that leaves one out (a cancel has no `reason`): the page would read it as the SDK's.
+ */
+const REDIRECT_PARAMS = new Set(['status', 'provider', 'error', 'error_description', 'reason']);
+
+/** The flow's `redirectParams` without the names the redirects keep for themselves. */
+function hostParams(params: Record<string, string> | undefined) {
+  if (!params) return undefined;
+  return Object.fromEntries(Object.entries(params).filter(([key]) => !REDIRECT_PARAMS.has(key)));
 }
 
 /** `base` with `params` added, none replacing one it carries itself. */
@@ -299,6 +315,7 @@ export class Auth implements AuthService {
     { description, refusal, params }: RedirectDetails = {}
   ): Response {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    // A refusal's metadata wins over the host's parameters of the same name: it is about this answer.
     const uri = withParams(this.oauth2Client.errorUri, { ...params, ...refusal?.metadata });
     uri.searchParams.set('error', error);
     if (description) {
@@ -442,7 +459,7 @@ export class Auth implements AuthService {
     this.guard(async () => {
       invariant(this.oauth2Client, 'oauth2Client is not initialized');
       const attributes = authorizationAttributes(options?.attributes);
-      const redirectParams = authorizationAttributes(options?.redirectParams);
+      const redirectParams = authorizationAttributes(options?.redirectParams, 'redirectParams');
       const { mark, setTiming } = timing({ enabled: this.timing });
       const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
       const state = randomUUID();
@@ -490,11 +507,12 @@ export class Auth implements AuthService {
     if (!session) return this.redirect('invalid_request', { description: 'session not found' });
     mark('load_session');
     const json = session.getAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) as string | null;
-    if (!json)
+    if (!json) {
       return this.redirect('invalid_request', { description: 'authorization request not found' });
+    }
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
     // From here on the redirect back to the app is this flow's, with the host's parameters.
-    const params = cached.redirectParams;
+    const params = hostParams(cached.redirectParams);
 
     // 2. the provider's answer: query, or a form for Apple's response_mode=form_post
     const { provider } = param(request, PATH.LOGIN_OAUTH2_CODE);
@@ -502,8 +520,9 @@ export class Auth implements AuthService {
       ? Object.fromEntries(new URLSearchParams(await request.text()))
       : query(request);
     const parsed = oauth2RedirectQuerySchema.safeParse(data);
-    if (!parsed.success)
+    if (!parsed.success) {
       return this.redirect('invalid_request', { description: 'invalid redirect query', params });
+    }
     // The provider answered with an error instead of a code (the user pressed Cancel →
     // access_denied, invalid_scope, server_error, ...). Forward it rather than reporting a
     // malformed query. This runs before the state check on purpose: providers echo state on
@@ -520,10 +539,12 @@ export class Auth implements AuthService {
       });
     }
     const { code, state, user } = parsed.data;
-    if (!code || !state)
+    if (!code || !state) {
       return this.redirect('invalid_request', { description: 'invalid redirect query', params });
-    if (state !== cached.state)
+    }
+    if (state !== cached.state) {
       return this.redirect('invalid_request', { description: 'redirect state mismatch', params });
+    }
     if (provider !== cached.provider) {
       return this.redirect('invalid_request', {
         description: 'redirect provider mismatch',

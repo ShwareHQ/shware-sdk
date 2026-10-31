@@ -439,19 +439,26 @@ popup reports back without `window.opener` (cut off by a provider's
 `Cross-Origin-Opener-Policy`):
 
 ```ts
-app.get(PATH.OAUTH2_AUTHORIZATION, (c) =>
-  auth.oauth2Authorization(c.req.raw, {
-    redirectParams: { attempt: c.req.query('attempt') },
-  })
-);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.get(PATH.OAUTH2_AUTHORIZATION, (c) => {
+  // From the browser: checked here, since an oversized value is an invariant failure (a 500).
+  const attempt = c.req.query('attempt');
+  return auth.oauth2Authorization(c.req.raw, {
+    redirectParams: { attempt: attempt && UUID.test(attempt) ? attempt : undefined },
+  });
+});
 // → https://app.example.com/?status=success&provider=google&attempt=…
 ```
 
 - Stored with the authorization request like `attributes`, so every redirect of that flow carries
   them, success or error, except the two that cannot find the request (no session, or no
   authorization request in it).
-- They never replace a parameter of the redirect itself (`status`, `provider`, `error`,
-  `reason`, …). String values only; `undefined` values are dropped; at most 2 KB serialized.
+- The names the redirects use themselves — `status`, `provider`, `error`, `error_description`,
+  `reason` — are dropped, even on a redirect that leaves one out (a cancel has no `reason`): the
+  page would read it as the SDK's. A refusal's metadata wins over a parameter of the same name.
+- String values only; `undefined` values are dropped; at most 2 KB serialized, checked as an
+  invariant like `attributes`: validate a value taken from the request before passing it.
 - They reach the browser and its history: put nothing secret in them.
 
 ### Native login
