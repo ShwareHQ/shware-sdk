@@ -122,6 +122,19 @@ class Session {
     return stored.id;
   };
 
+  /**
+   * Ends the stored session for `reset()`, so the next event starts a new one and announces it.
+   * Returns the session's id and the engagement it accrued and has not reported, for the caller
+   * to report; one past its timeout still owns that engagement, as in `extend`, and is not
+   * revived. The storage has no `removeItem`: an empty record reads as none.
+   */
+  end = (): { id: string | undefined; engagement_time_msec: number } => {
+    const engagement_time_msec = this.flush();
+    const id = readSession()?.id;
+    config.storage.setItem(keys.session, '');
+    return { id, engagement_time_msec };
+  };
+
   isActive = () => this.active;
 
   updateActive = (active: boolean) => {
