@@ -246,6 +246,51 @@ describe('reset', () => {
     expect(storage.map.get('visitor_id')).toBe(anonymous);
   });
 
+  it("leaves the next user's binding alone when a stale sign-out comes in after it", async () => {
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { identify, reset, storage, config } = await load({ visitor_id: 'visitor-1' });
+    config.thirdPartyUserSetters = [setter];
+    identify('a');
+    // Meanwhile another tab signed A out and B in: a new visitor, bound to B.
+    storage.map.set('visitor_id', 'visitor-2');
+    storage.map.set('user_id', 'b');
+
+    reset(); // this tab, frozen in the background, only now handles A's sign-out
+
+    expect(endSession).not.toHaveBeenCalled();
+    expect(storage.map.get('visitor_id')).toBe('visitor-2');
+    expect(storage.map.get('user_id')).toBe('b');
+    // This page still drops the user it told GA about.
+    expect(setter).toHaveBeenLastCalledWith({});
+
+    // Handled twice (a second listener, a second notice): signed out here already, still stale.
+    setter.mockClear();
+    reset();
+    expect(endSession).not.toHaveBeenCalled();
+    expect(storage.map.get('visitor_id')).toBe('visitor-2');
+    expect(storage.map.get('user_id')).toBe('b');
+    expect(setter).not.toHaveBeenCalled();
+  });
+
+  it('signs the same user in and out again on a page that signed out before', async () => {
+    const { identify, reset, storage, IDENTIFY_EVENT } = await load({ visitor_id: 'visitor-1' });
+    identify('a');
+    reset();
+    const anonymous = storage.map.get('visitor_id');
+
+    identify('a');
+    expect(track).toHaveBeenLastCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'a' },
+      { enableThirdPartyTracking: false }
+    );
+    reset();
+
+    expect(endSession).toHaveBeenCalledTimes(2);
+    expect(storage.map.get('visitor_id')).not.toBe(anonymous);
+    expect(storage.map.get('user_id')).toBe('');
+  });
+
   it('still takes the user back from the setters of a page that identified one', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, reset, storage, config } = await load();
