@@ -82,8 +82,8 @@ const CALLBACK_ERROR_TYPES: ReadonlySet<OAuth2ErrorType> = new Set([
 ]);
 
 /**
- * The host's values for the flow (`attributes`, `redirectParams`, named by `name` in the error),
- * `undefined` ones dropped.
+ * The host's values for the flow (`attributes`, `redirectParams`), `undefined` ones dropped; `name`
+ * is what the size invariant calls them.
  */
 function authorizationAttributes(
   attributes: OAuth2AuthorizationOptions['attributes'],
@@ -117,10 +117,11 @@ interface RedirectDetails {
  */
 const REDIRECT_PARAMS = new Set(['status', 'provider', 'error', 'error_description', 'reason']);
 
-/** The flow's `redirectParams` without the names the redirects keep for themselves. */
-function hostParams(params: Record<string, string> | undefined) {
+/** The host's `redirectParams` without the names the redirects keep for themselves. */
+function redirectParams(params: OAuth2AuthorizationOptions['redirectParams']) {
   if (!params) return undefined;
-  return Object.fromEntries(Object.entries(params).filter(([key]) => !REDIRECT_PARAMS.has(key)));
+  const own = Object.entries(params).filter(([key]) => !REDIRECT_PARAMS.has(key));
+  return authorizationAttributes(Object.fromEntries(own), 'redirectParams');
 }
 
 /** `base` with `params` added, none replacing one it carries itself. */
@@ -459,7 +460,7 @@ export class Auth implements AuthService {
     this.guard(async () => {
       invariant(this.oauth2Client, 'oauth2Client is not initialized');
       const attributes = authorizationAttributes(options?.attributes);
-      const redirectParams = authorizationAttributes(options?.redirectParams, 'redirectParams');
+      const params = redirectParams(options?.redirectParams);
       const { mark, setTiming } = timing({ enabled: this.timing });
       const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
       const state = randomUUID();
@@ -484,7 +485,7 @@ export class Auth implements AuthService {
         additionalParameters: pkce,
         ...(nonce ? { nonce } : {}),
         ...(attributes ? { attributes } : {}),
-        ...(redirectParams ? { redirectParams } : {}),
+        ...(params ? { redirectParams: params } : {}),
       };
       session.setAttribute(
         this.ATTR_OAUTH2_AUTHORIZATION_REQUEST,
@@ -512,7 +513,7 @@ export class Auth implements AuthService {
     }
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
     // From here on the redirect back to the app is this flow's, with the host's parameters.
-    const params = hostParams(cached.redirectParams);
+    const params = cached.redirectParams;
 
     // 2. the provider's answer: query, or a form for Apple's response_mode=form_post
     const { provider } = param(request, PATH.LOGIN_OAUTH2_CODE);

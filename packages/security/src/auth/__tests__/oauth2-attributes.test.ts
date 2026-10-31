@@ -9,6 +9,13 @@ import { AuthenticationError } from '../error';
 import { Auth } from '../index';
 import type { AuthorizedHandler } from '../types';
 
+declare module '../error' {
+  interface AuthenticationReasons {
+    /** A refusal of this test's own, whose metadata shares a name with a redirect param. */
+    TEST_REFUSAL: { hint: string };
+  }
+}
+
 /** Sessions kept in memory, copied on save and load like a real store would serialize them. */
 function memorySessions(): SessionRepository<MapSession> {
   const store = new Map<string, MapSession>();
@@ -472,6 +479,20 @@ describe('oauth2 redirect params', () => {
 
     const location = new URL(response.headers.get('location') ?? '');
     expect(location.searchParams.get('error')).toBe('invalid_grant');
+    expect(location.searchParams.get('attempt')).toBe('a1');
+  });
+
+  it("lets a refusal's metadata win over a parameter of the same name", async () => {
+    const { auth, cookie, state } = await startWith({ attempt: 'a1', hint: 'host' });
+    const handler = vi.fn<AuthorizedHandler>(async () => {
+      throw new AuthenticationError('TEST_REFUSAL', { metadata: { hint: 'refusal' } });
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await auth.loginOAuth2Code(callback(cookie, `code=c&state=${state}`), handler);
+
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('hint')).toBe('refusal');
     expect(location.searchParams.get('attempt')).toBe('a1');
   });
 
