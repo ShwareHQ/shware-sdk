@@ -78,16 +78,27 @@ export function identify(userId: string, userData?: UserProvidedData) {
  *
  * The device id and the first visit or first open stay: they describe the device, not the person.
  *
+ * Once per sign-out, however many times it is called: the session and visitor are only replaced
+ * while a user is identified on the device (`keys.user_id`, which `identify` writes on every page
+ * load and this clears). Every tab of a site sees the sign-out and calls this, and the storage is
+ * shared: a second call would cut the anonymous visitor the first one started off from the next
+ * sign-in, and end its session early. A page that identified someone still has its setters told,
+ * since GA holds the user per page.
+ *
  * Synchronous and never throws: sign-out must not fail on analytics.
  */
 export function reset() {
+  let signedIn = false;
   try {
-    endSession();
-    newVisitorId();
-    config.storage.setItem(keys.user_id, '');
+    signedIn = !!config.storage.getItem(keys.user_id);
+    if (signedIn) {
+      endSession();
+      newVisitorId();
+      config.storage.setItem(keys.user_id, '');
+    }
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
   }
+  if (signedIn || identified) setUsers({ distinct_id: null });
   identified = undefined;
-  setUsers({ distinct_id: null });
 }

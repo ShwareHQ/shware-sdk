@@ -702,8 +702,10 @@ describe('sendBeacon', () => {
 });
 
 describe('reset and the queue', () => {
+  /** Signed in: `reset()` only replaces the visitor while a user is identified on the device. */
   async function loadWithVisitor() {
     const loaded = await load();
+    loaded.storage.map.set('user_id', 'user-1');
     const visitor = await import('../visitor/index');
     return { ...loaded, ...visitor };
   }
@@ -777,7 +779,7 @@ describe('reset and the queue', () => {
     ]);
     expect(storage.map.get('session')).toBe('');
 
-    // A second reset has no session left to report for.
+    // A second reset — another tab's — has nothing left to end.
     reset();
     await vi.advanceTimersByTimeAsync(0);
     expect(fetchMock).toHaveBeenCalledTimes(2);

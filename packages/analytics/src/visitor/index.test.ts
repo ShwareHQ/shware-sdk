@@ -155,7 +155,11 @@ describe('reset', () => {
   });
 
   it('keeps what describes the device', async () => {
-    const seed = { device_id: 'device-1', first_visit_time: '2026-01-01T00:00:00.000Z' };
+    const seed = {
+      user_id: 'a',
+      device_id: 'device-1',
+      first_visit_time: '2026-01-01T00:00:00.000Z',
+    };
     const { reset, storage } = await load(seed);
 
     reset();
@@ -186,11 +190,50 @@ describe('reset', () => {
       throw new Error('storage unavailable');
     });
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { reset, config } = await load();
+    const { reset, config } = await load({ user_id: 'a' });
     config.thirdPartyUserSetters = [setter];
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
     expect(() => reset()).not.toThrow();
     expect(setter).toHaveBeenCalledWith({ distinct_id: null });
+  });
+
+  it('replaces the visitor once per sign-out, however many tabs call it', async () => {
+    const { reset, storage } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
+
+    reset(); // the tab that signed out
+    const anonymous = storage.map.get('visitor_id');
+    reset(); // another tab, finding the account gone when it is focused
+
+    expect(endSession).toHaveBeenCalledTimes(1);
+    expect(storage.map.get('visitor_id')).toBe(anonymous);
+  });
+
+  it('still takes the user back from the setters of a page that identified one', async () => {
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { identify, reset, storage, config } = await load();
+    config.thirdPartyUserSetters = [setter];
+    identify('a');
+    // Another tab has reset since: the device no longer has a user, but this page told GA one.
+    storage.map.set('user_id', '');
+    const visitor = storage.map.get('visitor_id');
+
+    reset();
+
+    expect(endSession).not.toHaveBeenCalled();
+    expect(storage.map.get('visitor_id')).toBe(visitor);
+    expect(setter).toHaveBeenLastCalledWith({ distinct_id: null });
+  });
+
+  it('does nothing on a device nobody signed in on', async () => {
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { reset, storage, config } = await load({ visitor_id: 'visitor-a' });
+    config.thirdPartyUserSetters = [setter];
+
+    reset();
+
+    expect(endSession).not.toHaveBeenCalled();
+    expect(storage.map.get('visitor_id')).toBe('visitor-a');
+    expect(setter).not.toHaveBeenCalled();
   });
 });

@@ -159,7 +159,7 @@ async function logout() {
 }
 ```
 
-`reset()` is sign-out, as in PostHog: the current session ends (its unreported engagement goes out as a `user_engagement` with `trigger: 'reset'`), a new visitor starts on the device, and the third-party setters drop the user. What happens until the next sign-in is anonymous and belongs to whoever signs in next; the visitor left behind keeps the previous user's history. Call it when the session ends any other way too (expiry, deletion). `identify` resets by itself when a different user signs in than the one it last identified on the device, so a sign-out the host missed does not hand one user's visitor to the next. The device id and the first visit or first open are the device's and stay.
+`reset()` is sign-out, as in PostHog: the current session ends (its unreported engagement goes out as a `user_engagement` with `trigger: 'reset'`), a new visitor starts on the device, and the third-party setters drop the user. What happens until the next sign-in is anonymous and belongs to whoever signs in next; the visitor left behind keeps the previous user's history. Call it when the session ends any other way too (expiry, deletion), and from every tab that notices: it replaces the visitor once per sign-out, so a second tab calling it does not cut the new anonymous visitor off. `identify` resets by itself when a different user signs in than the one it last identified on the device, so a sign-out the host missed does not hand one user's visitor to the next. The device id and the first visit or first open are the device's and stay.
 
 ### Typed events and strict event names
 
