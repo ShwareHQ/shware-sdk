@@ -81,6 +81,7 @@ const CALLBACK_ERROR_TYPES: ReadonlySet<OAuth2ErrorType> = new Set([
   'temporarily_unavailable',
 ]);
 
+/** The host's values for the flow (`attributes`, `redirectParams`), `undefined` ones dropped. */
 function authorizationAttributes(
   attributes: OAuth2AuthorizationOptions['attributes']
 ): Record<string, string> | undefined {
@@ -97,6 +98,22 @@ function authorizationAttributes(
     `oauth2 authorization attributes are ${size} bytes, at most ${MAX_ATTRIBUTES_BYTES} allowed`
   );
   return defined;
+}
+
+interface RedirectDetails {
+  description?: string;
+  refusal?: AuthenticationError;
+  /** The flow's `redirectParams`. */
+  params?: Record<string, string>;
+}
+
+/** `base` with `params` added, none replacing one it carries itself. */
+function withParams(base: string, params: Record<string, string> = {}) {
+  const uri = new URL(base);
+  for (const [key, value] of Object.entries(params)) {
+    if (!uri.searchParams.has(key)) uri.searchParams.set(key, value);
+  }
+  return uri;
 }
 
 /** Sign in with Apple answers with `response_mode=form_post`; a charset parameter may follow. */
@@ -273,18 +290,16 @@ export class Auth implements AuthService {
     }
   }
 
-  /** The error redirect of the callback flow; `refusal`'s reason and metadata ride along. */
+  /**
+   * The error redirect of the callback flow: `refusal`'s reason and metadata ride along, and the
+   * flow's `redirectParams` once its authorization request is known.
+   */
   private redirect(
     error: OAuth2ErrorType,
-    description?: string,
-    refusal?: AuthenticationError
+    { description, refusal, params }: RedirectDetails = {}
   ): Response {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
-    const uri = new URL(this.oauth2Client.errorUri);
-    // Metadata never replaces a parameter: not one errorUri carries itself, nor one set below.
-    for (const [key, value] of Object.entries(refusal?.metadata ?? {})) {
-      if (!uri.searchParams.has(key)) uri.searchParams.set(key, value);
-    }
+    const uri = withParams(this.oauth2Client.errorUri, { ...params, ...refusal?.metadata });
     uri.searchParams.set('error', error);
     if (description) {
       uri.searchParams.set('error_description', description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH));
@@ -427,6 +442,7 @@ export class Auth implements AuthService {
     this.guard(async () => {
       invariant(this.oauth2Client, 'oauth2Client is not initialized');
       const attributes = authorizationAttributes(options?.attributes);
+      const redirectParams = authorizationAttributes(options?.redirectParams);
       const { mark, setTiming } = timing({ enabled: this.timing });
       const { provider } = param(request, PATH.OAUTH2_AUTHORIZATION);
       const state = randomUUID();
@@ -451,6 +467,7 @@ export class Auth implements AuthService {
         additionalParameters: pkce,
         ...(nonce ? { nonce } : {}),
         ...(attributes ? { attributes } : {}),
+        ...(redirectParams ? { redirectParams } : {}),
       };
       session.setAttribute(
         this.ATTR_OAUTH2_AUTHORIZATION_REQUEST,
@@ -470,11 +487,14 @@ export class Auth implements AuthService {
 
     // 1. the session the flow started on, and the authorization request it stored
     const session = await this.loadSession(request);
-    if (!session) return this.redirect('invalid_request', 'session not found');
+    if (!session) return this.redirect('invalid_request', { description: 'session not found' });
     mark('load_session');
     const json = session.getAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) as string | null;
-    if (!json) return this.redirect('invalid_request', 'authorization request not found');
+    if (!json)
+      return this.redirect('invalid_request', { description: 'authorization request not found' });
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
+    // From here on the redirect back to the app is this flow's, with the host's parameters.
+    const params = cached.redirectParams;
 
     // 2. the provider's answer: query, or a form for Apple's response_mode=form_post
     const { provider } = param(request, PATH.LOGIN_OAUTH2_CODE);
@@ -482,7 +502,8 @@ export class Auth implements AuthService {
       ? Object.fromEntries(new URLSearchParams(await request.text()))
       : query(request);
     const parsed = oauth2RedirectQuerySchema.safeParse(data);
-    if (!parsed.success) return this.redirect('invalid_request', 'invalid redirect query');
+    if (!parsed.success)
+      return this.redirect('invalid_request', { description: 'invalid redirect query', params });
     // The provider answered with an error instead of a code (the user pressed Cancel →
     // access_denied, invalid_scope, server_error, ...). Forward it rather than reporting a
     // malformed query. This runs before the state check on purpose: providers echo state on
@@ -491,18 +512,23 @@ export class Auth implements AuthService {
     // not match still wins, since that is the more accurate (and more alarming) diagnosis.
     if (parsed.data.error) {
       if (parsed.data.state && parsed.data.state !== cached.state) {
-        return this.redirect('invalid_request', 'redirect state mismatch');
+        return this.redirect('invalid_request', { description: 'redirect state mismatch', params });
       }
-      return this.redirect(
-        safeErrorType(parsed.data.error, 'server_error'),
-        parsed.data.error_description
-      );
+      return this.redirect(safeErrorType(parsed.data.error, 'server_error'), {
+        description: parsed.data.error_description,
+        params,
+      });
     }
     const { code, state, user } = parsed.data;
-    if (!code || !state) return this.redirect('invalid_request', 'invalid redirect query');
-    if (state !== cached.state) return this.redirect('invalid_request', 'redirect state mismatch');
+    if (!code || !state)
+      return this.redirect('invalid_request', { description: 'invalid redirect query', params });
+    if (state !== cached.state)
+      return this.redirect('invalid_request', { description: 'redirect state mismatch', params });
     if (provider !== cached.provider) {
-      return this.redirect('invalid_request', 'redirect provider mismatch');
+      return this.redirect('invalid_request', {
+        description: 'redirect provider mismatch',
+        params,
+      });
     }
     mark('validate_session');
 
@@ -552,19 +578,19 @@ export class Auth implements AuthService {
       if (error instanceof OAuth2Error) {
         console.warn('OAuth2 callback failed', error);
         const type = CALLBACK_ERROR_TYPES.has(error.error) ? error.error : 'server_error';
-        return this.redirect(type);
+        return this.redirect(type, { params });
       }
       // A refusal is something the user can act on, so its reason and metadata reach the page,
       // as they reach a JSON client through the ErrorInfo.
       if (error instanceof AuthenticationError) {
         console.warn('OAuth2 sign-in refused', error.reason, error.metadata);
-        return this.redirect('access_denied', undefined, error);
+        return this.redirect('access_denied', { refusal: error, params });
       }
       console.error('OAuth2 callback failed', error);
-      return this.redirect('server_error');
+      return this.redirect('server_error', { params });
     }
 
-    const uri = new URL(this.oauth2Client.successUri);
+    const uri = withParams(this.oauth2Client.successUri, params);
     uri.searchParams.set('status', 'success');
     uri.searchParams.set('provider', provider);
     const response = new Response(null, { status: 302, headers: { location: uri.href } });

@@ -4,6 +4,7 @@ import { apple, google } from '../../oauth2/provider/index';
 import type { OAuth2Token, UserInfo } from '../../oauth2/types';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
+import { AuthenticationError } from '../error';
 import { Auth } from '../index';
 import type { AuthorizedHandler } from '../types';
 
@@ -356,5 +357,82 @@ describe('attributes sent with a login body', () => {
 
     expect(response.status).toBe(400);
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('oauth2 redirect params', () => {
+  async function startWith(redirectParams: Record<string, string | undefined>) {
+    const auth = createAuth();
+    const response = await auth.oauth2Authorization(
+      new Request('https://api.test/oauth2/authorization/apple'),
+      { redirectParams }
+    );
+    const location = new URL(response.headers.get('location') ?? '');
+    const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    return { auth, cookie, state: location.searchParams.get('state') ?? '' };
+  }
+
+  function callback(cookie: string, query: string) {
+    return new Request(`https://api.test/login/oauth2/code/apple?${query}`, {
+      headers: { cookie },
+    });
+  }
+
+  it('adds them to the success redirect, never over its own parameters', async () => {
+    const { auth, cookie, state } = await startWith({
+      attempt: 'a1',
+      status: 'forged',
+      missing: undefined,
+    });
+    const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
+
+    const response = await auth.loginOAuth2Code(callback(cookie, `code=c&state=${state}`), handler);
+
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('attempt')).toBe('a1');
+    expect(location.searchParams.get('status')).toBe('success');
+    expect(location.searchParams.get('provider')).toBe('apple');
+    expect(location.searchParams.has('missing')).toBe(false);
+  });
+
+  it('adds them to the error redirect when the user cancels', async () => {
+    const { auth, cookie, state } = await startWith({ attempt: 'a1' });
+    const handler = vi.fn<AuthorizedHandler>();
+
+    const response = await auth.loginOAuth2Code(
+      callback(cookie, `error=access_denied&state=${state}`),
+      handler
+    );
+
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('error')).toBe('access_denied');
+    expect(location.searchParams.get('attempt')).toBe('a1');
+  });
+
+  it('adds them to the error redirect of a refusal, beside its reason', async () => {
+    const { auth, cookie, state } = await startWith({ attempt: 'a1', reason: 'forged' });
+    const handler = vi.fn<AuthorizedHandler>(async () => {
+      throw new AuthenticationError('EMAIL_ALREADY_USED');
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await auth.loginOAuth2Code(callback(cookie, `code=c&state=${state}`), handler);
+
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('attempt')).toBe('a1');
+    expect(location.searchParams.get('reason')).toBe('EMAIL_ALREADY_USED');
+  });
+
+  it('cannot add them when the callback finds no session', async () => {
+    const { auth, state } = await startWith({ attempt: 'a1' });
+
+    const response = await auth.loginOAuth2Code(
+      callback('', `code=c&state=${state}`),
+      vi.fn<AuthorizedHandler>()
+    );
+
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('error')).toBe('invalid_request');
+    expect(location.searchParams.has('attempt')).toBe(false);
   });
 });
