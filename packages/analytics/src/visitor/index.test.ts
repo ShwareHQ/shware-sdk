@@ -98,6 +98,25 @@ describe('identify', () => {
     expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data });
   });
 
+  it("identifies the same user again on the new visitor another tab's reset left", async () => {
+    const { identify, storage, IDENTIFY_EVENT } = await load({ visitor_id: 'visitor-a' });
+
+    identify('a');
+    // Another tab signed out and back in: the shared storage holds a new visitor, no user yet.
+    storage.map.set('visitor_id', 'visitor-b');
+    storage.map.set('user_id', '');
+    identify('a');
+
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenLastCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'a' },
+      { enableThirdPartyTracking: false }
+    );
+    // A new visitor under the same user is not another user: nothing to reset.
+    expect(endSession).not.toHaveBeenCalled();
+  });
+
   it('remembers the user on this device, and keeps the visitor for the same user', async () => {
     const { identify, storage } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
 

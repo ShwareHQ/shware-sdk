@@ -302,8 +302,17 @@ the events are the visitor's record. The server:
   user (taking only a valid uuid, so a host's own event of that name binds nothing). Creation and
   binding then travel in one request, in order: the binding can never arrive before the visitor.
   `identify` is the SDK's: never forward it to the ad platforms or a CRM.
+- **binds a visitor to one user only (15)**: bind only while the visitor has no user or already
+  has this one; a visitor bound to someone else keeps them, and the identify binds nothing. From
+  15 the SDK starts a new visitor at sign-out and before another user's sign-in, so its own
+  identify never meets this — but a device that upgrades from a client before 15 while signed out
+  has no user in its storage to compare, and without this the next account signing in there would
+  take the previous user's whole history. That account's events stay on the old visitor until it
+  signs out. Ship this together with the upgrade to 15, not before: a client before 15 never
+  starts a new visitor, so the first user on a shared device would keep every later user's events.
 - **keeps `PATCH /visitors/:id`** for clients before 11.2, which bind the user there — answer 404
   for a visitor no event has created, and merge the `tags` of clients before 11.1 when present.
+  The same one-user rule applies to its binding.
 - **keeps `POST /visitors`** (`createVisitorSchema`) while clients before 11.0 are in use.
 
 Deploy the server first: a server that only creates visitors on `POST /visitors` rejects the

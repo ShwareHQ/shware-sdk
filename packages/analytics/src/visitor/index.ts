@@ -2,7 +2,7 @@ import { keys } from '../constants/storage';
 import { config } from '../setup/index';
 import { endSession, track } from '../track/index';
 import type { UserProvidedData } from '../track/types';
-import { newVisitorId } from './id';
+import { newVisitorId, visitorId } from './id';
 import type { ThirdPartyUserSetter } from './types';
 
 export { visitorId } from './id';
@@ -15,8 +15,10 @@ export { visitorId } from './id';
 export const IDENTIFY_EVENT = 'identify';
 
 /**
- * The user this page has identified the visitor as: identify once per user per page, not per call.
- * Cleared by `reset()`, so the same user signing back in is identified again.
+ * The visitor and user this page last identified, as `<visitor>:<user>`: identify once per binding
+ * per page, not per call. The visitor is part of it because the storage is shared: another tab's
+ * `reset()` replaces the visitor under this page, and the same user here must then bind the new
+ * one too. Cleared by `reset()`, so the same user signing back in is identified again.
  */
 let identified: string | undefined;
 
@@ -46,16 +48,19 @@ function setUsers(user: Parameters<ThirdPartyUserSetter>[0]) {
  * Synchronous and never throws: sign-in must not fail on analytics.
  */
 export function identify(userId: string, userData?: UserProvidedData) {
+  let visitor = '';
   try {
     const previous = config.storage.getItem(keys.user_id);
     if (previous && previous !== userId) reset();
     config.storage.setItem(keys.user_id, userId);
+    visitor = visitorId();
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
   }
 
-  if (userId !== identified) {
-    identified = userId;
+  const binding = `${visitor}:${userId}`;
+  if (binding !== identified) {
+    identified = binding;
     track(IDENTIFY_EVENT, { user_id: userId }, { enableThirdPartyTracking: false });
   }
 
