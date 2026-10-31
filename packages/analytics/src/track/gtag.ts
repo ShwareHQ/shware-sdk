@@ -462,7 +462,8 @@ export type AutomaticallyCollectedEvents = EnhancedMeasurementEvents & {
   session_start: undefined;
   user_engagement: {
     engagement_time_msec: number;
-    trigger: 'pagehide' | 'visibilitychange' | 'background';
+    /** `reset`: the session ended at sign-out, its last engagement reported by `reset()`. */
+    trigger: 'pagehide' | 'visibilitychange' | 'background' | 'reset';
   };
 };
 

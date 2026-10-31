@@ -16,6 +16,11 @@ export function visitorId(): string {
   // An old client stored the string 'undefined' as the id (it wrote an unset id): not an id, so it
   // is replaced below with a new one, which also clears the bad value from storage for good.
   if (stored && stored !== 'undefined') return stored;
+  return newVisitorId();
+}
+
+/** Starts a new visitor on this device — `reset()` — and returns its id. */
+export function newVisitorId(): string {
   const id = uuidv7();
   config.storage.setItem(keys.visitor_id, id);
   return id;

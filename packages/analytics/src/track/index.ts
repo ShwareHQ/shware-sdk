@@ -57,6 +57,12 @@ type Item = {
   settled?: TrackTags;
   /** Decided when the event happens, as GA4 and PostHog decide it, never when it is sent. */
   session_id: string;
+  /**
+   * Decided when the event happens too, like the session: `reset()` replaces the visitor, and an
+   * event tracked before it (the `logout` that goes with it) still belongs to the visitor and
+   * session it happened in, whenever its batch goes out.
+   */
+  visitor_id: string;
   timestamp: string;
   options: TrackOptions;
 };
@@ -158,28 +164,57 @@ function enqueue(
   const timestamp = new Date().toISOString();
   const tags = captureTags();
   const { id: session_id, started } = getSession().touch(Date.parse(timestamp));
-  const item = (fields: Pick<Item, 'id' | 'name' | 'properties' | 'options'>): Item => {
-    const result: Item = { ...fields, tags, timestamp, session_id };
-    void tags.then((settled) => (result.settled = settled));
-    return result;
-  };
+  const at = { tags, timestamp, session_id, visitor_id: visitorId() };
   if (started) {
     const options = { enableThirdPartyTracking: false };
-    list.push(item({ id: uuidv7(), name: 'session_start', properties: {}, options }));
+    list.push(item({ id: uuidv7(), name: 'session_start', properties: {}, options }, at));
   }
-  const event = item({ id: init.id ?? uuidv7(), name, properties, options });
+  const event = item({ id: init.id ?? uuidv7(), name, properties, options }, at);
   list.push(event);
   if (init.pixels !== false) firePixels(event);
   return event;
 }
 
-function toDTO(event: Item, visitor_id: string, tags: TrackTags): CreateTrackEventDTO[number] {
+function item(
+  fields: Pick<Item, 'id' | 'name' | 'properties' | 'options'>,
+  at: Pick<Item, 'tags' | 'timestamp' | 'session_id' | 'visitor_id'>
+): Item {
+  const result: Item = { ...fields, ...at };
+  void at.tags.then((settled) => (result.settled = settled));
+  return result;
+}
+
+/**
+ * Ends the current session for `reset()`: what it has accrued and not yet reported goes out as a
+ * `user_engagement` — as when the page is closed — and the queue is sent. Like the engagement
+ * beacon, it reports for the stored session without reviving one past its timeout (`extend`); with
+ * no stored session there is nothing to report for. Synchronous: every queued event already
+ * carries its visitor and session, so the caller can replace both right after.
+ */
+export function endSession() {
+  const engagement_time_msec = getSession().flush();
+  const session_id = engagement_time_msec > 0 ? getSession().extend() : undefined;
+  if (session_id) {
+    const at = {
+      tags: captureTags(),
+      timestamp: new Date().toISOString(),
+      session_id,
+      visitor_id: visitorId(),
+    };
+    const properties = { engagement_time_msec, trigger: 'reset' };
+    const options = { enableThirdPartyTracking: false };
+    list.push(item({ id: uuidv7(), name: 'user_engagement', properties, options }, at));
+  }
+  if (list.length > 0) void flush();
+}
+
+function toDTO(event: Item, tags: TrackTags): CreateTrackEventDTO[number] {
   return {
     id: event.id,
     name: event.name,
     properties: event.properties,
     tags,
-    visitor_id,
+    visitor_id: event.visitor_id,
     session_id: event.session_id,
     platform: config.platform,
     environment: config.environment,
@@ -199,18 +234,41 @@ async function flush() {
   }
   if (list.length === 0) return;
 
-  let events: Item[] = [];
+  let headers: Record<string, string>;
   try {
     await getTokenBucket().removeTokens();
-    const visitor_id = visitorId();
-    const headers = await config.getHeaders();
+    headers = await config.getHeaders();
     // Settled before the events leave the queue; those queued meanwhile are a microtask away.
     await Promise.all(list.map((event) => event.tags));
+  } catch (e: unknown) {
+    // Nothing has left the queue yet: the events wait for the next send.
+    if (e instanceof Error) console.log(e.message);
+    return;
+  }
 
-    events = list.splice(0);
-    if (events.length === 0) return;
+  const events = list.splice(0);
+  if (events.length === 0) return;
+  // The server takes one visitor per request, and a queue spans two after `reset()`. `send`
+  // settles its own failures, so neither batch can take the other down.
+  await Promise.all(byVisitor(events).map((batch) => send(batch, headers)));
+}
+
+/** The events grouped by the visitor they were tracked under, each group in queue order. */
+function byVisitor(events: Item[]): Item[][] {
+  const groups = new Map<string, Item[]>();
+  events.forEach((event) => {
+    const group = groups.get(event.visitor_id);
+    if (group) group.push(event);
+    else groups.set(event.visitor_id, [event]);
+  });
+  return Array.from(groups.values());
+}
+
+/** One visitor's batch, as one request. */
+async function send(events: Item[], headers: Record<string, string>) {
+  try {
     const dto: CreateTrackEventDTO = await Promise.all(
-      events.map(async (event) => toDTO(event, visitor_id, await event.tags))
+      events.map(async (event) => toDTO(event, await event.tags))
     );
 
     const body = JSON.stringify(dto);
@@ -239,18 +297,23 @@ async function flush() {
     events.forEach((event) => event.options.onSucceed?.({ id: event.id }));
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
-    // `fetch` has already retried the transient failures by the time a batch fails here; what
-    // remains is a batch the server rejected outright — one invalid event fails the whole batch
-    // — or a network that stayed down past the retries. The other events are reported lost;
-    // `session_start` alone goes back on the queue for the next send, because it is the
-    // session's only attribution record: a session without one has no channel, and its every
-    // later event drops out of an attribution join.
-    const starts = events.filter((event) => event.name === 'session_start');
-    list.unshift(...starts);
-    events
-      .filter((event) => event.name !== 'session_start')
-      .forEach((event) => event.options.onError?.(e));
+    fail(events, e);
   }
+}
+
+/**
+ * `fetch` has already retried the transient failures by the time a batch fails; what remains is a
+ * batch the server rejected outright — one invalid event fails the whole batch — or a network that
+ * stayed down past the retries. The other events are reported lost; `session_start` alone goes
+ * back on the queue for the next send, because it is the session's only attribution record: a
+ * session without one has no channel, and its every later event drops out of an attribution join.
+ */
+function fail(events: Item[], e: unknown) {
+  const starts = events.filter((event) => event.name === 'session_start');
+  list.unshift(...starts);
+  events
+    .filter((event) => event.name !== 'session_start')
+    .forEach((event) => event.options.onError?.(e));
 }
 
 /** `track`, with the `EventInit` only the SDK itself passes. */
@@ -299,16 +362,24 @@ function beacon(dto: CreateTrackEventDTO): boolean {
  * Nothing can be awaited here, so the events go with the tags they have settled on (the last
  * built ones otherwise). Each goes with the id it was tracked with, and its third-party trackers
  * were fired then, under that id: none is fired again here. The visitor id is local
- * (`visitorId`), so a first visit left within a second is sent like any other; when no beacon
- * can take them — no `sendBeacon`, a refused body — they stay queued for the usual send.
+ * (`visitorId`), so a first visit left within a second is sent like any other. One beacon per
+ * visitor, as one request per visitor in `flush`; a visitor's events no beacon can take — no
+ * `sendBeacon`, a refused body — stay queued for the usual send.
  */
 export function sendPendingEvents() {
   if (list.length === 0) return;
-  const visitor_id = visitorId();
-  const dto: CreateTrackEventDTO = list.map((event) =>
-    toDTO(event, visitor_id, event.settled ?? cache.tags ?? {})
-  );
-  if (!beacon(dto)) {
+  const refused = byVisitor(list).filter((batch) => {
+    const dto: CreateTrackEventDTO = batch.map((event) =>
+      toDTO(event, event.settled ?? cache.tags ?? {})
+    );
+    if (!beacon(dto)) return true;
+    batch.forEach((event) => {
+      list.splice(list.indexOf(event), 1);
+      event.options.onSucceed?.({ id: event.id, beacon: true });
+    });
+    return false;
+  });
+  if (refused.length > 0) {
     void flush();
     return;
   }
@@ -316,7 +387,6 @@ export function sendPendingEvents() {
     clearTimeout(timer);
     timer = null;
   }
-  list.splice(0).forEach((event) => event.options.onSucceed?.({ id: event.id, beacon: true }));
 }
 
 export function sendBeacon<T extends EventName = EventName>(

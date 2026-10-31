@@ -122,6 +122,17 @@ class Session {
     return stored.id;
   };
 
+  /**
+   * Ends the stored session for `reset()`, so the next event starts a new one and announces it.
+   * The engagement it accrued is reported first (`endSession`); the timer restarts from now for
+   * the session that follows. The storage has no `removeItem`: an empty record reads as none.
+   */
+  end = () => {
+    config.storage.setItem(keys.session, '');
+    this.accumulatedTime = 0;
+    this.lastTickTime = Date.now();
+  };
+
   isActive = () => this.active;
 
   updateActive = (active: boolean) => {

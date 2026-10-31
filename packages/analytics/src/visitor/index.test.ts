@@ -3,8 +3,14 @@ import type * as Track from '../track/index';
 import type { ThirdPartyUserSetter } from './types';
 
 const fetchMock = vi.fn<typeof globalThis.fetch>();
-const { track } = vi.mockObject<Pick<typeof Track, 'track'>>({ track() {} });
-vi.mock<Pick<typeof Track, 'track'>>(import('../track/index'), () => ({ track }));
+const { track, endSession } = vi.mockObject<Pick<typeof Track, 'track' | 'endSession'>>({
+  track() {},
+  endSession() {},
+});
+vi.mock<Pick<typeof Track, 'track' | 'endSession'>>(import('../track/index'), () => ({
+  track,
+  endSession,
+}));
 
 async function load(seed: Record<string, string> = {}) {
   vi.stubGlobal('fetch', fetchMock);
@@ -20,6 +26,7 @@ beforeEach(() => {
   vi.resetModules();
   fetchMock.mockReset();
   track.mockReset();
+  endSession.mockReset();
 });
 
 afterEach(() => {
@@ -56,12 +63,12 @@ describe('visitorId', () => {
   });
 });
 
-describe('setVisitor', () => {
+describe('identify', () => {
   it('identifies the user once per page, and again only for another user', async () => {
-    const { setVisitor, IDENTIFY_EVENT } = await load();
+    const { identify, IDENTIFY_EVENT } = await load();
 
-    setVisitor({ user_id: 'u1' });
-    setVisitor({ user_id: 'u1' }); // the host calls it on every page load and auth event
+    identify('u1');
+    identify('u1'); // the host calls it on every page load and auth event
     expect(track).toHaveBeenCalledTimes(1);
     expect(track).toHaveBeenCalledWith(
       IDENTIFY_EVENT,
@@ -69,7 +76,7 @@ describe('setVisitor', () => {
       { enableThirdPartyTracking: false }
     );
 
-    setVisitor({ user_id: 'u2' });
+    identify('u2');
     expect(track).toHaveBeenCalledTimes(2);
     expect(track).toHaveBeenLastCalledWith(
       IDENTIFY_EVENT,
@@ -82,59 +89,38 @@ describe('setVisitor', () => {
 
   it('tells the third-party setters at once, with the user as the distinct id', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { setVisitor, config } = await load();
+    const { identify, config } = await load();
     config.thirdPartyUserSetters = [setter];
     const user_data = { email: 'a@b.co' };
 
-    setVisitor({ user_id: 'u1', user_data });
+    identify('u1', user_data);
 
     expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data, distinct_id: 'u1' });
   });
 
-  it('identifies nobody without a user id, and still hands user_data to the setters', async () => {
-    const setter = vi.fn<ThirdPartyUserSetter>();
-    const { setVisitor, config } = await load();
-    config.thirdPartyUserSetters = [setter];
+  it('remembers the user on this device, and keeps the visitor for the same user', async () => {
+    const { identify, storage } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
 
-    setVisitor({ user_data: { email: 'a@b.co' } });
+    identify('a');
 
-    expect(track).not.toHaveBeenCalled();
-    expect(setter).toHaveBeenCalledWith({ user_data: { email: 'a@b.co' }, distinct_id: null });
+    expect(storage.map.get('user_id')).toBe('a');
+    expect(storage.map.get('visitor_id')).toBe('visitor-a');
+    expect(endSession).not.toHaveBeenCalled();
   });
 
-  it('signs out on setVisitor({}), so the same user signing back in is identified again', async () => {
+  it('resets first when another user signs in over the one last identified here', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { setVisitor, config, IDENTIFY_EVENT } = await load();
+    const { identify, storage, config } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
     config.thirdPartyUserSetters = [setter];
 
-    setVisitor({ user_id: 'a' });
-    expect(track).toHaveBeenCalledTimes(1);
+    identify('b');
 
-    setVisitor({});
-    expect(track).toHaveBeenCalledTimes(1);
-    expect(setter).toHaveBeenLastCalledWith({ distinct_id: null });
-
-    setVisitor({ user_id: 'a' });
-    expect(track).toHaveBeenCalledTimes(2);
-    expect(track).toHaveBeenLastCalledWith(
-      IDENTIFY_EVENT,
-      { user_id: 'a' },
-      { enableThirdPartyTracking: false }
-    );
-  });
-
-  it('takes an empty user_id for sign-out too', async () => {
-    const user_id = '';
-    const setter = vi.fn<ThirdPartyUserSetter>();
-    const { setVisitor, config } = await load();
-    config.thirdPartyUserSetters = [setter];
-
-    setVisitor({ user_id: 'a' });
-    setVisitor({ user_id });
-    setVisitor({ user_id: 'a' });
-
-    expect(track).toHaveBeenCalledTimes(2);
-    expect(setter).toHaveBeenNthCalledWith(2, { user_id, distinct_id: null });
+    expect(endSession).toHaveBeenCalledTimes(1);
+    expect(storage.map.get('visitor_id')).not.toBe('visitor-a');
+    expect(storage.map.get('visitor_id')).toMatch(uuidv7);
+    expect(storage.map.get('user_id')).toBe('b');
+    // PostHog is reset before it is identified as the new user.
+    expect(setter.mock.calls.map(([identity]) => identity.distinct_id)).toEqual([null, 'b']);
   });
 
   it('never throws: a setter that throws does not stop the others', async () => {
@@ -142,12 +128,73 @@ describe('setVisitor', () => {
       throw new Error('pixel not loaded');
     });
     const good = vi.fn<ThirdPartyUserSetter>();
-    const { setVisitor, config } = await load();
+    const { identify, config } = await load();
     config.thirdPartyUserSetters = [bad, good];
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    expect(() => setVisitor({ user_id: 'u1' })).not.toThrow();
+    expect(() => identify('u1')).not.toThrow();
     expect(good).toHaveBeenCalled();
     expect(track).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reset', () => {
+  it('ends the session, starts a new visitor and forgets the user', async () => {
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { reset, storage, config } = await load({
+      visitor_id: 'visitor-a',
+      user_id: 'a',
+      session: `1.session-a.${Date.now()}`,
+    });
+    config.thirdPartyUserSetters = [setter];
+
+    reset();
+
+    expect(endSession).toHaveBeenCalledTimes(1);
+    expect(storage.map.get('session')).toBe('');
+    expect(storage.map.get('visitor_id')).not.toBe('visitor-a');
+    expect(storage.map.get('visitor_id')).toMatch(uuidv7);
+    expect(storage.map.get('user_id')).toBe('');
+    expect(setter).toHaveBeenCalledWith({ distinct_id: null });
+  });
+
+  it('keeps what describes the device', async () => {
+    const seed = { device_id: 'device-1', first_visit_time: '2026-01-01T00:00:00.000Z' };
+    const { reset, storage } = await load(seed);
+
+    reset();
+
+    expect(storage.map.get('device_id')).toBe('device-1');
+    expect(storage.map.get('first_visit_time')).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('lets the same user signing back in be identified again', async () => {
+    const { identify, reset, IDENTIFY_EVENT } = await load();
+
+    identify('a');
+    reset();
+    identify('a');
+
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(track).toHaveBeenLastCalledWith(
+      IDENTIFY_EVENT,
+      { user_id: 'a' },
+      { enableThirdPartyTracking: false }
+    );
+    // Signing back in after a reset is not a different user: no second reset.
+    expect(endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws, even when ending the session does', async () => {
+    endSession.mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    const setter = vi.fn<ThirdPartyUserSetter>();
+    const { reset, config } = await load();
+    config.thirdPartyUserSetters = [setter];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(() => reset()).not.toThrow();
+    expect(setter).toHaveBeenCalledWith({ distinct_id: null });
   });
 });

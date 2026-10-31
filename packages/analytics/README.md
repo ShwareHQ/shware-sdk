@@ -21,22 +21,22 @@ modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on)
 
 ## Entry points
 
-| Import                                    | Runs on | What it is for                                                          |
-| ----------------------------------------- | ------- | ----------------------------------------------------------------------- |
-| `@shware/analytics`                       | client  | `setupAnalytics`, `track`, `setVisitor`, `sendFeedback`, links, bots    |
-| `@shware/analytics/web`                   | browser | `storage`, `getTags`, `getDeviceId` for `setupAnalytics` on the web     |
-| `@shware/analytics/native`                | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`        |
-| `@shware/analytics/native/firebase`       | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics       |
-| `@shware/analytics/native/fbsdk`          | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK               |
-| `@shware/analytics/next`                  | browser | `<Analytics />` for the Next.js App Router                              |
-| `@shware/analytics/tanstack`              | both    | `<Analytics />` and `createClickIdMiddleware` for TanStack Start        |
-| `@shware/analytics/react-router`          | browser | `<Analytics />` for React Router                                        |
-| `@shware/analytics/third-parties`         | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters  |
-| `@shware/analytics/third-parties/posthog` | browser | `sendPosthogEvent` and `setPosthogUser`                                 |
-| `@shware/analytics/server`                | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI |
-| `@shware/analytics/server/legacy`         | server  | The old Meta sender built on `facebook-nodejs-business-sdk`             |
-| `@shware/analytics/attribution`           | server  | `classifyTouch` and the channel vocabulary for reading sessions         |
-| `@shware/analytics/ads`                   | server  | Pulling spend and performance from Google Ads and Meta                  |
+| Import                                    | Runs on | What it is for                                                              |
+| ----------------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `@shware/analytics`                       | client  | `setupAnalytics`, `track`, `identify`, `reset`, `sendFeedback`, links, bots |
+| `@shware/analytics/web`                   | browser | `storage`, `getTags`, `getDeviceId` for `setupAnalytics` on the web         |
+| `@shware/analytics/native`                | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`            |
+| `@shware/analytics/native/firebase`       | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics           |
+| `@shware/analytics/native/fbsdk`          | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK                   |
+| `@shware/analytics/next`                  | browser | `<Analytics />` for the Next.js App Router                                  |
+| `@shware/analytics/tanstack`              | both    | `<Analytics />` and `createClickIdMiddleware` for TanStack Start            |
+| `@shware/analytics/react-router`          | browser | `<Analytics />` for React Router                                            |
+| `@shware/analytics/third-parties`         | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters      |
+| `@shware/analytics/third-parties/posthog` | browser | `sendPosthogEvent` and `setPosthogUser`                                     |
+| `@shware/analytics/server`                | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI     |
+| `@shware/analytics/server/legacy`         | server  | The old Meta sender built on `facebook-nodejs-business-sdk`                 |
+| `@shware/analytics/attribution`           | server  | `classifyTouch` and the channel vocabulary for reading sessions             |
+| `@shware/analytics/ads`                   | server  | Pulling spend and performance from Google Ads and Meta                      |
 
 ## Client-side only
 
@@ -68,7 +68,7 @@ setupAnalytics({
   release: version,
   platform: 'web',
   environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
-  // Optional: every tracked event is also handed to these, and setVisitor to the setters.
+  // Optional: every tracked event is also handed to these, and identify / reset to the setters.
   thirdPartyTrackers: [sendGAEvent, sendPosthogEvent],
   thirdPartyUserSetters: [setGAUser, setPosthogUser],
   endpoint: 'https://api.example.com/v1/analytics',
@@ -141,20 +141,25 @@ export const startInstance = createStart(() => ({ requestMiddleware: [clickIdMid
 ## Usage
 
 ```tsx
-import { setVisitor, track } from '@shware/analytics';
+import { identify, reset, track } from '@shware/analytics';
 
-function Button() {
-  const onClick = async () => {
-    const user = await api.login();
-    // Binds this visitor to the signed-in user (see Visitors below).
-    setVisitor({ user_id: user.id });
-    track('login', { method: 'google' });
-  };
-  return <button onClick={onClick}>Login with Google</button>;
+async function login() {
+  const user = await api.login();
+  // Binds this visitor to the signed-in user (see Visitors below). Call it on every page load
+  // once someone is signed in; the second argument is handed to the pixels for matching only.
+  identify(user.id, { email: user.email });
+  track('login', { method: 'google' });
+}
+
+async function logout() {
+  await api.logout();
+  // `logout` first: it still belongs to the user leaving.
+  track('logout');
+  reset();
 }
 ```
 
-On sign-out, call `setVisitor({})` (and `track('logout')` as usual): it clears the identity this page sent, resets PostHog, and makes the next sign-in identify again, even as the same user.
+`reset()` is sign-out, as in PostHog: the current session ends (its unreported engagement goes out as a `user_engagement` with `trigger: 'reset'`), a new visitor starts on the device, and the third-party setters drop the user. What happens until the next sign-in is anonymous and belongs to whoever signs in next; the visitor left behind keeps the previous user's history. Call it when the session ends any other way too (expiry, deletion). `identify` resets by itself when a different user signs in than the one it last identified on the device, so a sign-out the host missed does not hand one user's visitor to the next. The device id and the first visit or first open are the device's and stay.
 
 ### Typed events and strict event names
 
@@ -287,10 +292,10 @@ the events are the visitor's record. The server:
   geolocation and user agent) as both `tags` and `initial_tags`, and the bot verdict from them.
 - **refreshes `visitor.tags` from each `session_start`**: `tags` is the last-touch counterpart to
   `initial_tags` (browser, release, landing), and a session's opening is where a visit came in, so
-  once per session is both enough and the right moment. `setVisitor` sends no tags (11.1): at
+  once per session is both enough and the right moment. `identify` sends no tags (11.1): at
   sign-in the page is the login page, and its tags would overwrite the landing's. Clients before
   11.1 still send tags on their PATCH; merge them when present.
-- **binds it to the user from an `identify` event** (`IDENTIFY_EVENT`): `setVisitor` (11.2) sends no
+- **binds it to the user from an `identify` event** (`IDENTIFY_EVENT`): `identify` (11.2) sends no
   request of its own — it hands the user to gtag and the pixels at once, and queues
   `identify` with `{ user_id }` when the user differs from the one the page last identified. In
   the batch's transaction, after creating the visitor, set its `user_id` and `distinct_id` to that
@@ -534,8 +539,9 @@ What the SDK guarantees for this to hold:
   reloads. It is a grouping key, not an identity: event and visitor ids are the server's.
 - The person a visitor belongs to is the server's too: `visitor.distinct_id`, the visitor's own id
   until someone signs in on it and the user's id from then on. The client never sends it;
-  `setVisitor` hands the server's value to the third-party user setters, and PostHog is identified
-  by it once a user is known.
+  `identify` hands the user's id to the third-party user setters as that value, and PostHog is
+  identified by it once a user is known. A visitor only ever belongs to one user: `reset()` starts
+  a new one at sign-out, and `identify` does when another user signs in over the last one.
 
 ## Ad performance (`@shware/analytics/ads`)
 

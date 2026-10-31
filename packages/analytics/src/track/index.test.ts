@@ -700,3 +700,110 @@ describe('sendBeacon', () => {
     warn.mockRestore();
   });
 });
+
+describe('reset and the queue', () => {
+  async function loadWithVisitor() {
+    const loaded = await load();
+    const visitor = await import('../visitor/index');
+    return { ...loaded, ...visitor };
+  }
+
+  it('sends what was tracked before it under the old visitor and session, the rest under new ones', async () => {
+    const { track, reset, storage } = await loadWithVisitor();
+    respondWithIds();
+
+    track('page_view');
+    track('logout');
+    reset();
+    track('page_view');
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const [before, after] = sentBatches();
+    expect(before.body.map((e) => e.name)).toEqual(['session_start', 'page_view', 'logout']);
+    expect(new Set(before.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+    // The next event opens a session of its own, on the new visitor, and announces it.
+    const visitor = storage.map.get('visitor_id');
+    expect(visitor).not.toBe('visitor-1');
+    expect(after.body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
+    expect(new Set(after.body.map((e) => e.visitor_id))).toEqual(new Set([visitor]));
+    expect(after.body[0].session_id).not.toBe(before.body[0].session_id);
+  });
+
+  it('reports the engagement the session accrued, in that session, and sends at once', async () => {
+    const { track, reset } = await loadWithVisitor();
+    respondWithIds();
+
+    track('page_view');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [first, ending] = sentBatches();
+    expect(ending.body).toEqual([
+      expect.objectContaining({
+        name: 'user_engagement',
+        properties: { engagement_time_msec: 5000, trigger: 'reset' },
+        visitor_id: 'visitor-1',
+        session_id: first.body[0].session_id,
+      }),
+    ]);
+  });
+
+  it('reports a session past its timeout without reviving it, and starts none with nothing stored', async () => {
+    const { track, reset, storage } = await loadWithVisitor();
+    respondWithIds();
+
+    const { getSession } = await import('../setup/session');
+    track('page_view');
+    await vi.advanceTimersByTimeAsync(3000);
+    // The page loses focus with 3s accrued, and is left alone past the session timeout.
+    getSession().blur();
+    const session = storage.map.get('session');
+    vi.setSystemTime(Date.now() + 45 * 60 * 1000);
+
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const ending = sentBatches()[1];
+    expect(ending.body).toEqual([
+      expect.objectContaining({
+        name: 'user_engagement',
+        properties: { engagement_time_msec: 3000, trigger: 'reset' },
+        session_id: session?.split('.')[1],
+      }),
+    ]);
+    expect(storage.map.get('session')).toBe('');
+
+    // A second reset has no session left to report for.
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('beacons the pending events one visitor at a time', async () => {
+    const beacon = vi.fn<Navigator['sendBeacon']>(() => true);
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    const { track, reset, sendPendingEvents } = await loadWithVisitor();
+    // Nothing answers: the batch reset sends stays in flight, so the queue is beaconed as it is.
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+
+    track('logout');
+    reset();
+    track('page_view');
+    sendPendingEvents();
+
+    const bodies = await Promise.all(
+      beacon.mock.calls.map(async ([, blob]) => {
+        if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+        return JSON.parse(await blob.text()) as Record<string, unknown>[];
+      })
+    );
+    expect(bodies.map((body) => new Set(body.map((e) => e.visitor_id)).size)).toEqual(
+      bodies.map(() => 1)
+    );
+    expect(bodies.flat().map((e) => e.name)).toContain('page_view');
+  });
+});

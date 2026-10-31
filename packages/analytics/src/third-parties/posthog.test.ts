@@ -66,7 +66,7 @@ describe('setPosthogUser', () => {
     expect(identify).not.toHaveBeenCalled();
   });
 
-  it('resets the posthog identity on sign-out: a setVisitor without a user', () => {
+  it('resets the posthog identity on sign-out: reset() hands no user', () => {
     setPosthogUser({ distinct_id: null });
     expect(reset).toHaveBeenCalledTimes(1);
     expect(identify).not.toHaveBeenCalled();

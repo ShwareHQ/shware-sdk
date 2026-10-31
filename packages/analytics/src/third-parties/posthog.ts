@@ -26,8 +26,8 @@ export function sendPosthogEvent<T extends EventName>(
  * make PostHog treat it as an identified person, and PostHog does not merge one identified person
  * into another when the user later signs in, so the pre-sign-in events would stay split off.
  *
- * Without a user it is sign-out (`setVisitor({})`): PostHog's identity is reset, so the next
- * person on this page starts anonymous instead of merging into the one who left.
+ * Without a user it is sign-out (`reset()`): PostHog's identity is reset, so the next person on
+ * this page starts anonymous instead of merging into the one who left.
  */
 export function setPosthogUser({ user_id, distinct_id, user_data }: VisitorIdentity) {
   if (!user_id) {

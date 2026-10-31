@@ -19,8 +19,8 @@ export interface Visitor {
 }
 
 /**
- * What a third-party user setter is handed after `setVisitor`: the payload that was sent, plus
- * the server's `distinct_id` for the visitor as it now stands.
+ * What a third-party user setter is handed: by `identify`, the user and the `user_data` it was
+ * given, with the user as the `distinct_id`; by `reset()`, no user and a null `distinct_id`.
  */
 export type VisitorIdentity = UpdateVisitorDTO & Pick<Visitor, 'distinct_id'>;
 
