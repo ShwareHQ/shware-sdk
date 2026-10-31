@@ -3,7 +3,7 @@ import { config } from '../setup/index';
 import { endSession, track } from '../track/index';
 import type { UserProvidedData } from '../track/types';
 import { newVisitorId } from './id';
-import type { VisitorIdentity } from './types';
+import type { ThirdPartyUserSetter } from './types';
 
 export { visitorId } from './id';
 
@@ -20,11 +20,11 @@ export const IDENTIFY_EVENT = 'identify';
  */
 let identified: string | undefined;
 
-/** Hands the identity to every third-party user setter; one that throws does not stop the others. */
-function setUsers(identity: VisitorIdentity) {
+/** Hands the user to every third-party user setter; one that throws does not stop the others. */
+function setUsers(user: Parameters<ThirdPartyUserSetter>[0]) {
   config.thirdPartyUserSetters.forEach((setter) => {
     try {
-      setter(identity);
+      setter(user);
     } catch (e: unknown) {
       if (e instanceof Error) console.log(e.message);
     }
@@ -59,9 +59,7 @@ export function identify(userId: string, userData?: UserProvidedData) {
     track(IDENTIFY_EVENT, { user_id: userId }, { enableThirdPartyTracking: false });
   }
 
-  // Once bound, the server's person key for the visitor is the user's id, so the setters are told
-  // that rather than waiting for the server to say it.
-  setUsers({ user_id: userId, user_data: userData, distinct_id: userId });
+  setUsers({ user_id: userId, user_data: userData });
 }
 
 /**
@@ -99,6 +97,6 @@ export function reset() {
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
   }
-  if (signedIn || identified) setUsers({ distinct_id: null });
+  if (signedIn || identified) setUsers({});
   identified = undefined;
 }

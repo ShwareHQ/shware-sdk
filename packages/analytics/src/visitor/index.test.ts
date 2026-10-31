@@ -87,7 +87,7 @@ describe('identify', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('tells the third-party setters at once, with the user as the distinct id', async () => {
+  it('tells the third-party setters at once', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, config } = await load();
     config.thirdPartyUserSetters = [setter];
@@ -95,7 +95,7 @@ describe('identify', () => {
 
     identify('u1', user_data);
 
-    expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data, distinct_id: 'u1' });
+    expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data });
   });
 
   it('remembers the user on this device, and keeps the visitor for the same user', async () => {
@@ -120,7 +120,7 @@ describe('identify', () => {
     expect(storage.map.get('visitor_id')).toMatch(uuidv7);
     expect(storage.map.get('user_id')).toBe('b');
     // PostHog is reset before it is identified as the new user.
-    expect(setter.mock.calls.map(([identity]) => identity.distinct_id)).toEqual([null, 'b']);
+    expect(setter.mock.calls.map(([user]) => user.user_id)).toEqual([undefined, 'b']);
   });
 
   it('still identifies when the storage throws', async () => {
@@ -138,7 +138,7 @@ describe('identify', () => {
       { user_id: 'u1' },
       { enableThirdPartyTracking: false }
     );
-    expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data: undefined, distinct_id: 'u1' });
+    expect(setter).toHaveBeenCalledWith({ user_id: 'u1', user_data: undefined });
   });
 
   it('never throws: a setter that throws does not stop the others', async () => {
@@ -169,7 +169,7 @@ describe('reset', () => {
     expect(storage.map.get('visitor_id')).not.toBe('visitor-a');
     expect(storage.map.get('visitor_id')).toMatch(uuidv7);
     expect(storage.map.get('user_id')).toBe('');
-    expect(setter).toHaveBeenCalledWith({ distinct_id: null });
+    expect(setter).toHaveBeenCalledWith({});
   });
 
   it('keeps what describes the device', async () => {
@@ -213,7 +213,7 @@ describe('reset', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
     expect(() => reset()).not.toThrow();
-    expect(setter).toHaveBeenCalledWith({ distinct_id: null });
+    expect(setter).toHaveBeenCalledWith({});
   });
 
   it('replaces the visitor once per sign-out, however many tabs call it', async () => {
@@ -240,7 +240,7 @@ describe('reset', () => {
 
     expect(endSession).not.toHaveBeenCalled();
     expect(storage.map.get('visitor_id')).toBe(visitor);
-    expect(setter).toHaveBeenLastCalledWith({ distinct_id: null });
+    expect(setter).toHaveBeenLastCalledWith({});
   });
 
   it('does nothing on a device nobody signed in on', async () => {

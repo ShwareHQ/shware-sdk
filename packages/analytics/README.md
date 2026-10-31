@@ -538,9 +538,9 @@ What the SDK guarantees for this to hold:
 - `session_id` is a client-generated uuidv7 persisted in `config.storage`, shared across tabs and
   reloads. It is a grouping key, not an identity: event and visitor ids are the server's.
 - The person a visitor belongs to is the server's too: `visitor.distinct_id`, the visitor's own id
-  until someone signs in on it and the user's id from then on. The client never sends it;
-  `identify` hands the user's id to the third-party user setters as that value, and PostHog is
-  identified by it once a user is known. A visitor only ever belongs to one user: `reset()` starts
+  until someone signs in on it and the user's id from then on. The client never sends it; PostHog
+  is identified by the user's id, which is that value once a user is known. A visitor only ever
+  belongs to one user: `reset()` starts
   a new one at sign-out, and `identify` does when another user signs in over the last one.
 
 ## Ad performance (`@shware/analytics/ads`)
