@@ -1,7 +1,7 @@
 export { setupAnalytics } from './setup/index';
 export { track, sendBeacon, sendPendingEvents } from './track/index';
 export { trackOnce, type TrackOnceOptions } from './track/once';
-export { IDENTIFY_EVENT, setVisitor, visitorId } from './visitor/index';
+export { IDENTIFY_EVENT, identify, reset, visitorId } from './visitor/index';
 export { sendFeedback } from './feedback/index';
 export { createLink, getLink, type Link } from './link/index';
 export {

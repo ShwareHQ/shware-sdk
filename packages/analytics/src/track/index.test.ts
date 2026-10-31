@@ -700,3 +700,272 @@ describe('sendBeacon', () => {
     warn.mockRestore();
   });
 });
+
+describe('reset and the queue', () => {
+  /** Signed in: `reset()` only replaces the visitor while a user is identified on the device. */
+  async function loadWithVisitor() {
+    const loaded = await load();
+    loaded.storage.map.set('user_id', 'user-1');
+    const visitor = await import('../visitor/index');
+    return { ...loaded, ...visitor };
+  }
+
+  it('sends what was tracked before it under the old visitor and session, the rest under new ones', async () => {
+    const { track, reset, storage } = await loadWithVisitor();
+    respondWithIds();
+
+    track('page_view');
+    track('logout');
+    reset();
+    track('page_view');
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const [before, after] = sentBatches();
+    expect(before.body.map((e) => e.name)).toEqual(['session_start', 'page_view', 'logout']);
+    expect(new Set(before.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+    // The next event opens a session of its own, on the new visitor, and announces it.
+    const visitor = storage.map.get('visitor_id');
+    expect(visitor).not.toBe('visitor-1');
+    expect(after.body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
+    expect(new Set(after.body.map((e) => e.visitor_id))).toEqual(new Set([visitor]));
+    expect(after.body[0].session_id).not.toBe(before.body[0].session_id);
+  });
+
+  it('reports the engagement the session accrued, in that session, and sends at once', async () => {
+    const { track, reset } = await loadWithVisitor();
+    respondWithIds();
+
+    track('page_view');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [first, ending] = sentBatches();
+    expect(ending.body).toEqual([
+      expect.objectContaining({
+        name: 'user_engagement',
+        properties: { engagement_time_msec: 5000, trigger: 'reset' },
+        visitor_id: 'visitor-1',
+        session_id: first.body[0].session_id,
+      }),
+    ]);
+  });
+
+  it('reports a session past its timeout without reviving it, and starts none with nothing stored', async () => {
+    const { track, reset, storage } = await loadWithVisitor();
+    respondWithIds();
+
+    const { getSession } = await import('../setup/session');
+    track('page_view');
+    await vi.advanceTimersByTimeAsync(3000);
+    // The page loses focus with 3s accrued, and is left alone past the session timeout.
+    getSession().blur();
+    const session = storage.map.get('session');
+    vi.setSystemTime(Date.now() + 45 * 60 * 1000);
+
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const ending = sentBatches()[1];
+    expect(ending.body).toEqual([
+      expect.objectContaining({
+        name: 'user_engagement',
+        properties: { engagement_time_msec: 3000, trigger: 'reset' },
+        session_id: session?.split('.')[1],
+      }),
+    ]);
+    expect(storage.map.get('session')).toBe('');
+
+    // A second reset — another tab's — has nothing left to end.
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts the next user on a new visitor when they sign in over the last one', async () => {
+    const { track, identify, storage } = await loadWithVisitor();
+    respondWithIds();
+
+    track('page_view'); // the previous user's, signed in as user-1
+    identify('user-2'); // an expired session, a sign-out the host never reported
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const [previous, next] = sentBatches();
+    expect(previous.body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
+    expect(new Set(previous.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+    expect(next.body.map((e) => e.name)).toEqual(['session_start', 'identify']);
+    expect(next.body[1].properties).toEqual({ user_id: 'user-2' });
+    expect(new Set(next.body.map((e) => e.visitor_id))).toEqual(
+      new Set([storage.map.get('visitor_id')])
+    );
+    expect(storage.map.get('visitor_id')).not.toBe('visitor-1');
+  });
+
+  it('sends the queue at once even with no engagement to report', async () => {
+    const { track, reset } = await loadWithVisitor();
+    respondWithIds();
+
+    track('logout');
+    reset(); // in the same tick: nothing accrued since the session started
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sentBatches().map((batch) => batch.body.map((e) => e.name))).toEqual([
+      ['session_start', 'logout'],
+    ]);
+  });
+
+  it('hands the ending engagement to no third-party tracker', async () => {
+    const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
+    const { track, reset, config } = await loadWithVisitor();
+    config.thirdPartyTrackers = [tracker];
+    respondWithIds();
+
+    track('custom_action');
+    await vi.advanceTimersByTimeAsync(3000);
+    reset();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sentBatches()[1].body.map((e) => e.name)).toEqual(['user_engagement']);
+    expect(tracker.mock.calls.map(([name]) => name)).toEqual(['custom_action']);
+  });
+
+  it('keeps one visitor per request when it comes while a send waits on the tags', async () => {
+    let settle: (tags: TrackTags) => void = () => {};
+    const pending = new Promise<TrackTags>((resolve) => {
+      settle = resolve;
+    });
+    let calls = 0;
+    const { track, reset, config } = await loadWithVisitor();
+    // The first capture is slow; the send that the timer starts waits on it.
+    config.getTags = () => (++calls === 1 ? pending : {});
+    respondWithIds();
+
+    track('logout');
+    await vi.advanceTimersByTimeAsync(2000); // the timer's send is now waiting on the tags
+    expect(fetchMock).not.toHaveBeenCalled();
+    reset();
+    track('page_view');
+    settle({ utm_source: 'slow' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const batches = sentBatches();
+    expect(batches).toHaveLength(2);
+    for (const batch of batches) expect(new Set(batch.body.map((e) => e.visitor_id)).size).toBe(1);
+    // The 2s the send waited count as engagement, which reset() reports for the old session.
+    const names = batches.flatMap((b) => b.body.map((e) => e.name));
+    expect(names).toHaveLength(5);
+    expect(names).toEqual(
+      expect.arrayContaining(['logout', 'page_view', 'session_start', 'user_engagement'])
+    );
+    // Each event once: the send reset() started found the queue already taken.
+    const ids = batches.flatMap((b) => b.body.map((e) => e.id));
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("does not let one visitor's rejected batch take the other's down", async () => {
+    const { track, reset } = await loadWithVisitor();
+    fetchMock.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(textRequestBody(init)) as { visitor_id: string }[];
+      if (body[0]?.visitor_id === 'visitor-1') return new Response('bad', { status: 400 });
+      return new Response('[]', { status: 200 });
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const onError = vi.fn<NonNullable<TrackOptions['onError']>>();
+    const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
+
+    track('logout', undefined, { onError });
+    reset();
+    track('page_view', undefined, { onSucceed });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onSucceed).toHaveBeenCalledTimes(1);
+
+    // The rejected visitor's session_start goes out again with the next send, still its own.
+    fetchMock.mockClear();
+    respondWithIds();
+    track('custom_action');
+    await vi.advanceTimersByTimeAsync(2000);
+    const batches = sentBatches();
+    expect(batches).toHaveLength(2);
+    const retried = batches.find((b) => b.body[0].visitor_id === 'visitor-1');
+    expect(retried?.body.map((e) => e.name)).toEqual(['session_start']);
+  });
+
+  describe('when the page is hidden', () => {
+    const beacon = vi.fn<Navigator['sendBeacon']>(() => true);
+
+    beforeEach(() => {
+      beacon.mockReset();
+      beacon.mockReturnValue(true);
+      vi.stubGlobal('navigator', { sendBeacon: beacon });
+    });
+
+    async function beaconed() {
+      return Promise.all(
+        beacon.mock.calls.map(async ([, blob]) => {
+          if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+          return JSON.parse(await blob.text()) as Record<string, unknown>[];
+        })
+      );
+    }
+
+    it('beacons the pending events one visitor at a time, and sends none of them again', async () => {
+      const { track, reset, sendPendingEvents, storage } = await loadWithVisitor();
+      respondWithIds();
+
+      track('logout');
+      reset(); // its send has not taken the queue yet when the page is hidden right after
+      track('page_view');
+      sendPendingEvents();
+
+      const bodies = await beaconed();
+      expect(bodies.map((body) => [...new Set(body.map((e) => e.visitor_id))])).toEqual([
+        ['visitor-1'],
+        [storage.map.get('visitor_id')],
+      ]);
+      expect(bodies.map((body) => body.map((e) => e.name))).toEqual([
+        ['session_start', 'logout'],
+        ['session_start', 'page_view'],
+      ]);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('re-queues only the visitor whose beacon was refused, and sends it by fetch', async () => {
+      const { track, sendPendingEvents, storage } = await loadWithVisitor();
+      const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
+      respondWithIds();
+      // A queue spanning two visitors, as another tab's reset leaves one.
+      track('logout', undefined, { onSucceed });
+      storage.map.set('visitor_id', '0199e7a0-0000-7000-8000-000000000002');
+      storage.map.set('session', '');
+      track('page_view', undefined, { onSucceed });
+      // Refuse the first beacon, the old visitor's, only.
+      beacon.mockReturnValueOnce(false);
+
+      sendPendingEvents();
+      expect(onSucceed).toHaveBeenCalledTimes(1);
+      expect(onSucceed).toHaveBeenCalledWith(expect.objectContaining({ beacon: true }));
+
+      await vi.advanceTimersByTimeAsync(0);
+      const [sent] = sentBatches();
+      expect(sent.body.map((e) => e.name)).toEqual(['session_start', 'logout']);
+      expect(new Set(sent.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+    });
+
+    it('reports no engagement for a visitor whose session reset just ended', async () => {
+      const { track, reset, sendBeacon } = await loadWithVisitor();
+      respondWithIds();
+
+      track('page_view');
+      reset();
+      sendBeacon('user_engagement', { engagement_time_msec: 500, trigger: 'pagehide' });
+
+      expect(beacon).not.toHaveBeenCalled();
+    });
+  });
+});

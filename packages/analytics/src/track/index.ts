@@ -40,24 +40,31 @@ function getTokenBucket() {
   return (tokenBucket ??= new TokenBucket({ rate: 1, capacity: 20, requested: 2 }));
 }
 
-type Item = {
-  /**
-   * The event's id, a uuidv7 generated when it is tracked. The server stores the event under it
-   * (`on conflict (id) do nothing`, so a batch `fetch` retries is not stored twice), and the
-   * third-party trackers are given it at once as their deduplication id — the id the server's
-   * conversions API sends again for the same event.
-   */
+/**
+ * An event as the server takes it, one element of a `POST /events` batch — with the id the SDK
+ * always generates, and the name and properties as `track` types them.
+ */
+type TrackEvent = Omit<CreateTrackEventDTO[number], 'id' | 'name' | 'properties'> & {
   id: string;
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   name: TrackName<any>;
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   properties: TrackProperties<any>;
-  tags: Promise<TrackTags>;
-  /** `tags` once settled: a page being hidden can await nothing, and sends what it has. */
-  settled?: TrackTags;
-  /** Decided when the event happens, as GA4 and PostHog decide it, never when it is sent. */
-  session_id: string;
-  timestamp: string;
+};
+
+type Item = {
+  /**
+   * The event as it is sent, complete from the moment it is tracked: its id (a uuidv7 the server
+   * stores it under, `on conflict (id) do nothing`, and the deduplication id the third-party
+   * trackers are given at once), and the visitor, session and time it happened in — decided then,
+   * as GA4 and PostHog decide them, never when the batch goes out. `reset()` replaces the visitor
+   * and session, and an event tracked before it still belongs to the ones it happened in.
+   *
+   * `tags` starts as the last built tags and is replaced by the event's own once they are
+   * captured (`tagged`): a page being hidden can await nothing, and sends what it has.
+   */
+  event: TrackEvent;
+  tagged: Promise<void>;
   options: TrackOptions;
 };
 
@@ -114,10 +121,10 @@ let timer: ReturnType<typeof setTimeout> | null = null;
  * up on, as it was when it ran after the server's answer. Never more than once: a pixel's global
  * either exists by then or the script is blocked.
  */
-function firePixels(event: Item) {
+function firePixels({ event, options }: Item) {
   // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
   // object wholesale, and leaving the flag out must not silently switch forwarding off.
-  if (event.options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
+  if (options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
     return;
   }
   const notReady = callTrackers(config.thirdPartyTrackers, event);
@@ -126,7 +133,7 @@ function firePixels(event: Item) {
 }
 
 /** Calls each tracker with the event; returns the ones that said they were not ready. */
-function callTrackers(trackers: ThirdPartyTracker[], event: Item): ThirdPartyTracker[] {
+function callTrackers(trackers: ThirdPartyTracker[], event: TrackEvent): ThirdPartyTracker[] {
   return trackers.filter((tracker) => {
     try {
       return tracker(event.name, event.properties, event.id) === false;
@@ -137,6 +144,33 @@ function callTrackers(trackers: ThirdPartyTracker[], event: Item): ThirdPartyTra
     }
   });
 }
+
+/**
+ * What an event shares with every other event of the moment it happens: the visitor, the session,
+ * the time and the client, with the last built tags until the event's own are captured.
+ */
+function context(session_id: string, timestamp = new Date().toISOString()) {
+  return {
+    visitor_id: visitorId(),
+    session_id,
+    timestamp,
+    platform: config.platform,
+    environment: config.environment,
+    tags: cache.tags ?? {},
+  };
+}
+
+/** Queues the event, its tags to be filled in once `tags` settles. */
+function push(event: TrackEvent, tags: Promise<TrackTags>, options: TrackOptions): Item {
+  const tagged = tags.then((settled) => {
+    event.tags = settled;
+  });
+  const item = { event, tagged, options };
+  list.push(item);
+  return item;
+}
+
+const silent: TrackOptions = { enableThirdPartyTracking: false };
 
 /**
  * Queues an event, preceded by a `session_start` when it is the one that opens a session, and
@@ -150,41 +184,37 @@ function callTrackers(trackers: ThirdPartyTracker[], event: Item): ThirdPartyTra
  * the time the batch goes out.
  */
 function enqueue(
-  name: Item['name'],
-  properties: Item['properties'],
+  name: TrackEvent['name'],
+  properties: TrackEvent['properties'],
   options: TrackOptions,
   init: EventInit = {}
 ): Item {
   const timestamp = new Date().toISOString();
-  const tags = captureTags();
   const { id: session_id, started } = getSession().touch(Date.parse(timestamp));
-  const item = (fields: Pick<Item, 'id' | 'name' | 'properties' | 'options'>): Item => {
-    const result: Item = { ...fields, tags, timestamp, session_id };
-    void tags.then((settled) => (result.settled = settled));
-    return result;
-  };
-  if (started) {
-    const options = { enableThirdPartyTracking: false };
-    list.push(item({ id: uuidv7(), name: 'session_start', properties: {}, options }));
-  }
-  const event = item({ id: init.id ?? uuidv7(), name, properties, options });
-  list.push(event);
-  if (init.pixels !== false) firePixels(event);
-  return event;
+  const at = context(session_id, timestamp);
+  const tags = captureTags();
+  if (started) push({ ...at, id: uuidv7(), name: 'session_start', properties: {} }, tags, silent);
+  const item = push({ ...at, id: init.id ?? uuidv7(), name, properties }, tags, options);
+  if (init.pixels !== false) firePixels(item);
+  return item;
 }
 
-function toDTO(event: Item, visitor_id: string, tags: TrackTags): CreateTrackEventDTO[number] {
-  return {
-    id: event.id,
-    name: event.name,
-    properties: event.properties,
-    tags,
-    visitor_id,
-    session_id: event.session_id,
-    platform: config.platform,
-    environment: config.environment,
-    timestamp: event.timestamp,
-  };
+/**
+ * Ends the current session for `reset()`. What it accrued and has not reported goes out as a
+ * `user_engagement`, as when the page is closed, and the queue is sent. Synchronous: every queued
+ * event already carries its visitor and session, so the caller can replace the visitor right after.
+ */
+export function endSession() {
+  const { id, engagement_time_msec } = getSession().end();
+  if (id && engagement_time_msec > 0) {
+    const properties = { engagement_time_msec, trigger: 'reset' };
+    push(
+      { ...context(id), id: uuidv7(), name: 'user_engagement', properties },
+      captureTags(),
+      silent
+    );
+  }
+  if (list.length > 0) void flush();
 }
 
 /**
@@ -199,21 +229,40 @@ async function flush() {
   }
   if (list.length === 0) return;
 
-  let events: Item[] = [];
+  let headers: Record<string, string>;
   try {
     await getTokenBucket().removeTokens();
-    const visitor_id = visitorId();
-    const headers = await config.getHeaders();
-    // Settled before the events leave the queue; those queued meanwhile are a microtask away.
-    await Promise.all(list.map((event) => event.tags));
+    headers = await config.getHeaders();
+    // Tagged before the events leave the queue; those queued meanwhile are a microtask away.
+    await Promise.all(list.map((item) => item.tagged));
+  } catch (e: unknown) {
+    // Nothing has left the queue yet: the events wait for the next send.
+    if (e instanceof Error) console.log(e.message);
+    return;
+  }
 
-    events = list.splice(0);
-    if (events.length === 0) return;
-    const dto: CreateTrackEventDTO = await Promise.all(
-      events.map(async (event) => toDTO(event, visitor_id, await event.tags))
-    );
+  // The server takes one visitor per request, and a queue spans two after `reset()`. `send`
+  // settles its own failures, so neither batch can take the other down.
+  await Promise.all(byVisitor(list.splice(0)).map((batch) => send(batch, headers)));
+}
 
-    const body = JSON.stringify(dto);
+/**
+ * The items grouped by the visitor they were tracked under, each group in queue order. Not
+ * `Map.groupBy`: it is ES2024, missing from Safari before 17.4 and from Hermes before V1.
+ */
+function byVisitor(items: Item[]): Item[][] {
+  const groups = new Map<string, Item[]>();
+  for (const item of items) {
+    const { visitor_id } = item.event;
+    groups.set(visitor_id, [...(groups.get(visitor_id) ?? []), item]);
+  }
+  return [...groups.values()];
+}
+
+/** One visitor's batch, as one request. */
+async function send(items: Item[], headers: Record<string, string>) {
+  try {
+    const body = JSON.stringify(items.map((item) => item.event));
     const response = await fetch(`${config.endpoint}/events`, {
       method: 'POST',
       credentials: 'include',
@@ -236,21 +285,24 @@ async function flush() {
     // were fired with it then. Servers still answer one `{ id }` per event (`TrackEventResponse`),
     // which a server predating client ids fills with ids of its own; neither is needed here, and
     // an answer that is not even JSON does not turn a stored batch into a failure.
-    events.forEach((event) => event.options.onSucceed?.({ id: event.id }));
+    items.forEach(({ event, options }) => options.onSucceed?.({ id: event.id }));
   } catch (e: unknown) {
     if (e instanceof Error) console.log(e.message);
-    // `fetch` has already retried the transient failures by the time a batch fails here; what
-    // remains is a batch the server rejected outright — one invalid event fails the whole batch
-    // — or a network that stayed down past the retries. The other events are reported lost;
-    // `session_start` alone goes back on the queue for the next send, because it is the
-    // session's only attribution record: a session without one has no channel, and its every
-    // later event drops out of an attribution join.
-    const starts = events.filter((event) => event.name === 'session_start');
-    list.unshift(...starts);
-    events
-      .filter((event) => event.name !== 'session_start')
-      .forEach((event) => event.options.onError?.(e));
+    fail(items, e);
   }
+}
+
+/**
+ * `fetch` has already retried the transient failures by the time a batch fails; what remains is a
+ * batch the server rejected outright — one invalid event fails the whole batch — or a network that
+ * stayed down past the retries. The other events are reported lost; `session_start` alone goes
+ * back on the queue for the next send, because it is the session's only attribution record: a
+ * session without one has no channel, and its every later event drops out of an attribution join.
+ */
+function fail(items: Item[], e: unknown) {
+  const isStart = (item: Item) => item.event.name === 'session_start';
+  list.unshift(...items.filter(isStart));
+  items.filter((item) => !isStart(item)).forEach((item) => item.options.onError?.(e));
 }
 
 /** `track`, with the `EventInit` only the SDK itself passes. */
@@ -299,51 +351,37 @@ function beacon(dto: CreateTrackEventDTO): boolean {
  * Nothing can be awaited here, so the events go with the tags they have settled on (the last
  * built ones otherwise). Each goes with the id it was tracked with, and its third-party trackers
  * were fired then, under that id: none is fired again here. The visitor id is local
- * (`visitorId`), so a first visit left within a second is sent like any other; when no beacon
- * can take them — no `sendBeacon`, a refused body — they stay queued for the usual send.
+ * (`visitorId`), so a first visit left within a second is sent like any other. One beacon per
+ * visitor, as one request per visitor in `flush`; a visitor's events no beacon can take — no
+ * `sendBeacon`, a refused body — stay queued for the usual send.
  */
 export function sendPendingEvents() {
   if (list.length === 0) return;
-  const visitor_id = visitorId();
-  const dto: CreateTrackEventDTO = list.map((event) =>
-    toDTO(event, visitor_id, event.settled ?? cache.tags ?? {})
-  );
-  if (!beacon(dto)) {
-    void flush();
-    return;
-  }
   if (timer) {
     clearTimeout(timer);
     timer = null;
   }
-  list.splice(0).forEach((event) => event.options.onSucceed?.({ id: event.id, beacon: true }));
+  byVisitor(list.splice(0)).forEach((batch) => {
+    if (!beacon(batch.map((item) => item.event))) {
+      list.push(...batch);
+      return;
+    }
+    batch.forEach(({ event, options }) => options.onSucceed?.({ id: event.id, beacon: true }));
+  });
+  if (list.length > 0) void flush();
 }
 
 export function sendBeacon<T extends EventName = EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  const visitor_id = visitorId();
   // No stored session means no event was ever queued from this storage, so there is no session
   // to report for — and one started here could never be announced. See `Session.extend`.
   const session_id = getSession().extend();
   if (!session_id) return;
 
-  const dto: CreateTrackEventDTO = [
-    {
-      id: uuidv7(),
-      name,
-      properties,
-      // Tags are worth less than the event carrying them: an empty set still reports the
-      // engagement, and every field in `tagsSchema` is optional.
-      tags: cache.tags ?? {},
-      visitor_id,
-      session_id,
-      platform: config.platform,
-      environment: config.environment,
-      timestamp: new Date().toISOString(),
-    },
-  ];
-  if (beacon(dto)) return;
+  // With the last built tags: they are worth less than the event carrying them, and an empty set
+  // still reports the engagement (every field in `tagsSchema` is optional).
+  if (beacon([{ ...context(session_id), id: uuidv7(), name, properties }])) return;
   console.warn('Failed to send beacon', name, properties);
 }
