@@ -30,6 +30,11 @@ export interface Integration {
   readonly track: ThirdPartyTracker;
   readonly setUser?: ThirdPartyUserSetter;
   readonly script?: IntegrationScript;
+  /**
+   * Origins `<Analytics>` preconnects to (`react-dom`'s `preconnect`), so the connection is up
+   * before the script asks for something there — e.g. where a snippet loads its library from.
+   */
+  readonly preconnect?: readonly string[];
 }
 
 /**

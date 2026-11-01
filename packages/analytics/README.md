@@ -16,27 +16,26 @@ pnpm add @shware/analytics zod
 ```
 
 Every framework and platform integration is an optional peer dependency: install only what your
-entry point imports (`next`, `@tanstack/react-start`, `posthog-js`, the `expo-*`
+entry point imports (`next`, `@tanstack/react-start`, the `expo-*`
 modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on).
 
 ## Entry points
 
-| Import                                    | Runs on | What it is for                                                              |
-| ----------------------------------------- | ------- | --------------------------------------------------------------------------- |
-| `@shware/analytics`                       | client  | `setupAnalytics`, `track`, `identify`, `reset`, `sendFeedback`, links, bots |
-| `@shware/analytics/web`                   | browser | `storage`, `getTags`, `getDeviceId` for `setupAnalytics` on the web         |
-| `@shware/analytics/native`                | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`            |
-| `@shware/analytics/native/firebase`       | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics           |
-| `@shware/analytics/native/fbsdk`          | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK                   |
-| `@shware/analytics/next`                  | browser | `<Analytics />` for the Next.js App Router                                  |
-| `@shware/analytics/react`                 | browser | `<Analytics />` for any React router (TanStack Router, React Router, …)     |
-| `@shware/analytics/tanstack`              | both    | `createClickIdMiddleware` for TanStack Start                                |
-| `@shware/analytics/third-parties`         | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters      |
-| `@shware/analytics/third-parties/posthog` | browser | `sendPosthogEvent` and `setPosthogUser`                                     |
-| `@shware/analytics/server`                | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI     |
-| `@shware/analytics/server/legacy`         | server  | The old Meta sender built on `facebook-nodejs-business-sdk`                 |
-| `@shware/analytics/attribution`           | server  | `classifyTouch` and the channel vocabulary for reading sessions             |
-| `@shware/analytics/ads`                   | server  | Pulling spend and performance from Google Ads and Meta                      |
+| Import                              | Runs on | What it is for                                                              |
+| ----------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `@shware/analytics`                 | client  | `setupAnalytics`, `track`, `identify`, `reset`, `sendFeedback`, links, bots |
+| `@shware/analytics/web`             | browser | `storage`, `getTags`, `getDeviceId` for `setupAnalytics` on the web         |
+| `@shware/analytics/native`          | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`            |
+| `@shware/analytics/native/firebase` | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics           |
+| `@shware/analytics/native/fbsdk`    | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK                   |
+| `@shware/analytics/next`            | browser | `<Analytics />` for the Next.js App Router                                  |
+| `@shware/analytics/react`           | browser | `<Analytics />` for any React router (TanStack Router, React Router, …)     |
+| `@shware/analytics/tanstack`        | both    | `createClickIdMiddleware` for TanStack Start                                |
+| `@shware/analytics/third-parties`   | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters      |
+| `@shware/analytics/server`          | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI     |
+| `@shware/analytics/server/legacy`   | server  | The old Meta sender built on `facebook-nodejs-business-sdk`                 |
+| `@shware/analytics/attribution`     | server  | `classifyTouch` and the channel vocabulary for reading sessions             |
+| `@shware/analytics/ads`             | server  | Pulling spend and performance from Google Ads and Meta                      |
 
 ## Client-side only
 
@@ -85,12 +84,15 @@ import {
   linkedInAds,
   metaAds,
   microsoftAds,
+  posthogAnalytics,
 } from '@shware/analytics/third-parties';
-import { posthogAnalytics } from '@shware/analytics/third-parties/posthog';
 
 export const integrations = [
   googleAnalytics({ id: 'G-XXXXXXX', debug: import.meta.env.DEV }),
-  posthogAnalytics(),
+  posthogAnalytics({
+    token: 'phc_XXXXXXX',
+    config: { api_host: 'https://us.i.posthog.com', defaults: '2026-01-30' },
+  }),
   metaAds({ pixelId: '1234567890', customEvents: ['onboarding_completed'] }),
   linkedInAds({ partnerId: '123456', conversions: { sign_up: 7654321 } }),
   microsoftAds({ tagId: '987654', customerId: '1234' }),
@@ -104,7 +106,22 @@ export const integrations = [
 | `ads`       | `linkedInAds`                         | the events in `conversions`, each as its conversion id                                     |
 | `ads`       | `microsoftAds`                        | `events` (the GA4 conversion events, `CONVERSION_EVENTS`, by default), plus `customEvents` |
 
-An ad platform needs conversions to optimize and build audiences, not the product's day-to-day events, which are behavior analysis for GA4 and PostHog. `excludeFromIntegrations` applies to every integration, analytics included. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
+An ad platform needs conversions to optimize and build audiences, not the product's day-to-day events, which are behavior analysis for GA4 and PostHog. `excludeFromIntegrations` applies to every integration, analytics included. PostHog loads from its HTML snippet like the pixels, so `posthog-js` is not bundled: the library comes from PostHog's assets host after the page loads, and `config` (only its JSON survives) goes to `posthog.init`. Until it loads, `window.posthog` is a stub that queues calls returning nothing (`capture`, `identify`, `onFeatureFlags`) and replays them, while calls returning a value (`getFeatureFlag`) return `undefined`. So: `getPosthog()` for queued calls, `getLoadedPosthog()` (undefined until loaded) for values, and `useFeatureFlag(key)` from `@shware/analytics/react` in components. `useFeatureFlag` renders the default until flags arrive, then the variant. To show a `<Suspense>` fallback until then instead, wait for them with React 19.3's `browser()` (so the server renders the fallback) and `posthogFlagsReady()` (one promise per page, resolving when flags load or after a 3 s timeout, for when an ad blocker stops the library):
+
+```tsx
+import { useFeatureFlag } from '@shware/analytics/react';
+import { posthogFlagsReady } from '@shware/analytics/third-parties';
+import { use } from 'react';
+import { browser } from 'react-dom';
+
+function Checkout() {
+  use(browser());
+  use(posthogFlagsReady());
+  return useFeatureFlag('new-checkout') === 'test' ? <NewCheckout /> : <OldCheckout />;
+}
+```
+
+With server-evaluated flags in `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `posthog-js`: install it as a dev dependency for them. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
 

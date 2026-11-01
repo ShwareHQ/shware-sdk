@@ -7,7 +7,7 @@ import { Suspense } from 'react';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
-import type { AnalyticsProps } from '../third-parties/analytics-props';
+import { type AnalyticsProps, preconnectIntegrations } from '../third-parties/analytics-props';
 import { uetCustomerIdOf } from '../third-parties/microsoft-uet';
 import { track } from '../track/index';
 
@@ -31,6 +31,7 @@ export function Analytics({
 }: AnalyticsProps) {
   useOutboundClickAnalytics();
   useUETIdSync(uetCustomerIdOf(integrations));
+  preconnectIntegrations(integrations);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;

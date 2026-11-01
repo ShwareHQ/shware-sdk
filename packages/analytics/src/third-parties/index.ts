@@ -1,6 +1,16 @@
 export { googleAnalytics, sendGAEvent, setGAUser } from './google-analytics';
 export { metaAds, sendFBEvent, setFBUser } from './meta-pixel';
 export { linkedInAds, sendLinkedinEvent, setLinkedinUser } from './linkedin-insight-tag';
+export {
+  posthogAnalytics,
+  sendPosthogEvent,
+  setPosthogUser,
+  getPosthog,
+  getLoadedPosthog,
+  posthogFlagsReady,
+  type PostHog,
+  type PostHogConfig,
+} from './posthog';
 export { openaiAds, sendOpenAIEvent, setOpenAIUser } from './openai-pixel';
 export { redditAds, sendRedditEvent, setRedditUser } from './reddit-pixel';
 export {

@@ -46,7 +46,7 @@ export default defineConfig({
         'src/track/gtag.ts',
         'src/track/lintrk.ts',
         'src/next/**',
-        'src/react/**',
+        'src/react/index.tsx',
         'src/tanstack/index.ts',
         'src/native/fbsdk.ts',
         'src/native/firebase.ts',

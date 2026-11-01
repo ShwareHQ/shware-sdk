@@ -2,7 +2,11 @@ import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics
 import { useReportWebVitals } from '../hooks/use-report-web-vitals';
 import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
-import { type AnalyticsProps, IntegrationScripts } from '../third-parties/analytics-props';
+import {
+  type AnalyticsProps,
+  IntegrationScripts,
+  preconnectIntegrations,
+} from '../third-parties/analytics-props';
 import { uetCustomerIdOf } from '../third-parties/microsoft-uet';
 import { track } from '../track/index';
 
@@ -28,6 +32,7 @@ export function Analytics({
   useWebAnalytics(pathname, search);
   useOutboundClickAnalytics();
   useUETIdSync(uetCustomerIdOf(integrations));
+  preconnectIntegrations(integrations);
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
@@ -50,3 +55,5 @@ export function Analytics({
     </>
   );
 }
+
+export { useFeatureFlag } from './use-feature-flag';

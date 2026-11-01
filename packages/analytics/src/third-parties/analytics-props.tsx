@@ -1,3 +1,4 @@
+import { preconnect } from 'react-dom';
 import type { Integration } from './integration';
 
 /** The props every framework's `<Analytics>` takes (react, next). */
@@ -10,6 +11,16 @@ export interface AnalyticsProps {
   nonce?: string;
   /** Reports Core Web Vitals as events (on by default). */
   reportWebVitals?: boolean;
+}
+
+/**
+ * Preconnects to every integration's `preconnect` origins. Called while rendering: React dedupes
+ * the hints and, on the server, puts them at the top of `<head>`.
+ */
+export function preconnectIntegrations(integrations: readonly Integration[] = []) {
+  integrations.forEach((integration) => {
+    integration.preconnect?.forEach((origin) => preconnect(origin, { crossOrigin: 'anonymous' }));
+  });
 }
 
 /**
