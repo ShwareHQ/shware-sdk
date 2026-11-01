@@ -1,17 +1,16 @@
-// oxlint-disable vitest/expect-expect -- the differential tests assert inside expectSamePayload
+// oxlint-disable vitest/expect-expect -- the snapshot tests assert inside expectSamePayload
 /**
- * The contract of the lightweight Meta sender is byte-equality with the business SDK: for the
- * same events, `getCapiEvent` must produce exactly what `ServerEvent.normalize()` would put on
- * the wire — every hash, every key, the sparse extinfo object included. Three layers enforce it:
- * a field-by-field differential suite, a seeded fuzz differential over randomized inputs, and
- * known-vector hash tests that pin the normalization rules to concrete SHA-256 values so they
- * survive even if the business SDK ever leaves the dev dependencies.
+ * The contract of the Meta sender is byte-equality with Meta's business SDK: for the same events,
+ * `getCapiEvent` produces exactly what `ServerEvent.normalize()` put on the wire — every hash,
+ * every key, the sparse extinfo object included. The snapshots were written while both builders
+ * ran side by side and matched, before the SDK was dropped, so they hold the SDK's output:
+ * a field-by-field suite, and the digest of a seeded fuzz over randomized inputs. Known-vector
+ * hash tests pin the normalization rules to concrete SHA-256 values besides.
  */
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getCapiEvent, sendEvents } from './meta-capi';
-import { getServerEvent } from './meta-conversions-api';
 
 // A minute ago: the senders leave out events older than their API accepts.
 const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
@@ -38,18 +37,30 @@ function wire(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
+/** A fixed event time, so the snapshots (`event_time`, a formatted `fbc`) do not move with the clock. */
+const SNAPSHOT_AT = '2026-06-01T00:00:00.000Z';
+
+function payload(
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+  trackEvent: TrackEvent<any>,
+  data: UserProvidedData = {},
+  appPackageName?: string
+) {
+  // Only the default, moving time is fixed: a case that sets its own time keeps it.
+  const created_at = trackEvent.created_at === CREATED_AT ? SNAPSHOT_AT : trackEvent.created_at;
+  return wire(getCapiEvent({ ...trackEvent, created_at }, data, appPackageName));
+}
+
 function expectSamePayload(
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   trackEvent: TrackEvent<any>,
   data: UserProvidedData = {},
   appPackageName?: string
 ) {
-  const sdk = wire(getServerEvent(trackEvent, data, appPackageName).normalize());
-  const capi = wire(getCapiEvent(trackEvent, data, appPackageName));
-  expect(capi).toEqual(sdk);
+  expect(payload(trackEvent, data, appPackageName)).toMatchSnapshot();
 }
 
-describe('differential: getCapiEvent === business SDK normalize()', () => {
+describe('getCapiEvent === business SDK normalize(), as snapshotted', () => {
   it('a purchase with the full single-address identity block', () => {
     expectSamePayload(
       event({
@@ -295,7 +306,7 @@ describe('differential: getCapiEvent === business SDK normalize()', () => {
   });
 });
 
-describe('differential fuzz: seeded random inputs through both builders', () => {
+describe('fuzz: seeded random inputs, as snapshotted', () => {
   /** mulberry32 — deterministic, so a failure is reproducible from the printed seed. */
   function prng(seed: number) {
     return () => {
@@ -324,6 +335,7 @@ describe('differential fuzz: seeded random inputs through both builders', () => 
     const countries = ['us', 'GB', 'de', 'FR', 'jp'];
     const eventNames = ['purchase', 'add_to_cart', 'search', 'subscribe', 'custom_thing'];
 
+    const payloads: unknown[] = [];
     for (let i = 0; i < 120; i++) {
       const address = () => ({
         first_name: maybe(pick(names)),
@@ -381,12 +393,13 @@ describe('differential fuzz: seeded random inputs through both builders', () => 
       const appPackageName = maybe('com.example.app');
 
       try {
-        expectSamePayload(trackEvent, data, appPackageName);
+        payloads.push(payload(trackEvent, data, appPackageName));
       } catch (error) {
         console.error(`fuzz case ${i} diverged`, JSON.stringify({ trackEvent, data }));
         throw error;
       }
     }
+    expect(sha256(JSON.stringify(payloads))).toMatchSnapshot();
   });
 });
 
@@ -573,25 +586,27 @@ describe('sendEvents transport', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('logs a rejected batch without throwing and without leaking the token', async () => {
+  it('rejects a rejected batch, without the token in the error', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: { message: 'Invalid parameter' } }), { status: 400 })
     );
 
-    await expect(sendEvents('secret-token', 'p', [event()])).resolves.toBeUndefined();
-    const logged = String(errorSpy.mock.calls[0][0]);
-    expect(logged).toContain('status: 400');
-    expect(logged).not.toContain('secret-token');
+    const error: unknown = await sendEvents('secret-token', 'p', [event()]).catch(
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({ name: 'ConversionsApiError', platform: 'meta', status: 400 });
+    expect(String(error)).toContain('status: 400');
+    expect(JSON.stringify(error) + String(error)).not.toContain('secret-token');
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('absorbs a network failure after the retry wrapper gives up', async () => {
+  it('rejects with the network failure once the retry wrapper gives up', async () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const pending = sendEvents('t', 'p', [event()]);
+    const pending = sendEvents('t', 'p', [event()]).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(10_000);
-    await expect(pending).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
+    expect(await pending).toEqual(new Error('offline'));
     vi.useRealTimers();
   });
 });

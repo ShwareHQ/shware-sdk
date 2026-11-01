@@ -4,6 +4,7 @@ import {
   NON_AD_EVENTS,
   type OAIQ,
   type OAIQUser,
+  isStandardOAIEvent,
   mapOAIEvent,
   normalizeOAIName,
   normalizeOAIPhone,
@@ -12,7 +13,7 @@ import {
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
-import { type AdsOptions, type Integration, adsTracker } from './integration';
+import { type AdsOptions, type Integration, adEvents, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -110,11 +111,15 @@ export function setOpenAIUser(pixelId: string) {
 }
 
 /** OpenAI measurement pixel: the events `mapOAIEvent` maps to a standard event, and `customEvents`. */
-export function openaiAds(options: { pixelId: string } & AdsOptions): Integration {
-  const isStandard = (name: string) => mapOAIEvent(name as TrackName).type !== 'custom';
+/** OpenAI's configuration, shared by `openaiAds` and `openaiConversions` on the server. */
+export interface OpenAIAdsOptions extends AdsOptions {
+  pixelId: string;
+}
+
+export function openaiAds(options: OpenAIAdsOptions): Integration {
   return {
     type: 'ads',
-    track: adsTracker(sendOpenAIEvent, isStandard, options.customEvents ?? []),
+    track: adsTracker(sendOpenAIEvent, adEvents(isStandardOAIEvent, options.customEvents)),
     setUser: setOpenAIUser(options.pixelId),
     script: {
       id: 'openai-pixel',

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { textRequestBody } from '../test/setup';
 import type { TrackEvent } from '../track/types';
 import { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
-import { getServerEvent as metaServerEvent } from './meta-conversions-api';
+import { getCapiEvent as metaServerEvent } from './meta-capi';
 import { getServerEvent as openaiServerEvent } from './openai-conversions-api';
 import { getServerEvent as redditServerEvent } from './reddit-conversions-api';
 
@@ -175,6 +175,8 @@ describe('Reddit', () => {
 });
 
 describe('Meta', () => {
+  const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+
   it('is timed by the event, in seconds', () => {
     const out = metaServerEvent(event(), {});
     expect(out.event_time).toBe(Math.round(CREATED_MS / 1000));
@@ -221,28 +223,28 @@ describe('Meta', () => {
     expect(metaServerEvent(event(), {}).action_source).toBe('website');
     expect(metaServerEvent(event(ios), {}, 'com.example.app').action_source).toBe('app');
     expect(metaServerEvent(event({ platform: 'unknown' }), {}).action_source).toBe('other');
-    expect(metaServerEvent(event(), {}, undefined, 'offline').action_source).toBe('other');
   });
 
   it('sends an app event only with the app_data Meta requires of one, else as other', () => {
     const ios = { platform: 'ios' as const, tags: { os_name: 'iOS' } };
     expect(metaServerEvent(event(), {}, 'com.example.app').app_data).toBeUndefined();
-    const app = metaServerEvent(event(ios), {}, 'com.example.app').normalize();
-    expect(app.app_data).toMatchObject({ advertiser_tracking_enabled: false });
-    expect(app.app_data.extinfo).toMatchObject({ 0: 'i2', 1: 'com.example.app' });
+    const app = metaServerEvent(event(ios), {}, 'com.example.app');
+    expect(app.app_data).toMatchObject({
+      advertiser_tracking_enabled: false,
+      extinfo: expect.objectContaining({ 0: 'i2', 1: 'com.example.app' }),
+    });
     // No package name, or a desktop OS Meta has no extinfo version for: not an app event.
     expect(metaServerEvent(event(ios), {}).action_source).toBe('other');
     const mac = { platform: 'macos' as const, tags: { os_name: 'macOS' } };
-    expect(metaServerEvent(event(mac), {}, 'com.example.app')).toMatchObject({
-      action_source: 'other',
-      app_data: undefined,
-    });
+    const desktop = metaServerEvent(event(mac), {}, 'com.example.app');
+    expect(desktop.action_source).toBe('other');
+    expect(desktop.app_data).toBeUndefined();
   });
 
   it('says whether the user allowed tracking: an advertising id is only readable then', () => {
     const tags = { os_name: 'Android', advertising_id: 'gaid-1' };
     const out = metaServerEvent(event({ platform: 'android', tags }), {}, 'com.example.app');
-    expect(out.normalize().app_data).toMatchObject({
+    expect(out.app_data).toMatchObject({
       advertiser_tracking_enabled: true,
       extinfo: { 0: 'a2' },
     });
@@ -255,64 +257,12 @@ describe('Meta', () => {
     );
   });
 
-  it('maps scalar user-provided data onto Meta user_data', () => {
-    const { user_data } = metaServerEvent(event(), {
-      email: 'ada@example.com',
-      phone_number: '+14155551234',
-      gender: 'female',
-      user_id: 'u1',
-      ip_address: '203.0.113.9',
-      user_agent: 'UA/1.0',
-      birthday: { year: 1990, month: 12, day: 3 },
-      address: {
-        first_name: 'Ada',
-        last_name: 'Lovelace',
-        city: 'London',
-        region: 'ENG',
-        postal_code: 'SW1',
-        country: 'GB',
-      },
-    });
-
-    expect(user_data.emails).toEqual(['ada@example.com']);
-    expect(user_data.phones).toEqual(['+14155551234']);
-    expect(user_data.genders).toEqual(['f']);
-    expect(user_data.external_ids).toEqual(['u1']);
-    expect(user_data.client_ip_address).toBe('203.0.113.9');
-    expect(user_data.client_user_agent).toBe('UA/1.0');
-    expect(user_data.doby).toBe('1990');
-    expect(user_data.dobm).toBe('12');
-    expect(user_data.dobd).toBe('3');
-    expect(user_data.first_names).toEqual(['Ada']);
-    expect(user_data.last_names).toEqual(['Lovelace']);
-    expect(user_data.cities).toEqual(['London']);
-    expect(user_data.states).toEqual(['ENG']);
-    expect(user_data.zips).toEqual(['SW1']);
-    expect(user_data.countries).toEqual(['gb']); // lowercased for Meta
-  });
-
-  it('maps multi-value user data as parallel lists', () => {
-    const { user_data } = metaServerEvent(event(), {
-      email: ['a@x.co', 'b@x.co'],
-      phone_number: ['+14155551234', '+14155551235'],
-      address: [
-        { first_name: 'Ada', country: 'GB' },
-        { first_name: 'Grace', country: 'US' },
-      ],
-    });
-
-    expect(user_data.emails).toEqual(['a@x.co', 'b@x.co']);
-    expect(user_data.phones).toEqual(['+14155551234', '+14155551235']);
-    expect(user_data.first_names).toEqual(['Ada', 'Grace']);
-    expect(user_data.countries).toEqual(['gb', 'us']);
-  });
-
   it('drops user-assigned country codes Meta cannot match (Kosovo)', () => {
     const single = metaServerEvent(event(), { address: { country: 'XK' } });
-    expect(single.user_data.countries).toBeUndefined();
+    expect(single.user_data.country).toBeUndefined();
 
     const list = metaServerEvent(event(), { address: [{ country: 'xk' }, { country: 'de' }] });
-    expect(list.user_data.countries).toEqual(['de']);
+    expect(list.user_data.country).toEqual([sha256('de')]);
   });
 
   it('builds custom_data from the mapped event, catalog fields split out', () => {
@@ -337,11 +287,10 @@ describe('Meta', () => {
     );
 
     expect(custom_data.value).toBe(99.5);
-    expect(custom_data.currency).toBe('usd');
+    expect(custom_data.currency).toBe('USD');
     expect(custom_data.content_ids).toEqual(['sku-1']);
     expect(custom_data.num_items).toBe(2);
-    expect(custom_data.contents).toHaveLength(1);
-    expect(custom_data.contents[0]).toMatchObject({ _id: 'sku-1', _quantity: 2 });
+    expect(custom_data.contents).toEqual([expect.objectContaining({ id: 'sku-1', quantity: 2 })]);
   });
 
   it('keeps unmapped custom event properties as custom_properties', () => {
@@ -349,20 +298,20 @@ describe('Meta', () => {
       event({ name: 'plan_upgraded', properties: { plan: 'pro', seats: 5 } }),
       {}
     );
-    expect(custom_data.custom_properties).toEqual({ plan: 'pro', seats: 5 });
+    expect(custom_data).toMatchObject({ plan: 'pro', seats: 5 });
   });
 
   it('stamps app events with the device extinfo for the right OS family', () => {
     const tags = { os_name: 'iOS', os_version: '19.0', release: '7.3.1', language: 'en-US' };
     const ios = metaServerEvent(event({ platform: 'ios', tags }), {}, 'com.example.app');
-    expect(ios.app_data.extinfo.ext_info_version).toBe('i2');
+    expect(ios.app_data).toMatchObject({ extinfo: expect.objectContaining({ 0: 'i2' }) });
 
     const android = metaServerEvent(
       event({ platform: 'android', tags: { ...tags, os_name: 'Android' } }),
       {},
       'com.example.app'
     );
-    expect(android.app_data.extinfo.ext_info_version).toBe('a2');
+    expect(android.app_data).toMatchObject({ extinfo: expect.objectContaining({ 0: 'a2' }) });
   });
 });
 

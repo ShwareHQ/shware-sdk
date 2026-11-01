@@ -6,10 +6,13 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
+import { adEvents } from '../third-parties/integration';
+import type { OpenAIAdsOptions } from '../third-parties/openai-pixel';
 import {
   APP_EVENTS,
   type EventData,
   NON_AD_EVENTS,
+  isStandardOAIEvent,
   mapOAIEvent,
   normalizeOAIName,
   normalizeOAIPhone,
@@ -18,7 +21,9 @@ import {
 import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { openaiOppref } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
 import { pageLocation } from './page-location';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
 
@@ -203,24 +208,27 @@ export async function sendEvents(
 
   if (dto.events.length === 0) return;
 
-  try {
-    const response = await fetch(`${ENDPOINT}?pid=${pixelId}`, {
-      method: 'POST',
-      // Retried although a POST: the platform deduplicates on the `event_id` each event carries.
-      retries: 3,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(dto),
-    });
+  const response = await fetch(`${ENDPOINT}?pid=${pixelId}`, {
+    method: 'POST',
+    // Retried although a POST: the platform deduplicates on the `event_id` each event carries.
+    retries: 3,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(dto),
+  });
 
-    if (response.ok) return;
-    const { status } = response;
-    const message = await response.text();
-    console.error(`Failed to send OpenAI conversion, status: ${status}, body: ${message}`);
-  } catch (error) {
-    console.error('Failed to send OpenAI conversion, network error:', error);
-  }
+  if (response.ok) return;
+  throw new ConversionsApiError('openai', response.status, await response.text());
+}
+
+/** OpenAI's Conversions API, sent the same events as `openaiAds`. */
+export function openaiConversions(
+  options: OpenAIAdsOptions & { accessToken: string; validateOnly?: boolean }
+): ConversionDestination {
+  return conversionDestination(adEvents(isStandardOAIEvent, options.customEvents), (events, data) =>
+    sendEvents(options.accessToken, options.pixelId, events, data, options.validateOnly)
+  );
 }

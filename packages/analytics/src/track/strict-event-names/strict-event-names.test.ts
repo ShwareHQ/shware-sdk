@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { useTrackImpression } from '../../hooks/use-track-impression';
+import { setupConversions } from '../../server/setup-conversions';
 import { sendBeacon, track } from '../index';
 import { trackOnce } from '../once';
 import type { TrackProperties } from '../types';
@@ -17,6 +18,11 @@ import type { TrackProperties } from '../types';
  * fail it as unused. The calls sit in a function that is never called, so nothing is sent; one
  * that calls the hook is named like a hook.
  */
+const conversions = setupConversions({
+  destinations: [],
+  track: { resolveUser: () => Promise.resolve(undefined), store: () => Promise.resolve(true) },
+});
+
 declare module '../types' {
   interface AnalyticsOptions {
     strict: true;
@@ -37,6 +43,13 @@ describe('strict on', () => {
       trackOnce('plan_changed', { direction: 'downgrade' }, { key: 'k' });
       sendBeacon('page_view');
       useTrackImpression('view_item', { currency: 'USD', value: 1, items: [] });
+      void conversions.track({
+        id: 'in_1',
+        name: 'plan_changed',
+        userId: 'u1',
+        properties: { direction: 'upgrade' },
+        createdAt: '2026-11-01T00:00:00.000Z',
+      });
     };
     expect(useCalls).toBeTypeOf('function');
   });
@@ -67,6 +80,13 @@ describe('strict on', () => {
       sendBeacon('some_other_event');
       // @ts-expect-error declared nowhere.
       useTrackImpression('some_other_event');
+      void conversions.track({
+        id: 'in_1',
+        // @ts-expect-error declared nowhere.
+        name: 'some_other_event',
+        userId: 'u1',
+        createdAt: '2026-11-01T00:00:00.000Z',
+      });
     };
     expect(useCalls).toBeTypeOf('function');
   });

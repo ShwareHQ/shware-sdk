@@ -6,9 +6,15 @@ import { createHash } from 'node:crypto';
 import { isIPv4 } from 'node:net';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import type { TrackEvent, UserProvidedData } from '../track/types';
+import type {
+  LinkedInAdsOptions,
+  LinkedinConversionConfig,
+} from '../third-parties/linkedin-insight-tag';
+import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { linkedinFatId } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 /**
  * The identifier types LinkedIn matches on, as of version 202609. `ORACLE_MOAT_ID` used to be
@@ -101,7 +107,8 @@ const hashEmail = (email: string) => sha256(email.toLowerCase().replace(/\s/g, '
  */
 const hashName = (name: string) => sha256(name.toLowerCase().replace(/[\s\p{P}]/gu, ''));
 
-export type LinkedinConversionConfig = Record<Lowercase<string>, number>;
+/** The same event name → conversion id map `linkedInAds` takes in the browser. */
+export type { LinkedinConversionConfig } from '../third-parties/linkedin-insight-tag';
 
 /**
  * `conversionHappenedAt` must be "within the past 90 days", and one invalid record makes "all
@@ -116,7 +123,6 @@ export async function sendEvents(
   events: TrackEvent<any>[],
   data: UserProvidedData = {}
 ) {
-  const eventNames = Object.keys(config);
   const address = getFirst(data.address);
   const userIds: { idType: UserIdType; idValue: string }[] = [];
   const externalIds: [string, ...string[]] | undefined = data.user_id ? [data.user_id] : undefined;
@@ -154,11 +160,15 @@ export async function sendEvents(
 
   const dto: CreateMultipleLinkedinEventsDTO = {
     elements: events
-      .filter((event) => eventNames.includes(event.name) && !IGNORED_EVENTS.includes(event.name))
+      .filter((event) => !IGNORED_EVENTS.includes(event.name))
       .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
-      .map((event): CreateLinkedinEventDTO => ({
+      .flatMap((event) => {
+        const conversionId = config[event.name as TrackName];
+        return conversionId === undefined ? [] : [{ event, conversionId }];
+      })
+      .map(({ event, conversionId }): CreateLinkedinEventDTO => ({
         eventId: event.id,
-        conversion: `urn:lla:llaPartnerConversion:${config[event.name]}`,
+        conversion: `urn:lla:llaPartnerConversion:${conversionId}`,
         conversionHappenedAt: new Date(event.created_at).getTime(),
         conversionValue: {
           currencyCode: event.properties?.currency?.toUpperCase() ?? 'USD',
@@ -180,26 +190,30 @@ export async function sendEvents(
   };
 
   if (dto.elements.length === 0) return;
-  try {
-    const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
-      method: 'POST',
-      // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
-      retries: 3,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'LinkedIn-Version': '202609',
-        'X-Restli-Protocol-Version': '2.0.0',
-        'X-RestLi-Method': 'BATCH_CREATE',
-      },
-      body: JSON.stringify(dto),
-    });
+  const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
+    method: 'POST',
+    // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
+    retries: 3,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'LinkedIn-Version': '202609',
+      'X-Restli-Protocol-Version': '2.0.0',
+      'X-RestLi-Method': 'BATCH_CREATE',
+    },
+    body: JSON.stringify(dto),
+  });
 
-    if (response.ok) return;
-    const { status } = response;
-    const message = await response.text();
-    console.error(`Failed to send LinkedIn conversion, status: ${status}, body: ${message}`);
-  } catch (error) {
-    console.error('Failed to send LinkedIn conversion, network error:', error);
-  }
+  if (response.ok) return;
+  throw new ConversionsApiError('linkedin', response.status, await response.text());
+}
+
+/** LinkedIn's Conversions API, sent the events in `conversions`, as `linkedInAds` is. */
+export function linkedinConversions(
+  options: Pick<LinkedInAdsOptions, 'conversions'> & { accessToken: string }
+): ConversionDestination {
+  return conversionDestination(
+    (name) => options.conversions[name as TrackName] !== undefined,
+    (events, data) => sendEvents(options.accessToken, options.conversions, events, data)
+  );
 }

@@ -362,3 +362,8 @@ export function mapOAIEvent<T extends EventName>(
     }
   }
 }
+
+/** Whether `mapOAIEvent` turns the event into an OpenAI standard event rather than `custom`. */
+export function isStandardOAIEvent(name: string): boolean {
+  return mapOAIEvent(name as TrackName).type !== 'custom';
+}

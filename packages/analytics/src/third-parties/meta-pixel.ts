@@ -1,8 +1,8 @@
 import type { UpdateVisitorDTO } from '../schema/index';
-import { type FBQ, type PixelId, mapFBEvent } from '../track/fbq';
+import { type FBQ, type PixelId, isStandardFBEvent, mapFBEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import { type AdsOptions, type Integration, adsTracker } from './integration';
+import { type AdsOptions, type Integration, adEvents, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -64,11 +64,15 @@ export function setFBUser(pixelId: PixelId) {
 }
 
 /** Meta Pixel: the events `mapFBEvent` maps to a Meta standard event, and `customEvents`. */
-export function metaAds(options: { pixelId: PixelId } & AdsOptions): Integration {
-  const isStandard = (name: string) => mapFBEvent(name as TrackName)[0] === 'track';
+/** Meta's configuration, shared by `metaAds` in the browser and `metaConversions` on the server. */
+export interface MetaAdsOptions extends AdsOptions {
+  pixelId: PixelId;
+}
+
+export function metaAds(options: MetaAdsOptions): Integration {
   return {
     type: 'ads',
-    track: adsTracker(sendFBEvent, isStandard, options.customEvents ?? []),
+    track: adsTracker(sendFBEvent, adEvents(isStandardFBEvent, options.customEvents)),
     setUser: setFBUser(options.pixelId),
     script: {
       id: 'meta-pixel',

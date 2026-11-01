@@ -1,0 +1,1013 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`fuzz: seeded random inputs, as snapshotted > 120 randomized events and identities produce identical payloads 1`] = `"a71a63fb2db251bcb68a4f3399b58d2797e67cc889f852cf3143bbd221f39ae0"`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > a legacy client still sending source_url keeps its event_source_url 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_source_url": "https://shop.example/old-bundle",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > a minimal event: empty tags, no user data 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > a minimal event: empty tags, no user data 2`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "Contact",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > a pre-hashed email passes through unhashed-again on both sides 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "em": [
+      "b5fc85e55755f9e0d030a10ab4429b6b2944855f9a0d60077fe832becbc41d72",
+    ],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > a purchase with the full single-address identity block 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_category": "plans",
+    "content_ids": [
+      "sku-1",
+    ],
+    "contents": [
+      {
+        "brand": "Acme",
+        "category": "plans",
+        "id": "sku-1",
+        "item_price": 49.75,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "USD",
+    "num_items": 2,
+    "value": 99.5,
+  },
+  "event_id": "idem-1",
+  "event_name": "Purchase",
+  "event_source_url": "https://shop.example/checkout?step=2",
+  "event_time": 1780272000,
+  "user_data": {
+    "client_ip_address": "203.0.113.9",
+    "client_user_agent": "Mozilla/5.0 UA",
+    "country": [
+      "0b407281768f0e833afef47ed464b6571d01ca4d53c12ce5c51d1462f4ad6677",
+    ],
+    "ct": [
+      "6089854c94ca5454b76be6752c562901a985f64c9a946f62976aeab593b83161",
+    ],
+    "dobd": "0b8efa5a3bf104413a725c6ff0459a6be12b1fd33314cbb138745baf39504ae5",
+    "dobm": "6b51d431df5d7f141cbececcf79edf3dd861c3b4069f0b11661a3eefacbba918",
+    "doby": "a7be8e1fe282a37cd666e0632b17d933fa13f21addf4798fc0455bc166e2488c",
+    "em": [
+      "b5fc85e55755f9e0d030a10ab4429b6b2944855f9a0d60077fe832becbc41d72",
+    ],
+    "external_id": [
+      "user-123",
+    ],
+    "f5first": "fdee430d40bd57deeac186cd9790033d0f06f909a8806e7ce6e717ab7c7d5029",
+    "f5last": "28b43e33188f595debd2a6291462a359c16637984083ae351e732394bda94890",
+    "fb_login_id": "12345",
+    "fbc": "fb.1.1700000000000.CLK1",
+    "fbp": "fb.1.1700000000000.987654",
+    "fn": [
+      "fdee430d40bd57deeac186cd9790033d0f06f909a8806e7ce6e717ab7c7d5029",
+    ],
+    "ge": [
+      "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111",
+    ],
+    "ln": [
+      "fb1e7ec987523d2cb9e022cec1d6ae7c99dc46edfae4fe51254025fe4bea571f",
+    ],
+    "page_id": "page-1",
+    "ph": [
+      "c6a349dfaaf5c3a368d3135014cc1bc7aebf18f654f313f9c1d0b018a897b209",
+    ],
+    "st": [
+      "82fe032bd9337b5dfb99b28717cf8651daac73f2d319e6d6213544660b961ee7",
+    ],
+    "zp": [
+      "830e1d4b9838bab1f5c2acdb23e0b502ff13a9832c4632e8d67a1d43d3b7f614",
+    ],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > action_source derives from the platform on both sides 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > action_source derives from the platform on both sides 2`] = `
+{
+  "action_source": "other",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > action_source derives from the platform on both sides 3`] = `
+{
+  "action_source": "other",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > action_source derives from the platform on both sides 4`] = `
+{
+  "action_source": "other",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > action_source derives from the platform on both sides 5`] = `
+{
+  "action_source": "other",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > an app event carries the same sparse extinfo object 1`] = `
+{
+  "action_source": "app",
+  "app_data": {
+    "advertiser_tracking_enabled": true,
+    "extinfo": {
+      "0": "i2",
+      "1": "com.example.app",
+      "10": 844,
+      "11": "3",
+      "2": "7",
+      "3": "7.4.0",
+      "4": "19.0",
+      "5": "iPhone17,1",
+      "6": "en-US",
+      "9": 390,
+    },
+    "install_referrer": "utm_source=meta",
+  },
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "madid": "ABCD-EFGH",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > an app event carries the same sparse extinfo object 2`] = `
+{
+  "action_source": "app",
+  "app_data": {
+    "advertiser_tracking_enabled": true,
+    "extinfo": {
+      "0": "a2",
+      "1": "com.example.app",
+      "10": 844,
+      "11": "3",
+      "2": "7",
+      "3": "7.4.0",
+      "4": "19.0",
+      "5": "iPhone17,1",
+      "6": "en-US",
+      "9": 390,
+    },
+    "install_referrer": "utm_source=meta",
+  },
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "madid": "ABCD-EFGH",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > an app event carries the same sparse extinfo object 3`] = `
+{
+  "action_source": "other",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "madid": "ABCD-EFGH",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > an app event carries the same sparse extinfo object 4`] = `
+{
+  "action_source": "other",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "madid": "ABCD-EFGH",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > dedupes on the idempotency key when present 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "idem-9",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > drops the user-assigned Kosovo country code on both sides 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "ct": [
+      "c8f88b0b57e9fad46aad79c985858fe0b9d76e2cbbc8ab6e65902c6cc2244011",
+    ],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > drops the user-assigned Kosovo country code on both sides 2`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "country": [
+      "959a45d44e6fcf58361ed004681556fe50129f2109e817dec098c00c9e5d2578",
+    ],
+    "ct": [],
+    "fn": [
+      "9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6",
+    ],
+    "ln": [],
+    "st": [],
+    "zp": [],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > event_time rounds the same sub-second timestamp 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1768046401,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every custom_data field flows identically, value 0 included 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_category": "plans",
+    "content_ids": [
+      "sku-1",
+      "sku-2",
+    ],
+    "content_name": "One",
+    "content_type": "product",
+    "contents": [
+      {
+        "brand": "Acme",
+        "category": "plans",
+        "delivery_category": "home_delivery",
+        "description": "A plan",
+        "id": "sku-1",
+        "item_price": 49.75,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "USD",
+    "delivery_category": "in_store",
+    "num_items": 3,
+    "plan": "pro",
+    "predicted_ltv": 500,
+    "search_string": "shoes",
+    "status": "true",
+    "value": 0,
+  },
+  "event_id": "event-1",
+  "event_name": "custom_full",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [
+      "sku-1",
+    ],
+    "contents": [
+      {
+        "id": "sku-1",
+        "item_price": 5,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "EUR",
+    "num_items": 2,
+    "value": 10,
+  },
+  "event_id": "event-1",
+  "event_name": "AddPaymentInfo",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 2`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [
+      "sku-1",
+    ],
+    "contents": [
+      {
+        "id": "sku-1",
+        "item_price": 5,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "EUR",
+    "num_items": 2,
+    "value": 10,
+  },
+  "event_id": "event-1",
+  "event_name": "AddToCart",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 3`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [
+      "sku-1",
+    ],
+    "contents": [
+      {
+        "id": "sku-1",
+        "item_price": 5,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "EUR",
+    "num_items": 2,
+    "value": 10,
+  },
+  "event_id": "event-1",
+  "event_name": "AddToWishlist",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 4`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "method": "email",
+  },
+  "event_id": "event-1",
+  "event_name": "CompleteRegistration",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 5`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "Contact",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 6`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "CustomizeProduct",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 7`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "Donate",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 8`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "FindLocation",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 9`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [
+      "sku-1",
+    ],
+    "contents": [
+      {
+        "id": "sku-1",
+        "item_price": 5,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "EUR",
+    "num_items": 2,
+    "value": 10,
+  },
+  "event_id": "event-1",
+  "event_name": "InitiateCheckout",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 10`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "currency": "USD",
+    "value": 1,
+  },
+  "event_id": "event-1",
+  "event_name": "Lead",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 11`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "currency": "USD",
+    "value": 0,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 12`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "Schedule",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 13`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "search_string": "shoes",
+  },
+  "event_id": "event-1",
+  "event_name": "Search",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 14`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "currency": "USD",
+    "value": 9,
+  },
+  "event_id": "event-1",
+  "event_name": "StartTrial",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 15`] = `
+{
+  "action_source": "website",
+  "custom_data": {},
+  "event_id": "event-1",
+  "event_name": "SubmitApplication",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 16`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "currency": "USD",
+    "value": 9,
+  },
+  "event_id": "event-1",
+  "event_name": "Subscribe",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 17`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [
+      "sku-1",
+    ],
+    "contents": [
+      {
+        "id": "sku-1",
+        "item_price": 5,
+        "quantity": 2,
+        "title": "One",
+      },
+    ],
+    "currency": "EUR",
+    "num_items": 2,
+    "value": 10,
+  },
+  "event_id": "event-1",
+  "event_name": "ViewContent",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > every internal-to-Meta event mapping agrees 18`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "plan": "pro",
+    "seats": 5,
+  },
+  "event_id": "event-1",
+  "event_name": "custom_thing",
+  "event_time": 1780272000,
+  "user_data": {},
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > multi-value emails, phones and addresses as parallel lists 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "country": [
+      "0b407281768f0e833afef47ed464b6571d01ca4d53c12ce5c51d1462f4ad6677",
+      "79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621",
+    ],
+    "ct": [
+      "6089854c94ca5454b76be6752c562901a985f64c9a946f62976aeab593b83161",
+      "350c754ba4d38897693aa077ef43072a859d23f613443133fecbbd90a3512ca5",
+    ],
+    "em": [
+      "725e56191cbb9c10d34f45759c820800271a2ad028fc1059de871c13c235fef2",
+      "dc8ab4be738a631acebac731cc8b888ccf09a8356ae09f557040a23aa71bf618",
+    ],
+    "fn": [
+      "fdee430d40bd57deeac186cd9790033d0f06f909a8806e7ce6e717ab7c7d5029",
+      "e010fd1ce1acc173e3b4835b7635f8d4600d774869102adb5cb7b5d7895649ba",
+    ],
+    "ln": [
+      "fb1e7ec987523d2cb9e022cec1d6ae7c99dc46edfae4fe51254025fe4bea571f",
+    ],
+    "ph": [
+      "c6a349dfaaf5c3a368d3135014cc1bc7aebf18f654f313f9c1d0b018a897b209",
+      "99a4599795d24445a5be21117f375c1bbe9e795daf7f62666686ce081e1f32dc",
+    ],
+    "st": [
+      "82fe032bd9337b5dfb99b28717cf8651daac73f2d319e6d6213544660b961ee7",
+      "1b06e2003f8420d6fa42badd8f77ec0f706b976b7a48b13c567dc5a559681683",
+    ],
+    "zp": [
+      "e443169117a184f91186b401133b20be670c7c0896f9886075e5d9b81e9d076b",
+    ],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > multi-value emails, phones and addresses as parallel lists 2`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "country": [
+      "959a45d44e6fcf58361ed004681556fe50129f2109e817dec098c00c9e5d2578",
+    ],
+    "ct": [
+      "fb38a93fd89e1a5fc7852a5d7109e321d23a721a1899292273ac5a21dc4db378",
+    ],
+    "fn": [
+      "fdee430d40bd57deeac186cd9790033d0f06f909a8806e7ce6e717ab7c7d5029",
+    ],
+    "ln": [],
+    "st": [],
+    "zp": [],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > multi-value emails, phones and addresses as parallel lists 3`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "country": [
+      "0b407281768f0e833afef47ed464b6571d01ca4d53c12ce5c51d1462f4ad6677",
+    ],
+    "ct": [],
+    "em": [
+      "725e56191cbb9c10d34f45759c820800271a2ad028fc1059de871c13c235fef2",
+    ],
+    "fn": [
+      "fdee430d40bd57deeac186cd9790033d0f06f909a8806e7ce6e717ab7c7d5029",
+    ],
+    "ln": [],
+    "ph": [
+      "c6a349dfaaf5c3a368d3135014cc1bc7aebf18f654f313f9c1d0b018a897b209",
+    ],
+    "st": [],
+    "zp": [],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > names past five characters slice into the same f5 prefixes 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "f5first": "7764735c5d4d88ae3ef1c0d6c0a5769e4187c341895db19a82ba7d4e17b8c914",
+    "f5last": "d7ff52ce76952c0a303b80f7088d2b69972dd5f52acb4edc7e45ca2aec351b1a",
+    "fn": [
+      "9f2a08fde416cef2158943241fee1dd8f3cca092afddef1d53ae82318e05f63e",
+    ],
+    "ln": [
+      "4a9ba0cd0c568ee68989b19029990f56564fe44fa9a282bf7dc1356f75d10ce6",
+    ],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > single-digit birthday fields pad the same way 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "dobd": "19b100ab7725c612f3d80ff203ca53cea5cadaafae3bf0f88f0fb4089fe08815",
+    "dobm": "a953f09a1b6b6725b81956e9ad0b1eb49e3ad40004c04307ef8af6246a054116",
+    "doby": "78e370b587b145920213731b7c7c725e512b3b6577c51c800218a7c764c532ae",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > synthesizes _fbc from a bare fbclid at the event time, like the SDK path 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "fbc": "fb.1.1780272000000.CLK99",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > synthesizes _fbc from a bare fbclid at the event time, like the SDK path 2`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "fbc": "fb.1.1780272000000.IGNORED",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > tags-only identity: fbp, madid, ip — and tags.ip outranks the caller ip 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "client_ip_address": "198.51.100.7",
+    "fbp": "fb.1.1.2",
+    "madid": "IDFA-1",
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > the punctuation-and-accent name matrix the two vendor libraries disagree on 1`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "country": [
+      "79adb2a2fce5c6ba215fe5f27f532d4e7edbac4b6a5e09e1ef3a08084a904621",
+    ],
+    "ct": [
+      "3eda1428ae1aece064071f8d40f08fe2bc59ffa66c171a163caf15122ec4d7f0",
+    ],
+    "em": [
+      "5b3abc203a1f1864d43fd51b3dbca8836ec2520075af75abdd047c4c511327d3",
+    ],
+    "f5first": "6915771be1c5aa0c886870b6951b03d7eafc121fea0e80a5ea83beb7c449f4ec",
+    "f5last": "37e69fc3d5e14f38d7a90a0050e414ec01d7c7df3e8dfcc2c92655b5f853768a",
+    "fn": [
+      "11853b05f2d2ec2cb8124b57ab72ea7cc50501aa485c66b382cf2a967471dab6",
+    ],
+    "ln": [
+      "a6fe68a719fbd8e4466cb6992d9a64dd1f6837e26dfc5a024f1393f51d3737c0",
+    ],
+    "st": [
+      "1e0bbd6c686ba050b8eb03ffeedc64fdc9d80947fce821abbe5d6dc8d252c5ac",
+    ],
+    "zp": [
+      "b9a9cf3cd3723a2e91b7c23ecf68456e872b6e5d86e5cab7f3d45a7302da32c7",
+    ],
+  },
+}
+`;
+
+exports[`getCapiEvent === business SDK normalize(), as snapshotted > the punctuation-and-accent name matrix the two vendor libraries disagree on 2`] = `
+{
+  "action_source": "website",
+  "custom_data": {
+    "content_ids": [],
+    "contents": [],
+    "currency": "USD",
+    "value": 42,
+  },
+  "event_id": "event-1",
+  "event_name": "Purchase",
+  "event_time": 1780272000,
+  "user_data": {
+    "ct": [
+      "350c754ba4d38897693aa077ef43072a859d23f613443133fecbbd90a3512ca5",
+    ],
+    "f5first": "25e443b3adf043f5ae14913de19e3429f300bb047caffb5de32e9cfffd5a7248",
+    "fn": [
+      "65b87174be3b1b122e2b0929f0b84888637d31a4a83bb96a860bcff411f5e668",
+    ],
+    "st": [
+      "82fe032bd9337b5dfb99b28717cf8651daac73f2d319e6d6213544660b961ee7",
+    ],
+    "zp": [
+      "e443169117a184f91186b401133b20be670c7c0896f9886075e5d9b81e9d076b",
+    ],
+  },
+}
+`;

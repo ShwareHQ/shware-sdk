@@ -131,8 +131,8 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
 
     // And: the backend forwarding that same stored event to the Conversions API produces a
     // server event that deduplicates against the pixel and carries the same _fbc.
-    const { getServerEvent } = await import('../server/meta-conversions-api');
-    const serverEvent = getServerEvent(
+    const { getCapiEvent } = await import('../server/meta-capi');
+    const serverEvent = getCapiEvent(
       {
         id: pixelEventId,
         name: purchase.name,
