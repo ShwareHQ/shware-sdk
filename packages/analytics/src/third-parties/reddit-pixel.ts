@@ -55,6 +55,8 @@ export function setRedditUser(pixelId: PixelId) {
 /** Reddit Pixel: the events `mapRDTEvent` maps to a Reddit standard event, and `customEvents`. */
 export function redditAds(options: { pixelId: PixelId } & AdsOptions): Integration {
   const isStandard = (name: string) => mapRDTEvent(name as TrackName)[0] !== 'Custom';
+  // As the Ads console's tag: the pixel loads with its id.
+  const src = `https://www.redditstatic.com/ads/pixel.js?pixel_id=${encodeURIComponent(options.pixelId)}`;
   return {
     type: 'ads',
     track: adsTracker(sendRedditEvent, isStandard, options.customEvents ?? []),
@@ -69,7 +71,7 @@ export function redditAds(options: { pixelId: PixelId } & AdsOptions): Integrati
             };
             p.callQueue = [];
             var t = d.createElement("script");
-            t.src = "https://www.redditstatic.com/ads/pixel.js";
+            t.src = ${JSON.stringify(src)};
             t.async = !0;
             var s = d.getElementsByTagName("script")[0];
             s.parentNode.insertBefore(t,s)
