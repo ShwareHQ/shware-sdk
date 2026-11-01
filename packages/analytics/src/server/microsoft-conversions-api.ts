@@ -19,10 +19,12 @@ import { createHash } from 'node:crypto';
 import { chunk, fetch } from '@shware/utils';
 import { formatMsclkid } from '../click-id/index';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
+import { type MicrosoftAdsOptions, uetEvents } from '../third-parties/microsoft-uet';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
 import { microsoftMsclkid } from './click-ids';
 import { pageLocation } from './page-location';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://capi.uet.microsoft.com/v1';
 
@@ -322,4 +324,21 @@ export async function sendEvents(
     }
   }
   return responses;
+}
+
+/**
+ * Microsoft's Conversions API, sent the same events as `microsoftAds` (`events`, the GA4
+ * conversion events by default, and `customEvents`) — and `page_view` too with `pageLoads`, for
+ * a site with no UET tag on the page. `consent` is the API's batch-level consent here, not the
+ * tag's consent mode default.
+ */
+export function microsoftConversions(
+  options: Omit<MicrosoftAdsOptions, 'consent' | 'customerId'> &
+    MicrosoftConversionsOptions & { accessToken: string }
+): ConversionDestination {
+  const accepts = uetEvents(options);
+  return conversionDestination(
+    (name) => accepts(name) || (options.pageLoads === true && name === 'page_view'),
+    (events, data) => sendEvents(options.accessToken, options.tagId, events, data, options)
+  );
 }

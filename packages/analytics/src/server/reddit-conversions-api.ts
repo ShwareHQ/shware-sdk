@@ -1,11 +1,19 @@
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { type ServerStandardEvent, mapRDTEvent, mapServerStandardEvent } from '../track/rdt';
+import { adEvents } from '../third-parties/integration';
+import type { RedditAdsOptions } from '../third-parties/reddit-pixel';
+import {
+  type ServerStandardEvent,
+  isStandardRDTEvent,
+  mapRDTEvent,
+  mapServerStandardEvent,
+} from '../track/rdt';
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { redditClickId, redditUuid } from './click-ids';
 import { pageLocation } from './page-location';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 /**
  * https://ads-api.reddit.com/docs/v3/operations/Post%20Conversion%20Events
@@ -185,4 +193,13 @@ export async function sendEvents(
   } catch (error) {
     console.error('Failed to send Reddit conversion, network error:', error);
   }
+}
+
+/** Reddit's Conversions API, sent the same events as `redditAds`. */
+export function redditConversions(
+  options: RedditAdsOptions & { accessToken: string; testId?: string }
+): ConversionDestination {
+  return conversionDestination(adEvents(isStandardRDTEvent, options.customEvents), (events, data) =>
+    sendEvents(options.accessToken, options.pixelId, events, data, options.testId)
+  );
 }

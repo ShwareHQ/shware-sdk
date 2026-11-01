@@ -25,18 +25,20 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import type { TrackEvent, UserProvidedData } from '../track/types';
+import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { googleClickIds } from './click-ids';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://datamanager.googleapis.com/v1/events:ingest';
 
 /**
  * Event name → conversion action id, mirroring `LinkedinConversionConfig`: only configured
  * events upload, everything else is skipped silently. In the hybrid setup this is the id of
- * the SAME conversion action the gtag tag reports to.
+ * the SAME conversion action the gtag tag reports to. Keys are the names `track` accepts, so with
+ * strict event names a typo or undeclared event is a compile error.
  */
-export type GoogleAdsConversionConfig = Record<Lowercase<string>, number | string>;
+export type GoogleAdsConversionConfig = { readonly [K in TrackName]?: number | string };
 
 export interface GoogleAdsAuth {
   /** OAuth2 access token with the `datamanager` scope. Short-lived; the caller refreshes it. */
@@ -153,7 +155,7 @@ export function getDataManagerEvent(
   data: UserProvidedData = {},
   actionType: GoogleAdsActionType = 'webpage'
 ): DataManagerEvent | undefined {
-  const action = config[event.name as Lowercase<string>];
+  const action = config[event.name as TrackName];
   if (!action) return undefined;
 
   const source = resolveActionSource(event.platform);
@@ -287,4 +289,17 @@ export async function sendEvents(
     }
   }
   return firstResponse;
+}
+
+/** Google Ads through the Data Manager API: the events in `conversions`, each as its action. */
+export function googleAdsConversions(
+  options: GoogleAdsConversionsOptions & {
+    auth: GoogleAdsAuth;
+    conversions: GoogleAdsConversionConfig;
+  }
+): ConversionDestination {
+  return conversionDestination(
+    (name) => options.conversions[name as TrackName] !== undefined,
+    (events, data) => sendEvents(options.auth, options.conversions, events, data, options)
+  );
 }

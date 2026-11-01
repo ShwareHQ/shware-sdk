@@ -1,8 +1,8 @@
 import type { UpdateVisitorDTO } from '../schema/index';
-import { type PixelId, type RDT, mapRDTEvent } from '../track/rdt';
+import { type PixelId, type RDT, isStandardRDTEvent, mapRDTEvent } from '../track/rdt';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import { type AdsOptions, type Integration, adsTracker } from './integration';
+import { type AdsOptions, type Integration, adEvents, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -53,13 +53,17 @@ export function setRedditUser(pixelId: PixelId) {
 }
 
 /** Reddit Pixel: the events `mapRDTEvent` maps to a Reddit standard event, and `customEvents`. */
-export function redditAds(options: { pixelId: PixelId } & AdsOptions): Integration {
-  const isStandard = (name: string) => mapRDTEvent(name as TrackName)[0] !== 'Custom';
+/** Reddit's configuration, shared by `redditAds` and `redditConversions` on the server. */
+export interface RedditAdsOptions extends AdsOptions {
+  pixelId: PixelId;
+}
+
+export function redditAds(options: RedditAdsOptions): Integration {
   // As the Ads console's tag: the pixel loads with its id.
   const src = `https://www.redditstatic.com/ads/pixel.js?pixel_id=${encodeURIComponent(options.pixelId)}`;
   return {
     type: 'ads',
-    track: adsTracker(sendRedditEvent, isStandard, options.customEvents ?? []),
+    track: adsTracker(sendRedditEvent, adEvents(isStandardRDTEvent, options.customEvents)),
     setUser: setRedditUser(options.pixelId),
     script: {
       id: 'reddit-pixel',

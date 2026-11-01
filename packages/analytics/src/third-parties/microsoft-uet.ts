@@ -4,7 +4,13 @@ import { type UETConsent, type UETQ, mapUETEvent } from '../track/uetq';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
 import { visitorId } from '../visitor/id';
-import { type AdsOptions, CONVERSION_EVENTS, type Integration, adsTracker } from './integration';
+import {
+  type AdsOptions,
+  CONVERSION_EVENTS,
+  type Integration,
+  adEvents,
+  adsTracker,
+} from './integration';
 
 declare global {
   interface Window {
@@ -177,27 +183,36 @@ export function uetCustomerIdOf(integrations: readonly Integration[] = []) {
  * loads itself), the consent mode default pushed inside it so bat.js reads it before the first
  * page load.
  */
-export function microsoftAds(
-  options: {
-    tagId: `${number}`;
-    /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the ID Sync pixel. */
-    customerId?: `${number}`;
-    /**
-     * The UET consent mode default, `ad_storage: granted` unless given: how the tag behaves
-     * without a signal, so Microsoft stops flagging EEA/UK/CH events as missing consent. Sites
-     * with a consent banner pass `{ ad_storage: 'denied' }` and send `update` with
-     * `setUETConsent`; `false` pushes no default. https://help.ads.microsoft.com/#apex/ads/en/60119/1
-     */
-    consent?: UETConsent | false;
-    events?: readonly EventName[];
-  } & AdsOptions
-): MicrosoftAdsIntegration {
+/** The events UET receives: `events` (the GA4 conversion events by default) and `customEvents`. */
+export function uetEvents(options: Pick<MicrosoftAdsOptions, 'events' | 'customEvents'>) {
   const events: readonly string[] = options.events ?? CONVERSION_EVENTS;
+  return adEvents((name) => events.includes(name), options.customEvents);
+}
+
+/**
+ * Microsoft's configuration, shared by `microsoftAds` and `microsoftConversions` on the server.
+ */
+export interface MicrosoftAdsOptions extends AdsOptions {
+  tagId: `${number}`;
+  /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the ID Sync pixel. */
+  customerId?: `${number}`;
+  /**
+   * The UET consent mode default, `ad_storage: granted` unless given: how the tag behaves
+   * without a signal, so Microsoft stops flagging EEA/UK/CH events as missing consent. Sites
+   * with a consent banner pass `{ ad_storage: 'denied' }` and send `update` with
+   * `setUETConsent`; `false` pushes no default. https://help.ads.microsoft.com/#apex/ads/en/60119/1
+   */
+  consent?: UETConsent | false;
+  /** The events UET receives, `CONVERSION_EVENTS` by default; names `track` accepts. */
+  events?: readonly TrackName[];
+}
+
+export function microsoftAds(options: MicrosoftAdsOptions): MicrosoftAdsIntegration {
   const consent = options.consent ?? { ad_storage: 'granted' };
   const defaults = consent ? `w[u].push("consent", "default", ${JSON.stringify(consent)});` : '';
   return {
     type: 'ads',
-    track: adsTracker(sendUETEvent, (name) => events.includes(name), options.customEvents ?? []),
+    track: adsTracker(sendUETEvent, uetEvents(options)),
     setUser: setUETUser,
     script: {
       id: 'uet-tag',

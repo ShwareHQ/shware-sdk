@@ -450,3 +450,8 @@ export function mapFBEvent<T extends EventName>(
     return ['trackCustom', name, properties ?? {}];
   }
 }
+
+/** Whether `mapFBEvent` turns the event into a Meta standard event (`track`, not `trackCustom`). */
+export function isStandardFBEvent(name: string): boolean {
+  return mapFBEvent(name as TrackName)[0] === 'track';
+}

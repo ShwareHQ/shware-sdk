@@ -33,7 +33,6 @@ modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on)
 | `@shware/analytics/tanstack`        | both    | `createClickIdMiddleware` for TanStack Start                                |
 | `@shware/analytics/third-parties`   | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters      |
 | `@shware/analytics/server`          | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI     |
-| `@shware/analytics/server/legacy`   | server  | The old Meta sender built on `facebook-nodejs-business-sdk`                 |
 | `@shware/analytics/attribution`     | server  | `classifyTouch` and the channel vocabulary for reading sessions             |
 | `@shware/analytics/ads`             | server  | Pulling spend and performance from Google Ads and Meta                      |
 
@@ -260,6 +259,70 @@ The server's conversions API, sending the stored event under the same id, then d
 | GA4, PostHog, Firebase, Facebook SDK       | not passed: they have no browser/server pairing  |
 
 Nothing waits for the server: `track` fires the pixels at once and the batch reaches the server within 2 s or by beacon when the page is left, so there is no `trackAsync` (removed in 13.0). A step that must not run before the server has the event does not belong in the client; record it server-side.
+
+### Conversions APIs on the server (`setupConversions`)
+
+The server's counterpart of `setupAnalytics({ integrations })`, configured on the server alone:
+each ad platform's Conversions API once, sent what its browser integration is sent — the
+platform's standard events and the `customEvents` it lists, nothing else. The options are the
+browser integrations' (`MetaAdsOptions`, …) plus a token; give a platform the same
+`customEvents` on both sides for the tag and the API to report the same events.
+
+```ts
+import {
+  linkedinConversions,
+  metaConversions,
+  redditConversions,
+  setupConversions,
+} from '@shware/analytics/server';
+
+export const conversions = setupConversions({
+  destinations: [
+    metaConversions({
+      accessToken: env.META_CONVERSIONS_API_ACCESS_TOKEN,
+      pixelId: '1234567890',
+      customEvents: ['onboarding_completed'],
+    }),
+    redditConversions({ accessToken: env.REDDIT_CONVERSIONS_API_ACCESS_TOKEN, pixelId: 'a2_xxx' }),
+    linkedinConversions({
+      accessToken: env.LINKEDIN_CONVERSIONS_API_ACCESS_TOKEN,
+      conversions: { sign_up: 7654321, purchase: 7654322 },
+    }),
+    // a CRM or the host's own workflows: any `{ send(events, data) }`
+    { send: (events, data) => sendToCrm(events, data) },
+  ],
+  // Only for conversions.track(): forward needs none of it.
+  track: {
+    resolveUser: async (userId) => latestSessionOf(userId),
+    store: async (event) => (await insertEvents([event])).length > 0,
+  },
+});
+
+// POST /events, after storing the batch
+await conversions.forward(events, userProvidedData);
+
+// a webhook: Stripe's invoice.paid
+await conversions.track({
+  id: invoice.id,
+  name: 'purchase',
+  userId,
+  properties: { transaction_id: invoice.id, value: 9.99, currency: 'usd', items: [] },
+});
+```
+
+- `forward(events, data)`: the events a client sent, as stored, to every destination at once. A
+  destination that fails is logged; the others still go, and `forward` does not throw.
+- `track(event)`: an event the server reports on its own — a webhook's purchase, renewal or
+  refund — with `id` the transaction id the platforms deduplicate on. `track.resolveUser(userId)`
+  returns what a client event would have carried, from the host's records: the user's latest
+  session's `tags` (cookies, page, user agent) with the click ids of the touch the conversion is
+  credited to, that session's `visitor_id`, `session_id`, `platform` (which decides website or
+  app) and `environment`, and the user's identity as `data`. `track.store` stores the event and says
+  whether it was new, so a webhook delivered twice is reported once; store it in the events table
+  and the server's conversions count wherever the client's do. A user with no session is skipped.
+
+List events the server reports itself in `setupAnalytics({ excludeFromIntegrations })` so the
+browser does not send them too.
 
 ### Tracking an occurrence once (`trackOnce`)
 

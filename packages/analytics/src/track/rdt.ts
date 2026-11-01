@@ -205,3 +205,8 @@ export function mapServerStandardEvent(name: keyof StandardEvents): ServerStanda
   // `name` is narrowed to 'SignUp' here, so the mapping is exhaustive
   return 'SIGN_UP';
 }
+
+/** Whether `mapRDTEvent` turns the event into a Reddit standard event rather than `Custom`. */
+export function isStandardRDTEvent(name: string): boolean {
+  return mapRDTEvent(name as TrackName)[0] !== 'Custom';
+}

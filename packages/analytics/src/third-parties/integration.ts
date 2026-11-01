@@ -1,4 +1,4 @@
-import type { EventName, ThirdPartyTracker } from '../track/types';
+import type { EventName, ThirdPartyTracker, TrackName } from '../track/types';
 import type { ThirdPartyUserSetter } from '../visitor/types';
 
 /**
@@ -63,24 +63,33 @@ export interface AdsOptions {
   /**
    * Custom events this platform receives besides the conversions it maps to its standard
    * events, e.g. one used as an optimization goal or for an audience. Everything else is not
-   * sent to it.
+   * sent to it. The names `track` accepts, so with strict event names a typo is a compile error.
    */
-  customEvents?: readonly EventName[];
+  customEvents?: readonly TrackName[];
 }
 
 /**
- * An ad tracker that sends only what `isStandard` accepts — the events the platform's mapper
- * turns into one of its standard events — and the custom events the host listed. Everything
- * else in the product (feature use, clicks, onboarding steps) is behavior analysis, which is
- * GA4's and PostHog's job, and only noise to an ad platform's optimization.
+ * Which events an ad platform receives: what `isStandard` accepts — the events its mapper turns
+ * into one of its standard events — and the custom events the host listed. Everything else in the
+ * product (feature use, clicks, onboarding steps) is behavior analysis, which is GA4's and
+ * PostHog's job, and only noise to an ad platform's optimization. The same rule picks what the
+ * browser tag and the platform's conversions API send (`@shware/analytics/server`), so the two
+ * report the same events.
  */
+export function adEvents(
+  isStandard: (name: string) => boolean,
+  customEvents: readonly string[] = []
+): (name: string) => boolean {
+  return (name) => isStandard(name) || customEvents.includes(name);
+}
+
+/** An ad tracker that sends only the events `accepts` lets through (`adEvents`). */
 export function adsTracker(
   send: ThirdPartyTracker,
-  isStandard: (name: string) => boolean,
-  customEvents: readonly string[]
+  accepts: (name: string) => boolean
 ): ThirdPartyTracker {
   return (name, properties, eventId) => {
-    if (!isStandard(name) && !customEvents.includes(name)) return;
+    if (!accepts(name)) return;
     return send(name, properties, eventId);
   };
 }

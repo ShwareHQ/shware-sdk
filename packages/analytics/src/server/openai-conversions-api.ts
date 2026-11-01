@@ -6,10 +6,13 @@
 import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
+import { adEvents } from '../third-parties/integration';
+import type { OpenAIAdsOptions } from '../third-parties/openai-pixel';
 import {
   APP_EVENTS,
   type EventData,
   NON_AD_EVENTS,
+  isStandardOAIEvent,
   mapOAIEvent,
   normalizeOAIName,
   normalizeOAIPhone,
@@ -19,6 +22,7 @@ import type { Platform, TrackEvent, UserProvidedData } from '../track/types';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { openaiOppref } from './click-ids';
 import { pageLocation } from './page-location';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
 
@@ -223,4 +227,13 @@ export async function sendEvents(
   } catch (error) {
     console.error('Failed to send OpenAI conversion, network error:', error);
   }
+}
+
+/** OpenAI's Conversions API, sent the same events as `openaiAds`. */
+export function openaiConversions(
+  options: OpenAIAdsOptions & { accessToken: string; validateOnly?: boolean }
+): ConversionDestination {
+  return conversionDestination(adEvents(isStandardOAIEvent, options.customEvents), (events, data) =>
+    sendEvents(options.accessToken, options.pixelId, events, data, options.validateOnly)
+  );
 }

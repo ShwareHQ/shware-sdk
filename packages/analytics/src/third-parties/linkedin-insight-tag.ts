@@ -51,10 +51,13 @@ export function setLinkedinUser({ user_data }: UpdateVisitorDTO) {
  * LinkedIn Insight Tag: only the events in `conversions`, each sent as the conversion id it maps
  * to (LinkedIn conversions are created in Campaign Manager and addressed by id).
  */
-export function linkedInAds(options: {
+/** LinkedIn's configuration, shared by `linkedInAds` and `linkedinConversions` on the server. */
+export interface LinkedInAdsOptions {
   partnerId: `${number}`;
   conversions: LinkedinConversionConfig;
-}): Integration {
+}
+
+export function linkedInAds(options: LinkedInAdsOptions): Integration {
   return {
     type: 'ads',
     track: sendLinkedinEvent(options.conversions),

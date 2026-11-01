@@ -1,15 +1,17 @@
 export {
   sendEvents as sendMetaEvents,
+  metaConversions,
   getCapiEvent,
   type CapiEvent,
   type MetaConversionsOptions,
   type MetaConversionsResponse,
 } from './meta-capi';
-export { sendEvents as sendRedditEvents } from './reddit-conversions-api';
-export { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
-export { sendEvents as sendOpenAIEvents } from './openai-conversions-api';
+export { sendEvents as sendRedditEvents, redditConversions } from './reddit-conversions-api';
+export { sendEvents as sendLinkedinEvents, linkedinConversions } from './linkedin-conversions-api';
+export { sendEvents as sendOpenAIEvents, openaiConversions } from './openai-conversions-api';
 export {
   sendEvents as sendGoogleAdsEvents,
+  googleAdsConversions,
   getDataManagerEvent,
   normalizeEmail,
   type DataManagerEvent,
@@ -23,6 +25,7 @@ export {
 
 export {
   sendEvents as sendMicrosoftEvents,
+  microsoftConversions,
   getServerEvent as getMicrosoftEvent,
   normalizeEmail as normalizeMicrosoftEmail,
   type MicrosoftEvent,
@@ -33,6 +36,15 @@ export {
   type MicrosoftConversionsResponse,
   type MicrosoftValidationDetail,
 } from './microsoft-conversions-api';
+
+export {
+  setupConversions,
+  conversionDestination,
+  type ConversionDestination,
+  type ConversionUser,
+  type ConversionsOptions,
+  type ServerEvent,
+} from './setup-conversions';
 
 export type { LinkedinConversionConfig } from './linkedin-conversions-api';
 export type { EventActionSource } from './action-source';

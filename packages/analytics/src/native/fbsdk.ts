@@ -1,7 +1,12 @@
 import { AppEventsLogger, type Params } from 'react-native-fbsdk-next';
 import type { UpdateVisitorDTO } from '../schema/index';
-import { type AdsOptions, type Integration, adsTracker } from '../third-parties/integration';
-import { mapFBEvent } from '../track/fbq';
+import {
+  type AdsOptions,
+  type Integration,
+  adEvents,
+  adsTracker,
+} from '../third-parties/integration';
+import { isStandardFBEvent, mapFBEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 
@@ -50,10 +55,9 @@ export function setFBUser({ user_id, user_data }: Omit<UpdateVisitorDTO, 'tags'>
  * — the app's counterpart of `metaAds`.
  */
 export function metaAppEvents(options: AdsOptions = {}): Integration {
-  const isStandard = (name: string) => mapFBEvent(name as TrackName)[0] === 'track';
   return {
     type: 'ads',
-    track: adsTracker(sendFBEvent, isStandard, options.customEvents ?? []),
+    track: adsTracker(sendFBEvent, adEvents(isStandardFBEvent, options.customEvents)),
     setUser: setFBUser,
   };
 }
