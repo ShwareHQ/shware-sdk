@@ -34,6 +34,7 @@ describe('mapFBEvent', () => {
     ['add_payment_info', 'AddPaymentInfo'],
     ['add_to_cart', 'AddToCart'],
     ['add_to_wishlist', 'AddToWishlist'],
+    ['sign_up', 'CompleteRegistration'],
     ['login', 'CompleteRegistration'],
     ['contact', 'Contact'],
     ['customize_product', 'CustomizeProduct'],
