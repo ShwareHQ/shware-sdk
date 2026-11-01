@@ -77,8 +77,8 @@ export interface ServerEvent<T extends EventName = EventName> {
 export interface ConversionsOptions {
   destinations: readonly ConversionDestination[];
   /**
-   * How `track` completes and stores a server-only event; `forward` uses none of it, so a host
-   * that only forwards client events leaves it out.
+   * How `track` completes and stores a server-only event. Without it `setupConversions` returns
+   * only `forward`, for a host that only forwards client events.
    */
   track?: {
     /**
@@ -90,9 +90,8 @@ export interface ConversionsOptions {
      * Stores the event, e.g. in the events table, returning whether it was new: `track` sends
      * only an event it stored, so a webhook delivered again (its handler failed on something
      * else) is not reported twice — not every platform deduplicates a server event sent twice.
-     * Without it, every `track` sends.
      */
-    store?: (event: AnyTrackEvent) => Promise<boolean>;
+    store: (event: AnyTrackEvent) => Promise<boolean>;
   };
 }
 
@@ -110,6 +109,13 @@ export interface ConversionsOptions {
  * logged with the ids of the events it lost, for them to be found and sent later: a missed
  * conversion costs less than a duplicate one, or a webhook that keeps failing.
  */
+export function setupConversions(
+  options: ConversionsOptions & { track: NonNullable<ConversionsOptions['track']> }
+): {
+  forward: Forward;
+  track: Track;
+};
+export function setupConversions(options: ConversionsOptions): { forward: Forward };
 export function setupConversions(options: ConversionsOptions) {
   const { destinations, track: trackOptions } = options;
 
@@ -133,13 +139,9 @@ export function setupConversions(options: ConversionsOptions) {
    * user with no session, an event `store` had already stored, or a failure, which is logged.
    */
   async function track<T extends EventName>(
+    { resolveUser, store }: NonNullable<ConversionsOptions['track']>,
     input: ServerEvent<T>
   ): Promise<TrackEvent<T> | undefined> {
-    if (!trackOptions) {
-      console.error('setupConversions: track() needs the track option');
-      return undefined;
-    }
-    const { resolveUser, store } = trackOptions;
     try {
       const user = await resolveUser(input.userId);
       if (!user) {
@@ -157,7 +159,7 @@ export function setupConversions(options: ConversionsOptions) {
         environment: user.environment,
         created_at: input.createdAt,
       };
-      if (store && !(await store(event))) return undefined;
+      if (!(await store(event))) return undefined;
       await forward([event], user.data);
       return event;
     } catch (e: unknown) {
@@ -166,5 +168,9 @@ export function setupConversions(options: ConversionsOptions) {
     }
   }
 
-  return { forward, track };
+  if (!trackOptions) return { forward };
+  return { forward, track: (input: ServerEvent) => track(trackOptions, input) };
 }
+
+type Forward = (events: AnyTrackEvent[], data?: UserProvidedData) => Promise<void>;
+type Track = <T extends EventName>(input: ServerEvent<T>) => Promise<TrackEvent<T> | undefined>;

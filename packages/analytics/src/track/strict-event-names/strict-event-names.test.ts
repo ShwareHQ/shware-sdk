@@ -18,6 +18,11 @@ import type { TrackProperties } from '../types';
  * fail it as unused. The calls sit in a function that is never called, so nothing is sent; one
  * that calls the hook is named like a hook.
  */
+const conversions = setupConversions({
+  destinations: [],
+  track: { resolveUser: () => Promise.resolve(undefined), store: () => Promise.resolve(true) },
+});
+
 declare module '../types' {
   interface AnalyticsOptions {
     strict: true;
@@ -38,7 +43,7 @@ describe('strict on', () => {
       trackOnce('plan_changed', { direction: 'downgrade' }, { key: 'k' });
       sendBeacon('page_view');
       useTrackImpression('view_item', { currency: 'USD', value: 1, items: [] });
-      void setupConversions({ destinations: [] }).track({
+      void conversions.track({
         id: 'in_1',
         name: 'plan_changed',
         userId: 'u1',
@@ -75,7 +80,7 @@ describe('strict on', () => {
       sendBeacon('some_other_event');
       // @ts-expect-error declared nowhere.
       useTrackImpression('some_other_event');
-      void setupConversions({ destinations: [] }).track({
+      void conversions.track({
         id: 'in_1',
         // @ts-expect-error declared nowhere.
         name: 'some_other_event',

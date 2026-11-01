@@ -196,7 +196,11 @@ describe('track', () => {
     const destination = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
     const conversions = setupConversions({
       destinations: [destination],
-      track: { resolveUser: () => Promise.resolve(user), ...overrides },
+      track: {
+        resolveUser: () => Promise.resolve(user),
+        store: () => Promise.resolve(true),
+        ...overrides,
+      },
     });
     return { destination, ...conversions };
   }
@@ -278,13 +282,5 @@ describe('track', () => {
       'Conversion not reported, event: txn-1',
       expect.any(Error)
     );
-  });
-
-  it('needs the track option', async () => {
-    const destination = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
-    const { track } = setupConversions({ destinations: [destination] });
-    await expect(track(purchase)).resolves.toBeUndefined();
-    expect(destination.send).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('track option'));
   });
 });
