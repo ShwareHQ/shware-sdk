@@ -308,6 +308,7 @@ ctx.waitUntil(
     name: 'purchase',
     userId,
     properties: { transaction_id: invoice.id, value: 9.99, currency: 'usd', items: [] },
+    createdAt: new Date(invoice.created * 1000).toISOString(),
   })
 );
 ```

@@ -219,12 +219,6 @@ describe('track', () => {
     expect(destination.send).toHaveBeenCalledWith([event], user.data);
   });
 
-  it('happened now unless told otherwise', async () => {
-    const before = Date.now();
-    const event = await setup().track({ ...purchase, createdAt: undefined });
-    expect(Date.parse(event?.created_at ?? '')).toBeGreaterThanOrEqual(before);
-  });
-
   it('stores the event before sending it', async () => {
     const order: string[] = [];
     const store = vi.fn<(e: TrackEvent) => Promise<boolean>>(async () => {

@@ -70,8 +70,8 @@ export interface ServerEvent<T extends EventName = EventName> {
   /** The user it belongs to, handed to `track.resolveUser`. */
   userId: string;
   properties?: TrackProperties<T>;
-  /** When it happened; now by default. */
-  createdAt?: Date | string;
+  /** When it happened, as an ISO 8601 string. */
+  createdAt: string;
 }
 
 export interface ConversionsOptions {
@@ -146,7 +146,6 @@ export function setupConversions(options: ConversionsOptions) {
         console.warn(`Conversion not reported, event: ${input.id}: no session for ${input.userId}`);
         return undefined;
       }
-      const createdAt = input.createdAt === undefined ? new Date() : new Date(input.createdAt);
       const event: TrackEvent<T> = {
         id: input.id,
         name: input.name,
@@ -156,7 +155,7 @@ export function setupConversions(options: ConversionsOptions) {
         session_id: user.session_id,
         platform: user.platform,
         environment: user.environment,
-        created_at: createdAt.toISOString(),
+        created_at: input.createdAt,
       };
       if (store && !(await store(event))) return undefined;
       await forward([event], user.data);
