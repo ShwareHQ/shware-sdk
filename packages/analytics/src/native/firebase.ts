@@ -1,4 +1,5 @@
-import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
+import { getAnalytics, logEvent, setUserId } from '@react-native-firebase/analytics';
+import type { UpdateVisitorDTO } from '../schema/index';
 import type { Integration } from '../third-parties/integration';
 import type { StandardEvents } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
@@ -26,7 +27,17 @@ export function sendFirebaseEvent<T extends EventName>(
   }
 }
 
+/**
+ * Sets Firebase's user id to the signed-in user, as `setGAUser` does GA's; no user is sign-out
+ * (`reset()`), which clears it. Only the id: Firebase's user properties must not carry PII.
+ */
+export function setFirebaseUser({ user_id }: Pick<UpdateVisitorDTO, 'user_id'>) {
+  setUserId(analytics, user_id || null).catch((e: unknown) => {
+    if (e instanceof Error) console.log(e.message);
+  });
+}
+
 /** Firebase Analytics: every event, for behavior analysis — the app's counterpart of GA4. */
 export function firebaseAnalytics(): Integration {
-  return { type: 'analytics', track: sendFirebaseEvent };
+  return { type: 'analytics', track: sendFirebaseEvent, setUser: setFirebaseUser };
 }

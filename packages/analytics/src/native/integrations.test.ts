@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { logEvent, logFBEvent } = vi.hoisted(() => ({
+const { logEvent, setUserId, logFBEvent } = vi.hoisted(() => ({
   logEvent: vi.fn<(analytics: unknown, name: string, params?: object) => void>(),
+  setUserId: vi.fn<(analytics: unknown, id: string | null) => Promise<void>>(() =>
+    Promise.resolve()
+  ),
   logFBEvent: vi.fn<(name: string, params?: object) => void>(),
 }));
 vi.mock(import('@react-native-firebase/analytics'), () => ({
   getAnalytics: (() => ({})) as never,
   logEvent: logEvent as never,
+  setUserId: setUserId as never,
 }));
 vi.mock(import('react-native-fbsdk-next'), () => ({
   AppEventsLogger: { logEvent: logFBEvent } as never,
@@ -26,6 +30,15 @@ describe('firebaseAnalytics', () => {
 
     firebase.track('onboarding_completed', undefined);
     expect(logEvent).toHaveBeenCalledWith(expect.anything(), 'onboarding_completed', undefined);
+  });
+
+  it('sets the user id on identify, without the email, and clears it on reset', () => {
+    const { setUser } = firebaseAnalytics();
+    setUser?.({ user_id: 'u1', user_data: { email: 'a@b.co' } });
+    expect(setUserId).toHaveBeenLastCalledWith(expect.anything(), 'u1');
+
+    setUser?.({});
+    expect(setUserId).toHaveBeenLastCalledWith(expect.anything(), null);
   });
 });
 
