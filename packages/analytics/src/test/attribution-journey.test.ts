@@ -93,7 +93,7 @@ describe('a Meta ad click, from landing to the Conversions API', () => {
 
     const { track, config } = await launch();
     const { sendFBEvent } = await import('../third-parties/meta-pixel');
-    config.thirdPartyTrackers = [sendFBEvent];
+    config.integrations = [{ type: 'analytics', track: sendFBEvent }];
 
     // When: the visitor purchases.
     track('purchase', { value: 49.99, currency: 'usd', transaction_id: 't1', items: [] });

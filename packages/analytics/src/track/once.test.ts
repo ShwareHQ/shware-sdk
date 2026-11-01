@@ -134,7 +134,7 @@ describe('trackOnce', () => {
   it('fires the pixels once per key, and a retry goes out under the first attempt’s id', async () => {
     const { trackOnce, storage, jsonResponse, config } = await load();
     const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
-    config.thirdPartyTrackers = [pixel];
+    config.integrations = [{ type: 'analytics', track: pixel }];
     vi.spyOn(console, 'log').mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'invalid' }, 400));
 
@@ -158,7 +158,7 @@ describe('trackOnce', () => {
   it('reuses the id across a reload that lost the queued event', async () => {
     const first = await load();
     const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
-    first.config.thirdPartyTrackers = [pixel];
+    first.config.integrations = [{ type: 'analytics', track: pixel }];
     first.trackOnce('purchase', purchase, { key: 'cs_1' });
     const [, , id] = pixel.mock.calls[0];
 
@@ -170,7 +170,7 @@ describe('trackOnce', () => {
     const { baseOptions } = await import('../test/setup');
     const setup = await import('../setup/index');
     setup.setupAnalytics(baseOptions({ storage: first.storage }));
-    setup.config.thirdPartyTrackers = [pixel];
+    setup.config.integrations = [{ type: 'analytics', track: pixel }];
     const { trackOnce } = await import('./once');
     respondWithIds();
 
@@ -185,7 +185,7 @@ describe('trackOnce', () => {
     vi.stubGlobal('navigator', { sendBeacon: beacon });
     const first = await load();
     const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
-    first.config.thirdPartyTrackers = [pixel];
+    first.config.integrations = [{ type: 'analytics', track: pixel }];
     const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
 
     first.trackOnce('purchase', purchase, { key: 'cs_1', onSucceed });
@@ -207,7 +207,7 @@ describe('trackOnce', () => {
     const { baseOptions } = await import('../test/setup');
     const setup = await import('../setup/index');
     setup.setupAnalytics(baseOptions({ storage: first.storage }));
-    setup.config.thirdPartyTrackers = [pixel];
+    setup.config.integrations = [{ type: 'analytics', track: pixel }];
     const { trackOnce } = await import('./once');
     respondWithIds();
 
@@ -224,7 +224,7 @@ describe('trackOnce', () => {
   it('gives each key its own id', async () => {
     const { trackOnce, config } = await load();
     const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
-    config.thirdPartyTrackers = [pixel];
+    config.integrations = [{ type: 'analytics', track: pixel }];
     respondWithIds();
 
     trackOnce('purchase', purchase, { key: 'cs_1' });

@@ -3,8 +3,16 @@ import { cleanup, render } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { Analytics as NextAnalytics } from '../next/index';
-import { Analytics as ReactRouterAnalytics } from '../react-router/index';
-import { Analytics as TanstackAnalytics } from '../tanstack/analytics';
+import { Analytics as ReactAnalytics } from '../react/index';
+import {
+  googleAnalytics,
+  linkedInAds,
+  metaAds,
+  microsoftAds,
+  openaiAds,
+  posthogAnalytics,
+  redditAds,
+} from '../third-parties/index';
 
 // The components are thin composition over hooks tested elsewhere; only their markup matters here.
 vi.mock(import('../track/index'), () => ({ track: () => {} }) as never);
@@ -14,12 +22,6 @@ vi.mock(import('../hooks/use-outbound-click-analytics'), () => ({
 }));
 vi.mock(import('../hooks/use-uet-id-sync'), () => ({ useUETIdSync: () => {} }));
 vi.mock(import('../hooks/use-report-web-vitals'), () => ({ useReportWebVitals: () => {} }));
-vi.mock(import('@tanstack/react-router'), () => ({
-  useLocation: (() => ({ pathname: '/', searchStr: '' })) as never,
-}));
-vi.mock(import('react-router'), () => ({
-  useLocation: (() => ({ pathname: '/', search: '' })) as never,
-}));
 vi.mock(import('next/navigation'), () => ({
   usePathname: () => '/',
   useSearchParams: (() => new URLSearchParams()) as never,
@@ -36,14 +38,16 @@ vi.mock(import('next/script'), () => ({
 
 const NONCE = 'r4nd0m-n0nce';
 
-const pixels = {
-  gaId: 'G-TEST123',
-  metaPixelId: '1234567890',
-  redditPixelId: 'a2_test',
-  linkedInPartnerId: '123',
-  uetTagId: '456',
-  hotjarId: '789',
-} as const;
+// A distinct `gaSrc` per case: React dedupes async scripts by `src` for the document's lifetime.
+function integrations(gaSrc: string) {
+  return [
+    googleAnalytics({ id: 'G-TEST123', src: gaSrc }),
+    metaAds({ pixelId: '1234567890' }),
+    redditAds({ pixelId: 'a2_test' }),
+    linkedInAds({ partnerId: '123', conversions: {} }),
+    microsoftAds({ tagId: '456' }),
+  ];
+}
 
 // React 19 hoists `async` external scripts into <head>, so read the whole document. It also
 // dedupes them by `src` for the document's lifetime, hence a distinct `gaSrc` per case.
@@ -61,36 +65,27 @@ afterEach(() => {
   document.head.innerHTML = '';
 });
 
-const expectedIds = [
-  'gtag',
-  'gtag-init',
-  'meta-pixel',
-  'reddit-pixel',
-  'linkedin-insight-tag',
-  'uet-tag',
-  'hotjar',
-];
+const expectedIds = ['gtag', 'meta-pixel', 'reddit-pixel', 'linkedin-insight-tag', 'uet-tag'];
 
 describe('Analytics nonce', () => {
   it.each([
     [
-      'tanstack',
+      'react',
       () => (
-        <TanstackAnalytics
+        <ReactAnalytics
+          pathname="/"
+          search=""
           nonce={NONCE}
-          {...pixels}
-          gaSrc="/tanstack/gtag.js"
-          openaiPixelId="oai_test"
+          integrations={[...integrations('/react/gtag.js'), openaiAds({ pixelId: 'oai_test' })]}
         />
       ),
       [...expectedIds, 'openai-pixel'],
     ],
     [
-      'react-router',
-      () => <ReactRouterAnalytics nonce={NONCE} {...pixels} gaSrc="/react-router/gtag.js" />,
+      'next',
+      () => <NextAnalytics nonce={NONCE} integrations={integrations('/next/gtag.js')} />,
       expectedIds,
     ],
-    ['next', () => <NextAnalytics nonce={NONCE} {...pixels} gaSrc="/next/gtag.js" />, expectedIds],
   ])('%s puts the nonce on every script', (_, element, ids) => {
     render(element());
     const found = scripts();
@@ -98,9 +93,34 @@ describe('Analytics nonce', () => {
     expect(found.filter((s) => s.nonce !== NONCE)).toEqual([]);
   });
 
+  it('takes the platform ids from integrations only', () => {
+    expectTypeOf<ComponentProps<typeof ReactAnalytics>>().not.toHaveProperty('gaId');
+    expectTypeOf<ComponentProps<typeof NextAnalytics>>().not.toHaveProperty('uetTagId');
+  });
+
   it('no longer accepts gtmId', () => {
-    expectTypeOf<ComponentProps<typeof TanstackAnalytics>>().not.toHaveProperty('gtmId');
-    expectTypeOf<ComponentProps<typeof ReactRouterAnalytics>>().not.toHaveProperty('gtmId');
+    expectTypeOf<ComponentProps<typeof ReactAnalytics>>().not.toHaveProperty('gtmId');
     expectTypeOf<ComponentProps<typeof NextAnalytics>>().not.toHaveProperty('gtmId');
+  });
+});
+
+describe('Analytics preconnect', () => {
+  // React dedupes hints by origin for the document's lifetime, hence a region per case.
+  const posthog = (region: string) =>
+    posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: `https://${region}.i.posthog.com` },
+    });
+  const preconnects = () =>
+    [...document.querySelectorAll('link[rel="preconnect"]')].map((link) =>
+      link.getAttribute('href')
+    );
+
+  it.each([
+    ['react', 'us', () => <ReactAnalytics pathname="/" search="" integrations={[posthog('us')]} />],
+    ['next', 'eu', () => <NextAnalytics integrations={[posthog('eu')]} />],
+  ])("%s preconnects to the integrations' origins", (_, region, element) => {
+    render(element());
+    expect(preconnects()).toEqual([`https://${region}-assets.i.posthog.com`]);
   });
 });
