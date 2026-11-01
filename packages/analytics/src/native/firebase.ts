@@ -1,4 +1,5 @@
 import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
+import type { Integration } from '../third-parties/integration';
 import type { StandardEvents } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 
@@ -23,4 +24,9 @@ export function sendFirebaseEvent<T extends EventName>(
   } else {
     logEvent(analytics, name, properties);
   }
+}
+
+/** Firebase Analytics: every event, for behavior analysis — the app's counterpart of GA4. */
+export function firebaseAnalytics(): Integration {
+  return { type: 'analytics', track: sendFirebaseEvent };
 }

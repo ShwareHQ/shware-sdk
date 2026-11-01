@@ -26,8 +26,8 @@ modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on)
 | `@shware/analytics`                 | client  | `setupAnalytics`, `track`, `identify`, `reset`, `sendFeedback`, links, bots |
 | `@shware/analytics/web`             | browser | `storage`, `getTags`, `getDeviceId` for `setupAnalytics` on the web         |
 | `@shware/analytics/native`          | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`            |
-| `@shware/analytics/native/firebase` | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics           |
-| `@shware/analytics/native/fbsdk`    | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK                   |
+| `@shware/analytics/native/firebase` | Expo    | `firebaseAnalytics()`, the integration for Firebase Analytics               |
+| `@shware/analytics/native/fbsdk`    | Expo    | `metaAppEvents()`, the integration for Facebook App Events                  |
 | `@shware/analytics/next`            | browser | `<Analytics />` for the Next.js App Router                                  |
 | `@shware/analytics/react`           | browser | `<Analytics />` for any React router (TanStack Router, React Router, …)     |
 | `@shware/analytics/tanstack`        | both    | `createClickIdMiddleware` for TanStack Start                                |
@@ -121,7 +121,7 @@ function Checkout() {
 }
 ```
 
-With server-evaluated flags in `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `posthog-js`: install it as a dev dependency for them. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
+With server-evaluated flags in `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `posthog-js`: install it as a dev dependency for them. In an app, `firebaseAnalytics()` (every event) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
 
