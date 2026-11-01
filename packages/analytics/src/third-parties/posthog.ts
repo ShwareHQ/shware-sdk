@@ -2,6 +2,7 @@ import { posthog } from 'posthog-js';
 import type { UpdateVisitorDTO } from '../schema/index';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
+import type { Integration } from './integration';
 
 const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 
@@ -36,4 +37,13 @@ export function setPosthogUser({ user_id, user_data }: Omit<UpdateVisitorDTO, 't
     return;
   }
   posthog.identify(user_id, { email: getFirst(user_data?.email) });
+}
+
+/** PostHog (posthog-js, initialized by the host): every event, for behavior analysis. */
+export function posthogAnalytics(): Integration {
+  return {
+    type: 'analytics',
+    track: sendPosthogEvent,
+    setUser: setPosthogUser,
+  };
 }
