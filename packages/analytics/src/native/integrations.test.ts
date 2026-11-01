@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { logEvent, setUserId, logFBEvent } = vi.hoisted(() => ({
+const { logEvent, setUserId, logFBEvent, setUserID, setUserData } = vi.hoisted(() => ({
+  setUserID: vi.fn<(id: string | null) => void>(),
+  setUserData: vi.fn<(data: object) => void>(),
   logEvent: vi.fn<(analytics: unknown, name: string, params?: object) => void>(),
   setUserId: vi.fn<(analytics: unknown, id: string | null) => Promise<void>>(() =>
     Promise.resolve()
@@ -13,7 +15,7 @@ vi.mock(import('@react-native-firebase/analytics'), () => ({
   setUserId: setUserId as never,
 }));
 vi.mock(import('react-native-fbsdk-next'), () => ({
-  AppEventsLogger: { logEvent: logFBEvent } as never,
+  AppEventsLogger: { logEvent: logFBEvent, setUserID, setUserData } as never,
 }));
 
 const { metaAppEvents } = await import('./fbsdk');
@@ -53,5 +55,21 @@ describe('metaAppEvents', () => {
 
     expect(logFBEvent).toHaveBeenCalledTimes(2);
     expect(logFBEvent.mock.calls.map(([name]) => name)).not.toContain('button_clicked');
+  });
+
+  it('hands the user id and matching fields over, and clears them on reset', () => {
+    const { setUser } = metaAppEvents();
+    setUser?.({
+      user_id: 'u1',
+      user_data: { email: ['a@b.co'], address: { first_name: 'Ada', region: 'CA' } },
+    });
+    expect(setUserID).toHaveBeenLastCalledWith('u1');
+    expect(setUserData).toHaveBeenLastCalledWith(
+      expect.objectContaining({ email: 'a@b.co', firstName: 'Ada', state: 'CA' })
+    );
+
+    setUser?.({});
+    expect(setUserID).toHaveBeenLastCalledWith(null);
+    expect(setUserData).toHaveBeenLastCalledWith(expect.objectContaining({ email: undefined }));
   });
 });
