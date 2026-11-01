@@ -139,38 +139,32 @@ export function setupConversions(options: ConversionsOptions) {
       console.error('setupConversions: track() needs the track option');
       return undefined;
     }
+    const { resolveUser, store } = trackOptions;
     try {
-      return await report(trackOptions, input);
+      const user = await resolveUser(input.userId);
+      if (!user) {
+        console.warn(`Conversion not reported, event: ${input.id}: no session for ${input.userId}`);
+        return undefined;
+      }
+      const createdAt = input.createdAt === undefined ? new Date() : new Date(input.createdAt);
+      const event: TrackEvent<T> = {
+        id: input.id,
+        name: input.name,
+        properties: input.properties,
+        tags: user.tags,
+        visitor_id: user.visitor_id,
+        session_id: user.session_id,
+        platform: user.platform,
+        environment: user.environment,
+        created_at: createdAt.toISOString(),
+      };
+      if (store && !(await store(event))) return undefined;
+      await forward([event], user.data);
+      return event;
     } catch (e: unknown) {
       console.error(`Conversion not reported, event: ${input.id}`, e);
       return undefined;
     }
-  }
-
-  async function report<T extends EventName>(
-    { resolveUser, store }: NonNullable<ConversionsOptions['track']>,
-    input: ServerEvent<T>
-  ): Promise<TrackEvent<T> | undefined> {
-    const user = await resolveUser(input.userId);
-    if (!user) {
-      console.warn(`Conversion not reported, event: ${input.id}: no session for ${input.userId}`);
-      return undefined;
-    }
-    const createdAt = input.createdAt === undefined ? new Date() : new Date(input.createdAt);
-    const event: TrackEvent<T> = {
-      id: input.id,
-      name: input.name,
-      properties: input.properties,
-      tags: user.tags,
-      visitor_id: user.visitor_id,
-      session_id: user.session_id,
-      platform: user.platform,
-      environment: user.environment,
-      created_at: createdAt.toISOString(),
-    };
-    if (store && !(await store(event))) return undefined;
-    await forward([event], user.data);
-    return event;
   }
 
   return { forward, track };
