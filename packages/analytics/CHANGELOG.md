@@ -1,5 +1,16 @@
 # @shware/analytics
 
+## 16.0.0
+
+### Major Changes
+
+- 6d65e53: Third parties are configured as `integrations`, one entry per platform from a factory (`googleAnalytics`, `posthogAnalytics`, `metaAds`, `redditAds`, `openaiAds`, `linkedInAds`, `microsoftAds`) carrying its tracker, its user setter and its script, and in an app `firebaseAnalytics` and `metaAppEvents` from `/native/firebase` and `/native/fbsdk` (whose `sendFBEvent` is now synchronous, as a tracker must be). `setupAnalytics` takes `integrations` and `excludeFromIntegrations` (events still sent to the analytics server but handed to no integration, for those reported server-side) and no longer takes `thirdPartyTrackers` / `thirdPartyUserSetters`; `<Analytics>` (react, next) renders each integration's one `script` and takes only `integrations`, `nonce`, `facebookAppId` and `reportWebVitals`: `gaId`, `gaSrc`, `metaPixelId`, `openaiPixelId`, `redditPixelId`, `linkedInPartnerId`, `uetTagId`, `uetCustomerId`, `uetConsent` and `debugMode` move to the integration factories (`googleAnalytics({ id, src, debug })`, `microsoftAds({ tagId, customerId, consent })`, …), and Hotjar support (`hotjarId`) is removed. gtag.js loads from one inline snippet like the other pixels; a site with a Content Security Policy allows googletagmanager.com as before, and one without needs nothing. Ad integrations receive only the conversions they map to their standard events plus the `customEvents` they list (`microsoftAds`: `events`, the GA4 conversion events by default), no longer every event as custom ones. The router-agnostic `<Analytics>` moves to `@shware/analytics/react` and takes the current `pathname` and `search` from the host (e.g. TanStack Router's `useLocation()` `searchStr`, React Router's `search`): the `@shware/analytics/react-router` entry is removed, `@shware/analytics/tanstack` keeps only `createClickIdMiddleware`, and `react-router` / `@tanstack/react-router` are no longer peer dependencies. PostHog is loaded from its HTML snippet (`posthogAnalytics({ token, config })`, `config` going to `posthog.init`) instead of the host's `posthog-js`, which keeps the library out of the app bundle; `posthog-js` is only an optional peer for its types, `getPosthog`, `getLoadedPosthog`, `posthogFlagsReady` (a promise for React's `use()`) and `useFeatureFlag` (`@shware/analytics/react`, on `useSyncExternalStore`) are added, `<Analytics>` preconnects to each integration's `preconnect` origins (`react-dom` becomes an optional peer dependency), and the `@shware/analytics/third-parties/posthog` entry is removed (`posthogAnalytics`, `sendPosthogEvent` and `setPosthogUser` are exported from `@shware/analytics/third-parties`).
+
+### Patch Changes
+
+- 37736bf: Meta maps `sign_up` to `CompleteRegistration`, as it already did `login` and as Reddit and OpenAI map both, so the Meta Pixel and Facebook App Events still receive sign-ups now that ad integrations only get standard events and their `customEvents`.
+- 21cc81c: The Reddit Pixel loads `pixel.js` with its `pixel_id`, as the tag the Reddit Ads console generates now does.
+
 ## 15.0.1
 
 ### Patch Changes
