@@ -202,14 +202,26 @@ describe('sendEvents', () => {
     expect(body.consent).toEqual({ adUserData: 'CONSENT_GRANTED' });
   });
 
-  it('never throws on a rejected request or a network failure', async () => {
+  it('rejects on a rejected request or a network failure, for the caller to handle', async () => {
     fetchMock.mockResolvedValueOnce(new Response('denied', { status: 403 }));
-    await expect(sendEvents(auth, config, [event()])).resolves.toBeUndefined();
+    await expect(sendEvents(auth, config, [event()])).rejects.toMatchObject({
+      name: 'ConversionsApiError',
+      platform: 'google',
+      status: 403,
+      body: 'denied',
+    });
 
     // The @shware/utils fetch wrapper retries transient failures, so fail every attempt.
     fetchMock.mockRejectedValue(new Error('socket hang up'));
-    await expect(sendEvents(auth, config, [event()])).resolves.toBeUndefined();
-    expect(console.error).toHaveBeenCalledTimes(2);
+    await expect(sendEvents(auth, config, [event()])).rejects.toThrow('socket hang up');
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('stops at the first failed request of a split batch', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('denied', { status: 403 }));
+    const events = Array.from({ length: 2001 }, (_, i) => event({ id: `event-${i}` }));
+    await expect(sendEvents(auth, config, events)).rejects.toMatchObject({ status: 403 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('splits a batch beyond the 2000-event request cap into sequential requests', async () => {

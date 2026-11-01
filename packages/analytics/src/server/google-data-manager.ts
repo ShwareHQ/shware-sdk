@@ -2,8 +2,8 @@
  * Google Ads conversion sender over the Data Manager API (`events:ingest`) — Google's
  * counterpart to Meta's Conversions API, and the mandated successor to the Google Ads API's
  * `UploadClickConversions`, which stopped accepting new adopters on 2026-06-15. Same shape as
- * the other senders here: a pure per-event builder, a never-throws `sendEvents`, credentials
- * in headers and never in a URL or a log line.
+ * the other senders here: a pure per-event builder, a `sendEvents` that rejects on failure,
+ * credentials in headers and never in a URL or an error.
  *
  * Google's recommended deployment is *hybrid* ("boost your tag with additional data sources"):
  * this upload attaches to the SAME conversion action the gtag tag reports to, matched by
@@ -28,6 +28,7 @@ import { IGNORED_EVENTS } from '../third-parties/ignored-events';
 import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { googleClickIds } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://datamanager.googleapis.com/v1/events:ingest';
@@ -209,8 +210,9 @@ export interface DataManagerResponse {
 const MAX_EVENTS_PER_REQUEST = 2000;
 
 /**
- * Uploads the configured conversions from a batch of events. Never throws: an unusable event
- * is skipped and a failed request is logged and swallowed, like every other sender here. The
+ * Uploads the configured conversions from a batch of events. An unusable event is skipped; a
+ * failed request rejects (a `ConversionsApiError`, or the fetch error), as with every sender here,
+ * and sends no further ones. The
  * Data Manager API has no partial-failure mode — a rejected request costs the whole batch, so
  * the builder is strict about only emitting events the API can accept. A batch beyond the
  * 2000-event request cap goes out as sequential requests; the first response is returned.
@@ -264,29 +266,23 @@ export async function sendEvents(
       body.consent = options.consent;
     }
 
-    try {
-      const response = await fetch(ENDPOINT, {
-        method: 'POST',
-        // Retried although a POST: the platform deduplicates on the `event id` each event carries.
-        retries: 3,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`,
-        },
-        body: JSON.stringify(body),
-      });
-      if (response.ok) {
-        firstResponse ??= (await response.json()) as DataManagerResponse;
-        continue;
-      }
-      const { status } = response;
-      const message = await response.text();
-      console.error(`Failed to send Google Ads conversions, status: ${status}, body: ${message}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Failed to send Google Ads conversions, network error: ${message}`);
+    const response = await fetch(ENDPOINT, {
+      method: 'POST',
+      // Retried although a POST: the platform deduplicates on the `event id` each event carries.
+      retries: 3,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${auth.accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+    // The first failed request ends the batch: sending it again sends every request again, and
+    // the platform deduplicates the ones that had gone through.
+    if (!response.ok) {
+      throw new ConversionsApiError('google', response.status, await response.text());
     }
+    firstResponse ??= (await response.json()) as DataManagerResponse;
   }
   return firstResponse;
 }

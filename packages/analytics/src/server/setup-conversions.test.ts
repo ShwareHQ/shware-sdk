@@ -142,16 +142,20 @@ describe('forward', () => {
     expect(b.send).toHaveBeenCalledTimes(1);
   });
 
-  it('logs a destination that rejects, and still sends to the others', async () => {
-    const failing = { send: () => Promise.reject(new Error('down')) };
+  it('sends to every destination, then rejects with those that failed', async () => {
+    const down = new Error('down');
+    const failing = { send: () => Promise.reject(down) };
     const working = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
     const { forward } = setupConversions({ destinations: [failing, working] });
-    await expect(forward([event('purchase')])).resolves.toBeUndefined();
+
+    const error: unknown = await forward([event('purchase')]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect((error as AggregateError).errors).toEqual([down]);
     expect(working.send).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith('Failed to send conversions', expect.any(Error));
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('a destination that throws synchronously stops neither the others nor forward', async () => {
+  it('a destination that throws synchronously does not stop the others', async () => {
     const throwing = {
       send: () => {
         throw new Error('sync');
@@ -159,9 +163,8 @@ describe('forward', () => {
     };
     const working = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
     const { forward } = setupConversions({ destinations: [throwing, working] });
-    await expect(forward([event('purchase')])).resolves.toBeUndefined();
+    await expect(forward([event('purchase')])).rejects.toBeInstanceOf(AggregateError);
     expect(working.send).toHaveBeenCalledTimes(1);
-    expect(errorSpy).toHaveBeenCalledWith('Failed to send conversions', expect.any(Error));
   });
 
   it('sends nothing for an empty batch', async () => {
@@ -221,43 +224,57 @@ describe('track', () => {
     expect(Date.parse(event?.created_at ?? '')).toBeGreaterThanOrEqual(before);
   });
 
-  it('reports only an event store stored, so a redelivered webhook is reported once', async () => {
-    const stored = new Set<string>();
-    const store = vi.fn<(e: TrackEvent) => Promise<boolean>>((e) => {
-      const fresh = !stored.has(e.id);
-      stored.add(e.id);
-      return Promise.resolve(fresh);
+  it('stores the event before sending it', async () => {
+    const order: string[] = [];
+    const store = vi.fn<(e: TrackEvent) => Promise<void>>(async () => {
+      order.push('store');
     });
     const { destination, track } = setup({ store });
-
-    await expect(track(purchase)).resolves.toBeDefined();
-    await expect(track(purchase)).resolves.toBeUndefined();
-    expect(store).toHaveBeenCalledTimes(2);
-    expect(destination.send).toHaveBeenCalledTimes(1);
-  });
-
-  it('drops the event of a user with no session', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { destination, track } = setup({ resolveUser: () => Promise.resolve(undefined) });
-    await expect(track(purchase)).resolves.toBeUndefined();
-    expect(destination.send).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('txn-1'));
-  });
-
-  it('never throws: a failing lookup or store is logged', async () => {
-    const { destination, track } = setup({
-      resolveUser: () => Promise.reject(new Error('db down')),
+    destination.send.mockImplementation(async () => {
+      order.push('send');
     });
+    const event = await track(purchase);
+    expect(store).toHaveBeenCalledWith(event);
+    expect(order).toEqual(['store', 'send']);
+  });
+
+  it('rejects when a destination failed, and sends again when the webhook is redelivered', async () => {
+    const stored = new Set<string>();
+    const store = vi.fn<(e: TrackEvent) => Promise<void>>(async (e) => {
+      stored.add(e.id); // the unique index: a second insert is a no-op
+    });
+    const { destination, track } = setup({ store });
+    destination.send.mockRejectedValueOnce(new Error('platform down'));
+
+    // The failure fails the webhook request, so the provider delivers it again.
+    await expect(track(purchase)).rejects.toBeInstanceOf(AggregateError);
+    await expect(track(purchase)).resolves.toBeDefined();
+    expect(destination.send).toHaveBeenCalledTimes(2);
+    expect(stored).toEqual(new Set(['txn-1']));
+  });
+
+  it('sends nothing for a user with no session, and resolves undefined', async () => {
+    const store = vi.fn<(e: TrackEvent) => Promise<void>>(() => Promise.resolve());
+    const { destination, track } = setup({ resolveUser: () => Promise.resolve(undefined), store });
     await expect(track(purchase)).resolves.toBeUndefined();
+    expect(store).not.toHaveBeenCalled();
     expect(destination.send).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith('Failed to report conversion txn-1', expect.any(Error));
+  });
+
+  it('rejects with a failing lookup or store, and sends nothing', async () => {
+    const lookup = setup({ resolveUser: () => Promise.reject(new Error('db down')) });
+    await expect(lookup.track(purchase)).rejects.toThrow('db down');
+    expect(lookup.destination.send).not.toHaveBeenCalled();
+
+    const storing = setup({ store: () => Promise.reject(new Error('insert failed')) });
+    await expect(storing.track(purchase)).rejects.toThrow('insert failed');
+    expect(storing.destination.send).not.toHaveBeenCalled();
   });
 
   it('needs the track option', async () => {
     const destination = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
     const { track } = setupConversions({ destinations: [destination] });
-    await expect(track(purchase)).resolves.toBeUndefined();
+    await expect(track(purchase)).rejects.toThrow('track option');
     expect(destination.send).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('track option'));
   });
 });

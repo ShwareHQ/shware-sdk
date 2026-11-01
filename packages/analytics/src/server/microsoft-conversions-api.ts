@@ -1,7 +1,7 @@
 /**
  * Microsoft Advertising Conversions API (CAPI) sender — the server-side counterpart of the UET
- * tag, in the same shape as the other senders here: a pure per-event builder, a never-throws
- * `sendEvents`, the token in a header and never in a URL or a log line.
+ * tag, in the same shape as the other senders here: a pure per-event builder, a `sendEvents`
+ * that rejects on failure, the token in a header and never in a URL or an error.
  *
  * Microsoft's recommended deployment is hybrid: keep the UET JavaScript on the page and send the
  * same conversions here too, deduplicated by (`tagId`, `eventName`, `eventId`). Both channels in
@@ -23,6 +23,7 @@ import { type MicrosoftAdsOptions, uetEvents } from '../third-parties/microsoft-
 import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
 import { microsoftMsclkid } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
@@ -264,8 +265,9 @@ const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
 
 /**
  * Send events to `POST /v1/{tagId}/events`. Batches above the API's 1,000-event limit are split
- * into consecutive requests; one response is returned per request made. Never throws: an HTTP
- * or network failure is logged (without the token) and yields no response for that request.
+ * into consecutive requests; one response is returned per request made. The first failed request
+ * rejects — a `ConversionsApiError`, or the fetch error, neither carrying the token — and sends
+ * no further ones.
  */
 export async function sendEvents(
   token: string,
@@ -290,38 +292,32 @@ export async function sendEvents(
   const responses: MicrosoftConversionsResponse[] = [];
   for (const batch of chunk(capiEvents, MAX_EVENTS_PER_REQUEST)) {
     const body = compact({ data: batch, continueOnValidationError, dataProvider });
-    try {
-      const response = await fetch(`${ENDPOINT}/${tagId}/events`, {
-        method: 'POST',
-        // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
-        retries: 3,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
-      if (response.ok) {
-        const result = (await response.json()) as MicrosoftConversionsResponse;
-        // A 200 can still carry field-level warnings (the field was removed) and, with
-        // `continueOnValidationError`, skipped events. Surface them: silent partial data loss is
-        // the one failure mode the caller cannot see from the status code.
-        if (result.error?.details?.length) {
-          console.warn(
-            `Microsoft conversion accepted with validation issues: ${JSON.stringify(result.error.details)}`
-          );
-        }
-        responses.push(result);
-        continue;
-      }
-      const { status } = response;
-      const message = await response.text();
-      console.error(`Failed to send Microsoft conversion, status: ${status}, body: ${message}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Failed to send Microsoft conversion, network error: ${message}`);
+    const response = await fetch(`${ENDPOINT}/${tagId}/events`, {
+      method: 'POST',
+      // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
+      retries: 3,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    // The first failed request ends the batch: sending it again sends every request again, and
+    // the platform deduplicates the ones that had gone through.
+    if (!response.ok) {
+      throw new ConversionsApiError('microsoft', response.status, await response.text());
     }
+    const result = (await response.json()) as MicrosoftConversionsResponse;
+    // A 200 can still carry field-level warnings (the field was removed) and, with
+    // `continueOnValidationError`, skipped events. Surface them: silent partial data loss is the
+    // one failure mode the caller cannot see from the status code.
+    if (result.error?.details?.length) {
+      console.warn(
+        `Microsoft conversion accepted with validation issues: ${JSON.stringify(result.error.details)}`
+      );
+    }
+    responses.push(result);
   }
   return responses;
 }

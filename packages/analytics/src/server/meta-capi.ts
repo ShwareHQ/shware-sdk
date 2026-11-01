@@ -30,6 +30,7 @@ import { isStandardFBEvent, mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
@@ -400,8 +401,9 @@ export interface MetaConversionsResponse {
 const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
 
 /**
- * Sends the events to Meta's Conversions API; never throws. The token travels in the JSON body,
- * never in the URL, and is never logged.
+ * Sends the events to Meta's Conversions API. Rejects on a failed request — a
+ * `ConversionsApiError`, or the fetch error — for the caller to handle. The token travels in the
+ * JSON body, never in the URL, and is in neither error.
  */
 export async function sendEvents(
   accessToken: string,
@@ -424,28 +426,19 @@ export async function sendEvents(
   }
 
   const version = options.apiVersion ?? API_VERSION;
-  try {
-    const response = await fetch(`https://graph.facebook.com/${version}/${pixelId}/events`, {
-      method: 'POST',
-      // Retried although a POST: the platform deduplicates on the `event_id` each event carries.
-      retries: 3,
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        data: capiEvents,
-        test_event_code: options.testEventCode,
-        access_token: accessToken,
-      }),
-    });
-    if (response.ok) return (await response.json()) as MetaConversionsResponse;
-    const { status } = response;
-    const message = await response.text();
-    console.error(`Failed to send Meta conversion, status: ${status}, body: ${message}`);
-    return undefined;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to send Meta conversion, network error: ${message}`);
-    return undefined;
-  }
+  const response = await fetch(`https://graph.facebook.com/${version}/${pixelId}/events`, {
+    method: 'POST',
+    // Retried although a POST: the platform deduplicates on the `event_id` each event carries.
+    retries: 3,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      data: capiEvents,
+      test_event_code: options.testEventCode,
+      access_token: accessToken,
+    }),
+  });
+  if (response.ok) return (await response.json()) as MetaConversionsResponse;
+  throw new ConversionsApiError('meta', response.status, await response.text());
 }
 
 /**

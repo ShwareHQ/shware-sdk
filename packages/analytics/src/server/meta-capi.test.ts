@@ -586,25 +586,27 @@ describe('sendEvents transport', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('logs a rejected batch without throwing and without leaking the token', async () => {
+  it('rejects a rejected batch, without the token in the error', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: { message: 'Invalid parameter' } }), { status: 400 })
     );
 
-    await expect(sendEvents('secret-token', 'p', [event()])).resolves.toBeUndefined();
-    const logged = String(errorSpy.mock.calls[0][0]);
-    expect(logged).toContain('status: 400');
-    expect(logged).not.toContain('secret-token');
+    const error: unknown = await sendEvents('secret-token', 'p', [event()]).catch(
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({ name: 'ConversionsApiError', platform: 'meta', status: 400 });
+    expect(String(error)).toContain('status: 400');
+    expect(JSON.stringify(error) + String(error)).not.toContain('secret-token');
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('absorbs a network failure after the retry wrapper gives up', async () => {
+  it('rejects with the network failure once the retry wrapper gives up', async () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const pending = sendEvents('t', 'p', [event()]);
+    const pending = sendEvents('t', 'p', [event()]).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(10_000);
-    await expect(pending).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
+    expect(await pending).toEqual(new Error('offline'));
     vi.useRealTimers();
   });
 });

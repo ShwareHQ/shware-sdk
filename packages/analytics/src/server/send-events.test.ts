@@ -70,20 +70,25 @@ describe('Reddit sendEvents', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('logs a rejected batch without throwing (4xx is not retried)', async () => {
+  it('rejects a rejected batch (4xx is not retried)', async () => {
     fetchMock.mockResolvedValueOnce(new Response('bad', { status: 403 }));
-    await expect(sendRedditEvents('token', 'a2_pixel', [event()])).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('status: 403');
+    await expect(sendRedditEvents('token', 'a2_pixel', [event()])).rejects.toMatchObject({
+      name: 'ConversionsApiError',
+      platform: 'reddit',
+      status: 403,
+      body: 'bad',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('absorbs a network failure after the retry wrapper gives up', async () => {
+  it('rejects with the network failure once the retry wrapper gives up', async () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const pending = sendRedditEvents('token', 'a2_pixel', [event()]);
+    const pending = sendRedditEvents('token', 'a2_pixel', [event()]).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(10_000); // ride out the retry backoff
-    await expect(pending).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
+    expect(await pending).toEqual(new Error('offline'));
     vi.useRealTimers();
   });
 });
@@ -147,35 +152,37 @@ describe('OpenAI sendEvents', () => {
     expect(body.events[0].user).toBeUndefined();
   });
 
-  it('sends nothing when every event is filtered, and never throws on failure', async () => {
+  it('sends nothing when every event is filtered, and rejects a failed request', async () => {
     await sendOpenAIEvents('key', 'pixel-1', [event({ name: 'CLS' })]);
     expect(fetchMock).not.toHaveBeenCalled();
 
     fetchMock.mockResolvedValueOnce(new Response('bad', { status: 400 }));
-    await expect(sendOpenAIEvents('key', 'pixel-1', [event()])).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('status: 400');
+    await expect(sendOpenAIEvents('key', 'pixel-1', [event()])).rejects.toMatchObject({
+      platform: 'openai',
+      status: 400,
+    });
   });
 });
 
 describe('LinkedIn sendEvents failure paths', () => {
-  it('logs a rejected batch without throwing', async () => {
+  it('rejects a rejected batch', async () => {
     fetchMock.mockResolvedValueOnce(new Response('bad', { status: 422 }));
     // `user_id` so the event carries an identifier and survives to the request; an element
-    // LinkedIn could not match on is dropped before the fetch and there would be nothing to log.
+    // LinkedIn could not match on is dropped before the fetch and there would be no request.
     await expect(
       sendLinkedinEvents('token', { purchase: 1 }, [event()], { user_id: 'u1' })
-    ).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('status: 422');
+    ).rejects.toMatchObject({ platform: 'linkedin', status: 422 });
   });
 
-  it('absorbs a network failure after the retry wrapper gives up', async () => {
+  it('rejects with the network failure once the retry wrapper gives up', async () => {
     vi.useFakeTimers();
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    const pending = sendLinkedinEvents('token', { purchase: 1 }, [event()], { user_id: 'u1' });
+    const pending = sendLinkedinEvents('token', { purchase: 1 }, [event()], {
+      user_id: 'u1',
+    }).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(10_000);
-    await expect(pending).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
+    expect(await pending).toEqual(new Error('offline'));
     vi.useRealTimers();
   });
 });

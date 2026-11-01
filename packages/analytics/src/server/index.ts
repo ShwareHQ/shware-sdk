@@ -37,6 +37,7 @@ export {
   type MicrosoftValidationDetail,
 } from './microsoft-conversions-api';
 
+export { ConversionsApiError } from './conversions-api-error';
 export {
   setupConversions,
   conversionDestination,

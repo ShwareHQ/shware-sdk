@@ -12,6 +12,7 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { redditClickId, redditUuid } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
@@ -171,28 +172,22 @@ export async function sendEvents(
 
   if (dto.data.events.length === 0) return;
 
-  try {
-    const response = await fetch(
-      `https://ads-api.reddit.com/api/v3/pixels/${pixelId}/conversion_events`,
-      {
-        method: 'POST',
-        // Retried although a POST: the platform deduplicates on the `conversion_id` each event carries.
-        retries: 3,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(dto),
-      }
-    );
-    if (response.ok) return;
-    const { status } = response;
-    const message = await response.text();
-    console.error(`Failed to send Reddit conversion, status: ${status}, body: ${message}`);
-  } catch (error) {
-    console.error('Failed to send Reddit conversion, network error:', error);
-  }
+  const response = await fetch(
+    `https://ads-api.reddit.com/api/v3/pixels/${pixelId}/conversion_events`,
+    {
+      method: 'POST',
+      // Retried although a POST: the platform deduplicates on the `conversion_id` each event carries.
+      retries: 3,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(dto),
+    }
+  );
+  if (response.ok) return;
+  throw new ConversionsApiError('reddit', response.status, await response.text());
 }
 
 /** Reddit's Conversions API, sent the same events as `redditAds`. */

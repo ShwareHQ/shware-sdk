@@ -13,6 +13,7 @@ import type {
 import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { linkedinFatId } from './click-ids';
+import { ConversionsApiError } from './conversions-api-error';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 /**
@@ -189,28 +190,22 @@ export async function sendEvents(
   };
 
   if (dto.elements.length === 0) return;
-  try {
-    const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
-      method: 'POST',
-      // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
-      retries: 3,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        'LinkedIn-Version': '202609',
-        'X-Restli-Protocol-Version': '2.0.0',
-        'X-RestLi-Method': 'BATCH_CREATE',
-      },
-      body: JSON.stringify(dto),
-    });
+  const response = await fetch('https://api.linkedin.com/rest/conversionEvents', {
+    method: 'POST',
+    // Retried although a POST: the platform deduplicates on the `eventId` each event carries.
+    retries: 3,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'LinkedIn-Version': '202609',
+      'X-Restli-Protocol-Version': '2.0.0',
+      'X-RestLi-Method': 'BATCH_CREATE',
+    },
+    body: JSON.stringify(dto),
+  });
 
-    if (response.ok) return;
-    const { status } = response;
-    const message = await response.text();
-    console.error(`Failed to send LinkedIn conversion, status: ${status}, body: ${message}`);
-  } catch (error) {
-    console.error('Failed to send LinkedIn conversion, network error:', error);
-  }
+  if (response.ok) return;
+  throw new ConversionsApiError('linkedin', response.status, await response.text());
 }
 
 /** LinkedIn's Conversions API, sent the events in `conversions`, as `linkedInAds` is. */

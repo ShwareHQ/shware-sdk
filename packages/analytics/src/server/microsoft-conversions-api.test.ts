@@ -325,26 +325,30 @@ describe('sendEvents', () => {
     expect(JSON.parse(textRequestBody(fetchMock.mock.calls[1][1])).data).toHaveLength(1);
   });
 
-  it('never throws: an HTTP failure is logged without the token, a network error likewise', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('rejects an HTTP failure without the token, and a network error once retries give up', async () => {
     vi.stubGlobal(
       'fetch',
       vi
         .fn<typeof globalThis.fetch>()
         .mockResolvedValue(new Response('{"error":{"code":"Unauthorized"}}', { status: 401 }))
     );
-    await expect(sendEvents('secret-token', '1', [event()])).resolves.toEqual([]);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('status: 401'));
-    expect(error.mock.calls.flat().join(' ')).not.toContain('secret-token');
+    const error: unknown = await sendEvents('secret-token', '1', [event()]).catch(
+      (e: unknown) => e
+    );
+    expect(error).toMatchObject({
+      name: 'ConversionsApiError',
+      platform: 'microsoft',
+      status: 401,
+    });
+    expect(JSON.stringify(error) + String(error)).not.toContain('secret-token');
 
     // The shared fetch wrapper retries a network error with backoff; drive the fake clock past it.
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error('ECONNRESET'))
     );
-    const pending = sendEvents('secret-token', '1', [event()]);
+    const pending = sendEvents('secret-token', '1', [event()]).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(10_000);
-    await expect(pending).resolves.toEqual([]);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('ECONNRESET'));
+    expect(await pending).toEqual(new Error('ECONNRESET'));
   });
 });
