@@ -291,7 +291,7 @@ export const conversions = setupConversions({
     // a CRM or the host's own workflows: any `{ send(events, data) }`
     { send: (events, data) => sendToCrm(events, data) },
   ],
-  // Only for conversions.track(): forward needs none of it.
+  // Only for conversions.track(), which is returned only with it; forward needs none of it.
   track: {
     resolveUser: async (userId) => latestSessionOf(userId),
     store: async (event) => (await insertEvents([event])).length > 0,
