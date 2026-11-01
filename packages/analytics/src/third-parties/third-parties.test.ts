@@ -13,7 +13,7 @@ import {
   setUETUser,
   syncUETVisitor,
 } from './microsoft-uet';
-import { sendRedditEvent, setRedditUser } from './reddit-pixel';
+import { redditAds, sendRedditEvent, setRedditUser } from './reddit-pixel';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
@@ -417,5 +417,15 @@ describe('sendUETEvent', () => {
     await vi.waitFor(() => expect(sources).toHaveLength(3));
     expect(sources[2]).toBe('https://c.bing.com/c.gif?Red3=BACID_1&VID=vid-1');
     vi.unstubAllGlobals();
+  });
+});
+
+describe('redditAds script', () => {
+  it("loads the pixel with its id, as the Ads console's tag does", () => {
+    const { script } = redditAds({ pixelId: 'a2_test' });
+    expect(script?.inline).toContain(
+      '"https://www.redditstatic.com/ads/pixel.js?pixel_id=a2_test"'
+    );
+    expect(script?.inline).toContain(`rdt('init', "a2_test");`);
   });
 });

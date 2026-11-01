@@ -12,6 +12,7 @@ import {
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
+import { type AdsOptions, type Integration, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -105,5 +106,35 @@ export function setOpenAIUser(pixelId: string) {
         })
       )
       .catch(() => init({}));
+  };
+}
+
+/** OpenAI measurement pixel: the events `mapOAIEvent` maps to a standard event, and `customEvents`. */
+export function openaiAds(options: { pixelId: string } & AdsOptions): Integration {
+  const isStandard = (name: string) => mapOAIEvent(name as TrackName).type !== 'custom';
+  return {
+    type: 'ads',
+    track: adsTracker(sendOpenAIEvent, isStandard, options.customEvents ?? []),
+    setUser: setOpenAIUser(options.pixelId),
+    script: {
+      id: 'openai-pixel',
+      inline: `
+        (function (w, d, s, u) {
+          if (w.oaiq) return;
+          var q = function () {
+            q.q.push(arguments);
+          };
+          q.q = [];
+          w.oaiq = q;
+          var js = d.createElement(s);
+          js.async = true;
+          js.src = u;
+          var f = d.getElementsByTagName(s)[0];
+          f.parentNode.insertBefore(js, f);
+        })(window, document, "script", "https://bzrcdn.openai.com/sdk/oaiq.min.js");
+        oaiq("init", { pixelId: ${JSON.stringify(options.pixelId)} });
+        oaiq("measure", "page_viewed", { type: "contents" });
+      `,
+    },
   };
 }

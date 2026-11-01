@@ -90,7 +90,7 @@ describe('identify', () => {
   it('tells the third-party setters at once', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, config } = await load();
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
     const user_data = { email: 'a@b.co' };
 
     identify('u1', user_data);
@@ -130,7 +130,7 @@ describe('identify', () => {
   it('resets first when another user signs in over the one last identified here', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, storage, config } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
 
     identify('b');
 
@@ -145,7 +145,7 @@ describe('identify', () => {
   it('still identifies when the storage throws', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, storage, config, IDENTIFY_EVENT } = await load();
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
     storage.getItem = () => {
       throw new Error('storage unavailable');
     };
@@ -166,7 +166,10 @@ describe('identify', () => {
     });
     const good = vi.fn<ThirdPartyUserSetter>();
     const { identify, config } = await load();
-    config.thirdPartyUserSetters = [bad, good];
+    config.integrations = [
+      { type: 'analytics', track: () => {}, setUser: bad },
+      { type: 'analytics', track: () => {}, setUser: good },
+    ];
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
     expect(() => identify('u1')).not.toThrow();
@@ -179,7 +182,7 @@ describe('reset', () => {
   it('ends the session, starts a new visitor and forgets the user', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { reset, storage, config } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
 
     reset();
 
@@ -228,7 +231,7 @@ describe('reset', () => {
     });
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { reset, config } = await load({ user_id: 'a' });
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
     expect(() => reset()).not.toThrow();
@@ -249,7 +252,7 @@ describe('reset', () => {
   it("leaves the next user's binding alone when a stale sign-out comes in after it", async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, reset, storage, config } = await load({ visitor_id: 'visitor-1' });
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
     identify('a');
     // Meanwhile another tab signed A out and B in: a new visitor, bound to B.
     storage.map.set('visitor_id', 'visitor-2');
@@ -294,7 +297,7 @@ describe('reset', () => {
   it('still takes the user back from the setters of a page that identified one', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { identify, reset, storage, config } = await load();
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
     identify('a');
     // Another tab has reset since: the device no longer has a user, but this page told GA one.
     storage.map.set('user_id', '');
@@ -310,7 +313,7 @@ describe('reset', () => {
   it('does nothing on a device nobody signed in on', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
     const { reset, storage, config } = await load({ visitor_id: 'visitor-a' });
-    config.thirdPartyUserSetters = [setter];
+    config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
 
     reset();
 

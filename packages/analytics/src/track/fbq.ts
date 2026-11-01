@@ -398,8 +398,8 @@ export function mapFBEvent<T extends EventName>(
       'AddToWishlist',
       { currency: p?.currency, value: p?.value, ...mapItems(p?.items) },
     ];
-  } else if (name === 'login') {
-    const p = properties as TrackProperties<'login'> | undefined;
+  } else if (name === 'sign_up' || name === 'login') {
+    const p = properties as TrackProperties<'sign_up' | 'login'> | undefined;
     return ['track', 'CompleteRegistration', { method: p?.method }];
   } else if (name === 'contact') {
     return ['track', 'Contact', {}];

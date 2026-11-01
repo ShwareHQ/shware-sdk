@@ -2,6 +2,7 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import { type FBQ, type PixelId, mapFBEvent } from '../track/fbq';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
+import { type AdsOptions, type Integration, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -59,5 +60,38 @@ export function setFBUser(pixelId: PixelId) {
       zp: address?.postal_code,
       country: address?.country,
     });
+  };
+}
+
+/** Meta Pixel: the events `mapFBEvent` maps to a Meta standard event, and `customEvents`. */
+export function metaAds(options: { pixelId: PixelId } & AdsOptions): Integration {
+  const isStandard = (name: string) => mapFBEvent(name as TrackName)[0] === 'track';
+  return {
+    type: 'ads',
+    track: adsTracker(sendFBEvent, isStandard, options.customEvents ?? []),
+    setUser: setFBUser(options.pixelId),
+    script: {
+      id: 'meta-pixel',
+      inline: `
+        !(function (f, b, e, v, n, t, s) {
+          if (f.fbq) return;
+          n = f.fbq = function () {
+            n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
+          };
+          if (!f._fbq) f._fbq = n;
+          n.push = n;
+          n.loaded = !0;
+          n.version = '2.0';
+          n.queue = [];
+          t = b.createElement(e);
+          t.async = !0;
+          t.src = v;
+          s = b.getElementsByTagName(e)[0];
+          s.parentNode.insertBefore(t, s);
+        })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', ${JSON.stringify(options.pixelId)});
+        fbq('track', 'PageView');
+      `,
+    },
   };
 }

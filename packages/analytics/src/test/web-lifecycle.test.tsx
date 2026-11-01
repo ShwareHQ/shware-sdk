@@ -235,7 +235,7 @@ describe('leaving for a payment page', () => {
     const { Page, track } = await launch(memoryStorage({ visitor_id: 'visitor-1' }));
     const { config } = await import('../setup/index');
     const { pixel } = vi.mockObject<{ pixel: ThirdPartyTracker }>({ pixel() {} });
-    config.thirdPartyTrackers = [pixel];
+    config.integrations = [{ type: 'analytics', track: pixel }];
     render(<Page pathname="/pricing" />);
     present();
     await vi.advanceTimersByTimeAsync(2000); // the landing batch went out

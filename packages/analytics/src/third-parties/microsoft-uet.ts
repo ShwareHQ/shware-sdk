@@ -4,6 +4,7 @@ import { type UETConsent, type UETQ, mapUETEvent } from '../track/uetq';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
 import { visitorId } from '../visitor/id';
+import { type AdsOptions, CONVERSION_EVENTS, type Integration, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -155,4 +156,71 @@ export function sendUETIdSync(options: {
     return;
   }
   sha256(options.userId).then(fire, () => fire());
+}
+
+/** What `microsoftAds` returns: an integration that also names the customer id for ID Sync. */
+export type MicrosoftAdsIntegration = Integration & { readonly uetCustomerId?: `${number}` };
+
+/** The customer id of the `microsoftAds` integration among these, for `useUETIdSync`. */
+export function uetCustomerIdOf(integrations: readonly Integration[] = []) {
+  return integrations.find(
+    (integration): integration is MicrosoftAdsIntegration => 'uetCustomerId' in integration
+  )?.uetCustomerId;
+}
+
+/**
+ * Microsoft Advertising UET. UET has no standard events to map to — a conversion goal is defined
+ * on an action name in the ads UI — so it receives an explicit list, the GA4 conversion events
+ * by default (`CONVERSION_EVENTS`), plus `customEvents`.
+ *
+ * Its script is Microsoft's UET snippet with `enableAutoSpaTracking: true` (the tag reports page
+ * loads itself), the consent mode default pushed inside it so bat.js reads it before the first
+ * page load.
+ */
+export function microsoftAds(
+  options: {
+    tagId: `${number}`;
+    /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the ID Sync pixel. */
+    customerId?: `${number}`;
+    /**
+     * The UET consent mode default, `ad_storage: granted` unless given: how the tag behaves
+     * without a signal, so Microsoft stops flagging EEA/UK/CH events as missing consent. Sites
+     * with a consent banner pass `{ ad_storage: 'denied' }` and send `update` with
+     * `setUETConsent`; `false` pushes no default. https://help.ads.microsoft.com/#apex/ads/en/60119/1
+     */
+    consent?: UETConsent | false;
+    events?: readonly EventName[];
+  } & AdsOptions
+): MicrosoftAdsIntegration {
+  const events: readonly string[] = options.events ?? CONVERSION_EVENTS;
+  const consent = options.consent ?? { ad_storage: 'granted' };
+  const defaults = consent ? `w[u].push("consent", "default", ${JSON.stringify(consent)});` : '';
+  return {
+    type: 'ads',
+    track: adsTracker(sendUETEvent, (name) => events.includes(name), options.customEvents ?? []),
+    setUser: setUETUser,
+    script: {
+      id: 'uet-tag',
+      inline: `
+        (function (w, d, t, u, o) {
+          w[u] = w[u] || [], o.ts = (new Date).getTime();
+          ${defaults}
+          var n = d.createElement(t);
+          n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
+          n.async = 1, n.onload = n.onreadystatechange = function() {
+            var s = this.readyState;
+            s && "loaded" !== s && "complete" !== s ||
+            (o.q = w[u], w[u] = new UET(o), w[u].push("pageLoad"),
+            n.onload = n.onreadystatechange = null)
+          };
+          var i = d.getElementsByTagName(t)[0];
+          i.parentNode.insertBefore(n, i);
+        })(window, document, "script", "uetq", {
+          ti: ${JSON.stringify(options.tagId)},
+          enableAutoSpaTracking: true
+        });
+      `,
+    },
+    uetCustomerId: options.customerId,
+  };
 }

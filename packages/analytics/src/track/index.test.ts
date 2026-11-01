@@ -391,7 +391,7 @@ describe('callbacks and third parties', () => {
   it('forwards to third-party trackers with the event id, skipping ignored events', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
     respondWithIds();
 
     track('scroll', undefined); // enhanced-measurement events are not forwarded
@@ -407,7 +407,7 @@ describe('callbacks and third parties', () => {
   it('fires the trackers synchronously as the event is tracked, before anything is sent', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
     respondWithIds();
 
     track('sign_up', { method: 'email' });
@@ -425,7 +425,7 @@ describe('callbacks and third parties', () => {
   it('gives each event its own tracker id', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
 
     track('sign_up', { method: 'email' });
     track('sign_up', { method: 'google' });
@@ -438,7 +438,7 @@ describe('callbacks and third parties', () => {
   it('fires the trackers even when the server rejects the batch', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config, jsonResponse } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
     fetchMock.mockResolvedValue(jsonResponse({ error: 'invalid' }, 400));
     vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -458,7 +458,10 @@ describe('callbacks and third parties', () => {
     });
     const onSucceed = vi.fn<NonNullable<TrackOptions['onSucceed']>>();
     const { track, config } = await load();
-    config.thirdPartyTrackers = [bad, good];
+    config.integrations = [
+      { type: 'analytics', track: bad },
+      { type: 'analytics', track: good },
+    ];
     respondWithIds();
 
     track('sign_up', { method: 'email' }, { onSucceed });
@@ -473,7 +476,7 @@ describe('callbacks and third parties', () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     tracker.mockImplementation(() => (ready ? undefined : false));
     const { track, config } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
 
     track('sign_up', { method: 'email' });
     expect(tracker).toHaveBeenCalledTimes(1);
@@ -494,7 +497,10 @@ describe('callbacks and third parties', () => {
     }>({ blocked() {}, ready() {} });
     blocked.mockImplementation(() => false);
     const { track, config } = await load();
-    config.thirdPartyTrackers = [blocked, ready];
+    config.integrations = [
+      { type: 'analytics', track: blocked },
+      { type: 'analytics', track: ready },
+    ];
     respondWithIds();
 
     track('sign_up', { method: 'email' });
@@ -507,7 +513,7 @@ describe('callbacks and third parties', () => {
   it('respects enableThirdPartyTracking: false', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, config } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
     respondWithIds();
 
     track('sign_up', { method: 'email' }, { enableThirdPartyTracking: false });
@@ -599,7 +605,7 @@ describe('sendPendingEvents', () => {
   it('beacons each event under the id its trackers already fired with, firing none again', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, sendPendingEvents, config } = await load();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
 
     track('sign_up', { method: 'email' });
     expect(tracker).toHaveBeenCalledTimes(1);
@@ -820,7 +826,7 @@ describe('reset and the queue', () => {
   it('hands the ending engagement to no third-party tracker', async () => {
     const { tracker } = vi.mockObject<{ tracker: ThirdPartyTracker }>({ tracker() {} });
     const { track, reset, config } = await loadWithVisitor();
-    config.thirdPartyTrackers = [tracker];
+    config.integrations = [{ type: 'analytics', track: tracker }];
     respondWithIds();
 
     track('custom_action');

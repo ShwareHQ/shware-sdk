@@ -91,14 +91,14 @@
         "default": "./dist/next/index.cjs"
       }
     },
-    "./react-router": {
+    "./react": {
       "import": {
-        "types": "./dist/react-router/index.d.mts",
-        "default": "./dist/react-router/index.mjs"
+        "types": "./dist/react/index.d.mts",
+        "default": "./dist/react/index.mjs"
       },
       "require": {
-        "types": "./dist/react-router/index.d.cts",
-        "default": "./dist/react-router/index.cjs"
+        "types": "./dist/react/index.d.cts",
+        "default": "./dist/react/index.cjs"
       }
     },
     "./tanstack": {
@@ -119,16 +119,6 @@
       "require": {
         "types": "./dist/third-parties/index.d.cts",
         "default": "./dist/third-parties/index.cjs"
-      }
-    },
-    "./third-parties/posthog": {
-      "import": {
-        "types": "./dist/third-parties/posthog.d.mts",
-        "default": "./dist/third-parties/posthog.mjs"
-      },
-      "require": {
-        "types": "./dist/third-parties/posthog.d.cts",
-        "default": "./dist/third-parties/posthog.cjs"
       }
     },
     "./server": {
@@ -177,6 +167,7 @@
     "@types/facebook-nodejs-business-sdk": "^24.0.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^5.0.5",
     "babel-plugin-react-compiler": "1.0.0",
     "bowser": "^2.14.1",
@@ -188,7 +179,6 @@
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^26.4.1",
-    "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-start": "^1.169.4",
     "expo-application": "^57.0.3 || ^58.0.0",
     "expo-clipboard": "^57.0.2 || ^58.0.0",
@@ -201,16 +191,13 @@
     "next": "^16.4.3",
     "posthog-js": "^1.438.21",
     "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "react-native": "^0.87.1 || ^0.88.0",
     "react-native-fbsdk-next": "^13.4.3",
-    "react-router": "^8.5.0",
     "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {
     "@react-native-firebase/analytics": {
-      "optional": true
-    },
-    "@tanstack/react-router": {
       "optional": true
     },
     "@tanstack/react-start": {
@@ -249,13 +236,13 @@
     "react": {
       "optional": true
     },
+    "react-dom": {
+      "optional": true
+    },
     "react-native": {
       "optional": true
     },
     "react-native-fbsdk-next": {
-      "optional": true
-    },
-    "react-router": {
       "optional": true
     }
   }
