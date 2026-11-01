@@ -1,18 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { logEvent, setUserId, logFBEvent, setUserID, setUserData } = vi.hoisted(() => ({
-  setUserID: vi.fn<(id: string | null) => void>(),
-  setUserData: vi.fn<(data: object) => void>(),
-  logEvent: vi.fn<(analytics: unknown, name: string, params?: object) => void>(),
-  setUserId: vi.fn<(analytics: unknown, id: string | null) => Promise<void>>(() =>
-    Promise.resolve()
-  ),
-  logFBEvent: vi.fn<(name: string, params?: object) => void>(),
-}));
+const { logEvent, setUserId, odmEmail, odmPhone, logFBEvent, setUserID, setUserData } = vi.hoisted(
+  () => ({
+    odmEmail: vi.fn<(analytics: unknown, email: string) => Promise<void>>(() => Promise.resolve()),
+    odmPhone: vi.fn<(analytics: unknown, phone: string) => Promise<void>>(() => Promise.resolve()),
+    setUserID: vi.fn<(id: string | null) => void>(),
+    setUserData: vi.fn<(data: object) => void>(),
+    logEvent: vi.fn<(analytics: unknown, name: string, params?: object) => void>(),
+    setUserId: vi.fn<(analytics: unknown, id: string | null) => Promise<void>>(() =>
+      Promise.resolve()
+    ),
+    logFBEvent: vi.fn<(name: string, params?: object) => void>(),
+  })
+);
 vi.mock(import('@react-native-firebase/analytics'), () => ({
   getAnalytics: (() => ({})) as never,
   logEvent: logEvent as never,
   setUserId: setUserId as never,
+  initiateOnDeviceConversionMeasurementWithEmailAddress: odmEmail as never,
+  initiateOnDeviceConversionMeasurementWithPhoneNumber: odmPhone as never,
 }));
 vi.mock(import('react-native-fbsdk-next'), () => ({
   AppEventsLogger: { logEvent: logFBEvent, setUserID, setUserData } as never,
@@ -34,13 +40,24 @@ describe('firebaseAnalytics', () => {
     expect(logEvent).toHaveBeenCalledWith(expect.anything(), 'onboarding_completed', undefined);
   });
 
-  it('sets the user id on identify, without the email, and clears it on reset', () => {
+  it('sets the user id on identify and clears it on reset', () => {
     const { setUser } = firebaseAnalytics();
-    setUser?.({ user_id: 'u1', user_data: { email: 'a@b.co' } });
+    setUser?.({ user_id: 'u1' });
     expect(setUserId).toHaveBeenLastCalledWith(expect.anything(), 'u1');
 
     setUser?.({});
     expect(setUserId).toHaveBeenLastCalledWith(expect.anything(), null);
+    expect(odmEmail).not.toHaveBeenCalled();
+    expect(odmPhone).not.toHaveBeenCalled();
+  });
+
+  it('hands the email and phone number to on-device conversion measurement', () => {
+    firebaseAnalytics().setUser?.({
+      user_id: 'u1',
+      user_data: { email: ['a@b.co', 'x@y.z'], phone_number: '+14155551234' },
+    });
+    expect(odmEmail).toHaveBeenCalledWith(expect.anything(), 'a@b.co');
+    expect(odmPhone).toHaveBeenCalledWith(expect.anything(), '+14155551234');
   });
 });
 
