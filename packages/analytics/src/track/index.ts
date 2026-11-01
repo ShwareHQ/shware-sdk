@@ -4,15 +4,9 @@ import type { CreateTrackEventDTO } from '../schema/index';
 import { cache, config } from '../setup/index';
 import { getSession } from '../setup/session';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
+import type { Integration } from '../third-parties/integration';
 import { visitorId } from '../visitor/id';
-import type {
-  EventName,
-  ThirdPartyTracker,
-  TrackEventResponse,
-  TrackName,
-  TrackProperties,
-  TrackTags,
-} from './types';
+import type { EventName, TrackEventResponse, TrackName, TrackProperties, TrackTags } from './types';
 
 export interface TrackOptions {
   enableThirdPartyTracking?: boolean;
@@ -124,19 +118,23 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 function firePixels({ event, options }: Item) {
   // An explicit false, not falsiness: a caller passing `{ onSucceed }` replaces the options
   // object wholesale, and leaving the flag out must not silently switch forwarding off.
-  if (options.enableThirdPartyTracking === false || IGNORED_EVENTS.includes(event.name)) {
+  if (
+    options.enableThirdPartyTracking === false ||
+    config.excludeFromIntegrations.includes(event.name) ||
+    IGNORED_EVENTS.includes(event.name)
+  ) {
     return;
   }
-  const notReady = callTrackers(config.thirdPartyTrackers, event);
+  const notReady = callIntegrations(config.integrations, event);
   if (notReady.length === 0) return;
-  setTimeout(() => callTrackers(notReady, event), 0);
+  setTimeout(() => callIntegrations(notReady, event), 0);
 }
 
-/** Calls each tracker with the event; returns the ones that said they were not ready. */
-function callTrackers(trackers: ThirdPartyTracker[], event: TrackEvent): ThirdPartyTracker[] {
-  return trackers.filter((tracker) => {
+/** Hands the event to each integration; returns the ones that said they were not ready. */
+function callIntegrations(integrations: readonly Integration[], event: TrackEvent): Integration[] {
+  return integrations.filter(({ track }) => {
     try {
-      return tracker(event.name, event.properties, event.id) === false;
+      return track(event.name, event.properties, event.id) === false;
     } catch (e: unknown) {
       // A third-party script does not get to take the tracking call, or the other trackers, with it.
       if (e instanceof Error) console.log(e.message);

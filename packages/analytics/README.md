@@ -16,7 +16,7 @@ pnpm add @shware/analytics zod
 ```
 
 Every framework and platform integration is an optional peer dependency: install only what your
-entry point imports (`next`, `@tanstack/react-start`, `react-router`, `posthog-js`, the `expo-*`
+entry point imports (`next`, `@tanstack/react-start`, `posthog-js`, the `expo-*`
 modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on).
 
 ## Entry points
@@ -29,8 +29,8 @@ modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on)
 | `@shware/analytics/native/firebase`       | Expo    | `sendFirebaseEvent`, a third-party tracker for Firebase Analytics           |
 | `@shware/analytics/native/fbsdk`          | Expo    | `sendFBEvent`, a third-party tracker for the Facebook SDK                   |
 | `@shware/analytics/next`                  | browser | `<Analytics />` for the Next.js App Router                                  |
-| `@shware/analytics/tanstack`              | both    | `<Analytics />` and `createClickIdMiddleware` for TanStack Start            |
-| `@shware/analytics/react-router`          | browser | `<Analytics />` for React Router                                            |
+| `@shware/analytics/react`                 | browser | `<Analytics />` for any React router (TanStack Router, React Router, …)     |
+| `@shware/analytics/tanstack`              | both    | `createClickIdMiddleware` for TanStack Start                                |
 | `@shware/analytics/third-parties`         | browser | GA4, Meta Pixel, Reddit, LinkedIn, OpenAI and UET trackers and setters      |
 | `@shware/analytics/third-parties/posthog` | browser | `sendPosthogEvent` and `setPosthogUser`                                     |
 | `@shware/analytics/server`                | server  | Conversions APIs: Meta, Google Ads, Microsoft, Reddit, LinkedIn, OpenAI     |
@@ -56,10 +56,9 @@ Call `setupAnalytics` once, at module scope of the client entry, before anything
 
 ```ts
 import { setupAnalytics } from '@shware/analytics';
-import { sendGAEvent, setGAUser } from '@shware/analytics/third-parties';
-import { sendPosthogEvent, setPosthogUser } from '@shware/analytics/third-parties/posthog';
 import { getDeviceId, getTags, storage } from '@shware/analytics/web';
 import { version } from '../package.json';
+import { integrations } from './integrations';
 
 setupAnalytics({
   storage,
@@ -68,12 +67,44 @@ setupAnalytics({
   release: version,
   platform: 'web',
   environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
-  // Optional: every tracked event is also handed to these, and identify / reset to the setters.
-  thirdPartyTrackers: [sendGAEvent, sendPosthogEvent],
-  thirdPartyUserSetters: [setGAUser, setPosthogUser],
   endpoint: 'https://api.example.com/v1/analytics',
+  integrations,
+  // Still sent to the analytics server, but to no integration: report them server-side instead.
+  excludeFromIntegrations: ['purchase', 'refund'],
 });
 ```
+
+### Integrations
+
+Each third party is one `integrations` entry that carries everything about it: how events reach it, how it learns the signed-in user (`identify` / `reset()`), and the ids of the script it needs. Pass the same array to `<Analytics integrations>`, which renders those scripts, so an id is written once.
+
+```ts
+// integrations.ts
+import {
+  googleAnalytics,
+  linkedInAds,
+  metaAds,
+  microsoftAds,
+} from '@shware/analytics/third-parties';
+import { posthogAnalytics } from '@shware/analytics/third-parties/posthog';
+
+export const integrations = [
+  googleAnalytics({ id: 'G-XXXXXXX', debug: import.meta.env.DEV }),
+  posthogAnalytics(),
+  metaAds({ pixelId: '1234567890', customEvents: ['onboarding_completed'] }),
+  linkedInAds({ partnerId: '123456', conversions: { sign_up: 7654321 } }),
+  microsoftAds({ tagId: '987654', customerId: '1234' }),
+];
+```
+
+| Type        | Integrations                          | Receives                                                                                   |
+| ----------- | ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `analytics` | `googleAnalytics`, `posthogAnalytics` | every event                                                                                |
+| `ads`       | `metaAds`, `redditAds`, `openaiAds`   | the events it maps to its own standard events, plus `customEvents`                         |
+| `ads`       | `linkedInAds`                         | the events in `conversions`, each as its conversion id                                     |
+| `ads`       | `microsoftAds`                        | `events` (the GA4 conversion events, `CONVERSION_EVENTS`, by default), plus `customEvents` |
+
+An ad platform needs conversions to optimize and build audiences, not the product's day-to-day events, which are behavior analysis for GA4 and PostHog. `excludeFromIntegrations` applies to every integration, analytics included. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
 
@@ -108,16 +139,23 @@ so screen changes are tracked as page views.
 ### The `<Analytics />` component (web)
 
 Each web framework entry exports an `Analytics` component. Render it once in the document head:
-it tracks page views, outbound clicks and web vitals, and loads the pixels whose ids you pass
-(`gaId`, `metaPixelId`, `redditPixelId`, `linkedInPartnerId`, `uetTagId`, `hotjarId`,
-and on TanStack Start `openaiPixelId`). On TanStack Start:
+it tracks page views, outbound clicks and web vitals, and renders the script of each of the
+`integrations` you pass — the same array given to `setupAnalytics`, so each id is written once.
+Every integration carries one script (`Integration.script`: an inline snippet that loads the
+vendor's script from its host, as the vendors' official snippets do). Next.js has its own entry
+(`@shware/analytics/next`); any other React router uses `@shware/analytics/react` and passes the
+current location. On TanStack Start:
 
 ```tsx
-import { Analytics } from '@shware/analytics/tanstack';
+import { Analytics } from '@shware/analytics/react';
+import { useLocation } from '@tanstack/react-router';
+import { integrations } from './integrations';
+
+const { pathname, searchStr } = useLocation();
 
 <head>
   <HeadContent />
-  <Analytics nonce={nonce} gaId="G-XXXXXXXXXX" debugMode={import.meta.env.DEV} />
+  <Analytics pathname={pathname} search={searchStr} nonce={nonce} integrations={integrations} />
 </head>;
 ```
 
@@ -842,21 +880,19 @@ Microsoft recommends the UET tag and the Conversions API (CAPI) together. The tw
 (`tagId`, `eventName`, `eventId`): the browser sends the internal event name as the UET action with
 the event id as `event_id`, the server sends the same name as `eventName` with the same id.
 
-Browser — pass the tag id and the customer id to the framework `Analytics` component
-(`<Analytics uetTagId="97267979" uetCustomerId="255004870" />` from `@shware/analytics/tanstack`,
-`/next` or `/react-router`). It inlines Microsoft's snippet with `enableAutoSpaTracking: true` (the
+Browser — the `microsoftAds` integration below carries the tag id and the customer id, and the
+framework `Analytics` component (from `@shware/analytics/react` or `/next`)
+renders its tag from `integrations`. It inlines Microsoft's snippet with `enableAutoSpaTracking: true` (the
 tag owns page loads, `sendUETEvent` drops `page_view` and forwards everything else) and fires the
 Conversions API's ID Sync pixel once per visit for the SDK visitor — anonymous visitors included,
 they are who remarketing audiences are built from. Then:
 
 ```ts
-import { sendUETEvent, setUETUser, setUETConsent } from '@shware/analytics/third-parties';
+import { microsoftAds, setUETConsent } from '@shware/analytics/third-parties';
 
-setupAnalytics({
-  thirdPartyTrackers: [sendUETEvent],
-  // Enhanced conversions: the tag hashes the email/phone itself before they leave the page.
-  thirdPartyUserSetters: [setUETUser],
-});
+// One integration: conversions to UET, enhanced conversions (the tag hashes the email/phone itself
+// before they leave the page), and the tag id and customer id `<Analytics integrations>` renders.
+setupAnalytics({ integrations: [microsoftAds({ tagId: '97267979', customerId: '255004870' })] });
 // Consent mode (EEA/UK/CH): push `default` before the tag loads, `update` on the visitor's choice.
 setUETConsent('default', { ad_storage: 'denied', wait_for_update: 2000 });
 ```

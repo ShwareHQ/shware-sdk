@@ -26,11 +26,11 @@ export const IDENTIFY_EVENT = 'identify';
  */
 let identified: string | null | undefined;
 
-/** Hands the user to every third-party user setter; one that throws does not stop the others. */
+/** Hands the user to every integration's user setter; one that throws does not stop the others. */
 function setUsers(user: Parameters<ThirdPartyUserSetter>[0]) {
-  config.thirdPartyUserSetters.forEach((setter) => {
+  config.integrations.forEach(({ setUser }) => {
     try {
-      setter(user);
+      setUser?.(user);
     } catch (e: unknown) {
       if (e instanceof Error) console.log(e.message);
     }

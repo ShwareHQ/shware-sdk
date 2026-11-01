@@ -7,37 +7,9 @@ import { Suspense } from 'react';
 import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics';
 import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
-import type { PixelId as MetaPixelId } from '../track/fbq';
-import type { GaId } from '../track/gtag';
+import type { AnalyticsProps } from '../third-parties/analytics-props';
+import { uetCustomerIdOf } from '../third-parties/microsoft-uet';
 import { track } from '../track/index';
-import type { PixelId as RedditPixelId } from '../track/rdt';
-import type { UETConsent } from '../track/uetq';
-
-interface Props {
-  gaId?: GaId;
-  gaSrc?: string;
-  hotjarId?: `${number}`;
-  metaPixelId?: MetaPixelId;
-  redditPixelId?: RedditPixelId;
-  linkedInPartnerId?: `${number}`;
-  /** Microsoft Advertising UET tag id. The tag reports page loads itself (`enableAutoSpaTracking`). */
-  uetTagId?: `${number}`;
-  /** Microsoft Advertising customer id (`cid` in the ads UI's URLs): enables the Conversions API's ID Sync pixel. */
-  uetCustomerId?: `${number}`;
-  /**
-   * UET consent mode default, pushed inside the tag snippet so bat.js reads it before the first
-   * page load. Defaults to `ad_storage: granted`, which is how the tag behaves without a signal,
-   * so Microsoft stops flagging EEA/UK/CH events as missing consent. Sites with a consent banner
-   * pass `{ ad_storage: 'denied' }` and send `update` with `setUETConsent` when the visitor
-   * decides; `false` pushes no default.
-   * https://help.ads.microsoft.com/#apex/ads/en/60119/1
-   */
-  uetConsent?: UETConsent | false;
-  facebookAppId?: string;
-  nonce?: string;
-  debugMode?: boolean;
-  reportWebVitals?: boolean;
-}
 
 /**
  * Its own component under a Suspense boundary: `useSearchParams` in a statically rendered route
@@ -52,22 +24,13 @@ function PageViews() {
 }
 
 export function Analytics({
-  gaId,
-  gaSrc,
-  nonce,
-  debugMode,
-  metaPixelId,
-  hotjarId,
-  redditPixelId,
-  linkedInPartnerId,
-  uetTagId,
-  uetCustomerId,
-  uetConsent = { ad_storage: 'granted' },
+  integrations = [],
   facebookAppId,
+  nonce,
   reportWebVitals = true,
-}: Props) {
+}: AnalyticsProps) {
   useOutboundClickAnalytics();
-  useUETIdSync(uetCustomerId);
+  useUETIdSync(uetCustomerIdOf(integrations));
 
   useReportWebVitals((metric) => {
     if (!reportWebVitals) return;
@@ -89,155 +52,17 @@ export function Analytics({
         <PageViews />
       </Suspense>
       {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
-      {gaId && (
-        <>
+      {integrations
+        .flatMap(({ script }) => (script ? [script] : []))
+        .map((script) => (
           <Script
-            id="gtag"
+            key={script.id}
+            id={script.id}
             nonce={nonce}
-            src={gaSrc ?? `https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+            strategy={script.strategy ?? 'afterInteractive'}
+            dangerouslySetInnerHTML={{ __html: script.inline }}
           />
-          <Script
-            nonce={nonce}
-            id="gtag-init"
-            dangerouslySetInnerHTML={{
-              __html: `
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', '${gaId}'${debugMode ? " ,{ 'debug_mode': true }" : ''});
-            `,
-            }}
-          />
-        </>
-      )}
-      {metaPixelId && (
-        <Script
-          id="meta-pixel"
-          nonce={nonce}
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-            !(function (f, b, e, v, n, t, s) {
-              if (f.fbq) return;
-              n = f.fbq = function () {
-                n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments);
-              };
-              if (!f._fbq) f._fbq = n;
-              n.push = n;
-              n.loaded = !0;
-              n.version = '2.0';
-              n.queue = [];
-              t = b.createElement(e);
-              t.async = !0;
-              t.src = v;
-              s = b.getElementsByTagName(e)[0];
-              s.parentNode.insertBefore(t, s);
-            })(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
-            fbq('init', '${metaPixelId}');
-            fbq('track', 'PageView');`,
-          }}
-        />
-      )}
-      {redditPixelId && (
-        <Script
-          id="reddit-pixel"
-          nonce={nonce}
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-            !function(w,d) {
-              if(!w.rdt) {
-                var p = w.rdt = function() {
-                  p.sendEvent ? p.sendEvent.apply(p,arguments) : p.callQueue.push(arguments)
-                };
-                p.callQueue = [];
-                var t = d.createElement("script");
-                t.src = "https://www.redditstatic.com/ads/pixel.js";
-                t.async = !0;
-                var s = d.getElementsByTagName("script")[0];
-                s.parentNode.insertBefore(t,s)
-              }
-            }(window, document);
-            rdt('init', '${redditPixelId}');
-            rdt('track', 'PageVisit');`,
-          }}
-        />
-      )}
-      {linkedInPartnerId && (
-        <Script
-          id="linkedin-insight-tag"
-          nonce={nonce}
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              _linkedin_partner_id = "${linkedInPartnerId}";
-              window._linkedin_data_partner_ids = window._linkedin_data_partner_ids || [];
-              window._linkedin_data_partner_ids.push(_linkedin_partner_id);
-
-              (function(l) {
-                if (!l){
-                  window.lintrk = function(a,b){ 
-                    window.lintrk.q.push([a,b])
-                  };
-                  window.lintrk.q=[]
-                }
-                var s = document.getElementsByTagName("script")[0];
-                var b = document.createElement("script");
-                b.type = "text/javascript";b.async = true;
-                b.src = "https://snap.licdn.com/li.lms-analytics/insight.min.js";
-                s.parentNode.insertBefore(b, s);
-              })(window.lintrk);
-              `,
-          }}
-        />
-      )}
-      {uetTagId && (
-        <Script
-          strategy="afterInteractive"
-          id="uet-tag"
-          nonce={nonce}
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function (w, d, t, u, o) {
-                w[u] = w[u] || [], o.ts = (new Date).getTime();
-                ${uetConsent ? `w[u].push("consent", "default", ${JSON.stringify(uetConsent)});` : ''}
-                var n = d.createElement(t);
-                n.src = "https://bat.bing.net/bat.js?ti=" + o.ti + ("uetq" != u ? "&q=" + u : ""),
-                n.async = 1, n.onload = n.onreadystatechange = function() {
-                  var s = this.readyState;
-                  s && "loaded" !== s && "complete" !== s ||
-                  (o.q = w[u], w[u] = new UET(o), w[u].push("pageLoad"),
-                  n.onload = n.onreadystatechange = null)
-                };
-                var i = d.getElementsByTagName(t)[0];
-                i.parentNode.insertBefore(n, i);
-              })(window, document, "script", "uetq", {
-                ti: "${uetTagId}",
-                enableAutoSpaTracking: true
-              });
-            `,
-          }}
-        />
-      )}
-      {hotjarId && (
-        <Script
-          id="hotjar"
-          nonce={nonce}
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-            (function(h,o,t,j,a,r){
-              h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
-              h._hjSettings={hjid:${hotjarId},hjsv:6};
-              a=o.getElementsByTagName('head')[0];
-              r=o.createElement('script');r.async=1;
-              r.src=t+h._hjSettings.hjid+j+h._hjSettings.hjsv;
-              a.appendChild(r);
-            })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
-            `,
-          }}
-        />
-      )}
+        ))}
     </>
   );
 }

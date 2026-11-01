@@ -91,14 +91,14 @@
         "default": "./dist/next/index.cjs"
       }
     },
-    "./react-router": {
+    "./react": {
       "import": {
-        "types": "./dist/react-router/index.d.mts",
-        "default": "./dist/react-router/index.mjs"
+        "types": "./dist/react/index.d.mts",
+        "default": "./dist/react/index.mjs"
       },
       "require": {
-        "types": "./dist/react-router/index.d.cts",
-        "default": "./dist/react-router/index.cjs"
+        "types": "./dist/react/index.d.cts",
+        "default": "./dist/react/index.cjs"
       }
     },
     "./tanstack": {
@@ -188,7 +188,6 @@
   },
   "peerDependencies": {
     "@react-native-firebase/analytics": "^26.4.1",
-    "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-start": "^1.169.4",
     "expo-application": "^57.0.3 || ^58.0.0",
     "expo-clipboard": "^57.0.2 || ^58.0.0",
@@ -203,14 +202,10 @@
     "react": "^19.3.1",
     "react-native": "^0.87.1 || ^0.88.0",
     "react-native-fbsdk-next": "^13.4.3",
-    "react-router": "^8.5.0",
     "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {
     "@react-native-firebase/analytics": {
-      "optional": true
-    },
-    "@tanstack/react-router": {
       "optional": true
     },
     "@tanstack/react-start": {
@@ -253,9 +248,6 @@
       "optional": true
     },
     "react-native-fbsdk-next": {
-      "optional": true
-    },
-    "react-router": {
       "optional": true
     }
   }

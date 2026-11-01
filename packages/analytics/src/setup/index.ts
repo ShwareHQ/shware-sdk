@@ -1,5 +1,5 @@
-import type { Environment, Platform, ThirdPartyTracker, TrackTags } from '../track/types';
-import type { ThirdPartyUserSetter } from '../visitor/types';
+import type { Integration } from '../third-parties/integration';
+import type { Environment, EventName, Platform, TrackTags } from '../track/types';
 
 export interface Storage {
   getItem: (key: string) => string | null;
@@ -27,8 +27,18 @@ export interface Options {
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
   getHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
-  thirdPartyTrackers?: ThirdPartyTracker[];
-  thirdPartyUserSetters?: ThirdPartyUserSetter[];
+  /**
+   * The third parties events and the signed-in user go to, each configured in one place
+   * (`googleAnalytics`, `metaAds`, … from `@shware/analytics/third-parties`). Pass the same array
+   * to `<Analytics integrations>` for their scripts.
+   */
+  integrations?: readonly Integration[];
+  /**
+   * Events reported server-side only (the Conversions APIs, Google's Data Manager API): stored
+   * like any event, but handed to no browser tracker, analytics included — a browser copy under
+   * another event id would be counted twice by the platforms. `purchase` and `refund`, typically.
+   */
+  excludeFromIntegrations?: readonly EventName[];
   /** An app's opening link, which native's `getTags` merges into every event's tags. */
   deepLink?: DeepLink;
 }
@@ -42,8 +52,8 @@ interface Config {
   getTags: () => TrackTags | Promise<TrackTags>;
   getDeviceId: () => string | Promise<string>;
   getHeaders: () => Record<string, string> | Promise<Record<string, string>>;
-  thirdPartyTrackers: ThirdPartyTracker[];
-  thirdPartyUserSetters: ThirdPartyUserSetter[];
+  integrations: readonly Integration[];
+  excludeFromIntegrations: readonly string[];
   deepLink: DeepLink | undefined;
 }
 
@@ -65,8 +75,8 @@ export const config: Config = {
   getTags: null!,
   getDeviceId: null!,
   getHeaders: null!,
-  thirdPartyTrackers: [],
-  thirdPartyUserSetters: [],
+  integrations: [],
+  excludeFromIntegrations: [],
   deepLink: undefined,
 };
 // oxlint-enable typescript/no-non-null-assertion
@@ -83,8 +93,8 @@ export function setupAnalytics(init: Options) {
     'Content-Type': 'application/json',
     ...(await init.getHeaders?.()),
   });
-  config.thirdPartyTrackers = init.thirdPartyTrackers ?? [];
-  config.thirdPartyUserSetters = init.thirdPartyUserSetters ?? [];
+  config.integrations = init.integrations ?? [];
+  config.excludeFromIntegrations = init.excludeFromIntegrations ?? [];
   config.deepLink = init.deepLink;
   // Logged, not thrown: the links are worth less than the setup they would break.
   try {
