@@ -1,8 +1,7 @@
 /**
- * Meta Conversions API sender built on `capi-param-builder-nodejs` and plain `fetch`, replacing
- * the 31MB `facebook-nodejs-business-sdk` with ~0.5MB of parameter building. The SDK-based
- * sender survives untouched at `@shware/analytics/server/legacy`; this module is its drop-in
- * successor.
+ * Meta Conversions API sender built on `capi-param-builder-nodejs` and plain `fetch`, which
+ * replaced the sender built on the 31MB `facebook-nodejs-business-sdk`, since removed, with
+ * ~0.5MB of parameter building.
  *
  * The wire payload is byte-identical to what the business SDK's `ServerEvent.normalize()`
  * produces — enforced by a differential test that runs both builders over the same events.
@@ -25,11 +24,14 @@ import { createHash } from 'node:crypto';
 import { fetch } from '@shware/utils';
 import { PII_DATA_TYPE, ParamBuilder } from 'capi-param-builder-nodejs';
 import { IGNORED_EVENTS } from '../third-parties/ignored-events';
-import { mapFBEvent } from '../track/fbq';
+import { adEvents } from '../third-parties/integration';
+import type { MetaAdsOptions } from '../third-parties/meta-pixel';
+import { isStandardFBEvent, mapFBEvent } from '../track/fbq';
 import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
 import { pageLocation } from './page-location';
+import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 /** Matches the Graph API version the pinned business SDK speaks (`FacebookAdsApi.VERSION`). */
 const API_VERSION = 'v24.0';
@@ -398,9 +400,8 @@ export interface MetaConversionsResponse {
 const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000 - 60 * 1000;
 
 /**
- * The lightweight counterpart to the legacy SDK sender (`@shware/analytics/server/legacy`):
- * same filtering, same payload, same never-throws contract, minus the 31MB SDK. The token
- * travels in the JSON body, never in the URL, and is never logged.
+ * Sends the events to Meta's Conversions API; never throws. The token travels in the JSON body,
+ * never in the URL, and is never logged.
  */
 export async function sendEvents(
   accessToken: string,
@@ -445,4 +446,16 @@ export async function sendEvents(
     console.error(`Failed to send Meta conversion, network error: ${message}`);
     return undefined;
   }
+}
+
+/**
+ * Meta's Conversions API, sent the same events as `metaAds` in the browser: the ones Meta maps to
+ * a standard event, and `customEvents`.
+ */
+export function metaConversions(
+  options: MetaAdsOptions & MetaConversionsOptions & { accessToken: string }
+): ConversionDestination {
+  return conversionDestination(adEvents(isStandardFBEvent, options.customEvents), (events, data) =>
+    sendEvents(options.accessToken, options.pixelId, events, data, options)
+  );
 }

@@ -3,11 +3,10 @@
  * what the request looks like, and that a vendor failure is logged rather than thrown — a
  * conversions call must never take the host's request handler down with it.
  */
-import { EventRequest } from 'facebook-nodejs-business-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackEvent } from '../track/types';
 import { sendEvents as sendLinkedinEvents } from './linkedin-conversions-api';
-import { sendEvent as sendMetaEvent, sendEvents as sendMetaEvents } from './meta-conversions-api';
+import { sendEvents as sendMetaEvents } from './meta-capi';
 import { sendEvents as sendOpenAIEvents } from './openai-conversions-api';
 import { sendEvents as sendRedditEvents } from './reddit-conversions-api';
 
@@ -42,61 +41,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-});
-
-describe('Meta sendEvents', () => {
-  it('filters auto-collected events and skips the request when nothing remains', async () => {
-    const execute = vi.spyOn(EventRequest.prototype, 'execute').mockResolvedValue({} as never);
-
-    await expect(
-      sendMetaEvents('token', 'pixel', [
-        event({ name: 'session_start' }),
-        event({ name: 'scroll' }),
-      ])
-    ).resolves.toBeUndefined();
-    expect(execute).not.toHaveBeenCalled();
-
-    await sendMetaEvents('token', 'pixel', [event({ name: 'session_start' }), event()]);
-    expect(execute).toHaveBeenCalledTimes(1);
-  });
-
-  it('sendEvent ignores a single auto-collected event', async () => {
-    const execute = vi.spyOn(EventRequest.prototype, 'execute').mockResolvedValue({} as never);
-    await expect(
-      sendMetaEvent('token', 'pixel', event({ name: 'page_view' }))
-    ).resolves.toBeUndefined();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it('sendEvent executes a conversion and returns the vendor response', async () => {
-    const response = { events_received: 1 };
-    const execute = vi
-      .spyOn(EventRequest.prototype, 'execute')
-      .mockResolvedValue(response as never);
-    await expect(sendMetaEvent('token', 'pixel', event())).resolves.toBe(response);
-    expect(execute).toHaveBeenCalledTimes(1);
-  });
-
-  it('logs an API rejection without rethrowing and without leaking the token', async () => {
-    vi.spyOn(EventRequest.prototype, 'execute').mockRejectedValue({
-      status: 400,
-      message: 'Invalid parameter',
-      response: { error: { message: 'Invalid parameter' } },
-    });
-
-    await expect(sendMetaEvents('secret-token', 'pixel', [event()])).resolves.toBeUndefined();
-
-    expect(errorSpy).toHaveBeenCalledTimes(1);
-    const logged = String(errorSpy.mock.calls[0][0]);
-    expect(logged).toContain('status: 400');
-    expect(logged).not.toContain('secret-token');
-  });
-
-  it('logs a network failure distinctly', async () => {
-    vi.spyOn(EventRequest.prototype, 'execute').mockRejectedValue(new Error('socket hang up'));
-    await expect(sendMetaEvents('token', 'pixel', [event()])).resolves.toBeUndefined();
-    expect(String(errorSpy.mock.calls[0][0])).toContain('network error');
-  });
 });
 
 describe('Reddit sendEvents', () => {
@@ -242,25 +186,21 @@ describe('events outside the API time window', () => {
 
   it('Meta, Reddit and OpenAI leave out what is over 7 days old, and send the rest', async () => {
     fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
-    const execute = vi.spyOn(EventRequest.prototype, 'execute').mockResolvedValue({} as never);
     const events = [event({ id: 'fresh' }), event({ id: 'stale', created_at: ago(7 * DAY) })];
 
     await sendMetaEvents('token', 'pixel', events);
-    expect(execute).toHaveBeenCalledTimes(1);
-    const sent = (execute.mock.contexts[0] as EventRequest).events.map((e) => e.event_id);
-    expect(sent).toEqual(['fresh']);
-
     await sendRedditEvents('token', 'pixel', events);
     await sendOpenAIEvents('key', 'pixel', events);
     const bodies = fetchMock.mock.calls.map(([, init]) =>
       JSON.parse((init as RequestInit).body as string)
     );
+    expect(bodies[0].data.map((e: { event_id: string }) => e.event_id)).toEqual(['fresh']);
     expect(
-      bodies[0].data.events.map(
+      bodies[1].data.events.map(
         (e: { metadata: { conversion_id: string } }) => e.metadata.conversion_id
       )
     ).toEqual(['fresh']);
-    expect(bodies[1].events.map((e: { id: string }) => e.id)).toEqual(['fresh']);
+    expect(bodies[2].events.map((e: { id: string }) => e.id)).toEqual(['fresh']);
   });
 
   it('OpenAI also leaves out what is over 10 minutes ahead', async () => {
@@ -284,7 +224,7 @@ describe('events outside the API time window', () => {
 
 describe('Meta client_user_agent', () => {
   it('warns when website events go without a user agent, which Meta requires of them', async () => {
-    vi.spyOn(EventRequest.prototype, 'execute').mockResolvedValue({} as never);
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await sendMetaEvents('token', 'pixel', [event()], {});

@@ -130,16 +130,6 @@
         "types": "./dist/server/index.d.cts",
         "default": "./dist/server/index.cjs"
       }
-    },
-    "./server/legacy": {
-      "import": {
-        "types": "./dist/server/legacy.d.mts",
-        "default": "./dist/server/legacy.mjs"
-      },
-      "require": {
-        "types": "./dist/server/legacy.d.cts",
-        "default": "./dist/server/legacy.cjs"
-      }
     }
   },
   "publishConfig": {
@@ -164,7 +154,6 @@
     "@repo/typescript-config": "workspace:*",
     "@testing-library/react": "^16.3.3",
     "@types/babel__core": "7.20.5",
-    "@types/facebook-nodejs-business-sdk": "^24.0.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -187,7 +176,6 @@
     "expo-localization": "^57.0.2 || ^58.0.0",
     "expo-sqlite": "^57.0.3 || ^58.0.0",
     "expo-tracking-transparency": "^57.0.2 || ^58.0.0",
-    "facebook-nodejs-business-sdk": "^24.0.1",
     "next": "^16.4.3",
     "posthog-js": "^1.438.21",
     "react": "^19.3.1",
@@ -222,9 +210,6 @@
       "optional": true
     },
     "expo-tracking-transparency": {
-      "optional": true
-    },
-    "facebook-nodejs-business-sdk": {
       "optional": true
     },
     "next": {
