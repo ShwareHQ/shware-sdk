@@ -2,6 +2,7 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import { type PixelId, type RDT, mapRDTEvent } from '../track/rdt';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
+import { type AdsOptions, type Integration, adsTracker } from './integration';
 
 declare global {
   interface Window {
@@ -48,5 +49,35 @@ export function setRedditUser(pixelId: PixelId) {
       phoneNumber: getFirst(user_data?.phone_number),
       externalId: user_id,
     });
+  };
+}
+
+/** Reddit Pixel: the events `mapRDTEvent` maps to a Reddit standard event, and `customEvents`. */
+export function redditAds(options: { pixelId: PixelId } & AdsOptions): Integration {
+  const isStandard = (name: string) => mapRDTEvent(name as TrackName)[0] !== 'Custom';
+  return {
+    type: 'ads',
+    track: adsTracker(sendRedditEvent, isStandard, options.customEvents ?? []),
+    setUser: setRedditUser(options.pixelId),
+    script: {
+      id: 'reddit-pixel',
+      inline: `
+        !function(w,d) {
+          if(!w.rdt) {
+            var p = w.rdt = function() {
+              p.sendEvent ? p.sendEvent.apply(p,arguments) : p.callQueue.push(arguments)
+            };
+            p.callQueue = [];
+            var t = d.createElement("script");
+            t.src = "https://www.redditstatic.com/ads/pixel.js";
+            t.async = !0;
+            var s = d.getElementsByTagName("script")[0];
+            s.parentNode.insertBefore(t,s)
+          }
+        }(window, document);
+        rdt('init', ${JSON.stringify(options.pixelId)});
+        rdt('track', 'PageVisit');
+      `,
+    },
   };
 }
