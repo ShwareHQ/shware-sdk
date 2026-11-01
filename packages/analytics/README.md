@@ -298,35 +298,39 @@ export const conversions = setupConversions({
   },
 });
 
-// POST /events, after storing the batch: a failure is only worth a log line here.
-ctx.waitUntil(conversions.forward(events, userProvidedData).catch(console.error));
+// POST /events, after storing the batch
+ctx.waitUntil(conversions.forward(events, userProvidedData));
 
-// a webhook: Stripe's invoice.paid. Let a failure fail the request, and Stripe delivers it
-// again; the conversion is then sent again, and the platforms deduplicate it on its id.
-await conversions.track({
-  id: invoice.id,
-  name: 'purchase',
-  userId,
-  properties: { transaction_id: invoice.id, value: 9.99, currency: 'usd', items: [] },
-});
+// a webhook: Stripe's invoice.paid, once the account is credited
+ctx.waitUntil(
+  conversions.track({
+    id: invoice.id,
+    name: 'purchase',
+    userId,
+    properties: { transaction_id: invoice.id, value: 9.99, currency: 'usd', items: [] },
+  })
+);
 ```
 
 - `forward(events, data)`: the events a client sent, as stored, to every destination at once.
-  Every destination is sent to; then, if any failed, it rejects with an `AggregateError` of their
-  errors (`ConversionsApiError` for an error status, the fetch error for a network failure, never
-  carrying a token). The SDK logs nothing: what a failure means is the caller's call. The
-  `send…Events` functions reject the same way.
 - `track(event)`: an event the server reports on its own — a webhook's purchase, renewal or
-  refund — with `id` the transaction id the platforms deduplicate on. `track.resolveUser(userId)`
-  returns what a client event would have carried, from the host's records: the user's latest
-  session's `tags` (cookies, page, user agent) with the click ids of the touch the conversion is
-  credited to, that session's `visitor_id`, `session_id`, `platform` (which decides website or
-  app) and `environment`, and the user's identity as `data`. `track.store` stores the event before it
-  is sent — in the events table, so the server's conversions count wherever the client's do.
-  `track` rejects with a destination's failure, or `resolveUser`'s or `store`'s error; a webhook
-  delivered again stores the event again (a no-op under the table's unique index) and sends it
-  again, which every platform deduplicates on the event id. A destination of your own has to be
-  idempotent on `event.id` too. A user with no session is skipped: `track` resolves `undefined`.
+  refund — with `id` the transaction id. `track.resolveUser(userId)` returns what a client event
+  would have carried, from the host's records: the user's latest session's `tags` (cookies, page,
+  user agent) with the click ids of the touch the conversion is credited to, that session's
+  `visitor_id`, `session_id`, `platform` (which decides website or app) and `environment`, and the
+  user's identity as `data`. `track.store` stores the event — in the events table, so the
+  server's conversions count wherever the client's do — and says whether it was new: only a new
+  one is sent, so a webhook delivered again is not reported twice. That matters: the platforms
+  document deduplicating a server event against a browser one, and only Microsoft (on `eventId`)
+  and Google Ads (on `transaction_id`) a server event sent twice. A user with no session is
+  skipped.
+
+Neither throws, so reporting a conversion cannot fail the request it runs in — least of all a
+payment webhook, which its provider would deliver again and again. A failure is logged with the
+ids of the events it lost (`Conversions not sent, events: …`), to be found and sent later: a
+missed conversion costs less than a duplicate one or a failing webhook. The `send…Events`
+functions underneath reject instead (`ConversionsApiError` for an error status, the fetch error
+for a network failure; neither carries a token), for a caller using them directly to handle.
 
 List events the server reports itself in `setupAnalytics({ excludeFromIntegrations })` so the
 browser does not send them too.

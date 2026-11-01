@@ -17,9 +17,8 @@ type AnyTrackEvent = TrackEvent<any>;
  * (`metaConversions`, … next to each sender), or anything else the host forwards events to (a
  * CRM, its own workflows).
  *
- * `send` rejects when it fails, as the SDK's senders do; the others are sent to still. It must
- * be idempotent on `event.id`, as every ad platform deduplicates on it: an event whose delivery
- * failed somewhere is sent again to every destination, those it had reached included.
+ * `send` rejects when it fails, as the SDK's senders do: `setupConversions` logs the failure,
+ * with the events' ids, and still sends to the others.
  */
 export interface ConversionDestination {
   readonly send: (events: AnyTrackEvent[], data: UserProvidedData) => Promise<unknown>;
@@ -62,8 +61,8 @@ export interface ConversionUser {
 
 /**
  * An event the server reports on its own, with no client behind it: a webhook's purchase,
- * renewal or refund. `id` is what the platforms deduplicate on — the transaction id, so the
- * webhook's retries and a client event under the same id are one conversion.
+ * renewal or refund. `id` is the transaction id: `track.store` keeps a redelivered webhook from
+ * being reported twice, and the platforms pair it with a browser event under the same id.
  */
 export interface ServerEvent<T extends EventName = EventName> {
   id: string;
@@ -88,11 +87,12 @@ export interface ConversionsOptions {
      */
     resolveUser: (userId: string) => Promise<ConversionUser | undefined>;
     /**
-     * Stores the event, e.g. in the events table, before it is sent. A webhook delivered again
-     * stores it again — the table's unique index makes that a no-op — and sends it again, which
-     * the destinations deduplicate on its id; that is what lets a failed delivery be retried.
+     * Stores the event, e.g. in the events table, returning whether it was new: `track` sends
+     * only an event it stored, so a webhook delivered again (its handler failed on something
+     * else) is not reported twice — not every platform deduplicates a server event sent twice.
+     * Without it, every `track` sends.
      */
-    store?: (event: AnyTrackEvent) => Promise<unknown>;
+    store?: (event: AnyTrackEvent) => Promise<boolean>;
   };
 }
 
@@ -105,10 +105,10 @@ export interface ConversionsOptions {
  * - `track(event)`: an event the server reports on its own (a webhook's), completed by
  *   `track.resolveUser`, stored with `track.store`, then forwarded.
  *
- * Failures are the caller's to handle: every destination is sent to, then `forward` rejects with
- * an `AggregateError` of those that failed (`ConversionsApiError`s, fetch errors), and `track`
- * rejects with that or with the error of `resolveUser` or `store`. A webhook handler that lets
- * it fail the request has the provider deliver it again, and the conversion is sent again.
+ * Neither throws, so reporting a conversion can never fail the request it runs in — a payment
+ * webhook least of all, which its provider would then deliver again and again. A failure is
+ * logged with the ids of the events it lost, for them to be found and sent later: a missed
+ * conversion costs less than a duplicate one, or a webhook that keeps failing.
  */
 export function setupConversions(options: ConversionsOptions) {
   const { destinations, track: trackOptions } = options;
@@ -120,27 +120,42 @@ export function setupConversions(options: ConversionsOptions) {
     const settled = await Promise.allSettled(
       destinations.map((d) => Promise.resolve().then(() => d.send(events, data)))
     );
-    const errors = settled.flatMap((outcome) =>
-      outcome.status === 'rejected' ? [outcome.reason as unknown] : []
-    );
-    if (errors.length > 0) {
-      throw new AggregateError(
-        errors,
-        `Failed to send conversions to ${errors.length} destination(s)`
-      );
-    }
+    const ids = events.map((event) => event.id).join(', ');
+    settled.forEach((outcome) => {
+      if (outcome.status === 'rejected') {
+        console.error(`Conversions not sent, events: ${ids}`, outcome.reason);
+      }
+    });
   }
 
   /**
-   * Reports a server-only event; resolves with it as sent, or `undefined` for a user
-   * `resolveUser` found no session of, whose event is not sent.
+   * Reports a server-only event; resolves with it as sent, or `undefined` when it was not: a
+   * user with no session, an event `store` had already stored, or a failure, which is logged.
    */
   async function track<T extends EventName>(
     input: ServerEvent<T>
   ): Promise<TrackEvent<T> | undefined> {
-    if (!trackOptions) throw new Error('setupConversions: track() needs the track option');
-    const user = await trackOptions.resolveUser(input.userId);
-    if (!user) return undefined;
+    if (!trackOptions) {
+      console.error('setupConversions: track() needs the track option');
+      return undefined;
+    }
+    try {
+      return await report(trackOptions, input);
+    } catch (e: unknown) {
+      console.error(`Conversion not reported, event: ${input.id}`, e);
+      return undefined;
+    }
+  }
+
+  async function report<T extends EventName>(
+    { resolveUser, store }: NonNullable<ConversionsOptions['track']>,
+    input: ServerEvent<T>
+  ): Promise<TrackEvent<T> | undefined> {
+    const user = await resolveUser(input.userId);
+    if (!user) {
+      console.warn(`Conversion not reported, event: ${input.id}: no session for ${input.userId}`);
+      return undefined;
+    }
     const createdAt = input.createdAt === undefined ? new Date() : new Date(input.createdAt);
     const event: TrackEvent<T> = {
       id: input.id,
@@ -153,7 +168,7 @@ export function setupConversions(options: ConversionsOptions) {
       environment: user.environment,
       created_at: createdAt.toISOString(),
     };
-    await trackOptions.store?.(event);
+    if (store && !(await store(event))) return undefined;
     await forward([event], user.data);
     return event;
   }
