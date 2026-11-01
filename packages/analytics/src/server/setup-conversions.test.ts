@@ -151,6 +151,19 @@ describe('forward', () => {
     expect(errorSpy).toHaveBeenCalledWith('Failed to send conversions', expect.any(Error));
   });
 
+  it('a destination that throws synchronously stops neither the others nor forward', async () => {
+    const throwing = {
+      send: () => {
+        throw new Error('sync');
+      },
+    };
+    const working = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
+    const { forward } = setupConversions({ destinations: [throwing, working] });
+    await expect(forward([event('purchase')])).resolves.toBeUndefined();
+    expect(working.send).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith('Failed to send conversions', expect.any(Error));
+  });
+
   it('sends nothing for an empty batch', async () => {
     const destination = { send: vi.fn<ConversionDestination['send']>(() => Promise.resolve()) };
     await setupConversions({ destinations: [destination] }).forward([]);

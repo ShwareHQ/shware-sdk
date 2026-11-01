@@ -108,7 +108,11 @@ export function setupConversions(options: ConversionsOptions) {
 
   async function forward(events: AnyTrackEvent[], data: UserProvidedData = {}) {
     if (events.length === 0) return;
-    const settled = await Promise.allSettled(destinations.map((d) => d.send(events, data)));
+    // Called inside a promise: a `send` that throws synchronously rejects there instead of
+    // stopping the destinations after it.
+    const settled = await Promise.allSettled(
+      destinations.map((d) => Promise.resolve().then(() => d.send(events, data)))
+    );
     settled.forEach((outcome) => {
       if (outcome.status === 'rejected') {
         console.error('Failed to send conversions', outcome.reason);
