@@ -141,6 +141,18 @@ describe('scripts', () => {
     expect(ga.script?.inline).toContain('debug_mode: true');
   });
 
+  it("give the gtag.js they add the inline script's nonce", () => {
+    const inline = document.createElement('script');
+    inline.nonce = 'abc123';
+    inline.textContent = googleAnalytics({ id: 'G-ABC', src: '/gtag.js' }).script?.inline ?? '';
+    document.head.append(inline);
+
+    const added = document.querySelector<HTMLScriptElement>('script[src="/gtag.js"]');
+    expect(added?.nonce).toBe('abc123');
+    added?.remove();
+    inline.remove();
+  });
+
   it('push the UET consent default, granted unless given, none for false', () => {
     expect(microsoftAds({ tagId: '9' }).script?.inline).toContain(
       'w[u].push("consent", "default", {"ad_storage":"granted"})'

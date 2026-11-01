@@ -52,6 +52,9 @@ export function googleAnalytics(options: { id: GaId; src?: string; debug?: boole
         (function (d, s, u) {
           var j = d.createElement(s);
           j.async = true;
+          // A script added here does not inherit the nonce: hand it this one's, or a CSP that
+          // allows scripts by nonce (without 'strict-dynamic') blocks gtag.js.
+          j.nonce = d.currentScript && d.currentScript.nonce;
           j.src = u;
           var f = d.getElementsByTagName(s)[0];
           f.parentNode.insertBefore(j, f);

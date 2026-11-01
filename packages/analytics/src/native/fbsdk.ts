@@ -22,7 +22,13 @@ export function sendFBEvent<T extends EventName>(
 /**
  * Hands the signed-in user to Facebook App Events, as `setFBUser` does the Pixel: the user id
  * (`external_id`) and the advanced matching fields, which the SDK hashes on the device. No user is
- * sign-out (`reset()`), which clears both.
+ * sign-out (`reset()`): the user id is cleared, but the matching fields may not be.
+ *
+ * Known gap, kept on purpose: the fields go to the native `setUserData`, which on Android only
+ * updates the fields it is given, so the empty ones sent at sign-out leave the previous user's
+ * email and phone in place, and later anonymous events (or another user's without an email) can
+ * still carry them. `react-native-fbsdk-next` does not expose the native `clearUserData`. Dropping
+ * the fields would avoid it, but cost more in ad conversion matching than the gap does.
  */
 export function setFBUser({ user_id, user_data }: Omit<UpdateVisitorDTO, 'tags'>) {
   AppEventsLogger.setUserID(user_id || null);
