@@ -1,6 +1,7 @@
 import type { UpdateVisitorDTO } from '../schema/index';
-import type { Gtag } from '../track/gtag';
+import type { GaId, Gtag } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
+import type { Integration } from './integration';
 
 declare global {
   interface Window {
@@ -29,4 +30,33 @@ export function setGAUser({ user_id, user_data }: UpdateVisitorDTO) {
   // it is cleared explicitly.
   window.gtag('set', 'user_id', user_id || null);
   if (user_data) window.gtag('set', 'user_data', user_data);
+}
+
+/**
+ * Google Analytics 4 (gtag.js): every event, for behavior analysis. `src` serves gtag.js from
+ * another path (a first-party proxy); `debug` turns on GA4's DebugView for this page.
+ */
+export function googleAnalytics(options: { id: GaId; src?: string; debug?: boolean }): Integration {
+  const src = options.src ?? `https://www.googletagmanager.com/gtag/js?id=${options.id}`;
+  return {
+    type: 'analytics',
+    track: sendGAEvent,
+    setUser: setGAUser,
+    script: {
+      id: 'gtag',
+      inline: `
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', ${JSON.stringify(options.id)}${options.debug ? ', { debug_mode: true }' : ''});
+        (function (d, s, u) {
+          var j = d.createElement(s);
+          j.async = true;
+          j.src = u;
+          var f = d.getElementsByTagName(s)[0];
+          f.parentNode.insertBefore(j, f);
+        })(document, 'script', ${JSON.stringify(src)});
+      `,
+    },
+  };
 }
