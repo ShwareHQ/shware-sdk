@@ -65,3 +65,8 @@ export {
   useFeatureFlagVariantKey,
   usePostHog,
 } from './posthog';
+export {
+  PosthogErrorBoundary,
+  type PosthogErrorBoundaryFallbackProps,
+  type PosthogErrorBoundaryProps,
+} from './posthog-error-boundary';

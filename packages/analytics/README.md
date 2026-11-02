@@ -128,6 +128,8 @@ With server-evaluated flags, skip the wait: pass them in `config.bootstrap` and 
 </PosthogProvider>
 ```
 
+For error tracking, `<PosthogErrorBoundary fallback={…}>` (with `posthog-js/react`'s props) sends a render error to PostHog with its component stack, tied to the session's replay, and renders `fallback` instead; an error before the library loads is queued on the stub. Errors outside render (event handlers, unhandled rejections) are the library's own exception autocapture: `capture_exceptions: true` in `config`.
+
 Under `posthogFlagsReady()` with `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `posthog-js`: install it as a dev dependency for them. In an app, `firebaseAnalytics()` (every event) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
