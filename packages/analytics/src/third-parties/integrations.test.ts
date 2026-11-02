@@ -7,6 +7,7 @@ import {
   metaAds,
   microsoftAds,
   openaiAds,
+  posthogAnalytics,
   redditAds,
   uetCustomerIdOf,
 } from './index';
@@ -37,7 +38,7 @@ describe('googleAnalytics', () => {
     ga.track('onboarding_step', { step: 2 });
     expect(ga.type).toBe('analytics');
     expect(gtag).toHaveBeenCalledWith('event', 'onboarding_step', { step: 2 });
-    expect(ga.script?.id).toBe('gtag');
+    expect(ga.script?.id).toBe('google-analytics');
     expect(ga.script?.inline).toContain('gtag(\'config\', "G-ABC")');
     expect(ga.script?.inline).toContain('https://www.googletagmanager.com/gtag/js?id=G-ABC');
   });
@@ -135,6 +136,22 @@ describe('microsoftAds', () => {
 });
 
 describe('scripts', () => {
+  it('have ids no global can be read through', () => {
+    // An element's id is also a `window` property until a script defines that name, so an id
+    // like `posthog` made `window.posthog || []` in the snippet pick the <script> itself as the
+    // stub, which then threw on its first queued call. A hyphen keeps an id off every global.
+    const integrations: Integration[] = [
+      googleAnalytics({ id: 'G-ABC' }),
+      metaAds({ pixelId: '1' }),
+      redditAds({ pixelId: 'a2_x' }),
+      openaiAds({ pixelId: 'x' }),
+      linkedInAds({ partnerId: '1', conversions: {} }),
+      microsoftAds({ tagId: '9' }),
+      posthogAnalytics({ token: 'phc_x', config: { api_host: 'https://us.i.posthog.com' } }),
+    ];
+    for (const { script } of integrations) expect(script?.id).toContain('-');
+  });
+
   it('serve gtag.js from another path and turn on DebugView when asked', () => {
     const ga = googleAnalytics({ id: 'G-ABC', src: '/gtag.js', debug: true });
     expect(ga.script?.inline).toContain('"/gtag.js"');

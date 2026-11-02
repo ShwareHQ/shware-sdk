@@ -43,7 +43,7 @@ export function googleAnalytics(options: { id: GaId; src?: string; debug?: boole
     track: sendGAEvent,
     setUser: setGAUser,
     script: {
-      id: 'gtag',
+      id: 'google-analytics',
       inline: `
         window.dataLayer = window.dataLayer || [];
         function gtag(){dataLayer.push(arguments);}

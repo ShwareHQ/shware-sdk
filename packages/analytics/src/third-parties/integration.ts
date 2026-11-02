@@ -7,7 +7,11 @@ import type { ThirdPartyUserSetter } from '../visitor/types';
  * vendor's own script from its host, as every vendor's official snippet does.
  */
 export interface IntegrationScript {
-  /** The element id; also its React key, and how a test or a CSP report finds it. */
+  /**
+   * The element id; also its React key, and how a test or a CSP report finds it. Never a global's
+   * name: an element's id is readable as `window[id]` until a script defines it, so an id like
+   * `posthog` hands the snippet's `window.posthog || []` the <script> element. Keep a hyphen in it.
+   */
   readonly id: string;
   readonly inline: string;
   /** `next/script`'s loading strategy, `afterInteractive` by default; the other frameworks ignore it. */

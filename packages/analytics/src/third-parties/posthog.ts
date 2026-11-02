@@ -134,7 +134,7 @@ export function posthogAnalytics(options: {
     setUser: setPosthogUser,
     preconnect: URL.canParse(assets) ? [new URL(assets).origin] : [],
     script: {
-      id: 'posthog',
+      id: 'posthog-snippet',
       // The stub must exist before hydration, whose effects already track (`page_view`) and
       // identify; it is a few lines, and `array.js` still loads async. PostHog's own Next example
       // does the same.
