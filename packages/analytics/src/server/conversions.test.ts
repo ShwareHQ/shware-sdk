@@ -27,8 +27,8 @@ function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {
 }
 
 beforeEach(() => {
-  // Senders must not read the clock: everything they stamp comes from the event. A frozen clock
-  // far from created_at turns any Date.now() regression into a visible assertion failure.
+  // Senders take the event's time, reading the clock only to keep it from running ahead of now. A
+  // frozen clock far from created_at turns any Date.now() regression into a visible failure.
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-03-01T00:00:00Z'));
 });
@@ -139,6 +139,11 @@ describe('Reddit', () => {
     expect(redditServerEvent(event(), {}).event_at).toBe(CREATED_MS);
   });
 
+  it('never times an event ahead of the send: a fast browser clock got whole batches refused', () => {
+    const ahead = new Date(Date.now() + 5 * 60_000).toISOString();
+    expect(redditServerEvent(event({ created_at: ahead }), {}).event_at).toBe(Date.now());
+  });
+
   it('maps platform to action_source, with OTHER as the fallback: UNKNOWN is not one', () => {
     expect(redditServerEvent(event(), {}).action_source).toBe('WEBSITE');
     expect(redditServerEvent(event({ platform: 'android' }), {}).action_source).toBe('APP');
@@ -180,6 +185,13 @@ describe('Meta', () => {
   it('is timed by the event, in seconds', () => {
     const out = metaServerEvent(event(), {});
     expect(out.event_time).toBe(Math.round(CREATED_MS / 1000));
+  });
+
+  it('never times an event ahead of the send, nor the _fbc it synthesizes', () => {
+    const ahead = new Date(Date.now() + 5 * 60_000).toISOString();
+    const out = metaServerEvent(event({ created_at: ahead, tags: { fbclid: 'CLICK123' } }), {});
+    expect(out.event_time).toBe(Math.round(Date.now() / 1000));
+    expect(out.user_data.fbc).toBe(`fb.1.${Date.now()}.CLICK123`);
   });
 
   it('synthesizes _fbc from a bare fbclid at the event time', () => {

@@ -222,23 +222,25 @@ export const propertiesSchema = optional(
 );
 
 /**
- * How far an event's time may be from the server's before the client clock it was stamped with is
- * taken as wrong. A batch legitimately arrives late — a tab frozen in the background, a
+ * How far behind the server's an event's time may be before the client clock it was stamped with
+ * is taken as wrong. A batch legitimately arrives late — a tab frozen in the background, a
  * session_start held back after a failed batch — by hours, not days; a phone set to another year
- * writes its sessions into that year.
+ * writes its sessions into that year. Ahead of the server's is wrong by any amount: an event
+ * cannot have happened after it arrived, and a clock a few minutes fast is common enough that the
+ * conversions APIs, which reject a future event, turned its events away by the hundred.
  */
 const MAX_CLOCK_SKEW = 24 * 60 * 60 * 1000;
 
 /**
  * Puts the events stamped by a wrong client clock onto the server's, where they are parsed. Only
- * the events outside `MAX_CLOCK_SKEW` move, so one bad event cannot drag the rest of its batch
- * along: they move together by their own latest one — the wrong clock at sending — keeping their
- * order and spacing, and one still out after that (a batch mixing two wrong clocks) is on no clock
+ * the events ahead of the server, or further behind it than `MAX_CLOCK_SKEW`, move, so one bad
+ * event cannot drag the rest of its batch along: they move together by their own latest one — the
+ * wrong clock at sending — keeping their order and spacing, and one still out after that (a batch mixing two wrong clocks) is on no clock
  * at all and takes the server's time. Corrected rather than rejected, for the same reason values
  * are truncated: a wrong clock should cost the event its time, not the batch its events.
  */
 function alignClock<T extends { timestamp: string }>(events: T[], now = Date.now()): T[] {
-  const within = (time: number) => Math.abs(now - time) <= MAX_CLOCK_SKEW;
+  const within = (time: number) => time <= now && now - time <= MAX_CLOCK_SKEW;
   const times = events.map((event) => Date.parse(event.timestamp));
   const wrong = times.filter((time) => !within(time));
   if (wrong.length === 0) return events;

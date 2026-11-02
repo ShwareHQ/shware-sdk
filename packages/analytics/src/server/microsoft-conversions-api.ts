@@ -24,6 +24,7 @@ import type { TrackEvent, UserProvidedData } from '../track/types';
 import { mapUETEvent } from '../track/uetq';
 import { microsoftMsclkid } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
+import { eventTimeMs } from './event-time';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
@@ -244,7 +245,7 @@ export function getServerEvent(
     eventType: isPageLoad ? 'pageLoad' : 'custom',
     eventId: tags.idempotency_key ?? id,
     eventName: isPageLoad ? undefined : name,
-    eventTime: Math.round(new Date(created_at).getTime() / 1000),
+    eventTime: Math.round(eventTimeMs(created_at) / 1000),
     eventSourceUrl: pageLocation(tags),
     pageLoadId: pageLoads ? tags.page_load_id : undefined,
     referrerUrl: tags.page_referrer,

@@ -26,9 +26,9 @@ function event(partial: Partial<TrackEvent<any>> = {}): TrackEvent<any> {
 }
 
 beforeEach(() => {
-  // Senders stamp nothing from the clock: everything comes from the event. A clock a day past
-  // created_at turns any Date.now() regression into a visible failure, while keeping the event
-  // inside the API's 7-day window the sender filters on.
+  // Senders take the event's time, reading the clock only to keep it from running ahead of now. A
+  // clock a day past created_at turns any Date.now() regression into a visible failure, while
+  // keeping the event inside the API's 7-day window the sender filters on.
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-01-11T12:00:00Z'));
 });
@@ -62,6 +62,11 @@ describe('getServerEvent', () => {
       eventName: 'purchase',
       eventTime: CREATED_SEC,
     });
+  });
+
+  it('never times an event ahead of the send: a fast browser clock got it refused', () => {
+    const ahead = new Date(Date.now() + 5 * 60_000).toISOString();
+    expect(getServerEvent(event({ created_at: ahead })).eventTime).toBe(Date.now() / 1000);
   });
 
   it('dedupes on the idempotency key when present', () => {

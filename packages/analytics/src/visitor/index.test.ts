@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as Track from '../track/index';
 import type { ThirdPartyUserSetter } from './types';
 
+// Stored visitor ids are uuidv7: `visitorId()` replaces anything else.
+const VISITOR_A = '0199e7a0-0000-7000-8000-00000000000a';
+const VISITOR_B = '0199e7a0-0000-7000-8000-00000000000b';
+const VISITOR_1 = '0199e7a0-0000-7000-8000-000000000011';
+const VISITOR_2 = '0199e7a0-0000-7000-8000-000000000012';
+
 const fetchMock = vi.fn<typeof globalThis.fetch>();
 const { track, endSession } = vi.mockObject<Pick<typeof Track, 'track' | 'endSession'>>({
   track() {},
@@ -52,6 +58,19 @@ describe('visitorId', () => {
     expect(visitorId()).toBe('0199e7a0-0000-7000-8000-000000000001');
   });
 
+  it('replaces an int64 id an older server issued, and any other non-uuidv7, in storage too', async () => {
+    // Clients before 11.0 recreated such a visitor when the server refused it; nothing does now,
+    // so a kept one had every batch of the device rejected.
+    for (const stored of ['849241797927424190', '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed']) {
+      const { visitorId, storage } = await load({ visitor_id: stored });
+
+      const id = visitorId();
+      expect(id).toMatch(uuidv7);
+      expect(storage.map.get('visitor_id')).toBe(id);
+      vi.resetModules();
+    }
+  });
+
   it("replaces a stored 'undefined' with a new id, in storage too", async () => {
     const { visitorId, storage } = await load({ visitor_id: 'undefined' });
 
@@ -99,11 +118,11 @@ describe('identify', () => {
   });
 
   it("identifies the same user again on the new visitor another tab's reset left", async () => {
-    const { identify, storage, IDENTIFY_EVENT } = await load({ visitor_id: 'visitor-a' });
+    const { identify, storage, IDENTIFY_EVENT } = await load({ visitor_id: VISITOR_A });
 
     identify('a');
     // Another tab signed out and back in: the shared storage holds a new visitor, no user yet.
-    storage.map.set('visitor_id', 'visitor-b');
+    storage.map.set('visitor_id', VISITOR_B);
     storage.map.set('user_id', '');
     identify('a');
 
@@ -118,24 +137,24 @@ describe('identify', () => {
   });
 
   it('remembers the user on this device, and keeps the visitor for the same user', async () => {
-    const { identify, storage } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
+    const { identify, storage } = await load({ visitor_id: VISITOR_A, user_id: 'a' });
 
     identify('a');
 
     expect(storage.map.get('user_id')).toBe('a');
-    expect(storage.map.get('visitor_id')).toBe('visitor-a');
+    expect(storage.map.get('visitor_id')).toBe(VISITOR_A);
     expect(endSession).not.toHaveBeenCalled();
   });
 
   it('resets first when another user signs in over the one last identified here', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { identify, storage, config } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
+    const { identify, storage, config } = await load({ visitor_id: VISITOR_A, user_id: 'a' });
     config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
 
     identify('b');
 
     expect(endSession).toHaveBeenCalledTimes(1);
-    expect(storage.map.get('visitor_id')).not.toBe('visitor-a');
+    expect(storage.map.get('visitor_id')).not.toBe(VISITOR_A);
     expect(storage.map.get('visitor_id')).toMatch(uuidv7);
     expect(storage.map.get('user_id')).toBe('b');
     // PostHog is reset before it is identified as the new user.
@@ -181,14 +200,14 @@ describe('identify', () => {
 describe('reset', () => {
   it('ends the session, starts a new visitor and forgets the user', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { reset, storage, config } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
+    const { reset, storage, config } = await load({ visitor_id: VISITOR_A, user_id: 'a' });
     config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
 
     reset();
 
     // Ending the session (reporting it, clearing it) is the queue's: see track/index.test.ts.
     expect(endSession).toHaveBeenCalledTimes(1);
-    expect(storage.map.get('visitor_id')).not.toBe('visitor-a');
+    expect(storage.map.get('visitor_id')).not.toBe(VISITOR_A);
     expect(storage.map.get('visitor_id')).toMatch(uuidv7);
     expect(storage.map.get('user_id')).toBe('');
     expect(setter).toHaveBeenCalledWith({});
@@ -239,7 +258,7 @@ describe('reset', () => {
   });
 
   it('replaces the visitor once per sign-out, however many tabs call it', async () => {
-    const { reset, storage } = await load({ visitor_id: 'visitor-a', user_id: 'a' });
+    const { reset, storage } = await load({ visitor_id: VISITOR_A, user_id: 'a' });
 
     reset(); // the tab that signed out
     const anonymous = storage.map.get('visitor_id');
@@ -251,17 +270,17 @@ describe('reset', () => {
 
   it("leaves the next user's binding alone when a stale sign-out comes in after it", async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { identify, reset, storage, config } = await load({ visitor_id: 'visitor-1' });
+    const { identify, reset, storage, config } = await load({ visitor_id: VISITOR_1 });
     config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
     identify('a');
     // Meanwhile another tab signed A out and B in: a new visitor, bound to B.
-    storage.map.set('visitor_id', 'visitor-2');
+    storage.map.set('visitor_id', VISITOR_2);
     storage.map.set('user_id', 'b');
 
     reset(); // this tab, frozen in the background, only now handles A's sign-out
 
     expect(endSession).not.toHaveBeenCalled();
-    expect(storage.map.get('visitor_id')).toBe('visitor-2');
+    expect(storage.map.get('visitor_id')).toBe(VISITOR_2);
     expect(storage.map.get('user_id')).toBe('b');
     // This page still drops the user it told GA about.
     expect(setter).toHaveBeenLastCalledWith({});
@@ -270,13 +289,13 @@ describe('reset', () => {
     setter.mockClear();
     reset();
     expect(endSession).not.toHaveBeenCalled();
-    expect(storage.map.get('visitor_id')).toBe('visitor-2');
+    expect(storage.map.get('visitor_id')).toBe(VISITOR_2);
     expect(storage.map.get('user_id')).toBe('b');
     expect(setter).not.toHaveBeenCalled();
   });
 
   it('signs the same user in and out again on a page that signed out before', async () => {
-    const { identify, reset, storage, IDENTIFY_EVENT } = await load({ visitor_id: 'visitor-1' });
+    const { identify, reset, storage, IDENTIFY_EVENT } = await load({ visitor_id: VISITOR_1 });
     identify('a');
     reset();
     const anonymous = storage.map.get('visitor_id');
@@ -312,13 +331,13 @@ describe('reset', () => {
 
   it('does nothing on a device nobody signed in on', async () => {
     const setter = vi.fn<ThirdPartyUserSetter>();
-    const { reset, storage, config } = await load({ visitor_id: 'visitor-a' });
+    const { reset, storage, config } = await load({ visitor_id: VISITOR_A });
     config.integrations = [{ type: 'analytics', track: () => {}, setUser: setter }];
 
     reset();
 
     expect(endSession).not.toHaveBeenCalled();
-    expect(storage.map.get('visitor_id')).toBe('visitor-a');
+    expect(storage.map.get('visitor_id')).toBe(VISITOR_A);
     expect(setter).not.toHaveBeenCalled();
   });
 });

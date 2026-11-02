@@ -31,6 +31,7 @@ import type { TrackEvent, TrackTags, UserProvidedData } from '../track/types';
 import { resolveActionSource } from './action-source';
 import { metaFbc, metaFbp } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
+import { eventTimeMs } from './event-time';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
@@ -348,7 +349,7 @@ export function getCapiEvent(
   data: UserProvidedData,
   appPackageName?: string
 ): CapiEvent {
-  const eventTimeMs = new Date(event.created_at).getTime();
+  const eventTime = eventTimeMs(event.created_at);
   const [_, eventName] = mapFBEvent(event.name, event.properties);
   const source = resolveActionSource(event.platform);
   const version = metaExtinfoVersion(event.tags);
@@ -359,13 +360,13 @@ export function getCapiEvent(
 
   const capiEvent: CapiEvent = {
     event_name: eventName,
-    event_time: Math.round(eventTimeMs / 1000),
+    event_time: Math.round(eventTime / 1000),
     event_id: event.tags.idempotency_key ?? event.id,
     // `action_source` is required; an offline conversion and an undeterminable platform both
     // land in Meta's catch-all, exactly as in the business-SDK sender. So does an app event that
     // cannot carry the `app_data` Meta requires of one: no package name, or a desktop OS.
     action_source: app ? 'app' : source === 'web' ? 'website' : 'other',
-    user_data: getUserData(event.tags, data, eventTimeMs),
+    user_data: getUserData(event.tags, data, eventTime),
     custom_data: getCustomData(event),
   };
   if (app) {

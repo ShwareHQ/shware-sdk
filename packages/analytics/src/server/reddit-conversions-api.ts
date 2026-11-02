@@ -13,6 +13,7 @@ import { getFirst } from '../utils/field';
 import { type EventActionSource, resolveActionSource } from './action-source';
 import { redditClickId, redditUuid } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
+import { eventTimeMs } from './event-time';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
@@ -108,7 +109,7 @@ export function getServerEvent(
 
   return {
     click_id: redditClickId(tags),
-    event_at: new Date(created_at).getTime(),
+    event_at: eventTimeMs(created_at),
     action_source: source === 'web' ? 'WEBSITE' : source === 'app' ? 'APP' : 'OTHER',
     event_source_url: source === 'web' ? pageLocation(tags) : undefined,
     type: {
