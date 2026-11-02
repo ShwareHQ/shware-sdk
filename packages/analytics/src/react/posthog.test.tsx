@@ -198,7 +198,7 @@ describe('useFeatureFlagVariantKey', () => {
 describe('usePostHog', () => {
   it('is undefined on the server', () => {
     function Probe() {
-      return <p>{String(usePostHog())}</p>;
+      return <p>{usePostHog() === undefined ? 'undefined' : 'defined'}</p>;
     }
     expect(renderToString(<Probe />)).toBe('<p>undefined</p>');
   });

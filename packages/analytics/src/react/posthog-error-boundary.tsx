@@ -1,4 +1,4 @@
-import type { CaptureResult, Properties } from 'posthog-js';
+import type { CaptureResult, Properties } from '@posthog/types';
 import {
   Component,
   type ErrorInfo,
