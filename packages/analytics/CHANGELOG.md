@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 16.2.0
+
+### Minor Changes
+
+- 7644392: PostHog error tracking for the snippet-loaded library, as in `posthog-js/react`: `PosthogErrorBoundary` (its `PostHogErrorBoundary`'s props) sends a render error with its component stack and renders `fallback` instead, and `setupReactErrorHandler()` (without a client) reports from React 19's root error options.
+- 057c600: The hooks of `posthog-js/react`, with its names and signatures, for the snippet-loaded library: `useFeatureFlag` is renamed `useFeatureFlagVariantKey`, and `useFeatureFlagEnabled`, `useFeatureFlagPayload`, `useFeatureFlagResult`, `useActiveFeatureFlags` and `usePostHog` are added. Under the new `<PosthogProvider bootstrap>` the flag hooks render the server-evaluated values on the server, through hydration and until PostHog loads.
+
 ## 16.1.0
 
 ### Minor Changes
