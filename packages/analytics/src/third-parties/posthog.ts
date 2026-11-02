@@ -1,10 +1,10 @@
-import type { PostHog, PostHogConfig } from 'posthog-js';
+import type { PostHog, PostHogConfig } from '@posthog/types';
 import type { UpdateVisitorDTO } from '../schema/index';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import type { Integration } from './integration';
 
-export type { PostHog, PostHogConfig } from 'posthog-js';
+export type { PostHog, PostHogConfig } from '@posthog/types';
 
 /**
  * `window.posthog`, for calls that return nothing (`capture`, `identify`, `onFeatureFlags`, …):
@@ -13,8 +13,8 @@ export type { PostHog, PostHogConfig } from 'posthog-js';
  * those. `undefined` on the server and before the snippet has run.
  *
  * Read off `window` rather than declared on it, so a host that also has `posthog-js`'s own types
- * does not get two conflicting declarations. Types only: install `posthog-js` (a dev dependency
- * is enough) for them; it is never bundled.
+ * does not get two conflicting declarations. The types come from `@posthog/types`, PostHog's
+ * types-only package for the snippet, so the host installs nothing for them.
  */
 export function getPosthog(): PostHog | undefined {
   if (typeof document === 'undefined') return undefined;

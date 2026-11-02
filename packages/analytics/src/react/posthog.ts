@@ -1,4 +1,4 @@
-import type { BootstrapConfig, FeatureFlagResult, JsonType, PostHog } from 'posthog-js';
+import type { BootstrapConfig, FeatureFlagResult, JsonType, PostHog } from '@posthog/types';
 import {
   type ReactNode,
   createContext,
@@ -38,11 +38,19 @@ function subscribe(onChange: () => void): () => void {
 }
 
 /**
+ * The loaded library's flag state, which `posthog-js/react` reads too: on the instance, but left
+ * out of `@posthog/types`, whose `featureFlags` declares only the override methods.
+ */
+type LoadedPostHog = PostHog & {
+  featureFlags: { hasLoadedFlags: boolean; getFlags(): string[] };
+};
+
+/**
  * What `read` returns once the library has loaded its flags, and `bootstrapped` until then and on
  * the server, re-read when flags reload. The value is kept while its JSON is unchanged, as
  * `useSyncExternalStore` needs: PostHog builds a new result or payload object on every read.
  */
-function useFlags<T>(read: (posthog: PostHog) => T, bootstrapped: T): T {
+function useFlags<T>(read: (posthog: LoadedPostHog) => T, bootstrapped: T): T {
   const cache = useRef<{ json: string | undefined; value: T }>(undefined);
   const stable = (value: T) => {
     // Typed wider: `JSON.stringify(undefined)` is `undefined`, whatever its type says.
@@ -53,7 +61,7 @@ function useFlags<T>(read: (posthog: PostHog) => T, bootstrapped: T): T {
   return useSyncExternalStore(
     subscribe,
     () => {
-      const posthog = getLoadedPosthog();
+      const posthog = getLoadedPosthog() as LoadedPostHog | undefined;
       // As `posthog-js/react`: the bootstrap until the flags request has answered, not only until
       // the library has loaded, so no flag is read (and no exposure recorded) before then.
       return stable(posthog?.featureFlags.hasLoadedFlags ? read(posthog) : bootstrapped);
