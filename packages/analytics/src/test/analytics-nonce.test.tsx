@@ -65,7 +65,13 @@ afterEach(() => {
   document.head.innerHTML = '';
 });
 
-const expectedIds = ['gtag', 'meta-pixel', 'reddit-pixel', 'linkedin-insight-tag', 'uet-tag'];
+const expectedIds = [
+  'google-analytics',
+  'meta-pixel',
+  'reddit-pixel',
+  'linkedin-insight-tag',
+  'uet-tag',
+];
 
 describe('Analytics nonce', () => {
   it.each([

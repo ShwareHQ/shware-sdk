@@ -84,7 +84,7 @@ describe('posthogAnalytics', () => {
       token: 'phc_test',
       config: { api_host: 'https://us.i.posthog.com', defaults: '2026-01-30' },
     });
-    expect(script?.id).toBe('posthog');
+    expect(script?.id).toBe('posthog-snippet');
     expect(script?.strategy).toBe('beforeInteractive');
     expect(script?.inline).toContain(
       'posthog.init("phc_test", {"api_host":"https://us.i.posthog.com","defaults":"2026-01-30"});'
