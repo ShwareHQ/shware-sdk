@@ -105,10 +105,10 @@ export const integrations = [
 | `ads`       | `linkedInAds`                         | the events in `conversions`, each as its conversion id                                     |
 | `ads`       | `microsoftAds`                        | `events` (the GA4 conversion events, `CONVERSION_EVENTS`, by default), plus `customEvents` |
 
-An ad platform needs conversions to optimize and build audiences, not the product's day-to-day events, which are behavior analysis for GA4 and PostHog. `excludeFromIntegrations` applies to every integration, analytics included. PostHog loads from its HTML snippet like the pixels, so `posthog-js` is not bundled: the library comes from PostHog's assets host after the page loads, and `config` (only its JSON survives) goes to `posthog.init`. Until it loads, `window.posthog` is a stub that queues calls returning nothing (`capture`, `identify`, `onFeatureFlags`) and replays them, while calls returning a value (`getFeatureFlag`) return `undefined`. So: `getPosthog()` for queued calls, `getLoadedPosthog()` (undefined until loaded) for values, and `useFeatureFlag(key)` from `@shware/analytics/react` in components. `useFeatureFlag` renders the default until flags arrive, then the variant. To show a `<Suspense>` fallback until then instead, wait for them with React 19.3's `browser()` (so the server renders the fallback) and `posthogFlagsReady()` (one promise per page, resolving when flags load or after a 3 s timeout, for when an ad blocker stops the library):
+An ad platform needs conversions to optimize and build audiences, not the product's day-to-day events, which are behavior analysis for GA4 and PostHog. `excludeFromIntegrations` applies to every integration, analytics included. PostHog loads from its HTML snippet like the pixels, so `posthog-js` is not bundled: the library comes from PostHog's assets host after the page loads, and `config` (only its JSON survives) goes to `posthog.init`. Until it loads, `window.posthog` is a stub that queues calls returning nothing (`capture`, `identify`, `onFeatureFlags`) and replays them, while calls returning a value (`getFeatureFlag`) return `undefined`. So: `getPosthog()` for queued calls, `getLoadedPosthog()` (undefined until loaded) for values, and in components the flag hooks of `posthog-js/react`, with its names and signatures, from `@shware/analytics/react`: `useFeatureFlagVariantKey`, `useFeatureFlagEnabled`, `useFeatureFlagPayload`, `useFeatureFlagResult` and `useActiveFeatureFlags`, and `usePostHog` for the instance (the stub until the library loads). The flag hooks render the default until flags arrive, then the variant. To show a `<Suspense>` fallback until then instead, wait for them with React 19.3's `browser()` (so the server renders the fallback) and `posthogFlagsReady()` (one promise per page, resolving when flags load or after a 3 s timeout, for when an ad blocker stops the library):
 
 ```tsx
-import { useFeatureFlag } from '@shware/analytics/react';
+import { useFeatureFlagVariantKey } from '@shware/analytics/react';
 import { posthogFlagsReady } from '@shware/analytics/third-parties';
 import { use } from 'react';
 import { browser } from 'react-dom';
@@ -116,11 +116,19 @@ import { browser } from 'react-dom';
 function Checkout() {
   use(browser());
   use(posthogFlagsReady());
-  return useFeatureFlag('new-checkout') === 'test' ? <NewCheckout /> : <OldCheckout />;
+  return useFeatureFlagVariantKey('new-checkout') === 'test' ? <NewCheckout /> : <OldCheckout />;
 }
 ```
 
-With server-evaluated flags in `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `posthog-js`: install it as a dev dependency for them. In an app, `firebaseAnalytics()` (every event) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
+With server-evaluated flags, skip the wait: pass them in `config.bootstrap` and wrap the app in `<PosthogProvider bootstrap={bootstrap}>` with the same object (it initializes nothing: the snippet does), and the hooks render the server's value on the server, through hydration and until the library loads — the variant from the first frame, with no hydration mismatch. The exposure (`$feature_flag_called`) is sent once the library reads the flag.
+
+```tsx
+<PosthogProvider bootstrap={bootstrap}>
+  <Outlet />
+</PosthogProvider>
+```
+
+Under `posthogFlagsReady()` with `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `posthog-js`: install it as a dev dependency for them. In an app, `firebaseAnalytics()` (every event) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
 
