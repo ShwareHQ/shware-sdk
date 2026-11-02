@@ -56,4 +56,18 @@ export function Analytics({
   );
 }
 
-export { useFeatureFlag } from './use-feature-flag';
+export {
+  PosthogProvider,
+  useActiveFeatureFlags,
+  useFeatureFlagEnabled,
+  useFeatureFlagPayload,
+  useFeatureFlagResult,
+  useFeatureFlagVariantKey,
+  usePostHog,
+} from './posthog';
+export {
+  PosthogErrorBoundary,
+  type PosthogErrorBoundaryFallbackProps,
+  type PosthogErrorBoundaryProps,
+  setupReactErrorHandler,
+} from './posthog-error-boundary';

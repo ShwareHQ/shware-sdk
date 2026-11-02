@@ -37,14 +37,14 @@ let flagsReady: Promise<void> | undefined;
 /**
  * Resolves once PostHog has loaded its feature flags — or after `timeoutMs` (3 s by default),
  * since an ad blocker that stops the library would otherwise hold it forever; read the flags
- * after it with `useFeatureFlag` / `getLoadedPosthog`, which are `undefined` in that case. One
- * promise per page, so React's `use()` can suspend on it:
+ * after it with `useFeatureFlagVariantKey` / `getLoadedPosthog`, which are `undefined` in that
+ * case. One promise per page, so React's `use()` can suspend on it:
  *
  * ```tsx
  * function Checkout() {
  *   use(browser()); // react-dom: the server renders the <Suspense> fallback instead
  *   use(posthogFlagsReady());
- *   return useFeatureFlag('new-checkout') === 'test' ? <NewCheckout /> : <OldCheckout />;
+ *   return useFeatureFlagVariantKey('new-checkout') === 'test' ? <NewCheckout /> : <OldCheckout />;
  * }
  * ```
  *
