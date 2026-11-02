@@ -65,7 +65,9 @@ function withComponentStack(error: unknown, componentStack: string | null | unde
  * component gets the error and `resetError`. An error thrown before the library has loaded is
  * queued on the stub and sent once it has.
  *
- * It catches render errors only, as any error boundary; errors outside React's render (event
+ * The boundary itself never throws: a failure to report (no PostHog, an ad blocker that stopped the
+ * library, a throwing `additionalProperties`) is logged and the fallback still renders. It
+ * catches render errors only, as any error boundary; errors outside React's render (event
  * handlers, unhandled rejections) are the library's exception autocapture's, enabled in the
  * snippet's `config` (`capture_exceptions`).
  */
@@ -73,17 +75,24 @@ export class PosthogErrorBoundary extends Component<PosthogErrorBoundaryProps, S
   override state = INITIAL_STATE;
 
   override componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
-    const { additionalProperties } = this.props;
-    const properties =
-      typeof additionalProperties === 'function'
-        ? additionalProperties(error, errorInfo)
-        : additionalProperties;
-    const { componentStack } = errorInfo;
-    const exceptionEvent: CaptureResult | undefined = getPosthog()?.captureException(
-      withComponentStack(error, componentStack),
-      properties
-    );
-    this.setState({ error, componentStack: componentStack ?? '', exceptionEvent });
+    const componentStack = errorInfo.componentStack ?? '';
+    let exceptionEvent: CaptureResult | undefined;
+    // Reporting must never fail the boundary: an error thrown here would go to the boundary
+    // above it, if any — `additionalProperties` throwing, or an error that cannot take a cause.
+    try {
+      const { additionalProperties } = this.props;
+      const properties =
+        typeof additionalProperties === 'function'
+          ? additionalProperties(error, errorInfo)
+          : additionalProperties;
+      exceptionEvent = getPosthog()?.captureException(
+        withComponentStack(error, componentStack),
+        properties
+      );
+    } catch (e: unknown) {
+      console.error('PosthogErrorBoundary: the error was not reported', e);
+    }
+    this.setState({ error, componentStack, exceptionEvent });
   }
 
   resetError = () => {

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PosthogErrorBoundary } from './posthog-error-boundary';
 
 afterEach(() => {
+  cleanup();
   Reflect.deleteProperty(window, 'posthog');
   vi.restoreAllMocks();
 });
@@ -75,5 +76,42 @@ describe('PosthogErrorBoundary', () => {
       </PosthogErrorBoundary>
     );
     expect(screen.getByText('failed')).toBeTruthy();
+  });
+
+  it('renders the fallback when reporting fails', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    Object.assign(window, {
+      posthog: {
+        captureException: () => {
+          throw new Error('posthog failed');
+        },
+      },
+    });
+    render(
+      <PosthogErrorBoundary fallback={<p>failed</p>}>
+        <Boom />
+      </PosthogErrorBoundary>
+    );
+    expect(screen.getByText('failed')).toBeTruthy();
+  });
+
+  it('queues the error on the stub, as with an ad blocker that stops the library', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const queue: unknown[][] = [];
+    const stub = Object.assign(queue, {
+      captureException: (...args: unknown[]) => {
+        queue.push(['captureException', ...args]);
+      },
+    });
+    Object.assign(window, { posthog: stub });
+    render(
+      <PosthogErrorBoundary
+        fallback={({ exceptionEvent }) => <p>{exceptionEvent === undefined ? 'queued' : 'sent'}</p>}
+      >
+        <Boom />
+      </PosthogErrorBoundary>
+    );
+    expect(screen.getByText('queued')).toBeTruthy();
+    expect(queue[0]?.[0]).toBe('captureException');
   });
 });
