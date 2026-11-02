@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PosthogErrorBoundary } from './posthog-error-boundary';
+import { PosthogErrorBoundary, setupReactErrorHandler } from './posthog-error-boundary';
 
 afterEach(() => {
   cleanup();
@@ -113,5 +113,40 @@ describe('PosthogErrorBoundary', () => {
     );
     expect(screen.getByText('queued')).toBeTruthy();
     expect(queue[0]?.[0]).toBe('captureException');
+  });
+});
+
+describe('setupReactErrorHandler', () => {
+  it('sends the error with its component stack and hands the event to the callback', () => {
+    const captureException = vi.fn<(error: unknown) => { uuid: string }>(() => ({
+      uuid: 'event-id',
+    }));
+    Object.assign(window, { posthog: { captureException } });
+    const callback = vi.fn<(event: unknown, error: unknown) => void>();
+    const error = new Error('boom');
+
+    setupReactErrorHandler(callback)(error, { componentStack: '\n    at Boom' });
+
+    expect(captureException).toHaveBeenCalledWith(error);
+    expect((error.cause as Error).stack).toBe('\n    at Boom');
+    expect(callback).toHaveBeenCalledWith({ uuid: 'event-id' }, error, {
+      componentStack: '\n    at Boom',
+    });
+  });
+
+  it('never throws, and still calls the callback, without PostHog or when it fails', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const callback = vi.fn<(event: unknown) => void>();
+    setupReactErrorHandler(callback)(new Error('boom'), {});
+    Object.assign(window, {
+      posthog: {
+        captureException: () => {
+          throw new Error('posthog failed');
+        },
+      },
+    });
+    setupReactErrorHandler(callback)(new Error('boom'), {});
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenLastCalledWith(undefined, expect.any(Error), {});
   });
 });

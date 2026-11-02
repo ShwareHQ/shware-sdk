@@ -113,3 +113,36 @@ export class PosthogErrorBoundary extends Component<PosthogErrorBoundaryProps, S
     return null;
   }
 }
+
+/**
+ * `posthog-js/react`'s `setupReactErrorHandler`, for the snippet-loaded library, so without its
+ * `client`: a handler for React 19's root options, which report what no `PosthogErrorBoundary`
+ * sees — `onUncaughtError` (no boundary caught it), `onCaughtError` (a framework's boundary did,
+ * e.g. TanStack Router's `errorComponent`) and `onRecoverableError` (a hydration mismatch React
+ * recovered from). The error goes to PostHog with its component stack; `callback` gets the event
+ * (`undefined` while only the stub is there), as React's own logging does not run once a handler
+ * is set.
+ *
+ * ```tsx
+ * hydrateRoot(document, <StartClient />, {
+ *   onUncaughtError: setupReactErrorHandler(),
+ *   onCaughtError: setupReactErrorHandler(),
+ *   onRecoverableError: setupReactErrorHandler(),
+ * });
+ * ```
+ *
+ * Never throws, as `PosthogErrorBoundary`: a failure to report is logged.
+ */
+export function setupReactErrorHandler(
+  callback?: (event: CaptureResult | undefined, error: unknown, errorInfo: ErrorInfo) => void
+): (error: unknown, errorInfo: ErrorInfo) => void {
+  return (error, errorInfo) => {
+    let event: CaptureResult | undefined;
+    try {
+      event = getPosthog()?.captureException(withComponentStack(error, errorInfo.componentStack));
+    } catch (e: unknown) {
+      console.error('setupReactErrorHandler: the error was not reported', e);
+    }
+    callback?.(event, error, errorInfo);
+  };
+}
