@@ -1,5 +1,12 @@
 # @shware/analytics
 
+## 16.2.3
+
+### Patch Changes
+
+- 02bd138: An event is never timed ahead of the server. `createTrackEventSchema` now moves a batch stamped by a clock that is ahead by any amount, not only one that is more than a day off, back by its lead, keeping its spacing. The Microsoft, Reddit and Meta conversions senders also cap the event time at the moment they send. A browser clock a few minutes fast had those APIs reject whole requests ("event_at must be no more than 5m0s into the future").
+- 02bd138: `visitorId()` replaces a stored id that is not a uuidv7, such as the int64 id older servers issued, with a new one. Since 11.0, which dropped the round trip that used to recreate such a visitor, the id was kept, and the server rejected every batch the device sent.
+
 ## 16.2.2
 
 ### Patch Changes
