@@ -95,6 +95,19 @@ describe('createTrackEventSchema', () => {
       expect(times([at('2031-01-01T00:00:00.000Z')])).toEqual(['2026-09-29T12:00:00.000Z']);
     });
 
+    it('moves a batch from a clock a few minutes fast back by its lead, keeping its spacing', () => {
+      // Ahead by any amount is wrong: the conversions APIs refuse an event from the future.
+      expect(times([at('2026-09-29T12:02:50.000Z'), at('2026-09-29T12:03:00.000Z')])).toEqual([
+        '2026-09-29T11:59:50.000Z',
+        '2026-09-29T12:00:00.000Z',
+      ]);
+      // Only the events ahead move; the one already in the past keeps its time.
+      expect(times([at('2026-09-29T11:59:00.000Z'), at('2026-09-29T12:00:30.000Z')])).toEqual([
+        '2026-09-29T11:59:00.000Z',
+        '2026-09-29T12:00:00.000Z',
+      ]);
+    });
+
     it('leaves a batch that is late by hours, not wrong, as it was', () => {
       const late = ['2026-09-29T03:00:00.000Z', '2026-09-29T11:59:00.000Z'];
       expect(times(late.map(at))).toEqual(late);

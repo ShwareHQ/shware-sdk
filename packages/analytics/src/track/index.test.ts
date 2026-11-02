@@ -4,6 +4,10 @@ import { textRequestBody } from '../test/setup';
 import type { TrackOptions } from './index';
 import type { ThirdPartyTracker, TrackTags } from './types';
 
+// Stored visitor ids are uuidv7: `visitorId()` replaces anything else.
+const VISITOR_1 = '0199e7a0-0000-7000-8000-000000000011';
+const STORED_VISITOR = '0199e7a0-0000-7000-8000-000000000005';
+
 const fetchMock = vi.fn<typeof globalThis.fetch>();
 
 /**
@@ -13,7 +17,7 @@ const fetchMock = vi.fn<typeof globalThis.fetch>();
 async function load(overrides: Partial<Options> = {}) {
   vi.stubGlobal('fetch', fetchMock);
   const { baseOptions, memoryStorage, jsonResponse } = await import('../test/setup');
-  const storage = memoryStorage({ visitor_id: 'visitor-1' });
+  const storage = memoryStorage({ visitor_id: VISITOR_1 });
   const setup = await import('../setup/index');
   setup.setupAnalytics(baseOptions({ storage, ...overrides }));
   const track = await import('./index');
@@ -96,7 +100,7 @@ describe('batching', () => {
     const [batch] = sentBatches();
     for (const event of batch.body) {
       expect(event).toMatchObject({
-        visitor_id: 'visitor-1',
+        visitor_id: VISITOR_1,
         platform: 'web',
         environment: 'production',
       });
@@ -571,7 +575,7 @@ describe('sendPendingEvents', () => {
 
     const sent = await beaconed(0);
     expect(sent.map((e) => e.name)).toEqual(['session_start', 'page_view']);
-    expect(sent[0]).toMatchObject({ tags: { utm_source: 'google' }, visitor_id: 'visitor-1' });
+    expect(sent[0]).toMatchObject({ tags: { utm_source: 'google' }, visitor_id: VISITOR_1 });
     expect(onSucceed).toHaveBeenCalledWith({ id: sent[1].id, beacon: true });
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -657,7 +661,7 @@ describe('sendBeacon', () => {
 
   it('falls back to the stored visitor id before the first batch has returned', async () => {
     const { sendBeacon, storage } = await load();
-    storage.map.set('visitor_id', 'stored-visitor');
+    storage.map.set('visitor_id', STORED_VISITOR);
     storage.map.set('session', `1.live-session.${Date.now()}`);
 
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
@@ -666,7 +670,7 @@ describe('sendBeacon', () => {
     const [, blob] = beacon.mock.calls[0];
     if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
     const [event] = JSON.parse(await blob.text());
-    expect(event.visitor_id).toBe('stored-visitor');
+    expect(event.visitor_id).toBe(STORED_VISITOR);
     expect(event.tags).toEqual({});
     // A CORS simple request: no preflight for a closing page to wait on.
     expect(blob.type).toBe('text/plain;charset=utf-8');
@@ -728,10 +732,10 @@ describe('reset and the queue', () => {
 
     const [before, after] = sentBatches();
     expect(before.body.map((e) => e.name)).toEqual(['session_start', 'page_view', 'logout']);
-    expect(new Set(before.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+    expect(new Set(before.body.map((e) => e.visitor_id))).toEqual(new Set([VISITOR_1]));
     // The next event opens a session of its own, on the new visitor, and announces it.
     const visitor = storage.map.get('visitor_id');
-    expect(visitor).not.toBe('visitor-1');
+    expect(visitor).not.toBe(VISITOR_1);
     expect(after.body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
     expect(new Set(after.body.map((e) => e.visitor_id))).toEqual(new Set([visitor]));
     expect(after.body[0].session_id).not.toBe(before.body[0].session_id);
@@ -754,7 +758,7 @@ describe('reset and the queue', () => {
       expect.objectContaining({
         name: 'user_engagement',
         properties: { engagement_time_msec: 5000, trigger: 'reset' },
-        visitor_id: 'visitor-1',
+        visitor_id: VISITOR_1,
         session_id: first.body[0].session_id,
       }),
     ]);
@@ -801,13 +805,13 @@ describe('reset and the queue', () => {
 
     const [previous, next] = sentBatches();
     expect(previous.body.map((e) => e.name)).toEqual(['session_start', 'page_view']);
-    expect(new Set(previous.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+    expect(new Set(previous.body.map((e) => e.visitor_id))).toEqual(new Set([VISITOR_1]));
     expect(next.body.map((e) => e.name)).toEqual(['session_start', 'identify']);
     expect(next.body[1].properties).toEqual({ user_id: 'user-2' });
     expect(new Set(next.body.map((e) => e.visitor_id))).toEqual(
       new Set([storage.map.get('visitor_id')])
     );
-    expect(storage.map.get('visitor_id')).not.toBe('visitor-1');
+    expect(storage.map.get('visitor_id')).not.toBe(VISITOR_1);
   });
 
   it('sends the queue at once even with no engagement to report', async () => {
@@ -875,7 +879,7 @@ describe('reset and the queue', () => {
     const { track, reset } = await loadWithVisitor();
     fetchMock.mockImplementation(async (_url, init) => {
       const body = JSON.parse(textRequestBody(init)) as { visitor_id: string }[];
-      if (body[0]?.visitor_id === 'visitor-1') return new Response('bad', { status: 400 });
+      if (body[0]?.visitor_id === VISITOR_1) return new Response('bad', { status: 400 });
       return new Response('[]', { status: 200 });
     });
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -897,7 +901,7 @@ describe('reset and the queue', () => {
     await vi.advanceTimersByTimeAsync(2000);
     const batches = sentBatches();
     expect(batches).toHaveLength(2);
-    const retried = batches.find((b) => b.body[0].visitor_id === 'visitor-1');
+    const retried = batches.find((b) => b.body[0].visitor_id === VISITOR_1);
     expect(retried?.body.map((e) => e.name)).toEqual(['session_start']);
   });
 
@@ -930,7 +934,7 @@ describe('reset and the queue', () => {
 
       const bodies = await beaconed();
       expect(bodies.map((body) => [...new Set(body.map((e) => e.visitor_id))])).toEqual([
-        ['visitor-1'],
+        [VISITOR_1],
         [storage.map.get('visitor_id')],
       ]);
       expect(bodies.map((body) => body.map((e) => e.name))).toEqual([
@@ -960,7 +964,7 @@ describe('reset and the queue', () => {
       await vi.advanceTimersByTimeAsync(0);
       const [sent] = sentBatches();
       expect(sent.body.map((e) => e.name)).toEqual(['session_start', 'logout']);
-      expect(new Set(sent.body.map((e) => e.visitor_id))).toEqual(new Set(['visitor-1']));
+      expect(new Set(sent.body.map((e) => e.visitor_id))).toEqual(new Set([VISITOR_1]));
     });
 
     it('reports no engagement for a visitor whose session reset just ended', async () => {
