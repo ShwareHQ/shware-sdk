@@ -97,3 +97,66 @@ describe('JourneyFactSource.getProperty: the scalar boundary', () => {
     await expect(evaluateCondition(prop('toString', 'exists'), facts, 0)).resolves.toBe(false);
   });
 });
+
+/**
+ * A `where` filters payloads in JS, so it reads them from the store a page at a time — and stops
+ * the moment the condition's count is met instead of loading the user's whole history.
+ */
+describe('JourneyFactSource.countEvents: where pages and stops early', () => {
+  const where: ConditionIR = { type: 'payload', path: 'plan', op: 'eq', value: 'pro' };
+
+  /** A store with `pages` canned pages of payloads, recording how many it was asked for. */
+  function pagedStore(pages: Record<string, unknown>[][]) {
+    const requested: number[] = [];
+    const store = {
+      async pageEventPayloads(
+        _userId: string,
+        _event: string,
+        _window: unknown,
+        page: { limit: number; after?: { ts: string; id: string } }
+      ) {
+        const index = page.after === undefined ? 0 : Number(page.after.id);
+        requested.push(index);
+        const payloads = pages[index] ?? [];
+        return index + 1 < pages.length
+          ? { payloads, next: { ts: '', id: String(index + 1) } }
+          : { payloads };
+      },
+    };
+    return {
+      store: store as unknown as ConstructorParameters<typeof JourneyFactSource>[0],
+      requested,
+    };
+  }
+
+  const free = { plan: 'free' };
+  const pro = { plan: 'pro' };
+
+  test('a match on the first page settles the check without reading the rest', async () => {
+    const { store, requested } = pagedStore([[free, pro], [pro], [pro]]);
+    const facts = new JourneyFactSource(store, 'u_1');
+    await expect(facts.countEvents('upgrade', { where, atLeast: 1 })).resolves.toBe(1);
+    expect(requested).toEqual([0]);
+  });
+
+  test('a count spanning pages reads only as far as it needs', async () => {
+    const { store, requested } = pagedStore([[pro, free], [free, pro], [pro], [pro]]);
+    const facts = new JourneyFactSource(store, 'u_1');
+    await expect(facts.countEvents('upgrade', { where, atLeast: 2 })).resolves.toBe(2);
+    expect(requested).toEqual([0, 1]);
+  });
+
+  test('without a threshold, or with no match, every page is read and the count is exact', async () => {
+    const { store, requested } = pagedStore([[pro, free], [pro], [free]]);
+    await expect(
+      new JourneyFactSource(store, 'u_1').countEvents('upgrade', { where })
+    ).resolves.toBe(2);
+    expect(requested).toEqual([0, 1, 2]);
+
+    const none = pagedStore([[free], [free]]);
+    await expect(
+      new JourneyFactSource(none.store, 'u_1').countEvents('upgrade', { where, atLeast: 1 })
+    ).resolves.toBe(0);
+    expect(none.requested).toEqual([0, 1]);
+  });
+});

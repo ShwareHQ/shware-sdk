@@ -170,6 +170,8 @@ async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
  */
 async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<void> {
   const observer = ctx.observer;
+  // A replayed step whose copy an earlier run already settled: the transport took it once
+  if (await observer?.messageSettled?.(message)) return;
   const tracking = await observer?.messagePrepared?.(message);
   const copy = tracking === undefined ? message : { ...message, tracking };
   const result = await ctx.messages.send(copy);
@@ -416,10 +418,13 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     }
 
     case 'cohort': {
-      // Deterministic bucketing, so replay needs no checkpoint. The explicit
-      // experiment key (when set) keeps the assignment stable across workflow
-      // versions; the structural id fallback is fine for one-off splits.
-      const bucket = hashToBucket(`${ctx.userId}:${node.key ?? node.id}`);
+      // Deterministic bucketing, so replay needs no checkpoint. An explicit
+      // experiment key is global on purpose: two workflows naming the same
+      // experiment bucket a user identically. The fallback is namespaced by the
+      // workflow, because structural ids ('2', '1.c0.0') repeat across
+      // workflows and a bare one would put a user in the same arm of every
+      // unrelated split at that position.
+      const bucket = hashToBucket(`${ctx.userId}:${node.key ?? `${ir.id}:${node.id}`}`);
       // Integer basis points on both sides (the DSL guarantees weights sit on
       // the 0.01% grid), so no float ever meets the comparison.
       let cumulative = 0;

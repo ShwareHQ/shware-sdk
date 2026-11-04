@@ -1,10 +1,13 @@
 import { matchesWhere } from '../engine/condition';
 import type { FactSource, PushDevice } from '../engine/ports';
 import type { ConditionIR, ScalarIR } from '../ir';
-import type { JourneyStore } from './index';
+import type { EventCursor, JourneyStore } from './index';
 
 /** The profile path that reads the user's own id (`u.userId`). */
 export const USER_ID_PROPERTY = 'userId';
+
+/** Payloads per round trip when a `where` filters events in JS. */
+const PAYLOAD_PAGE = 500;
 
 /** Single-user fact source over a JourneyStore: evaluation lives in engine/condition.ts, this only reads. */
 export class JourneyFactSource implements FactSource {
@@ -15,18 +18,35 @@ export class JourneyFactSource implements FactSource {
 
   async countEvents(
     event: string,
-    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR }
+    opts?: { sinceMs?: number; untilMs?: number; where?: ConditionIR; atLeast?: number }
   ): Promise<number> {
     const window = {
       ...(opts?.sinceMs === undefined ? {} : { sinceMs: opts.sinceMs }),
       ...(opts?.untilMs === undefined ? {} : { untilMs: opts.untilMs }),
     };
-    if (opts?.where === undefined) return this.store.countEvents(this.userId, event, window);
-    // Payload filtering happens in JS via the shared evaluator — one set of
-    // where semantics with the in-memory FactSource; per-user row counts are small.
+    const atLeast = opts?.atLeast;
+    if (opts?.where === undefined) {
+      return this.store.countEvents(this.userId, event, window, atLeast);
+    }
+    // Payload filtering stays in JS through the shared evaluator — one set of where semantics
+    // with the in-memory FactSource — but a page at a time, stopping as soon as enough events
+    // match. A heavy user's history is no longer loaded whole on every evaluation; only a user
+    // with no match left to find is read to the end, and then in bounded pages.
     const where = opts.where;
-    const payloads = await this.store.listEventPayloads(this.userId, event, window);
-    return payloads.filter((payload) => matchesWhere(payload, where)).length;
+    let matched = 0;
+    let after: EventCursor | undefined;
+    for (;;) {
+      const page = await this.store.pageEventPayloads(this.userId, event, window, {
+        limit: PAYLOAD_PAGE,
+        after,
+      });
+      for (const payload of page.payloads) {
+        if (matchesWhere(payload, where)) matched += 1;
+        if (atLeast !== undefined && matched >= atLeast) return matched;
+      }
+      if (page.next === undefined) return matched;
+      after = page.next;
+    }
   }
 
   /**
