@@ -6,6 +6,7 @@ import {
   type JourneyContext,
   type OutboundMessage,
   type PushDevice,
+  type SendResult,
   runJourney,
 } from '../src/engine/index';
 import {
@@ -306,10 +307,10 @@ function harness() {
   const facts = new Facts();
   facts.props = { name: 'Ada', email: 'ada@acme.test' };
   const sent: OutboundMessage[] = [];
-  let send = async (message: OutboundMessage) => {
-    // Like CfEmailSender: an email without an address is an error, not a skip
+  let send = async (message: OutboundMessage): Promise<void | SendResult> => {
+    // Like EmailSender: an email without an address settles undelivered
     if (message.channel === 'email' && message.recipient === undefined) {
-      throw new Error('email has no recipient');
+      return { delivered: false, reason: 'no_recipient' };
     }
     sent.push(message);
   };
@@ -389,10 +390,10 @@ describe('prefer() at run time', () => {
     expect(h.sent).toEqual([]);
   });
 
-  test('a fallback email without an address keeps the sender error', async () => {
+  test('a fallback email without an address settles undelivered and the journey completes', async () => {
     const h = harness();
     h.facts.props = { name: 'Ada' };
-    await expect(runJourney(pushFirst, h.ctx)).rejects.toThrow('email has no recipient');
+    expect(await runJourney(pushFirst, h.ctx)).toEqual({ status: 'completed' });
     expect(h.sent).toEqual([]);
   });
 

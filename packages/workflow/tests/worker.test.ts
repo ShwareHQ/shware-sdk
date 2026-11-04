@@ -237,7 +237,8 @@ describe('a version applies its own bundle', () => {
       store: () => database.store,
       config: defineConfig({ workflows, templates: { email: emails } }),
     });
-    return () => worker.fetch(new Request('http://worker/health'), env);
+    return (path = '/health', init?: RequestInit) =>
+      worker.fetch(new Request(`http://worker${path}`, init), env);
   };
 
   test('the first request makes a new version live; an older one serving beside it cannot undo it', async () => {
@@ -254,6 +255,30 @@ describe('a version applies its own bundle', () => {
     // Once per isolate: v2 does not deploy again
     await v2();
     expect(await routed()).toEqual(['other']);
+  });
+
+  test('a forced POST /bundle/deploy on an older isolate records that version, so the newer one re-applies', async () => {
+    await versioned([flow], 'v1', '2026-10-01T00:00:00.000Z')();
+    await versioned([other], 'v2', '2026-10-02T00:00:00.000Z')();
+    expect(await routed()).toEqual(['other']);
+
+    // The operator's forced deploy lands on a v1 isolate still serving during the rollout
+    const deployed = await versioned(
+      [flow],
+      'v1',
+      '2026-10-01T00:00:00.000Z'
+    )('/bundle/deploy', {
+      method: 'POST',
+    });
+    expect(deployed.status).toBe(200);
+    expect(await routed()).toEqual(['welcome']);
+    // The row names the code the routes came from — not v2, which would then never re-apply
+    expect((await database.store.liveBundleVersion())?.id).toBe('v1');
+
+    // A fresh v2 isolate sees an older live version and puts its own routes back
+    await versioned([other], 'v2', '2026-10-02T00:00:00.000Z')();
+    expect(await routed()).toEqual(['other']);
+    expect((await database.store.liveBundleVersion())?.id).toBe('v2');
   });
 
   test('a failed apply is logged and never fails the request', async () => {

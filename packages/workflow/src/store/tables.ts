@@ -186,9 +186,14 @@ export const TABLES = {
         ts,
         'When the runner admitted itself (`admitInstance`), before its first observable effect; null until then, so an erasure knows nothing of the instance has run yet.'
       ),
+      claimedAt: nullable(
+        ts,
+        "When this attempt claimed the entry (insert or reclaim), by the host's clock. `ts` is the triggering event's own time, which a producer may set far in the past, so only this tells how long an entry has waited for its instance; maintenance fails an entry left unadmitted with no instance behind it. Null on rows written before the column existed."
+      ),
     },
     primaryKey: ['workflow', 'userId'],
-    indexes: [['instanceId']],
+    // admittedAt: maintenance looks up the few entries still unadmitted (`IS NULL` uses it)
+    indexes: [['instanceId'], ['admittedAt']],
   }),
   subscription: table({
     name: 'subscription',
@@ -234,7 +239,7 @@ export const TABLES = {
   }),
   deployment: table({
     name: 'deployment',
-    doc: "The Worker version whose compiled bundle the routes came from, one row (`scope` = 'routes'): journeyWorker applies its own bundle only over an older version, so one still serving during a rollout cannot put its routes back. A forced `POST /bundle/deploy` leaves it as it is.",
+    doc: "The Worker version whose compiled bundle the routes came from, one row (`scope` = 'routes'): journeyWorker applies its own bundle only over an older version, so one still serving during a rollout cannot put its routes back. A forced `POST /bundle/deploy` records the version that served it; a hand-posted `POST /deploy` leaves it as it is.",
     columns: { scope: text, versionId: text, versionCreatedAt: ts, appliedAt: ts },
     primaryKey: ['scope'],
   }),

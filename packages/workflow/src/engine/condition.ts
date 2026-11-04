@@ -79,12 +79,14 @@ async function evaluate(
       if (condition.within !== undefined) bounds.push(nowMs - condition.within.ms);
       if (opts?.anchorMs !== undefined) bounds.push(opts.anchorMs);
       const sinceMs = bounds.length > 0 ? Math.max(...bounds) : undefined;
+      const atLeast = condition.count ?? 1;
       const count = await facts.countEvents(condition.event, {
         ...(sinceMs !== undefined ? { sinceMs } : {}),
         ...(opts?.untilMs !== undefined ? { untilMs: opts.untilMs } : {}),
         ...(condition.where !== undefined ? { where: condition.where } : {}),
+        atLeast,
       });
-      return count >= (condition.count ?? 1);
+      return count >= atLeast;
     }
     case 'property': {
       const actual = await facts.getProperty(condition.path);
