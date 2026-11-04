@@ -505,6 +505,46 @@ describe('a start lost between the entry and the create', () => {
     expect((await entries())[0].status).toBe('running');
   });
 
+  /*
+   * An instance id is the platform's identity for good: one that ended stays known to `get`, and
+   * refuses a second create. That is a corpse, not the instance a retry wanted, and taking it for
+   * one would leave a running entry that nothing ever admits or fails.
+   */
+  test('the same event redelivered over a dead instance does not take the corpse for its start', async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    const first = await ingestEvent(env, event, store);
+    const [instanceId] = first.started;
+    journey.ended.set(instanceId, 'errored');
+    await store.setEntryStatus(instanceId, 'failed');
+
+    await expect(ingestEvent(env, event, store)).rejects.toThrow('already exists');
+
+    // Still a failure on the ledger: the next, different event reclaims it
+    expect((await entries())[0]).toMatchObject({ instance_id: instanceId, status: 'failed' });
+    const next = await ingestEvent(env, { ...event, id: 'evt-2', ts: event.ts + 60_000 }, store);
+    expect(next.started).toHaveLength(1);
+    expect((await entries())[0]).toMatchObject({ instance_id: next.started[0], status: 'running' });
+  });
+
+  test('maintenance fails an unadmitted entry whose instance ended before admitting itself', async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    const { started } = await ingestEvent(env, event, store);
+    journey.ended.set(started[0], 'errored');
+
+    expect(await failLostStarts(env, store, Date.now() + LOST_START_AFTER_MS + 1)).toEqual(started);
+    expect((await entries())[0].status).toBe('failed');
+  });
+
   test('a segment start is not crossed off while the entry holding it has no instance', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);

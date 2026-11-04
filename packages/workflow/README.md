@@ -1311,8 +1311,8 @@ between the two leaves an entry with nothing behind it. Two things repair it: a
 retry of the same event (same `id` and `ts`) creates the missing instance — the
 instance id is the platform's identity too, so a second create is harmless — and
 the sweep's maintenance marks an entry left unadmitted for 15 minutes, whose
-instance the runtime does not know, as failed, so the user's next trigger
-re-enters. Neither can start a second journey for the pair.
+instance the runtime does not know or reports ended, as failed, so the user's
+next trigger re-enters. Neither can start a second journey for the pair.
 
 ## Exports
 

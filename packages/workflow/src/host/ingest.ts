@@ -324,10 +324,12 @@ const LOST_START_BATCH = 25;
 /**
  * Starts lost between the entry and the platform's create — the Worker cut off there, or a
  * create that failed with its rollback failing too — leave a `running` entry nothing will ever
- * admit, and the once-policy would then bar the user from the workflow for good. An entry old
- * enough, unadmitted, whose instance the runtime does not know, is marked `failed`: the pair's
- * next trigger reclaims it. Platform-neutral: on AWS a planned start is always known to `get`
- * (its registry row), so only a start with nothing behind it is touched.
+ * admit, and the once-policy would then bar the user from the workflow for good. An instance that
+ * ended before admitting itself leaves the same. An entry old enough, unadmitted, whose instance
+ * the runtime does not know or reports ended, is marked `failed`: the pair's next trigger reclaims
+ * it. Nothing of such an instance ran, since admission precedes its first effect. Platform-neutral:
+ * on AWS a planned start is always known to `get` (its registry row), and reads as ended only once
+ * its retries have given up, so only a start with nothing behind it is touched.
  */
 export async function failLostStarts(
   env: JourneyEnv,
@@ -337,8 +339,9 @@ export async function failLostStarts(
   const failed: string[] = [];
   for (const entry of await store.unadmittedEntries(now - LOST_START_AFTER_MS, LOST_START_BATCH)) {
     try {
-      await env.JOURNEY.get(entry.instanceId);
-      continue; // created — queued, or about to admit itself
+      const instance = await env.JOURNEY.get(entry.instanceId);
+      // Created: queued or about to admit itself, unless it ended without ever doing so
+      if (!(await hasEnded(instance))) continue;
     } catch (error) {
       // Only "not found" proves the start was lost; a failed lookup proves nothing
       if (!(error instanceof InstanceNotFoundError)) continue;
@@ -466,8 +469,9 @@ export async function sweepSegments(
 
 /**
  * Whether the (workflow, user) entry's start is known to have happened: the runner admitted
- * itself, the entry already ended, or the runtime knows its instance. An unadmitted entry whose
- * instance cannot be found — or cannot be looked up right now — is not; the caller asks again.
+ * itself, the entry already ended, or the runtime knows its instance and it has not ended. An
+ * unadmitted entry whose instance cannot be found, cannot be looked up right now, or ended without
+ * admitting itself is not; the caller asks again.
  */
 async function entryStarted(
   env: JourneyEnv,
@@ -480,8 +484,7 @@ async function entryStarted(
   if (entry === undefined || entry.status === 'failed') return false;
   if (entry.admitted || entry.status !== 'running') return true;
   try {
-    await env.JOURNEY.get(entry.instanceId);
-    return true;
+    return !(await hasEnded(await env.JOURNEY.get(entry.instanceId)));
   } catch {
     return false;
   }
@@ -492,7 +495,9 @@ async function entryStarted(
  * (Cloudflare): a create the platform refuses because the id already exists — a concurrent
  * retry of the same start won the race — is the instance we wanted, not a failure. Rolling the
  * entry back over it would strand a running instance with no ledger row, and it would never be
- * admitted. Only a create whose instance the runtime cannot find failed. True when this call
+ * admitted. A create whose instance the runtime cannot find failed, and so did one refused by an
+ * instance that already ended: the id stays taken by that corpse, which will never admit itself,
+ * and taking it for the start would leave a running entry nothing ever fails. True when this call
  * created it, false when it already existed.
  */
 async function createInstance(
@@ -504,12 +509,14 @@ async function createInstance(
     await env.JOURNEY.create({ id, params });
     return true;
   } catch (error) {
+    let ended: boolean;
     try {
-      await env.JOURNEY.get(id);
+      ended = await hasEnded(await env.JOURNEY.get(id));
     } catch {
       // Not found, or the lookup failed too: the create's own error is the one to surface
       throw error;
     }
+    if (ended) throw error;
     return false;
   }
 }
@@ -659,6 +666,12 @@ export async function registerDevice(
 /** Workflow instance states that will never run another step. */
 const STOPPED_STATUSES = new Set(['complete', 'errored', 'terminated']);
 
+/** Whether the instance reports a terminal state. An unreadable status says nothing: false. */
+async function hasEnded(instance: WorkflowInstanceLike): Promise<boolean> {
+  const status = await instance.status?.().catch(() => undefined);
+  return status !== undefined && STOPPED_STATUSES.has(status.status);
+}
+
 /**
  * Stop one admitted instance for good; true once it is known not to run again: terminated, or
  * already in a terminal state (terminate refuses those). Any other failure is not taken for
@@ -683,8 +696,7 @@ async function stopInstance(env: JourneyEnv, instanceId: string): Promise<boolea
     await instance.terminate();
     return true;
   } catch (error) {
-    const status = await instance.status?.().catch(() => undefined);
-    if (status !== undefined && STOPPED_STATUSES.has(status.status)) return true;
+    if (await hasEnded(instance)) return true;
     console.warn(`[workflow] terminating ${instanceId} failed`, error);
     return false;
   }

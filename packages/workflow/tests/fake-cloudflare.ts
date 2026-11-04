@@ -17,6 +17,8 @@ export class FakeJourney implements WorkflowBindingLike {
   readonly known = new Set<string>();
   /** Handles whose sendEvent fails (simulating a transient delivery failure). */
   readonly failingSends = new Set<string>();
+  /** Instances that ended, by the status Cloudflare reports for them; the rest are running. */
+  readonly ended = new Map<string, 'complete' | 'errored' | 'terminated'>();
 
   /** How many upcoming creates throw (simulating a create the platform lost or refused). */
   failingCreates = 0;
@@ -45,6 +47,7 @@ export class FakeJourney implements WorkflowBindingLike {
         if (this.failingSends.has(id)) throw new Error('send failed');
         this.wakes.push({ id, type: event.type });
       },
+      status: async () => ({ status: this.ended.get(id) ?? 'running' }),
     };
   }
 }
