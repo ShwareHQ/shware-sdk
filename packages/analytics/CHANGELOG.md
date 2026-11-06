@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 16.3.1
+
+### Patch Changes
+
+- bab2afd: `posthogAnalytics` no longer throws in browsers without `URL.canParse` (Safari before 17, Chrome before 120).
+
 ## 16.3.0
 
 ### Minor Changes
