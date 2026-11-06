@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PosthogErrorBoundary, setupReactErrorHandler } from './posthog-error-boundary';
+import { PosthogErrorBoundary, setupPosthogReactErrorHandler } from './posthog-error-boundary';
 
 afterEach(() => {
   cleanup();
@@ -116,7 +116,7 @@ describe('PosthogErrorBoundary', () => {
   });
 });
 
-describe('setupReactErrorHandler', () => {
+describe('setupPosthogReactErrorHandler', () => {
   it('sends the error with its component stack and hands the event to the callback', () => {
     const captureException = vi.fn<(error: unknown) => { uuid: string }>(() => ({
       uuid: 'event-id',
@@ -125,7 +125,7 @@ describe('setupReactErrorHandler', () => {
     const callback = vi.fn<(event: unknown, error: unknown) => void>();
     const error = new Error('boom');
 
-    setupReactErrorHandler(callback)(error, { componentStack: '\n    at Boom' });
+    setupPosthogReactErrorHandler(callback)(error, { componentStack: '\n    at Boom' });
 
     expect(captureException).toHaveBeenCalledWith(error);
     expect((error.cause as Error).stack).toBe('\n    at Boom');
@@ -134,10 +134,20 @@ describe('setupReactErrorHandler', () => {
     });
   });
 
+  it('logs the error as React would without a callback', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    Object.assign(window, { posthog: { captureException: vi.fn<() => undefined>() } });
+    const error = new Error('boom');
+
+    setupPosthogReactErrorHandler()(error, {});
+
+    expect(log).toHaveBeenCalledWith(error);
+  });
+
   it('never throws, and still calls the callback, without PostHog or when it fails', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const callback = vi.fn<(event: unknown) => void>();
-    setupReactErrorHandler(callback)(new Error('boom'), {});
+    setupPosthogReactErrorHandler(callback)(new Error('boom'), {});
     Object.assign(window, {
       posthog: {
         captureException: () => {
@@ -145,7 +155,7 @@ describe('setupReactErrorHandler', () => {
         },
       },
     });
-    setupReactErrorHandler(callback)(new Error('boom'), {});
+    setupPosthogReactErrorHandler(callback)(new Error('boom'), {});
     expect(callback).toHaveBeenCalledTimes(2);
     expect(callback).toHaveBeenLastCalledWith(undefined, expect.any(Error), {});
   });

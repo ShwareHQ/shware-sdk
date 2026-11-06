@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url": "https://shop.example/checkout"}
+import type { CaptureResult, PostHogConfig } from '@posthog/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  capturePosthogException,
   getLoadedPosthog,
   getPosthog,
   posthogAnalytics,
@@ -109,6 +111,23 @@ describe('posthogAnalytics', () => {
       'https://us-assets.i.posthog.com/static/array.js'
     );
   });
+
+  it('leaves an already loaded library in place when the snippet runs again', () => {
+    for (const s of document.querySelectorAll('script[src$="/static/array.js"]')) s.remove();
+    const init = vi.fn<() => undefined>();
+    const loaded = { __loaded: true, init };
+    Object.assign(window, { posthog: loaded });
+    const { script } = posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: 'https://us.i.posthog.com' },
+    });
+    // oxlint-disable-next-line typescript/no-implied-eval
+    new Function(script?.inline ?? '')();
+
+    expect(getPosthog()).toBe(loaded);
+    expect(init).toHaveBeenCalledWith('phc_test', { api_host: 'https://us.i.posthog.com' });
+    expect(document.querySelector('script[src$="/static/array.js"]')).toBeNull();
+  });
 });
 
 describe('getPosthog / getLoadedPosthog', () => {
@@ -208,5 +227,156 @@ describe('posthogFlagsReady', () => {
 
     vi.advanceTimersByTime(500);
     await expect(ready).resolves.toBeUndefined();
+  });
+});
+
+describe('capturePosthogException', () => {
+  it('sends the error with its properties and returns the event', () => {
+    const captureException = vi.fn<(error: unknown, properties?: object) => { uuid: string }>(
+      () => ({ uuid: 'event-id' })
+    );
+    Object.assign(window, { posthog: { captureException } });
+    const error = new Error('boom');
+
+    expect(capturePosthogException(error, { area: 'upload' })).toEqual({ uuid: 'event-id' });
+    expect(captureException).toHaveBeenCalledWith(error, { area: 'upload' });
+  });
+
+  it('never throws, without PostHog or when it fails', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    Reflect.deleteProperty(window, 'posthog');
+    expect(capturePosthogException(new Error('boom'))).toBeUndefined();
+
+    Object.assign(window, {
+      posthog: {
+        captureException: () => {
+          throw new Error('posthog failed');
+        },
+      },
+    });
+    expect(capturePosthogException(new Error('boom'))).toBeUndefined();
+    vi.mocked(console.error).mockRestore();
+  });
+});
+
+describe('posthogAnalytics errorTracking', () => {
+  type InitConfig = Partial<PostHogConfig> & { before_send?: (e: CaptureResult) => unknown };
+
+  /** Runs the snippet and returns the config it handed `posthog.init`. */
+  function initConfig(errorTracking: Parameters<typeof posthogAnalytics>[0]['errorTracking']) {
+    Reflect.deleteProperty(window, 'posthog');
+    const { script } = posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: 'https://us.i.posthog.com' },
+      errorTracking,
+    });
+    document.head.append(document.createElement('script'));
+    // oxlint-disable-next-line typescript/no-implied-eval
+    new Function(script?.inline ?? '')();
+    const queued = Reflect.get(Reflect.get(window, 'posthog') as object, '_i') as unknown[][];
+    return queued[0]?.[1] as InitConfig;
+  }
+
+  function exception(
+    list: { type?: string; value?: string; frames?: { filename: string }[] }[]
+  ): CaptureResult {
+    return {
+      uuid: 'id',
+      event: '$exception',
+      properties: {
+        $exception_list: list.map(({ type, value, frames }) => ({
+          type,
+          value,
+          stacktrace: frames && { type: 'raw', frames },
+        })),
+      },
+    };
+  }
+
+  it('turns on exception autocapture and passes what no rule matches', () => {
+    const config = initConfig(true);
+    expect(config.capture_exceptions).toBe(true);
+    const event = exception([{ type: 'Error', value: 'boom' }]);
+    expect(config.before_send?.(event)).toBe(event);
+  });
+
+  it('never touches other events', () => {
+    const config = initConfig(false);
+    const event: CaptureResult = { uuid: 'id', event: 'sign_up', properties: {} };
+    expect(config.before_send?.(event)).toBe(event);
+  });
+
+  it('drops errors matching ignoreErrors, by substring or regular expression', () => {
+    const config = initConfig({ ignoreErrors: ['UET is not defined', /^Java object/i] });
+    const drop = (type: string, value: string) =>
+      config.before_send?.(exception([{ type, value }])) === null;
+
+    expect(drop('ReferenceError', 'UET is not defined')).toBe(true);
+    expect(drop('Error', 'java object is gone')).toBe(true);
+    expect(drop('Error', 'Error invoking postMessage: Java object is gone')).toBe(false);
+    expect(drop('Error', 'boom')).toBe(false);
+  });
+
+  it('matches every time with a global or sticky regular expression', () => {
+    const config = initConfig({ ignoreErrors: [/UET/g, /^Java/y] });
+    const uet = exception([{ type: 'ReferenceError', value: 'UET is not defined' }]);
+    const java = exception([{ value: 'Java object is gone' }]);
+    for (let i = 0; i < 3; i++) {
+      expect(config.before_send?.(uet)).toBeNull();
+      expect(config.before_send?.(java)).toBeNull();
+    }
+  });
+
+  it('matches the type too, and every error in the chain', () => {
+    const config = initConfig({ ignoreErrors: ['NotSupportedError: Missing request type.'] });
+    const event = exception([
+      { type: 'Error', value: 'one tap failed' },
+      { type: 'NotSupportedError', value: 'Missing request type.' },
+    ]);
+    expect(config.before_send?.(event)).toBeNull();
+  });
+
+  it('drops errors thrown in a denied script, by the innermost frame only', () => {
+    const config = initConfig({ denyUrls: ['/gsi/client'] });
+    const gsi = { filename: 'https://accounts.google.com/gsi/client' };
+    const app = { filename: 'https://example.com/assets/index.js' };
+
+    expect(config.before_send?.(exception([{ value: 'pa', frames: [app, gsi] }]))).toBeNull();
+    const callback = exception([{ value: 'ours', frames: [gsi, app] }]);
+    expect(config.before_send?.(callback)).toBe(callback);
+  });
+
+  it('sends no exception at all when false', () => {
+    const config = initConfig(false);
+    expect(config.capture_exceptions).toBe(false);
+    expect(config.before_send?.(exception([{ type: 'Error', value: 'boom' }]))).toBeNull();
+  });
+
+  it('lets config.capture_exceptions win over autocapture', () => {
+    const { script } = posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: 'https://us.i.posthog.com', capture_exceptions: false },
+      errorTracking: { autocapture: true },
+    });
+    expect(script?.inline).toContain('"capture_exceptions":false');
+  });
+
+  it('keeps its variables off window, and patterns cannot end the inline script', () => {
+    const { script } = posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: 'https://us.i.posthog.com' },
+      errorTracking: { ignoreErrors: ['</script><script>alert(1)</script>'] },
+    });
+    expect(script?.inline).not.toContain('</script>');
+    initConfig(true);
+    expect(Reflect.has(window, 'c')).toBe(false);
+  });
+
+  it('leaves the snippet as it was without the option', () => {
+    const { script } = posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: 'https://us.i.posthog.com' },
+    });
+    expect(script?.inline).not.toContain('before_send');
   });
 });

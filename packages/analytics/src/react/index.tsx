@@ -69,5 +69,5 @@ export {
   PosthogErrorBoundary,
   type PosthogErrorBoundaryFallbackProps,
   type PosthogErrorBoundaryProps,
-  setupReactErrorHandler,
+  setupPosthogReactErrorHandler,
 } from './posthog-error-boundary';
