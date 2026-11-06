@@ -1,5 +1,17 @@
 # @shware/analytics
 
+## 16.3.0
+
+### Minor Changes
+
+- 1cd3d92: `posthogAnalytics({ errorTracking })` turns on PostHog's exception autocapture and filters exceptions with `ignoreErrors` and `denyUrls`, as Sentry's options of the same names; the filter is written into the snippet, since `config` reaches `posthog.init` as JSON and drops a `before_send` function. `errorTracking: false` sends no exception, for local development. `capturePosthogException(error, properties?)` reports an error from anywhere, queued on the stub and never throwing.
+- 1cd3d92: Rename `setupReactErrorHandler` to `setupPosthogReactErrorHandler`, so the call site says it reports to PostHog, as `PosthogErrorBoundary` and `capturePosthogException` do.
+
+### Patch Changes
+
+- 1cd3d92: Update the PostHog snippet to PostHog's current one: it leaves an already loaded library in place, inserts `array.js` once, and retries it on the next `init` if it failed to load.
+- 1cd3d92: `setupPosthogReactErrorHandler()` without a callback now logs the error with `console.error`, as React does while no handler is set; before, setting it silenced React's console output.
+
 ## 16.2.3
 
 ### Patch Changes
