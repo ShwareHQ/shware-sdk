@@ -111,6 +111,23 @@ describe('posthogAnalytics', () => {
       'https://us-assets.i.posthog.com/static/array.js'
     );
   });
+
+  it('leaves an already loaded library in place when the snippet runs again', () => {
+    for (const s of document.querySelectorAll('script[src$="/static/array.js"]')) s.remove();
+    const init = vi.fn<() => undefined>();
+    const loaded = { __loaded: true, init };
+    Object.assign(window, { posthog: loaded });
+    const { script } = posthogAnalytics({
+      token: 'phc_test',
+      config: { api_host: 'https://us.i.posthog.com' },
+    });
+    // oxlint-disable-next-line typescript/no-implied-eval
+    new Function(script?.inline ?? '')();
+
+    expect(getPosthog()).toBe(loaded);
+    expect(init).toHaveBeenCalledWith('phc_test', { api_host: 'https://us.i.posthog.com' });
+    expect(document.querySelector('script[src$="/static/array.js"]')).toBeNull();
+  });
 });
 
 describe('getPosthog / getLoadedPosthog', () => {
