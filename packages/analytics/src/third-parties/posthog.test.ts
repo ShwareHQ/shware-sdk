@@ -173,6 +173,27 @@ describe('posthogAnalytics preconnect', () => {
     const { preconnect } = posthogAnalytics({ token: 'phc_test', config: { api_host: '/ingest' } });
     expect(preconnect).toEqual([]);
   });
+
+  it('works in browsers without URL.canParse (Safari < 17, Chrome < 120)', () => {
+    // jsdom's URL inherits `canParse` from Node's, so shadow it rather than delete it.
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static override canParse = undefined as unknown as typeof URL.canParse;
+      }
+    );
+    try {
+      const absolute = posthogAnalytics({
+        token: 'phc_test',
+        config: { api_host: 'https://us.i.posthog.com' },
+      });
+      const relative = posthogAnalytics({ token: 'phc_test', config: { api_host: '/ingest' } });
+      expect(absolute.preconnect).toEqual(['https://us-assets.i.posthog.com']);
+      expect(relative.preconnect).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe('posthogFlagsReady', () => {

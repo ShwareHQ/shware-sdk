@@ -195,6 +195,19 @@ const EXCEPTION_FILTER = `function(r){
 }`;
 
 /**
+ * The origin to preconnect to, or none for a relative URL (a reverse proxy on the site's own
+ * origin). `new URL` in a try rather than `URL.canParse`, which Safari before 17 and Chrome before
+ * 120 lack: this runs while the app sets up its analytics, where a throw takes the page down.
+ */
+function originOf(url: string): string[] {
+  try {
+    return [new URL(url).origin];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * PostHog: every event, for behavior analysis. Loaded with PostHog's HTML snippet, which defines
  * a stub `window.posthog` and fetches the library (`array.js`) asynchronously from PostHog's
  * assets host, so it stays out of the app's bundle; calls made before it loads are queued.
@@ -245,7 +258,7 @@ export function posthogAnalytics(options: {
     type: 'analytics',
     track: sendPosthogEvent,
     setUser: setPosthogUser,
-    preconnect: URL.canParse(assets) ? [new URL(assets).origin] : [],
+    preconnect: originOf(assets),
     script: {
       id: 'posthog-snippet',
       // The stub must exist before hydration, whose effects already track (`page_view`) and
