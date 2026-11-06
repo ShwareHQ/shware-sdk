@@ -134,6 +134,16 @@ describe('setupReactErrorHandler', () => {
     });
   });
 
+  it('logs the error as React would without a callback', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    Object.assign(window, { posthog: { captureException: vi.fn<() => undefined>() } });
+    const error = new Error('boom');
+
+    setupReactErrorHandler()(error, {});
+
+    expect(log).toHaveBeenCalledWith(error);
+  });
+
   it('never throws, and still calls the callback, without PostHog or when it fails', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const callback = vi.fn<(event: unknown) => void>();

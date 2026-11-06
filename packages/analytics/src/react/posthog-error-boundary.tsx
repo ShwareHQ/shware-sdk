@@ -119,9 +119,9 @@ export class PosthogErrorBoundary extends Component<PosthogErrorBoundaryProps, S
  * `client`: a handler for React 19's root options, which report what no `PosthogErrorBoundary`
  * sees — `onUncaughtError` (no boundary caught it), `onCaughtError` (a framework's boundary did,
  * e.g. TanStack Router's `errorComponent`) and `onRecoverableError` (a hydration mismatch React
- * recovered from). The error goes to PostHog with its component stack; `callback` gets the event
- * (`undefined` while only the stub is there), as React's own logging does not run once a handler
- * is set.
+ * recovered from). The error goes to PostHog with its component stack and is logged with
+ * `console.error`, as React's own logging does not run once a handler is set; a `callback` gets the
+ * event (`undefined` while only the stub is there) instead of that logging.
  *
  * ```tsx
  * hydrateRoot(document, <StartClient />, {
@@ -143,6 +143,10 @@ export function setupReactErrorHandler(
     } catch (e: unknown) {
       console.error('setupReactErrorHandler: the error was not reported', e);
     }
-    callback?.(event, error, errorInfo);
+    if (callback) callback(event, error, errorInfo);
+    // React logs these itself only while no handler is set; keep them in the console. Not
+    // `reportError`, React's own default for uncaught errors: it dispatches a window `error`,
+    // which the library's exception autocapture would send a second time.
+    else console.error(error);
   };
 }
