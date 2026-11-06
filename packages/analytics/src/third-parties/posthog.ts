@@ -209,7 +209,7 @@ export function posthogAnalytics(options: {
   /**
    * PostHog's error tracking. `true` or options turn on exception autocapture and filter what is
    * sent (`ignoreErrors`, `denyUrls`); `false` sends no exception at all, autocaptured or
-   * reported (`capturePosthogException`, `PosthogErrorBoundary`, `setupReactErrorHandler`) — for
+   * reported (`capturePosthogException`, `PosthogErrorBoundary`, `setupPosthogReactErrorHandler`) — for
    * local development, which would otherwise fill the production project's issues. Left out, the
    * library's own `config` decides, as before. Each exception carries the session id, so its issue
    * links to the session's replay.

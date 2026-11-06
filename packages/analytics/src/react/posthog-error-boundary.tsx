@@ -125,15 +125,15 @@ export class PosthogErrorBoundary extends Component<PosthogErrorBoundaryProps, S
  *
  * ```tsx
  * hydrateRoot(document, <StartClient />, {
- *   onUncaughtError: setupReactErrorHandler(),
- *   onCaughtError: setupReactErrorHandler(),
- *   onRecoverableError: setupReactErrorHandler(),
+ *   onUncaughtError: setupPosthogReactErrorHandler(),
+ *   onCaughtError: setupPosthogReactErrorHandler(),
+ *   onRecoverableError: setupPosthogReactErrorHandler(),
  * });
  * ```
  *
  * Never throws, as `PosthogErrorBoundary`: a failure to report is logged.
  */
-export function setupReactErrorHandler(
+export function setupPosthogReactErrorHandler(
   callback?: (event: CaptureResult | undefined, error: unknown, errorInfo: ErrorInfo) => void
 ): (error: unknown, errorInfo: ErrorInfo) => void {
   return (error, errorInfo) => {
@@ -141,7 +141,7 @@ export function setupReactErrorHandler(
     try {
       event = getPosthog()?.captureException(withComponentStack(error, errorInfo.componentStack));
     } catch (e: unknown) {
-      console.error('setupReactErrorHandler: the error was not reported', e);
+      console.error('setupPosthogReactErrorHandler: the error was not reported', e);
     }
     if (callback) callback(event, error, errorInfo);
     // React logs these itself only while no handler is set; keep them in the console. Not
