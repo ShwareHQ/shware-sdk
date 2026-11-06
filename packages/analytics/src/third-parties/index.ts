@@ -8,6 +8,9 @@ export {
   getPosthog,
   getLoadedPosthog,
   posthogFlagsReady,
+  capturePosthogException,
+  type ErrorPattern,
+  type PosthogErrorTrackingOptions,
   type PostHog,
   type PostHogConfig,
 } from './posthog';
