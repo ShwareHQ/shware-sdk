@@ -190,7 +190,7 @@ describe('sweep', () => {
     await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
 
     const first = await worker.sweep(env);
-    expect(first).toMatchObject({ users: 2, sizes: [{ segment: 'dormant', size: 2 }] });
+    expect(first).toMatchObject({ evaluated: 2, sizes: [{ segment: 'dormant', size: 2 }] });
     expect(first.started).toHaveLength(2);
     expect(journey.created).toHaveLength(2);
     // Already members: a second sweep starts nothing

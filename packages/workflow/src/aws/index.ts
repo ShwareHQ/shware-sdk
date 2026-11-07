@@ -277,7 +277,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       },
       once
     );
-    let users = 0;
+    let evaluated = 0;
     const started: string[] = [];
     let after: string | undefined;
     for (let n = 0; ; n++) {
@@ -289,7 +289,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
         },
         once
       );
-      users += page.users;
+      evaluated += page.evaluated;
       started.push(...page.started);
       if (!page.more || page.lastUserId === undefined) break;
       after = page.lastUserId;
@@ -302,7 +302,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       },
       once
     );
-    return { users, started, sizes };
+    return { evaluated, started, sizes };
   };
 
   const durable = withDurableExecution(async (input: unknown, context: DurableContext) => {

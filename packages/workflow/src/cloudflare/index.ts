@@ -95,6 +95,7 @@ export type {
   JourneyStore,
   PostgresJourneyStoreOptions,
   ProfileProps,
+  SegmentCandidate,
   SegmentTriggerRoute,
   SqlClientLike,
   StoreLease,

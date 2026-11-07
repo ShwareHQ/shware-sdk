@@ -311,7 +311,8 @@ async function refreshSegments(
 }
 
 export interface SweepResult {
-  users: number;
+  /** Users the evaluator looked at: those whose membership may have changed, not everyone. */
+  evaluated: number;
   /** Journeys the segments' entries started. */
   started: string[];
   /** Each deployed segment's size after the sweep (empty when the store keeps no reporting). */
@@ -407,7 +408,7 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
 
 export interface SweepPage {
   /** Users evaluated on this page (those being erased are listed but skipped). */
-  users: number;
+  evaluated: number;
   /** Journeys the segments' entries started on this page. */
   started: string[];
   /** The last user id listed, to resume past (`after`); undefined when the page was empty. */
@@ -417,10 +418,11 @@ export interface SweepPage {
 }
 
 /**
- * One page of the sweep: the users after `after` (ascending, at most `limit`), every deployed
- * segment evaluated for each. The pages are what makes the sweep resumable — a host whose run
- * can be cut short (a Lambda timeout) checkpoints each one and replays the checkpointed pages
- * instead of starting over; `sweepSegments` is the plain loop over them.
+ * One page of the sweep: the next users (ascending, at most `limit`) the store says may have a
+ * membership to change, evaluated for those segments only. The pages are what makes the sweep
+ * resumable — a host whose run can be cut short (a Lambda timeout) checkpoints each one and
+ * replays the checkpointed pages instead of starting over; `sweepSegments` is the plain loop over
+ * them.
  */
 export async function sweepSegmentsPaged(
   env: JourneyEnv,
@@ -429,40 +431,43 @@ export async function sweepSegmentsPaged(
 ): Promise<SweepPage> {
   const now = page.now ?? Date.now();
   const limit = page.limit ?? SWEEP_PAGE_SIZE;
-  const segments = (await store.listSegments()).map((segment) => segment.id);
+  const segments = await store.listSegments();
   const routes = await store.listSegmentTriggers();
   // Read per page, not once up front: an erasure requested since the last page is honored too
   const erasing = new Set(await store.pendingErasures());
-  const listed = await store.listUserIds({ after: page.after, limit });
-  const lastUserId = listed.at(-1);
+  const listed = await store.listSegmentCandidates({ segments, now, after: page.after, limit });
+  const lastUserId = listed.at(-1)?.userId;
   // A store that ignores `after` would hand back the same page forever: refuse to loop on it.
   // Equality only — the order is the store's collation, which JavaScript's `<` does not know
   if (page.after !== undefined && lastUserId === page.after) {
-    throw new Error(`listUserIds did not advance past ${page.after}: the store ignores 'after'`);
+    throw new Error(
+      `listSegmentCandidates did not advance past ${page.after}: the store ignores 'after'`
+    );
   }
-  const users = listed.filter((userId) => !erasing.has(userId));
+  const candidates = listed.filter(({ userId }) => !erasing.has(userId));
   const started: string[] = [];
-  const definitions = new Map<string, ConditionIR | undefined>();
-  for (const userId of users) {
+  const definitions = new Map<string, ConditionIR | undefined>(
+    segments.map((segment) => [segment.id, segment.condition])
+  );
+  for (const { userId, segments: named } of candidates) {
+    const owed = routes.filter((route) => named.includes(route.segment));
     try {
-      started.push(
-        ...(await refreshSegments(env, store, userId, now, routes, segments, definitions))
-      );
+      started.push(...(await refreshSegments(env, store, userId, now, owed, named, definitions)));
     } catch (error) {
       // One user's failed start is kept for the next sweep; it must not stop everyone else's
       console.error(`[workflow] segment refresh for ${userId} failed`, error);
     }
   }
-  return { users: users.length, started, lastUserId, more: listed.length >= limit };
+  return { evaluated: candidates.length, started, lastUserId, more: listed.length >= limit };
 }
 
 /**
- * The scheduled sweep: every deployed segment evaluated for every known user — the evaluator a
- * journey's conditions run on, so a member is exactly who a journey would see in it. Membership
+ * The scheduled sweep: every deployed segment checked against every known user. The store narrows
+ * that down in one statement per page (`listSegmentCandidates`), so a sweep with nothing to change
+ * costs a few queries however many users there are, and the evaluator a journey's conditions run
+ * on decides each remaining case, so a member is exactly who a journey would see in it. Membership
  * follows (joiners keep the time they joined, leavers are removed), segment triggers start the
  * journeys of whoever entered by the clock alone, and the store records each segment's size.
- * It walks users page by page (`sweepSegmentsPaged`): fine for thousands, a large audience wants
- * SQL-side evaluation.
  */
 export async function sweepSegments(
   env: JourneyEnv,
@@ -470,18 +475,18 @@ export async function sweepSegments(
   now = Date.now()
 ): Promise<SweepResult> {
   await sweepMaintenance(env, store);
-  let users = 0;
+  let evaluated = 0;
   const started: string[] = [];
   let after: string | undefined;
   for (;;) {
     const page = await sweepSegmentsPaged(env, store, { after, limit: SWEEP_PAGE_SIZE, now });
-    users += page.users;
+    evaluated += page.evaluated;
     started.push(...page.started);
     if (!page.more || page.lastUserId === undefined) break;
     after = page.lastUserId;
   }
   const sizes = await store.reporting.snapshotSegments(now);
-  return { users, started, sizes };
+  return { evaluated, started, sizes };
 }
 
 /**

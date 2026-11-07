@@ -363,6 +363,12 @@ export interface JourneyReporting {
   snapshotSegments(at: number): Promise<{ segment: string; size: number }[]>;
 }
 
+/** A user the segment sweep has to evaluate, and for which segments. */
+export interface SegmentCandidate {
+  userId: string;
+  segments: string[];
+}
+
 export interface JourneyStore {
   /** Where instances stand, every copy and its engagement, segment sizes. */
   readonly reporting: JourneyReporting;
@@ -500,11 +506,18 @@ export interface JourneyStore {
   mergeProfile(userId: string, props: ProfileProps, at?: number): Promise<ProfileProps>;
 
   /**
-   * Every user the engine knows (a profile or an event): who the segment sweep evaluates. Ids
-   * come in ascending order; `after` resumes past the last id of the previous page, and `limit`
-   * bounds the page (the whole list without one).
+   * Who the segment sweep has to evaluate: for each user the engine knows (a profile, an event or
+   * a membership), the segments whose membership may have to change, or whose entry still owes a
+   * start. It may name a user whose membership turns out right, since `evaluateCondition` decides;
+   * it must not leave out one whose membership is wrong. Users come in ascending order; `after`
+   * resumes past the last id of the previous page, and users with nothing to do are left out.
    */
-  listUserIds(page?: { after?: string | undefined; limit?: number | undefined }): Promise<string[]>;
+  listSegmentCandidates(page: {
+    segments: readonly { id: string; condition: ConditionIR }[];
+    now: number;
+    after?: string | undefined;
+    limit: number;
+  }): Promise<SegmentCandidate[]>;
 
   /* ---------------------------------- devices --------------------------------- */
   /** The push devices a user or visitor holds now, most recently registered first. */

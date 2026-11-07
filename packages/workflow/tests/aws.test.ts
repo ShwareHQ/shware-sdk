@@ -994,7 +994,7 @@ describe('journeyLambda entry points', () => {
     await pg.query(`UPDATE workflow.execution SET created_at = now() - interval '5 minutes'`);
     failing = false;
     const { result } = await call(journeys.handler, { type: SWEEP_EVENT_TYPE });
-    expect(result.getResult()).toMatchObject({ users: 1, started: [] });
+    expect(result.getResult()).toMatchObject({ evaluated: 0, started: [] });
     expect(control.starts).toHaveLength(2);
     expect(control.starts[1]).toEqual(control.starts[0]);
   });
@@ -1381,22 +1381,26 @@ describe('4.0: the run is bound to the registry', () => {
 });
 
 describe('4.0: the sweep is resumable, one durable step per page', () => {
-  /** A Postgres store with every listUserIds call recorded, and page 0 slowed down by `delayMs`. */
+  /** A Postgres store with every listSegmentCandidates call recorded, and page 0 slowed down by `delayMs`. */
   function pagedStore(delayMs = 0) {
     const pages: (string | undefined)[] = [];
     const store = () => {
       const base = database.store;
       return new Proxy(base, {
         get(target, property, receiver) {
-          if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
-          return async (page?: { after?: string; limit?: number }) => {
-            pages.push(page?.after);
-            if (page?.after === undefined && delayMs > 0) {
+          // One segment everyone is new to, so every seeded user is a candidate
+          if (property === 'listSegments') {
+            return async () => [{ id: 'everyone', condition: { type: 'and', conditions: [] } }];
+          }
+          if (property !== 'listSegmentCandidates') return Reflect.get(target, property, receiver);
+          return async (page: Parameters<JourneyStore['listSegmentCandidates']>[0]) => {
+            pages.push(page.after);
+            if (page.after === undefined && delayMs > 0) {
               await new Promise<void>((resolve) => {
                 setTimeout(resolve, delayMs);
               });
             }
-            return target.listUserIds(page);
+            return target.listSegmentCandidates(page);
           };
         },
       });
@@ -1424,7 +1428,7 @@ describe('4.0: the sweep is resumable, one durable step per page', () => {
     await seedUsers(501);
     const { store, pages } = pagedStore();
     const { result } = await call(sweeper(store).handler, { type: SWEEP_EVENT_TYPE });
-    expect(result.getResult()).toMatchObject({ users: 501, started: [] });
+    expect(result.getResult()).toMatchObject({ evaluated: 501, started: [] });
     expect(result.getOperations().map((operation) => operation.getName())).toEqual([
       'sweep:maintain',
       'sweep:page:0',
@@ -1444,7 +1448,7 @@ describe('4.0: the sweep is resumable, one durable step per page', () => {
     await runner.pauseExecution();
     await runner.resumeExecution();
     const result = await running;
-    expect(result.getResult()).toMatchObject({ users: 501 });
+    expect(result.getResult()).toMatchObject({ evaluated: 501 });
     expect(result.getInvocations().length).toBeGreaterThan(1);
     // Page 0 was listed once across both invocations: the replay took its checkpoint
     expect(pages.filter((after) => after === undefined)).toHaveLength(1);

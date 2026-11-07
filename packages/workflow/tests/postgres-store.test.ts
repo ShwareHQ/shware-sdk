@@ -23,6 +23,7 @@ import {
   user,
   workflow,
 } from '../src/index';
+import type { ConditionIR } from '../src/ir';
 import { JourneyFactSource } from '../src/store/facts';
 import { UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, uuidv7 } from '../src/store/postgres';
@@ -45,6 +46,14 @@ const schemaSql = renderPostgresDdl();
 
 let database: PgliteDatabase;
 let pg: PGlite;
+
+/** Everyone the engine holds a profile or an event for. */
+const knownUsers = async () =>
+  (
+    await pg.query<{ user_id: string }>(
+      `SELECT user_id FROM workflow.profile UNION SELECT user_id FROM workflow.event ORDER BY 1`
+    )
+  ).rows.map((row) => row.user_id);
 
 beforeAll(async () => {
   database = await pgliteDatabase();
@@ -208,16 +217,69 @@ describe('ingest', () => {
     });
   });
 
-  test('user ids page in ascending order past the last id seen', async () => {
-    const { store } = setup();
-    await store.mergeProfile('u3', { a: 1 });
-    await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
-    await store.insertEvent({ id: 'e', userId: 'u2', event: 'x', ts: 1, payload: {} });
-    await store.mergeProfile('u2', { a: 1 });
-    expect(await store.listUserIds()).toEqual(['u1', 'u2', 'u3']);
-    expect(await store.listUserIds({ limit: 2 })).toEqual(['u1', 'u2']);
-    expect(await store.listUserIds({ after: 'u2', limit: 2 })).toEqual(['u3']);
-    expect(await store.listUserIds({ after: 'u3' })).toEqual([]);
+  describe('segment candidates', () => {
+    type Segment = { id: string; condition: ConditionIR };
+    const everyone: Segment = { id: 'everyone', condition: { type: 'and', conditions: [] } };
+    const nobody: Segment = { id: 'nobody', condition: { type: 'or', conditions: [] } };
+    const list = (
+      store: ReturnType<typeof setup>['store'],
+      page: { after?: string; limit?: number; segments?: readonly Segment[] }
+    ) =>
+      store.listSegmentCandidates({
+        segments: page.segments ?? [everyone],
+        now: 1000,
+        limit: page.limit ?? 100,
+        after: page.after,
+      });
+
+    test('page in ascending order past the last id seen, whoever is known by what', async () => {
+      const { store } = setup();
+      await store.mergeProfile('u3', { a: 1 });
+      await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
+      await store.insertEvent({ id: 'e', userId: 'u2', event: 'x', ts: 1, payload: {} });
+      await store.mergeProfile('u2', { a: 1 });
+      const ids = async (page: { after?: string; limit?: number }) =>
+        (await list(store, page)).map((candidate) => candidate.userId);
+      expect(await ids({})).toEqual(['u1', 'u2', 'u3']);
+      expect(await ids({ limit: 2 })).toEqual(['u1', 'u2']);
+      expect(await ids({ after: 'u2', limit: 2 })).toEqual(['u3']);
+      expect(await ids({ after: 'u3' })).toEqual([]);
+    });
+
+    test('name only the segments whose membership is wrong', async () => {
+      const { store } = setup();
+      await store.mergeProfile('in', {});
+      await store.mergeProfile('out', {});
+      await store.addSegmentMember('everyone', 'in', 1, []);
+      await store.addSegmentMember('nobody', 'in', 1, []);
+      expect(await list(store, { segments: [everyone, nobody] })).toEqual([
+        { userId: 'in', segments: ['nobody'] },
+        { userId: 'out', segments: ['everyone'] },
+      ]);
+    });
+
+    test('name a member whose entry still owes a start', async () => {
+      const { store } = setup();
+      await store.mergeProfile('u1', {});
+      await store.addSegmentMember('everyone', 'u1', 1, ['welcome']);
+      expect(await list(store, {})).toEqual([{ userId: 'u1', segments: ['everyone'] }]);
+      await store.completeSegmentStart('everyone', 'u1', 'welcome');
+      expect(await list(store, {})).toEqual([]);
+    });
+
+    test('name a member with no profile or event left to be known by', async () => {
+      const { store } = setup();
+      await store.addSegmentMember('nobody', 'gone', 1, []);
+      expect(await list(store, { segments: [nobody] })).toEqual([
+        { userId: 'gone', segments: ['nobody'] },
+      ]);
+    });
+
+    test('nothing without segments', async () => {
+      const { store } = setup();
+      await store.mergeProfile('u1', {});
+      expect(await list(store, { segments: [] })).toEqual([]);
+    });
   });
 
   test('a failed entry is reclaimed, a live one is not', async () => {
@@ -444,7 +506,7 @@ describe('erasure', () => {
     expect(await store.isSegmentMember('s', 'u1')).toBe(false);
     expect(await store.pendingSegmentStarts('s', 'u1')).toEqual([]);
     expect(await store.runningInstances('u1')).toEqual([]);
-    expect(await store.listUserIds()).toEqual(['u2']);
+    expect(await knownUsers()).toEqual(['u2']);
     // The opt-outs go too: the tombstone keeps the id from ever being sent to again
     expect(await store.isSuppressed('u1', 'email')).toBe(false);
     expect(await store.listSuppressions('u1', 'email')).toEqual([]);
@@ -530,13 +592,13 @@ describe('erasure', () => {
     await store.requestErasure('u1', 5);
     await store.forgetUser('u1', 7);
     // Every write ran under the user's lock, so nothing of theirs can land after this
-    expect(await store.listUserIds()).toEqual([]);
+    expect(await knownUsers()).toEqual([]);
     expect(await store.countEvents('u1', 'x')).toBe(0);
     expect((await pg.query('SELECT 1 FROM workflow.instance')).rows).toEqual([]);
     expect(await store.erasureState('u1')).toBe('erased');
 
     await store.forgetUser('u1', 9);
-    expect(await store.listUserIds()).toEqual([]);
+    expect(await knownUsers()).toEqual([]);
     expect(await store.erasureState('u1')).toBe('erased');
     const [row] = (
       await pg.query<{ at: string }>(

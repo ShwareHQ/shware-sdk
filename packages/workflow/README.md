@@ -1296,7 +1296,10 @@ On Postgres the engine also keeps:
   A push carries `message_id`; report the tap with `messageOpened`.
 - **Segments.** The cron trigger runs `sweepSegments`, which keeps every
   segment's membership and size and starts the journeys of segments entered by
-  the clock alone. `POST /segments/sweep` runs it on demand.
+  the clock alone. `POST /segments/sweep` runs it on demand. One SQL statement per
+  page finds who may have to change, compiled from the segments' conditions, and
+  the evaluator journeys use decides each of them, so a sweep costs what changed,
+  not how many users there are. Its response counts them as `evaluated`.
 
 `@shware/workflow-ui/postgres` reads all of it for the studio.
 

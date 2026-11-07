@@ -517,7 +517,12 @@ describe('a visitor before and after sign-in', () => {
     await post('/ingest', { visitorId: 'v1', events: [browse('a')] });
     await post('/ingest', { userId: 'u1', events: [browse('b')] });
 
-    expect(await database.store.listUserIds()).toEqual(['u1']);
+    const candidates = await database.store.listSegmentCandidates({
+      segments: [{ id: 'everyone', condition: { type: 'and', conditions: [] } }],
+      now: Date.now(),
+      limit: 10,
+    });
+    expect(candidates.map((candidate) => candidate.userId)).toEqual(['u1']);
   });
 });
 

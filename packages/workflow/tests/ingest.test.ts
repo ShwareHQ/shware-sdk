@@ -27,7 +27,7 @@ import {
   trigger,
   workflow,
 } from '../src/index';
-import type { JourneyStore } from '../src/store/index';
+import { type JourneyStore, PostgresJourneyStore } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
 import {
   allSegments,
@@ -630,15 +630,15 @@ describe('segment-entry triggers', () => {
 });
 
 describe('the sweep walks users page by page', () => {
-  /** The store, with every listUserIds call recorded. */
+  /** The store, with every listSegmentCandidates call recorded. */
   function recording(store: JourneyStore) {
     const pages: { after: string | undefined; limit: number | undefined }[] = [];
     const recorded = new Proxy(store, {
       get(target, property, receiver) {
-        if (property !== 'listUserIds') return Reflect.get(target, property, receiver);
-        return async (page?: { after?: string; limit?: number }) => {
-          pages.push({ after: page?.after, limit: page?.limit });
-          return target.listUserIds(page);
+        if (property !== 'listSegmentCandidates') return Reflect.get(target, property, receiver);
+        return async (page: Parameters<JourneyStore['listSegmentCandidates']>[0]) => {
+          pages.push({ after: page.after, limit: page.limit });
+          return target.listSegmentCandidates(page);
         };
       },
     });
@@ -655,7 +655,7 @@ describe('the sweep walks users page by page', () => {
 
     const result = await sweepSegments(env, store);
 
-    expect(result.users).toBe(1200);
+    expect(result.evaluated).toBe(1200);
     expect(pages).toEqual([
       { after: undefined, limit: 500 },
       { after: 'u0499', limit: 500 },
@@ -667,20 +667,22 @@ describe('the sweep walks users page by page', () => {
 
   test('exactly a full page is followed by one more, empty, page', async () => {
     const { env, store: base } = setup();
+    await deployBundle(env, bundle(), base);
     await profiles(500);
     const { store, pages } = recording(base);
     const result = await sweepSegments(env, store);
-    expect(result.users).toBe(500);
+    expect(result.evaluated).toBe(500);
     expect(pages.map((page) => page.after)).toEqual([undefined, 'u0499']);
   });
 
   test('one page reports where to resume and whether more follow', async () => {
     const { env, store } = setup();
+    await deployBundle(env, bundle(), store);
     for (const id of ['a', 'b', 'c']) await store.mergeProfile(id, {});
     const first = await sweepSegmentsPaged(env, store, { limit: 2 });
-    expect(first).toMatchObject({ users: 2, lastUserId: 'b', more: true });
+    expect(first).toMatchObject({ evaluated: 2, lastUserId: 'b', more: true });
     const last = await sweepSegmentsPaged(env, store, { after: 'b', limit: 2 });
-    expect(last).toMatchObject({ users: 1, lastUserId: 'c', more: false });
+    expect(last).toMatchObject({ evaluated: 1, lastUserId: 'c', more: false });
   });
 
   test('users being erased are listed but not evaluated; erased ones are not listed', async () => {
@@ -691,24 +693,59 @@ describe('the sweep walks users page by page', () => {
     await store.requestErasure('u2', 1);
     // u2's erasure finishes in maintenance (no running instance): nothing left to list
     const result = await sweepSegments(env, store);
-    expect(result.users).toBe(1);
+    expect(result.evaluated).toBe(1);
     expect(await store.getProfile('u2')).toBeUndefined();
     expect(await store.erasureState('u2')).toBe('erased');
     expect(await rows('segment_member', "user_id = 'u2'")).toBe(0);
 
     // An erased user has no profile or event to be listed by, and no membership comes back
     const again = await sweepSegments(env, store);
-    expect(again.users).toBe(1);
+    expect(again.evaluated).toBe(0); // u1 is already a member, so there is nothing to look at
     expect(await rows('segment_member', "user_id = 'u2'")).toBe(0);
   });
 
+  test('a sweep with nothing to change costs the same however many users there are', async () => {
+    const { env, store } = setup();
+    await deployBundle(env, bundle(), store);
+    await profiles(50);
+    await sweepSegments(env, store);
+    const counted = async () => {
+      const seen: string[] = [];
+      const client = database.client;
+      const spy = new PostgresJourneyStore({
+        query: (text, params) => {
+          seen.push(text);
+          return client.query(text, params);
+        },
+        transaction: (fn) => client.transaction(fn),
+      });
+      const result = await sweepSegments(env, spy);
+      return { queries: seen.length, evaluated: result.evaluated };
+    };
+    const few = await counted();
+    await database.pg.query(
+      `INSERT INTO workflow.segment_member (segment, user_id, ts)
+       SELECT 'inactive_30d', 'x' || i, now() FROM generate_series(1, 2000) i`
+    );
+    await database.pg.query(
+      `INSERT INTO workflow.profile (user_id, props)
+       SELECT 'x' || i, '{}' FROM generate_series(1, 2000) i`
+    );
+    const many = await counted();
+    expect(few.evaluated).toBe(0);
+    expect(many.evaluated).toBe(0);
+    expect(many.queries).toBe(few.queries);
+  }, 30_000);
+
   test('a store that ignores `after` cannot loop the sweep forever', async () => {
     const { env, store: base } = setup();
+    await deployBundle(env, bundle(), base);
     await profiles(3);
     const store = new Proxy(base, {
       get: (target, property, receiver) =>
-        property === 'listUserIds'
-          ? (page?: { limit?: number }) => target.listUserIds({ limit: page?.limit })
+        property === 'listSegmentCandidates'
+          ? (page: Parameters<JourneyStore['listSegmentCandidates']>[0]) =>
+              target.listSegmentCandidates({ ...page, after: undefined })
           : Reflect.get(target, property, receiver),
     });
     await expect(sweepSegmentsPaged(env, store, { after: 'u0001', limit: 2 })).rejects.toThrow(
