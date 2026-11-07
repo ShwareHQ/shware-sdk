@@ -1,5 +1,6 @@
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
+import { conditionToSql } from './condition-sql';
 import { type ErasureState, UserErasedError } from './erasure';
 import { visitorIdOf, visitorSubject } from './identity';
 import type {
@@ -18,6 +19,7 @@ import type {
   JourneyStore,
   ProfileProps,
   RunningInstance,
+  SegmentCandidate,
   SegmentTriggerRoute,
   SuppressionChange,
   TriggerRoute,
@@ -347,28 +349,57 @@ export class PostgresJourneyStore implements JourneyStore {
     });
   }
 
-  async listUserIds(page?: {
+  async listSegmentCandidates(page: {
+    segments: readonly { id: string; condition: ConditionIR }[];
+    now: number;
     after?: string | undefined;
-    limit?: number | undefined;
-  }): Promise<string[]> {
-    // Ascending user_id with a keyset bound, so a sweep can resume past the last id it saw
+    limit: number;
+  }): Promise<SegmentCandidate[]> {
+    if (page.segments.length === 0) return [];
     const params: unknown[] = [];
-    // Segments are about users: a visitor is not one until they sign in
-    let where = ` WHERE user_id NOT LIKE '${visitorSubject('')}%'`;
-    if (page?.after !== undefined) {
-      params.push(page.after);
-      where += ` AND user_id > $${params.length}`;
-    }
-    let limit = '';
-    if (page?.limit !== undefined) {
-      params.push(page.limit);
-      limit = ` LIMIT $${params.length}`;
-    }
-    const rows = await this.sql.query<{ user_id: string }>(
-      `SELECT user_id FROM (SELECT user_id FROM ${this.t.profile} UNION SELECT user_id FROM ${this.t.event}) u${where} ORDER BY user_id${limit}`,
+    const bind = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const definitions = new Map(page.segments.map((segment) => [segment.id, segment.condition]));
+    const branches = page.segments.map(({ id, condition }) => {
+      const segment = bind(id);
+      const matches = conditionToSql(condition, {
+        tables: this.t,
+        user: 'u.user_id',
+        props: 'p.props',
+        nowMs: page.now,
+        segments: definitions,
+        bind,
+      });
+      const key = `segment = ${segment}::text AND user_id = u.user_id`;
+      // NULL is distinct from both, so whatever SQL cannot decide goes to the evaluator
+      return `SELECT ${segment}::text AS segment
+        WHERE (${matches}) IS DISTINCT FROM EXISTS (SELECT 1 FROM ${this.t.segmentMember} WHERE ${key})
+           OR EXISTS (SELECT 1 FROM ${this.t.segmentStart} WHERE ${key})`;
+    });
+    let keyset = '';
+    if (page.after !== undefined) keyset = ` AND user_id > ${bind(page.after)}::text`;
+    const rows = await this.sql.query<{ user_id: string; segments: unknown }>(
+      `WITH u AS MATERIALIZED (
+         SELECT user_id FROM (
+           SELECT user_id FROM ${this.t.profile}
+           UNION SELECT user_id FROM ${this.t.event}
+           UNION SELECT user_id FROM ${this.t.segmentMember}
+         ) known
+         -- Segments are about users: a visitor is not one until they sign in
+         WHERE user_id NOT LIKE '${visitorSubject('')}%'${keyset}
+       )
+       SELECT u.user_id, json_agg(c.segment) AS segments
+       FROM u
+       LEFT JOIN ${this.t.profile} p ON p.user_id = u.user_id
+       CROSS JOIN LATERAL (${branches.join('\n UNION ALL ')}) c
+       GROUP BY u.user_id
+       ORDER BY u.user_id
+       LIMIT ${bind(page.limit)}::int`,
       params
     );
-    return rows.map((row) => row.user_id);
+    return rows.map((row) => ({ userId: row.user_id, segments: asJson<string[]>(row.segments) }));
   }
 
   listDevices(subject: string): Promise<PushDevice[]> {
