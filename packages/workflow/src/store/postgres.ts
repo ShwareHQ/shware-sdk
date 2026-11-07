@@ -402,7 +402,7 @@ export class PostgresJourneyStore implements JourneyStore {
          ON CONFLICT (token) DO UPDATE SET
            device_id = COALESCE(EXCLUDED.device_id, ${this.t.device}.device_id),
            user_id = EXCLUDED.user_id,
-           visitor_id = EXCLUDED.visitor_id,
+           visitor_id = COALESCE(EXCLUDED.visitor_id, ${this.t.device}.visitor_id),
            platform = EXCLUDED.platform,
            updated_at = EXCLUDED.updated_at
          RETURNING token`,
