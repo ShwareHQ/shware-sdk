@@ -114,12 +114,17 @@ export const TABLES = {
     uniqueIndexes: [['deviceId']],
     indexes: [['userId'], ['visitorId']],
   }),
-  visitorLink: table({
-    name: 'visitor_link',
-    doc: "Which user a visitor became (`linkVisitor`): a late event of the visitor reaches the user. Outlives the user's erasure, so such an event finds the tombstone instead of starting a new visitor.",
-    columns: { visitorId: text, userId: text, ts },
+  visitor: table({
+    name: 'visitor',
+    doc: "Visitors the engine has heard from. `user_id` is who they became (`linkVisitor`): a late event of the visitor reaches the user, and the row outlives the user's erasure, so such an event finds the tombstone instead of starting a new visitor. One that never signs in is pruned once idle.",
+    columns: {
+      visitorId: text,
+      userId: nullable(text),
+      createdAt: ts,
+      updatedAt: ts,
+    },
     primaryKey: ['visitorId'],
-    indexes: [['userId']],
+    indexes: [['userId'], ['updatedAt']],
   }),
   erasure: table({
     name: 'erasure',

@@ -391,6 +391,75 @@ describe('a visitor before and after sign-in', () => {
     ).toBe('u1');
   });
 
+  test('what moved wakes the waits on it, and the visitor of a dropped journey no longer wakes it', async () => {
+    const { journey, post } = await visitorSetup();
+    const { store } = database;
+    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'own', hash: 'h', ts: 1 });
+    await store.enterJourney({
+      workflow: 'w',
+      userId: 'visitor:v1',
+      instanceId: 'dup',
+      hash: 'h',
+      ts: 1,
+    });
+    await store.subscribe('dup', 'visitor:v1', ['browse'], 1);
+    await store.subscribe('waiting', 'u1', ['browse'], 1);
+    journey.known.add('waiting');
+    await post('/ingest', { visitorId: 'v1', events: [browse('a')] });
+
+    await post('/ingest', { userId: 'u1', visitorId: 'v1', profile: { name: 'Ada' } });
+
+    expect(journey.wakes).toContainEqual(expect.objectContaining({ id: 'waiting' }));
+    expect(await store.findWakeHandles('u1', 'browse')).not.toContain('dup');
+  });
+
+  test("the user's later clear of a property is not undone by the visitor's older value", async () => {
+    const { store } = database;
+    await store.mergeProfile('visitor:v1', { plan: 'old', city: 'Oslo' }, 1_000);
+    await store.mergeProfile('u1', { plan: null }, 5_000);
+
+    await store.linkVisitor('v1', 'u1', 6_000);
+
+    expect(await store.getProfile('u1')).toEqual({ city: 'Oslo' });
+  });
+
+  test('a visitor who never signs in is pruned once idle, leaving no tombstone', async () => {
+    const { post } = await visitorSetup();
+    const { store } = database;
+    // An event no workflow for visitors is routed to: no journey of theirs is running
+    await store.touchVisitor('idle', Date.now());
+    await store.insertEvent({
+      id: 'i',
+      userId: 'visitor:idle',
+      event: 'browse',
+      ts: 1,
+      payload: {},
+    });
+    await post('/devices', { visitorId: 'idle', token: 'ti', platform: 'ios' });
+    await post('/ingest', { visitorId: 'linked', events: [browse('l')] });
+    await post('/ingest', { userId: 'u1', visitorId: 'linked', profile: { name: 'A' } });
+    await store.enterJourney({
+      workflow: 'x',
+      userId: 'visitor:busy',
+      instanceId: 'b',
+      hash: 'h',
+      ts: 1,
+    });
+    await store.touchVisitor('busy', 1);
+    const future = Date.now() + 60_000;
+
+    expect(await store.pruneVisitors(future, 10)).toBe(1);
+
+    expect(await store.countEvents('visitor:idle', 'browse', {})).toBe(0);
+    expect(await store.listDevices('visitor:idle')).toEqual([]);
+    expect(await store.erasureState('visitor:idle')).toBe('none');
+    expect(await store.linkedUser('linked')).toBe('u1');
+    expect(await store.touchVisitor('busy', 1)).toBe('visitor:busy');
+    expect((await post('/ingest', { visitorId: 'idle', events: [browse('again')] })).status).toBe(
+      200
+    );
+  });
+
   test('a late report of a linked visitor reaches the user', async () => {
     const { post } = await visitorSetup();
     await post('/ingest', { userId: 'u1', visitorId: 'v1', profile: { name: 'Ada' } });
@@ -408,7 +477,7 @@ describe('a visitor before and after sign-in', () => {
 
     await post('/ingest', { userId: 'u2', visitorId: 'v1', profile: { name: 'B' } });
 
-    expect(await database.store.resolveVisitor('v1')).toBe('u1');
+    expect(await database.store.linkedUser('v1')).toBe('u1');
     expect(await count(database.store, 'u1')).toBe(1);
     expect(await count(database.store, 'u2')).toBe(0);
   });
@@ -440,7 +509,7 @@ describe('a visitor before and after sign-in', () => {
     await post('/users/forget', { userId: 'u1' });
 
     expect((await post('/ingest', { visitorId: 'v1', events: [browse('late')] })).status).toBe(410);
-    expect(await database.store.resolveVisitor('v1')).toBe('u1');
+    expect(await database.store.linkedUser('v1')).toBe('u1');
   });
 
   test('visitors stay out of the segment sweep', async () => {
@@ -463,6 +532,27 @@ describe('one row per device, holding its current owner', () => {
     await register(store, { userId: 'u1', deviceId: 'd1', token: 'old', platform: 'ios' });
     await register(store, { userId: 'u1', deviceId: 'd1', token: 'new', platform: 'ios' });
     expect(await store.listDevices('u1')).toEqual([{ token: 'new', platform: 'ios' }]);
+  });
+
+  test("naming another owner's device id does not touch their token", async () => {
+    const { store } = database;
+    await register(store, { userId: 'a', deviceId: 'd1', token: 'theirs', platform: 'ios' });
+
+    await register(store, { visitorId: 'x', deviceId: 'd1', token: 'mine', platform: 'ios' });
+
+    expect(await store.listDevices('a')).toEqual([{ token: 'theirs', platform: 'ios' }]);
+    expect(await store.listDevices('visitor:x')).toEqual([{ token: 'mine', platform: 'ios' }]);
+  });
+
+  test('a token nobody holds gives way to the same device under a new token', async () => {
+    const { store } = database;
+    await register(store, { userId: 'a', deviceId: 'd1', token: 'old', platform: 'ios' });
+    await store.unbindDevice('old');
+
+    await register(store, { visitorId: 'v', deviceId: 'd1', token: 'new', platform: 'ios' });
+
+    const rows = await database.pg.query<{ token: string }>('SELECT token FROM workflow.device');
+    expect(rows.rows).toEqual([{ token: 'new' }]);
   });
 
   test('A signed out, then B on the same device: A no longer reaches it', async () => {

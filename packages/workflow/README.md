@@ -839,6 +839,10 @@ workflow({ id: 'offer', trigger: trigger.event(e.browse, { visitors: true }) });
 
 Segments are about users: visitors are not swept and do not enter segment triggers.
 
+A visitor who never signs in is deleted 90 days after they were last heard from, unless
+a journey of theirs is still running. A link to a user is kept, so late reports still
+reach the user and, once the user is erased, are refused.
+
 A device table row holds only the current owner, so after a sign-out the previous user
 can no longer be reached there. `unbindDevice` clears it at sign-out; the client then
 registers again with its new `visitorId`.

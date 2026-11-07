@@ -363,6 +363,11 @@ export async function failLostStarts(
   return failed;
 }
 
+/** How long a visitor who never signs in is kept after they were last heard from. */
+export const VISITOR_RETENTION_MS = 90 * 24 * 60 * 60_000;
+/** Visitors one sweep prunes: the next sweep goes on. */
+const VISITOR_PRUNE_BATCH = 100;
+
 /** How many users one sweep page evaluates: a unit of resumable work (AWS checkpoints each). */
 export const SWEEP_PAGE_SIZE = 500;
 
@@ -382,6 +387,11 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
     await failLostStarts(env, store, Date.now());
   } catch (error) {
     console.error('[workflow] reclaiming lost starts failed', error);
+  }
+  try {
+    await store.pruneVisitors(Date.now() - VISITOR_RETENTION_MS, VISITOR_PRUNE_BATCH);
+  } catch (error) {
+    console.error('[workflow] pruning idle visitors failed', error);
   }
   // Erasures left pending (an admitted instance would not stop, or is still draining): retried
   // until every one of them is confirmed stopped and the data is gone
@@ -666,11 +676,23 @@ export async function linkVisitor(
   at = Date.now()
 ): Promise<void> {
   await refuseIfErased(store, userId);
+  const linked = await store.linkedUser(visitorId);
+  if (linked !== undefined) {
+    // Signing out renews the visitor, so a second user means a client bug or a claimed id
+    if (linked !== userId) {
+      console.warn(`[workflow] visitor ${visitorId} stays with its first user, not ${userId}`);
+    }
+    return;
+  }
   const merge = await store.linkVisitor(visitorId, userId, at);
   if (merge === null) return;
   for (const instanceId of merge.dropped) await stopInstance(env, instanceId);
   // What moved can settle what the user's journeys wait on, or put them in a segment
-  await wakeSubscribers(env, store, userId, [DEVICES_UPDATED_EVENT]);
+  await wakeSubscribers(env, store, userId, [
+    DEVICES_UPDATED_EVENT,
+    ...merge.events,
+    ...merge.props.map(profileUpdatedEvent),
+  ]);
   await refreshSegmentTriggers(env, store, userId, at);
 }
 
@@ -688,7 +710,7 @@ export async function registerDevice(
   if (userId !== undefined && visitorId !== undefined) {
     await linkVisitor(env, visitorId, userId, store);
   }
-  const subject = userId ?? (await store.resolveVisitor(visitorId ?? ''));
+  const subject = userId ?? (await store.touchVisitor(visitorId ?? '', Date.now()));
   await refuseIfErased(store, subject);
   const previous = await store.upsertDevice({
     deviceId,

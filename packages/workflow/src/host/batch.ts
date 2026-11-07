@@ -188,7 +188,7 @@ export async function ingestBatch(
     await linkVisitor(env, visitorId, userId, store, at);
   }
   // A late report of a visitor who has signed in since reaches the user
-  const subject = userId ?? (await store.resolveVisitor(visitorId ?? ''));
+  const subject = userId ?? (await store.touchVisitor(visitorId ?? '', at ?? Date.now()));
   const result: BatchResult = { events: [] };
   if (profile !== undefined) result.profile = await identifyUser(env, subject, profile, store, at);
   for (const { event, payload, id, ts } of events) {

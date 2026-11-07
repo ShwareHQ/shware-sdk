@@ -388,14 +388,26 @@ export class PostgresJourneyStore implements JourneyStore {
     return this.sql.transaction(async (tx) => {
       await this.lockUser(tx, subject);
       // Who held this token, or this device under an older token: their device waits must wake
-      const previous = await tx.query<{ user_id: string | null; visitor_id: string | null }>(
-        `SELECT user_id, visitor_id FROM ${this.t.device} WHERE token = $1 OR device_id = $2 FOR UPDATE`,
+      const previous = await tx.query<{
+        token: string;
+        user_id: string | null;
+        visitor_id: string | null;
+      }>(
+        `SELECT token, user_id, visitor_id FROM ${this.t.device} WHERE token = $1 OR device_id = $2 FOR UPDATE`,
         [token, deviceId]
       );
-      await tx.query(`DELETE FROM ${this.t.device} WHERE device_id = $1 AND token <> $2`, [
-        deviceId,
-        token,
-      ]);
+      // A device id is only the client's word. A new token replaces the old one for the same owner
+      // or for nobody; someone else's token keeps working, it only stops naming this device.
+      for (const row of previous) {
+        if (row.token === token) continue;
+        const owner = deviceOwner(row);
+        await tx.query(
+          owner === undefined || owner === subject
+            ? `DELETE FROM ${this.t.device} WHERE token = $1`
+            : `UPDATE ${this.t.device} SET device_id = NULL WHERE token = $1`,
+          [row.token]
+        );
+      }
       const rows = await tx.query(
         `INSERT INTO ${this.t.device} (device_id, user_id, visitor_id, token, platform, created_at, updated_at)
          SELECT $1, $2, $3, $4, $5, ${TS('$6')}, ${TS('$6')} ${this.notErased('$7')}
@@ -417,12 +429,49 @@ export class PostgresJourneyStore implements JourneyStore {
     });
   }
 
-  async resolveVisitor(visitorId: string): Promise<string> {
-    const rows = await this.sql.query<{ user_id: string }>(
-      `SELECT user_id FROM ${this.t.visitorLink} WHERE visitor_id = $1`,
+  async linkedUser(visitorId: string): Promise<string | undefined> {
+    const rows = await this.sql.query<{ user_id: string | null }>(
+      `SELECT user_id FROM ${this.t.visitor} WHERE visitor_id = $1`,
       [visitorId]
     );
+    return rows[0]?.user_id ?? undefined;
+  }
+
+  async touchVisitor(visitorId: string, at: number): Promise<string> {
+    const rows = await this.sql.query<{ user_id: string | null }>(
+      `INSERT INTO ${this.t.visitor} (visitor_id, user_id, created_at, updated_at)
+       VALUES ($1, NULL, ${TS('$2')}, ${TS('$2')})
+       ON CONFLICT (visitor_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+       RETURNING user_id`,
+      [visitorId, at]
+    );
     return rows[0]?.user_id ?? visitorSubject(visitorId);
+  }
+
+  async pruneVisitors(before: number, limit: number): Promise<number> {
+    const idle = `user_id IS NULL AND updated_at < ${TS('$1')} AND NOT EXISTS (
+      SELECT 1 FROM ${this.t.entry} e
+      WHERE e.user_id = '${visitorSubject('')}' || visitor_id AND e.status = 'running')`;
+    const candidates = await this.sql.query<{ visitor_id: string }>(
+      `SELECT visitor_id FROM ${this.t.visitor} WHERE ${idle} ORDER BY updated_at LIMIT $2`,
+      [before, limit]
+    );
+    let pruned = 0;
+    for (const { visitor_id: visitorId } of candidates) {
+      const subject = visitorSubject(visitorId);
+      await this.sql.transaction(async (tx) => {
+        await this.lockUser(tx, subject);
+        // Asked again under the lock: they may have come back, or signed in, since the list
+        const gone = await tx.query(
+          `DELETE FROM ${this.t.visitor} WHERE visitor_id = $2 AND ${idle} RETURNING visitor_id`,
+          [before, visitorId]
+        );
+        if (gone.length === 0) return;
+        await this.deleteSubjectRows(tx, subject);
+        pruned += 1;
+      });
+    }
+    return pruned;
   }
 
   async entryOwner(instanceId: string): Promise<string | undefined> {
@@ -436,7 +485,7 @@ export class PostgresJourneyStore implements JourneyStore {
   async linkVisitor(visitorId: string, userId: string, at: number): Promise<VisitorMerge | null> {
     const subject = visitorSubject(visitorId);
     // The common case, every signed-in batch: no lock taken
-    if ((await this.resolveVisitor(visitorId)) !== subject) return null;
+    if ((await this.linkedUser(visitorId)) !== undefined) return null;
     return this.sql.transaction(async (tx) => {
       await beginReadCommitted(tx);
       // In one order, so two merges cannot deadlock
@@ -444,9 +493,10 @@ export class PostgresJourneyStore implements JourneyStore {
         await lockUser(tx, this.schema, key);
       }
       const linked = await tx.query(
-        `INSERT INTO ${this.t.visitorLink} (visitor_id, user_id, ts)
-         SELECT $1, $2, ${TS('$3')} ${this.notErased('$2')}
-         ON CONFLICT (visitor_id) DO NOTHING
+        `INSERT INTO ${this.t.visitor} (visitor_id, user_id, created_at, updated_at)
+         SELECT $1, $2, ${TS('$3')}, ${TS('$3')} ${this.notErased('$2')}
+         ON CONFLICT (visitor_id) DO UPDATE SET user_id = EXCLUDED.user_id, updated_at = EXCLUDED.updated_at
+           WHERE ${this.t.visitor}.user_id IS NULL
          RETURNING visitor_id`,
         [visitorId, userId, at]
       );
@@ -464,11 +514,23 @@ export class PostgresJourneyStore implements JourneyStore {
          RETURNING v.instance_id`,
         [subject, userId]
       );
+      const droppedIds = dropped.map((row) => row.instance_id);
+      // Gone with its entry: nothing should wake it, and no start of it is owed
+      await tx.query(`DELETE FROM ${this.t.subscription} WHERE wake_handle = ANY($1::text[])`, [
+        droppedIds,
+      ]);
+      await tx.query(`DELETE FROM ${this.t.execution} WHERE instance_id = ANY($1::text[])`, [
+        droppedIds,
+      ]);
       // One occurrence per id: a repeat the user already has is not moved
       await tx.query(
         `DELETE FROM ${this.t.event} v USING ${this.t.event} u
          WHERE v.user_id = $1 AND u.user_id = $2 AND u.event_id = v.event_id`,
         [subject, userId]
+      );
+      const events = await tx.query<{ name: string }>(
+        `SELECT DISTINCT name FROM ${this.t.event} WHERE user_id = $1`,
+        [subject]
       );
       // An opt-out made before sign-in still holds
       await tx.query(
@@ -478,7 +540,7 @@ export class PostgresJourneyStore implements JourneyStore {
         [subject, userId]
       );
       await tx.query(`DELETE FROM ${this.t.suppression} WHERE user_id = $1`, [subject]);
-      await this.mergeProfileInto(tx, subject, userId);
+      const props = await this.mergeProfileInto(tx, subject, userId);
       for (const table of [
         this.t.event,
         this.t.entry,
@@ -494,27 +556,34 @@ export class PostgresJourneyStore implements JourneyStore {
          WHERE visitor_id = $1 AND user_id IS NULL`,
         [visitorId, userId, at]
       );
-      return { dropped: dropped.map((row) => row.instance_id) };
+      return { dropped: droppedIds, events: events.map((row) => row.name), props };
     });
   }
 
-  /** The visitor's properties under the user's, each key's later write winning; the visitor's row goes. */
-  private async mergeProfileInto(tx: SqlClientLike, subject: string, userId: string) {
+  /**
+   * The visitor's properties under the user's, a key the user has a time for going to the later
+   * write, one a row older than the times going to the user if they hold it. The visitor's row
+   * goes. Answers the keys that moved.
+   */
+  private async mergeProfileInto(
+    tx: SqlClientLike,
+    subject: string,
+    userId: string
+  ): Promise<string[]> {
     const rows = await tx.query<{ user_id: string; props: unknown; props_at: unknown }>(
       `SELECT user_id, props, props_at FROM ${this.t.profile} WHERE user_id = ANY($1::text[])`,
       [[subject, userId]]
     );
     const from = rows.find((row) => row.user_id === subject);
-    if (from === undefined) return;
+    if (from === undefined) return [];
     const to = rows.find((row) => row.user_id === userId);
     const fromTimes = asJson<Record<string, number> | null>(from.props_at ?? null) ?? {};
     const toTimes = asJson<Record<string, number> | null>(to?.props_at ?? null) ?? {};
     const toProps = to === undefined ? {} : asJson<ProfileProps>(to.props);
-    const moved = Object.entries(asJson<ProfileProps>(from.props)).filter(
-      ([key]) =>
-        !Object.hasOwn(toProps, key) ||
-        (fromTimes[key] ?? 0) > (toTimes[key] ?? Number.POSITIVE_INFINITY)
-    );
+    const moved = Object.entries(asJson<ProfileProps>(from.props)).filter(([key]) => {
+      const written = toTimes[key];
+      return written === undefined ? !Object.hasOwn(toProps, key) : (fromTimes[key] ?? 0) > written;
+    });
     const props = { ...toProps, ...Object.fromEntries(moved) };
     const times = {
       ...toTimes,
@@ -526,6 +595,7 @@ export class PostgresJourneyStore implements JourneyStore {
       [userId, JSON.stringify(props), JSON.stringify(times)]
     );
     await tx.query(`DELETE FROM ${this.t.profile} WHERE user_id = $1`, [subject]);
+    return moved.map(([key]) => key);
   }
 
   async requestErasure(userId: string, at: number): Promise<void> {
@@ -591,41 +661,46 @@ export class PostgresJourneyStore implements JourneyStore {
       // Under the user's lock, every row committed before the tombstone is visible from here,
       // and no write about the user can commit until this transaction ends
       await this.lockUser(tx, userId);
-      // Children before the copies they belong to
-      for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
-        await tx.query(
-          `DELETE FROM ${child} WHERE message_id IN (SELECT id FROM ${this.t.message} WHERE user_id = $1)`,
-          [userId]
-        );
-      }
-      for (const table of [
-        this.t.message,
-        this.t.instance,
-        this.t.entry,
-        this.t.execution,
-        this.t.subscription,
-        this.t.segmentStart,
-        this.t.segmentMember,
-        // The opt-outs too: the tombstone keeps the id from ever being sent to again
-        this.t.suppression,
-        this.t.device,
-        this.t.event,
-        this.t.profile,
-      ]) {
-        await tx.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
-      }
-      const visitorId = visitorIdOf(userId);
-      if (visitorId !== undefined) {
-        await tx.query(`DELETE FROM ${this.t.device} WHERE visitor_id = $1 AND user_id IS NULL`, [
-          visitorId,
-        ]);
-      }
+      await this.deleteSubjectRows(tx, userId);
       // The tombstone stays, now marked erased; the first erase's time is kept by a repeat
       await tx.query(
         `UPDATE ${this.t.erasure} SET erased_at = COALESCE(erased_at, ${TS('$2')}) WHERE user_id = $1`,
         [userId, at]
       );
     });
+  }
+
+  /** Everything kept about a user or visitor, on a transaction holding their lock. */
+  private async deleteSubjectRows(tx: SqlClientLike, subject: string): Promise<void> {
+    // Children before the copies they belong to
+    for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
+      await tx.query(
+        `DELETE FROM ${child} WHERE message_id IN (SELECT id FROM ${this.t.message} WHERE user_id = $1)`,
+        [subject]
+      );
+    }
+    for (const table of [
+      this.t.message,
+      this.t.instance,
+      this.t.entry,
+      this.t.execution,
+      this.t.subscription,
+      this.t.segmentStart,
+      this.t.segmentMember,
+      // The opt-outs too: the tombstone keeps the id from ever being sent to again
+      this.t.suppression,
+      this.t.device,
+      this.t.event,
+      this.t.profile,
+    ]) {
+      await tx.query(`DELETE FROM ${table} WHERE user_id = $1`, [subject]);
+    }
+    const visitorId = visitorIdOf(subject);
+    if (visitorId !== undefined) {
+      await tx.query(`DELETE FROM ${this.t.device} WHERE visitor_id = $1 AND user_id IS NULL`, [
+        visitorId,
+      ]);
+    }
   }
 
   async isSuppressed(userId: string, channel: string, topic?: string): Promise<boolean> {

@@ -157,6 +157,9 @@ export interface DeviceInput {
 export interface VisitorMerge {
   /** Instances dropped because the user is already in the same workflow: to stop. */
   dropped: string[];
+  /** The event names and profile properties the user gained: their waits must wake. */
+  events: string[];
+  props: string[];
 }
 
 /** An instance of a user still in the ledger, and whether its runner was admitted (see `admitInstance`). */
@@ -468,8 +471,15 @@ export interface JourneyStore {
   ): Promise<{ payloads: Record<string, unknown>[]; next?: EventCursor | undefined }>;
 
   /* -------------------------------- visitors --------------------------------- */
-  /** Who a visitor is: the user they signed in as, or their own subject until then. */
-  resolveVisitor(visitorId: string): Promise<string>;
+  /** The user a visitor became, if they did. */
+  linkedUser(visitorId: string): Promise<string | undefined>;
+  /** The visitor was heard from: who they are now, the user they became or their own subject. */
+  touchVisitor(visitorId: string, at: number): Promise<string>;
+  /**
+   * Forget visitors who never signed in and were last heard from before `before`, with no journey
+   * running: up to `limit` of them, leaving no tombstone. Answers how many.
+   */
+  pruneVisitors(before: number, limit: number): Promise<number>;
   /**
    * The visitor became the user: their events, profile, devices, opt-outs and journeys move to the
    * user, once. A visitor already linked keeps its first user. The user's own entry wins over the

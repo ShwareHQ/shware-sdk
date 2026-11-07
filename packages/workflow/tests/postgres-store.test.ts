@@ -880,7 +880,9 @@ describe('renderDrizzleSchema', () => {
     expect(file).toContain(
       "export const workflowIr = workflowSchema.table('ir', {\n  contentHash: text('content_hash').primaryKey().notNull(),"
     );
-    expect(file).toContain('  (table) => [index().on(table.userId)]\n);');
+    expect(file).toContain(
+      '  (table) => [index().on(table.userId), index().on(table.updatedAt)]\n);'
+    );
     expect(file).toContain(
       "  versionCreatedAt: timestamp('version_created_at', {\n    mode: 'string',\n    withTimezone: true,\n  }).notNull(),"
     );
