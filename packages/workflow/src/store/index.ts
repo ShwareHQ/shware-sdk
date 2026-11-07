@@ -458,11 +458,12 @@ export interface JourneyStore {
   /* --------------------------------- profiles -------------------------------- */
   getProfile(userId: string): Promise<ProfileProps | undefined>;
   /**
-   * Merge-patch `props` into the stored profile in one statement (a null
-   * removes the property) and return the result. One statement, because a
-   * read-modify-write loses one of two concurrent identifies.
+   * Merge-patch `props` into the stored profile (a null removes the property) and return the
+   * result, atomically: two concurrent identifies cannot lose each other's keys. `at` is when the
+   * values were read (now by default): a property written with a later `at` keeps its value, so
+   * a redelivered patch cannot undo a newer one.
    */
-  mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps>;
+  mergeProfile(userId: string, props: ProfileProps, at?: number): Promise<ProfileProps>;
 
   /**
    * Every user the engine knows (a profile or an event): who the segment sweep evaluates. Ids

@@ -186,6 +186,7 @@ async function startTriggeredJourneys(
       {
         event: input.event,
         payload: input.payload,
+        ts,
       },
       route.version
     );
@@ -534,7 +535,7 @@ async function startJourney(
   hash: string,
   userId: string,
   ts: number,
-  trigger: { event: string; payload: Record<string, unknown> },
+  trigger: { event: string; payload: Record<string, unknown>; ts?: number },
   /** The code version whose bundle routed this start, read with the hash (see TriggerRoute). */
   version?: string
 ): Promise<string | null> {
@@ -618,11 +619,13 @@ export async function identifyUser(
   env: JourneyEnv,
   userId: string,
   props: ProfileProps,
-  store: JourneyStore
+  store: JourneyStore,
+  /** When these values were read; a property written later stays. The Worker's clock by default. */
+  at?: number
 ): Promise<IdentifyResult> {
   await refuseIfErased(store, userId);
   const ts = Date.now();
-  const merged = await store.mergeProfile(userId, props);
+  const merged = await store.mergeProfile(userId, props, at ?? ts);
   // A property wait subscribes to its own property's channel (see relevantEvents): only the
   // waits on what this patch touched wake up
   const woke = await wakeSubscribers(

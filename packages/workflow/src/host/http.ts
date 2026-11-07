@@ -13,6 +13,15 @@ import {
 } from '../store/index';
 import { TemplateValidationError } from '../templates';
 import { type Authorize, authorized } from './auth';
+import {
+  TS_ERROR,
+  ingestBatch,
+  isNonEmptyString,
+  isPlainObject,
+  isScalarOrNull,
+  isValidTs,
+  parseBatch,
+} from './batch';
 import { journeyMode } from './channels';
 import {
   BundleIntegrityError,
@@ -129,42 +138,6 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   return isPlainObject(body) ? body : {};
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-/** A profile value: a scalar or null (which removes the property). Nested values are not profile data. */
-function isScalarOrNull(value: unknown): value is string | number | boolean | null {
-  return (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  );
-}
-
-/** How far ahead of the server's clock an event or device `ts` may be: clock skew, not the future. */
-const TS_FUTURE_TOLERANCE_MS = 5 * 60_000;
-const TS_ERROR = 'ts must be a non-negative integer no later than 5 minutes in the future';
-
-/**
- * A caller's timestamp: epoch milliseconds, whole, not negative, and not past the skew tolerance.
- * A far-future ts would put the event ahead of everything a window condition reads, and a
- * fractional or unsafe one does not survive the store.
- */
-function isValidTs(ts: unknown): ts is number {
-  return (
-    typeof ts === 'number' &&
-    Number.isSafeInteger(ts) &&
-    ts >= 0 &&
-    ts <= Date.now() + TS_FUTURE_TOLERANCE_MS
-  );
-}
-
 /** The contract's verdict: the value to use, or the response refusing the request. */
 function checked<T>(
   validation: IngestValidation,
@@ -252,6 +225,19 @@ const routes: readonly Route[] = [
         accepted = verdict.value;
       }
       return json(await ingestEvent(env, { id, userId, event, payload: accepted, ts }, store));
+    },
+  },
+  {
+    method: 'POST',
+    path: '/ingest',
+    auth: 'api',
+    async handle({ request, env, store, validation }) {
+      const parsed = parseBatch(await readJson(request), validation);
+      if (!parsed.ok) {
+        const { error, issues } = parsed;
+        return json({ error, ...(issues === undefined ? {} : { issues }) }, 400);
+      }
+      return json(await ingestBatch(env, parsed.batch, store));
     },
   },
   {

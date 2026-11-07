@@ -1,3 +1,4 @@
+import type { QueueMessageLike } from '../host/batch';
 import type { JourneyRunParts } from '../host/execute';
 import type { SweepResult } from '../host/ingest';
 import {
@@ -27,7 +28,7 @@ export type JourneyWorkerOptions<Env extends JourneyEnv> = JourneyHostOptions<En
 export interface JourneyWorker<Env extends JourneyEnv> {
   /** Export this under the `class_name` of the wrangler `workflows` binding. */
   Runner: new (...args: never[]) => JourneyRunner;
-  /** The Worker's fetch handler: `/health`, `/events`, `/identify`, `/devices`, `/messages/opened`, `/segments/sweep`, `/t/*` (email tracking), `/deploy`, `/bundle`, `/bundle/deploy` and `/preview/*`. */
+  /** The Worker's fetch handler: `/health`, `/ingest`, `/events`, `/identify`, `/devices`, `/messages/opened`, `/segments/sweep`, `/t/*` (email tracking), `/deploy`, `/bundle`, `/bundle/deploy` and `/preview/*`. */
   fetch: (request: Request, env: Env, ctx?: ExecutionContextLike) => Promise<Response>;
   /**
    * The segment sweep (`sweepSegments`): membership of every deployed segment for every known
@@ -38,6 +39,11 @@ export interface JourneyWorker<Env extends JourneyEnv> {
   sweep: (env: Env) => Promise<SweepResult>;
   /** The cron trigger's handler: runs the sweep. Export it beside `fetch` with a `triggers.crons` entry. */
   scheduled: (controller: unknown, env: Env, ctx: ExecutionContextLike) => Promise<void>;
+  /**
+   * The queue consumer for `JourneyQueue`: export it beside `fetch` with a `queues.consumers`
+   * entry. A batch that fails is retried with a backoff, then goes to the dead letter queue.
+   */
+  queue: (batch: { messages: readonly QueueMessageLike[] }, env: Env) => Promise<void>;
 }
 
 /**
@@ -132,5 +138,18 @@ export function journeyWorker<Env extends JourneyEnv>(
     await host.sweep(env);
   };
 
-  return { Runner, fetch, sweep, scheduled };
+  const queue = async (batch: { messages: readonly QueueMessageLike[] }, rawEnv: Env) => {
+    // Awaited for the same reason as the sweep; a version with no traffic yet goes live here, so
+    // the batch is routed by the journeys of the code consuming it.
+    const env = hostEnv(rawEnv);
+    await host.applyOwnBundle(env, ownVersion(env));
+    const { store, close } = host.lease(env);
+    try {
+      await host.consume(batch.messages, env, store);
+    } finally {
+      await close();
+    }
+  };
+
+  return { Runner, fetch, sweep, scheduled, queue };
 }

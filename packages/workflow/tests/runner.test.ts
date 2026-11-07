@@ -105,6 +105,52 @@ describe('wakeExpired: a thrown wait is a timeout only if the deadline passed', 
   });
 });
 
+describe('a trigger delivered late', () => {
+  const flow = workflow({
+    id: 'late_trigger',
+    trigger: trigger.event(e.sign_up),
+    goal: { condition: performed(e.purchase) },
+  }).delay('1 minute');
+
+  const run = async (instanceId: string, userId: string, triggerTs?: number) => {
+    const ir = compileBundle({ workflows: [flow] }).workflows[0];
+    await enter(ir, instanceId);
+    await database.store.insertEvent({
+      id: `purchase-${instanceId}`,
+      userId,
+      event: 'purchase',
+      ts: 2_000,
+      payload: {},
+    });
+    const { env } = makeEnv();
+    return new StoreRunner({}, env).run(
+      {
+        payload: {
+          workflowId: ir.id,
+          contentHash: ir.contentHash,
+          userId,
+          trigger: {
+            event: 'sign_up',
+            payload: {},
+            ...(triggerTs === undefined ? {} : { ts: triggerTs }),
+          },
+        },
+        timestamp: new Date(10_000),
+        instanceId,
+      },
+      new FakeCfStep() as never
+    );
+  };
+
+  test('a purchase made while it was on its way is the goal', async () => {
+    expect(await run('late-1', 'u1', 1_000)).toMatchObject({ status: 'goal' });
+  });
+
+  test('a purchase before the trigger happened stays history', async () => {
+    expect(await run('late-2', 'u1', 5_000)).toMatchObject({ status: 'completed' });
+  });
+});
+
 class ExplodingRunner extends StoreRunner {
   protected override createMessageSender(): MessageSender {
     return {

@@ -66,7 +66,8 @@ export interface JourneyParams {
   /** The IR version pinned at entry. */
   contentHash: string;
   userId: string;
-  trigger: { event: string; payload: Record<string, unknown> };
+  /** `ts`: when the trigger happened, which can be long before a delayed delivery created this. */
+  trigger: { event: string; payload: Record<string, unknown>; ts?: number };
   [key: string]: unknown;
 }
 

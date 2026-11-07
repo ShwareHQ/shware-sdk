@@ -782,7 +782,9 @@ describe('checkSchema', () => {
       const problems = await store.checkSchema();
       expect(problems).toContain('table "app"."event" is missing');
       expect(problems).toContain('column "app"."profile"."props" is text, expected jsonb');
-      expect(problems).toHaveLength(Object.keys(TABLES).length);
+      expect(problems).toContain('column "app"."profile"."props_at" is missing');
+      // Every other table is missing, and the profile lacks these two
+      expect(problems).toHaveLength(Object.keys(TABLES).length + 1);
     });
   });
 

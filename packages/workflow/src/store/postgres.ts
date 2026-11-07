@@ -303,20 +303,35 @@ export class PostgresJourneyStore implements JourneyStore {
     return row === undefined ? undefined : asJson<ProfileProps>(row.props);
   }
 
-  async mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps> {
-    // RFC 7386 merge-patch in one statement: jsonb `||` overwrites key by key
-    // and jsonb_strip_nulls then drops the keys the patch set to null (the
-    // API's only way to unset a property). Atomic in the database, so two
-    // concurrent identifies cannot lose each other's keys.
+  async mergeProfile(
+    userId: string,
+    props: ProfileProps,
+    at: number = Date.now()
+  ): Promise<ProfileProps> {
+    // RFC 7386 merge-patch: jsonb `||` overwrites key by key and jsonb_strip_nulls then drops the
+    // keys the patch set to null (the API's only way to unset a property). Under the user's lock,
+    // so two concurrent identifies cannot lose each other's keys; a key written later than `at`
+    // keeps its value, cleared ones included (their time stays in props_at).
     return this.sql.transaction(async (tx) => {
       await this.lockUser(tx, userId);
+      const existing = await tx.query<{ props_at: unknown }>(
+        `SELECT props_at FROM ${this.t.profile} WHERE user_id = $1`,
+        [userId]
+      );
+      const times = asJson<Record<string, number> | null>(existing[0]?.props_at ?? null) ?? {};
+      const patch = Object.fromEntries(
+        Object.entries(props).filter(([key]) => (times[key] ?? Number.NEGATIVE_INFINITY) <= at)
+      );
+      const stamped = { ...times, ...Object.fromEntries(Object.keys(patch).map((k) => [k, at])) };
       const rows = await tx.query<{ props: unknown }>(
-        `INSERT INTO ${this.t.profile} (user_id, props)
-         SELECT $1, jsonb_strip_nulls($2::text::jsonb) ${this.notErased('$1')}
-         ON CONFLICT (user_id) DO UPDATE SET props = jsonb_strip_nulls(${this.t.profile}.props || $3::text::jsonb)
+        `INSERT INTO ${this.t.profile} (user_id, props, props_at)
+         SELECT $1, jsonb_strip_nulls($2::text::jsonb), $4::text::jsonb ${this.notErased('$1')}
+         ON CONFLICT (user_id) DO UPDATE SET
+           props = jsonb_strip_nulls(${this.t.profile}.props || $3::text::jsonb),
+           props_at = $4::text::jsonb
          RETURNING props`,
         // EXCLUDED.props would be the stripped insert value, so the update merges the raw patch again
-        [userId, JSON.stringify(props), JSON.stringify(props)]
+        [userId, JSON.stringify(patch), JSON.stringify(patch), JSON.stringify(stamped)]
       );
       // The upsert always yields its row — unless the tombstone refused it
       if (rows.length === 0) throw new UserErasedError(userId);

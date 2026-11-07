@@ -1,5 +1,6 @@
 import type * as core from 'zod/v4/core';
 import type { Contract, ContractIssue, ProfilePatch, Topic } from './contract';
+import type { BatchResult, JourneyBatch } from './host/batch';
 import {
   type DeployResult,
   type IdentifyResult,
@@ -76,6 +77,7 @@ type IdentifyProps<C> = [C] extends [undefined]
 /** The topics the client's contract declares; any string without a contract. */
 export type ClientTopic<C> = [C] extends [undefined] ? string : Topic<C>;
 
+export type { BatchEvent, BatchResult, JourneyBatch } from './host/batch';
 export type {
   ChannelSubscriptions,
   ChannelSubscriptionsPatch,
@@ -93,8 +95,112 @@ export interface TrackOptions {
   ts?: number;
 }
 
+/** One event of a batch: with a contract, the name picks the payload type. */
+export type BatchEventInput<C> = [C] extends [undefined]
+  ? { event: string; payload?: Record<string, unknown>; id?: string; ts?: number }
+  : {
+      [K in keyof EventsOf<C> & string]: {
+        event: K;
+        payload: core.input<EventsOf<C>[K]>;
+        id?: string;
+        ts?: number;
+      };
+    }[keyof EventsOf<C> & string];
+
+/** What the user's profile now says and what they just did, as one report. */
+export interface BatchInput<C> {
+  /** Merged before the first event: a journey the events start finds this recipient. */
+  profile?: IdentifyProps<C>;
+  events?: readonly BatchEventInput<C>[];
+}
+
+/**
+ * The batch as it travels: checked against the contract, with the time and the event ids and
+ * timestamps fixed here, so every redelivery is the same report.
+ */
+function prepareBatch<C extends Contract | undefined>(
+  contract: C,
+  userId: string,
+  input: BatchInput<C>
+): JourneyBatch {
+  const { profile, events } = input as {
+    profile?: ProfileProps;
+    events?: readonly {
+      event: string;
+      payload?: Record<string, unknown>;
+      id?: string;
+      ts?: number;
+    }[];
+  };
+  if (contract !== undefined) {
+    if (profile !== undefined) {
+      const result = contract.parseProfilePatch(profile);
+      if (!result.ok) throw new JourneyValidationError('/ingest', undefined, result.issues);
+    }
+    for (const { event, payload } of events ?? []) {
+      const result = contract.parseEvent(event, payload ?? {});
+      if (!result.ok) throw new JourneyValidationError('/ingest', event, result.issues);
+    }
+  }
+  const now = Date.now();
+  return {
+    userId,
+    ...(profile === undefined ? {} : { profile, at: now }),
+    ...(events === undefined
+      ? {}
+      : {
+          events: events.map((e) => ({
+            event: e.event,
+            payload: e.payload ?? {},
+            id: e.id ?? crypto.randomUUID(),
+            ts: e.ts ?? now,
+          })),
+        }),
+  };
+}
+
+/** The producer side of a queue (the subset of a Cloudflare Queues binding used). */
+export interface JourneyQueueBinding {
+  send(body: JourneyBatch): Promise<unknown>;
+}
+
+export interface JourneyQueueOptions<C extends Contract | undefined = undefined> {
+  /** The shared `defineContract(...)`: types `ingest` and checks each batch before it is sent. */
+  contract?: C;
+  /** The queue `journeyWorker`'s `queue` handler consumes. */
+  queue: JourneyQueueBinding;
+}
+
+/**
+ * `JourneyClient.ingest` through a queue, for a producer that must not lose a report and must not
+ * wait for the engine: once `ingest` resolves the batch is durable, and the consumer retries it
+ * until it is applied. Delivery is at least once and in no guaranteed order: the batch is the unit
+ * that stays in order and event ids and property times absorb the rest. A rejected `ingest` was
+ * not queued; the caller decides (a 5xx so its client retries, say).
+ */
+export class JourneyQueue<C extends Contract | undefined = undefined> {
+  constructor(private readonly options: JourneyQueueOptions<C>) {}
+
+  async ingest(userId: string, input: BatchInput<C>): Promise<void> {
+    await this.options.queue.send(prepareBatch(this.options.contract as C, userId, input));
+  }
+}
+
 export class JourneyClient<C extends Contract | undefined = undefined> {
   constructor(private readonly options: JourneyClientOptions<C>) {}
+
+  /**
+   * Report a profile and the events it belongs to as one batch: the profile is merged first, then
+   * the events in order. Prefer this to `identify` then `track`: a journey cannot start without
+   * its recipient. A caller that retries should pass each event's `id`, as with `track`.
+   * `JourneyQueue` is the same report through a queue.
+   */
+  async ingest(userId: string, input: BatchInput<C>): Promise<BatchResult> {
+    return this.post<BatchResult>(
+      '/ingest',
+      prepareBatch(this.options.contract as C, userId, input)
+    );
+  }
 
   /** Merge profile properties (`null` clears one). Every property a journey reads must be identified before the event that starts it. */
   identify(userId: string, props: IdentifyProps<C>): Promise<IdentifyResult> {

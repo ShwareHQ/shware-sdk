@@ -781,6 +781,7 @@ const journeys = new JourneyClient({ contract, origin, token });
 
 | Method                                        | Endpoint                          | Does                                                                      |
 | --------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| `ingest(userId, { profile?, events? })`       | `POST /ingest`                    | Merge the profile, then record the events in order                        |
 | `identify(userId, props)`                     | `POST /identify`                  | Merge profile properties; `null` removes one                              |
 | `track(userId, event, payload, { id?, ts? })` | `POST /events`                    | Record an event; starts and wakes journeys                                |
 | `registerDevice(userId, { token, platform })` | `POST /devices`                   | Register a push token (`ios`, `android` or `web`)                         |
@@ -796,6 +797,42 @@ const journeys = new JourneyClient({ contract, origin, token });
 
 Pass an `id` to `track` whenever a caller may retry; see
 [Give each event an `id`](#give-each-event-an-id).
+
+Prefer `ingest` when a report carries the recipient: the profile is merged before
+the first event, so a journey the events start finds it. Sent as separate calls,
+an email step can run before the address arrives and settle as `no_recipient`.
+
+### `JourneyQueue`
+
+`JourneyQueue` sends the same batch through a queue, for a producer that must
+neither lose a report nor wait for the engine:
+
+```ts
+const queue = new JourneyQueue({ contract, queue: env.JOURNEY_QUEUE });
+await queue.ingest(userId, {
+  profile: { email, name },
+  events: [{ event: 'login', payload: { method }, id: rowId, ts }],
+});
+```
+
+Once `ingest` resolves the batch is durable. A rejection means it was not queued,
+and the caller decides what follows. Export `journeys.queue` from the Worker and
+declare the queue with a dead letter queue:
+
+```jsonc
+"queues": {
+  "consumers": [
+    { "queue": "journey", "max_retries": 8, "dead_letter_queue": "journey-dead" }
+  ]
+}
+```
+
+The consumer retries a failed batch with a backoff from 30 seconds up to 15
+minutes. It acknowledges a batch the contract refuses, logging its field paths,
+and one for an erased user: neither can ever succeed. Delivery is at least once
+and in no guaranteed order. Batches can arrive out of order, but event ids absorb
+repeats and each profile property keeps its latest `at`, so send what must stay
+in order as one batch.
 
 `getSubscriptions` and `setSubscriptions` are typed by the contract's
 `subscriptions.topics`, and a topic it does not declare is refused before the
@@ -1229,12 +1266,17 @@ everything but `GET /health` answers 503.
   the id the occurrence was recorded under. Event names beginning with `$` are
   reserved for internal use. `ts` is epoch milliseconds: a non-negative integer
   no later than five minutes ahead of the host's clock (400 otherwise).
+- `POST /ingest` takes `{ userId, profile?, at?, events? }`, with each event
+  `{ event, payload?, ts?, id? }`, and answers `{ profile?, events }`. The whole
+  batch is checked first, one bad part refuses all of it; then the profile is
+  merged and the events recorded in order. A property written with a later `at`
+  keeps its value.
 - `POST /identify` takes `{ userId, props }` and merges the properties into the
   profile. Values are scalars (string, number, boolean); a property set to
   `null` is removed, which is the only way to unset one. Nested objects are
   refused with a 400.
 - A user with an erasure tombstone (`POST /users/forget`, finished or not) is
-  refused on `/events`, `/identify` and `/devices` with a 410: nothing is
+  refused on `/ingest`, `/events`, `/identify` and `/devices` with a 410: nothing is
   written about them between the stop of their journeys and the erase, and the
   id is never reactivated after it.
 - A body that is not JSON answers 400, never 500.

@@ -82,7 +82,14 @@ export const TABLES = {
   profile: table({
     name: 'profile',
     doc: 'Identified properties per user (`/identify` merges into `props`; a null value means unset).',
-    columns: { userId: text, props: jsonb },
+    columns: {
+      userId: text,
+      props: jsonb,
+      propsAt: nullable(
+        jsonb,
+        'When each property was last written, epoch ms by key (a cleared one too): an older patch cannot overwrite it. Null for a row older than this column.'
+      ),
+    },
     primaryKey: ['userId'],
   }),
   device: table({
