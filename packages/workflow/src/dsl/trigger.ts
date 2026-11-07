@@ -29,6 +29,12 @@ const makeTrigger = (ir: TriggerIR): TriggerRef => {
 
 export interface EventTriggerOptions {
   filter?: Condition;
+  /**
+   * Let a visitor who has not signed in enter: such a journey reaches them by push, having no
+   * address to email. Off by default, because a user enters a workflow once: an entry made as a
+   * visitor is still theirs after signing in.
+   */
+  visitors?: boolean;
 }
 
 /** Trigger factory: four ways in, mirroring customer.io's campaign trigger types. */
@@ -87,6 +93,7 @@ export const trigger: TriggerFactory = {
       event: ev.name,
       ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
       ...(opts?.filter !== undefined ? { filter: condIR(opts.filter) } : {}),
+      ...(opts?.visitors === true ? { visitors: true } : {}),
     });
   },
   segment: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),

@@ -1,7 +1,18 @@
 import { checkEvent } from '../contract';
-import { type JourneyStore, type ProfileProps, UserErasedError } from '../store/index';
+import {
+  type JourneyStore,
+  type ProfileProps,
+  UserErasedError,
+  isVisitorSubject,
+} from '../store/index';
 import type { IngestValidation } from './http';
-import { type IdentifyResult, type IngestResult, identifyUser, ingestEvent } from './ingest';
+import {
+  type IdentifyResult,
+  type IngestResult,
+  identifyUser,
+  ingestEvent,
+  linkVisitor,
+} from './ingest';
 import type { JourneyEnv } from './platform';
 
 /**
@@ -11,7 +22,10 @@ import type { JourneyEnv } from './platform';
  * it. The same shape travels over HTTP (`POST /ingest`) and through a queue.
  */
 export interface JourneyBatch {
-  userId: string;
+  /** The signed-in user. With `visitorId` too, that visitor is this user: they merge, once. */
+  userId?: string | undefined;
+  /** The visitor before sign-in: a stable id for one client, renewed when a user signs out. */
+  visitorId?: string | undefined;
   profile?: ProfileProps | undefined;
   /**
    * When the profile was read (epoch ms), the Worker's clock when omitted. A property written
@@ -70,6 +84,21 @@ export function isValidTs(ts: unknown): ts is number {
   );
 }
 
+/** What is wrong with an untrusted identity: at least one id, and a user id outside the visitors' prefix. */
+export function identityError(userId: unknown, visitorId: unknown): string | undefined {
+  if (userId === undefined && visitorId === undefined) return 'userId or visitorId required';
+  if (userId !== undefined && !isNonEmptyString(userId)) {
+    return 'userId must be a non-empty string';
+  }
+  if (typeof userId === 'string' && isVisitorSubject(userId)) {
+    return "userId must not start with 'visitor:'";
+  }
+  if (visitorId !== undefined && !isNonEmptyString(visitorId)) {
+    return 'visitorId must be a non-empty string';
+  }
+  return undefined;
+}
+
 export type ParsedBatch =
   | { ok: true; batch: JourneyBatch }
   | { ok: false; error: string; issues?: readonly { path: string; message: string }[] };
@@ -81,12 +110,17 @@ export type ParsedBatch =
 export function parseBatch(raw: unknown, validation: IngestValidation): ParsedBatch {
   const refuse = (error: string): ParsedBatch => ({ ok: false, error });
   if (!isPlainObject(raw)) return refuse('batch must be an object');
-  const { userId, profile, at, events } = raw;
-  if (!isNonEmptyString(userId)) return refuse('userId required');
+  const { userId, visitorId, profile, at, events } = raw;
+  const identity = identityError(userId, visitorId);
+  if (identity !== undefined) return refuse(identity);
   if (at !== undefined && !isValidTs(at)) return refuse(`at: ${TS_ERROR}`);
   if (profile === undefined && events === undefined) return refuse('profile or events required');
 
-  const batch: JourneyBatch = { userId, ...(at === undefined ? {} : { at }) };
+  const batch: JourneyBatch = {
+    ...(userId === undefined ? {} : { userId: userId as string }),
+    ...(visitorId === undefined ? {} : { visitorId: visitorId as string }),
+    ...(at === undefined ? {} : { at }),
+  };
   const contract = validation.contract;
   const report = (what: string, issues: readonly { path: string; message: string }[]) =>
     console.warn(
@@ -140,7 +174,7 @@ export function parseBatch(raw: unknown, validation: IngestValidation): ParsedBa
 }
 
 /**
- * Apply a checked batch: the profile, then each event in order. Every part is idempotent (a
+ * Apply a checked batch: the visitor's merge, the profile, then each event in order. Every part is idempotent (a
  * property older than the stored one is skipped, an event id is stored once), so a caller retries
  * a failed batch whole.
  */
@@ -149,11 +183,16 @@ export async function ingestBatch(
   batch: JourneyBatch,
   store: JourneyStore
 ): Promise<BatchResult> {
-  const { userId, profile, at, events = [] } = batch;
+  const { userId, visitorId, profile, at, events = [] } = batch;
+  if (userId !== undefined && visitorId !== undefined) {
+    await linkVisitor(env, visitorId, userId, store, at);
+  }
+  // A late report of a visitor who has signed in since reaches the user
+  const subject = userId ?? (await store.resolveVisitor(visitorId ?? ''));
   const result: BatchResult = { events: [] };
-  if (profile !== undefined) result.profile = await identifyUser(env, userId, profile, store, at);
+  if (profile !== undefined) result.profile = await identifyUser(env, subject, profile, store, at);
   for (const { event, payload, id, ts } of events) {
-    result.events.push(await ingestEvent(env, { userId, event, payload, id, ts }, store));
+    result.events.push(await ingestEvent(env, { userId: subject, event, payload, id, ts }, store));
   }
   return result;
 }

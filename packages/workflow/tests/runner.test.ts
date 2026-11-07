@@ -105,6 +105,52 @@ describe('wakeExpired: a thrown wait is a timeout only if the deadline passed', 
   });
 });
 
+describe('a journey a visitor started', () => {
+  const flow = workflow({
+    id: 'visitor_checkout',
+    trigger: trigger.event(e.sign_up, { visitors: true }),
+    goal: { condition: performed(e.purchase) },
+  }).delay('1 minute');
+
+  test('carries on as the user after sign-in, reading what the user did', async () => {
+    const ir = compileBundle({ workflows: [flow] }).workflows[0];
+    await database.store.putWorkflowIR(ir);
+    await database.store.enterJourney({
+      workflow: ir.id,
+      userId: 'visitor:v9',
+      instanceId: 'visitor-inst',
+      hash: ir.contentHash,
+      ts: 1_000,
+    });
+    await database.store.linkVisitor('v9', 'u9', 2_000);
+    await database.store.insertEvent({
+      id: 'bought',
+      userId: 'u9',
+      event: 'purchase',
+      ts: Date.now(),
+      payload: {},
+    });
+    const { env } = makeEnv();
+
+    const outcome = await new StoreRunner({}, env).run(
+      {
+        payload: {
+          workflowId: ir.id,
+          contentHash: ir.contentHash,
+          userId: 'visitor:v9',
+          trigger: { event: 'sign_up', payload: {} },
+        },
+        timestamp: new Date(1_000),
+        instanceId: 'visitor-inst',
+      },
+      new FakeCfStep() as never
+    );
+
+    expect(outcome).toMatchObject({ status: 'goal' });
+    expect(await database.store.entryOwner('visitor-inst')).toBe('u9');
+  });
+});
+
 describe('a trigger delivered late', () => {
   const flow = workflow({
     id: 'late_trigger',

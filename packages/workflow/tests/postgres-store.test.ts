@@ -375,9 +375,9 @@ describe('subscriptions and entries', () => {
 describe('devices', () => {
   test('a token belongs to the latest user it was registered for, newest first', async () => {
     const { env, store } = setup();
-    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
-    await registerDevice(env, { userId: 'u1', token: 'b', platform: 'android', ts: 2 }, store);
-    await registerDevice(env, { userId: 'u2', token: 'a', platform: 'ios', ts: 3 }, store);
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios' }, store);
+    await registerDevice(env, { userId: 'u1', token: 'b', platform: 'android' }, store);
+    await registerDevice(env, { userId: 'u2', token: 'a', platform: 'ios' }, store);
     expect(await store.listDevices('u1')).toEqual([{ token: 'b', platform: 'android' }]);
     expect(await store.listDevices('u2')).toEqual([{ token: 'a', platform: 'ios' }]);
     expect(await new JourneyFactSource(store, 'u2').listDevices()).toEqual([
@@ -387,7 +387,7 @@ describe('devices', () => {
 
   test('removing a token forgets it and reports its owner', async () => {
     const { env, store } = setup();
-    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios' }, store);
     expect(await removeDevice(env, 'a', store)).toEqual({ ok: true, woke: 0 });
     expect(await store.listDevices('u1')).toEqual([]);
     expect(await store.removeDevice('a')).toBeUndefined();
@@ -395,13 +395,13 @@ describe('devices', () => {
 
   test('signing out unbinds the token, kept for the next sign-in to bind again', async () => {
     const { env, store } = setup();
-    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios' }, store);
     expect(await unbindDevice(env, 'a', store)).toEqual({ ok: true, woke: 0 });
     expect(await store.listDevices('u1')).toEqual([]);
     // Still registered, bound to nobody: unbinding again has no owner to report
     expect(await store.unbindDevice('a')).toBeUndefined();
     expect(await store.removeDevice('a')).toBeUndefined();
-    await registerDevice(env, { userId: 'u2', token: 'a', platform: 'ios', ts: 2 }, store);
+    await registerDevice(env, { userId: 'u2', token: 'a', platform: 'ios' }, store);
     expect(await store.listDevices('u2')).toEqual([{ token: 'a', platform: 'ios' }]);
   });
 });
@@ -416,7 +416,7 @@ describe('erasure', () => {
 
   test('erasing from the request until forgetUser, which keeps the tombstone and takes the suppressions', async () => {
     const { env, store } = setup();
-    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios', ts: 1 }, store);
+    await registerDevice(env, { userId: 'u1', token: 'a', platform: 'ios' }, store);
     await store.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
     await store.mergeProfile('u1', { plan: 'pro' });
     await store.subscribe('i1', 'u1', ['x'], 1);
@@ -482,7 +482,7 @@ describe('erasure', () => {
         UserErasedError
       );
       await expect(
-        store.upsertDevice({ userId: 'u1', token: 't', platform: 'ios', ts: 7 })
+        store.upsertDevice({ userId: 'u1', token: 't', platform: 'ios', at: 7 })
       ).rejects.toBeInstanceOf(UserErasedError);
       await expect(store.addSegmentMember('s', 'u1', 7, ['w'])).rejects.toBeInstanceOf(
         UserErasedError

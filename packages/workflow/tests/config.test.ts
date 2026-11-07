@@ -286,9 +286,9 @@ describe('journeyWorker({ config })', () => {
     const bundle = await (await worker.fetch(new Request('https://w.test/bundle'), env)).json();
     expect(bundle).toEqual(JSON.parse(JSON.stringify(compileConfig(config()))));
     const refused = await worker.fetch(
-      new Request('https://w.test/events', {
+      new Request('https://w.test/ingest', {
         method: 'POST',
-        body: JSON.stringify({ userId: 'u', event: 'login', payload: { method: 1 } }),
+        body: JSON.stringify({ userId: 'u', events: [{ event: 'login', payload: { method: 1 } }] }),
       }),
       env
     );

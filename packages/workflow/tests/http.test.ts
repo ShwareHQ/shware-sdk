@@ -69,9 +69,9 @@ const subscribe = (handle: string, userId: string, event: string) =>
 
 describe('identify', () => {
   const identifyRequest = (userId: string, props: Record<string, unknown>) =>
-    new Request('https://worker.test/identify', {
+    new Request('https://worker.test/ingest', {
       method: 'POST',
-      body: JSON.stringify({ userId, props }),
+      body: JSON.stringify({ userId, profile: props }),
     });
 
   test('merges the profile and wakes property-condition waits', async () => {
@@ -84,7 +84,7 @@ describe('identify', () => {
       env,
       database.store
     );
-    const body = (await response.json()) as { woke: number };
+    const body = ((await response.json()) as { profile: { woke: number } }).profile;
 
     expect(response.status).toBe(200);
     expect(body.woke).toBe(1);
@@ -104,7 +104,7 @@ describe('identify', () => {
       database.store
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ woke: 0 });
+    expect(await response.json()).toMatchObject({ profile: { woke: 0 } });
     // A database blip must not silence the wait for good
     expect(await rows('subscription')).toBe(1);
   });
@@ -137,7 +137,7 @@ describe('identify', () => {
       env,
       database.store
     );
-    const body = (await response.json()) as { woke: number };
+    const body = ((await response.json()) as { profile: { woke: number } }).profile;
 
     expect(response.status).toBe(200);
     expect(body.woke).toBe(0);
@@ -182,7 +182,8 @@ describe('identify', () => {
       env,
       database.store
     );
-    const body = (await response.json()) as { props: Record<string, unknown> };
+    const body = ((await response.json()) as { profile: { props: Record<string, unknown> } })
+      .profile;
 
     expect(body.props).toEqual({ plan: 'pro' });
     expect(await database.store.getProfile('u1')).toEqual({ plan: 'pro' });
@@ -191,9 +192,9 @@ describe('identify', () => {
   test('a non-object props is refused rather than replacing the profile wholesale', async () => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const response = await handleRequest(
-      new Request('https://worker.test/identify', {
+      new Request('https://worker.test/ingest', {
         method: 'POST',
-        body: JSON.stringify({ userId: 'u1', props: ['not', 'an', 'object'] }),
+        body: JSON.stringify({ userId: 'u1', profile: ['not', 'an', 'object'] }),
       }),
       env,
       database.store
@@ -218,7 +219,7 @@ describe('identify', () => {
       env,
       database.store
     );
-    const body = (await response.json()) as { started: string[] };
+    const body = ((await response.json()) as { profile: { started: string[] } }).profile;
 
     expect(body.started).toHaveLength(1);
     expect(await database.client.query('SELECT workflow, user_id FROM workflow.entry')).toEqual([
@@ -240,17 +241,17 @@ describe('http surface', () => {
     expect(health.status).toBe(200);
 
     const denied = await handleRequest(
-      new Request('https://worker.test/events', { method: 'POST', body: '{}' }),
+      new Request('https://worker.test/ingest', { method: 'POST', body: '{}' }),
       env,
       database.store
     );
     expect(denied.status).toBe(401);
 
     const allowed = await handleRequest(
-      new Request('https://worker.test/events', {
+      new Request('https://worker.test/ingest', {
         method: 'POST',
         headers: { authorization: 'Bearer secret' },
-        body: JSON.stringify({ userId: 'u1', event: 'login' }),
+        body: JSON.stringify({ userId: 'u1', events: [{ event: 'login' }] }),
       }),
       env,
       database.store
@@ -273,9 +274,9 @@ describe('http surface', () => {
   test('reserved event names are a 400 at the HTTP layer', async () => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const response = await handleRequest(
-      new Request('https://worker.test/events', {
+      new Request('https://worker.test/ingest', {
         method: 'POST',
-        body: JSON.stringify({ userId: 'u1', event: '$segment_entry' }),
+        body: JSON.stringify({ userId: 'u1', events: [{ event: '$segment_entry' }] }),
       }),
       env,
       database.store
@@ -319,12 +320,12 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
   test.each([
     ['being erased', erasing],
     ['erased', erased],
-  ])('/events, /identify and /devices answer 410 for a user %s', async (_, tombstone) => {
+  ])('/ingest and /devices answer 410 for a user %s', async (_, tombstone) => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
     await tombstone('u1');
     const requests = [
-      post('/events', { userId: 'u1', event: 'login' }),
-      post('/identify', { userId: 'u1', props: { plan: 'pro' } }),
+      post('/ingest', { userId: 'u1', events: [{ event: 'login' }] }),
+      post('/ingest', { userId: 'u1', profile: { plan: 'pro' } }),
       post('/devices', { userId: 'u1', token: 't1', platform: 'ios' }),
     ];
     for (const request of requests) {
@@ -337,7 +338,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
     expect(await rows('device')).toBe(0);
     // Another user is not affected
     const other = await handleRequest(
-      post('/events', { userId: 'u2', event: 'login' }),
+      post('/ingest', { userId: 'u2', events: [{ event: 'login' }] }),
       env,
       database.store
     );
@@ -353,7 +354,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
     ).rejects.toBeInstanceOf(UserErasedError);
     await expect(store.mergeProfile('u1', { plan: 'pro' })).rejects.toBeInstanceOf(UserErasedError);
     await expect(
-      store.upsertDevice({ userId: 'u1', token: 't1', platform: 'ios', ts: 1 })
+      store.upsertDevice({ userId: 'u1', token: 't1', platform: 'ios', at: 1 })
     ).rejects.toBeInstanceOf(UserErasedError);
     await expect(store.addSegmentMember('s', 'u1', 1, ['w'])).rejects.toBeInstanceOf(
       UserErasedError
@@ -392,14 +393,14 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
 
     // The id stays gone: a late event is refused, u2 goes on
     const late = await handleRequest(
-      post('/events', { userId: 'u1', event: 'login' }),
+      post('/ingest', { userId: 'u1', events: [{ event: 'login' }] }),
       env,
       database.store
     );
     expect(late.status).toBe(410);
     expect(await eventUsers()).toEqual(['u2']);
     const other = await handleRequest(
-      post('/events', { userId: 'u2', event: 'login' }),
+      post('/ingest', { userId: 'u2', events: [{ event: 'login' }] }),
       env,
       database.store
     );
@@ -410,7 +411,7 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
 describe('request validation', () => {
   test('a body that is not JSON is a 400, not a 500', async () => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
-    for (const path of ['/events', '/identify', '/devices', '/deploy']) {
+    for (const path of ['/ingest', '/devices', '/deploy']) {
       const response = await handleRequest(post(path, '{not json'), env, database.store);
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ error: 'invalid JSON body' });
@@ -422,7 +423,7 @@ describe('request validation', () => {
     const refused = [-1, 1.5, Date.now() + 6 * 60_000, Number.MAX_SAFE_INTEGER + 2, '123'];
     for (const ts of refused) {
       const events = await handleRequest(
-        post('/events', { userId: 'u1', event: 'login', ts }),
+        post('/ingest', { userId: 'u1', events: [{ event: 'login', ts }] }),
         env,
         database.store
       );
@@ -430,17 +431,11 @@ describe('request validation', () => {
       expect(await events.json()).toEqual({
         error: 'ts must be a non-negative integer no later than 5 minutes in the future',
       });
-      const devices = await handleRequest(
-        post('/devices', { userId: 'u1', token: 't', platform: 'ios', ts }),
-        env,
-        database.store
-      );
-      expect(devices.status).toBe(400);
     }
     // Clock skew within the tolerance, and the past, are fine
     for (const ts of [0, Date.now() - 86_400_000, Date.now() + 60_000]) {
       const response = await handleRequest(
-        post('/events', { userId: 'u1', event: 'login', ts }),
+        post('/ingest', { userId: 'u1', events: [{ event: 'login', ts }] }),
         env,
         database.store
       );
@@ -448,22 +443,22 @@ describe('request validation', () => {
     }
   });
 
-  test('/identify takes scalars and null only, contract or not', async () => {
+  test('a profile takes scalars and null only, contract or not', async () => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
     for (const props of [{ address: { city: 'Paris' } }, { tags: ['a'] }]) {
       const response = await handleRequest(
-        post('/identify', { userId: 'u1', props }),
+        post('/ingest', { userId: 'u1', profile: props }),
         env,
         database.store
       );
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({
-        error: 'props values must be scalars (string, number, boolean) or null',
+        error: 'profile values must be scalars (string, number, boolean) or null',
       });
     }
     expect(await rows('profile')).toBe(0);
     const ok = await handleRequest(
-      post('/identify', { userId: 'u1', props: { plan: 'pro', seats: 3, vip: true, trial: null } }),
+      post('/ingest', { userId: 'u1', profile: { plan: 'pro', seats: 3, vip: true, trial: null } }),
       env,
       database.store
     );
@@ -479,12 +474,12 @@ describe('identify wakes the waits on the properties it patched', () => {
     await subscribe('inst-email', 'u1', profileUpdatedEvent('email'));
 
     const response = await handleRequest(
-      post('/identify', { userId: 'u1', props: { plan: 'pro' } }),
+      post('/ingest', { userId: 'u1', profile: { plan: 'pro' } }),
       env,
       database.store
     );
 
-    expect(await response.json()).toMatchObject({ woke: 1 });
+    expect(await response.json()).toMatchObject({ profile: { woke: 1 } });
     expect(journey.wakes).toEqual([{ id: 'inst-plan', type: WAKE_EVENT_TYPE }]);
   });
 
@@ -495,12 +490,12 @@ describe('identify wakes the waits on the properties it patched', () => {
     await subscribe('inst-both', 'u1', profileUpdatedEvent('seats'));
 
     const response = await handleRequest(
-      post('/identify', { userId: 'u1', props: { plan: 'pro', seats: 5 } }),
+      post('/ingest', { userId: 'u1', profile: { plan: 'pro', seats: 5 } }),
       env,
       database.store
     );
 
-    expect(await response.json()).toMatchObject({ woke: 1 });
+    expect(await response.json()).toMatchObject({ profile: { woke: 1 } });
     expect(journey.wakes).toEqual([{ id: 'inst-both', type: WAKE_EVENT_TYPE }]);
   });
 });
@@ -508,7 +503,7 @@ describe('identify wakes the waits on the properties it patched', () => {
 describe('bearer authentication', () => {
   test('the scheme is case-insensitive, the token is not', () => {
     const request = (authorization: string) =>
-      new Request('https://worker.test/events', { headers: { authorization } });
+      new Request('https://worker.test/ingest', { headers: { authorization } });
     expect(bearerMatches(request('Bearer secret'), 'secret')).toBe(true);
     expect(bearerMatches(request('bearer secret'), 'secret')).toBe(true);
     expect(bearerMatches(request('BEARER secret'), 'secret')).toBe(true);
@@ -517,19 +512,27 @@ describe('bearer authentication', () => {
     expect(bearerMatches(request('Bearer secret2'), 'secret')).toBe(false);
     expect(bearerMatches(request('Basic secret'), 'secret')).toBe(false);
     expect(bearerMatches(request('secret'), 'secret')).toBe(false);
-    expect(bearerMatches(new Request('https://worker.test/events'), 'secret')).toBe(false);
+    expect(bearerMatches(new Request('https://worker.test/ingest'), 'secret')).toBe(false);
   });
 
   test('the router accepts a lower-case scheme', async () => {
     const { env } = makeEnv({ API_TOKEN: 'secret' });
     const allowed = await handleRequest(
-      post('/events', { userId: 'u1', event: 'login' }, { authorization: 'bearer secret' }),
+      post(
+        '/ingest',
+        { userId: 'u1', events: [{ event: 'login' }] },
+        { authorization: 'bearer secret' }
+      ),
       env,
       database.store
     );
     expect(allowed.status).toBe(200);
     const denied = await handleRequest(
-      post('/events', { userId: 'u1', event: 'login' }, { authorization: 'Bearer nope' }),
+      post(
+        '/ingest',
+        { userId: 'u1', events: [{ event: 'login' }] },
+        { authorization: 'Bearer nope' }
+      ),
       env,
       database.store
     );
@@ -584,8 +587,7 @@ describe('production refuses to serve without API_TOKEN', () => {
   test('everything but the health check and the tracking routes answers 503', async () => {
     const { call } = host(); // no ENVIRONMENT: production
     const refused = [
-      ['/events', 'POST'],
-      ['/identify', 'POST'],
+      ['/ingest', 'POST'],
       ['/bundle', 'GET'],
       ['/bundle/deploy', 'POST'],
       ['/segments/sweep', 'POST'],
@@ -611,9 +613,9 @@ describe('production refuses to serve without API_TOKEN', () => {
   test('the bare API refuses the same way, the health check aside', async () => {
     const { env } = makeEnv(); // no ENVIRONMENT: production
     const refused = await handleRequest(
-      new Request('https://worker.test/identify', {
+      new Request('https://worker.test/ingest', {
         method: 'POST',
-        body: JSON.stringify({ userId: 'u1', props: { plan: 'pro' } }),
+        body: JSON.stringify({ userId: 'u1', profile: { plan: 'pro' } }),
       }),
       env,
       database.store

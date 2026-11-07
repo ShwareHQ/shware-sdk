@@ -73,16 +73,16 @@ describe('authorize', () => {
 
   test('the host decides the format: an HMAC over the body, and the route still reads it', async () => {
     const { call } = setup(hmac);
-    const body = JSON.stringify({ userId: 'u1', event: 'login' });
-    const signed = await call('/events', {
+    const body = JSON.stringify({ userId: 'u1', events: [{ event: 'login' }] });
+    const signed = await call('/ingest', {
       method: 'POST',
       headers: { 'x-signature': await hmacHex(SECRET, body) },
       body,
     });
     expect(signed.status).toBe(200);
-    expect(await signed.json()).toMatchObject({ stored: true });
+    expect(await signed.json()).toMatchObject({ events: [{ stored: true }] });
 
-    const forged = await call('/events', {
+    const forged = await call('/ingest', {
       method: 'POST',
       headers: { 'x-signature': await hmacHex('wrong', body) },
       body,
@@ -97,7 +97,7 @@ describe('authorize', () => {
       ['/bundle/deploy', 'POST'],
       ['/preview/hi', 'GET'],
       ['/segments/sweep', 'POST'],
-      ['/identify', 'POST'],
+      ['/ingest', 'POST'],
       ['/users/forget', 'POST'],
     ] as const) {
       expect((await call(path, { method })).status).toBe(401);
@@ -107,7 +107,7 @@ describe('authorize', () => {
       '/bundle/deploy',
       '/preview/hi',
       '/segments/sweep',
-      '/identify',
+      '/ingest',
       '/users/forget',
     ]);
     asked.length = 0;
@@ -131,9 +131,9 @@ describe('authorize', () => {
     const { call } = setup(async () => {
       throw new Error('key service down');
     });
-    const response = await call('/events', {
+    const response = await call('/ingest', {
       method: 'POST',
-      body: JSON.stringify({ userId: 'u1', event: 'login' }),
+      body: JSON.stringify({ userId: 'u1', events: [{ event: 'login' }] }),
     });
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: 'internal error' });

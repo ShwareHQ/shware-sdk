@@ -34,6 +34,8 @@ export interface TriggerRoute {
   where: ConditionIR | null;
   /** Profile gate, or null. */
   filter: ConditionIR | null;
+  /** Whether a visitor not signed in may enter. */
+  visitors: boolean;
   /**
    * The code version that applied these routes; absent after a hand-posted `POST /deploy`. Read
    * in the same row as the hash, so the pair is always one deploy's.
@@ -141,11 +143,20 @@ export type EntryOutcome = 'entered' | 'reclaimed' | null;
 
 /** A device registered for pushes: its provider token belongs to the user who registered it last. */
 export interface DeviceInput {
-  userId: string;
+  deviceId?: string | undefined;
+  /** Null until the device's visitor signs in. */
+  userId: string | null;
+  visitorId?: string | undefined;
   token: string;
   /** `ios` (APNs) or `android` (FCM): which provider the token belongs to. */
   platform: string;
-  ts: number;
+  at: number;
+}
+
+/** What linking a visitor to a user did; null when it was already linked, or to another user. */
+export interface VisitorMerge {
+  /** Instances dropped because the user is already in the same workflow: to stop. */
+  dropped: string[];
 }
 
 /** An instance of a user still in the ledger, and whether its runner was admitted (see `admitInstance`). */
@@ -180,6 +191,7 @@ export interface StoreLease {
 import type { ErasureState } from './erasure';
 
 export { type ErasureState, UserErasedError } from './erasure';
+export { instanceOwner, isVisitorSubject, visitorIdOf, visitorSubject } from './identity';
 
 /**
  * The live database lacks tables or columns the engine reads (an SDK upgrade added them, or the
@@ -455,6 +467,18 @@ export interface JourneyStore {
     page: { limit: number; after?: EventCursor | undefined }
   ): Promise<{ payloads: Record<string, unknown>[]; next?: EventCursor | undefined }>;
 
+  /* -------------------------------- visitors --------------------------------- */
+  /** Who a visitor is: the user they signed in as, or their own subject until then. */
+  resolveVisitor(visitorId: string): Promise<string>;
+  /**
+   * The visitor became the user: their events, profile, devices, opt-outs and journeys move to the
+   * user, once. A visitor already linked keeps its first user. The user's own entry wins over the
+   * visitor's in the same workflow, and the visitor's instance is dropped.
+   */
+  linkVisitor(visitorId: string, userId: string, at: number): Promise<VisitorMerge | null>;
+  /** Who an instance's entry belongs to now. */
+  entryOwner(instanceId: string): Promise<string | undefined>;
+
   /* --------------------------------- profiles -------------------------------- */
   getProfile(userId: string): Promise<ProfileProps | undefined>;
   /**
@@ -473,18 +497,20 @@ export interface JourneyStore {
   listUserIds(page?: { after?: string | undefined; limit?: number | undefined }): Promise<string[]>;
 
   /* ---------------------------------- devices --------------------------------- */
-  /** The user's push devices, most recently registered first. */
-  listDevices(userId: string): Promise<PushDevice[]>;
+  /** The push devices a user or visitor holds now, most recently registered first. */
+  listDevices(subject: string): Promise<PushDevice[]>;
   /**
-   * Register a device: one row per token, so a token registered again moves to the user who
-   * registered it last (a phone signed into another account) and to the front of their list.
+   * Register a device: one row per token and per device, holding only its current owner. A token
+   * registered again moves to whoever registered it last (a phone signed into another account) and
+   * to the front of their list; a device's new token replaces its old one. Answers the previous
+   * owners, whose device waits must wake.
    */
-  upsertDevice(device: DeviceInput): Promise<void>;
-  /** Forget a token (reported dead by APNs / FCM); the user it belonged to, if any. */
+  upsertDevice(device: DeviceInput): Promise<string[]>;
+  /** Forget a token (reported dead by APNs / FCM); the user or visitor it belonged to, if any. */
   removeDevice(token: string): Promise<string | undefined>;
   /**
-   * The user signed out on the device: the token is kept, bound to nobody, until the next sign-in
-   * binds it again. The user it belonged to, if any.
+   * The user signed out on the device: the token is kept, bound to nobody, until the next
+   * registration binds it again. Who it belonged to, if anyone.
    */
   unbindDevice(token: string): Promise<string | undefined>;
 

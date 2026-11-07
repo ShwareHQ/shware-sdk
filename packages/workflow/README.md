@@ -264,8 +264,11 @@ export const journeys = new JourneyClient({
   token: process.env.WORKFLOW_API_TOKEN,
 });
 
-await journeys.identify(user.id, { email: user.email, name: user.name });
-await journeys.track(user.id, 'login', { method: 'google' }, { id: `login-${session.id}` });
+await journeys.ingest({
+  userId: user.id,
+  profile: { email: user.email, name: user.name },
+  events: [{ event: 'login', payload: { method: 'google' }, id: `login-${session.id}` }],
+});
 ```
 
 Identify the properties a journey reads before the event that starts it.
@@ -737,7 +740,7 @@ Discord; supply anything else with `journeyWorker({ messages })`.
 | Field       | Holds                                                                                     |
 | ----------- | ----------------------------------------------------------------------------------------- |
 | `title`     | The Studio title                                                                          |
-| `contract`  | The `defineContract(...)` every `/events` and `/identify` is validated against            |
+| `contract`  | The `defineContract(...)` every `/ingest` is validated against                            |
 | `workflows` | The workflows to deploy                                                                   |
 | `segments`  | Named segments                                                                            |
 | `actions`   | Custom actions `.run()` uses                                                              |
@@ -779,28 +782,66 @@ throws `JourneyClientError` with its status and body.
 const journeys = new JourneyClient({ contract, origin, token });
 ```
 
-| Method                                        | Endpoint                          | Does                                                                      |
-| --------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
-| `ingest(userId, { profile?, events? })`       | `POST /ingest`                    | Merge the profile, then record the events in order                        |
-| `identify(userId, props)`                     | `POST /identify`                  | Merge profile properties; `null` removes one                              |
-| `track(userId, event, payload, { id?, ts? })` | `POST /events`                    | Record an event; starts and wakes journeys                                |
-| `registerDevice(userId, { token, platform })` | `POST /devices`                   | Register a push token (`ios`, `android` or `web`)                         |
-| `unbindDevice(token)`                         | `POST /devices/unbind`            | Signed out: the token stays, bound to nobody                              |
-| `removeDevice(token)`                         | `POST /devices/remove`            | Forget a token for good                                                   |
-| `messageOpened(userId, messageId)`            | `POST /messages/opened`           | A journey push tapped open (the `message_id` it carried)                  |
-| `getSubscriptions(userId)`                    | `GET /subscriptions/…`            | `{ email, push }`, each `{ all, topics }`, `true` = on                    |
-| `setSubscriptions(userId, patch)`             | `PUT /subscriptions/…`            | Change what the patch names; answers the new state                        |
-| `getSubscriptionsByMessage(messageId)`        | `GET /subscriptions/by-message/…` | The recipient's record by a copy's id, plus `message: { channel, topic }` |
-| `setSubscriptionsByMessage(messageId, patch)` | `PUT /subscriptions/by-message/…` | The same patch, for the copy's recipient; answers as the GET does         |
-| `forgetUser(userId)`                          | `POST /users/forget`              | Stop the user's journeys and erase their data                             |
-| `deploy(bundle)`                              | `POST /deploy`                    | Deploy a compiled bundle                                                  |
+| Method                                                                | Endpoint                          | Does                                                                               |
+| --------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
+| `ingest({ userId?, visitorId?, profile?, events? })`                  | `POST /ingest`                    | The one way in: merge a visitor, then the profile, then record the events in order |
+| `registerDevice({ deviceId?, userId?, visitorId?, token, platform })` | `POST /devices`                   | Register a push token for whoever holds the device now                             |
+| `unbindDevice(token)`                                                 | `POST /devices/unbind`            | Signed out: the token stays, bound to nobody                                       |
+| `removeDevice(token)`                                                 | `POST /devices/remove`            | Forget a token for good                                                            |
+| `messageOpened(userId, messageId)`                                    | `POST /messages/opened`           | A journey push tapped open (the `message_id` it carried)                           |
+| `getSubscriptions(userId)`                                            | `GET /subscriptions/…`            | `{ email, push }`, each `{ all, topics }`, `true` = on                             |
+| `setSubscriptions(userId, patch)`                                     | `PUT /subscriptions/…`            | Change what the patch names; answers the new state                                 |
+| `getSubscriptionsByMessage(messageId)`                                | `GET /subscriptions/by-message/…` | The recipient's record by a copy's id, plus `message: { channel, topic }`          |
+| `setSubscriptionsByMessage(messageId, patch)`                         | `PUT /subscriptions/by-message/…` | The same patch, for the copy's recipient; answers as the GET does                  |
+| `forgetUser(userId)`                                                  | `POST /users/forget`              | Stop the user's journeys and erase their data                                      |
+| `forgetVisitor(visitorId)`                                            | `POST /users/forget`              | The same for a visitor who never signed in                                         |
+| `deploy(bundle)`                                                      | `POST /deploy`                    | Deploy a compiled bundle                                                           |
 
-Pass an `id` to `track` whenever a caller may retry; see
+Pass each event's `id` whenever a caller may retry; see
 [Give each event an `id`](#give-each-event-an-id).
 
-Prefer `ingest` when a report carries the recipient: the profile is merged before
-the first event, so a journey the events start finds it. Sent as separate calls,
-an email step can run before the address arrives and settle as `no_recipient`.
+`ingest` is the only way to report: the profile and the events it belongs to travel
+as one batch, so a journey an event starts always finds its recipient. With separate
+calls an email step could run before the address arrives and settle as `no_recipient`.
+
+### Visitors and devices
+
+Three ids, with different jobs:
+
+| Id          | What it says                    | At sign-out      |
+| ----------- | ------------------------------- | ---------------- |
+| `userId`    | Which account                   | No longer sent   |
+| `visitorId` | Who this is before signing in   | Must be replaced |
+| `deviceId`  | Which device holds a push token | Stays            |
+
+`visitorId` is any stable id for one client, as long as it changes when a user signs
+out; `visitorId()` from `@shware/analytics` already does. Journeys and events belong
+to a user or a visitor, never to a device: one device can pass between people.
+
+```ts
+await journeys.ingest({ visitorId, events }); // not signed in
+await journeys.ingest({ userId, visitorId, profile, events }); // signed in
+await journeys.registerDevice({ deviceId, visitorId, token, platform });
+```
+
+Naming both ids says this visitor is this user. Their events, profile, devices and
+opt-outs move to the user, once, and a later report of that visitor reaches the user.
+A visitor already linked stays with its first user. Their running journeys carry on
+as the user's, except one the user is already in, which stops.
+
+A visitor enters a workflow only if its trigger asks for them. They have no address,
+so such a journey reaches them by push, and an entry made as a visitor counts as the
+user's once they sign in:
+
+```ts
+workflow({ id: 'offer', trigger: trigger.event(e.browse, { visitors: true }) });
+```
+
+Segments are about users: visitors are not swept and do not enter segment triggers.
+
+A device table row holds only the current owner, so after a sign-out the previous user
+can no longer be reached there. `unbindDevice` clears it at sign-out; the client then
+registers again with its new `visitorId`.
 
 ### `JourneyQueue`
 
@@ -809,7 +850,9 @@ neither lose a report nor wait for the engine:
 
 ```ts
 const queue = new JourneyQueue({ contract, queue: env.JOURNEY_QUEUE });
-await queue.ingest(userId, {
+await queue.ingest({
+  userId,
+  visitorId,
   profile: { email, name },
   events: [{ event: 'login', payload: { method }, id: rowId, ts }],
 });
@@ -1068,12 +1111,12 @@ Checked against a real durable Lambda (Node 24, us-east-1).
 **Function URL: `AuthType: NONE`, with the API protected in the app.** Not every caller can
 sign a request:
 
-| Caller                                     | Routes                                                   |
-| ------------------------------------------ | -------------------------------------------------------- |
-| Your backend                               | `/events`, `/identify`, `/devices`, `/users/forget`, ... |
-| Recipients' mail clients and browsers      | `/t/o`, `/t/l`, `/t/u`                                   |
-| Gmail / Yahoo one-click unsubscribe        | `POST /t/u/<message>` (RFC 8058)                         |
-| iOS notification extension, service worker | `POST /t/d`, `POST /t/p`                                 |
+| Caller                                     | Routes                                      |
+| ------------------------------------------ | ------------------------------------------- |
+| Your backend                               | `/ingest`, `/devices`, `/users/forget`, ... |
+| Recipients' mail clients and browsers      | `/t/o`, `/t/l`, `/t/u`                      |
+| Gmail / Yahoo one-click unsubscribe        | `POST /t/u/<message>` (RFC 8058)            |
+| iOS notification extension, service worker | `POST /t/d`, `POST /t/p`                    |
 
 An alias has one URL and one auth type, and the tracking and one-click routes must stay public:
 
@@ -1262,21 +1305,19 @@ everything but `GET /health` answers 503.
 - `GET /health` is the only unauthenticated one. Every other route asks the
   host's `authorize`, or without one the `API_TOKEN` bearer: its scheme is
   matched case-insensitively and the token compared in constant time.
-- `POST /events` takes `{ userId, event, payload?, ts?, id? }` and answers with
-  the id the occurrence was recorded under. Event names beginning with `$` are
-  reserved for internal use. `ts` is epoch milliseconds: a non-negative integer
-  no later than five minutes ahead of the host's clock (400 otherwise).
-- `POST /ingest` takes `{ userId, profile?, at?, events? }`, with each event
-  `{ event, payload?, ts?, id? }`, and answers `{ profile?, events }`. The whole
-  batch is checked first, one bad part refuses all of it; then the profile is
-  merged and the events recorded in order. A property written with a later `at`
-  keeps its value.
-- `POST /identify` takes `{ userId, props }` and merges the properties into the
-  profile. Values are scalars (string, number, boolean); a property set to
-  `null` is removed, which is the only way to unset one. Nested objects are
-  refused with a 400.
+- `POST /ingest` takes `{ userId?, visitorId?, profile?, at?, events? }` with at
+  least one id, each event being `{ event, payload?, ts?, id? }`, and answers
+  `{ profile?, events }`, each event's result naming the id it was recorded under.
+  The whole batch is checked first, one bad part refuses all of it; then a visitor
+  merges, the profile is merged and the events recorded in order. Event names
+  beginning with `$` are reserved, and a `userId` cannot begin with `visitor:`.
+  `ts` is epoch milliseconds: a non-negative integer no later than five minutes
+  ahead of the host's clock (400 otherwise). Profile values are scalars (string,
+  number, boolean); a property set to `null` is removed, which is the only way to
+  unset one. Nested objects are refused with a 400. A property written with a later
+  `at` keeps its value.
 - A user with an erasure tombstone (`POST /users/forget`, finished or not) is
-  refused on `/ingest`, `/events`, `/identify` and `/devices` with a 410: nothing is
+  refused on `/ingest` and `/devices` with a 410: nothing is
   written about them between the stop of their journeys and the erase, and the
   id is never reactivated after it.
 - A body that is not JSON answers 400, never 500.

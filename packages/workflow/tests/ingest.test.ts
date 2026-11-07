@@ -850,7 +850,10 @@ describe('erasing a user whose instance is still being created', () => {
       await post('/bundle/deploy', h);
 
       const gate = h.journey.park();
-      const ingesting = h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+      const ingesting = h.post('/ingest', {
+        userId: 'u1',
+        events: [{ event: 'login', payload: {} }],
+      });
       await gate.entered;
       // The entry is in and not admitted; the platform does not know the instance yet
       const running = await h.store.runningInstances('u1');
@@ -867,7 +870,9 @@ describe('erasing a user whose instance is still being created', () => {
 
       // The create lands, the router reports the start, and the runtime runs the instance
       gate.release();
-      expect(await (await ingesting).json()).toMatchObject({ started: [running[0].instanceId] });
+      expect(await (await ingesting).json()).toMatchObject({
+        events: [{ started: [running[0].instanceId] }],
+      });
       expect(h.journey.created.map((c) => c.id)).toEqual([running[0].instanceId]);
       const step = new FakeCfStep();
       await expect(h.run(h.journey.created[0], step)).resolves.toEqual({
@@ -882,8 +887,8 @@ describe('erasing a user whose instance is still being created', () => {
       expect(await h.store.erasureState('u1')).toBe('erased');
 
       // Another user runs as ever
-      await h.post('/identify', { userId: 'u2', props: { email: 'u2@acme.test' } });
-      await h.post('/events', { userId: 'u2', event: 'login', payload: {} });
+      await h.post('/ingest', { userId: 'u2', profile: { email: 'u2@acme.test' } });
+      await h.post('/ingest', { userId: 'u2', events: [{ event: 'login', payload: {} }] });
       await expect(h.run(h.journey.created[1])).resolves.toMatchObject({ status: 'completed' });
       expect(h.actions).toEqual(['u2']);
       expect(h.sent).toEqual(['Hi']);
@@ -897,7 +902,7 @@ describe('erasing a user whose instance is still being created', () => {
     try {
       const h = lateCreateHost();
       await post('/bundle/deploy', h);
-      await h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+      await h.post('/ingest', { userId: 'u1', events: [{ event: 'login', payload: {} }] });
       const [{ id }] = h.journey.created;
       // What the runner does first
       expect(await h.store.admitInstance(id, 'u1')).toBe(true);
@@ -933,7 +938,7 @@ describe('erasing a user whose instance is still being created', () => {
       expect(h.journey.terminated).toEqual([id]);
 
       // An admitted instance the platform no longer knows did reach it and finished since
-      await h.post('/events', { userId: 'u2', event: 'login', payload: {} });
+      await h.post('/ingest', { userId: 'u2', events: [{ event: 'login', payload: {} }] });
       const second = h.journey.created[1].id;
       expect(await h.store.admitInstance(second, 'u2')).toBe(true);
       h.journey.known.delete(second);
@@ -954,7 +959,7 @@ describe('erasing a user whose instance is still being created', () => {
     try {
       const h = lateCreateHost();
       await post('/bundle/deploy', h);
-      await h.post('/events', { userId: 'u1', event: 'login', payload: {} });
+      await h.post('/ingest', { userId: 'u1', events: [{ event: 'login', payload: {} }] });
       const [{ id: old }] = h.journey.created;
       expect(await h.store.admitInstance(old, 'u1')).toBe(true);
       // The instance died: its entry failed, the admission still on the row
@@ -962,11 +967,11 @@ describe('erasing a user whose instance is still being created', () => {
 
       // The next event reclaims the entry under a new instance id: a fresh attempt, not admitted
       const again = await (
-        await h.post('/events', { userId: 'u1', event: 'login', payload: {} })
+        await h.post('/ingest', { userId: 'u1', events: [{ event: 'login', payload: {} }] })
       ).json();
       const fresh = h.journey.created[1].id;
       expect(fresh).not.toBe(old);
-      expect(again).toMatchObject({ started: [fresh] });
+      expect(again).toMatchObject({ events: [{ started: [fresh] }] });
       expect(await h.store.runningInstances('u1')).toEqual([
         { instanceId: fresh, admitted: false },
       ]);

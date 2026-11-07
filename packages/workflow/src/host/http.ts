@@ -1,5 +1,5 @@
 import * as z from 'zod/mini';
-import { type Contract, type ContractResult, checkEvent } from '../contract';
+import type { Contract } from '../contract';
 import { PREVIEW_MESSAGE_ID } from '../email';
 import type { EmailRenderer } from '../email-sender';
 import type { BundleIR, ScalarIR } from '../ir';
@@ -7,21 +7,13 @@ import { type TrackingOptions, handleTracking, recordPushOpen } from '../reporti
 import {
   type BundleVersion,
   type JourneyStore,
-  type ProfileProps,
   SchemaMismatchError,
   UserErasedError,
+  visitorSubject,
 } from '../store/index';
 import { TemplateValidationError } from '../templates';
 import { type Authorize, authorized } from './auth';
-import {
-  TS_ERROR,
-  ingestBatch,
-  isNonEmptyString,
-  isPlainObject,
-  isScalarOrNull,
-  isValidTs,
-  parseBatch,
-} from './batch';
+import { identityError, ingestBatch, isNonEmptyString, isPlainObject, parseBatch } from './batch';
 import { journeyMode } from './channels';
 import {
   BundleIntegrityError,
@@ -30,8 +22,6 @@ import {
   forgetUser,
   getSubscriptions,
   getSubscriptionsByMessage,
-  identifyUser,
-  ingestEvent,
   parseSubscriptionsPatch,
   registerDevice,
   removeDevice,
@@ -138,24 +128,6 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   return isPlainObject(body) ? body : {};
 }
 
-/** The contract's verdict: the value to use, or the response refusing the request. */
-function checked<T>(
-  validation: IngestValidation,
-  result: ContractResult<T>,
-  original: T,
-  what: string
-): { value: T } | { refused: Response } {
-  if (result.ok) return { value: result.data };
-  const issues = result.issues.map((i) => `${i.path || '(root)'}: ${i.message}`);
-  if (validation.mode === 'report') {
-    console.warn(`[workflow http] contract would refuse ${what}: ${issues.join('; ')}`);
-    return { value: original };
-  }
-  return {
-    refused: json({ error: `${what} refused by the contract`, issues: result.issues }, 400),
-  };
-}
-
 /**
  * The topics the engine knows: the deployed bundle's list (compiled from the contract), or the
  * contract's when the bare API runs without a host — never the caller's.
@@ -193,42 +165,6 @@ const routes: readonly Route[] = [
   },
   {
     method: 'POST',
-    path: '/events',
-    auth: 'api',
-    async handle({ request, env, store, validation }) {
-      const { id, userId, event, payload, ts } = await readBody(request);
-      if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
-        return json({ error: 'userId and event required' }, 400);
-      }
-      if (event.startsWith('$')) {
-        return json({ error: 'event names starting with $ are reserved' }, 400);
-      }
-      // An empty id is rejected rather than treated as absent: a caller that
-      // sent one meant to identify the occurrence, and silently minting a
-      // different one would turn their retry into a duplicate.
-      if (id !== undefined && !isNonEmptyString(id)) {
-        return json({ error: 'id must be a non-empty string' }, 400);
-      }
-      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
-      if (payload !== undefined && !isPlainObject(payload)) {
-        return json({ error: 'payload must be an object' }, 400);
-      }
-      let accepted = payload;
-      if (validation.contract !== undefined) {
-        const verdict = checked(
-          validation,
-          checkEvent(validation.contract, event, payload ?? {}),
-          accepted ?? {},
-          `event '${event}'${typeof id === 'string' ? ` (${id})` : ''}`
-        );
-        if ('refused' in verdict) return verdict.refused;
-        accepted = verdict.value;
-      }
-      return json(await ingestEvent(env, { id, userId, event, payload: accepted, ts }, store));
-    },
-  },
-  {
-    method: 'POST',
     path: '/ingest',
     auth: 'api',
     async handle({ request, env, store, validation }) {
@@ -242,47 +178,26 @@ const routes: readonly Route[] = [
   },
   {
     method: 'POST',
-    path: '/identify',
-    auth: 'api',
-    async handle({ request, env, store, validation }) {
-      const { userId, props } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
-      if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
-      // Profiles hold scalars only (both stores merge at the top level; a nested object would
-      // be merged differently by each): refused here, contract or not
-      if (!Object.values(props).every(isScalarOrNull)) {
-        return json(
-          { error: 'props values must be scalars (string, number, boolean) or null' },
-          400
-        );
-      }
-      let patch = props as ProfileProps;
-      if (validation.contract !== undefined) {
-        const verdict = checked(
-          validation,
-          validation.contract.parseProfilePatch(props),
-          patch,
-          'identify'
-        );
-        if ('refused' in verdict) return verdict.refused;
-        patch = verdict.value as ProfileProps;
-      }
-      return json(await identifyUser(env, userId, patch, store));
-    },
-  },
-  {
-    method: 'POST',
     path: '/devices',
     auth: 'api',
     async handle({ request, env, store }) {
-      const { userId, token, platform, ts } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      const { deviceId, userId, visitorId, token, platform } = await readBody(request);
+      const refused = identityError(userId, visitorId);
+      if (refused !== undefined) return json({ error: refused }, 400);
+      if (deviceId !== undefined && !isNonEmptyString(deviceId)) {
+        return json({ error: 'deviceId must be a non-empty string' }, 400);
+      }
       if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
       if (platform !== 'ios' && platform !== 'android' && platform !== 'web') {
         return json({ error: "platform must be 'ios', 'android' or 'web'" }, 400);
       }
-      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
-      const device = { userId, token, platform, ...(ts === undefined ? {} : { ts }) };
+      const device = {
+        deviceId,
+        userId: userId as string | undefined,
+        visitorId: visitorId as string | undefined,
+        token,
+        platform,
+      };
       return json(await registerDevice(env, device, store));
     },
   },
@@ -375,8 +290,11 @@ const routes: readonly Route[] = [
     path: '/users/forget',
     auth: 'api',
     async handle({ request, env, store }) {
-      const { userId } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      const { userId, visitorId } = await readBody(request);
+      if (isNonEmptyString(visitorId)) {
+        return json(await forgetUser(env, visitorSubject(visitorId), store));
+      }
+      if (!isNonEmptyString(userId)) return json({ error: 'userId or visitorId required' }, 400);
       return json(await forgetUser(env, userId, store));
     },
   },

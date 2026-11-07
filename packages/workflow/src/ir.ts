@@ -224,6 +224,7 @@ export const TriggerIR = z.discriminatedUnion('type', [
     event: z.string(),
     where: z.optional(ConditionIR),
     filter: z.optional(ConditionIR),
+    visitors: z.optional(z.literal(true)),
   }),
   z.object({ type: z.literal('segment'), segment: z.string() }),
   z.object({ type: z.literal('date'), at: z.string() }),

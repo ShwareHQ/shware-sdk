@@ -42,7 +42,7 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
   /**
    * The project's `workflow.config.ts` (`defineConfig`): what the host deploys (`GET /bundle`,
    * `POST /bundle/deploy` serve `compileConfig`), the template registries the senders, the
-   * validator and `/preview` render from, the contract every `/events` and `/identify` is
+   * validator and `/preview` render from, the contract every `/ingest` is
    * checked against, the email defaults, actions, and the runtime / APNs / FCM settings.
    * Secrets come from the env under the names `JourneyEnv` documents.
    */

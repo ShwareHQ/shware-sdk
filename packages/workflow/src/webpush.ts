@@ -11,7 +11,7 @@ import type { PushRenderer } from './push';
  * browser's push service accepts the same request, over HTTP/1.1 — with nothing but WebCrypto.
  *
  * The recipient is a browser's `PushSubscription` as JSON (`JSON.stringify(subscription)`),
- * registered like an app token (`registerDevice(userId, { token, platform: 'web' })`). The
+ * registered like an app token (`registerDevice({ userId, token, platform: 'web' })`). The
  * service worker receives `{ title, body, image?, url?, template, …tracking data }` as the push
  * event's JSON.
  */

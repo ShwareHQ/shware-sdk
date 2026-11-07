@@ -201,14 +201,14 @@ function isBetween(actual: ScalarIR | undefined, values: ScalarIR[] | undefined)
 /**
  * Wake-up channel for profile changes: a property predicate has no event name
  * of its own, so subscriptions use this reserved name and the ingest router
- * fires it on every /identify. The '$' prefix marks internal names — real
+ * fires it on every profile merge. The '$' prefix marks internal names — real
  * events may never use it (the router rejects them).
  */
 export const PROFILE_UPDATED_EVENT = '$profile_updated';
 
 /**
  * The wake-up channel for one profile property: `$profile_updated:<path>`. A property predicate
- * subscribes to its own property's channel, and `/identify` fires one per property it patched —
+ * subscribes to its own property's channel, and a merge fires one per property it patched —
  * so an identify that touches `plan` does not wake a wait on `email`.
  */
 export function profileUpdatedEvent(path: string): string {
@@ -225,7 +225,7 @@ export const DEVICES_UPDATED_EVENT = '$devices_updated';
  * The set of event names a condition cares about — what wait_until subscribes
  * to for wake-ups. `performed` contributes its event; a property predicate
  * contributes its property's channel (`profileUpdatedEvent(path)`, so an
- * /identify touching that property wakes the wait and one touching another
+ * a merge touching that property wakes the wait and one touching another
  * does not); `reachable` contributes the recipient property's channel, or the
  * device channel for push (in_app, slack and discord have no address to wait
  * on). Segment references are expanded, which is why a FactSource is needed to

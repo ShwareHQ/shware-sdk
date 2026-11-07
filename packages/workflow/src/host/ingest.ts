@@ -18,6 +18,7 @@ import {
   type SegmentTriggerRoute,
   type SuppressionChange,
   UserErasedError,
+  isVisitorSubject,
 } from '../store/index';
 import {
   InstanceNotFoundError,
@@ -167,6 +168,9 @@ async function startTriggeredJourneys(
 ): Promise<string[]> {
   const started: string[] = [];
   for (const route of await store.findTriggers(input.event)) {
+    // A visitor enters only where the workflow asked for them
+    if (isVisitorSubject(input.userId) && !route.visitors) continue;
+
     // where: the payload gate — evaluated against the incoming event first
     if (route.where !== null && !matchesWhere(input.payload, route.where)) continue;
 
@@ -228,6 +232,8 @@ async function refreshSegments(
   // A sweep loads each definition once for all its users, not once per user
   definitions = new Map<string, ConditionIR | undefined>()
 ): Promise<string[]> {
+  // Segments are about users: a visitor is not one until they sign in
+  if (isVisitorSubject(userId)) return [];
   const bySegment = new Map<string, { workflow: string; hash: string; version?: string }[]>(
     segments.map((name) => [name, []])
   );
@@ -640,28 +646,61 @@ export async function identifyUser(
 }
 
 export interface DeviceRegistration {
-  userId: string;
+  deviceId?: string | undefined;
+  userId?: string | undefined;
+  visitorId?: string | undefined;
   token: string;
   platform: string;
-  ts?: number;
 }
 
 /**
- * A push token registered for the user (or moved to them from another account: a token belongs
- * to one user at a time). Wakes the waits that read devices (`reachable('push')` inside
- * `waitUntil`), for the new owner and the previous one.
+ * The visitor signed in as the user: what the engine knows of them moves to the user, once. Their
+ * journeys carry on as the user's (`instanceOwner`), except one the user is already in, which
+ * stops. Answers nothing to do when already linked: every signed-in batch names its visitor.
+ */
+export async function linkVisitor(
+  env: JourneyEnv,
+  visitorId: string,
+  userId: string,
+  store: JourneyStore,
+  at = Date.now()
+): Promise<void> {
+  await refuseIfErased(store, userId);
+  const merge = await store.linkVisitor(visitorId, userId, at);
+  if (merge === null) return;
+  for (const instanceId of merge.dropped) await stopInstance(env, instanceId);
+  // What moved can settle what the user's journeys wait on, or put them in a segment
+  await wakeSubscribers(env, store, userId, [DEVICES_UPDATED_EVENT]);
+  await refreshSegmentTriggers(env, store, userId, at);
+}
+
+/**
+ * A push token registered for its current owner: the user, or before sign-in the visitor. The
+ * device holds only that, so a token moves to whoever registered it last. Wakes the waits that read
+ * devices (`reachable('push')` inside `waitUntil`), for the new owner and the previous one.
  */
 export async function registerDevice(
   env: JourneyEnv,
   device: DeviceRegistration,
   store: JourneyStore
 ): Promise<{ ok: true; woke: number }> {
-  await refuseIfErased(store, device.userId);
-  const previous = await store.removeDevice(device.token);
-  await store.upsertDevice({ ...device, ts: device.ts ?? Date.now() });
-  let woke = await wakeSubscribers(env, store, device.userId, [DEVICES_UPDATED_EVENT]);
-  if (previous !== undefined && previous !== device.userId) {
-    woke += await wakeSubscribers(env, store, previous, [DEVICES_UPDATED_EVENT]);
+  const { deviceId, userId, visitorId, token, platform } = device;
+  if (userId !== undefined && visitorId !== undefined) {
+    await linkVisitor(env, visitorId, userId, store);
+  }
+  const subject = userId ?? (await store.resolveVisitor(visitorId ?? ''));
+  await refuseIfErased(store, subject);
+  const previous = await store.upsertDevice({
+    deviceId,
+    userId: isVisitorSubject(subject) ? null : subject,
+    visitorId,
+    token,
+    platform,
+    at: Date.now(),
+  });
+  let woke = await wakeSubscribers(env, store, subject, [DEVICES_UPDATED_EVENT]);
+  for (const owner of previous) {
+    woke += await wakeSubscribers(env, store, owner, [DEVICES_UPDATED_EVENT]);
   }
   return { ok: true, woke };
 }

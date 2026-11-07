@@ -6,7 +6,7 @@ import {
 } from '@aws/durable-execution-sdk-js';
 import type { EngineStep } from '../engine/ports';
 import { isRetryable } from '../engine/retry';
-import type { ExecutionRegistry, JourneyStore } from '../store/index';
+import { type ExecutionRegistry, type JourneyStore, instanceOwner } from '../store/index';
 import type { LambdaApi } from './lambda-api';
 
 /**
@@ -82,7 +82,8 @@ export class AwsEngineStep implements EngineStep {
       async () => {
         // Rows first, then the callback: a wake that lands in between finds the rows and the
         // callback of the last wait — its completion is refused, and this wait checks the facts
-        await this.store.subscribe(this.instanceId, this.userId, events, Date.now());
+        const owner = await instanceOwner(this.store, this.instanceId, this.userId);
+        await this.store.subscribe(this.instanceId, owner, events, Date.now());
         await this.executions.armCallback(this.instanceId, {
           id: callbackId,
           generation,

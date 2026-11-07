@@ -137,7 +137,7 @@ const WRITES: Write[] = [
     tables: ['device'],
     refused: true,
     run: (store, userId) =>
-      store.upsertDevice({ token: `t-${userId}`, userId, platform: 'ios', ts: 1 }),
+      store.upsertDevice({ token: `t-${userId}`, userId, platform: 'ios', at: 1 }),
   },
   {
     name: 'addSegmentMember',
@@ -470,7 +470,7 @@ describe.skipIf(url === undefined || url === '')('Postgres user locks over two c
   test('after forgetUser the tables are empty at once, and a repeat is idempotent', async () => {
     await storeA.mergeProfile('u1', { plan: 'pro' });
     await storeA.insertEvent({ id: 'e', userId: 'u1', event: 'x', ts: 1, payload: {} });
-    await storeA.upsertDevice({ token: 't', userId: 'u1', platform: 'ios', ts: 1 });
+    await storeA.upsertDevice({ token: 't', userId: 'u1', platform: 'ios', at: 1 });
     await storeA.subscribe('h', 'u1', ['x'], 1);
     await storeA.addSegmentMember('s', 'u1', 1, ['w']);
     expect(await storeA.enterJourney(entry('u1', 'i1'))).toBe('entered');

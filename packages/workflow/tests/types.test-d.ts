@@ -383,20 +383,37 @@ performed(shared.events.purchase, (p) => gt(p.value, 10));
 performed(shared.events.login, (p) => eq(p.session, 'x'));
 
 const producer = new JourneyClient({ origin: 'https://w.test', contract: shared });
-void producer.track('u1', 'purchase', { transaction_id: 't', value: 1 }, { id: 'row' });
-void producer.track('u1', 'login', { method: 'email', extra: true });
+void producer.ingest({
+  userId: 'u1',
+  events: [{ event: 'purchase', payload: { transaction_id: 't', value: 1 }, id: 'row' }],
+});
+void producer.ingest({
+  visitorId: 'v1',
+  events: [{ event: 'login', payload: { method: 'email', extra: true } }],
+});
 // @ts-expect-error unknown event name
-void producer.track('u1', 'signup', {});
-// @ts-expect-error missing payload field
-void producer.track('u1', 'purchase', { transaction_id: 't' });
-// @ts-expect-error wrong payload type
-void producer.track('u1', 'purchase', { transaction_id: 't', value: '1' });
-void producer.identify('u1', { name: 'Ada', email: null });
+void producer.ingest({ userId: 'u1', events: [{ event: 'signup', payload: {} }] });
+void producer.ingest({
+  userId: 'u1',
+  // @ts-expect-error missing payload field
+  events: [{ event: 'purchase', payload: { transaction_id: 't' } }],
+});
+void producer.ingest({
+  userId: 'u1',
+  // @ts-expect-error wrong payload type
+  events: [{ event: 'purchase', payload: { transaction_id: 't', value: '1' } }],
+});
+void producer.ingest({ userId: 'u1', profile: { name: 'Ada', email: null } });
 // @ts-expect-error undeclared profile field in a patch
-void producer.identify('u1', { plan: 'pro' });
+void producer.ingest({ userId: 'u1', profile: { plan: 'pro' } });
+// @ts-expect-error neither a user nor a visitor
+void producer.ingest({ profile: { name: 'Ada' } });
 
 // without a contract the client stays untyped
-void new JourneyClient({ origin: 'https://w.test' }).track('u1', 'anything', { a: 1 });
+void new JourneyClient({ origin: 'https://w.test' }).ingest({
+  userId: 'u1',
+  events: [{ event: 'anything', payload: { a: 1 } }],
+});
 
 /* ------------------------------ emitted payloads ------------------------------- */
 

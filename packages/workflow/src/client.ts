@@ -3,8 +3,6 @@ import type { Contract, ContractIssue, ProfilePatch, Topic } from './contract';
 import type { BatchResult, JourneyBatch } from './host/batch';
 import {
   type DeployResult,
-  type IdentifyResult,
-  type IngestResult,
   type MessageSubscriptions,
   SUBSCRIPTION_CHANNELS,
   type Subscriptions,
@@ -21,8 +19,8 @@ import type { ProfileProps } from './store';
 
 export interface JourneyClientOptions<C extends Contract | undefined = undefined> {
   /**
-   * The shared `defineContract(...)`: types `track` (the event name picks the
-   * payload type) and `identify`, and checks both before anything is sent.
+   * The shared `defineContract(...)`: types `ingest` (the event name picks the payload type, the
+   * profile patch is the contract's), and checks both before anything is sent.
    */
   contract?: C;
   /** The journey Worker's origin, e.g. `https://workflow.example.com`. */
@@ -61,13 +59,6 @@ export class JourneyValidationError extends Error {
 }
 
 type EventsOf<C> = C extends Contract<infer E> ? E : never;
-/** Event names: the contract's, or any string without one. */
-export type ClientEventName<C> = [C] extends [undefined] ? string : keyof EventsOf<C> & string;
-type TrackArgs<C, K> = [C] extends [undefined]
-  ? [payload?: Record<string, unknown>, options?: TrackOptions]
-  : K extends keyof EventsOf<C>
-    ? [payload: core.input<EventsOf<C>[K]>, options?: TrackOptions]
-    : never;
 type IdentifyProps<C> = [C] extends [undefined]
   ? ProfileProps
   : C extends Contract<Record<string, core.$ZodObject>, infer P>
@@ -88,13 +79,6 @@ export type {
   SubscriptionsPatch,
 } from './host/ingest';
 
-export interface TrackOptions {
-  /** The occurrence's identity: a retry with the same id is recorded once. */
-  id?: string;
-  /** When it happened (epoch ms); the Worker's clock when omitted. */
-  ts?: number;
-}
-
 /** One event of a batch: with a contract, the name picks the payload type. */
 export type BatchEventInput<C> = [C] extends [undefined]
   ? { event: string; payload?: Record<string, unknown>; id?: string; ts?: number }
@@ -107,12 +91,21 @@ export type BatchEventInput<C> = [C] extends [undefined]
       };
     }[keyof EventsOf<C> & string];
 
-/** What the user's profile now says and what they just did, as one report. */
-export interface BatchInput<C> {
+/**
+ * Who a report or device is about: a signed-in user, or a visitor before sign-in (a stable id for
+ * one client, renewed when a user signs out). Naming both says this visitor is this user: what the
+ * engine knows of the visitor moves to the user, once.
+ */
+export type JourneyIdentity =
+  | { userId: string; visitorId?: string | undefined }
+  | { userId?: undefined; visitorId: string };
+
+/** What the profile now says and what they just did, as one report. */
+export type BatchInput<C> = JourneyIdentity & {
   /** Merged before the first event: a journey the events start finds this recipient. */
   profile?: IdentifyProps<C>;
   events?: readonly BatchEventInput<C>[];
-}
+};
 
 /**
  * The batch as it travels: checked against the contract, with the time and the event ids and
@@ -120,10 +113,11 @@ export interface BatchInput<C> {
  */
 function prepareBatch<C extends Contract | undefined>(
   contract: C,
-  userId: string,
   input: BatchInput<C>
 ): JourneyBatch {
-  const { profile, events } = input as {
+  const { userId, visitorId, profile, events } = input as {
+    userId?: string;
+    visitorId?: string;
     profile?: ProfileProps;
     events?: readonly {
       event: string;
@@ -144,7 +138,8 @@ function prepareBatch<C extends Contract | undefined>(
   }
   const now = Date.now();
   return {
-    userId,
+    ...(userId === undefined ? {} : { userId }),
+    ...(visitorId === undefined ? {} : { visitorId }),
     ...(profile === undefined ? {} : { profile, at: now }),
     ...(events === undefined
       ? {}
@@ -181,8 +176,8 @@ export interface JourneyQueueOptions<C extends Contract | undefined = undefined>
 export class JourneyQueue<C extends Contract | undefined = undefined> {
   constructor(private readonly options: JourneyQueueOptions<C>) {}
 
-  async ingest(userId: string, input: BatchInput<C>): Promise<void> {
-    await this.options.queue.send(prepareBatch(this.options.contract as C, userId, input));
+  async ingest(input: BatchInput<C>): Promise<void> {
+    await this.options.queue.send(prepareBatch(this.options.contract as C, input));
   }
 }
 
@@ -190,72 +185,30 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
   constructor(private readonly options: JourneyClientOptions<C>) {}
 
   /**
-   * Report a profile and the events it belongs to as one batch: the profile is merged first, then
-   * the events in order. Prefer this to `identify` then `track`: a journey cannot start without
-   * its recipient. A caller that retries should pass each event's `id`, as with `track`.
-   * `JourneyQueue` is the same report through a queue.
+   * The one way in: a profile and the events it belongs to, as one batch. A visitor who signed in
+   * merges first, then the profile, then the events in order, so a journey cannot start without
+   * its recipient. A caller that retries should pass each event's `id`: the Worker stores one
+   * occurrence per id. `ts` defaults to now. `JourneyQueue` is the same report through a queue.
    */
-  async ingest(userId: string, input: BatchInput<C>): Promise<BatchResult> {
-    return this.post<BatchResult>(
-      '/ingest',
-      prepareBatch(this.options.contract as C, userId, input)
-    );
-  }
-
-  /** Merge profile properties (`null` clears one). Every property a journey reads must be identified before the event that starts it. */
-  identify(userId: string, props: IdentifyProps<C>): Promise<IdentifyResult> {
-    const contract = this.options.contract;
-    if (contract !== undefined) {
-      const result = contract.parseProfilePatch(props);
-      if (!result.ok)
-        return Promise.reject(new JourneyValidationError('/identify', undefined, result.issues));
-    }
-    return this.post<IdentifyResult>('/identify', { userId, props });
+  async ingest(input: BatchInput<C>): Promise<BatchResult> {
+    return this.post<BatchResult>('/ingest', prepareBatch(this.options.contract as C, input));
   }
 
   /**
-   * Record an event; the Worker starts every journey whose trigger matches it
-   * and wakes waits on it. A caller that retries should pass the same `id`
-   * each time: the Worker stores one occurrence per id, so a retry after a
-   * timeout cannot double-count the event. `ts` defaults to the Worker's clock.
-   */
-  track<K extends ClientEventName<C>>(
-    userId: string,
-    event: K,
-    ...args: TrackArgs<C, K>
-  ): Promise<IngestResult> {
-    const [payload = {}, options = {}] = args as [Record<string, unknown>?, TrackOptions?];
-    const contract = this.options.contract;
-    if (contract !== undefined) {
-      const result = contract.parseEvent(event, payload);
-      if (!result.ok)
-        return Promise.reject(new JourneyValidationError('/events', event, result.issues));
-    }
-    return this.post<IngestResult>('/events', {
-      userId,
-      event,
-      payload,
-      ...(options.id === undefined ? {} : { id: options.id }),
-      ...(options.ts === undefined ? {} : { ts: options.ts }),
-    });
-  }
-
-  /**
-   * A push token the app registered for the user (call it on every registration: a token moves
-   * to the latest user). The engine keeps devices itself — pushes go to them, a token APNs / FCM
-   * reports as gone is dropped — and journeys waiting on `reachable('push')` wake.
+   * A push token registered for whoever holds the device now (call it on every registration): a
+   * token moves to the latest owner, and a `deviceId` seen with a new token replaces the old one.
+   * The engine keeps devices itself — pushes go to them, a token APNs / FCM reports as gone is
+   * dropped — and journeys waiting on `reachable('push')` wake. Naming both ids merges the visitor,
+   * as `ingest` does.
    */
   registerDevice(
-    userId: string,
-    device: { token: string; platform: 'ios' | 'android' | 'web'; ts?: number }
+    device: JourneyIdentity & {
+      deviceId?: string;
+      token: string;
+      platform: 'ios' | 'android' | 'web';
+    }
   ): Promise<{ ok: true; woke: number }> {
-    const { token, platform, ts } = device;
-    return this.post('/devices', {
-      userId,
-      token,
-      platform,
-      ...(ts === undefined ? {} : { ts }),
-    });
+    return this.post('/devices', device);
   }
 
   /**
@@ -274,6 +227,11 @@ export class JourneyClient<C extends Contract | undefined = undefined> {
    */
   forgetUser(userId: string): Promise<{ ok: true; erased: boolean; pending: string[] }> {
     return this.post('/users/forget', { userId });
+  }
+
+  /** `forgetUser` for a visitor who never signed in. */
+  forgetVisitor(visitorId: string): Promise<{ ok: true; erased: boolean; pending: string[] }> {
+    return this.post('/users/forget', { visitorId });
   }
 
   /** The user signed out on that device: the token stays registered, bound to nobody. */

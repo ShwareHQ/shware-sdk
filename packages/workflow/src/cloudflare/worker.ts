@@ -28,7 +28,7 @@ export type JourneyWorkerOptions<Env extends JourneyEnv> = JourneyHostOptions<En
 export interface JourneyWorker<Env extends JourneyEnv> {
   /** Export this under the `class_name` of the wrangler `workflows` binding. */
   Runner: new (...args: never[]) => JourneyRunner;
-  /** The Worker's fetch handler: `/health`, `/ingest`, `/events`, `/identify`, `/devices`, `/messages/opened`, `/segments/sweep`, `/t/*` (email tracking), `/deploy`, `/bundle`, `/bundle/deploy` and `/preview/*`. */
+  /** The Worker's fetch handler: `/health`, `/ingest`, `/devices`, `/messages/opened`, `/segments/sweep`, `/t/*` (email tracking), `/deploy`, `/bundle`, `/bundle/deploy` and `/preview/*`. */
   fetch: (request: Request, env: Env, ctx?: ExecutionContextLike) => Promise<Response>;
   /**
    * The segment sweep (`sweepSegments`): membership of every deployed segment for every known

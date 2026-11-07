@@ -15,7 +15,7 @@ import { type JourneyRunParts, executeJourney } from '../host/execute';
 import { type JourneyEnv, type JourneyParams, WAKE_EVENT_TYPE } from '../host/platform';
 import { LogMessageSender, WebhookMessageSender } from '../host/senders';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
-import type { JourneyStore } from '../store/index';
+import { type JourneyStore, instanceOwner } from '../store/index';
 import { cloudflareJourneyBinding, wakeExpired } from './bindings';
 
 /**
@@ -63,7 +63,9 @@ class CfEngineStep implements EngineStep {
     // Idempotent in the store: the interpreter re-subscribes on every wait
     // attempt (one-shot-callback contract) and registrations persist here.
     return this.step.do(name, () =>
-      this.store.subscribe(this.instanceId, this.userId, events, Date.now())
+      instanceOwner(this.store, this.instanceId, this.userId).then((owner) =>
+        this.store.subscribe(this.instanceId, owner, events, Date.now())
+      )
     );
   }
 

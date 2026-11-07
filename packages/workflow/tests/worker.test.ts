@@ -99,12 +99,17 @@ describe('journeyWorker fetch', () => {
       workflows: [expect.objectContaining({ id: 'welcome' })],
     });
 
-    const ingest = await call('/events', {
+    const ingest = await call('/ingest', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ userId: 'u1', event: 'login', payload: { method: 'email' } }),
+      body: JSON.stringify({
+        userId: 'u1',
+        events: [{ event: 'login', payload: { method: 'email' } }],
+      }),
     });
-    expect(await ingest.json()).toMatchObject({ stored: true, started: [expect.any(String)] });
+    expect(await ingest.json()).toMatchObject({
+      events: [{ stored: true, started: [expect.any(String)] }],
+    });
     expect(journey.created).toHaveLength(1);
 
     // Every request released its lease (no execution context: closed inline)

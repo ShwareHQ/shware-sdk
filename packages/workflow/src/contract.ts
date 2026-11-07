@@ -13,8 +13,8 @@ import { type EventRefs, type UserRefs, event, user } from './dsl';
  *   topic the contract does not declare;
  * - `JourneyClient({ contract })` types `track` / `identify` by event name and
  *   checks payloads before sending, and `getSubscriptions` / `setSubscriptions` by topic;
- * - `journeyWorker({ contract })` re-validates every inbound `/events`,
- *   `/identify` and `/subscriptions` — never trusting the caller used the SDK — and refuses a bad
+ * - `journeyWorker({ contract })` re-validates every inbound `/ingest`
+ *   and `/subscriptions` — never trusting the caller used the SDK — and refuses a bad
  *   one with a 4xx before anything is stored, woken or started.
  *
  * Supported schemas (v1), synchronous and JSON-shaped: event payloads are
@@ -89,7 +89,7 @@ export interface Contract<
     payload: unknown
   ): ContractResult<core.output<E[K]>>;
   /**
-   * Validate an `/identify` merge patch: omitted fields stay as they are,
+   * Validate a profile merge patch: omitted fields stay as they are,
    * `null` removes a field, every provided value is checked against its field
    * schema, and an undeclared field is refused — a patch, never a full parse
    * that would fill defaults over fields the caller did not send.
@@ -97,7 +97,7 @@ export interface Contract<
   parseProfilePatch(patch: unknown): ContractResult<ProfilePatch<P>>;
 }
 
-/** An `/identify` patch over the profile: any subset of fields, `null` to remove one. */
+/** A patch over the profile: any subset of fields, `null` to remove one. */
 export type ProfilePatch<P> = { [K in keyof DeclaredOutput<P>]?: DeclaredOutput<P>[K] | null };
 
 /** Payload type of one event, for producers: `EventPayload<typeof contract, 'purchase'>`. */

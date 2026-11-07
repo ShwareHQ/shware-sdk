@@ -59,6 +59,11 @@ interface GoalState {
   convertedAt?: number;
 }
 
+/** Who a message or report is about now: a journey started by a visitor moves when they sign in. */
+function ownerOf(ctx: JourneyContext): Promise<string> {
+  return ctx.currentUserId?.() ?? Promise.resolve(ctx.userId);
+}
+
 const goalStates = new WeakMap<JourneyContext, GoalState>();
 
 function goalState(ctx: JourneyContext): GoalState {
@@ -137,7 +142,7 @@ async function started(ir: WorkflowIR, ctx: JourneyContext): Promise<void> {
     await observer.started?.({
       workflow: ir.id,
       instanceId: ctx.instanceId,
-      userId: ctx.userId,
+      userId: await ownerOf(ctx),
       at: ctx.enteredAtMs,
     });
   });
@@ -154,7 +159,7 @@ async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
     await observer.nodeReached?.({
       workflow: ir.id,
       instanceId: ctx.instanceId,
-      userId: ctx.userId,
+      userId: await ownerOf(ctx),
       nodeId: node.id,
       at: Date.now(),
     });
@@ -305,7 +310,7 @@ async function sendPush(
           channel: 'push',
           template: node.template,
           props: plan.props,
-          userId: ctx.userId,
+          userId: await ownerOf(ctx),
           recipient: device.token,
           device,
           idempotencyKey: `${ctx.instanceId}:${node.id}:${device.token}`,
@@ -339,7 +344,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             channel: node.channel,
             template: node.template,
             props,
-            userId: ctx.userId,
+            userId: await ownerOf(ctx),
             recipient: recipient === undefined ? undefined : String(recipient),
             idempotencyKey: `${ctx.instanceId}:${node.id}`,
             ...topicOf(node),
@@ -466,7 +471,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         await invoker.invoke({
           action: node.action,
           args,
-          userId: ctx.userId,
+          userId: await ownerOf(ctx),
           idempotencyKey: `${ctx.instanceId}:${node.id}`,
         });
       });

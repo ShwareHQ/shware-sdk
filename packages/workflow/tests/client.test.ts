@@ -14,33 +14,38 @@ function stub(status: number, body: unknown) {
 }
 
 describe('JourneyClient', () => {
-  test('identify and track post JSON with the bearer to the Worker', async () => {
+  test('ingest posts JSON with the bearer to the Worker', async () => {
     const { calls, fetchFn } = stub(200, { id: 'evt-1', stored: true, woke: 0, started: [] });
     const client = new JourneyClient({ origin: 'https://wf.example/', token: 't', fetch: fetchFn });
 
-    await client.identify('u1', { email: 'a@example.com', plan: null });
-    const result = await client.track('u1', 'login', { method: 'email' }, { id: 'evt-1' });
+    const result = await client.ingest({
+      userId: 'u1',
+      profile: { email: 'a@example.com', plan: null },
+      events: [{ event: 'login', payload: { method: 'email' }, id: 'evt-1', ts: 5 }],
+    });
 
     expect(result).toEqual({ id: 'evt-1', stored: true, woke: 0, started: [] });
-    expect(calls.map((c) => c.url)).toEqual([
-      'https://wf.example/identify',
-      'https://wf.example/events',
-    ]);
+    expect(calls.map((c) => c.url)).toEqual(['https://wf.example/ingest']);
     expect(calls[0]?.init.headers).toMatchObject({ authorization: 'Bearer t' });
-    expect(JSON.parse(calls[1]?.init.body as string)).toEqual({
-      id: 'evt-1',
+    expect(JSON.parse(calls[0]?.init.body as string)).toEqual({
       userId: 'u1',
-      event: 'login',
-      payload: { method: 'email' },
+      profile: { email: 'a@example.com', plan: null },
+      at: expect.any(Number),
+      events: [{ event: 'login', payload: { method: 'email' }, id: 'evt-1', ts: 5 }],
     });
   });
 
-  test('registerDevice posts the token, the platform and, when given, the registration time', async () => {
+  test('registerDevice posts who holds the device, its id, the token and the platform', async () => {
     const { calls, fetchFn } = stub(200, { ok: true, woke: 0 });
     const client = new JourneyClient({ origin: 'https://wf.example', fetch: fetchFn });
 
-    await client.registerDevice('u1', { token: 'tok', platform: 'ios' });
-    await client.registerDevice('u1', { token: 'tok', platform: 'ios', ts: 1_700_000_000_000 });
+    await client.registerDevice({ userId: 'u1', token: 'tok', platform: 'ios' });
+    await client.registerDevice({
+      visitorId: 'v1',
+      deviceId: 'd1',
+      token: 'tok',
+      platform: 'ios',
+    });
 
     expect(calls.map((c) => c.url)).toEqual([
       'https://wf.example/devices',
@@ -52,10 +57,10 @@ describe('JourneyClient', () => {
       platform: 'ios',
     });
     expect(JSON.parse(calls[1]?.init.body as string)).toEqual({
-      userId: 'u1',
+      visitorId: 'v1',
+      deviceId: 'd1',
       token: 'tok',
       platform: 'ios',
-      ts: 1_700_000_000_000,
     });
   });
 
@@ -63,10 +68,10 @@ describe('JourneyClient', () => {
     const { fetchFn } = stub(401, { error: 'unauthorized' });
     const client = new JourneyClient({ origin: 'https://wf.example', fetch: fetchFn });
 
-    await expect(client.track('u1', 'login')).rejects.toBeInstanceOf(JourneyClientError);
-    await expect(client.track('u1', 'login')).rejects.toMatchObject({
+    await expect(client.ingest({ userId: 'u1' })).rejects.toBeInstanceOf(JourneyClientError);
+    await expect(client.ingest({ userId: 'u1' })).rejects.toMatchObject({
       status: 401,
-      path: '/events',
+      path: '/ingest',
     });
   });
 });
