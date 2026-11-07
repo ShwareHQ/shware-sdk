@@ -6,12 +6,15 @@ import { Buffer } from 'node:buffer';
  * drizzle — the app wraps whichever it already uses in a few lines:
  *
  *   const client: SqlClientLike = {
- *     query: (text, params) => sql.unsafe(text, params),          // postgres.js
- *     transaction: (fn) => sql.begin((tx) => fn(wrap(tx))),
+ *     query: (text, params) => pg.query(text, params).then((r) => r.rows),   // pg
+ *     transaction: (fn) => withTransaction((tx) => fn(wrap(tx))),
  *   };
  *
- * jsonb columns may come back parsed (postgres.js, pg) or as strings (some
- * drivers); both are accepted.
+ * For postgres.js use `postgresJsClient` (`@shware/workflow/postgres-js`): its
+ * `unsafe` sends a JS array parameter as `String(array)`, which the store's
+ * `= ANY($1::text[])` queries reject, so that wrapper writes arrays as Postgres
+ * array literals. jsonb columns may come back parsed (postgres.js, pg) or as
+ * strings (some drivers); both are accepted.
  */
 export interface SqlClientLike {
   query<T = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<T[]>;

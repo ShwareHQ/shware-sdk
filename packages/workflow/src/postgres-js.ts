@@ -12,6 +12,21 @@ import {
  * you use it). On Cloudflare the connection string is Hyperdrive's.
  */
 
+/**
+ * A JS array as a Postgres array literal (`{"a","b"}`), one level deep. `sql.unsafe` sends an
+ * array parameter as `String(array)` (`a,b`, and `''` for an empty one), which `$1::text[]`
+ * rejects with "malformed array literal"; the literal form parses whatever the column type.
+ */
+export function pgArrayLiteral(
+  items: readonly (string | number | bigint | boolean | null | undefined)[]
+): string {
+  const element = (item: (typeof items)[number]) =>
+    item === null || item === undefined
+      ? 'NULL'
+      : `"${String(item).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  return `{${items.map(element).join(',')}}`;
+}
+
 /** postgres.js → the store's minimal client. Inside `begin` every statement runs on the transaction client; the store never nests, so an inner `transaction` continues on the same one. */
 export function postgresJsClient(
   sql: postgres.Sql | postgres.TransactionSql,
@@ -19,7 +34,14 @@ export function postgresJsClient(
 ): SqlClientLike {
   return {
     query: <T>(text: string, params: readonly unknown[] = []) =>
-      sql.unsafe(text, params as never) as unknown as Promise<T[]>,
+      sql.unsafe(
+        text,
+        params.map((param) =>
+          Array.isArray(param)
+            ? pgArrayLiteral(param as Parameters<typeof pgArrayLiteral>[0])
+            : param
+        ) as never
+      ) as unknown as Promise<T[]>,
     transaction: <T>(fn: (tx: SqlClientLike) => Promise<T>) =>
       inTransaction
         ? fn(postgresJsClient(sql, true))

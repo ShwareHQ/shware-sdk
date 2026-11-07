@@ -484,7 +484,7 @@ describe.skipIf(url === undefined || url === '')('Postgres user locks over two c
     const id = await storeA.reporting.recordMessage(copy('u1', 'k1'));
     await storeA.reporting.recordLinks(id, ['https://example.com/a']);
     expect(await storeA.reporting.recordOpen(id, () => person(2))).toBe(true);
-    expect(await storeA.reporting.recordUnsubscribe(id, 3)).toEqual({ userId: 'u1' });
+    expect(await storeA.reporting.recordUnsubscribe(id, 3)).toEqual({ topic: null, userId: 'u1' });
     const userTables = [
       'profile',
       'event',
@@ -504,8 +504,10 @@ describe.skipIf(url === undefined || url === '')('Postgres user locks over two c
     for (const table of [...userTables, 'message_link', 'message_open']) {
       expect(await count(table)).toBe(0);
     }
-    // The opt-out outlives the erasure; the tombstone keeps the first erase's time
-    expect(await storeB.isSuppressed('u1', 'email')).toBe(true);
+    // The opt-out goes with the rows: the tombstone is what keeps the id from being sent to
+    // again, and it keeps the first erase's time
+    expect(await count('suppression')).toBe(0);
+    expect(await storeB.isSuppressed('u1', 'email')).toBe(false);
     const erasedAt = async () =>
       (
         await b.unsafe(
