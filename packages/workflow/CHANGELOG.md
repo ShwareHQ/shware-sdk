@@ -1,5 +1,16 @@
 # @shware/workflow
 
+## 8.0.0
+
+### Major Changes
+
+- 6c9f317: Replace `track` and `identify`, with `POST /events` and `POST /identify`, by one write: `ingest({ userId, visitorId, profile, events })` on `JourneyClient` and `POST /ingest`, which merges a visitor, then the profile, then records the events in order. `JourneyQueue` with `journeyWorker`'s `queue` handler carries the same batch through Cloudflare Queues with retries. Regenerate the schema and migrate before deploying: `profile` gains `props_at`, so a redelivered patch can't overwrite a newer property.
+- 6c9f317: Add visitors: journeys can reach someone before sign-in through `visitorId`, for workflows that opt in with `trigger.event(e.x, { visitors: true })`. Naming `userId` and `visitorId` together moves the visitor's events, profile, devices, opt-outs and journeys to the user, once. `registerDevice` now takes one object with `deviceId`, `userId` and `visitorId`, and no `ts`; each device row holds only its current owner. Migrate: `device` gains `device_id`, `visitor_id`, `created_at` and `updated_at` and loses `ts`, `trigger` gains `visitors`, and there is a new `visitor` table. Visitors who never sign in are pruned after 90 days idle.
+
+### Patch Changes
+
+- 6c9f317: Anchor a journey's goal at when its trigger happened, so a purchase made while a delayed `begin_checkout` was being delivered ends the journey instead of counting as earlier history.
+
 ## 7.0.0
 
 ### Major Changes
