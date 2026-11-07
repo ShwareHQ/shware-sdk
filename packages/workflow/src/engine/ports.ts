@@ -289,6 +289,8 @@ export interface JourneyContext {
    * Date.now() at run time.
    */
   enteredAtMs: number;
+  /** Who the instance belongs to now, for one that can change hands; `userId` otherwise. */
+  currentUserId?: (() => Promise<string>) | undefined;
   step: EngineStep;
   facts: FactSource;
   messages: MessageSender;

@@ -1,6 +1,7 @@
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
 import { type ErasureState, UserErasedError } from './erasure';
+import { visitorIdOf, visitorSubject } from './identity';
 import type {
   BundleVersion,
   DeviceInput,
@@ -21,6 +22,7 @@ import type {
   SuppressionChange,
   TriggerRoute,
   UnadmittedEntry,
+  VisitorMerge,
 } from './index';
 import { PostgresReporting } from './postgres-reporting';
 import { type SqlClientLike, uuidv7 } from './sql';
@@ -33,7 +35,13 @@ import {
   indexName,
   uniqueConstraintName,
 } from './tables';
-import { lockUserTransaction } from './user-lock';
+import { beginReadCommitted, lockUser, lockUserTransaction } from './user-lock';
+
+/** Who a device row belongs to: its user, or before sign-in its visitor. */
+function deviceOwner(row: { user_id: string | null; visitor_id: string | null }) {
+  if (row.user_id !== null) return row.user_id;
+  return row.visitor_id === null ? undefined : visitorSubject(row.visitor_id);
+}
 
 export { DEFAULT_SCHEMA } from './tables';
 export { type SqlClientLike, uuidv7 } from './sql';
@@ -303,20 +311,35 @@ export class PostgresJourneyStore implements JourneyStore {
     return row === undefined ? undefined : asJson<ProfileProps>(row.props);
   }
 
-  async mergeProfile(userId: string, props: ProfileProps): Promise<ProfileProps> {
-    // RFC 7386 merge-patch in one statement: jsonb `||` overwrites key by key
-    // and jsonb_strip_nulls then drops the keys the patch set to null (the
-    // API's only way to unset a property). Atomic in the database, so two
-    // concurrent identifies cannot lose each other's keys.
+  async mergeProfile(
+    userId: string,
+    props: ProfileProps,
+    at: number = Date.now()
+  ): Promise<ProfileProps> {
+    // RFC 7386 merge-patch: jsonb `||` overwrites key by key and jsonb_strip_nulls then drops the
+    // keys the patch set to null (the API's only way to unset a property). Under the user's lock,
+    // so two concurrent identifies cannot lose each other's keys; a key written later than `at`
+    // keeps its value, cleared ones included (their time stays in props_at).
     return this.sql.transaction(async (tx) => {
       await this.lockUser(tx, userId);
+      const existing = await tx.query<{ props_at: unknown }>(
+        `SELECT props_at FROM ${this.t.profile} WHERE user_id = $1`,
+        [userId]
+      );
+      const times = asJson<Record<string, number> | null>(existing[0]?.props_at ?? null) ?? {};
+      const patch = Object.fromEntries(
+        Object.entries(props).filter(([key]) => (times[key] ?? Number.NEGATIVE_INFINITY) <= at)
+      );
+      const stamped = { ...times, ...Object.fromEntries(Object.keys(patch).map((k) => [k, at])) };
       const rows = await tx.query<{ props: unknown }>(
-        `INSERT INTO ${this.t.profile} (user_id, props)
-         SELECT $1, jsonb_strip_nulls($2::text::jsonb) ${this.notErased('$1')}
-         ON CONFLICT (user_id) DO UPDATE SET props = jsonb_strip_nulls(${this.t.profile}.props || $3::text::jsonb)
+        `INSERT INTO ${this.t.profile} (user_id, props, props_at)
+         SELECT $1, jsonb_strip_nulls($2::text::jsonb), $4::text::jsonb ${this.notErased('$1')}
+         ON CONFLICT (user_id) DO UPDATE SET
+           props = jsonb_strip_nulls(${this.t.profile}.props || $3::text::jsonb),
+           props_at = $4::text::jsonb
          RETURNING props`,
         // EXCLUDED.props would be the stripped insert value, so the update merges the raw patch again
-        [userId, JSON.stringify(props), JSON.stringify(props)]
+        [userId, JSON.stringify(patch), JSON.stringify(patch), JSON.stringify(stamped)]
       );
       // The upsert always yields its row — unless the tombstone refused it
       if (rows.length === 0) throw new UserErasedError(userId);
@@ -330,10 +353,11 @@ export class PostgresJourneyStore implements JourneyStore {
   }): Promise<string[]> {
     // Ascending user_id with a keyset bound, so a sweep can resume past the last id it saw
     const params: unknown[] = [];
-    let where = '';
+    // Segments are about users: a visitor is not one until they sign in
+    let where = ` WHERE user_id NOT LIKE '${visitorSubject('')}%'`;
     if (page?.after !== undefined) {
       params.push(page.after);
-      where = ` WHERE user_id > $${params.length}`;
+      where += ` AND user_id > $${params.length}`;
     }
     let limit = '';
     if (page?.limit !== undefined) {
@@ -347,25 +371,231 @@ export class PostgresJourneyStore implements JourneyStore {
     return rows.map((row) => row.user_id);
   }
 
-  listDevices(userId: string): Promise<PushDevice[]> {
+  listDevices(subject: string): Promise<PushDevice[]> {
+    const visitorId = visitorIdOf(subject);
     return this.sql.query<PushDevice>(
-      `SELECT token, platform FROM ${this.t.device} WHERE user_id = $1 ORDER BY ts DESC`,
-      [userId]
+      visitorId === undefined
+        ? `SELECT token, platform FROM ${this.t.device} WHERE user_id = $1 ORDER BY updated_at DESC`
+        : // A device a user has taken over is theirs, whichever visitor it still names
+          `SELECT token, platform FROM ${this.t.device} WHERE visitor_id = $1 AND user_id IS NULL ORDER BY updated_at DESC`,
+      [visitorId ?? subject]
     );
   }
 
-  async upsertDevice(device: DeviceInput): Promise<void> {
-    await this.sql.transaction(async (tx) => {
-      await this.lockUser(tx, device.userId);
-      const rows = await tx.query(
-        `INSERT INTO ${this.t.device} (token, user_id, platform, ts)
-         SELECT $1, $2, $3, ${TS('$4')} ${this.notErased('$2')}
-         ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, ts = EXCLUDED.ts
-         RETURNING token`,
-        [device.token, device.userId, device.platform, device.ts]
+  async upsertDevice(device: DeviceInput): Promise<string[]> {
+    const { deviceId = null, userId, visitorId = null, token, platform, at } = device;
+    const subject = userId ?? visitorSubject(visitorId ?? '');
+    return this.sql.transaction(async (tx) => {
+      await this.lockUser(tx, subject);
+      // Who held this token, or this device under an older token: their device waits must wake
+      const previous = await tx.query<{
+        token: string;
+        user_id: string | null;
+        visitor_id: string | null;
+      }>(
+        `SELECT token, user_id, visitor_id FROM ${this.t.device} WHERE token = $1 OR device_id = $2 FOR UPDATE`,
+        [token, deviceId]
       );
-      if (rows.length === 0) throw new UserErasedError(device.userId);
+      // A device id is only the client's word. A new token replaces the old one for the same owner
+      // or for nobody; someone else's token keeps working, it only stops naming this device.
+      for (const row of previous) {
+        if (row.token === token) continue;
+        const owner = deviceOwner(row);
+        await tx.query(
+          owner === undefined || owner === subject
+            ? `DELETE FROM ${this.t.device} WHERE token = $1`
+            : `UPDATE ${this.t.device} SET device_id = NULL WHERE token = $1`,
+          [row.token]
+        );
+      }
+      const rows = await tx.query(
+        `INSERT INTO ${this.t.device} (device_id, user_id, visitor_id, token, platform, created_at, updated_at)
+         SELECT $1, $2, $3, $4, $5, ${TS('$6')}, ${TS('$6')} ${this.notErased('$7')}
+         ON CONFLICT (token) DO UPDATE SET
+           device_id = COALESCE(EXCLUDED.device_id, ${this.t.device}.device_id),
+           user_id = EXCLUDED.user_id,
+           visitor_id = COALESCE(EXCLUDED.visitor_id, ${this.t.device}.visitor_id),
+           platform = EXCLUDED.platform,
+           updated_at = EXCLUDED.updated_at
+         RETURNING token`,
+        [deviceId, userId, visitorId, token, platform, at, subject]
+      );
+      if (rows.length === 0) throw new UserErasedError(subject);
+      const owners = previous.flatMap((row) => {
+        const owner = deviceOwner(row);
+        return owner === undefined || owner === subject ? [] : [owner];
+      });
+      return [...new Set(owners)];
     });
+  }
+
+  async linkedUser(visitorId: string): Promise<string | undefined> {
+    const rows = await this.sql.query<{ user_id: string | null }>(
+      `SELECT user_id FROM ${this.t.visitor} WHERE visitor_id = $1`,
+      [visitorId]
+    );
+    return rows[0]?.user_id ?? undefined;
+  }
+
+  async touchVisitor(visitorId: string, at: number): Promise<string> {
+    const rows = await this.sql.query<{ user_id: string | null }>(
+      `INSERT INTO ${this.t.visitor} (visitor_id, user_id, created_at, updated_at)
+       VALUES ($1, NULL, ${TS('$2')}, ${TS('$2')})
+       ON CONFLICT (visitor_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+       RETURNING user_id`,
+      [visitorId, at]
+    );
+    return rows[0]?.user_id ?? visitorSubject(visitorId);
+  }
+
+  async pruneVisitors(before: number, limit: number): Promise<number> {
+    const idle = `user_id IS NULL AND updated_at < ${TS('$1')} AND NOT EXISTS (
+      SELECT 1 FROM ${this.t.entry} e
+      WHERE e.user_id = '${visitorSubject('')}' || visitor_id AND e.status = 'running')`;
+    const candidates = await this.sql.query<{ visitor_id: string }>(
+      `SELECT visitor_id FROM ${this.t.visitor} WHERE ${idle} ORDER BY updated_at LIMIT $2`,
+      [before, limit]
+    );
+    let pruned = 0;
+    for (const { visitor_id: visitorId } of candidates) {
+      const subject = visitorSubject(visitorId);
+      await this.sql.transaction(async (tx) => {
+        await this.lockUser(tx, subject);
+        // Asked again under the lock: they may have come back, or signed in, since the list
+        const gone = await tx.query(
+          `DELETE FROM ${this.t.visitor} WHERE visitor_id = $2 AND ${idle} RETURNING visitor_id`,
+          [before, visitorId]
+        );
+        if (gone.length === 0) return;
+        await this.deleteSubjectRows(tx, subject);
+        pruned += 1;
+      });
+    }
+    return pruned;
+  }
+
+  async entryOwner(instanceId: string): Promise<string | undefined> {
+    const rows = await this.sql.query<{ user_id: string }>(
+      `SELECT user_id FROM ${this.t.entry} WHERE instance_id = $1`,
+      [instanceId]
+    );
+    return rows[0]?.user_id;
+  }
+
+  async linkVisitor(visitorId: string, userId: string, at: number): Promise<VisitorMerge | null> {
+    const subject = visitorSubject(visitorId);
+    // The common case, every signed-in batch: no lock taken
+    if ((await this.linkedUser(visitorId)) !== undefined) return null;
+    return this.sql.transaction(async (tx) => {
+      await beginReadCommitted(tx);
+      // In one order, so two merges cannot deadlock
+      for (const key of [subject, userId].sort()) {
+        await lockUser(tx, this.schema, key);
+      }
+      const linked = await tx.query(
+        `INSERT INTO ${this.t.visitor} (visitor_id, user_id, created_at, updated_at)
+         SELECT $1, $2, ${TS('$3')}, ${TS('$3')} ${this.notErased('$2')}
+         ON CONFLICT (visitor_id) DO UPDATE SET user_id = EXCLUDED.user_id, updated_at = EXCLUDED.updated_at
+           WHERE ${this.t.visitor}.user_id IS NULL
+         RETURNING visitor_id`,
+        [visitorId, userId, at]
+      );
+      if (linked.length === 0) {
+        const erased = await tx.query(`SELECT 1 FROM ${this.t.erasure} WHERE user_id = $1`, [
+          userId,
+        ]);
+        if (erased.length > 0) throw new UserErasedError(userId);
+        return null;
+      }
+      // The user's own entry wins: the visitor's copy of that journey stops
+      const dropped = await tx.query<{ instance_id: string }>(
+        `DELETE FROM ${this.t.entry} v USING ${this.t.entry} u
+         WHERE v.user_id = $1 AND u.user_id = $2 AND u.workflow = v.workflow
+         RETURNING v.instance_id`,
+        [subject, userId]
+      );
+      const droppedIds = dropped.map((row) => row.instance_id);
+      // Gone with its entry: nothing should wake it, and no start of it is owed
+      await tx.query(`DELETE FROM ${this.t.subscription} WHERE wake_handle = ANY($1::text[])`, [
+        droppedIds,
+      ]);
+      await tx.query(`DELETE FROM ${this.t.execution} WHERE instance_id = ANY($1::text[])`, [
+        droppedIds,
+      ]);
+      // One occurrence per id: a repeat the user already has is not moved
+      await tx.query(
+        `DELETE FROM ${this.t.event} v USING ${this.t.event} u
+         WHERE v.user_id = $1 AND u.user_id = $2 AND u.event_id = v.event_id`,
+        [subject, userId]
+      );
+      const events = await tx.query<{ name: string }>(
+        `SELECT DISTINCT name FROM ${this.t.event} WHERE user_id = $1`,
+        [subject]
+      );
+      // An opt-out made before sign-in still holds
+      await tx.query(
+        `INSERT INTO ${this.t.suppression} (user_id, channel, topic, ts)
+         SELECT $2, channel, topic, ts FROM ${this.t.suppression} WHERE user_id = $1
+         ON CONFLICT (user_id, channel, topic) DO NOTHING`,
+        [subject, userId]
+      );
+      await tx.query(`DELETE FROM ${this.t.suppression} WHERE user_id = $1`, [subject]);
+      const props = await this.mergeProfileInto(tx, subject, userId);
+      for (const table of [
+        this.t.event,
+        this.t.entry,
+        this.t.execution,
+        this.t.subscription,
+        this.t.instance,
+        this.t.message,
+      ]) {
+        await tx.query(`UPDATE ${table} SET user_id = $2 WHERE user_id = $1`, [subject, userId]);
+      }
+      await tx.query(
+        `UPDATE ${this.t.device} SET user_id = $2, updated_at = ${TS('$3')}
+         WHERE visitor_id = $1 AND user_id IS NULL`,
+        [visitorId, userId, at]
+      );
+      return { dropped: droppedIds, events: events.map((row) => row.name), props };
+    });
+  }
+
+  /**
+   * The visitor's properties under the user's, a key the user has a time for going to the later
+   * write, one a row older than the times going to the user if they hold it. The visitor's row
+   * goes. Answers the keys that moved.
+   */
+  private async mergeProfileInto(
+    tx: SqlClientLike,
+    subject: string,
+    userId: string
+  ): Promise<string[]> {
+    const rows = await tx.query<{ user_id: string; props: unknown; props_at: unknown }>(
+      `SELECT user_id, props, props_at FROM ${this.t.profile} WHERE user_id = ANY($1::text[])`,
+      [[subject, userId]]
+    );
+    const from = rows.find((row) => row.user_id === subject);
+    if (from === undefined) return [];
+    const to = rows.find((row) => row.user_id === userId);
+    const fromTimes = asJson<Record<string, number> | null>(from.props_at ?? null) ?? {};
+    const toTimes = asJson<Record<string, number> | null>(to?.props_at ?? null) ?? {};
+    const toProps = to === undefined ? {} : asJson<ProfileProps>(to.props);
+    const moved = Object.entries(asJson<ProfileProps>(from.props)).filter(([key]) => {
+      const written = toTimes[key];
+      return written === undefined ? !Object.hasOwn(toProps, key) : (fromTimes[key] ?? 0) > written;
+    });
+    const props = { ...toProps, ...Object.fromEntries(moved) };
+    const times = {
+      ...toTimes,
+      ...Object.fromEntries(moved.map(([key]) => [key, fromTimes[key] ?? 0])),
+    };
+    await tx.query(
+      `INSERT INTO ${this.t.profile} (user_id, props, props_at) VALUES ($1, $2::text::jsonb, $3::text::jsonb)
+       ON CONFLICT (user_id) DO UPDATE SET props = EXCLUDED.props, props_at = EXCLUDED.props_at`,
+      [userId, JSON.stringify(props), JSON.stringify(times)]
+    );
+    await tx.query(`DELETE FROM ${this.t.profile} WHERE user_id = $1`, [subject]);
+    return moved.map(([key]) => key);
   }
 
   async requestErasure(userId: string, at: number): Promise<void> {
@@ -431,35 +661,46 @@ export class PostgresJourneyStore implements JourneyStore {
       // Under the user's lock, every row committed before the tombstone is visible from here,
       // and no write about the user can commit until this transaction ends
       await this.lockUser(tx, userId);
-      // Children before the copies they belong to
-      for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
-        await tx.query(
-          `DELETE FROM ${child} WHERE message_id IN (SELECT id FROM ${this.t.message} WHERE user_id = $1)`,
-          [userId]
-        );
-      }
-      for (const table of [
-        this.t.message,
-        this.t.instance,
-        this.t.entry,
-        this.t.execution,
-        this.t.subscription,
-        this.t.segmentStart,
-        this.t.segmentMember,
-        // The opt-outs too: the tombstone keeps the id from ever being sent to again
-        this.t.suppression,
-        this.t.device,
-        this.t.event,
-        this.t.profile,
-      ]) {
-        await tx.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId]);
-      }
+      await this.deleteSubjectRows(tx, userId);
       // The tombstone stays, now marked erased; the first erase's time is kept by a repeat
       await tx.query(
         `UPDATE ${this.t.erasure} SET erased_at = COALESCE(erased_at, ${TS('$2')}) WHERE user_id = $1`,
         [userId, at]
       );
     });
+  }
+
+  /** Everything kept about a user or visitor, on a transaction holding their lock. */
+  private async deleteSubjectRows(tx: SqlClientLike, subject: string): Promise<void> {
+    // Children before the copies they belong to
+    for (const child of [this.t.messageOpen, this.t.messageClick, this.t.messageLink]) {
+      await tx.query(
+        `DELETE FROM ${child} WHERE message_id IN (SELECT id FROM ${this.t.message} WHERE user_id = $1)`,
+        [subject]
+      );
+    }
+    for (const table of [
+      this.t.message,
+      this.t.instance,
+      this.t.entry,
+      this.t.execution,
+      this.t.subscription,
+      this.t.segmentStart,
+      this.t.segmentMember,
+      // The opt-outs too: the tombstone keeps the id from ever being sent to again
+      this.t.suppression,
+      this.t.device,
+      this.t.event,
+      this.t.profile,
+    ]) {
+      await tx.query(`DELETE FROM ${table} WHERE user_id = $1`, [subject]);
+    }
+    const visitorId = visitorIdOf(subject);
+    if (visitorId !== undefined) {
+      await tx.query(`DELETE FROM ${this.t.device} WHERE visitor_id = $1 AND user_id IS NULL`, [
+        visitorId,
+      ]);
+    }
   }
 
   async isSuppressed(userId: string, channel: string, topic?: string): Promise<boolean> {
@@ -510,22 +751,22 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   async removeDevice(token: string): Promise<string | undefined> {
-    const rows = await this.sql.query<{ user_id: string | null }>(
-      `DELETE FROM ${this.t.device} WHERE token = $1 RETURNING user_id`,
+    const rows = await this.sql.query<{ user_id: string | null; visitor_id: string | null }>(
+      `DELETE FROM ${this.t.device} WHERE token = $1 RETURNING user_id, visitor_id`,
       [token]
     );
-    return rows[0]?.user_id ?? undefined;
+    return rows[0] === undefined ? undefined : deviceOwner(rows[0]);
   }
 
   async unbindDevice(token: string): Promise<string | undefined> {
-    // The owner as it was before the update: RETURNING alone would only show the null
-    const rows = await this.sql.query<{ user_id: string | null }>(
-      `WITH old AS (SELECT token, user_id FROM ${this.t.device} WHERE token = $1 FOR UPDATE)
-       UPDATE ${this.t.device} d SET user_id = NULL FROM old WHERE d.token = old.token
-       RETURNING old.user_id`,
-      [token]
+    // The owner as it was before the update: RETURNING alone would only show the nulls
+    const rows = await this.sql.query<{ user_id: string | null; visitor_id: string | null }>(
+      `WITH old AS (SELECT token, user_id, visitor_id FROM ${this.t.device} WHERE token = $1 FOR UPDATE)
+       UPDATE ${this.t.device} d SET user_id = NULL, visitor_id = NULL, updated_at = ${TS('$2')} FROM old WHERE d.token = old.token
+       RETURNING old.user_id, old.visitor_id`,
+      [token, Date.now()]
     );
-    return rows[0]?.user_id ?? undefined;
+    return rows[0] === undefined ? undefined : deviceOwner(rows[0]);
   }
 
   async listSegments(): Promise<{ id: string; condition: ConditionIR }[]> {
@@ -553,9 +794,10 @@ export class PostgresJourneyStore implements JourneyStore {
       hash: string;
       where_clause: unknown;
       filter: unknown;
+      visitors: boolean | null;
       version: string | null;
     }>(
-      `SELECT workflow, hash, "where" AS where_clause, filter, version FROM ${this.t.trigger} WHERE event = $1`,
+      `SELECT workflow, hash, "where" AS where_clause, filter, visitors, version FROM ${this.t.trigger} WHERE event = $1`,
       [event]
     );
     return rows.map((row) => ({
@@ -563,6 +805,7 @@ export class PostgresJourneyStore implements JourneyStore {
       hash: row.hash,
       where: row.where_clause === null ? null : ConditionIR.parse(asJson(row.where_clause)),
       filter: row.filter === null ? null : ConditionIR.parse(asJson(row.filter)),
+      visitors: row.visitors === true,
       version: row.version ?? undefined,
     }));
   }
@@ -664,13 +907,14 @@ export class PostgresJourneyStore implements JourneyStore {
     for (const workflow of bundle.workflows) {
       if (workflow.trigger.type === 'event') {
         await tx.query(
-          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter, version) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb, $6)`,
+          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter, visitors, version) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb, $6, $7)`,
           [
             workflow.id,
             workflow.contentHash,
             workflow.trigger.event,
             workflow.trigger.where === undefined ? null : JSON.stringify(workflow.trigger.where),
             workflow.trigger.filter === undefined ? null : JSON.stringify(workflow.trigger.filter),
+            workflow.trigger.visitors === true,
             version ?? null,
           ]
         );

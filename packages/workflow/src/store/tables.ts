@@ -81,16 +81,50 @@ export const TABLES = {
   }),
   profile: table({
     name: 'profile',
-    doc: 'Identified properties per user (`/identify` merges into `props`; a null value means unset).',
-    columns: { userId: text, props: jsonb },
+    doc: 'Identified properties per user (`/ingest` merges into `props`; a null value means unset).',
+    columns: {
+      userId: text,
+      props: jsonb,
+      propsAt: nullable(
+        jsonb,
+        'When each property was last written, epoch ms by key (a cleared one too): an older patch cannot overwrite it. Null for a row older than this column.'
+      ),
+    },
     primaryKey: ['userId'],
   }),
   device: table({
     name: 'device',
-    doc: 'Push devices, registered through the Worker (`JourneyClient.registerDevice`). Signing out unbinds a device (`user_id` null) rather than removing it; a token APNs / FCM reports as gone is removed.',
-    columns: { token: text, userId: nullable(text), platform: text, ts },
+    doc: 'Push devices, one row per device, holding only who it belongs to now (`JourneyClient.registerDevice`): a signed-in `user_id`, or a `visitor_id` alone before sign-in. Signing out clears both rather than removing the row; a token APNs / FCM reports as gone is removed.',
+    columns: {
+      deviceId: nullable(
+        text,
+        'The device across token rotations: a new token replaces the old one. Null when the producer sent none.'
+      ),
+      userId: nullable(text),
+      visitorId: nullable(
+        text,
+        "The visitor on the device now, kept once signed in: it tells one of a user's devices from another."
+      ),
+      token: text,
+      platform: text,
+      createdAt: ts,
+      updatedAt: ts,
+    },
     primaryKey: ['token'],
-    indexes: [['userId']],
+    uniqueIndexes: [['deviceId']],
+    indexes: [['userId'], ['visitorId']],
+  }),
+  visitor: table({
+    name: 'visitor',
+    doc: "Visitors the engine has heard from. `user_id` is who they became (`linkVisitor`): a late event of the visitor reaches the user, and the row outlives the user's erasure, so such an event finds the tombstone instead of starting a new visitor. One that never signs in is pruned once idle.",
+    columns: {
+      visitorId: text,
+      userId: nullable(text),
+      createdAt: ts,
+      updatedAt: ts,
+    },
+    primaryKey: ['visitorId'],
+    indexes: [['userId'], ['updatedAt']],
   }),
   erasure: table({
     name: 'erasure',
@@ -131,6 +165,10 @@ export const TABLES = {
       event: text,
       where: nullable(jsonb),
       filter: nullable(jsonb),
+      visitors: nullable(
+        { type: 'boolean' },
+        'Whether a visitor not signed in may enter (`trigger.event(e.x, { visitors: true })`); signed-in users only otherwise.'
+      ),
       version: nullable(
         text,
         'The code version whose compiled bundle put this route here (null after a forced deploy): an instance it starts runs on that version, so its IR and its code always match.'

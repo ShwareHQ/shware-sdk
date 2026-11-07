@@ -1,5 +1,5 @@
 import * as z from 'zod/mini';
-import { type Contract, type ContractResult, checkEvent } from '../contract';
+import type { Contract } from '../contract';
 import { PREVIEW_MESSAGE_ID } from '../email';
 import type { EmailRenderer } from '../email-sender';
 import type { BundleIR, ScalarIR } from '../ir';
@@ -7,12 +7,13 @@ import { type TrackingOptions, handleTracking, recordPushOpen } from '../reporti
 import {
   type BundleVersion,
   type JourneyStore,
-  type ProfileProps,
   SchemaMismatchError,
   UserErasedError,
+  visitorSubject,
 } from '../store/index';
 import { TemplateValidationError } from '../templates';
 import { type Authorize, authorized } from './auth';
+import { identityError, ingestBatch, isNonEmptyString, isPlainObject, parseBatch } from './batch';
 import { journeyMode } from './channels';
 import {
   BundleIntegrityError,
@@ -21,8 +22,6 @@ import {
   forgetUser,
   getSubscriptions,
   getSubscriptionsByMessage,
-  identifyUser,
-  ingestEvent,
   parseSubscriptionsPatch,
   registerDevice,
   removeDevice,
@@ -129,60 +128,6 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   return isPlainObject(body) ? body : {};
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-/** A profile value: a scalar or null (which removes the property). Nested values are not profile data. */
-function isScalarOrNull(value: unknown): value is string | number | boolean | null {
-  return (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  );
-}
-
-/** How far ahead of the server's clock an event or device `ts` may be: clock skew, not the future. */
-const TS_FUTURE_TOLERANCE_MS = 5 * 60_000;
-const TS_ERROR = 'ts must be a non-negative integer no later than 5 minutes in the future';
-
-/**
- * A caller's timestamp: epoch milliseconds, whole, not negative, and not past the skew tolerance.
- * A far-future ts would put the event ahead of everything a window condition reads, and a
- * fractional or unsafe one does not survive the store.
- */
-function isValidTs(ts: unknown): ts is number {
-  return (
-    typeof ts === 'number' &&
-    Number.isSafeInteger(ts) &&
-    ts >= 0 &&
-    ts <= Date.now() + TS_FUTURE_TOLERANCE_MS
-  );
-}
-
-/** The contract's verdict: the value to use, or the response refusing the request. */
-function checked<T>(
-  validation: IngestValidation,
-  result: ContractResult<T>,
-  original: T,
-  what: string
-): { value: T } | { refused: Response } {
-  if (result.ok) return { value: result.data };
-  const issues = result.issues.map((i) => `${i.path || '(root)'}: ${i.message}`);
-  if (validation.mode === 'report') {
-    console.warn(`[workflow http] contract would refuse ${what}: ${issues.join('; ')}`);
-    return { value: original };
-  }
-  return {
-    refused: json({ error: `${what} refused by the contract`, issues: result.issues }, 400),
-  };
-}
-
 /**
  * The topics the engine knows: the deployed bundle's list (compiled from the contract), or the
  * contract's when the bare API runs without a host — never the caller's.
@@ -220,68 +165,15 @@ const routes: readonly Route[] = [
   },
   {
     method: 'POST',
-    path: '/events',
+    path: '/ingest',
     auth: 'api',
     async handle({ request, env, store, validation }) {
-      const { id, userId, event, payload, ts } = await readBody(request);
-      if (!isNonEmptyString(userId) || !isNonEmptyString(event)) {
-        return json({ error: 'userId and event required' }, 400);
+      const parsed = parseBatch(await readJson(request), validation);
+      if (!parsed.ok) {
+        const { error, issues } = parsed;
+        return json({ error, ...(issues === undefined ? {} : { issues }) }, 400);
       }
-      if (event.startsWith('$')) {
-        return json({ error: 'event names starting with $ are reserved' }, 400);
-      }
-      // An empty id is rejected rather than treated as absent: a caller that
-      // sent one meant to identify the occurrence, and silently minting a
-      // different one would turn their retry into a duplicate.
-      if (id !== undefined && !isNonEmptyString(id)) {
-        return json({ error: 'id must be a non-empty string' }, 400);
-      }
-      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
-      if (payload !== undefined && !isPlainObject(payload)) {
-        return json({ error: 'payload must be an object' }, 400);
-      }
-      let accepted = payload;
-      if (validation.contract !== undefined) {
-        const verdict = checked(
-          validation,
-          checkEvent(validation.contract, event, payload ?? {}),
-          accepted ?? {},
-          `event '${event}'${typeof id === 'string' ? ` (${id})` : ''}`
-        );
-        if ('refused' in verdict) return verdict.refused;
-        accepted = verdict.value;
-      }
-      return json(await ingestEvent(env, { id, userId, event, payload: accepted, ts }, store));
-    },
-  },
-  {
-    method: 'POST',
-    path: '/identify',
-    auth: 'api',
-    async handle({ request, env, store, validation }) {
-      const { userId, props } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
-      if (!isPlainObject(props)) return json({ error: 'props must be an object' }, 400);
-      // Profiles hold scalars only (both stores merge at the top level; a nested object would
-      // be merged differently by each): refused here, contract or not
-      if (!Object.values(props).every(isScalarOrNull)) {
-        return json(
-          { error: 'props values must be scalars (string, number, boolean) or null' },
-          400
-        );
-      }
-      let patch = props as ProfileProps;
-      if (validation.contract !== undefined) {
-        const verdict = checked(
-          validation,
-          validation.contract.parseProfilePatch(props),
-          patch,
-          'identify'
-        );
-        if ('refused' in verdict) return verdict.refused;
-        patch = verdict.value as ProfileProps;
-      }
-      return json(await identifyUser(env, userId, patch, store));
+      return json(await ingestBatch(env, parsed.batch, store));
     },
   },
   {
@@ -289,14 +181,23 @@ const routes: readonly Route[] = [
     path: '/devices',
     auth: 'api',
     async handle({ request, env, store }) {
-      const { userId, token, platform, ts } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      const { deviceId, userId, visitorId, token, platform } = await readBody(request);
+      const refused = identityError(userId, visitorId);
+      if (refused !== undefined) return json({ error: refused }, 400);
+      if (deviceId !== undefined && !isNonEmptyString(deviceId)) {
+        return json({ error: 'deviceId must be a non-empty string' }, 400);
+      }
       if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
       if (platform !== 'ios' && platform !== 'android' && platform !== 'web') {
         return json({ error: "platform must be 'ios', 'android' or 'web'" }, 400);
       }
-      if (ts !== undefined && !isValidTs(ts)) return json({ error: TS_ERROR }, 400);
-      const device = { userId, token, platform, ...(ts === undefined ? {} : { ts }) };
+      const device = {
+        deviceId,
+        userId: userId as string | undefined,
+        visitorId: visitorId as string | undefined,
+        token,
+        platform,
+      };
       return json(await registerDevice(env, device, store));
     },
   },
@@ -389,8 +290,11 @@ const routes: readonly Route[] = [
     path: '/users/forget',
     auth: 'api',
     async handle({ request, env, store }) {
-      const { userId } = await readBody(request);
-      if (!isNonEmptyString(userId)) return json({ error: 'userId required' }, 400);
+      const { userId, visitorId } = await readBody(request);
+      if (isNonEmptyString(visitorId)) {
+        return json(await forgetUser(env, visitorSubject(visitorId), store));
+      }
+      if (!isNonEmptyString(userId)) return json({ error: 'userId or visitorId required' }, 400);
       return json(await forgetUser(env, userId, store));
     },
   },

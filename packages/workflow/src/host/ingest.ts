@@ -18,6 +18,7 @@ import {
   type SegmentTriggerRoute,
   type SuppressionChange,
   UserErasedError,
+  isVisitorSubject,
 } from '../store/index';
 import {
   InstanceNotFoundError,
@@ -167,6 +168,9 @@ async function startTriggeredJourneys(
 ): Promise<string[]> {
   const started: string[] = [];
   for (const route of await store.findTriggers(input.event)) {
+    // A visitor enters only where the workflow asked for them
+    if (isVisitorSubject(input.userId) && !route.visitors) continue;
+
     // where: the payload gate — evaluated against the incoming event first
     if (route.where !== null && !matchesWhere(input.payload, route.where)) continue;
 
@@ -186,6 +190,7 @@ async function startTriggeredJourneys(
       {
         event: input.event,
         payload: input.payload,
+        ts,
       },
       route.version
     );
@@ -227,6 +232,8 @@ async function refreshSegments(
   // A sweep loads each definition once for all its users, not once per user
   definitions = new Map<string, ConditionIR | undefined>()
 ): Promise<string[]> {
+  // Segments are about users: a visitor is not one until they sign in
+  if (isVisitorSubject(userId)) return [];
   const bySegment = new Map<string, { workflow: string; hash: string; version?: string }[]>(
     segments.map((name) => [name, []])
   );
@@ -356,6 +363,11 @@ export async function failLostStarts(
   return failed;
 }
 
+/** How long a visitor who never signs in is kept after they were last heard from. */
+export const VISITOR_RETENTION_MS = 90 * 24 * 60 * 60_000;
+/** Visitors one sweep prunes: the next sweep goes on. */
+const VISITOR_PRUNE_BATCH = 100;
+
 /** How many users one sweep page evaluates: a unit of resumable work (AWS checkpoints each). */
 export const SWEEP_PAGE_SIZE = 500;
 
@@ -375,6 +387,11 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
     await failLostStarts(env, store, Date.now());
   } catch (error) {
     console.error('[workflow] reclaiming lost starts failed', error);
+  }
+  try {
+    await store.pruneVisitors(Date.now() - VISITOR_RETENTION_MS, VISITOR_PRUNE_BATCH);
+  } catch (error) {
+    console.error('[workflow] pruning idle visitors failed', error);
   }
   // Erasures left pending (an admitted instance would not stop, or is still draining): retried
   // until every one of them is confirmed stopped and the data is gone
@@ -534,7 +551,7 @@ async function startJourney(
   hash: string,
   userId: string,
   ts: number,
-  trigger: { event: string; payload: Record<string, unknown> },
+  trigger: { event: string; payload: Record<string, unknown>; ts?: number },
   /** The code version whose bundle routed this start, read with the hash (see TriggerRoute). */
   version?: string
 ): Promise<string | null> {
@@ -618,11 +635,13 @@ export async function identifyUser(
   env: JourneyEnv,
   userId: string,
   props: ProfileProps,
-  store: JourneyStore
+  store: JourneyStore,
+  /** When these values were read; a property written later stays. The Worker's clock by default. */
+  at?: number
 ): Promise<IdentifyResult> {
   await refuseIfErased(store, userId);
   const ts = Date.now();
-  const merged = await store.mergeProfile(userId, props);
+  const merged = await store.mergeProfile(userId, props, at ?? ts);
   // A property wait subscribes to its own property's channel (see relevantEvents): only the
   // waits on what this patch touched wake up
   const woke = await wakeSubscribers(
@@ -637,28 +656,73 @@ export async function identifyUser(
 }
 
 export interface DeviceRegistration {
-  userId: string;
+  deviceId?: string | undefined;
+  userId?: string | undefined;
+  visitorId?: string | undefined;
   token: string;
   platform: string;
-  ts?: number;
 }
 
 /**
- * A push token registered for the user (or moved to them from another account: a token belongs
- * to one user at a time). Wakes the waits that read devices (`reachable('push')` inside
- * `waitUntil`), for the new owner and the previous one.
+ * The visitor signed in as the user: what the engine knows of them moves to the user, once. Their
+ * journeys carry on as the user's (`instanceOwner`), except one the user is already in, which
+ * stops. Answers nothing to do when already linked: every signed-in batch names its visitor.
+ */
+export async function linkVisitor(
+  env: JourneyEnv,
+  visitorId: string,
+  userId: string,
+  store: JourneyStore,
+  at = Date.now()
+): Promise<void> {
+  await refuseIfErased(store, userId);
+  const linked = await store.linkedUser(visitorId);
+  if (linked !== undefined) {
+    // Signing out renews the visitor, so a second user means a client bug or a claimed id
+    if (linked !== userId) {
+      console.warn(`[workflow] visitor ${visitorId} stays with its first user, not ${userId}`);
+    }
+    return;
+  }
+  const merge = await store.linkVisitor(visitorId, userId, at);
+  if (merge === null) return;
+  for (const instanceId of merge.dropped) await stopInstance(env, instanceId);
+  // What moved can settle what the user's journeys wait on, or put them in a segment
+  await wakeSubscribers(env, store, userId, [
+    DEVICES_UPDATED_EVENT,
+    ...merge.events,
+    ...merge.props.map(profileUpdatedEvent),
+  ]);
+  await refreshSegmentTriggers(env, store, userId, at);
+}
+
+/**
+ * A push token registered for its current owner: the user, or before sign-in the visitor. The
+ * device holds only that, so a token moves to whoever registered it last. Wakes the waits that read
+ * devices (`reachable('push')` inside `waitUntil`), for the new owner and the previous one.
  */
 export async function registerDevice(
   env: JourneyEnv,
   device: DeviceRegistration,
   store: JourneyStore
 ): Promise<{ ok: true; woke: number }> {
-  await refuseIfErased(store, device.userId);
-  const previous = await store.removeDevice(device.token);
-  await store.upsertDevice({ ...device, ts: device.ts ?? Date.now() });
-  let woke = await wakeSubscribers(env, store, device.userId, [DEVICES_UPDATED_EVENT]);
-  if (previous !== undefined && previous !== device.userId) {
-    woke += await wakeSubscribers(env, store, previous, [DEVICES_UPDATED_EVENT]);
+  const { deviceId, userId, visitorId, token, platform } = device;
+  if (userId !== undefined && visitorId !== undefined) {
+    await linkVisitor(env, visitorId, userId, store);
+  }
+  const subject = userId ?? (await store.touchVisitor(visitorId ?? '', Date.now()));
+  await refuseIfErased(store, subject);
+  const previous = await store.upsertDevice({
+    deviceId,
+    userId: isVisitorSubject(subject) ? null : subject,
+    visitorId,
+    token,
+    platform,
+    at: Date.now(),
+  });
+  let woke = await wakeSubscribers(env, store, subject, [DEVICES_UPDATED_EVENT]);
+  for (const owner of previous) {
+    woke += await wakeSubscribers(env, store, owner, [DEVICES_UPDATED_EVENT]);
   }
   return { ok: true, woke };
 }

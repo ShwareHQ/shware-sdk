@@ -13,7 +13,9 @@ const PAYLOAD_PAGE = 500;
 export class JourneyFactSource implements FactSource {
   constructor(
     private readonly store: JourneyStore,
-    private readonly userId: string
+    private readonly userId: string,
+    /** Who the facts are about now, for a journey that can change hands; `userId` otherwise. */
+    private readonly owner: () => Promise<string> = () => Promise.resolve(userId)
   ) {}
 
   async countEvents(
@@ -25,8 +27,9 @@ export class JourneyFactSource implements FactSource {
       ...(opts?.untilMs === undefined ? {} : { untilMs: opts.untilMs }),
     };
     const atLeast = opts?.atLeast;
+    const userId = await this.owner();
     if (opts?.where === undefined) {
-      return this.store.countEvents(this.userId, event, window, atLeast);
+      return this.store.countEvents(userId, event, window, atLeast);
     }
     // Payload filtering stays in JS through the shared evaluator — one set of where semantics
     // with the in-memory FactSource — but a page at a time, stopping as soon as enough events
@@ -36,7 +39,7 @@ export class JourneyFactSource implements FactSource {
     let matched = 0;
     let after: EventCursor | undefined;
     for (;;) {
-      const page = await this.store.pageEventPayloads(this.userId, event, window, {
+      const page = await this.store.pageEventPayloads(userId, event, window, {
         limit: PAYLOAD_PAGE,
         after,
       });
@@ -52,7 +55,7 @@ export class JourneyFactSource implements FactSource {
   /**
    * The scalar boundary. Everything downstream — comparisons, subject
    * placeholders, resolved message props — is typed ScalarIR, but nothing so
-   * far has checked that the stored JSON is one: /identify validates only that
+   * far has checked that the stored JSON is one: /ingest validates only that
    * `props` is a plain object, and the merge stores whatever nesting it is
    * handed. Left unchecked, `gt(score, 3)` on `['5']` coerces its way to true
    * while `eq(score, 5)` is false, and `String(recipient)` on an object
@@ -65,15 +68,16 @@ export class JourneyFactSource implements FactSource {
    */
   async getProperty(path: string): Promise<ScalarIR | undefined> {
     // The system field: the request's identity, never stored in the profile (contract.user.userId)
-    if (path === USER_ID_PROPERTY) return this.userId;
-    const props: Record<string, unknown> | undefined = await this.store.getProfile(this.userId);
+    const userId = await this.owner();
+    if (path === USER_ID_PROPERTY) return userId;
+    const props: Record<string, unknown> | undefined = await this.store.getProfile(userId);
     if (props === undefined) return undefined;
     // Own keys only: `props[path]` would otherwise find Object.prototype, so
     // `exists(u.toString)` held for every user with a profile row and a subject
     // placeholder rendered native-code text into the email.
     if (!Object.hasOwn(props, path)) return undefined;
     const value = props[path];
-    // An explicit null means "unset" and behaves as not_exists. /identify
+    // An explicit null means "unset" and behaves as not_exists. /ingest
     // itself clears a property by removing the key (the merge drops nulls), so
     // this covers profiles written by other means — a direct SQL fixup, a
     // migration, an import.
@@ -89,10 +93,10 @@ export class JourneyFactSource implements FactSource {
 
   /** The user's opt-outs: the channel's, or with a topic that topic's as well. */
   async isSuppressed(channel: string, topic?: string): Promise<boolean> {
-    return this.store.isSuppressed(this.userId, channel, topic);
+    return this.store.isSuppressed(await this.owner(), channel, topic);
   }
 
-  listDevices(): Promise<PushDevice[]> {
-    return this.store.listDevices(this.userId);
+  async listDevices(): Promise<PushDevice[]> {
+    return this.store.listDevices(await this.owner());
   }
 }

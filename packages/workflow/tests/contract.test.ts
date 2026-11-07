@@ -140,29 +140,32 @@ describe('JourneyClient with a contract', () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const client = new JourneyClient({ origin: 'https://w.test', contract, fetch });
     const error = await client
-      .track('u1', 'purchase', { transaction_id: 't', value: 'x' as never })
+      .ingest({
+        userId: 'u1',
+        events: [{ event: 'purchase', payload: { transaction_id: 't', value: 'x' as never } }],
+      })
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(JourneyValidationError);
     expect((error as JourneyValidationError).issues).toEqual([
       { path: 'value', message: expect.any(String) },
     ]);
-    await expect(client.identify('u1', { name: 3 as never })).rejects.toBeInstanceOf(
-      JourneyValidationError
-    );
+    await expect(
+      client.ingest({ userId: 'u1', profile: { name: 3 as never } })
+    ).rejects.toBeInstanceOf(JourneyValidationError);
     expect(fetch).not.toHaveBeenCalled();
   });
 
   test('sends a valid event with its id and timestamp', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ stored: true }));
     const client = new JourneyClient({ origin: 'https://w.test', contract, fetch });
-    await client.track('u1', 'login', { method: 'email' }, { id: 'row-1', ts: 5 });
+    await client.ingest({
+      userId: 'u1',
+      events: [{ event: 'login', payload: { method: 'email' }, id: 'row-1', ts: 5 }],
+    });
     const body = JSON.parse(fetch.mock.calls[0]?.[1]?.body as string);
     expect(body).toEqual({
       userId: 'u1',
-      event: 'login',
-      payload: { method: 'email' },
-      id: 'row-1',
-      ts: 5,
+      events: [{ event: 'login', payload: { method: 'email' }, id: 'row-1', ts: 5 }],
     });
   });
 });
@@ -204,18 +207,16 @@ describe('ingest validation in the Worker', () => {
 
   test('a bad payload, an undeclared event and a bad patch are refused with no side effects', async () => {
     const { rows, journey, post } = await setup();
-    const bad = await post('/events', {
-      id: 'e1',
+    const bad = await post('/ingest', {
       userId: 'u1',
-      event: 'login',
-      payload: { method: 1 },
+      events: [{ id: 'e1', event: 'login', payload: { method: 1 } }],
     });
     expect(bad.status).toBe(400);
     expect(await bad.json()).toMatchObject({ issues: [{ path: 'method' }] });
-    expect((await post('/events', { userId: 'u1', event: 'signup', payload: {} })).status).toBe(
-      400
-    );
-    expect((await post('/identify', { userId: 'u1', props: { name: 3 } })).status).toBe(400);
+    expect(
+      (await post('/ingest', { userId: 'u1', events: [{ event: 'signup', payload: {} }] })).status
+    ).toBe(400);
+    expect((await post('/ingest', { userId: 'u1', profile: { name: 3 } })).status).toBe(400);
     expect(await rows('event')).toBe(0);
     expect(await rows('profile')).toBe(0);
     expect(journey.created).toEqual([]);
@@ -223,11 +224,9 @@ describe('ingest validation in the Worker', () => {
 
   test('a valid event is stored with its parsed payload and starts the journey', async () => {
     const { rows, journey, post } = await setup();
-    const ok = await post('/events', {
-      id: 'e2',
+    const ok = await post('/ingest', {
       userId: 'u1',
-      event: 'login',
-      payload: { method: 'email', extra: 1 },
+      events: [{ id: 'e2', event: 'login', payload: { method: 'email', extra: 1 } }],
     });
     expect(ok.status).toBe(200);
     expect(await rows('event')).toBe(1);
@@ -238,8 +237,8 @@ describe('ingest validation in the Worker', () => {
     const { rows, post } = await setup();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const res = await post(
-      '/events',
-      { id: 'e3', userId: 'u1', event: 'login', payload: { method: 1 } },
+      '/ingest',
+      { userId: 'u1', events: [{ id: 'e3', event: 'login', payload: { method: 1 } }] },
       'report'
     );
     expect(res.status).toBe(200);

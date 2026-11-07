@@ -18,6 +18,7 @@ import type { BundleVersion, JourneyStore, StoreLease } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
 import { indexTemplates, registryValidator } from '../templates';
 import type { Authorize } from './auth';
+import { type QueueMessageLike, consumeBatches } from './batch';
 import { channelsFromConfig, createProviderCache, runtimeFromConfig } from './channels';
 import type { JourneyRunParts } from './execute';
 import { serve } from './http';
@@ -41,7 +42,7 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
   /**
    * The project's `workflow.config.ts` (`defineConfig`): what the host deploys (`GET /bundle`,
    * `POST /bundle/deploy` serve `compileConfig`), the template registries the senders, the
-   * validator and `/preview` render from, the contract every `/events` and `/identify` is
+   * validator and `/preview` render from, the contract every `/ingest` is
    * checked against, the email defaults, actions, and the runtime / APNs / FCM settings.
    * Secrets come from the env under the names `JourneyEnv` documents.
    */
@@ -123,6 +124,8 @@ export interface JourneyHost<Env extends JourneyEnv> {
   ): Promise<Response>;
   /** The scheduled sweep (`sweepSegments`) on a store of its own. */
   sweep(env: Env): Promise<SweepResult>;
+  /** Delivered `JourneyBatch` messages over one store, acknowledged or retried one by one. */
+  consume(messages: readonly QueueMessageLike[], env: Env, store: JourneyStore): Promise<void>;
   /**
    * Make the bundle compiled into `version` live, once per process, only over an older live
    * version (the store records it). Undefined when there is nothing to do; a failure is logged
@@ -345,5 +348,11 @@ export function createJourneyHost<Env extends JourneyEnv>(
     return applying;
   };
 
-  return { config, checkEnv, lease, bundle, runParts, handle, sweep, applyOwnBundle };
+  const consume: JourneyHost<Env>['consume'] = (messages, env, store) =>
+    consumeBatches(env, messages, store, {
+      contract: config.contract,
+      mode: options.contractMode,
+    });
+
+  return { config, checkEnv, lease, bundle, runParts, handle, sweep, consume, applyOwnBundle };
 }

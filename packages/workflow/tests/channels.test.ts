@@ -307,7 +307,7 @@ describe('channelsFromConfig', () => {
   test('a token APNs reports as gone is removed from the store', async () => {
     const { env, fetchImpl } = setup(true);
     const store = database.store;
-    await store.upsertDevice({ userId: 'u1', token: 'deadtoken', platform: 'ios', ts: 1 });
+    await store.upsertDevice({ userId: 'u1', token: 'deadtoken', platform: 'ios', at: 1 });
     const sender = channelsFromConfig(
       { templates, apns: { topic: 'io.acme.app', keyId: 'KEY1234567', teamId: 'TEAM123456' } },
       env,
@@ -407,8 +407,8 @@ describe('the provider cache', () => {
     const providers = createProviderCache();
     const first = database.store;
     const second = database.storeIn('second');
-    await first.upsertDevice({ userId: 'u1', token: 'dead1', platform: 'ios', ts: 1 });
-    await second.upsertDevice({ userId: 'u1', token: 'dead2', platform: 'ios', ts: 1 });
+    await first.upsertDevice({ userId: 'u1', token: 'dead1', platform: 'ios', at: 1 });
+    await second.upsertDevice({ userId: 'u1', token: 'dead2', platform: 'ios', at: 1 });
     // The first run meets a live device: the credential is minted with that run's store around
     const live = setup();
     await channelsFromConfig(config, env, {

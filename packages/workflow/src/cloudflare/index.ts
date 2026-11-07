@@ -73,6 +73,7 @@ export {
   classifyOpen,
 } from '../reporting/classify';
 export type { ClassifyOptions, ClickFacts, RequestFacts, Verdict } from '../reporting/classify';
+export type { QueueMessageLike } from '../host/batch';
 export { EnvValidationError, journeyWorker } from './worker';
 export type { ExecutionContextLike, JourneyWorker, JourneyWorkerOptions } from './worker';
 // The data plane lives in ../store; re-exported here so a Cloudflare host imports one path.

@@ -12,7 +12,7 @@ import type {
 import { scaleDurations } from '../engine/time-scale';
 import { type JourneyRuntimeOptions, resolveRuntime } from '../runtime';
 import { JourneyFactSource } from '../store/facts';
-import type { JourneyStore } from '../store/index';
+import { type JourneyStore, instanceOwner } from '../store/index';
 import { readWithRetry } from './fresh-read';
 import { ingestEvent } from './ingest';
 import type { JourneyEnv, JourneyParams } from './platform';
@@ -69,12 +69,13 @@ export async function executeJourney(
   const { store, env, observer, contract } = parts;
 
   const runtime = resolveRuntime({ current: parts.runtime }, 'current');
+  const owner = () => instanceOwner(store, instanceId, userId);
 
-  const finished = (status: JourneyOutcome['status'] | 'failed', convertedAt?: number) =>
+  const finished = async (status: JourneyOutcome['status'] | 'failed', convertedAt?: number) =>
     observer?.finished?.({
       workflow: workflowId,
       instanceId,
-      userId,
+      userId: await owner(),
       status,
       at: Date.now(),
       ...(convertedAt === undefined ? {} : { convertedAt }),
@@ -94,7 +95,7 @@ export async function executeJourney(
         if (!verdict.ok) throw new ContractValidationError(name, verdict.issues);
         accepted = verdict.data;
       }
-      await ingestEvent(env, { id, userId, event: name, payload: accepted }, store);
+      await ingestEvent(env, { id, userId: await owner(), event: name, payload: accepted }, store);
     },
   };
 
@@ -115,7 +116,7 @@ export async function executeJourney(
    * stumbled; one that keeps failing throws, so the instance errors without running anything,
    * its entry stays, and the erasure protocol (or a later wake) decides what becomes of it.
    */
-  const admitted = await readWithRetry(() => store.admitInstance(instanceId, userId), {
+  const admitted = await readWithRetry(async () => store.admitInstance(instanceId, await owner()), {
     what: 'admission',
     instanceId,
   });
@@ -146,9 +147,12 @@ export async function executeJourney(
     outcome = await runJourney(ir, {
       userId,
       instanceId,
-      enteredAtMs: input.enteredAtMs,
+      currentUserId: owner,
+      // A delivery that arrives late still enters when the trigger happened: a purchase made
+      // while the begin_checkout was being retried is the goal, not history from before entry
+      enteredAtMs: Math.min(input.enteredAtMs, input.params.trigger.ts ?? input.enteredAtMs),
       step,
-      facts: new JourneyFactSource(store, userId),
+      facts: new JourneyFactSource(store, userId, owner),
       messages,
       events,
       actions: parts.actions,

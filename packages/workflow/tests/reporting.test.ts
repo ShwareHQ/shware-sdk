@@ -280,7 +280,7 @@ describe('tracking', () => {
     const { id } = await sendEmail(['https://app.example.com/a']);
     expect((await handleTracking(get(`/t/l/${id}/7`), reporting()))?.status).toBe(404);
     expect(await handleTracking(get('/t/l/not-a-uuid/0'), reporting())).toBeUndefined();
-    expect(await handleTracking(get('/events'), reporting())).toBeUndefined();
+    expect(await handleTracking(get('/ingest'), reporting())).toBeUndefined();
   });
 
   test('the unsubscribe link asks first; only the confirmation unsubscribes', async () => {
@@ -633,7 +633,7 @@ describe('forgetUser', () => {
   async function seed(store: PostgresJourneyStore) {
     await sendEmail(['https://app.example.com/a']);
     await store.mergeProfile('u1', { email: 'ada@example.com' });
-    await store.upsertDevice({ userId: 'u1', token: 't', platform: 'ios', ts: 1 });
+    await store.upsertDevice({ userId: 'u1', token: 't', platform: 'ios', at: 1 });
     await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i9', hash: 'h', ts: 1 });
     // Its runner reached the runtime: the erasure has to stop it
     expect(await store.admitInstance('i9', 'u1')).toBe(true);

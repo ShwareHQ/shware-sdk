@@ -170,17 +170,17 @@ describe('journeyLambda', () => {
 
     const { result } = await call(
       journeys.handler,
-      request('/events', { userId: 'u1', event: 'login' })
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
     );
     const response = result.getResult() as { statusCode: number; body: string };
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body) as { started: string[] };
-    expect(body.started).toHaveLength(1);
+    const body = JSON.parse(response.body) as { events: { started: string[] }[] };
+    expect(body.events[0]?.started).toHaveLength(1);
 
     expect(starts).toHaveLength(1);
     const [start] = starts;
     // The name recorded with the entry: what every retry of this start resends
-    const recorded = await database.store.executions.get(body.started[0]);
+    const recorded = await database.store.executions.get(body.events[0]?.started[0] ?? '');
     expect(start.name).toBe(recorded?.name);
     expect(start.name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
     // Pinned to this invocation's version (the local runner invokes $LATEST)
@@ -188,12 +188,12 @@ describe('journeyLambda', () => {
       'arn:aws:lambda:us-east-2:123456789012:function:my-function-name:$LATEST'
     );
     const input = JSON.parse(start.payload) as RunInput;
-    expect(input).toMatchObject({ type: RUN_EVENT_TYPE, instanceId: body.started[0] });
+    expect(input).toMatchObject({ type: RUN_EVENT_TYPE, instanceId: body.events[0]?.started[0] });
   });
 
   test('an HTTP body shaped like a run is still an HTTP request', async () => {
     const { journeys, starts } = setup();
-    const forged = request('/events', {
+    const forged = request('/ingest', {
       type: RUN_EVENT_TYPE,
       instanceId: 'x',
       params: {},
@@ -207,7 +207,10 @@ describe('journeyLambda', () => {
   test('a run parks on a callback, the next event wakes it, and it finishes', async () => {
     const { journeys, starts, completed, sent } = setup();
     await call(journeys.handler, request('/bundle/deploy'));
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     await pg.query(
       `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
     );
@@ -234,7 +237,7 @@ describe('journeyLambda', () => {
     // The purchase wakes exactly the armed callback; the local runner delivers it
     await call(
       journeys.handler,
-      request('/events', { userId: 'u1', event: 'purchase', payload: { value: 1 } })
+      request('/ingest', { userId: 'u1', events: [{ event: 'purchase', payload: { value: 1 } }] })
     );
     expect(completed).toEqual([armed?.callbackId]);
     await callback.sendCallbackSuccess('{}');
@@ -260,7 +263,10 @@ describe('journeyLambda', () => {
       );
     });
     await call(journeys.handler, request('/bundle/deploy'));
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     await pg.query(
       `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
     );
@@ -280,7 +286,10 @@ describe('journeyLambda', () => {
   test("the callback's own expiry is the wait's timeout", async () => {
     const { journeys, starts, sent } = setup('2 seconds');
     await call(journeys.handler, request('/bundle/deploy'));
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     await pg.query(
       `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
     );
@@ -978,7 +987,7 @@ describe('journeyLambda entry points', () => {
     await call(journeys.handler, request('/bundle/deploy'));
     const failed = await call(
       journeys.handler,
-      request('/events', { userId: 'u1', event: 'login' })
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
     );
     expect(failed.result.getResult()).toMatchObject({ statusCode: 500 });
     // Old enough for maintenance to pick it up
@@ -1000,7 +1009,10 @@ describe('journeyLambda entry points', () => {
     process.env.AWS_LAMBDA_FUNCTION_VERSION = '3';
     const { journeys, starts } = setup();
     // No POST /bundle/deploy: the first request applies the bundle compiled into version 3
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     expect(starts.map((s) => s.target)).toEqual([
       'arn:aws:lambda:us-east-2:123456789012:function:my-function-name:3',
     ]);
@@ -1013,7 +1025,10 @@ describe('journeyLambda entry points', () => {
   test("an older version still serving starts the live routes' workflows on the version that owns them", async () => {
     process.env.AWS_LAMBDA_FUNCTION_VERSION = '3';
     const newer = setup();
-    await call(newer.journeys.handler, request('/events', { userId: 'u0', event: 'login' }));
+    await call(
+      newer.journeys.handler,
+      request('/ingest', { userId: 'u0', events: [{ event: 'login' }] })
+    );
 
     // Version 2 carries another bundle (its welcome differs): it must not run version 3's IR
     process.env.AWS_LAMBDA_FUNCTION_VERSION = '2';
@@ -1030,7 +1045,7 @@ describe('journeyLambda entry points', () => {
       store: () => database.store,
       lambda: control.lambda,
     });
-    await call(older.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(older.handler, request('/ingest', { userId: 'u1', events: [{ event: 'login' }] }));
     expect(control.starts.map((s) => s.target)).toEqual([
       'arn:aws:lambda:us-east-2:123456789012:function:my-function-name:3',
     ]);
@@ -1061,7 +1076,10 @@ describe('journeyLambda entry points', () => {
       lambda: control.lambda,
     });
     await call(journeys.handler, request('/bundle/deploy'));
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     await pg.query(
       `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
     );
@@ -1252,7 +1270,10 @@ describe('second review fixes', () => {
       store: () => racing,
       lambda: control.lambda,
     });
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     expect(released).toBe(true);
     const [start] = control.starts;
     const input = JSON.parse(start.payload) as RunInput;
@@ -1283,7 +1304,7 @@ describe('second review fixes', () => {
     );
     const { result } = await call(
       journeys.handler,
-      request('/events', { userId: 'u1', event: 'login' })
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
     );
     expect(result.getResult()).toMatchObject({ statusCode: 500 });
     expect(control.starts).toEqual([]);
@@ -1320,7 +1341,10 @@ describe('4.0: the run is bound to the registry', () => {
   async function recordedRun() {
     const { journeys, starts, sent } = setup();
     await call(journeys.handler, request('/bundle/deploy'));
-    await call(journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     await pg.query(
       `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
     );
@@ -1486,7 +1510,10 @@ describe('the registry read at the entry of a run is retried, briefly, never its
   async function recorded(timeout: '1 day' | '2 seconds' = '1 day') {
     const h = host(timeout);
     await call(h.journeys.handler, request('/bundle/deploy'));
-    await call(h.journeys.handler, request('/events', { userId: 'u1', event: 'login' }));
+    await call(
+      h.journeys.handler,
+      request('/ingest', { userId: 'u1', events: [{ event: 'login' }] })
+    );
     await pg.query(
       `INSERT INTO workflow.profile (user_id, props) VALUES ('u1', '{"email":"ada@acme.test"}')`
     );
@@ -1531,7 +1558,7 @@ describe('the registry read at the entry of a run is retried, briefly, never its
       expect(sent.map((m) => m.subject)).toEqual(['Welcome aboard']);
       await call(
         journeys.handler,
-        request('/events', { userId: 'u1', event: 'purchase', payload: { value: 1 } })
+        request('/ingest', { userId: 'u1', events: [{ event: 'purchase', payload: { value: 1 } }] })
       );
       // The wake's invocation: its first read fails, the retry sees the record
       failReads(1);
@@ -1712,10 +1739,10 @@ describe('the provider clients live with the host, across invocations', () => {
   /** Enter `userId` with an iOS and an Android device, and run its instance as its own invocation. */
   async function runFor(host: ReturnType<typeof pushHost>, userId: string) {
     const store = database.store;
-    await store.upsertDevice({ userId, token: `${userId}-ios`, platform: 'ios', ts: 1 });
-    await store.upsertDevice({ userId, token: `${userId}-android`, platform: 'android', ts: 2 });
+    await store.upsertDevice({ userId, token: `${userId}-ios`, platform: 'ios', at: 1 });
+    await store.upsertDevice({ userId, token: `${userId}-android`, platform: 'android', at: 2 });
     const before = host.starts.length;
-    await call(host.journeys.handler, request('/events', { userId, event: 'login' }));
+    await call(host.journeys.handler, request('/ingest', { userId, events: [{ event: 'login' }] }));
     const { result } = await call(
       host.journeys.handler,
       JSON.parse(host.starts[before].payload) as RunInput
