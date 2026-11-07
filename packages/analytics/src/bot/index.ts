@@ -1,5 +1,5 @@
 import type { TrackTags } from '../track/types';
-import { GENERIC_BOT } from './generic';
+import { genericBot } from './generic';
 
 /**
  * What kind of automated visitor a bot is, as the analytics tools that report bots separately
@@ -576,7 +576,7 @@ export function botOf(tags: TrackTags): Bot {
     if (pattern.test(userAgent)) return { is_bot: true, bot_name: name, bot_category: category };
   }
 
-  const generic = userAgent ? GENERIC_BOT.exec(userAgent) : null;
+  const generic = userAgent ? genericBot().exec(userAgent) : null;
   const unknownName = generic ? nameOfUnknownBot(userAgent, generic[0]) : null;
 
   // A scripted browser that says so in its user agent takes that name, else it is just WebDriver.

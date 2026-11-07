@@ -216,5 +216,21 @@ export const GENERIC_BOT_PATTERNS: readonly string[] = [
   'xtate/',
 ];
 
-/** One case-insensitive expression; the parts use lookbehind, which every supported runtime has. */
-export const GENERIC_BOT = new RegExp(GENERIC_BOT_PATTERNS.join('|'), 'i');
+let compiled: RegExp | undefined;
+
+/**
+ * The patterns as one case-insensitive expression, compiled on first use rather than at import:
+ * this module is bundled into browser code, and a few patterns use lookbehind, which Safari before
+ * 16.4 cannot compile. Compiled at import, the SyntaxError failed the whole chunk that imported
+ * it. Where lookbehind is missing, those patterns are left out and the rest still apply.
+ */
+export function genericBot(): RegExp {
+  if (compiled) return compiled;
+  try {
+    compiled = new RegExp(GENERIC_BOT_PATTERNS.join('|'), 'i');
+  } catch {
+    const supported = GENERIC_BOT_PATTERNS.filter((pattern) => !pattern.includes('(?<'));
+    compiled = new RegExp(supported.join('|'), 'i');
+  }
+  return compiled;
+}
