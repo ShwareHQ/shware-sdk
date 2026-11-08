@@ -221,6 +221,24 @@ export async function refreshSegmentTriggers(
  * and act on each membership transition: entering records the membership and starts the
  * segment's routed workflows, leaving drops it. A segment trigger therefore starts journeys for
  * users who enter after it is deployed; a user already a member is not entered again.
+ *
+ * Why the membership writes and the starts are separate store calls, and why that is safe:
+ * - Each segment's transition is one store operation. `addSegmentMember` writes the membership
+ *   and the starts it owes (`segment_start`) in one locked transaction; `removeSegmentMember`
+ *   drops both in one transaction. No failure leaves a segment half-entered or half-left.
+ * - Starts come only from `pendingSegmentStarts`, which exists only once that transaction has
+ *   committed, so a journey is never started for a membership that was not recorded. A start that
+ *   fails stays pending and is retried by the next evaluation (the sweep, the user's next event);
+ *   it is crossed off only once an instance is known to exist (`entryStarted`).
+ * - A retried or concurrent start cannot run a journey twice: `startJourney` goes through the
+ *   entry ledger, keyed by (workflow, user) under the once policy, and the membership insert is
+ *   `ON CONFLICT DO NOTHING`.
+ * - Segments are independent memberships. A failure on one leaves the others where they were;
+ *   every evaluation recomputes each from facts and the stored membership, so the next one
+ *   converges rather than building on a partial run.
+ * Folding every segment's writes into one transaction would add nothing: the starts have to happen
+ * after the commit anyway (a workflow instance cannot join a database transaction), which is what
+ * the `segment_start` outbox already provides.
  */
 async function refreshSegments(
   env: JourneyEnv,
