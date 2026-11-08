@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   mapCanceledAt,
   mapCancellationDetails,
+  mapGraceUntil,
   mapPaymentType,
   mapSubscriptionStatus,
 } from '../mapper';
@@ -93,5 +94,19 @@ describe('mapPaymentType', () => {
     expect(mapPaymentType('GPA.3345-1234-5678-90123')).toBe('SUBSCRIPTION_START');
     expect(mapPaymentType('GPA.3345-1234-5678-90123..0')).toBe('SUBSCRIPTION_RENEWAL');
     expect(mapPaymentType('GPA.3345-1234-5678-90123..12')).toBe('SUBSCRIPTION_RENEWAL');
+  });
+});
+
+describe('mapGraceUntil', () => {
+  it('is the extended expiry time while the subscription is in grace', () => {
+    expect(mapGraceUntil('SUBSCRIPTION_STATE_IN_GRACE_PERIOD', '2026-11-20T08:00:00.123Z')).toBe(
+      '2026-11-20T08:00:00.123Z'
+    );
+  });
+
+  it('is null on hold, while active, or without an expiry time', () => {
+    expect(mapGraceUntil('SUBSCRIPTION_STATE_ON_HOLD', '2026-11-20T08:00:00Z')).toBeNull();
+    expect(mapGraceUntil('SUBSCRIPTION_STATE_ACTIVE', '2026-11-20T08:00:00Z')).toBeNull();
+    expect(mapGraceUntil('SUBSCRIPTION_STATE_IN_GRACE_PERIOD', null)).toBeNull();
   });
 });

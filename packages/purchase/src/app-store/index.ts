@@ -10,7 +10,9 @@ export {
 } from './schema';
 export {
   mapCancellationDetails,
+  mapGraceUntil,
   mapPaymentType,
   type AppStoreCancellationSource,
+  type AppStoreGraceSource,
   type AppStorePaymentSource,
 } from './mapper';

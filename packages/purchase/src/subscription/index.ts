@@ -107,6 +107,9 @@ export const SUBSCRIPTION_STATUSES = [
    * Google: Subscription is in grace period. The state is only available when the subscription
    * is an auto renewing plan. In this state, all items are in grace period.
    *
+   * When the grace period ends: `mapGraceUntil` from `@shware/purchase/app-store` (the renewal
+   * info's `gracePeriodExpiresDate`) or `@shware/purchase/google-play` (the extended `expiryTime`).
+   *
    * Platform: Apple, Google
    * */
   'IN_GRACE_PERIOD',
@@ -154,7 +157,9 @@ export const SUBSCRIPTION_STATUSES = [
    *
    * This is Stripe's grace period: the customer keeps the product while Stripe retries (Smart
    * Retries, up to about three weeks), as an App Store or Play customer does in IN_GRACE_PERIOD,
-   * so it is in `AVAILABLE_STATUSES`; access ends at UNPAID or CANCELED.
+   * so it is in `AVAILABLE_STATUSES`; access ends at UNPAID or CANCELED. Unlike IN_GRACE_PERIOD it
+   * has no end date to show: when retries stop depends on the account's retry settings, which the
+   * subscription does not carry (`latest_invoice.next_payment_attempt` is only the next retry).
    *
    * Platform: Stripe
    * */
