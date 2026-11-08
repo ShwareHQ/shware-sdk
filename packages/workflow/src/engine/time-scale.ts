@@ -10,8 +10,10 @@ import type { ConditionIR, DurationIR, NodeIR, WorkflowIR } from '../ir';
  * timeouts, goal and `performed(... within)` windows inside the workflow), so
  * the journey keeps its shape, just faster. What does not scale: wall-clock
  * `timeWindow`s (they are times of day, not durations). Segment definitions
- * live in the store rather than the workflow body; `scaleSegmentWindows`
- * scales them as they are read, so a segment's `within` keeps pace too.
+ * and trigger routes live in the store rather than the workflow body;
+ * `scaleSegmentWindows` scales them as they are read — one segment for an
+ * event-driven evaluation, all of them for the scheduled sweep, a route's
+ * profile gate at ingest — so a segment's `within` keeps pace everywhere.
  *
  * The walk follows the IR's own structure — the fields that hold a Duration
  * are known — so a message prop or an event payload that happens to look like
@@ -112,10 +114,14 @@ function scale(duration: DurationIR, factor: number): DurationIR {
 }
 
 /**
- * A store whose segment definitions come back scaled by `factor` — what journeyWorker reads
- * through in fast-forward, so a segment's windows (`performed(e.login, { within: '7 days' })`)
- * shrink with the journeys that reference it, and with the segment triggers it routes. Every
- * other method is the store's own.
+ * A store whose segment definitions come back scaled by `factor` — what the journey host leases
+ * in fast-forward, so a segment's windows (`performed(e.login, { within: '7 days' })`) shrink
+ * with the journeys that reference it, and with the segment triggers it routes. Every read that
+ * hands out a stored condition is scaled: `getSegmentCondition` (event-driven evaluation),
+ * `listSegments` (the scheduled sweep, which narrows candidates in SQL and evaluates with those
+ * definitions) and `findTriggers` (the profile gate an event trigger checks before it starts a
+ * journey, which `scaleDurations` scales inside the journey too). Every other method is the
+ * store's own.
  */
 export function scaleSegmentWindows<
   S extends { getSegmentCondition(name: string): Promise<ConditionIR | undefined> },
@@ -123,14 +129,36 @@ export function scaleSegmentWindows<
   if (!(factor > 0) || factor === 1) return store;
   return new Proxy(store, {
     get(target, property) {
-      if (property === 'getSegmentCondition') {
-        return async (name: string) => {
-          const condition = await target.getSegmentCondition(name);
-          return condition === undefined ? undefined : scaleCondition(condition, factor);
-        };
-      }
       const value: unknown = Reflect.get(target, property, target);
-      return typeof value === 'function' ? value.bind(target) : value;
+      if (typeof value !== 'function') return value;
+      switch (property) {
+        case 'getSegmentCondition':
+          return async (name: string) => {
+            const condition = await target.getSegmentCondition(name);
+            return condition === undefined ? undefined : scaleCondition(condition, factor);
+          };
+        case 'listSegments':
+          return async () => {
+            const segments = (await value.call(target)) as { id: string; condition: ConditionIR }[];
+            return segments.map(({ id, condition }) => ({
+              id,
+              condition: scaleCondition(condition, factor),
+            }));
+          };
+        case 'findTriggers':
+          return async (event: string) => {
+            // Only the profile gate: `where` is payload-only, so it holds no window to scale
+            const scaled = (route: { filter: ConditionIR | null }) => ({
+              ...route,
+              filter: route.filter === null ? null : scaleCondition(route.filter, factor),
+            });
+            return ((await value.call(target, event)) as { filter: ConditionIR | null }[]).map(
+              scaled
+            );
+          };
+        default:
+          return value.bind(target);
+      }
     },
   });
 }

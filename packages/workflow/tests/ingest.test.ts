@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vit
 import { z } from 'zod';
 import type { JourneyRunner } from '../src/cloudflare/runner';
 import { journeyWorker } from '../src/cloudflare/worker';
+import { scaleSegmentWindows } from '../src/engine/time-scale';
 import { handleRequest } from '../src/host/http';
 import {
   LOST_START_AFTER_MS,
@@ -736,6 +737,20 @@ describe('the sweep walks users page by page', () => {
     expect(many.evaluated).toBe(0);
     expect(many.queries).toBe(few.queries);
   }, 30_000);
+
+  test('under a debug time scale the sweep sees the scaled window', async () => {
+    const { env, store: base } = setup();
+    await deployBundle(env, bundle(), base);
+    // A login two hours ago: active within 30 days, but not within 30 days / 600 = 72 minutes
+    const now = Date.now();
+    await ingestEvent(env, { userId: 'u1', event: 'login', ts: now - 2 * 3_600_000 }, base);
+    expect(await base.isSegmentMember('inactive_30d', 'u1')).toBe(false);
+
+    await sweepSegments(env, base, now);
+    expect(await base.isSegmentMember('inactive_30d', 'u1')).toBe(false);
+    await sweepSegments(env, scaleSegmentWindows(base, 600), now);
+    expect(await base.isSegmentMember('inactive_30d', 'u1')).toBe(true);
+  });
 
   test('a store that ignores `after` cannot loop the sweep forever', async () => {
     const { env, store: base } = setup();
