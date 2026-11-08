@@ -109,7 +109,11 @@ export default postgresStats({
 });
 ```
 
-The dev server serves the project's source to the page (Vite's `/@fs/`), except
+The dev server reads only the project (the directory it is started from, and the
+config's directory), the workspace packages it links in, the studio package and
+the dependency store (`node_modules`, including pnpm's `node_modules/.pnpm`);
+the rest of the workspace, such as a sibling app, is never served. It serves the
+project's source to the page (Vite's `/@fs/`), except
 `workflow.config.ts` and the stats file, which the page never imports, and the
 credential files a project keeps beside its code (`.env*`, `.dev.vars*`, `*.p8`,
 `*.plist`, `google-services.json`, `*.pfx`, `*.pem`, `*.key`). It sends no CORS

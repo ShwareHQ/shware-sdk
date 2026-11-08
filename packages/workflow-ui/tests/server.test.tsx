@@ -1,5 +1,12 @@
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, resolve, win32 } from 'node:path';
@@ -18,6 +25,7 @@ import {
   isInsideProject,
   projectFileDeny,
   studioApiPlugin,
+  studioFsAllow,
   studioRequestRejection,
 } from '../src/server';
 
@@ -411,5 +419,64 @@ describe('credentials beside the project are not served to the page', () => {
     ];
     expect(secrets.filter((file) => serves(file))).toEqual([]);
     expect(serves('src/email/index.ts')).toBe(true);
+  });
+});
+
+describe('what the studio may read at all', () => {
+  /** A pnpm workspace: the journey app, a sibling api app, a linked contract package, the store. */
+  function workspace() {
+    const root = realpathSync(tempProject());
+    const write = (file: string, body = '') => {
+      mkdirSync(dirname(resolve(root, file)), { recursive: true });
+      writeFileSync(resolve(root, file), body);
+    };
+    write('pnpm-workspace.yaml', "packages: ['apps/*', 'packages/*']\n");
+    write('package.json', '{}');
+    write('apps/workflow/package.json', '{}');
+    write('apps/workflow/workflow.config.ts', 'export default {};');
+    write('apps/workflow/src/templates/email/welcome.tsx');
+    write('apps/api/package.json', '{}');
+    write('apps/api/src/index.ts');
+    write('packages/contract/package.json', '{}');
+    write('packages/contract/src/workflow.ts');
+    write('node_modules/.pnpm/react@19.0.0/node_modules/react/index.js');
+    write('packages/studio/package.json', '{}');
+    write('packages/studio/src/app/index.html');
+    mkdirSync(resolve(root, 'apps/workflow/node_modules/@acme'), { recursive: true });
+    symlinkSync(
+      resolve(root, 'packages/contract'),
+      resolve(root, 'apps/workflow/node_modules/@acme/contract')
+    );
+    symlinkSync(
+      resolve(root, 'node_modules/.pnpm/react@19.0.0/node_modules/react'),
+      resolve(root, 'apps/workflow/node_modules/react')
+    );
+    return root;
+  }
+
+  test('the project, its linked workspace packages and the store; not sibling apps', async () => {
+    const root = workspace();
+    const cwd = resolve(root, 'apps/workflow');
+    const allow = studioFsAllow({
+      cwd,
+      configPath: resolve(cwd, 'workflow.config.ts'),
+      packageRoot: resolve(root, 'packages/studio'),
+      appRoot: resolve(root, 'packages/studio/src/app'),
+    });
+    const config = await resolveConfig(
+      { root: cwd, configFile: false, envDir: false, server: { fs: { allow, deny: [] } } },
+      'serve'
+    );
+    const serves = (file: string) =>
+      isFileLoadingAllowed(config, normalizePath(resolve(root, file)));
+
+    expect(serves('apps/workflow/src/templates/email/welcome.tsx')).toBe(true);
+    expect(serves('packages/contract/src/workflow.ts')).toBe(true);
+    expect(serves('node_modules/.pnpm/react@19.0.0/node_modules/react/index.js')).toBe(true);
+    expect(serves('packages/studio/src/app/index.html')).toBe(true);
+
+    expect(serves('apps/api/src/index.ts')).toBe(false);
+    expect(serves('apps/api/package.json')).toBe(false);
+    expect(serves('package.json')).toBe(false);
   });
 });
