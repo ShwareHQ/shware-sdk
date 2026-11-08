@@ -12,9 +12,9 @@ export type DebounceOptions = {
    */
   trailing?: boolean;
   /**
-   * The maximum time func is allowed to be delayed before it's invoked, counted from the first
-   * call of a burst. Applies with `leading` too: calls made after the leading invocation are
-   * flushed once `maxWait` elapses even if the calls keep coming.
+   * The maximum time func is allowed to be delayed before it's invoked, counted from the last
+   * invocation (or the first call of a burst). While calls keep coming, func is invoked at least
+   * once every `maxWait`. Applies with `leading` too. Clamped to at least `wait`.
    */
   maxWait?: number;
 };
@@ -34,23 +34,27 @@ export function debounce<F extends Procedure>(
 ): DebouncedFunction<F> {
   const { leading = false, trailing = true, maxWait } = options;
 
+  // Same model as lodash: one timer, plus the time of the last call and of the last invocation.
+  // maxWait is enforced by comparing "time since the last invocation" against it, both when the
+  // timer fires and when a new call arrives, so a continuous stream of calls still invokes func
+  // every maxWait instead of only once.
+  const maxing = maxWait !== undefined && maxWait >= 0;
+  const maxWaitMs = maxing ? Math.max(maxWait, wait) : 0;
+
   let timeout: ReturnType<typeof setTimeout> | null = null;
-  let maxTimeout: ReturnType<typeof setTimeout> | null = null;
   let lastArgs: Parameters<F> | null = null;
   let lastThis: ThisParameterType<F> | null = null;
   let lastCallTime: number | undefined;
+  let lastInvokeTime = 0;
   let result: ReturnType<F> | undefined;
 
-  // Check if maxWait is valid
-  const hasMaxWait = maxWait !== undefined && maxWait >= 0;
-  const maxWaitMs = hasMaxWait ? Math.max(maxWait, wait) : undefined;
-
-  function invokeFunc(): ReturnType<F> | undefined {
+  function invokeFunc(time: number): ReturnType<F> | undefined {
     const args = lastArgs;
     const thisArg = lastThis;
 
     lastArgs = null;
     lastThis = null;
+    lastInvokeTime = time;
 
     if (args) {
       result = func.apply(thisArg, args) as ReturnType<F>;
@@ -58,81 +62,47 @@ export function debounce<F extends Procedure>(
     return result;
   }
 
-  function startTimer(pendingFunc: () => void, waitTime: number) {
-    return setTimeout(pendingFunc, waitTime);
-  }
-
-  function cancelTimer() {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = null;
-    }
-    if (maxTimeout) {
-      clearTimeout(maxTimeout);
-      maxTimeout = null;
-    }
-  }
-
   function remainingWait(time: number): number {
-    const timeSinceLastCall = lastCallTime !== undefined ? time - lastCallTime : 0;
-    return Math.max(0, wait - timeSinceLastCall);
+    const timeSinceLastCall = time - (lastCallTime ?? time);
+    const timeSinceLastInvoke = time - lastInvokeTime;
+    const timeWaiting = wait - timeSinceLastCall;
+    return maxing ? Math.min(timeWaiting, maxWaitMs - timeSinceLastInvoke) : timeWaiting;
   }
 
   function shouldInvoke(time: number): boolean {
-    if (lastCallTime === undefined) {
-      return true;
-    }
+    if (lastCallTime === undefined) return true; // first call
     const timeSinceLastCall = time - lastCallTime;
-    // Either this is the first call, activity has stopped and we're at the trailing edge,
-    // or the wait time has been exceeded
-    return timeSinceLastCall >= wait || timeSinceLastCall < 0;
+    const timeSinceLastInvoke = time - lastInvokeTime;
+    // Activity stopped for `wait`, the clock went backwards, or maxWait has elapsed.
+    return (
+      timeSinceLastCall >= wait ||
+      timeSinceLastCall < 0 ||
+      (maxing && timeSinceLastInvoke >= maxWaitMs)
+    );
   }
 
   function timerExpired() {
     const time = Date.now();
-
     if (shouldInvoke(time)) {
-      trailingEdge();
+      trailingEdge(time);
       return;
     }
-
-    // Restart the timer
-    timeout = startTimer(timerExpired, remainingWait(time));
+    timeout = setTimeout(timerExpired, remainingWait(time));
   }
 
-  function maxTimerExpired() {
-    // Force invoke when maxWait is exceeded
-    if (lastArgs) {
-      cancelTimer();
-      invokeFunc();
-      return;
-    }
-    maxTimeout = null;
+  function leadingEdge(time: number): ReturnType<F> | undefined {
+    // Start the maxWait window and the trailing-edge timer.
+    lastInvokeTime = time;
+    timeout = setTimeout(timerExpired, wait);
+    return leading ? invokeFunc(time) : result;
   }
 
-  function leadingEdge(): ReturnType<F> | undefined {
-    // Start the timer for the trailing edge
-    timeout = startTimer(timerExpired, wait);
-
-    // Start maxWait timer if configured
-    if (hasMaxWait && maxWaitMs !== undefined && !maxTimeout) {
-      maxTimeout = startTimer(maxTimerExpired, maxWaitMs);
-    }
-
-    // Invoke the leading edge
-    if (leading) {
-      return invokeFunc();
-    }
-    return result;
-  }
-
-  function trailingEdge(): ReturnType<F> | undefined {
+  function trailingEdge(time: number): ReturnType<F> | undefined {
     timeout = null;
-    maxTimeout = null;
 
-    // Only invoke if we have lastArgs (meaning the function was called at least once)
+    // Only invoke if there were calls since the last invocation.
     if (trailing && lastArgs) {
-      return invokeFunc();
+      return invokeFunc(time);
     }
 
     lastArgs = null;
@@ -153,42 +123,34 @@ export function debounce<F extends Procedure>(
     lastCallTime = time;
 
     if (isInvoking) {
-      // First call or after wait period
       if (timeout === null) {
-        return leadingEdge();
+        return leadingEdge(time);
       }
-
-      // Handle maxWait scenario when leading is false
-      if (hasMaxWait) {
-        // Reset the standard debounce timer
-        cancelTimer();
-        timeout = startTimer(timerExpired, wait);
-
-        // Start maxWait timer
-        if (maxWaitMs !== undefined) {
-          maxTimeout = startTimer(maxTimerExpired, maxWaitMs);
-        }
+      if (maxing) {
+        // Calls are still arriving and maxWait has elapsed: invoke now and restart the timer.
+        clearTimeout(timeout);
+        timeout = setTimeout(timerExpired, wait);
+        return invokeFunc(time);
       }
     }
 
-    // Ensure timer is set
-    timeout ??= startTimer(timerExpired, wait);
-
+    timeout ??= setTimeout(timerExpired, wait);
     return result;
   };
 
   debounced.cancel = () => {
-    cancelTimer();
+    if (timeout !== null) clearTimeout(timeout);
+    timeout = null;
     lastArgs = null;
     lastThis = null;
     lastCallTime = undefined;
+    lastInvokeTime = 0;
   };
 
   debounced.flush = (): ReturnType<F> | undefined => {
-    if (timeout === null && maxTimeout === null) {
-      return result;
-    }
-    return trailingEdge();
+    if (timeout === null) return result;
+    clearTimeout(timeout);
+    return trailingEdge(Date.now());
   };
 
   return debounced;
