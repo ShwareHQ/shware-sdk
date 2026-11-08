@@ -1,4 +1,4 @@
-import type { CancellationDetails, PaymentType } from '../subscription/index';
+import type { CancellationDetails, PaymentType, SubscriptionStatus } from '../subscription/index';
 
 /**
  * The App Store Server Notification fields that say why a subscription stops renewing: the
@@ -108,4 +108,28 @@ function expirationIntentSubtype(intent: number | null | undefined) {
     default:
       return undefined;
   }
+}
+
+/** What {@link mapGraceUntil} reads: the mapped status and the renewal info's grace end. */
+export interface AppStoreGraceSource {
+  status: SubscriptionStatus;
+  /** `JWSRenewalInfoDecodedPayload.gracePeriodExpiresDate`, milliseconds since the epoch. */
+  gracePeriodExpiresDate?: number | null;
+}
+
+/**
+ * When an App Store billing grace period ends, as an ISO timestamp: the date by which the customer
+ * has to fix their payment method before losing access. In a grace period the latest transaction
+ * has already expired and Apple keeps entitlement until `gracePeriodExpiresDate`. Null outside
+ * `IN_GRACE_PERIOD` (a billing retry without a grace period, `BILLING_RETRY`, grants nothing to
+ * wait out) and when Apple sent no date.
+ *
+ * ref: [gracePeriodExpiresDate](https://developer.apple.com/documentation/appstoreserverapi/graceperiodexpiresdate)
+ */
+export function mapGraceUntil({
+  status,
+  gracePeriodExpiresDate,
+}: AppStoreGraceSource): string | null {
+  if (status !== 'IN_GRACE_PERIOD' || typeof gracePeriodExpiresDate !== 'number') return null;
+  return new Date(gracePeriodExpiresDate).toISOString();
 }

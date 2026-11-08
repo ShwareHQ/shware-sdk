@@ -94,3 +94,20 @@ export function mapPaymentType(orderId: string): Exclude<PaymentType, 'ONE_TIME'
 export function mapCanceledAt(context: CanceledStateContext | null | undefined): string | null {
   return context?.userInitiatedCancellation?.cancelTime ?? null;
 }
+
+/**
+ * When a Play grace period ends, as an ISO timestamp: the date by which the customer has to fix
+ * their payment method before the subscription goes on account hold. During
+ * `SUBSCRIPTION_STATE_IN_GRACE_PERIOD` Play extends the line item's `expiryTime` to the end of the
+ * grace period, so that is the date. Null in any other state (on hold, the customer has already
+ * lost access) and when no expiry time was sent.
+ *
+ * ref: [Grace period](https://developer.android.com/google/play/billing/lifecycle/subscriptions#grace-period)
+ */
+export function mapGraceUntil(
+  state: GooglePlaySubscriptionState,
+  expiryTime: string | null | undefined
+): string | null {
+  if (state !== 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD' || !expiryTime) return null;
+  return new Date(expiryTime).toISOString();
+}

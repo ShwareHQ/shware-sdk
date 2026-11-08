@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapCancellationDetails, mapPaymentType } from '../mapper';
+import { mapCancellationDetails, mapGraceUntil, mapPaymentType } from '../mapper';
 
 describe('mapCancellationDetails', () => {
   it('is the user turning auto-renew off, and nothing when they turn it back on', () => {
@@ -91,5 +91,25 @@ describe('mapPaymentType', () => {
     { notificationType: 'REFUND' },
   ])('is no payment for %o', (source) => {
     expect(mapPaymentType(source)).toBeNull();
+  });
+});
+
+describe('mapGraceUntil', () => {
+  const graceEnd = Date.parse('2026-11-20T08:00:00Z');
+
+  it('is the grace period end while the subscription is in it', () => {
+    expect(mapGraceUntil({ status: 'IN_GRACE_PERIOD', gracePeriodExpiresDate: graceEnd })).toBe(
+      '2026-11-20T08:00:00.000Z'
+    );
+  });
+
+  it('is null in a billing retry without grace, or once the subscription recovered', () => {
+    expect(mapGraceUntil({ status: 'BILLING_RETRY', gracePeriodExpiresDate: graceEnd })).toBeNull();
+    expect(mapGraceUntil({ status: 'ACTIVE', gracePeriodExpiresDate: graceEnd })).toBeNull();
+  });
+
+  it('is null when Apple sent no date', () => {
+    expect(mapGraceUntil({ status: 'IN_GRACE_PERIOD' })).toBeNull();
+    expect(mapGraceUntil({ status: 'IN_GRACE_PERIOD', gracePeriodExpiresDate: null })).toBeNull();
   });
 });
