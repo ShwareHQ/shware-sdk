@@ -1,6 +1,6 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -439,7 +439,8 @@ const VITE_DEFAULT_DENY = ['.env', '.env.*', '*.{crt,pem}', '**/.git/**'];
 
 /**
  * What `server.fs.deny` refuses whatever the project: Vite's default, plus the credentials a
- * journey project keeps beside its code. `fs.allow` spans the workspace, so without these
+ * journey project keeps beside its code. `fs.allow` spans the project and its linked workspace
+ * packages (see {@link studioFsAllow}), so without these
  * `/@fs/<path>/.dev.vars` (wrangler's secrets), an APNs `.p8` or a Firebase service account would
  * be one request away for any page that can reach the port.
  */
@@ -457,8 +458,8 @@ export const STUDIO_FS_DENY: readonly string[] = [
 /**
  * `server.fs.deny` patterns for files the page must never be served.
  *
- * `fs.allow` covers the whole workspace so the browser can import the
- * template registries, which also made `GET /@fs/<cwd>/workflow.stats.ts`
+ * `fs.allow` covers the project so the browser can import the template
+ * registries, which also made `GET /@fs/<cwd>/workflow.stats.ts`
  * answer with the stats source — a file the README calls server-only, and the
  * one place a connection string is likely to be written as a literal. The
  * browser never imports the config or the stats file (the virtual module
@@ -478,6 +479,78 @@ export function projectFileDeny(paths: readonly (string | undefined)[]): string[
     if (existsSync(literal)) deny.add(normalizePath(realpathSync(literal)));
   }
   return [...deny].map((path) => path.replace(/[\\*?[\]{}()!+@]/g, '\\$&'));
+}
+
+/** Whether `path` lies inside some `node_modules` directory (a store entry, not a workspace link). */
+function inNodeModules(path: string): boolean {
+  return path.split(sep).includes('node_modules');
+}
+
+/**
+ * Real paths of the workspace packages `dir` links in through `node_modules` (pnpm's
+ * `workspace:` dependencies, npm/yarn workspaces), followed transitively. A link that resolves
+ * into a `node_modules` directory is a store entry, covered by the store's own allow entry.
+ */
+function linkedWorkspacePackages(dir: string, found = new Set<string>()): Set<string> {
+  const modules = join(dir, 'node_modules');
+  let names: string[];
+  try {
+    names = readdirSync(modules);
+  } catch {
+    return found;
+  }
+  const entries = names.flatMap((name) => {
+    if (!name.startsWith('@')) return [join(modules, name)];
+    try {
+      return readdirSync(join(modules, name)).map((child) => join(modules, name, child));
+    } catch {
+      return [];
+    }
+  });
+  for (const entry of entries) {
+    let real: string;
+    try {
+      if (!lstatSync(entry).isSymbolicLink()) continue;
+      real = realpathSync(entry);
+    } catch {
+      continue; // a dangling link
+    }
+    if (inNodeModules(real) || found.has(real)) continue;
+    found.add(real);
+    linkedWorkspacePackages(real, found);
+  }
+  return found;
+}
+
+/**
+ * `server.fs.allow` for the studio: only what the page actually imports.
+ *
+ * - the studio package itself (the app source, its css and fonts);
+ * - the consuming project: the directory the studio is started from, and the config's own
+ *   directory when `--config` points outside it (the registries the browser imports live there);
+ * - the workspace packages those link in (a template importing `@acme/contract` from a sibling
+ *   workspace package), followed transitively;
+ * - the `node_modules` of each workspace root involved: under pnpm every dependency's real path is
+ *   in the virtual store `node_modules/.pnpm` beside the workspace root rather than below the app,
+ *   and with npm/yarn or a hoisted pnpm layout they are directly in `node_modules`.
+ *
+ * Nothing else in the workspace: a sibling app's source and secrets are not one `/@fs/` request
+ * away. The deny list still applies inside every one of these.
+ */
+export function studioFsAllow(options: {
+  cwd: string;
+  configPath: string;
+  packageRoot: string;
+  appRoot: string;
+}): string[] {
+  const { cwd, configPath, packageRoot, appRoot } = options;
+  const projectDirs = [cwd, dirname(configPath)];
+  const allow = new Set<string>([packageRoot, appRoot, ...projectDirs]);
+  for (const dir of [...projectDirs, packageRoot]) {
+    for (const linked of linkedWorkspacePackages(dir)) allow.add(linked);
+    allow.add(join(searchForWorkspaceRoot(dir), 'node_modules'));
+  }
+  return [...allow];
 }
 
 export interface StartOptions {
@@ -512,20 +585,8 @@ export async function startStudio(options: StartOptions = {}): Promise<ViteDevSe
     server: {
       port: options.port ?? 4321,
       open: options.open ?? false,
-      /*
-       * Both workspace roots have to be readable: the user's project (the
-       * config and everything it imports) and ours — under pnpm our own
-       * dependencies (fonts, css) resolve into a store beside the workspace
-       * root rather than anywhere below the app.
-       */
       fs: {
-        allow: [
-          searchForWorkspaceRoot(cwd),
-          /* A config outside cwd brings its own workspace: the registries the browser imports live there. */
-          searchForWorkspaceRoot(dirname(configPath)),
-          searchForWorkspaceRoot(packageRoot),
-          appRoot,
-        ],
+        allow: studioFsAllow({ cwd, configPath, packageRoot, appRoot }),
         deny: [...STUDIO_FS_DENY, ...projectFileDeny([configPath, statsPath])],
       },
       // The studio is its own origin and calls no one else's; no page elsewhere may read it
