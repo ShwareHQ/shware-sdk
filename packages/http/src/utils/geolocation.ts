@@ -17,15 +17,14 @@ function toNumber(value: string | null): number | undefined {
 
 /**
  * `cf-connecting-ip` is always set by the Cloudflare edge and overwrites whatever the client sent,
- * so it is the only trustworthy client IP. `true-client-ip` is set by the edge only on Enterprise
- * zones with that feature enabled; everywhere else it passes through from the client untouched, so
- * it is read only as a fallback when `cf-connecting-ip` is missing (e.g. a request that did not
- * come through the edge, where neither header can be trusted anyway).
+ * so it is the only client IP header read here. `true-client-ip` is deliberately not read: the edge
+ * sets it only on Enterprise zones with that feature enabled, and everywhere else it passes through
+ * from the client untouched, so trusting it would let a client spoof its IP.
  *
  * reference: https://developers.cloudflare.com/fundamentals/reference/http-headers/
  */
 function getClientIpFromCloudflare(r: Request): string | undefined {
-  return r.headers.get('cf-connecting-ip') ?? r.headers.get('true-client-ip') ?? undefined;
+  return r.headers.get('cf-connecting-ip') ?? undefined;
 }
 
 /** reference: https://developers.cloudflare.com/rules/transform/managed-transforms/reference/#add-visitor-location-headers */

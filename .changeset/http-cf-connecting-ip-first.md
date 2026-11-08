@@ -2,4 +2,4 @@
 '@shware/http': patch
 ---
 
-Read the Cloudflare client IP from `cf-connecting-ip` first and fall back to `true-client-ip`: `true-client-ip` is only set by the edge on Enterprise zones with that feature enabled and otherwise passes through from the client, so preferring it let a client spoof the IP used by `getGeolocation`, the hono `geolocation` helper and the `rateLimit` middleware's default identifier.
+The Cloudflare geolocation reader no longer reads `true-client-ip` and takes the client IP from `cf-connecting-ip` only: `true-client-ip` is set by the edge only on Enterprise zones with that feature enabled and otherwise passes through from the client, so preferring it let a client spoof the IP used by `getGeolocation`, the hono `geolocation` helper and the `rateLimit` middleware's default identifier.

@@ -6,21 +6,17 @@ function request(headers: Record<string, string>) {
 }
 
 describe('getGeolocationFromCloudflare', () => {
-  test('prefers the edge-set cf-connecting-ip over a client-sent true-client-ip', () => {
+  test('reads the edge-set cf-connecting-ip and ignores a client-sent true-client-ip', () => {
     const r = request({ 'cf-connecting-ip': '203.0.113.7', 'true-client-ip': '198.51.100.1' });
     expect(getGeolocationFromCloudflare(r).ip_address).toBe('203.0.113.7');
   });
 
-  test('falls back to true-client-ip when cf-connecting-ip is missing', () => {
+  test('never falls back to true-client-ip', () => {
     const r = request({ 'true-client-ip': '198.51.100.1' });
-    expect(getGeolocationFromCloudflare(r).ip_address).toBe('198.51.100.1');
+    expect(getGeolocationFromCloudflare(r).ip_address).toBeUndefined();
   });
 
-  test('leaves ip_address undefined without either header', () => {
-    expect(getGeolocationFromCloudflare(request({})).ip_address).toBeUndefined();
-  });
-
-  test('getGeolocation routes cf-ray requests through the same precedence', () => {
+  test('getGeolocation routes cf-ray requests through the same reader', () => {
     const r = request({
       'cf-ray': '8a1b2c3d4e5f-SJC',
       'cf-connecting-ip': '203.0.113.7',
