@@ -80,6 +80,12 @@ describe('scaleSegmentWindows', () => {
       this.calls += 1;
       return name === 'inactive' ? condition : undefined;
     },
+    async listSegments() {
+      return [{ id: 'inactive', condition: { type: 'not', condition } satisfies ConditionIR }];
+    },
+    async findTriggers(event: string) {
+      return [{ workflow: event, hash: 'h', where: null, filter: condition, visitors: false }];
+    },
     other() {
       return this.calls;
     },
@@ -93,6 +99,27 @@ describe('scaleSegmentWindows', () => {
     });
     expect(await scaled.getSegmentCondition('missing')).toBeUndefined();
     expect(scaled.other()).toBe(2);
+  });
+
+  test('the sweep and trigger routing read scaled conditions; the store keeps its own', async () => {
+    const scaled = scaleSegmentWindows(store, 3600);
+    const window = { value: '7 days', ms: 168_000 };
+    expect(await scaled.listSegments()).toEqual([
+      { id: 'inactive', condition: { type: 'not', condition: { ...condition, within: window } } },
+    ]);
+    expect(await scaled.findTriggers('login')).toEqual([
+      {
+        workflow: 'login',
+        hash: 'h',
+        where: null,
+        filter: { ...condition, within: window },
+        visitors: false,
+      },
+    ]);
+    // The wrapped store is untouched: its own reads still see the written window
+    expect((await store.listSegments())[0]?.condition).toEqual({ type: 'not', condition });
+    expect((await store.findTriggers('login'))[0]?.filter).toBe(condition);
+    expect(condition.within).toEqual({ value: '7 days', ms: 604_800_000 });
   });
 
   test('a factor of 1 hands back the store unwrapped', () => {
