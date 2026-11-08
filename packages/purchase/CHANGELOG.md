@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 9.6.0
+
+### Minor Changes
+
+- 79d33fb: `createCheckoutSessionSchema` accepts an optional `promotionCode` (a customer-facing Stripe code such as `SAVE20`, trimmed, 1–200 characters), exported on its own as `promotionCodeSchema`; `CreateCheckoutSessionDTO` carries the same field.
+
 ## 9.5.0
 
 ### Minor Changes
