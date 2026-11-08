@@ -382,6 +382,79 @@ export async function failLostStarts(
   return failed;
 }
 
+/**
+ * How long after its admission an entry is left out of the lost-instance sample. No age proves
+ * anything about an admitted instance — it can end a moment after admitting itself, and a long
+ * wait runs for weeks — so this is not a judgment, only a filter: the freshest entries are the
+ * ones most likely to still be running, and the ones a platform status may not have settled
+ * for yet. Correctness rests on the lookup and the conditional update, not on the window.
+ */
+export const LOST_INSTANCE_AFTER_MS = 15 * 60 * 1000;
+
+/**
+ * Admitted entries one maintenance run looks up on the platform: a random sample (see
+ * `JourneyStore.admittedEntries`), so every entry is reached eventually however many are
+ * running, and the sweep's platform calls stay bounded.
+ */
+const LOST_INSTANCE_BATCH = 50;
+
+/**
+ * Instances that ended on the platform without finalizing their entry: terminated from outside
+ * (the dashboard, the API), errored for good because a finalize step kept failing, or no longer
+ * known to the runtime at all. The entry stays `running`, and the once-policy would bar the user
+ * from the workflow for good. Only admitted entries are looked at — an unadmitted one is
+ * `failLostStarts`' — and only a terminal status, or not found, ends one: an admitted instance
+ * did reach the runtime, so not found now means it finished and was evicted (as `stopInstance`
+ * reads it). A lookup that fails otherwise proves nothing and leaves the entry alone. The update
+ * is conditional on the entry still running under the instance id, so a run that finalized
+ * between the read and the lookup keeps its own status.
+ *
+ * `complete` ends in `failed` too: the run's finalize step is what records the real outcome, and
+ * an instance complete with its entry still running went without it, so what the journey would
+ * have recorded is unknown. Platform-neutral: on AWS the adapter's own maintenance reconciles
+ * these too (both writes are idempotent), and its `status` reads running through a stop's
+ * drain, so nothing is failed here that the adapter would still wait for.
+ */
+export async function failLostInstances(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now: number
+): Promise<string[]> {
+  const failed: string[] = [];
+  for (const entry of await store.admittedEntries(
+    now - LOST_INSTANCE_AFTER_MS,
+    LOST_INSTANCE_BATCH
+  )) {
+    let status: string;
+    try {
+      const instance = await env.JOURNEY.get(entry.instanceId);
+      const reported = await instance.status?.();
+      // Still running, or a runtime that cannot say: nothing to conclude
+      if (reported === undefined || !STOPPED_STATUSES.has(reported.status)) continue;
+      status = reported.status;
+    } catch (error) {
+      if (!(error instanceof InstanceNotFoundError)) continue;
+      status = 'not found';
+    }
+    if (!(await store.failAdmittedEntry(entry.instanceId))) continue;
+    failed.push(entry.instanceId);
+    // What the finalize step would have done: the wakes dropped (left, every later event of the
+    // user would poke a dead instance), the ending reported
+    await store.unsubscribe(entry.instanceId);
+    await store.reporting.instanceFinished({
+      workflow: entry.workflow,
+      instanceId: entry.instanceId,
+      userId: entry.userId,
+      status: 'failed',
+      at: now,
+    });
+    console.error(
+      `[workflow] ${entry.instanceId} (${entry.workflow}) ended on the platform (${status}) without finishing: marked failed, the next trigger re-enters`
+    );
+  }
+  return failed;
+}
+
 /** How long a visitor who never signs in is kept after they were last heard from. */
 export const VISITOR_RETENTION_MS = 90 * 24 * 60 * 60_000;
 /** Visitors one sweep prunes: the next sweep goes on. */
@@ -392,9 +465,10 @@ export const SWEEP_PAGE_SIZE = 500;
 
 /**
  * What the sweep does before it looks at any user: the runtime's own upkeep (AWS: unconfirmed
- * starts, executions that ended unseen) and the erasures left unfinished (an instance would not
- * stop). A failure of either is logged, never fatal: the pages still run. Users whose erasure is
- * still pending afterwards are skipped by every page (`sweepSegmentsPaged`).
+ * starts, executions that ended unseen), the entries whose start or instance was lost, and the
+ * erasures left unfinished (an instance would not stop). A failure of any is logged, never
+ * fatal: the pages still run. Users whose erasure is still pending afterwards are skipped by
+ * every page (`sweepSegmentsPaged`).
  */
 export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Promise<void> {
   try {
@@ -406,6 +480,11 @@ export async function sweepMaintenance(env: JourneyEnv, store: JourneyStore): Pr
     await failLostStarts(env, store, Date.now());
   } catch (error) {
     console.error('[workflow] reclaiming lost starts failed', error);
+  }
+  try {
+    await failLostInstances(env, store, Date.now());
+  } catch (error) {
+    console.error('[workflow] reclaiming lost instances failed', error);
   }
   try {
     await store.pruneVisitors(Date.now() - VISITOR_RETENTION_MS, VISITOR_PRUNE_BATCH);

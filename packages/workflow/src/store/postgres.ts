@@ -4,6 +4,7 @@ import { conditionToSql } from './condition-sql';
 import { type ErasureState, UserErasedError } from './erasure';
 import { visitorIdOf, visitorSubject } from './identity';
 import type {
+  AdmittedEntry,
   BundleVersion,
   DeviceInput,
   EntryInput,
@@ -1147,6 +1148,33 @@ export class PostgresJourneyStore implements JourneyStore {
     const rows = await this.sql.query(
       `UPDATE ${this.t.entry} SET status = 'failed'
        WHERE instance_id = $1 AND status = 'running' AND admitted_at IS NULL
+       RETURNING instance_id`,
+      [instanceId]
+    );
+    return rows.length > 0;
+  }
+
+  async admittedEntries(admittedBefore: number, limit: number): Promise<AdmittedEntry[]> {
+    // random(): a sample, not the oldest — see the interface
+    const rows = await this.sql.query<{ instance_id: string; workflow: string; user_id: string }>(
+      `SELECT instance_id, workflow, user_id FROM ${this.t.entry}
+       WHERE status = 'running' AND admitted_at < ${TS('$1')}
+       ORDER BY random() LIMIT $2`,
+      [admittedBefore, limit]
+    );
+    return rows.map((row) => ({
+      instanceId: row.instance_id,
+      workflow: row.workflow,
+      userId: row.user_id,
+    }));
+  }
+
+  async failAdmittedEntry(instanceId: string): Promise<boolean> {
+    // Conditional on the same state the caller saw: a run that finalized between the caller's
+    // read and its platform lookup, or a reclaim under a new instance id, leaves the row alone
+    const rows = await this.sql.query(
+      `UPDATE ${this.t.entry} SET status = 'failed'
+       WHERE instance_id = $1 AND status = 'running' AND admitted_at IS NOT NULL
        RETURNING instance_id`,
       [instanceId]
     );

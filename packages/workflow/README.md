@@ -1404,6 +1404,17 @@ the sweep's maintenance marks an entry left unadmitted for 15 minutes, whose
 instance the runtime does not know or reports ended, as failed, so the user's
 next trigger re-enters. Neither can start a second journey for the pair.
 
+An instance can also end after it was admitted without finalizing its entry:
+terminated from the dashboard or the API, errored for good because a step kept
+failing, or evicted. The same maintenance samples the entries admitted more than
+15 minutes ago (a bounded random sample each sweep, so every entry is reached
+eventually however many journeys are running), and one whose instance the
+runtime reports `complete`, `errored` or `terminated`, or no longer knows, is
+marked failed, its wake subscriptions dropped and its ending reported — what the
+finalize step would have done. An instance still running, or one whose lookup
+fails for any other reason, is left alone. The next trigger of the pair then
+re-enters.
+
 ## Exports
 
 | Subpath                        | Contents                                                                                           |

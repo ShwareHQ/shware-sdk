@@ -6,8 +6,10 @@ import { journeyWorker } from '../src/cloudflare/worker';
 import { scaleSegmentWindows } from '../src/engine/time-scale';
 import { handleRequest } from '../src/host/http';
 import {
+  LOST_INSTANCE_AFTER_MS,
   LOST_START_AFTER_MS,
   deployBundle,
+  failLostInstances,
   failLostStarts,
   ingestEvent,
   sweepSegments,
@@ -581,6 +583,136 @@ describe('a start lost between the entry and the create', () => {
     );
     expect(recovered.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
     expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toEqual([]);
+  });
+});
+
+describe('an instance that ended on the platform without finalizing its entry', () => {
+  /*
+   * Once admitted, the run's finalize step is what moves the entry off `running`. An instance
+   * terminated from outside, errored for good, or evicted never runs it, and the entry used to
+   * stay `running` forever: the once-policy barred the user from the workflow, and every later
+   * event of theirs poked the dead instance through its wake subscriptions.
+   */
+  const event = { id: 'evt-1', userId: 'u1', event: 'begin_checkout', ts: 1_700_000_000_000 };
+  /** Old enough for maintenance to sample the entry. */
+  const later = () => Date.now() + LOST_INSTANCE_AFTER_MS + 1;
+  /** The reporting's row for the instance, if any. */
+  const reported = async (instanceId: string) =>
+    (
+      await database.client.query<{ status: string }>(
+        'SELECT status FROM workflow.instance WHERE instance_id = $1',
+        [instanceId]
+      )
+    ).at(0);
+
+  /** Deploy, enter u1, and admit the runner — the instance ran, so it is the platform's now. */
+  const admit = async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    const { started } = await ingestEvent(env, event, store);
+    const [instanceId] = started;
+    expect(await store.admitInstance(instanceId, 'u1')).toBe(true);
+    // Parked on a wait, as a journey mostly is
+    await store.subscribe(instanceId, 'u1', ['purchase'], event.ts);
+    return { env, store, journey, instanceId };
+  };
+
+  test.each(['terminated', 'errored', 'complete'] as const)(
+    'an admitted instance the platform reports %s is failed, and the next trigger re-enters',
+    async (status) => {
+      const { env, store, journey, instanceId } = await admit();
+      journey.ended.set(instanceId, status);
+
+      expect(await failLostInstances(env, store, later())).toEqual([instanceId]);
+
+      expect((await entries())[0]).toMatchObject({ instance_id: instanceId, status: 'failed' });
+      // What the finalize step would have done: no wake left to poke it, the ending reported
+      expect(await store.findWakeHandles('u1', 'purchase')).toEqual([]);
+      expect(await reported(instanceId)).toEqual({ status: 'failed' });
+      // Idempotent: nothing left to fail
+      expect(await failLostInstances(env, store, later())).toEqual([]);
+
+      const next = await ingestEvent(env, { ...event, id: 'evt-2', ts: event.ts + 60_000 }, store);
+      expect(next.started).toHaveLength(1);
+      expect(next.started[0]).not.toBe(instanceId);
+      expect((await entries())[0]).toMatchObject({
+        instance_id: next.started[0],
+        status: 'running',
+      });
+    }
+  );
+
+  test('an admitted instance the runtime no longer knows finished and was evicted: failed', async () => {
+    const { env, store, journey, instanceId } = await admit();
+    journey.known.delete(instanceId);
+
+    expect(await failLostInstances(env, store, later())).toEqual([instanceId]);
+    expect((await entries())[0].status).toBe('failed');
+  });
+
+  test('one still running is left alone', async () => {
+    const { env, store, instanceId } = await admit();
+
+    expect(await failLostInstances(env, store, later())).toEqual([]);
+    expect((await entries())[0].status).toBe('running');
+    expect(await store.findWakeHandles('u1', 'purchase')).toEqual([instanceId]);
+    expect(await reported(instanceId)).toBeUndefined();
+  });
+
+  test('one younger than the window is not looked up, whatever the platform would say', async () => {
+    const { env, store, journey, instanceId } = await admit();
+    journey.ended.set(instanceId, 'terminated');
+    const get = vi.spyOn(journey, 'get');
+
+    expect(await failLostInstances(env, store, Date.now())).toEqual([]);
+    expect(get).not.toHaveBeenCalled();
+    expect((await entries())[0].status).toBe('running');
+  });
+
+  test('a lookup that fails for any other reason proves nothing: left alone', async () => {
+    const { env, store, journey, instanceId } = await admit();
+    journey.ended.set(instanceId, 'terminated');
+    const get = vi.spyOn(journey, 'get').mockRejectedValue(new Error('binding unavailable'));
+    try {
+      expect(await failLostInstances(env, store, later())).toEqual([]);
+    } finally {
+      get.mockRestore();
+    }
+    expect((await entries())[0].status).toBe('running');
+
+    // A status read that fails is the same
+    const instance = await journey.get(instanceId);
+    const status = vi.spyOn(journey, 'get').mockResolvedValue({
+      ...instance,
+      status: async () => {
+        throw new Error('timeout');
+      },
+    });
+    try {
+      expect(await failLostInstances(env, store, later())).toEqual([]);
+    } finally {
+      status.mockRestore();
+    }
+    expect((await entries())[0].status).toBe('running');
+  });
+
+  test("an entry never admitted is not this pass's, even over an ended instance", async () => {
+    const { env, store, journey } = setup();
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [checkoutRecovery], segments: allSegments }),
+      store
+    );
+    const { started } = await ingestEvent(env, event, store);
+    journey.ended.set(started[0], 'errored');
+
+    // Lost starts have their own rule (`failLostStarts`): unadmitted, so nothing of it ran
+    expect(await failLostInstances(env, store, later())).toEqual([]);
+    expect((await entries())[0].status).toBe('running');
   });
 });
 

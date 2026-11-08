@@ -185,6 +185,13 @@ export interface UnadmittedEntry {
   userId: string;
 }
 
+/** A running entry whose runner admitted itself (`admittedEntries`). */
+export interface AdmittedEntry {
+  instanceId: string;
+  workflow: string;
+  userId: string;
+}
+
 /** A store plus how to release what opening it acquired (a connection, say). */
 export interface StoreLease {
   store: JourneyStore;
@@ -606,6 +613,20 @@ export interface JourneyStore {
    * still running and unadmitted under this instance id; false when it moved on meanwhile.
    */
   failUnadmittedEntry(instanceId: string): Promise<boolean>;
+  /**
+   * Running entries whose runner admitted itself before `admittedBefore` (epoch ms): candidates
+   * for an instance the platform ended without the run finalizing its entry. A sample of at most
+   * `limit`, in no fixed order — ordered by age, the oldest entries still legitimately running
+   * (a long wait) would fill every batch and a lost one behind them would never be reached.
+   */
+  admittedEntries(admittedBefore: number, limit: number): Promise<AdmittedEntry[]>;
+  /**
+   * Mark an admitted entry whose instance ended without finalizing `failed`, so the pair's next
+   * trigger reclaims it. Only while the entry is still running and admitted under this instance
+   * id: a run that finalized meanwhile keeps its status, and a reclaim its new attempt; false
+   * then.
+   */
+  failAdmittedEntry(instanceId: string): Promise<boolean>;
   /** Execution starts and wake callbacks, for a runtime that submits its starts (AWS). */
   readonly executions: ExecutionRegistry;
 

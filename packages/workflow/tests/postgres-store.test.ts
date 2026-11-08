@@ -717,6 +717,68 @@ describe('admitInstance', () => {
   );
 });
 
+describe('admitted entries', () => {
+  const enter = (userId: string, instanceId: string) =>
+    database.store.enterJourney({ workflow: 'w', userId, instanceId, hash: 'h', ts: 1 });
+  const ids = (entries: { instanceId: string }[]) =>
+    entries.map((entry) => entry.instanceId).sort();
+
+  test('samples the running entries admitted before the bound, and no others', async () => {
+    const { store } = setup();
+    const before = Date.now();
+    await enter('u1', 'i1');
+    await enter('u2', 'i2');
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
+    expect(await store.admitInstance('i2', 'u2')).toBe(true);
+    // Running but never admitted: a lost start, not a lost instance
+    await enter('u3', 'i3');
+    // Admitted, but finalized since
+    await enter('u4', 'i4');
+    expect(await store.admitInstance('i4', 'u4')).toBe(true);
+    await store.setEntryStatus('i4', 'completed');
+    const after = Date.now() + 1;
+
+    expect(ids(await store.admittedEntries(after, 10))).toEqual(['i1', 'i2']);
+    expect(await store.admittedEntries(after, 10)).toContainEqual({
+      instanceId: 'i1',
+      workflow: 'w',
+      userId: 'u1',
+    });
+    // Admitted after the bound: too young
+    expect(await store.admittedEntries(before, 10)).toEqual([]);
+    // Bounded
+    expect(await store.admittedEntries(after, 1)).toHaveLength(1);
+  });
+
+  test('failAdmittedEntry fails a running admitted entry once, and nothing else', async () => {
+    const { store } = setup();
+    await enter('u1', 'i1');
+    expect(await store.admitInstance('i1', 'u1')).toBe(true);
+    expect(await store.failAdmittedEntry('i1')).toBe(true);
+    expect(await store.getEntry('w', 'u1')).toMatchObject({ instanceId: 'i1', status: 'failed' });
+    expect(await store.failAdmittedEntry('i1')).toBe(false);
+
+    // Never admitted: `failUnadmittedEntry` is its rule
+    await enter('u2', 'i2');
+    expect(await store.failAdmittedEntry('i2')).toBe(false);
+    expect(await store.getEntry('w', 'u2')).toMatchObject({ status: 'running' });
+    // Finalized meanwhile: the run's own status stands
+    await enter('u3', 'i3');
+    expect(await store.admitInstance('i3', 'u3')).toBe(true);
+    await store.setEntryStatus('i3', 'goal');
+    expect(await store.failAdmittedEntry('i3')).toBe(false);
+    expect(await store.getEntry('w', 'u3')).toMatchObject({ status: 'goal' });
+    // Reclaimed under a new id meanwhile: the new attempt is not touched under the old id
+    await store.setEntryStatus('i1', 'failed');
+    expect(
+      await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i9', hash: 'h', ts: 2 })
+    ).toBe('reclaimed');
+    expect(await store.failAdmittedEntry('i1')).toBe(false);
+    expect(await store.getEntry('w', 'u1')).toMatchObject({ instanceId: 'i9', status: 'running' });
+    expect(await store.failAdmittedEntry('nope')).toBe(false);
+  });
+});
+
 describe('uuidv7', () => {
   test('is a version 7, variant 1 uuid ordered by time', () => {
     const a = uuidv7(1_000_000);
