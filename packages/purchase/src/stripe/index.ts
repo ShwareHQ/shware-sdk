@@ -55,6 +55,7 @@ export {
 export {
   cancellationDetailsSchema,
   createCheckoutSessionSchema,
+  promotionCodeSchema,
   returnUrlSchema,
   type AllowedOrigins,
   type CreateCheckoutSessionSchemaOptions,

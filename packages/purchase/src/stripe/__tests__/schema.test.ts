@@ -81,4 +81,13 @@ describe('createCheckoutSessionSchema', () => {
     const result = schema.safeParse({ productId: 'com.example.pro', [field]: 'https://evil.com' });
     expect(result.success).toBe(false);
   });
+
+  it('trims a promotion code copied from a link', () => {
+    const result = schema.safeParse({ productId: 'com.example.pro', promotionCode: ' SAVE20 ' });
+    expect(result.data?.promotionCode).toBe('SAVE20');
+  });
+
+  it.each(['', '   ', 'x'.repeat(201)])('refuses the promotion code %j', (promotionCode) => {
+    expect(schema.safeParse({ productId: 'com.example.pro', promotionCode }).success).toBe(false);
+  });
 });

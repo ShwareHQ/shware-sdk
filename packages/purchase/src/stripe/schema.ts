@@ -5,11 +5,13 @@ import {
   int,
   lte,
   maxLength,
+  minLength,
   nullable,
   object,
   optional,
   refine,
   string,
+  trim,
   url,
 } from 'zod/mini';
 import { CANCELLATION_FEEDBACKS, RESUBSCRIBE_INTENTS } from '../subscription/index';
@@ -77,6 +79,13 @@ export interface CreateCheckoutSessionSchemaOptions {
   allowedOrigins: AllowedOrigins;
 }
 
+/**
+ * A customer-facing Stripe promotion code (`SAVE20`), as a link or an email hands it out: the
+ * server looks the code up and applies its coupon to the session. Trimmed, since it is copied
+ * from a URL; the length bound is Stripe's own.
+ */
+export const promotionCodeSchema = string().check(trim(), minLength(1), maxLength(200));
+
 export function createCheckoutSessionSchema(
   productIds: string[],
   { allowedOrigins }: CreateCheckoutSessionSchemaOptions
@@ -86,6 +95,7 @@ export function createCheckoutSessionSchema(
     productId: _enum(productIds),
     cancelUrl: optional(returnUrlSchema(allowedOrigins)),
     successUrl: optional(returnUrlSchema(allowedOrigins)),
+    promotionCode: optional(promotionCodeSchema),
   });
 }
 
@@ -97,4 +107,6 @@ export interface CreateCheckoutSessionDTO {
   productId: string;
   cancelUrl?: string;
   successUrl?: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
+  /** A promotion code to apply (`SAVE20`), e.g. from the `?coupon=` of the link that brought the user. */
+  promotionCode?: string;
 }
