@@ -1,5 +1,5 @@
 import type { Stripe } from 'stripe';
-import type { CancellationDetails, SubscriptionStatus } from '../subscription/index';
+import type { CancellationDetails, SubscriptionState } from '../subscription/index';
 import {
   type Money,
   mapCancellationDetails,
@@ -13,17 +13,13 @@ import {
  * is the app's: who the user is and which plan the product means (both from the subscription's
  * metadata and the app's config), the row id, and when the row was written.
  */
-export interface StripeSubscriptionState {
-  status: SubscriptionStatus;
-  autoRenewEnabled: boolean;
+export interface StripeSubscriptionState extends SubscriptionState {
   /** see {@link mapListPrice}; null for a price without a flat amount */
   price: Money | null;
   startedAt: string;
   createdAt: string;
   /** null while paused: a paused subscription has no date it comes back on */
   renewalAt: string | null;
-  trialStart: string | null;
-  trialEnd: string | null;
   canceledAt: string | null;
   cancellationDetails: CancellationDetails | null;
 }

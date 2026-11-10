@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapCancellationDetails, mapGraceUntil, mapPaymentType } from '../mapper';
+import { mapCancellationDetails, mapGraceUntil, mapPaymentType, mapSubscription } from '../mapper';
 
 describe('mapCancellationDetails', () => {
   it('is the user turning auto-renew off, and nothing when they turn it back on', () => {
@@ -111,5 +111,93 @@ describe('mapGraceUntil', () => {
   it('is null when Apple sent no date', () => {
     expect(mapGraceUntil({ status: 'IN_GRACE_PERIOD' })).toBeNull();
     expect(mapGraceUntil({ status: 'IN_GRACE_PERIOD', gracePeriodExpiresDate: null })).toBeNull();
+  });
+});
+
+describe('mapSubscription', () => {
+  const purchaseDate = Date.parse('2026-11-01T12:00:00Z');
+  const expiresDate = Date.parse('2026-11-08T12:00:00Z');
+  const paid = { purchaseDate, expiresDate, offerDiscountType: 'PAY_AS_YOU_GO' };
+  const trial = { purchaseDate, expiresDate, offerDiscountType: 'FREE_TRIAL' };
+  const renewing = { autoRenewStatus: 1 };
+
+  it('reads an active, renewing subscription as active without a trial', () => {
+    expect(mapSubscription({ status: 1, transaction: paid, renewalInfo: renewing })).toEqual({
+      status: 'ACTIVE',
+      autoRenewEnabled: true,
+      trialStart: null,
+      trialEnd: null,
+    });
+    // A full-price transaction redeemed no offer at all.
+    expect(
+      mapSubscription({
+        status: 1,
+        transaction: { purchaseDate, expiresDate },
+        renewalInfo: renewing,
+      })
+    ).toMatchObject({ status: 'ACTIVE', trialStart: null });
+  });
+
+  it.each([
+    [2, 'EXPIRED'],
+    [3, 'BILLING_RETRY'],
+    [4, 'IN_GRACE_PERIOD'],
+    [5, 'CANCELED'],
+  ])('maps status %i to %s', (status, mapped) => {
+    expect(mapSubscription({ status, transaction: paid, renewalInfo: renewing })).toMatchObject({
+      status: mapped,
+    });
+  });
+
+  it('keeps a subscription with auto-renew off active until it expires', () => {
+    expect(
+      mapSubscription({ status: 1, transaction: paid, renewalInfo: { autoRenewStatus: 0 } })
+    ).toEqual({ status: 'ACTIVE', autoRenewEnabled: false, trialStart: null, trialEnd: null });
+  });
+
+  it('is trialing, with the trial dates, while the latest transaction is a free trial', () => {
+    expect(mapSubscription({ status: 1, transaction: trial, renewalInfo: renewing })).toEqual({
+      status: 'TRIALING',
+      autoRenewEnabled: true,
+      trialStart: '2026-11-01T12:00:00.000Z',
+      trialEnd: '2026-11-08T12:00:00.000Z',
+    });
+    // Cancelled during the trial: still trialing, not renewing.
+    expect(
+      mapSubscription({ status: 1, transaction: trial, renewalInfo: { autoRenewStatus: 0 } })
+    ).toMatchObject({ status: 'TRIALING', autoRenewEnabled: false });
+  });
+
+  it('carries the trial dates but not the status through a billing retry or grace period', () => {
+    expect(mapSubscription({ status: 4, transaction: trial, renewalInfo: renewing })).toMatchObject(
+      {
+        status: 'IN_GRACE_PERIOD',
+        trialStart: '2026-11-01T12:00:00.000Z',
+        trialEnd: '2026-11-08T12:00:00.000Z',
+      }
+    );
+    expect(mapSubscription({ status: 3, transaction: trial, renewalInfo: renewing })).toMatchObject(
+      {
+        status: 'BILLING_RETRY',
+        trialEnd: '2026-11-08T12:00:00.000Z',
+      }
+    );
+  });
+
+  it('renews into nothing once expired or revoked, whatever the renewal info says', () => {
+    for (const status of [2, 5]) {
+      expect(mapSubscription({ status, transaction: paid, renewalInfo: renewing })).toMatchObject({
+        autoRenewEnabled: false,
+      });
+    }
+  });
+
+  it('throws for an unknown status', () => {
+    expect(() => mapSubscription({ status: 9, transaction: paid, renewalInfo: renewing })).toThrow(
+      'Unknown App Store subscription status: 9'
+    );
+    expect(() => mapSubscription({ transaction: paid, renewalInfo: renewing })).toThrow(
+      'Unknown App Store subscription status: undefined'
+    );
   });
 });

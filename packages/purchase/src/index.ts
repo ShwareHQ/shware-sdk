@@ -15,6 +15,7 @@ export {
   type RefundStatus,
   type DisputeStatus,
   type SubscriptionStatus,
+  type SubscriptionState,
   type CancellationDetails,
   type CancellationInitiator,
   type CancellationFeedback,

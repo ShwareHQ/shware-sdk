@@ -15,10 +15,12 @@ export {
 export { GooglePlayConfig, defineGooglePlayConfig } from './config';
 export { googlePlayPurchaseSchema, type GooglePlayPurchase } from './schema';
 export {
-  mapSubscriptionStatus,
+  mapSubscription,
   mapCancellationDetails,
   mapCanceledAt,
   mapGraceUntil,
   mapPaymentType,
   type CanceledStateContext,
+  type SubscriptionLineItem,
+  type SubscriptionPurchase,
 } from './mapper';

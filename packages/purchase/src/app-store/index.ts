@@ -12,7 +12,9 @@ export {
   mapCancellationDetails,
   mapGraceUntil,
   mapPaymentType,
+  mapSubscription,
   type AppStoreCancellationSource,
   type AppStoreGraceSource,
   type AppStorePaymentSource,
+  type AppStoreSubscriptionSource,
 } from './mapper';

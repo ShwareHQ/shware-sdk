@@ -81,11 +81,15 @@ export const CLOSED_DISPUTE_STATUSES: readonly DisputeStatus[] = [
  */
 export const SUBSCRIPTION_STATUSES = [
   /**
-   * The subscription is currently in a trial period and it’s safe to provision your product for
-   * your customer. The subscription transitions automatically to active when the first payment
-   * is made.
+   * The subscription is in a free trial and it’s safe to provision your product for your customer.
+   * It becomes ACTIVE with the first payment. Each platform's `mapSubscription` reports it, with the
+   * trial's dates in `trialStart` / `trialEnd` ({@link SubscriptionState}):
    *
-   * Google: play(LineItems[0].OfferDetails.OfferId == 'xx')
+   * - Apple: an active subscription whose latest transaction has `offerDiscountType: FREE_TRIAL`
+   *   (`@shware/purchase/app-store`).
+   * - Google: an active subscription with a line item in its `offerPhase.freeTrial`
+   *   (`@shware/purchase/google-play`).
+   * - Stripe: `trialing` (`@shware/purchase/stripe`).
    *
    * Platform: Apple, Google, Stripe
    * */
@@ -195,11 +199,16 @@ export const SUBSCRIPTION_STATUSES = [
    *   updated.
    * - Apple: `REVOKED` only (refunded, or revoked from Family Sharing). A subscription that runs out
    *   at the end of its period is EXPIRED, not CANCELED.
-   * - Google: `SUBSCRIPTION_STATE_CANCELED`, the customer turned off auto-renew but the current
-   *   period has not ended yet; it is not terminal. Consumers keep the product available until the
-   *   expiry time, after which Google reports EXPIRED.
+   * - Google never reports it. Play's `SUBSCRIPTION_STATE_CANCELED` is the customer turning
+   *   auto-renew off while the paid period still runs, the situation Stripe (`cancel_at_period_end`)
+   *   and Apple (`autoRenewStatus` off) report as an active subscription, so `mapSubscription` in
+   *   `@shware/purchase/google-play` reports it as ACTIVE (or TRIALING) with
+   *   `autoRenewEnabled: false`, the cancellation itself in `canceledAt` / `cancellationDetails`;
+   *   once the period has run out it is EXPIRED.
    *
-   * Platform: Apple, Google, Stripe
+   * Outside `AVAILABLE_STATUSES`: a CANCELED subscription grants nothing anywhere.
+   *
+   * Platform: Apple, Stripe
    * */
   'CANCELED',
 
@@ -243,6 +252,9 @@ export const SUBSCRIPTION_STATUSES = [
    * | linkedPurchaseToken: null |  | linkedPurchaseToken: A |  | linkedPurchaseToken: B |
    * +---------------------------+  +------------------------+  +------------------------+
    *
+   * `mapSubscription` reports it for a purchase whose `canceledStateContext.replacementCancellation`
+   * is set, whatever its own state says: the purchase that replaced it is the one the customer has.
+   *
    * Platform: Google
    * */
   'REPLACED',
@@ -253,7 +265,9 @@ export const SUBSCRIPTION_STATUSES = [
    * - Apple: the natural end of a subscription, including one the customer cancelled (auto-renew
    *   off), a billing retry that gave up, or a declined price increase.
    * - Google: `SUBSCRIPTION_STATE_EXPIRED`, all items have expiryTime in the past; a cancelled
-   *   subscription reaches it once its period ends.
+   *   subscription reaches it once its period ends (and is reported EXPIRED as soon as every line
+   *   item's `expiryTime` has passed, before Play's own `SUBSCRIPTION_EXPIRED` arrives). One that a
+   *   replacement ended is REPLACED instead.
    * - Stripe never reports EXPIRED: a subscription ending after `cancel_at_period_end` is CANCELED.
    *
    * Platform: Apple, Google
@@ -276,6 +290,24 @@ export const AVAILABLE_STATUSES = [
   'IN_GRACE_PERIOD',
   'PAST_DUE',
 ] as const satisfies readonly SubscriptionStatus[];
+
+/**
+ * A subscription's state in the shape a subscription row stores, as every platform's
+ * `mapSubscription` reports it: `@shware/purchase/app-store` from Get All Subscription Statuses,
+ * `@shware/purchase/google-play` from `purchases.subscriptionsv2.get`, `@shware/purchase/stripe` from
+ * the Stripe subscription (which adds the dates and the price it also carries). The same situation
+ * reads the same on every platform: a customer who turned auto-renew off is ACTIVE with
+ * `autoRenewEnabled: false` until the period runs out, a free trial is TRIALING with its dates.
+ */
+export interface SubscriptionState {
+  status: SubscriptionStatus;
+  /** Whether the subscription renews at the end of the current period. False once it is over. */
+  autoRenewEnabled: boolean;
+  /** When the free trial began, as an ISO timestamp; null when the platform reports no trial. */
+  trialStart: string | null;
+  /** When the free trial ends or ended (the first charge), as an ISO timestamp. */
+  trialEnd: string | null;
+}
 
 /** Who stopped the subscription from renewing. */
 export const CANCELLATION_INITIATORS = [
