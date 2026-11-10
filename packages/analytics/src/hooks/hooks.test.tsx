@@ -66,6 +66,22 @@ describe('useOutboundClickAnalytics', () => {
     });
   });
 
+  it.each([
+    ['mailto:', 'mailto:hello@example.com'],
+    ['tel:', 'tel:+15555550100'],
+  ])('ignores %s links: GA4 counts only http(s) as outbound', async (_, href) => {
+    const { Page } = await mount();
+    const { getByText } = render(
+      <Page>
+        <a href={href}>Contact</a>
+      </Page>
+    );
+
+    getByText('Contact').click();
+
+    expect(track).not.toHaveBeenCalled();
+  });
+
   it('ignores same-host links', async () => {
     const { Page } = await mount();
     const { getByText } = render(
@@ -577,5 +593,29 @@ describe('useWebAnalytics', () => {
         options.capture === true
     );
     expect(capturedRemovals).toHaveLength(3);
+  });
+});
+
+describe('isOutboundLink and registrableDomain', () => {
+  it('keeps subdomains of the site inside, by registrable domain', async () => {
+    const { isOutboundLink } = await import('./use-outbound-click-analytics');
+    const site = 'example.co.uk';
+    expect(isOutboundLink(new URL('https://app.example.co.uk/x'), site)).toBe(false);
+    expect(isOutboundLink(new URL('https://example.co.uk/'), site)).toBe(false);
+    expect(isOutboundLink(new URL('https://example.co.uk.evil.com/'), site)).toBe(true);
+    expect(isOutboundLink(new URL('https://notexample.co.uk/'), site)).toBe(true);
+    expect(isOutboundLink(new URL('https://other.com/'), site)).toBe(true);
+    expect(isOutboundLink(new URL('mailto:a@other.com'), site)).toBe(false);
+  });
+
+  it('finds the registrable domain by the first suffix a cookie sticks on', async () => {
+    const { registrableDomain } = await import('./use-outbound-click-analytics');
+    // Browsers refuse `uk` and `co.uk` (public suffixes) and accept `example.co.uk`.
+    const probe = (domain: string) => domain.split('.').length >= 3;
+    expect(registrableDomain('app.www.example.co.uk', probe)).toBe('example.co.uk');
+    expect(registrableDomain('example.co.uk', probe)).toBe('example.co.uk');
+    expect(registrableDomain('localhost', probe)).toBe('localhost');
+    expect(registrableDomain('127.0.0.1', probe)).toBe('127.0.0.1');
+    expect(registrableDomain('a.b', () => false)).toBe('a.b');
   });
 });
