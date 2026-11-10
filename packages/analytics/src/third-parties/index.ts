@@ -33,6 +33,7 @@ export {
   type AdsOptions,
   type Integration,
   type IntegrationScript,
+  isLocalHost,
 } from './integration';
 
 export type { LinkedinConversionConfig } from './linkedin-insight-tag';

@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sendGAEvent, setGAUser } from './google-analytics';
+import { type Integration, integrationScripts, isLocalHost } from './integration';
 import { sendLinkedinEvent, setLinkedinUser } from './linkedin-insight-tag';
 import { sendFBEvent, setFBUser } from './meta-pixel';
 import {
@@ -246,14 +247,19 @@ describe('user setters before the vendor script loads', () => {
 });
 
 describe('localhost', () => {
-  it('the ad pixels stay silent during local development', () => {
+  it.each([
+    'http://localhost:3000/',
+    'http://127.0.0.1:5173/',
+    // A worktree under portless: a subdomain of localhost, not the bare name.
+    'https://my-branch.web.localhost:1355/',
+  ])('the ad pixels stay silent during local development (%s)', (href) => {
     const { value: fbq } = vi.mockObject<{ value: NonNullable<Window['fbq']> }>({ value() {} });
     window.fbq = fbq;
     const original = window.location.href;
     // jsdom lets tests navigate; the guard reads window.location.host.
     window.history.replaceState(null, '', '/');
     Object.defineProperty(window, 'location', {
-      value: new URL('http://localhost:3000/'),
+      value: new URL(href),
       configurable: true,
     });
 
@@ -261,6 +267,35 @@ describe('localhost', () => {
     expect(fbq).not.toHaveBeenCalled();
 
     Object.defineProperty(window, 'location', { value: new URL(original), configurable: true });
+  });
+
+  it('a production host that merely contains the word is not local', () => {
+    expect(isLocalHost('localhost.example.com')).toBe(false);
+    expect(isLocalHost('app.example.com')).toBe(false);
+    expect(isLocalHost('localhost')).toBe(true);
+    expect(isLocalHost('a.b.localhost:1355')).toBe(true);
+    expect(isLocalHost('127.0.0.1')).toBe(true);
+  });
+
+  it("an ad platform's script is wrapped so its page view never fires locally", () => {
+    const ads: Integration = {
+      type: 'ads',
+      track: () => undefined,
+      script: { id: 'x-pixel', inline: "x('track', 'PageView');" },
+    };
+    const analytics: Integration = {
+      ...ads,
+      type: 'analytics',
+      script: { id: 'y', inline: 'y();' },
+    };
+    const [adScript, analyticsScript] = integrationScripts([ads, analytics]).map((s) => s.inline);
+    expect(adScript).toContain("x('track', 'PageView');");
+    expect(analyticsScript).toBe('y();');
+    // The pattern in the snippet is the one `isLocalHost` uses, so the two cannot drift.
+    const match = /^if \(!\/(.*)\/\.test\(window\.location\.host\)\) \{/.exec(adScript);
+    const source = new RegExp(match?.[1] ?? '(?!)');
+    expect(source.test('my-branch.web.localhost:1355')).toBe(true);
+    expect(source.test('localhost.example.com')).toBe(false);
   });
 });
 

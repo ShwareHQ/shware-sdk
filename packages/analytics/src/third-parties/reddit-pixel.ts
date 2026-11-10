@@ -2,7 +2,13 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import { type PixelId, type RDT, isStandardRDTEvent, mapRDTEvent } from '../track/rdt';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import { type AdsOptions, type Integration, adEvents, adsTracker } from './integration';
+import {
+  type AdsOptions,
+  type Integration,
+  adEvents,
+  adsTracker,
+  isLocalHost,
+} from './integration';
 
 declare global {
   interface Window {
@@ -23,8 +29,7 @@ export function sendRedditEvent<T extends EventName>(
     return false;
   }
   if (metrics.includes(name)) return;
-  if (window.location.host.includes('127.0.0.1')) return;
-  if (window.location.host.includes('localhost')) return;
+  if (isLocalHost()) return;
 
   const [type, params] = mapRDTEvent(name, properties, eventId);
   // The two branches are identical on purpose: `rdt('track', ...)` is overloaded — a standard

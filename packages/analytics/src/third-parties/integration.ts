@@ -42,6 +42,39 @@ export interface Integration {
 }
 
 /**
+ * A page served by a development setup: `localhost`, a `*.localhost` subdomain (a worktree under
+ * portless is `<branch>.web.localhost:1355`) or the loopback address, with or without a port. One
+ * pattern, used as a string in the inline scripts and as a RegExp here, so the two agree.
+ */
+export const LOCAL_HOST_PATTERN = String.raw`(^|\.)localhost(:|$)|^127\.0\.0\.1(:|$)`;
+const LOCAL_HOST = new RegExp(LOCAL_HOST_PATTERN);
+
+/** Whether the page is served from a development host (`LOCAL_HOST_PATTERN`). */
+export function isLocalHost(host: string = window.location.host): boolean {
+  return LOCAL_HOST.test(host);
+}
+
+/**
+ * The script an ad platform's integration puts on the page, silenced on a development host.
+ * Every vendor snippet reports a page view as it loads (`fbq('track', 'PageView')`,
+ * `rdt('track', 'PageVisit')`, UET's `pageLoad`), before any sender's own local check can run, so
+ * a worktree served at `*.web.localhost` showed up at Meta as a new domain sending data. The
+ * guard is in the snippet itself: the renderer has no request host on the server.
+ */
+export function integrationScripts(integrations: readonly Integration[]): IntegrationScript[] {
+  return integrations.flatMap(({ type, script }) => {
+    if (!script) return [];
+    if (type !== 'ads') return [script];
+    return [
+      {
+        ...script,
+        inline: `if (!/${LOCAL_HOST_PATTERN}/.test(window.location.host)) {${script.inline}}`,
+      },
+    ];
+  });
+}
+
+/**
  * The GA4 recommended events that are conversions or close to one, for an ad platform with no
  * standard events of its own to map to (Microsoft UET), so it is not sent the whole product.
  */

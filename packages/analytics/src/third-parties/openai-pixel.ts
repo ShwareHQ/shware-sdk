@@ -13,7 +13,13 @@ import {
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import { sha256 } from '../utils/sha256';
-import { type AdsOptions, type Integration, adEvents, adsTracker } from './integration';
+import {
+  type AdsOptions,
+  type Integration,
+  adEvents,
+  adsTracker,
+  isLocalHost,
+} from './integration';
 
 declare global {
   interface Window {
@@ -43,8 +49,7 @@ export function sendOpenAIEvent<T extends EventName>(
     return false;
   }
   if (NON_AD_EVENTS.includes(name)) return;
-  if (window.location.host.includes('127.0.0.1')) return;
-  if (window.location.host.includes('localhost')) return;
+  if (isLocalHost()) return;
 
   const { type, data } = mapOAIEvent(name, properties);
   // OpenAI takes the app events from the Conversions API only.

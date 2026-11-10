@@ -8,7 +8,7 @@ import type {
 import type { UpdateVisitorDTO } from '../schema/index';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { Integration } from './integration';
+import { type Integration, isLocalHost } from './integration';
 
 export type { PostHog, PostHogConfig } from '@posthog/types';
 
@@ -86,8 +86,7 @@ export function sendPosthogEvent<T extends EventName>(
     return false;
   }
   if (metrics.includes(name)) return;
-  if (window.location.host.includes('127.0.0.1')) return;
-  if (window.location.host.includes('localhost')) return;
+  if (isLocalHost()) return;
 
   posthog.capture(name, properties);
 }

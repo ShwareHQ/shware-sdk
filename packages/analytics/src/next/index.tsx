@@ -8,6 +8,7 @@ import { useOutboundClickAnalytics } from '../hooks/use-outbound-click-analytics
 import { useUETIdSync } from '../hooks/use-uet-id-sync';
 import { useWebAnalytics } from '../hooks/use-web-analytics';
 import { type AnalyticsProps, preconnectIntegrations } from '../third-parties/analytics-props';
+import { integrationScripts } from '../third-parties/integration';
 import { uetCustomerIdOf } from '../third-parties/microsoft-uet';
 import { track } from '../track/index';
 
@@ -53,17 +54,15 @@ export function Analytics({
         <PageViews />
       </Suspense>
       {facebookAppId && <meta property="fb:app_id" content={facebookAppId} />}
-      {integrations
-        .flatMap(({ script }) => (script ? [script] : []))
-        .map((script) => (
-          <Script
-            key={script.id}
-            id={script.id}
-            nonce={nonce}
-            strategy={script.strategy ?? 'afterInteractive'}
-            dangerouslySetInnerHTML={{ __html: script.inline }}
-          />
-        ))}
+      {integrationScripts(integrations).map((script) => (
+        <Script
+          key={script.id}
+          id={script.id}
+          nonce={nonce}
+          strategy={script.strategy ?? 'afterInteractive'}
+          dangerouslySetInnerHTML={{ __html: script.inline }}
+        />
+      ))}
     </>
   );
 }
