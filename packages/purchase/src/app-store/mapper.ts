@@ -1,4 +1,94 @@
-import type { CancellationDetails, PaymentType, SubscriptionStatus } from '../subscription/index';
+import type {
+  CancellationDetails,
+  PaymentType,
+  SubscriptionState,
+  SubscriptionStatus,
+} from '../subscription/index';
+
+/**
+ * What {@link mapSubscription} reads of a subscription's current state, as Get All Subscription
+ * Statuses reports it: the `lastTransactions[]` entry's `status`, its decoded transaction and its
+ * decoded renewal info. Declared structurally, so this needs no runtime import of the App Store
+ * Server Library; the library's `JWSTransactionDecodedPayload` and `JWSRenewalInfoDecodedPayload`
+ * fit as they are.
+ */
+export interface AppStoreSubscriptionSource {
+  /** `lastTransactions[].status`: 1 active, 2 expired, 3 billing retry, 4 billing grace period, 5 revoked. */
+  status?: number | null;
+  transaction: {
+    /** Milliseconds since the epoch. */
+    purchaseDate?: number | null;
+    /** Milliseconds since the epoch. */
+    expiresDate?: number | null;
+    /** `FREE_TRIAL`, `PAY_AS_YOU_GO`, `PAY_UP_FRONT` or `ONE_TIME`; present when the transaction redeemed an offer. */
+    offerDiscountType?: string | null;
+  };
+  renewalInfo: {
+    /** `JWSRenewalInfoDecodedPayload.autoRenewStatus`: 0 off, 1 on. */
+    autoRenewStatus?: number | null;
+  };
+}
+
+/**
+ * An App Store subscription in the shape a subscription row stores, see {@link SubscriptionState}.
+ *
+ * - `status` 1 (active) is ACTIVE, 2 (expired) EXPIRED, 3 (billing retry) BILLING_RETRY, 4 (billing
+ *   grace period) IN_GRACE_PERIOD, 5 (revoked: refunded, or taken back from Family Sharing) CANCELED.
+ *   Auto-renew turned off is not a status of its own: the subscription stays active (1) to the end
+ *   of its period and is ACTIVE here with `autoRenewEnabled: false`, as on Stripe and Play.
+ * - An active subscription whose latest transaction is a free trial (`offerDiscountType` is
+ *   `FREE_TRIAL`: the offer's payment mode, which is the period the transaction covers) is TRIALING,
+ *   with `trialStart` / `trialEnd` the transaction's `purchaseDate` / `expiresDate`. The dates are
+ *   reported in any status while that transaction is the latest (a billing retry after a trial still
+ *   shows the trial), and are null once a paid transaction follows: Apple keeps no trial dates on
+ *   the subscription, so a consumer that wants them past the trial keeps the ones it stored.
+ * - `autoRenewEnabled` is the renewal info's `autoRenewStatus`, off once the subscription is EXPIRED
+ *   or CANCELED whatever the renewal info still says: an ended subscription renews into nothing.
+ *
+ * ref: [status](https://developer.apple.com/documentation/appstoreserverapi/status)
+ * ref: [offerDiscountType](https://developer.apple.com/documentation/appstoreserverapi/offerdiscounttype)
+ */
+export function mapSubscription({
+  status,
+  transaction,
+  renewalInfo,
+}: AppStoreSubscriptionSource): SubscriptionState {
+  const base = mapSubscriptionStatus(status);
+  const trial = transaction.offerDiscountType === 'FREE_TRIAL';
+  const ended = base === 'EXPIRED' || base === 'CANCELED';
+  return {
+    status: base === 'ACTIVE' && trial ? 'TRIALING' : base,
+    autoRenewEnabled: !ended && renewalInfo.autoRenewStatus === 1,
+    trialStart:
+      trial && typeof transaction.purchaseDate === 'number'
+        ? new Date(transaction.purchaseDate).toISOString()
+        : null,
+    trialEnd:
+      trial && typeof transaction.expiresDate === 'number'
+        ? new Date(transaction.expiresDate).toISOString()
+        : null,
+  };
+}
+
+/** The App Store Server API's numeric subscription `status`, see {@link mapSubscription}. */
+function mapSubscriptionStatus(status: number | null | undefined): SubscriptionStatus {
+  switch (status) {
+    case 1:
+      return 'ACTIVE';
+    case 2:
+      return 'EXPIRED';
+    // A billing retry without a grace period: Apple keeps retrying for up to 60 days, the customer
+    // is not served meanwhile. Not PAST_DUE, which is Stripe's retry and keeps access.
+    case 3:
+      return 'BILLING_RETRY';
+    case 4:
+      return 'IN_GRACE_PERIOD';
+    case 5:
+      return 'CANCELED';
+    default:
+      throw new Error(`Unknown App Store subscription status: ${status}`);
+  }
+}
 
 /**
  * The App Store Server Notification fields that say why a subscription stops renewing: the

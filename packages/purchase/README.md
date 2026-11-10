@@ -42,6 +42,12 @@ import {
 - `SUBSCRIPTION_STATUSES`: the union of every store's states (`TRIALING`, `ACTIVE`,
   `IN_GRACE_PERIOD`, `PAST_DUE`, `BILLING_RETRY`, `ON_HOLD`, `PAUSED`, `CANCELED`, `EXPIRED`, ...). Each platform
   mapper returns one of these.
+- `SubscriptionState`: what each platform's `mapSubscription` returns, `{ status, autoRenewEnabled,
+  trialStart, trialEnd }`, so the same situation reads the same everywhere: a customer who turned
+  auto-renew off is `ACTIVE` with `autoRenewEnabled: false` until the period runs out (Stripe's
+  `cancel_at_period_end`, Apple's `autoRenewStatus` off, Play's `SUBSCRIPTION_STATE_CANCELED`), and a
+  free trial is `TRIALING` with its dates on all three. `CANCELED` is Stripe's `canceled` and Apple's
+  revoked (refunded) subscriptions only.
 - `AVAILABLE_STATUSES`: `ACTIVE`, `TRIALING`, `IN_GRACE_PERIOD`, `PAST_DUE`, the statuses that
   grant access. A failing renewal keeps access while the store retries and means the customer to
   be served: `IN_GRACE_PERIOD` on the App Store and Play, `PAST_DUE` on Stripe (Smart Retries are
@@ -298,7 +304,8 @@ app.post(
 ### Mappers
 
 Plain-JSON views of Stripe objects for API responses: `mapCheckoutSession`, `mapLineItem`,
-`mapPrice`, `mapInvoice`, `mapPaymentIntent`, `mapCharge`, plus `mapSubscriptionStatus`,
+`mapPrice`, `mapInvoice`, `mapPaymentIntent`, `mapCharge`, plus `mapSubscription` (the
+`SubscriptionState` with the price and dates a row stores), `mapSubscriptionStatus`,
 `mapCancellationDetails` and `mapTime` (Unix seconds to ISO string, `null` passes through).
 
 ### Browser helpers
@@ -336,14 +343,21 @@ for (const sessionId of getPendingCheckouts()) {
 
 Decode and verify the notification with Apple's `SignedDataVerifier`, then dispatch the decoded
 event by `notificationType` with `AppStoreNotificationHandler`. Branch on `subtype` inside each
-handler.
+handler. Whatever the notification says, write the row from the subscription's current state: read
+it with Get All Subscription Statuses and map it with `mapSubscription`.
 
 ```ts
-import { NotificationTypeV2, type SignedDataVerifier } from '@apple/app-store-server-library';
+import {
+  type Environment,
+  NotificationTypeV2,
+  type SignedDataVerifier,
+} from '@apple/app-store-server-library';
 import {
   type AppStoreNotificationEvent,
   AppStoreNotificationHandler,
   mapCancellationDetails,
+  mapGraceUntil,
+  mapSubscription,
 } from '@shware/purchase/app-store';
 
 export async function processAppStoreNotification(verifier: SignedDataVerifier, body: string) {
@@ -373,7 +387,32 @@ async function handleRenewalStatusChanged({ payload, renewalInfo }: AppStoreNoti
   });
   // null when auto-renew was turned back on
 }
+
+async function readSubscription(environment: Environment, originalTransactionId: string) {
+  const client = await getClient(environment); // your AppStoreServerAPIClient
+  const verifier = await getVerifier(environment);
+  const response = await client.getAllSubscriptionStatuses(originalTransactionId);
+  const last = response.data
+    ?.flatMap((group) => group.lastTransactions ?? [])
+    .find((item) => item.originalTransactionId === originalTransactionId);
+  if (!last?.signedTransactionInfo || !last.signedRenewalInfo) return null;
+  const transaction = await verifier.verifyAndDecodeTransaction(last.signedTransactionInfo);
+  const renewalInfo = await verifier.verifyAndDecodeRenewalInfo(last.signedRenewalInfo);
+  const state = mapSubscription({ status: last.status, transaction, renewalInfo });
+  const graceUntil = mapGraceUntil({ ...state, ...renewalInfo });
+  // save state.status, state.autoRenewEnabled, state.trialStart, state.trialEnd ...
+  return { ...state, transaction, renewalInfo, graceUntil };
+}
 ```
+
+`mapSubscription` reads Apple's `status` as `ACTIVE`, `EXPIRED`, `BILLING_RETRY`,
+`IN_GRACE_PERIOD` or `CANCELED` (revoked: refunded, or taken back from Family Sharing). Auto-renew
+turned off is not a status: the subscription stays `ACTIVE` with `autoRenewEnabled: false` until it
+expires. An active subscription whose latest transaction is a free trial (`offerDiscountType:
+FREE_TRIAL`) is `TRIALING`, with `trialStart` / `trialEnd` from the transaction's `purchaseDate` /
+`expiresDate`; once a paid transaction follows, the dates are null (Apple keeps none), so keep the
+ones you stored if you want them past the trial. The trial transaction has `price: 0`; grant nothing
+for it, the first charge arrives as its own `DID_RENEW`.
 
 Map `transaction.productId` to your plan with `config.appStore.getPlan(productId)` and
 `getBillingPeriod(productId)`, and grant credits with `getCreditAmount` / `getCreditExpiresAt`.
@@ -392,11 +431,10 @@ is `config.googlePlay.audience`) and fetch the purchase with the Android Publish
 ```ts
 import {
   type DeveloperNotification,
-  type GooglePlaySubscriptionState,
   type PubsubMessage,
   mapCanceledAt,
   mapCancellationDetails,
-  mapSubscriptionStatus,
+  mapSubscription,
 } from '@shware/purchase/google-play';
 
 export async function processGooglePlayNotification(authorization: string, body: string) {
@@ -413,13 +451,30 @@ export async function processGooglePlayNotification(authorization: string, body:
       packageName: config.googlePlay.package,
       token: purchaseToken,
     });
-    const status = mapSubscriptionStatus(data.subscriptionState as GooglePlaySubscriptionState);
+    const { status, autoRenewEnabled, trialStart, trialEnd } = mapSubscription(data);
     const cancellationDetails = mapCancellationDetails(data.canceledStateContext);
     const canceledAt = mapCanceledAt(data.canceledStateContext);
-    // save status, cancellationDetails, canceledAt ...
+    // save status, autoRenewEnabled, trialStart, trialEnd, cancellationDetails, canceledAt ...
   }
 }
 ```
+
+`mapSubscription` reads the whole `purchases.subscriptionsv2` resource, not just
+`subscriptionState`, because Play's states do not line up with the unified ones one to one:
+
+- `SUBSCRIPTION_STATE_CANCELED` means auto-renew is off while the paid period still runs, so it is
+  `ACTIVE` (or `TRIALING`) with `autoRenewEnabled: false`, like Stripe's `cancel_at_period_end` and
+  Apple's `autoRenewStatus` off; `canceledStateContext` carries the cancellation
+  (`mapCancellationDetails`, `mapCanceledAt`). Once every line item's `expiryTime` has passed it is
+  `EXPIRED`. Mapping it to `CANCELED` would drop the customer's entitlement the moment they turn
+  auto-renew off: `CANCELED` is outside `AVAILABLE_STATUSES`.
+- A purchase with `canceledStateContext.replacementCancellation` is `REPLACED`: the linked purchase
+  that replaced it is the one the customer has.
+- A line item in its free-trial offer phase (`offerPhase.freeTrial`) makes an active subscription
+  `TRIALING`, with `trialStart` the purchase's `startTime` and `trialEnd` the item's `expiryTime`.
+  The trial's order is for $0; grant nothing for it, the first charge comes with its own order.
+- `autoRenewEnabled` is whether any line item still renews; a deferred replacement, whose items
+  carry no flag, renews into its new plan unless Play reports the subscription cancelled.
 
 Resolve the plan from a line item with `config.googlePlay.getPlan(productId, basePlanId)` and
 `getBillingPeriod(productId, basePlanId)`. `GOOGLE_PLAY_SUBSCRIPTION_STATES` lists the raw

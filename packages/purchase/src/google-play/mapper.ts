@@ -1,7 +1,109 @@
-import type { CancellationDetails, PaymentType, SubscriptionStatus } from '../subscription/index';
-import type { GooglePlaySubscriptionState } from './real-time-developer-notification';
+import type {
+  CancellationDetails,
+  PaymentType,
+  SubscriptionState,
+  SubscriptionStatus,
+} from '../subscription/index';
+import {
+  GOOGLE_PLAY_SUBSCRIPTION_STATES,
+  type GooglePlaySubscriptionState,
+} from './real-time-developer-notification';
 
-export function mapSubscriptionStatus(state: GooglePlaySubscriptionState): SubscriptionStatus {
+/**
+ * The `lineItems[]` fields of `purchases.subscriptionsv2.get` that {@link mapSubscription} reads,
+ * declared structurally so this module does not depend on the Play Developer API client.
+ */
+export interface SubscriptionLineItem {
+  /** When the item's entitlement ends; unset for a deferred replacement's unbilled item. */
+  expiryTime?: string | null;
+  /** Set for an auto-renewing plan; `autoRenewEnabled` is unset on a deferred replacement's items. */
+  autoRenewingPlan?: { autoRenewEnabled?: boolean | null } | null;
+  /** The offer phase the item is in right now; `freeTrial` is set during a free trial. */
+  offerPhase?: {
+    basePrice?: object | null;
+    freeTrial?: object | null;
+    introductoryPrice?: object | null;
+    prorationPeriod?: object | null;
+  } | null;
+}
+
+/** The fields of `purchases.subscriptionsv2.get` that {@link mapSubscription} reads. */
+export interface SubscriptionPurchase {
+  subscriptionState?: string | null;
+  /** When the subscription was granted; unset while it is pending. */
+  startTime?: string | null;
+  lineItems?: SubscriptionLineItem[] | null;
+  canceledStateContext?: CanceledStateContext | null;
+}
+
+/**
+ * A Play subscription purchase in the shape a subscription row stores, see {@link SubscriptionState}.
+ * Play's states are the unified ones by name, with these readings:
+ *
+ * - `SUBSCRIPTION_STATE_CANCELED` is not CANCELED. Play uses it for a subscription whose auto-renew
+ *   is off while the paid period still runs ("canceled but not expired yet"), which Stripe reports
+ *   as `cancel_at_period_end` and Apple as `autoRenewStatus` off, both ACTIVE: so it is ACTIVE (or
+ *   TRIALING) with `autoRenewEnabled: false`, and the cancellation itself is in `canceledStateContext`
+ *   ({@link mapCancellationDetails}, {@link mapCanceledAt}). Once every line item's `expiryTime`
+ *   has passed it is EXPIRED, whether or not Play's `SUBSCRIPTION_EXPIRED` has arrived yet.
+ * - `canceledStateContext.replacementCancellation` is REPLACED whatever the state says: the linked
+ *   purchase that replaced it is the one the customer has now.
+ * - A line item in its free-trial offer phase (`offerPhase.freeTrial`, the phase the item is in right
+ *   now) makes an active subscription TRIALING, with `trialStart` the subscription's `startTime`
+ *   (a trial is always an offer's first phase) and `trialEnd` the item's `expiryTime`, the first
+ *   charge. The offer id and the order's amount are not used: an introductory price names an offer
+ *   too, and a deferred replacement's order is $0 as well.
+ * - `autoRenewEnabled` is whether any line item still renews. Neither item of a deferred replacement
+ *   (the old plan carried to the end of its period, the new one not yet billed) carries the flag,
+ *   but the subscription as a whole renews into the new plan, so it is on unless Play reports the
+ *   subscription cancelled; a prepaid plan renews nothing. Off once the subscription is over.
+ *
+ * `now` is only for tests and replays; it decides whether a cancelled subscription has run out.
+ *
+ * ref: [SubscriptionPurchaseV2](https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptionsv2#SubscriptionPurchaseV2)
+ */
+export function mapSubscription(
+  purchase: SubscriptionPurchase,
+  now: number = Date.now()
+): SubscriptionState {
+  const state = subscriptionStateOf(purchase);
+  const lineItems = purchase.lineItems ?? [];
+  const trial = lineItems.find((item) => item.offerPhase?.freeTrial);
+
+  let status: SubscriptionStatus;
+  if (purchase.canceledStateContext?.replacementCancellation) {
+    status = 'REPLACED';
+  } else if (state === 'SUBSCRIPTION_STATE_CANCELED') {
+    const expired =
+      lineItems.length > 0 &&
+      lineItems.every(
+        (item) => typeof item.expiryTime === 'string' && Date.parse(item.expiryTime) <= now
+      );
+    status = expired ? 'EXPIRED' : 'ACTIVE';
+  } else {
+    status = mapSubscriptionStatus(state);
+  }
+  if (status === 'ACTIVE' && trial) status = 'TRIALING';
+
+  return {
+    status,
+    autoRenewEnabled: isAutoRenewing(state, lineItems),
+    trialStart: trial && purchase.startTime ? new Date(purchase.startTime).toISOString() : null,
+    trialEnd: trial?.expiryTime ? new Date(trial.expiryTime).toISOString() : null,
+  };
+}
+
+function subscriptionStateOf(purchase: SubscriptionPurchase): GooglePlaySubscriptionState {
+  const state = purchase.subscriptionState;
+  const known = GOOGLE_PLAY_SUBSCRIPTION_STATES.find((item) => item === state);
+  if (!known) throw new Error(`Unknown Google Play subscription state: ${state}`);
+  return known;
+}
+
+/** Play's states other than CANCELED, which {@link mapSubscription} reads with the line items. */
+function mapSubscriptionStatus(
+  state: Exclude<GooglePlaySubscriptionState, 'SUBSCRIPTION_STATE_CANCELED'>
+): SubscriptionStatus {
   switch (state) {
     case 'SUBSCRIPTION_STATE_PENDING':
       return 'PENDING';
@@ -13,8 +115,6 @@ export function mapSubscriptionStatus(state: GooglePlaySubscriptionState): Subsc
       return 'IN_GRACE_PERIOD';
     case 'SUBSCRIPTION_STATE_ON_HOLD':
       return 'ON_HOLD';
-    case 'SUBSCRIPTION_STATE_CANCELED':
-      return 'CANCELED';
     case 'SUBSCRIPTION_STATE_EXPIRED':
       return 'EXPIRED';
     case 'SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED':
@@ -22,6 +122,22 @@ export function mapSubscriptionStatus(state: GooglePlaySubscriptionState): Subsc
     default:
       throw new Error(`Unknown Google Play subscription state: ${state}`);
   }
+}
+
+function isAutoRenewing(state: GooglePlaySubscriptionState, lineItems: SubscriptionLineItem[]) {
+  if (
+    state === 'SUBSCRIPTION_STATE_CANCELED' ||
+    state === 'SUBSCRIPTION_STATE_EXPIRED' ||
+    state === 'SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED'
+  ) {
+    return false;
+  }
+  const flags = lineItems.flatMap((item) => {
+    const flag = item.autoRenewingPlan?.autoRenewEnabled;
+    return typeof flag === 'boolean' ? [flag] : [];
+  });
+  if (flags.length > 0) return flags.some(Boolean);
+  return lineItems.some((item) => Boolean(item.autoRenewingPlan));
 }
 
 /** Play's cancel-survey answers in the shared vocabulary. */
