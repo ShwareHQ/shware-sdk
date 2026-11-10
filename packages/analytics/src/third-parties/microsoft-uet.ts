@@ -10,6 +10,7 @@ import {
   type Integration,
   adEvents,
   adsTracker,
+  isLocalHost,
 } from './integration';
 
 declare global {
@@ -28,10 +29,6 @@ const metrics = ['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB'];
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any
 function clean(value: unknown): any {
   return JSON.parse(JSON.stringify(value));
-}
-
-function isLocal(): boolean {
-  return window.location.host.includes('127.0.0.1') || window.location.host.includes('localhost');
 }
 
 /**
@@ -56,7 +53,7 @@ export function sendUETEvent<T extends EventName>(
     return false;
   }
   if (metrics.includes(name) || name === 'page_view') return;
-  if (isLocal()) return;
+  if (isLocalHost()) return;
 
   const [action, params] = mapUETEvent(name, properties, eventId);
   window.uetq.push('event', action, clean(params));
@@ -146,7 +143,7 @@ export function sendUETIdSync(options: {
   userId?: string;
 }) {
   if (typeof window === 'undefined' || typeof Image === 'undefined') return;
-  if (isLocal()) return;
+  if (isLocalHost()) return;
 
   const fire = (uid?: string) => {
     const params = new URLSearchParams({

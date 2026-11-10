@@ -1,5 +1,5 @@
 import { preconnect } from 'react-dom';
-import type { Integration } from './integration';
+import { type Integration, integrationScripts } from './integration';
 
 /** The props every framework's `<Analytics>` takes (react, next). */
 export interface AnalyticsProps {
@@ -31,14 +31,12 @@ export function IntegrationScripts({
   integrations = [],
   nonce,
 }: Pick<AnalyticsProps, 'integrations' | 'nonce'>) {
-  return integrations
-    .flatMap(({ script }) => (script ? [script] : []))
-    .map((script) => (
-      <script
-        key={script.id}
-        id={script.id}
-        nonce={nonce}
-        dangerouslySetInnerHTML={{ __html: script.inline }}
-      />
-    ));
+  return integrationScripts(integrations).map((script) => (
+    <script
+      key={script.id}
+      id={script.id}
+      nonce={nonce}
+      dangerouslySetInnerHTML={{ __html: script.inline }}
+    />
+  ));
 }

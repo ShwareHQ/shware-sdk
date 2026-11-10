@@ -2,7 +2,7 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import type { Lintrk } from '../track/lintrk';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
-import type { Integration } from './integration';
+import { type Integration, isLocalHost } from './integration';
 
 declare global {
   interface Window {
@@ -27,8 +27,7 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
       console.warn('lintrk has not been initialized');
       return false;
     }
-    if (window.location.host.includes('127.0.0.1')) return;
-    if (window.location.host.includes('localhost')) return;
+    if (isLocalHost()) return;
 
     const conversion_id = config[name];
     if (!conversion_id) return;
