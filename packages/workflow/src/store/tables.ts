@@ -327,6 +327,10 @@ export const TABLES = {
         "An email or push copy: its template's subscription topic (what an email's unsubscribe link opts out of); null for a transactional message, and for every other channel."
       ),
       sentAt: ts,
+      claimedAt: nullable(
+        ts,
+        "The copy was handed to the transport (written just before the send, cleared when the send threw). Claimed and never settled: the transport may have taken it — the engine does not send it again unless the template says `redelivery: 'resend'`."
+      ),
       deliveredAt: nullable(ts, 'The transport accepted it.'),
       deviceDeliveredAt: nullable(
         ts,

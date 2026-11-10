@@ -386,6 +386,10 @@ function messageNode(
     ...(channel === 'email' || channel === 'push'
       ? { topic: (tpl as EmailTemplate | PushTemplate).topic ?? null }
       : {}),
+    // Only the opt-in is written: 'skip' is the default, and absent keeps the node's hash
+    ...('redelivery' in tpl && tpl.redelivery === 'resend'
+      ? { redelivery: 'resend' as const }
+      : {}),
   };
 }
 

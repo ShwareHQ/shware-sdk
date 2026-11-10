@@ -186,6 +186,38 @@ describe('observer', () => {
     expect(await observer.messageSettled?.(bounced)).toBe(true);
   });
 
+  test('a claim is taken once; a release frees it unless the copy settled', async () => {
+    const observer = reportingObserver(reporting(), undefined);
+    const copy = email();
+    await observer.messagePrepared?.(copy);
+    type Claim = { claimed_at: string | null; delivered_at?: string | null };
+    const [before] = (await pg.query<Claim>('SELECT claimed_at FROM workflow.message')).rows;
+    expect(before).toEqual({ claimed_at: null });
+
+    expect(await observer.messageClaimed?.(copy)).toBe(true);
+    // A second run of the same step: the claim is held, and the copy may have gone out
+    expect(await observer.messageClaimed?.(copy)).toBe(false);
+    const [claimed] = (await pg.query<Claim>('SELECT claimed_at FROM workflow.message')).rows;
+    expect(claimed.claimed_at).not.toBeNull();
+    expect(await observer.messageSettled?.(copy)).toBe(false);
+
+    // The transport threw: the claim goes, and the retry claims afresh
+    await observer.messageReleased?.(copy);
+    expect(await observer.messageClaimed?.(copy)).toBe(true);
+
+    // Settled: a release changes nothing any more
+    await observer.messageSent?.(copy, { delivered: true });
+    await observer.messageReleased?.(copy);
+    const [after] = (await pg.query<Claim>('SELECT claimed_at, delivered_at FROM workflow.message'))
+      .rows;
+    expect(after.claimed_at).not.toBeNull();
+    expect(after.delivered_at).not.toBeNull();
+    expect(await observer.messageClaimed?.(copy)).toBe(false);
+
+    // An unknown copy cannot be claimed
+    expect(await observer.messageClaimed?.(email({ idempotencyKey: 'i1:none' }))).toBe(false);
+  });
+
   test('without an origin, emails go out untracked', async () => {
     const observer = reportingObserver(reporting(), undefined);
     expect(await observer.messagePrepared?.(email())).toBeUndefined();

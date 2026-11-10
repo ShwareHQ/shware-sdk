@@ -569,8 +569,8 @@ the same for every provider (`EmailSender`):
 `sesEmailTransport` runs in a Worker and in Node alike. Without `credentials` it
 reads `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` at send
 time (a Lambda's execution role); a Worker passes them, or a provider, from its
-env. Delivery is at least once: SES has no de-duplication key, so an email the
-provider accepted just before the step's checkpoint failed can go out twice.
+env. Neither SES nor Cloudflare Email Service accepts an idempotency key, so the
+engine itself keeps a copy from going out twice — see [Delivery guarantee](#delivery-guarantee).
 A host whose workflows send email but that has no `email` option (nor a
 `messages` override) fails when it is created, naming those workflows.
 
@@ -672,8 +672,10 @@ step without retrying, and a transient answer is retried:
 | Web Push | 404, 410                            | —                                             | payload over 3993 bytes (refused before sending), 400, 401, 403, 413, other 4xx                                       | 429, 5xx                                                                |
 
 Every APNs request carries `apns-id` and `apns-collapse-id`, and every web
-push a `Topic`, derived from the copy's idempotency key, so a copy sent again
-after a lost checkpoint collapses on the device. Provider credentials are kept
+push a `Topic`, derived from the copy's idempotency key, so the rare copy sent
+again (a template with `redelivery: 'resend'`) collapses on the device; FCM has no
+such header and does not de-duplicate — see [Delivery guarantee](#delivery-guarantee).
+Provider credentials are kept
 per host (`ApnsProviderToken`, `FcmAccessToken`, `VapidSigner`): the APNs
 provider token, the FCM access token and the VAPID key are reused across runs,
 while the senders themselves are built per run.
@@ -726,6 +728,56 @@ body (`content`, `embeds`, `allowed_mentions`, …). Register both under
 `templates: { email, push, slack, discord }`. A request the channel refuses for
 good settles the copy as undelivered rather than retrying, so a team-channel
 post never holds up the messages after it.
+
+### Delivery guarantee
+
+A message is delivered **at most once**. Each copy goes through one durable step:
+the copy's row is recorded, the copy is _claimed_ (`message.claimed_at`, committed
+before the send), the transport takes it, and the result is settled
+(`delivered_at` or `undelivered_reason`). On a replay of the step:
+
+- a settled copy is skipped;
+- a copy the transport refused for sure — a thrown send, a 5xx, a 429 — had its
+  claim released, so the retry sends it, as before;
+- a copy that is **claimed but not settled** is treated as possibly delivered and
+  is **not sent again**. The run that claimed it died between the transport taking
+  the copy and the report (or the step's checkpoint) committing, so no one knows
+  whether it went out. The engine logs a warning with the idempotency key and
+  moves on.
+
+Exactly-once is not available: Cloudflare Email Service accepts no idempotency
+key or client message id — the `send_email` binding's `send()` takes only the
+addresses, subject, body, headers and attachments and returns a server-generated
+`messageId` ([Workers API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/)),
+and the REST endpoint is the same — and SES has none either. APNs (`apns-collapse-id`)
+and Web Push (`Topic`) collapse a repeat on the device; FCM does not.
+
+Between the two options left, at most once is the one for journeys: a duplicate
+marketing email costs spam complaints, unsubscribes and sender reputation, while a
+lost nudge is invisible to the user and the journey has later steps. Customer.io
+and Braze behave the same way — the delivery record is the source of truth, nothing
+is resent on uncertainty, and frequency caps sit on top. A transactional template
+that must arrive opts into at-least-once per template:
+
+```ts
+emailTemplate({
+  id: 'dispute_opened',
+  transactional: true,
+  redelivery: 'resend', // a duplicate is a nuisance here; a missing copy is a failure
+  // ...
+});
+```
+
+`redelivery` (`'skip'` by default, `'resend'` to opt in) exists on every template
+kind — email, push, Slack, Discord. This is a deliberate product decision made on
+2026-11-10 after reviewing the alternatives (provider-side de-duplication, a
+shorter claim window, resending with a dedupe header): do not change the default
+back to at-least-once; set `redelivery: 'resend'` on the templates that need it.
+
+The decision is kept by the host's reporting store: `claimed_at` is a column of
+`message` (hosts upgrading regenerate the drizzle file and migrate, see
+[Postgres](#postgres)). Without a reporting store there is no record between two
+runs of a step, and a replay sends again — the behaviour of every version before.
 
 ### Other channels
 
@@ -1247,6 +1299,13 @@ to run until they match. Without drizzle,
 `renderPostgresDdl()` returns the same tables as plain DDL. Nothing creates or
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
+
+**Upgrading to 9.1 (at-most-once delivery).** `message` gains a nullable
+`claimed_at` (set just before the transport takes a copy, cleared when the send
+throws). Regenerate the drizzle file and let drizzle-kit write the migration; it
+needs no data step, and rows from before keep their meaning — a copy from before
+the upgrade has no claim, and its `delivered_at` still says it was sent.
+`POST /bundle/deploy` refuses to run until the column exists.
 
 **Upgrading to 6.0 (topics).** `suppression` gains a nullable `topic`
 column, loses its `(user_id, channel)` primary key and gets a

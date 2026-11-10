@@ -27,6 +27,10 @@ export function reportingObserver(
 
     messageSettled: (message) => reporting.messageSettled(message.idempotencyKey),
 
+    messageClaimed: (message) => reporting.claimMessage(message.idempotencyKey, Date.now()),
+
+    messageReleased: (message) => reporting.releaseMessage(message.idempotencyKey),
+
     async messagePrepared(message) {
       const id = await reporting.recordMessage({
         idempotencyKey: message.idempotencyKey,

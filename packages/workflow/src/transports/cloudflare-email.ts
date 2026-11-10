@@ -47,7 +47,9 @@ export function cloudflareEmailTransport(options: CloudflareEmailTransportOption
     const { binding } = options;
     return {
       async send(message) {
-        // The binding takes the key and drops the duplicate a retry or replay produces
+        // The key goes along, but Cloudflare does not de-duplicate on it: `send()` takes no
+        // idempotency key or client message id (its result carries a server-generated
+        // messageId). A repeat is prevented upstream, by the engine's claim (see deliver)
         const result: unknown = await binding.send(message);
         const id = (result as { messageId?: unknown } | null | undefined)?.messageId;
         return typeof id === 'string' ? { providerMessageId: id } : {};
@@ -94,8 +96,8 @@ export function cloudflareEmailTransport(options: CloudflareEmailTransportOption
           Array.isArray(body.errors) ? (body.errors as { code?: number; message?: string }[]) : []
         );
       }
-      // No server-side de-duplication is documented for the REST API: a retry after an accepted
-      // send can deliver twice (at least once, like SES)
+      // No server-side de-duplication exists for the REST API either (like SES): a copy the
+      // provider accepted is never sent again by the engine, whatever happened to the report
       const id = body.result?.message_id;
       return typeof id === 'string' ? { providerMessageId: id } : {};
     },

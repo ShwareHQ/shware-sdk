@@ -1580,3 +1580,207 @@ describe('the observer hears positions and copies', () => {
     expect([...settled]).toEqual(['inst_1:0']);
   });
 });
+
+describe('delivery is at most once', () => {
+  const hello = plainEmail('hello');
+  const receipt = emailTemplate({
+    id: 'receipt',
+    transactional: true,
+    redelivery: 'resend',
+    from: 'noreply@acme.test',
+    title: 'receipt',
+    props: z.strictObject({}),
+    subject: 'receipt',
+    preview: {},
+    component: () => null,
+  });
+
+  /** A reporting store's view of the copies: settled, claimed, and the claims released. */
+  function fakeReporting(ctx: JourneyContext) {
+    const settled = new Set<string>();
+    const claimed = new Set<string>();
+    const released: string[] = [];
+    const claim = async (m: OutboundMessage) => {
+      if (claimed.has(m.idempotencyKey)) return false;
+      claimed.add(m.idempotencyKey);
+      return true;
+    };
+    const settle = async (m: OutboundMessage) => void settled.add(m.idempotencyKey);
+    ctx.observer = {
+      messageSettled: async (m) => settled.has(m.idempotencyKey),
+      messageClaimed: claim,
+      messageReleased: async (m) => {
+        claimed.delete(m.idempotencyKey);
+        released.push(m.idempotencyKey);
+      },
+      messageSent: settle,
+    };
+    return { settled, claimed, released, claim, settle };
+  }
+
+  test('the template carries redelivery into the IR only when it opts into resending', () => {
+    const ir = workflow({ id: 'opt_in', trigger: trigger.event(e.login) })
+      .email(hello)
+      .email(receipt)
+      .toIR();
+    expect(ir.flow.map((node) => (node.type === 'message' ? node.redelivery : 'x'))).toEqual([
+      undefined,
+      'resend',
+    ]);
+    expect(hello.redelivery).toBeUndefined();
+    expect(receipt.redelivery).toBe('resend');
+  });
+
+  test('the claim is written before the send, and a fresh copy goes out once', async () => {
+    const { ctx, sent } = makeContext();
+    const order: string[] = [];
+    const { claimed, claim } = fakeReporting(ctx);
+    ctx.observer = {
+      ...ctx.observer,
+      messageClaimed: async (m) => {
+        order.push('claim');
+        return claim(m);
+      },
+    };
+    ctx.messages = {
+      send: async (m) => {
+        order.push('send');
+        sent.push(m);
+      },
+    };
+    const ir = workflow({ id: 'fresh', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(order).toEqual(['claim', 'send']);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.redelivery).toBeUndefined();
+    expect([...claimed]).toEqual(['inst_1:0']);
+  });
+
+  test('a replayed step whose copy the transport took but never settled does not send again', async () => {
+    // The run died between the transport taking the copy and the settle: the copy is claimed,
+    // the transport may have delivered it, and a second copy is the one thing not to risk
+    const { ctx, sent } = makeContext();
+    const { settle } = fakeReporting(ctx);
+    let settleWrites = 0;
+    ctx.observer = {
+      ...ctx.observer,
+      // The settle is lost on the first run only
+      messageSent: async (m) => {
+        settleWrites += 1;
+        if (settleWrites > 1) await settle(m);
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ir = workflow({ id: 'lost_settle', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+
+    await runJourney(ir, ctx);
+    await runJourney(ir, ctx); // the same instance, its send step's body run again
+
+    expect(sent).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('inst_1:0');
+    expect(warn.mock.calls[0]?.[0]).toContain("redelivery: 'skip'");
+    warn.mockRestore();
+  });
+
+  test('a copy claimed by a run that died before its send is not sent either: the claim is the boundary', async () => {
+    const { ctx, sent } = makeContext();
+    const { claimed } = fakeReporting(ctx);
+    claimed.add('inst_1:0'); // the earlier run claimed it and vanished
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ir = workflow({ id: 'claimed_only', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await expect(runJourney(ir, ctx)).resolves.toMatchObject({ status: 'completed' });
+    expect(sent).toHaveLength(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test("a template with redelivery: 'resend' is sent again on such a replay", async () => {
+    const { ctx, sent } = makeContext();
+    const { claimed } = fakeReporting(ctx);
+    claimed.add('inst_1:0');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ir = workflow({ id: 'resend', trigger: trigger.event(e.login) })
+      .email(receipt)
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.redelivery).toBe('resend');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  test('a settled copy is skipped before anything else, resend or not', async () => {
+    const { ctx, sent } = makeContext();
+    const { settled } = fakeReporting(ctx);
+    settled.add('inst_1:0');
+    const ir = workflow({ id: 'settled', trigger: trigger.event(e.login) })
+      .email(receipt)
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(sent).toHaveLength(0);
+  });
+
+  test('a send that throws releases the claim, so the retry sends', async () => {
+    const { ctx, sent } = makeContext();
+    const { claimed, released } = fakeReporting(ctx);
+    let attempts = 0;
+    ctx.messages = {
+      send: async (m) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('transport down');
+        sent.push(m);
+      },
+    };
+    const ir = workflow({ id: 'retry', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+
+    await expect(runJourney(ir, ctx)).rejects.toThrow('transport down');
+    expect(released).toEqual(['inst_1:0']);
+    expect(claimed.size).toBe(0);
+
+    await runJourney(ir, ctx); // the step's retry
+    expect(attempts).toBe(2);
+    expect(sent).toHaveLength(1);
+  });
+
+  test('a release that fails does not hide the send error', async () => {
+    const { ctx } = makeContext();
+    fakeReporting(ctx);
+    ctx.observer = {
+      ...ctx.observer,
+      messageReleased: async () => {
+        throw new Error('reporting database down');
+      },
+    };
+    ctx.messages = {
+      send: async () => {
+        throw new Error('transport down');
+      },
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ir = workflow({ id: 'release_fails', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await expect(runJourney(ir, ctx)).rejects.toThrow('transport down');
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
+  });
+
+  test('without an observer, the step alone decides: a replay sends again', async () => {
+    const { ctx, sent } = makeContext();
+    const ir = workflow({ id: 'bare', trigger: trigger.event(e.login) })
+      .email(hello)
+      .toIR();
+    await runJourney(ir, ctx);
+    await runJourney(ir, ctx);
+    expect(sent).toHaveLength(2);
+  });
+});

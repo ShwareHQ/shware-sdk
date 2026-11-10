@@ -167,11 +167,26 @@ async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
 }
 
 /**
- * One copy out through the host's sender, with the observer on both sides: it may attach
- * tracking before, and hears how the transport took the copy after. A send that throws is
- * not reported — the step retries it, and reports when it settles. A report that fails after
- * the send is logged, never thrown: the step would retry and the transport — a webhook, a web
- * push, with no idempotency key of its own — would deliver the copy again.
+ * One copy out through the host's sender, with the observer around it: settled? → prepared
+ * (the row, the tracking) → claimed (handed to the transport, committed before the send) →
+ * send → sent.
+ *
+ * Delivery is at most once. A send that throws is a definite failure: the claim is released, the
+ * step retries, and the copy is reported when it settles. A copy that was claimed but never
+ * settled is the uncertain case — the earlier run died between the transport taking it and the
+ * report (or the step's checkpoint) — and a replay does not send it again; it logs and moves on.
+ * The templates that must arrive opt out of that per template (`redelivery: 'resend'`), and are
+ * sent again as the step retries. A report that fails after the send is logged, never thrown:
+ * the step would retry, and the copy — now claimed — would be skipped.
+ *
+ * Why at most once (decided 2026-11-10, after reviewing the alternatives): exactly-once is out of
+ * reach — Cloudflare Email Service (the `send_email` binding and the REST endpoint alike) and SES
+ * accept no idempotency key or client message id, FCM does not de-duplicate, only APNs and Web
+ * Push collapse a repeat on the device. Between the two remaining options, a duplicate marketing
+ * email costs spam complaints, unsubscribes and sender reputation, while a lost nudge is invisible
+ * to the user and a journey has later steps; this is how Customer.io and Braze behave (the
+ * delivery record is the source of truth, no resend on uncertainty). Do not "fix" this back to
+ * at-least-once: set `redelivery: 'resend'` on the templates that need it instead.
  */
 async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<void> {
   const observer = ctx.observer;
@@ -179,7 +194,28 @@ async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<v
   if (await observer?.messageSettled?.(message)) return;
   const tracking = await observer?.messagePrepared?.(message);
   const copy = tracking === undefined ? message : { ...message, tracking };
-  const result = await ctx.messages.send(copy);
+  const claimed = (await observer?.messageClaimed?.(copy)) ?? true;
+  if (!claimed && copy.redelivery !== 'resend') {
+    console.warn(
+      `[workflow] ${copy.idempotencyKey} was handed to the transport by an earlier run and never settled: not sent again (redelivery: 'skip')`
+    );
+    return;
+  }
+  let result: Awaited<ReturnType<typeof ctx.messages.send>>;
+  try {
+    result = await ctx.messages.send(copy);
+  } catch (error) {
+    // A thrown send is a definite failure: the copy did not go out, so the retry must be free to send it
+    try {
+      await observer?.messageReleased?.(copy);
+    } catch (releaseError) {
+      console.error(
+        `[workflow] releasing ${copy.idempotencyKey} after a failed send failed`,
+        releaseError
+      );
+    }
+    throw error;
+  }
   try {
     await observer?.messageSent?.(copy, result ?? { delivered: true });
   } catch (error) {
@@ -265,13 +301,18 @@ function topicOf(node: Extract<NodeIR, { type: 'message' }>): { topic?: string |
   return node.channel === 'email' || node.channel === 'push' ? { topic: node.topic ?? null } : {};
 }
 
+/** The template's `redelivery`, only when it opts into resending: absent is the default, 'skip'. */
+function redeliveryOf(node: Extract<NodeIR, { type: 'message' }>): { redelivery?: 'resend' } {
+  return node.redelivery === 'resend' ? { redelivery: 'resend' } : {};
+}
+
 type PushPlan = { props: Record<string, ScalarIR | undefined>; devices: PushDevice[] };
 
 /**
  * A push goes to devices, not to a profile address: one copy per device the
  * host's directory lists (or only the most recent, `devices: 'latest'`). Each
  * copy's idempotency key carries its token, so a retried step that already
- * reached some devices re-sends to the rest and the senders drop the repeats —
+ * reached some devices re-sends to the rest and skips the ones it reached —
  * keyed by token rather than position, because the list can change between
  * attempts. A user with no device is skipped, not failed: being unreachable is
  * a state of the user, and `reachable('push')` is how a journey branches on it.
@@ -279,7 +320,8 @@ type PushPlan = { props: Record<string, ScalarIR | undefined>; devices: PushDevi
 /**
  * A push: one step settles what goes out and to which devices, then each device gets a step of
  * its own — a failure on one device retries that device alone, and the copies already delivered
- * are not sent again (APNs and FCM carry the idempotency key but do not de-duplicate on it).
+ * or claimed are not sent again (see `deliver`; APNs collapses a repeat on the device, FCM does
+ * not de-duplicate at all).
  */
 async function sendPush(
   node: Extract<NodeIR, { type: 'message' }>,
@@ -315,6 +357,7 @@ async function sendPush(
           device,
           idempotencyKey: `${ctx.instanceId}:${node.id}:${device.token}`,
           ...topicOf(node),
+          ...redeliveryOf(node),
         },
         ctx
       );
@@ -348,6 +391,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             recipient: recipient === undefined ? undefined : String(recipient),
             idempotencyKey: `${ctx.instanceId}:${node.id}`,
             ...topicOf(node),
+            ...redeliveryOf(node),
           },
           ctx
         );
