@@ -8,7 +8,7 @@ describe('StripeConfig', () => {
     billingPeriods: [],
     mode: 'live',
     allowPromotionCodes: false,
-    cancellationCouponId: 'coupon_1',
+    cancellationCoupons: { month: 'coupon_1' },
     returnUrl: 'https://example.com/return',
     cancelUrl: 'https://example.com/cancel',
     successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -23,7 +23,7 @@ describe('StripeConfig', () => {
     billingPeriods: BILLING_PERIODS,
     mode: 'live',
     allowPromotionCodes: true,
-    cancellationCouponId: 'coupon_123456',
+    cancellationCoupons: { month: 'coupon_123456' },
     returnUrl: 'https://example.com/return',
     cancelUrl: 'https://example.com/cancel',
     successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -79,7 +79,7 @@ describe('StripeConfig', () => {
       billingPeriods: ['monthly', 'yearly'],
       mode: 'live',
       allowPromotionCodes: true,
-      cancellationCouponId: 'coupon_123456',
+      cancellationCoupons: { month: 'coupon_123456' },
       returnUrl: 'https://example.com/return',
       cancelUrl: 'https://example.com/cancel',
       successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -159,7 +159,7 @@ describe('StripeConfig', () => {
       billingPeriods: BILLING_PERIODS,
       mode: 'live',
       allowPromotionCodes: true,
-      cancellationCouponId: 'coupon_123456',
+      cancellationCoupons: { month: 'coupon_123456' },
       returnUrl: 'https://example.com/return',
       cancelUrl: 'https://example.com/cancel',
       successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -204,7 +204,7 @@ describe('StripeConfig', () => {
         plans: PLANS,
         billingPeriods: BILLING_PERIODS,
         allowPromotionCodes: true,
-        cancellationCouponId: 'coupon_123456',
+        cancellationCoupons: { month: 'coupon_123456' },
         returnUrl: 'https://example.com/return',
         cancelUrl: 'https://example.com/cancel',
         successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -226,7 +226,7 @@ describe('StripeConfig', () => {
         billingPeriods: ['MONTHLY'],
         mode: 'live',
         allowPromotionCodes: false,
-        cancellationCouponId: 'coupon_1',
+        cancellationCoupons: { month: 'coupon_1' },
         returnUrl: 'https://example.com/return',
         cancelUrl: 'https://example.com/cancel',
         successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -339,7 +339,7 @@ describe('StripeConfig', () => {
         billingPeriods: BILLING_PERIODS,
         mode: 'test',
         allowPromotionCodes: true,
-        cancellationCouponId: 'coupon_123456',
+        cancellationCoupons: { month: 'coupon_123456' },
         returnUrl: 'https://example.com/return',
         cancelUrl: 'https://example.com/cancel',
         successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
@@ -403,5 +403,30 @@ describe('StripeConfig', () => {
           .default('price_x1', { test: 'price_x2' })
       ).toThrow('Duplicate price price_x2');
     });
+  });
+});
+
+describe('cancellationCouponFor', () => {
+  const config = defineStripeConfig({
+    namespace: 'com.example',
+    plans: ['STARTER'] as const,
+    billingPeriods: ['monthly', 'yearly'] as const,
+    mode: 'live',
+    allowPromotionCodes: false,
+    cancellationCoupons: { month: 'retention_3mo', year: 'retention_once' },
+    returnUrl: 'https://example.com/return',
+    cancelUrl: 'https://example.com/cancel',
+    successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
+  });
+
+  it('picks the coupon of the billing interval', () => {
+    expect(config.cancellationCouponFor('month')).toBe('retention_3mo');
+    expect(config.cancellationCouponFor('year')).toBe('retention_once');
+  });
+
+  it('offers nothing for an interval without a coupon, or no interval', () => {
+    expect(config.cancellationCouponFor('week')).toBeUndefined();
+    expect(config.cancellationCouponFor(undefined)).toBeUndefined();
+    expect(config.cancellationCouponFor('constructor')).toBeUndefined();
   });
 });

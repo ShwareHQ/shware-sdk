@@ -88,7 +88,9 @@ export const stripe = defineStripeConfig({
   billingPeriods: BILLING_PERIODS,
   mode: env.STRIPE_SECRET_KEY.startsWith('sk_test_') ? 'test' : 'live',
   allowPromotionCodes: false,
-  cancellationCouponId: 'retention_30pct_3mo',
+  // Per billing interval: a repeating coupon only reaches invoices inside its months, so a yearly
+  // subscription needs a `once` coupon (the next invoice) or no offer at all.
+  cancellationCoupons: { month: 'retention_30pct_3mo', year: 'retention_10pct_once' },
   returnUrl: 'https://example.com',
   cancelUrl: 'https://example.com',
   successUrl: 'https://example.com/payments/success?session_id={CHECKOUT_SESSION_ID}',

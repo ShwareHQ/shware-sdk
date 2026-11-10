@@ -66,8 +66,10 @@ export { METADATA_KEYS } from './metadata';
 export {
   StripeConfig,
   defineStripeConfig,
+  type CancellationCoupons,
   type PlanComparison,
   type PriceId,
+  type StripeInterval,
   type StripeMode,
 } from './config';
 export {

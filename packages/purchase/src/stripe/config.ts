@@ -95,9 +95,21 @@ type Options<NS extends Lowercase<string>, PE extends string, BP extends string>
   returnUrl: string;
   cancelUrl: string;
   successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
-  cancellationCouponId: string;
+  cancellationCoupons: CancellationCoupons;
   allowPromotionCodes: boolean;
 };
+
+/** A recurring price's billing interval, as Stripe names it (`price.recurring.interval`). */
+export type StripeInterval = 'day' | 'week' | 'month' | 'year';
+
+/**
+ * The retention coupon offered on the way to cancelling, per billing interval of the subscription:
+ * a discount has to land on an invoice, and the next one is a month away for a monthly subscription
+ * but a year away for a yearly one, so a coupon that repeats for three months is real for the
+ * first and nothing for the second (`duration: once` reaches the yearly renewal). An interval
+ * without a coupon has no offer.
+ */
+export type CancellationCoupons = Partial<Record<StripeInterval, string>>;
 
 /**
  * How a switch between two subscription products relates them, by plan level first and billing
@@ -122,7 +134,7 @@ export class StripeConfig<
   public returnUrl: string;
   public cancelUrl: string;
   public successUrl: `${string}session_id={CHECKOUT_SESSION_ID}${string}`;
-  public cancellationCouponId: string;
+  public cancellationCoupons: CancellationCoupons;
   public allowPromotionCodes: boolean;
   public readonly namespace: NS;
   public readonly plans: readonly PE[];
@@ -163,8 +175,19 @@ export class StripeConfig<
     this.returnUrl = options.returnUrl;
     this.cancelUrl = options.cancelUrl;
     this.successUrl = options.successUrl;
-    this.cancellationCouponId = options.cancellationCouponId;
+    this.cancellationCoupons = options.cancellationCoupons;
     this.allowPromotionCodes = options.allowPromotionCodes;
+  }
+
+  /**
+   * The retention coupon for a subscription billed every `interval`, or undefined when there is
+   * none for it (a price without `recurring` included), in which case nothing is offered.
+   */
+  cancellationCouponFor(interval: string | undefined): string | undefined {
+    if (interval === undefined) return undefined;
+    return Object.hasOwn(this.cancellationCoupons, interval)
+      ? this.cancellationCoupons[interval as StripeInterval]
+      : undefined;
   }
 
   static [construct] = <NS extends Lowercase<string>, PE extends string, BP extends string>(

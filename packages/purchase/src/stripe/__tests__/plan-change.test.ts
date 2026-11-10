@@ -15,7 +15,7 @@ const config = defineStripeConfig({
   namespace: 'com.example',
   mode: 'live',
   allowPromotionCodes: false,
-  cancellationCouponId: 'coupon_1',
+  cancellationCoupons: { month: 'coupon_1' },
   returnUrl: 'https://example.com/return',
   cancelUrl: 'https://example.com/cancel',
   successUrl: 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
