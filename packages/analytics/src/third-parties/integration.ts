@@ -43,35 +43,16 @@ export interface Integration {
 
 /**
  * A page served by a development setup: `localhost`, a `*.localhost` subdomain (a worktree under
- * portless is `<branch>.web.localhost:1355`) or the loopback address, with or without a port. One
- * pattern, used as a string in the inline scripts and as a RegExp here, so the two agree.
+ * portless is `<branch>.web.localhost:1355`) or the loopback address, with or without a port. The
+ * senders skip such a page; the vendors' snippets (`fbq('track', 'PageView')` and the like) still
+ * run there, as the host rendered them — a host that wants none of it leaves the `ads`
+ * integrations out of `integrations` locally.
  */
-export const LOCAL_HOST_PATTERN = String.raw`(^|\.)localhost(:|$)|^127\.0\.0\.1(:|$)`;
-const LOCAL_HOST = new RegExp(LOCAL_HOST_PATTERN);
+const LOCAL_HOST = /(^|\.)localhost(:|$)|^127\.0\.0\.1(:|$)/;
 
-/** Whether the page is served from a development host (`LOCAL_HOST_PATTERN`). */
+/** Whether the page is served from a development host (see `LOCAL_HOST`). */
 export function isLocalHost(host: string = window.location.host): boolean {
   return LOCAL_HOST.test(host);
-}
-
-/**
- * The script an ad platform's integration puts on the page, silenced on a development host.
- * Every vendor snippet reports a page view as it loads (`fbq('track', 'PageView')`,
- * `rdt('track', 'PageVisit')`, UET's `pageLoad`), before any sender's own local check can run, so
- * a worktree served at `*.web.localhost` showed up at Meta as a new domain sending data. The
- * guard is in the snippet itself: the renderer has no request host on the server.
- */
-export function integrationScripts(integrations: readonly Integration[]): IntegrationScript[] {
-  return integrations.flatMap(({ type, script }) => {
-    if (!script) return [];
-    if (type !== 'ads') return [script];
-    return [
-      {
-        ...script,
-        inline: `if (!/${LOCAL_HOST_PATTERN}/.test(window.location.host)) {${script.inline}}`,
-      },
-    ];
-  });
 }
 
 /**
