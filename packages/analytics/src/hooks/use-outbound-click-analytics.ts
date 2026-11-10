@@ -5,8 +5,9 @@ import { track } from '../track/index';
  * The registrable domain (eTLD+1) of `hostname`, found the way gtag's `cookie_domain: 'auto'`
  * finds it: a cookie is tried on each suffix from the shortest up, and the first one the browser
  * accepts is the domain — browsers refuse public suffixes (`com`, `co.uk`), so no suffix list is
- * needed. A hostname without dots (`localhost`) or one no suffix accepts (an IP address) is its
- * own domain. `probe` tries one suffix and says whether the cookie stuck.
+ * needed (gtag's `cookie_domain: 'auto'` walks the same list). A hostname without dots
+ * (`localhost`) or one no suffix accepts (an IP address) is its own domain, as a host-only cookie
+ * would be. `probe` tries one suffix and says whether the cookie stuck.
  */
 export function registrableDomain(
   hostname: string,
@@ -21,13 +22,19 @@ export function registrableDomain(
   return hostname;
 }
 
-const PROBE = '_sa_d';
-
+/**
+ * Whether the browser accepts a cookie for `domain`, read back by a value made for this one probe:
+ * a cookie of the same name the site already holds can then neither pass the check for a refused
+ * suffix nor hide the probe (gtag writes its real cookie this way and keeps it; this one is a
+ * throwaway, deleted at once).
+ */
 function canSetCookieOn(domain: string): boolean {
+  const name = '_sa_d';
+  const value = Math.random().toString(36).slice(2);
   try {
-    document.cookie = `${PROBE}=1; domain=${domain}; path=/; SameSite=Lax`;
-    const stuck = document.cookie.split('; ').includes(`${PROBE}=1`);
-    if (stuck) document.cookie = `${PROBE}=; domain=${domain}; path=/; max-age=0; SameSite=Lax`;
+    document.cookie = `${name}=${value}; domain=${domain}; path=/; SameSite=Lax`;
+    const stuck = document.cookie.split('; ').includes(`${name}=${value}`);
+    if (stuck) document.cookie = `${name}=; domain=${domain}; path=/; max-age=0; SameSite=Lax`;
     return stuck;
   } catch {
     return false;
