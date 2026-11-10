@@ -73,6 +73,20 @@ interface TemplateBase<S extends PropsSchema> {
   readonly props: S;
   /** Sample props for the studio; parsed against `props` when the template is declared. */
   readonly preview: core.input<S>;
+  /**
+   * What a replayed send step does with a copy an earlier run handed to the transport but never
+   * confirmed (the run died in between, so the copy may or may not have gone out):
+   *
+   * - `'skip'` (default): treat it as delivered and do not send it again — at most once. Right
+   *   for every marketing and lifecycle message: a duplicate costs spam complaints, unsubscribes
+   *   and sender reputation, while a lost nudge is invisible and the journey has later steps.
+   * - `'resend'`: send it again — at least once, a duplicate possible. Only for a transactional
+   *   template that must arrive (a receipt, a dispute notice, a reply the user is waiting for),
+   *   where a second copy is a nuisance and a missing one is a failure.
+   *
+   * A send that fails for sure (the transport throws, a 5xx, a 429) is retried whatever this says.
+   */
+  readonly redelivery?: 'skip' | 'resend' | undefined;
 }
 
 /**
@@ -212,6 +226,8 @@ export interface EmailTemplateBase<S extends PropsSchema> {
   subject: string;
   preview: NoInfer<core.input<S>>;
   component: (props: NoInfer<Readonly<core.output<S>>>) => unknown;
+  /** See `TemplateBase.redelivery`: `'resend'` opts the template into at-least-once. */
+  redelivery?: 'skip' | 'resend';
 }
 
 /** `emailTemplate`'s argument: the metadata, the props schema and the body, plus `topic` or `transactional: true`. */
@@ -227,6 +243,8 @@ export interface PushTemplateBase<S extends PropsSchema, R> {
   props: S;
   preview: NoInfer<core.input<S>>;
   content: (props: NoInfer<Readonly<core.output<S>>>) => Sync<R> & PushContent;
+  /** See `TemplateBase.redelivery`: `'resend'` opts the template into at-least-once. */
+  redelivery?: 'skip' | 'resend';
 }
 
 /** `pushTemplate`'s argument: the props schema and the notification, plus `topic` or `transactional: true`. */
@@ -245,6 +263,8 @@ export interface WebhookTemplateDefinition<S extends PropsSchema, Env, C> {
   /** The webhook URL, read from the Worker's environment when a message is sent. */
   webhook: (env: Env) => string | undefined;
   content: (props: NoInfer<Readonly<core.output<S>>>) => Sync<C>;
+  /** See `TemplateBase.redelivery`: `'resend'` opts the template into at-least-once. */
+  redelivery?: 'skip' | 'resend';
 }
 
 /** Declare a Discord webhook template. Throws when `props` is unsupported or `preview` does not parse. */

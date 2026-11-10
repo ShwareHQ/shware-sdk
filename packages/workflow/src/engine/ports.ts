@@ -121,12 +121,20 @@ export interface OutboundMessage {
   /**
    * `${instanceId}:${nodeId}` (plus `:${token}` for a push copy) — one per copy, stable across
    * replays and retries. The engine skips a copy the observer reports settled
-   * (`messageSettled`); past that, de-duplication is the provider's: APNs (collapse id) and Web
-   * Push (`Topic`) collapse on it, SES and the Cloudflare REST API cannot, so a crash between the
-   * provider taking a copy and its report still sends it twice there. It is also the copy's
+   * (`messageSettled`) or claimed by an earlier run (`messageClaimed`: handed to the transport,
+   * outcome unknown — see `redelivery`). The providers do not de-duplicate on it: APNs (collapse
+   * id) and Web Push (`Topic`) collapse a repeat on the device, SES and Cloudflare Email Service
+   * (binding and REST API alike) accept no idempotency key at all. It is also the copy's
    * identity for tracking: a push carries it in its payload, so the app can report the tap.
    */
   idempotencyKey: string;
+  /**
+   * What a replayed send step does with a copy an earlier run claimed but never settled (the
+   * transport may or may not have taken it): `'skip'` (the default, and absent) treats it as
+   * delivered and skips it — at-most-once; `'resend'` sends it again — at-least-once. Set from
+   * the template's `redelivery` option.
+   */
+  redelivery?: 'skip' | 'resend' | undefined;
   /** What the host's observer asked the sender to add for measuring this copy (see `MessageTracking`). */
   tracking?: MessageTracking | undefined;
 }
@@ -189,6 +197,10 @@ export interface MessageSender {
  * host's — the engine only reports. Every method is optional and must be idempotent: a step
  * that fails after its report ran is retried and reports again (keyed by the instance and node,
  * or the copy's idempotency key).
+ *
+ * Three of them decide whether a copy reaches the transport (`messageSettled`, `messageClaimed`,
+ * `messageReleased`): an observer that implements none of them leaves the engine with the step
+ * alone, and a step replayed after a lost checkpoint sends again. Implement all three or none.
  */
 export interface JourneyObserver {
   /** The instance entered, before its entry guards: `at` is the trigger's time, the entry anchor. */
@@ -210,13 +222,26 @@ export interface JourneyObserver {
    * Whether this copy (its idempotency key) was already settled — sent, or settled undelivered —
    * by an earlier run of the same step. The send and its report sit inside one durable step, so
    * an instance that crashes after both but before the step's checkpoint replays the step; a
-   * settled copy is then skipped instead of reaching the transport a second time. (A crash
-   * between the transport taking it and the report is still a second send: only a provider that
-   * de-duplicates on the key closes that.)
+   * settled copy is then skipped instead of reaching the transport a second time. The window
+   * between the transport taking the copy and the settle is `messageClaimed`'s.
    */
   messageSettled?(message: OutboundMessage): Promise<boolean>;
   /** A copy is about to go out; the tracking returned travels with it to the sender. */
   messagePrepared?(message: OutboundMessage): Promise<MessageTracking | undefined>;
+  /**
+   * The copy is being handed to the transport: record the claim, committed before the send, and
+   * answer whether this run made it (true) or an earlier run of the same step already held it
+   * (false). A claim without a settle means the earlier run died between the transport and its
+   * report, and the copy may have gone out: the engine does not send it again unless the
+   * template says `redelivery: 'resend'` (see `OutboundMessage.redelivery`). Must be atomic —
+   * two runs of the step cannot both be told true.
+   */
+  messageClaimed?(message: OutboundMessage): Promise<boolean>;
+  /**
+   * The transport threw, so the copy did not go out: release the claim, and the step's retry
+   * sends it. Called only after `messageClaimed` answered true in the same run.
+   */
+  messageReleased?(message: OutboundMessage): Promise<void>;
   /** The transport took the copy (`delivered: true`), or settled it undelivered; a thrown send is not reported. */
   messageSent?(message: OutboundMessage, result: { delivered: true } | SendResult): Promise<void>;
   /** The instance ended: its outcome (`goal` is a conversion), or `failed` when an error ended it. */

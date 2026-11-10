@@ -195,6 +195,27 @@ export class PostgresReporting implements JourneyReporting {
     return rows.length > 0;
   }
 
+  async claimMessage(idempotencyKey: string, at: number): Promise<boolean> {
+    // One statement, so two runs of the same step cannot both claim: only the run that finds
+    // claimed_at null writes it, and gets a row back. A write, so Hyperdrive runs it on the
+    // database — no cache can answer "unclaimed" for a copy a crashed run claimed
+    const rows = await this.sql.query(
+      `UPDATE ${this.t.message} SET claimed_at = ${TS('$2')}
+       WHERE idempotency_key = $1 AND claimed_at IS NULL
+       RETURNING 1 AS x`,
+      [idempotencyKey, at]
+    );
+    return rows.length > 0;
+  }
+
+  async releaseMessage(idempotencyKey: string): Promise<void> {
+    await this.sql.query(
+      `UPDATE ${this.t.message} SET claimed_at = NULL
+       WHERE idempotency_key = $1 AND delivered_at IS NULL AND undelivered_reason IS NULL`,
+      [idempotencyKey]
+    );
+  }
+
   async settleMessage(
     idempotencyKey: string,
     result: { delivered: true } | { delivered: false; reason: string },

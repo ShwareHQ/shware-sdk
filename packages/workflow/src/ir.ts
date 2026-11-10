@@ -260,6 +260,12 @@ export type NodeIR =
        * before topics existed: such a step checks the channel-level opt-out only, as it always did.
        */
       topic?: string | null | undefined;
+      /**
+       * The template opted into at-least-once: a replayed send step sends a copy an earlier run
+       * claimed but never settled again. Absent (the default, 'skip') the copy is not sent again
+       * — kept absent rather than written as 'skip', so adding the option changed no node hash.
+       */
+      redelivery?: 'resend' | undefined;
     })
   | (NodeBaseIR & { type: 'delay'; duration: DurationIR })
   | (NodeBaseIR & { type: 'random_delay'; min: DurationIR; max: DurationIR })
@@ -330,6 +336,7 @@ export const NodeIR: z.ZodMiniType<NodeIR> = z.lazy(() =>
       props: z.record(z.string(), PropValueIR),
       devices: z.optional(z.literal('latest')),
       topic: z.optional(z.nullable(z.string())),
+      redelivery: z.optional(z.literal('resend')),
     }),
     z.object({ ...nodeBase, type: z.literal('delay'), duration: DurationIR }),
     z.object({ ...nodeBase, type: z.literal('random_delay'), min: DurationIR, max: DurationIR }),

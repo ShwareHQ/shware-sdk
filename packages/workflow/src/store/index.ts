@@ -318,6 +318,14 @@ export interface JourneyReporting {
    * the database itself, so a replayed send step never trusts a cache that missed the settle.
    */
   messageSettled(idempotencyKey: string): Promise<boolean>;
+  /**
+   * Mark the copy as handed to the transport, committed before the send: true when this call
+   * made the claim, false when an earlier run of the step already held it — the copy may have
+   * gone out then, and the engine does not send it again (see `OutboundMessage.redelivery`).
+   */
+  claimMessage(idempotencyKey: string, at: number): Promise<boolean>;
+  /** The transport threw before taking the copy: clear the claim, so the step's retry sends it. */
+  releaseMessage(idempotencyKey: string): Promise<void>;
   settleMessage(
     idempotencyKey: string,
     result: { delivered: true } | { delivered: false; reason: string },
