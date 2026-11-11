@@ -805,7 +805,10 @@ Discord; supply anything else with `journeyWorker({ messages })`.
 | `database`  | `{ schema? }`: the Postgres schema, `workflow` by default                                 |
 
 The `ENVIRONMENT` var picks the `runtime` entry (production when unset).
-`timeScale` fast-forwards every duration: 600 turns "1 day" into 2.4 minutes.
+`timeScale` fast-forwards every duration: 600 turns "1 day" into 2.4 minutes. The `production`
+entry's type holds it at `1` (`ProductionRuntimeOptions`): a development factor pasted under the
+production key is a compile error, not every user's journey compressed. A deploy meant to run fast
+is not production: give it a mode of its own (`ENVIRONMENT=rehearsal`), as free as `development`.
 Secrets never go in the config; the Worker reads them from its environment:
 
 | Variable                                | Purpose                                                    |
@@ -847,7 +850,7 @@ const journeys = new JourneyClient({ contract, origin, token });
 | `setSubscriptionsByMessage(messageId, patch)`                         | `PUT /subscriptions/by-message/…` | The same patch, for the copy's recipient; answers as the GET does                  |
 | `forgetUser(userId)`                                                  | `POST /users/forget`              | Stop the user's journeys and erase their data                                      |
 | `forgetVisitor(visitorId)`                                            | `POST /users/forget`              | The same for a visitor who never signed in                                         |
-| `deploy(bundle)`                                                      | `POST /deploy`                    | Deploy a compiled bundle                                                           |
+| `deploy(bundle)`                                                      | `POST /deploy`                    | Deploy a compiled bundle (development; a production host with its own answers 409) |
 
 Pass each event's `id` whenever a caller may retry; see
 [Give each event an `id`](#give-each-event-an-id).
@@ -1029,7 +1032,11 @@ exported to run the segment sweep.
 
 Set `API_TOKEN` in production: a host whose `ENVIRONMENT` resolves to `production` refuses every
 request but `GET /health` and `/t/...` with a 503 until it is set. Any other mode (`development`,
-say) runs open, for local work only — `/deploy` rewrites the whole routing table.
+say) runs open, for local work only — `/deploy` rewrites the whole routing table. In production a
+host that carries its bundle (`journeyWorker`, the AWS host) refuses `POST /deploy` with a 409:
+it deploys by publishing a version (the new version applies its own bundle on its first request;
+`POST /bundle/deploy` re-applies it after a rollback), so a bundle posted by hand there could only
+be a leaked bearer at work. The bare `handleRequest` API carries none and still takes one.
 
 Erasing a user (`POST /users/forget`) commits an erasure tombstone first,
 which every write about the user is conditional on from then on. A runner

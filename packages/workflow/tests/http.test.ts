@@ -645,6 +645,34 @@ describe('production refuses to serve without API_TOKEN', () => {
   });
 });
 
+describe('a bundle posted by hand', () => {
+  test('is refused in production by a host that carries its own; development and the bare API take it', async () => {
+    const bundle = compileBundle({ workflows: [], segments: [] });
+    const closed = host({ API_TOKEN: 'secret' }); // no ENVIRONMENT: production
+    const refused = await closed.call('/deploy', {
+      method: 'POST',
+      headers: { authorization: 'Bearer secret' },
+      body: JSON.stringify(bundle),
+    });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: 'deploy by publishing a version (POST /bundle/deploy applies its own bundle)',
+    });
+    // Local work deploys by hand (the Studio, a curl)
+    const open = host({ ENVIRONMENT: 'development' });
+    const taken = await open.call('/deploy', { method: 'POST', body: JSON.stringify(bundle) });
+    expect(taken.status).toBe(200);
+    // The bare API carries no bundle of its own, so a posted one is its only way to deploy
+    const { env } = makeEnv({ API_TOKEN: 'secret' });
+    const bare = await handleRequest(
+      post('/deploy', bundle, { authorization: 'Bearer secret' }),
+      env,
+      database.store
+    );
+    expect(bare.status).toBe(200);
+  });
+});
+
 describe('the host boundary', () => {
   test('an unexpected failure is a 500 with nothing of it in the body', async () => {
     const { env, store, call } = host(

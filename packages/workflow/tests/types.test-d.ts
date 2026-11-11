@@ -10,6 +10,7 @@ import { expectTypeOf } from 'vitest';
 import {
   type Duration,
   type EmailAddress,
+  type JourneyRuntimeConfig,
   type PropsOf,
   type Topic,
   type UserPropertyRef,
@@ -580,3 +581,15 @@ expectTypeOf(subscriptions.getSubscriptionsByMessage('m')).resolves.toEqualTypeO
 void subscriptions.setSubscriptionsByMessage('m', { email: { topics: { promotions: false } } });
 // @ts-expect-error only declared topics can be set
 void subscriptions.setSubscriptionsByMessage('m', { email: { topics: { digest: false } } });
+
+/* ------------------------------ runtime per mode ------------------------------ */
+
+const runtime = (runtime: JourneyRuntimeConfig) => defineConfig({ workflows: [], runtime });
+
+// production runs in real time: its time scale is 1 or absent
+runtime({ production: { timeScale: 1, logMessages: false } });
+runtime({ production: {}, development: { timeScale: 600, logMessages: true } });
+// @ts-expect-error a fast-forwarded production is a slip; a deploy meant to run fast is another mode
+runtime({ production: { timeScale: 600 } });
+// only production is held: a mode under any other name is as free as development
+runtime({ rehearsal: { timeScale: 600 } });

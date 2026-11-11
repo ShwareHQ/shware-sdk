@@ -302,7 +302,17 @@ const routes: readonly Route[] = [
     method: 'POST',
     path: '/deploy',
     auth: 'api',
-    async handle({ request, env, store }) {
+    async handle({ request, env, store, host }) {
+      // A host that carries its bundle deploys it by publishing a version (the new version applies
+      // its own on its first request, `POST /bundle/deploy` re-applies it after a rollback): in
+      // production a bundle posted by hand is never legitimate, only what a leaked bearer would
+      // do with the routing table. The bare API, which carries none, has no other way to deploy.
+      if (host.bundle !== undefined && journeyMode(env) === 'production') {
+        return json(
+          { error: 'deploy by publishing a version (POST /bundle/deploy applies its own bundle)' },
+          409
+        );
+      }
       return json(await deployBundle(env, await readJson(request), store));
     },
   },
