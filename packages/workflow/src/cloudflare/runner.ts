@@ -24,7 +24,9 @@ import { cloudflareJourneyBinding, wakeExpired } from './bindings';
  * router wakes instances from that table); waitForWake parks on CF's
  * waitForEvent, which signals a timeout by throwing — and so does every other
  * failure in there, so only the clock, against the checkpointed deadline, can
- * tell them apart (see wakeExpired).
+ * tell them apart (see wakeExpired). A throw inside the tolerance before the
+ * deadline is the one case the clock cannot settle: it is taken as a timeout,
+ * and logged with what was thrown, so a fault read that way is findable.
  */
 class CfEngineStep implements EngineStep {
   constructor(
@@ -88,9 +90,19 @@ class CfEngineStep implements EngineStep {
        * resurfaces: the instance is rebuilt, the wait is already over, and the first thing to
        * run is this step. The verdict is checkpointed too, so later replays reuse it.
        */
-      const timedOut = await this.step.do(`${name}:timed-out`, async () =>
-        wakeExpired(deadlineMs, Date.now())
-      );
+      const timedOut = await this.step.do(`${name}:timed-out`, async () => {
+        const now = Date.now();
+        const expired = wakeExpired(deadlineMs, now);
+        if (expired && now < deadlineMs) {
+          // Inside the tolerance: a platform expiry surfacing early looks like this, but so does a
+          // broken binding. The AWS host tells them apart by error type; here only the log can.
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(
+            `[workflow] wait ${name} of ${this.instanceId} threw ${deadlineMs - now} ms before its deadline, taken as a timeout: ${reason}`
+          );
+        }
+        return expired;
+      });
       if (timedOut) return 'timeout';
       throw error;
     }

@@ -465,6 +465,36 @@ describe('a wait that throws', () => {
     expect(await entryStatus('inst-w1')).toBe('completed');
   });
 
+  test('inside the tolerance before the deadline is a timeout, and says so with what was thrown', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: T0 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { env, event } = await seeded(waiter, 'inst-w4');
+      const first = new FakeCfStep();
+      first.evictAt = '0:wait:0';
+      await expect(
+        new CollectingRunner({}, env).run(event as never, first as never)
+      ).rejects.toBeInstanceOf(EvictionError);
+
+      // The binding fails 2 s short of the hour: the clock cannot tell it from an early expiry
+      vi.setSystemTime(new Date(T0.getTime() + 60 * 60_000 - 2_000));
+      const replay = first.replay();
+      replay.wakes = [new Error('binding exploded')];
+      const again = new CollectingRunner({}, env);
+
+      await expect(again.run(event as never, replay as never)).resolves.toMatchObject({
+        status: 'completed',
+      });
+      expect(replay.results.get('0:wait:0:timed-out')).toBe(true);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toBe(
+        '[workflow] wait 0:wait:0 of inst-w4 threw 2000 ms before its deadline, taken as a timeout: binding exploded'
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test('is a failure when the deadline has not passed: the error comes back out', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: T0 });
     const { env, event } = await seeded(waiter, 'inst-w2');
