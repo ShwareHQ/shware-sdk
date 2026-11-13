@@ -1,5 +1,12 @@
 # @shware/workflow
 
+## 9.2.1
+
+### Patch Changes
+
+- 2547a8c: The Cloudflare host logs a warning when a `waitUntil` that threw inside the 5 s tolerance before its deadline is taken as a timeout. Cloudflare's `waitForEvent` throws the same way for an expiry and for a failure, so the clock decides; this is the one window where a broken binding reads as "the user never did it", and the log now says so with what was thrown. The verdict itself is unchanged.
+- 2547a8c: Index `user_id` on `instance`, `message`, `entry`, `segment_member` and `segment_start`. An erasure deletes every row of a user from each of them under the user's lock, and none of these tables led with the user: each delete scanned the whole table, for as long as the lock was held. Hosts regenerate the drizzle file (`workflow-ui generate`) and let drizzle-kit write the migration; `checkSchema` does not require the new indexes, so a deploy before the migration still serves.
+
 ## 9.2.0
 
 ### Minor Changes
