@@ -180,12 +180,19 @@ async function reasonOf(response: Response) {
   return body.error.details[0]?.reason;
 }
 
-/** The field a 400 INVALID_ARGUMENT's BadRequest detail names ('' for the body itself). */
+/**
+ * The field a 400 INVALID_ARGUMENT's BadRequest detail names ('' for the body itself), checking
+ * that the ErrorInfo with the reason is there beside it.
+ */
 async function fieldOf(response: Response) {
   const body = (await response.json()) as {
-    error: { details: { fieldViolations?: { field: string }[] }[] };
+    error: {
+      details: { '@type': string; reason?: string; fieldViolations?: { field: string }[] }[];
+    };
   };
-  return body.error.details[0]?.fieldViolations?.[0]?.field;
+  const { details } = body.error;
+  expect(details.find((d) => d['@type'].endsWith('ErrorInfo'))?.reason).toBe('INVALID_ARGUMENT');
+  return details.find((d) => d['@type'].endsWith('BadRequest'))?.fieldViolations?.[0]?.field;
 }
 
 /** A login the JSON routes refused: 403 with the reason, nobody signed in. */
