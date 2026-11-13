@@ -70,7 +70,8 @@ export function createAppleProvider(): Provider {
       };
     },
     async loginOAuth2Native({ pkce: _, credentials, ...params }: LoginOAuth2NativeParams) {
-      invariant(credentials.code, 'code is required');
+      // The app's mistake, a 400 like any other malformed login body, not a server fault.
+      if (!credentials.code) throw new OAuth2Error(400, 'invalid_request', 'code is required');
       const { tokenUri } = this;
       const { code } = credentials;
       const response = await exchangeAuthorizationCode({ code, tokenUri, ...params });

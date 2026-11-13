@@ -239,7 +239,7 @@ for sign-in and checkout flows; `PurchaseError` is a const enum of purchase fail
 | `bigintId`     | zod mini schema parsing a decimal string into a `bigint`             |
 | `csrf`         | Double-submit cookie CSRF check (`XSRF-TOKEN` / `X-XSRF-TOKEN`)      |
 | `authorizer`   | Requires authentication on the paths matching `rules`                |
-| `rateLimit`    | Token-bucket rate limiter backed by any async key-value store        |
+| `rateLimit`    | Token-bucket rate limiter over a fast, consistent key-value store    |
 | `geolocation`  | Visitor geolocation from Cloudflare, Vercel or CloudFront headers    |
 
 ### Wiring an app
@@ -334,6 +334,11 @@ app.use(
 
 It sets `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; when exhausted it
 adds `Retry-After` and answers `RESOURCE_EXHAUSTED` with `RATE_LIMIT_EXCEEDED` and `RetryInfo`.
+
+The bucket is read, updated and written back as one value, with no atomic operation on the store,
+so two requests for the same key at the same moment can both pass: a soft cap, right for a fast,
+consistent store such as Redis. It is a poor fit for Cloudflare Workers KV (one write per key per
+second, eventually consistent): on Workers, use the Rate Limiting binding instead.
 
 ## Pagination
 

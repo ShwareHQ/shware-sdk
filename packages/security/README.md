@@ -51,7 +51,7 @@ const auth = new Auth({
   oauth2: {
     client: {
       baseUri: 'https://api.mywebsite.com', // backend, used to build redirect URIs
-      errorUri: 'https://mywebsite.com', // receives ?error=...&error_description=...
+      errorUri: 'https://mywebsite.com', // receives ?error=... on any failure
       successUri: 'https://mywebsite.com', // receives ?status=success&provider=...
       providers: {
         apple: {
@@ -372,7 +372,7 @@ any app; it is sent with an `appsecret_proof`, so the client needs its `clientSe
 2. The provider calls back `GET|POST /login/oauth2/code/:provider` (Apple uses `form_post`,
    so register both). `loginOAuth2Code` checks state, exchanges the code as the `web` client,
    calls `onAuthorized` and redirects to `successUri` with `status=success&provider=<key>`, or to
-   `errorUri` with `error` and `error_description`.
+   `errorUri` with `error`.
 3. On success the user is signed in on a new session id, not the one the flow started on, which
    is deleted (session fixation protection). The attributes the host kept in that session move to
    the new one; the single-use authorization request (state, PKCE verifier) does not. The new
@@ -381,7 +381,8 @@ any app; it is sent with an `appsecret_proof`, so the client needs its `clientSe
 Every failure of the callback lands on `errorUri` — never a raw JSON error in the popup:
 
 - the provider's own error (`access_denied` means the user declined; also `invalid_scope`,
-  `server_error`, …), with its `error_description` (unregistered codes become `server_error`);
+  `server_error`, …) by code (unregistered codes become `server_error`), its `error_description`
+  logged with `console.warn`;
 - a failed validation (`invalid_request`: missing session, state or provider mismatch);
 - an `OAuth2Error` thrown while exchanging the code or loading the user info, logged with
   `console.warn` and reported by code only: `invalid_grant` (an expired or reused code),
@@ -392,8 +393,9 @@ Every failure of the callback lands on `errorUri` — never a raw JSON error in 
 - anything else thrown by the exchange, `onAuthorized` or the session store, as `server_error`
   (logged with `console.error`).
 
-`error_description` is capped at 256 characters. Show users a message per `error` code, never the
-description: it is the provider's technical text, and a forged callback can set it to anything.
+Only the code reaches the page: the provider's `error_description` and the SDK's own detail
+(`session not found`, `redirect state mismatch`) go to the logs, never to a URL the browser keeps in
+its history. Show users a message per `error` code; a forged callback can only pick one of them.
 
 #### Carrying data to `onAuthorized` (`attributes`)
 
@@ -454,9 +456,9 @@ app.get(PATH.OAUTH2_AUTHORIZATION, (c) => {
 - Stored with the authorization request like `attributes`, so every redirect of that flow carries
   them, success or error, except the two that cannot find the request (no session, or no
   authorization request in it).
-- The names the redirects use themselves — `status`, `provider`, `error`, `error_description`,
-  `reason` — are dropped, even on a redirect that leaves one out (a cancel has no `reason`): the
-  page would read it as the SDK's. A refusal's metadata wins over a parameter of the same name.
+- The names the redirects use themselves — `status`, `provider`, `error`, `reason` — are dropped,
+  even on a redirect that leaves one out (a cancel has no `reason`): the page would read it as the
+  SDK's. A refusal's metadata wins over a parameter of the same name.
 - String values only; `undefined` values are dropped; at most 2 KB serialized, checked as an
   invariant like `attributes`: validate a value taken from the request before passing it.
 - They reach the browser and its history: put nothing secret in them.
@@ -468,7 +470,9 @@ Mobile apps sign in with the platform SDK and post the result to
 (`{ id_token?, access_token?, code?, code_verifier?, state?, client_id?, redirect_uri?, fullName? }`); `client_id`
 picks the client (see [Providers and clients](#providers-and-clients)). `loginOAuth2Native`
 verifies it with the provider, calls `onAuthorized`, creates a session and returns the
-`Principal` as JSON with the session cookie.
+`Principal` as JSON with the session cookie. Each field must be a string when present
+(`400 INVALID_ARGUMENT` naming it otherwise; `fullName` an object); a provider missing the credential
+it needs — Apple and Google their `code` — answers `400 OAUTH2_INVALID_REQUEST`.
 
 To bind an id token to this request, fetch a nonce first from `GET /oauth2/nonce/:provider`
 (`oauth2Nonce`) and pass it to the platform SDK; when the token carries a `nonce`,
