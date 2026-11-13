@@ -128,9 +128,14 @@ describe('desktop sign-in handshake', () => {
     );
     expect(response.status).toBe(400);
     const body = (await response.json()) as {
-      error: { details: { fieldViolations?: { field: string }[] }[] };
+      error: {
+        details: { '@type': string; reason?: string; fieldViolations?: { field: string }[] }[];
+      };
     };
-    expect(body.error.details[0]?.fieldViolations?.[0]?.field).toBe('code_challenge');
+    const { details } = body.error;
+    expect(details.find((d) => d['@type'].endsWith('ErrorInfo'))?.reason).toBe('INVALID_ARGUMENT');
+    const bad = details.find((d) => d['@type'].endsWith('BadRequest'));
+    expect(bad?.fieldViolations?.[0]?.field).toBe('code_challenge');
   });
 
   it('refuses a code with the wrong verifier, without burning it, and spends it on success', async () => {

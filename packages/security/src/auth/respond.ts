@@ -45,9 +45,14 @@ export class RequestError extends Error {
   }
 }
 
-export function invalidArgument(reason: string, message: string, details?: unknown[]) {
+/**
+ * A malformed request: the `ErrorInfo` with `reason` first, then any further `details` (a
+ * `BadRequest` naming the fields a schema refused), so `getErrorInfo` finds the reason whatever
+ * else the body carries.
+ */
+export function invalidArgument(reason: string, message: string, details: unknown[] = []) {
   const body = errorBody(400, 'INVALID_ARGUMENT', reason, message);
-  if (details) body.error.details = details;
+  body.error.details.push(...details);
   return new RequestError(body);
 }
 
