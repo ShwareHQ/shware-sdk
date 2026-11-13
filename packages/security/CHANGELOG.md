@@ -1,5 +1,12 @@
 # @shware/security
 
+## 9.2.1
+
+### Patch Changes
+
+- 0f4c395: The redirect flow no longer forwards `error_description` to `errorUri`. The page acts on the `error` code alone, as the README has always asked, so the provider's text and the SDK's own detail (`session not found`, `redirect state mismatch`) now go to `console.warn` instead of a URL the browser keeps in its history; `error_description` is no longer a name `redirectParams` has to avoid.
+- 0f4c395: `loginOAuth2Native` validates the body it is posted: each `NativeCredential` field must be a string when present (`fullName` an object), a `400 INVALID_ARGUMENT` naming the field otherwise, and a provider missing the credential it needs — Apple's and Google's `code` — answers `400 OAUTH2_INVALID_REQUEST` instead of failing with a 500 from an assertion. A `code_verifier` that is not a string is now that same `INVALID_ARGUMENT`; one of the wrong format stays `INVALID_CODE_VERIFIER`.
+
 ## 9.2.0
 
 ### Minor Changes
