@@ -67,6 +67,11 @@ export interface BundlePlan {
   hasChanges: boolean;
 }
 
+/** Every node of a flow, nested ones included, in document order. */
+export function nodesOf(flow: readonly NodeIR[]): NodeIR[] {
+  return [...flatten(flow, new Map()).values()];
+}
+
 /** Walk the node tree into a flat id → node map (branch arms, cohort arms and timeout flows included). */
 function flatten(nodes: readonly NodeIR[], into: Map<string, NodeIR>): Map<string, NodeIR> {
   for (const node of nodes) {

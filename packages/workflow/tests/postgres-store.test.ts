@@ -124,13 +124,19 @@ describe('deploy', () => {
     const v2 = { id: 'v2', createdAt: Date.parse('2026-10-02T00:00:00.000Z') };
     expect(await store.liveBundleVersion()).toBeUndefined();
 
-    expect(await deployBundle(env, bundle(), store, v2)).toMatchObject({ applied: true });
+    expect(await deployBundle(env, bundle(), store, { version: v2 })).toMatchObject({
+      applied: true,
+    });
     expect(await store.liveBundleVersion()).toEqual(v2);
 
     // v1 still serving during the rollout: its bundle never replaces v2's
-    expect(await deployBundle(env, older, store, v1)).toMatchObject({ applied: false });
+    expect(await deployBundle(env, older, store, { version: v1 })).toMatchObject({
+      applied: false,
+    });
     // Nor does v2 again (another isolate of the same version)
-    expect(await deployBundle(env, older, store, v2)).toMatchObject({ applied: false });
+    expect(await deployBundle(env, older, store, { version: v2 })).toMatchObject({
+      applied: false,
+    });
     expect(await store.liveBundleVersion()).toEqual(v2);
     expect(await store.listSegmentTriggers()).toMatchObject([{ workflow: 'pro_nudge' }]);
 

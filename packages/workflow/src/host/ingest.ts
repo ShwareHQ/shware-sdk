@@ -1,3 +1,4 @@
+import type { JourneyConfig } from '../config';
 import { murmur3 } from '../engine/bucket';
 import {
   DEVICES_UPDATED_EVENT,
@@ -7,6 +8,12 @@ import {
 } from '../engine/condition';
 import { RECIPIENT_PROPERTY } from '../engine/recipient';
 import { semanticHash } from '../hash';
+import {
+  type InFlightProblem,
+  checkInFlight,
+  describeInFlight,
+  pinnedWorkflows,
+} from '../inflight';
 import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
 import { isMessageId } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
@@ -969,6 +976,39 @@ export interface DeployResult {
    * versioned one when a version as new or newer is already live (nothing was swapped).
    */
   applied: boolean;
+  /**
+   * What this deploy took from the journeys still running (`checkInFlight`): empty unless the
+   * deploy was told to break them (`breakInFlight`), since otherwise it refuses.
+   */
+  inFlight: InFlightProblem[];
+}
+
+/** A deploy refused because the bundle would break journeys still running: see `problems`. */
+export class InFlightError extends Error {
+  override readonly name = 'InFlightError';
+  constructor(readonly problems: readonly InFlightProblem[]) {
+    const journeys = new Set(problems.map((p) => `${p.workflow}@${p.contentHash}`)).size;
+    super(
+      `the bundle would break in-flight journeys on ${journeys} pinned ${journeys === 1 ? 'version' : 'versions'}: ${describeInFlight(problems).join(' | ')}`
+    );
+  }
+}
+
+export interface DeployOptions {
+  /**
+   * The code version the bundle was compiled into. The swap then happens only over an older live
+   * version (how journeyWorker applies its own bundle), unless `force` is set.
+   */
+  version?: BundleVersion | undefined;
+  /** Swap the routes whatever version is live, and record `version` as live (`POST /bundle/deploy`). */
+  force?: boolean | undefined;
+  /**
+   * The config whose templates the code serves: with it, pinned message nodes are checked against
+   * the registry (a new required prop, a template gone); without it, only against the bundle.
+   */
+  config?: JourneyConfig | undefined;
+  /** Deploy although it breaks in-flight journeys; what it breaks is returned in `inFlight`. */
+  breakInFlight?: boolean | undefined;
 }
 
 /** A bundle whose declared hashes do not describe its contents — rejected before anything is written. */
@@ -1020,13 +1060,20 @@ function verifyBundleHashes(parsed: BundleIR): void {
  * compiled into it — unless `force` is set: then it happens whatever is live, and the version is
  * recorded as live (`POST /bundle/deploy`). Without a version it is forced and records nothing
  * (`POST /deploy`, a hand-posted bundle).
+ *
+ * Before any write, the bundle is held against the journeys still running (`checkInFlight`): one
+ * that removes a segment or action a pinned IR names, or — with the `config` — a template a pinned
+ * message can no longer be sent with, is refused with `InFlightError`, unless `breakInFlight` says
+ * to deploy anyway (the refusal is a deploy-time guard; see README "Versioning" for why nothing is
+ * pinned beyond the IR). On Cloudflare a published version's code serves at once, and whether a
+ * running instance resumes on the version it started on is not documented, so the place to run
+ * the same check is before publishing: `workflow-ui plan`.
  */
 export async function deployBundle(
   env: JourneyEnv,
   bundle: unknown,
   store: JourneyStore,
-  version?: BundleVersion,
-  force = false
+  { version, force = false, config, breakInFlight = false }: DeployOptions = {}
 ): Promise<DeployResult> {
   const parsed = BundleIR.parse(bundle);
   // Before any write: a bad hash must not reach the store, where it would address content it does not describe
@@ -1034,6 +1081,9 @@ export async function deployBundle(
   // Nor a bundle the database cannot hold: the host migrates, the engine only checks
   const problems = await store.checkSchema();
   if (problems.length > 0) throw new SchemaMismatchError(problems);
+  // Nor one that takes from running journeys what their pinned IR still names
+  const inFlight = checkInFlight(await pinnedWorkflows(store), parsed, config);
+  if (inFlight.length > 0 && !breakInFlight) throw new InFlightError(inFlight);
 
   for (const workflow of parsed.workflows) await store.putWorkflowIR(workflow);
   let applied = true;
@@ -1048,6 +1098,7 @@ export async function deployBundle(
     workflows: parsed.workflows.map((w) => `${w.id}@${w.contentHash.slice(0, 8)}`),
     unrouted,
     applied,
+    inFlight,
   };
 }
 

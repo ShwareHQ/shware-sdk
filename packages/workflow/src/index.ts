@@ -2,6 +2,7 @@ export * from './dsl';
 export * from './hash';
 export * from './ir';
 export * from './plan';
+export * from './inflight';
 export * from './runtime';
 export * from './config';
 export * from './email';

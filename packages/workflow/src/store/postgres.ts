@@ -20,6 +20,7 @@ import type {
   JourneyStore,
   ProfileProps,
   RunningInstance,
+  RunningPin,
   SegmentCandidate,
   SegmentTriggerRoute,
   SuppressionChange,
@@ -872,6 +873,18 @@ export class PostgresJourneyStore implements JourneyStore {
     );
     const row = rows.at(0);
     return row === undefined ? undefined : WorkflowIR.parse(asJson(row.ir));
+  }
+
+  async runningPins(): Promise<RunningPin[]> {
+    const rows = await this.sql.query<{ workflow: string; hash: string; running: number }>(
+      `SELECT workflow, hash, COUNT(*)::int AS running FROM ${this.t.entry}
+       WHERE status = 'running' GROUP BY workflow, hash ORDER BY workflow, hash`
+    );
+    return rows.map((row) => ({
+      workflow: row.workflow,
+      contentHash: row.hash,
+      running: row.running,
+    }));
   }
 
   replaceRoutes(bundle: BundleIR, version?: BundleVersion): Promise<void> {

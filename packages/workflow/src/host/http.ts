@@ -1,4 +1,5 @@
 import * as z from 'zod/mini';
+import type { JourneyConfig } from '../config';
 import type { Contract } from '../contract';
 import { PREVIEW_MESSAGE_ID } from '../email';
 import type { EmailRenderer } from '../email-sender';
@@ -17,6 +18,7 @@ import { identityError, ingestBatch, isNonEmptyString, isPlainObject, parseBatch
 import { journeyMode } from './channels';
 import {
   BundleIntegrityError,
+  InFlightError,
   type SweepResult,
   deployBundle,
   forgetUser,
@@ -55,6 +57,8 @@ export interface HostParts {
   bundle?: (() => BundleIR) | undefined;
   /** The code version serving this request, recorded as live by `POST /bundle/deploy`. */
   bundleVersion?: BundleVersion | undefined;
+  /** The config the code serves: a deploy checks the templates pinned journeys still send against it. */
+  config?: JourneyConfig | undefined;
   /** `GET /preview/:id?props=<JSON>`: the email templates, rendered. */
   preview?: { has(id: string): boolean; render: EmailRenderer } | undefined;
   /** `/t/*`, what recipients open (no bearer): served on a store that keeps reporting. */
@@ -94,6 +98,9 @@ interface Route {
   auth: 'none' | 'api';
   handle(ctx: RouteContext): Promise<Response>;
 }
+
+/** `?force=1` on a deploy route: deploy although it breaks in-flight journeys (see `DeployOptions`). */
+const breaksInFlight = (url: URL): boolean => url.searchParams.get('force') === '1';
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -302,7 +309,7 @@ const routes: readonly Route[] = [
     method: 'POST',
     path: '/deploy',
     auth: 'api',
-    async handle({ request, env, store, host }) {
+    async handle({ request, url, env, store, host }) {
       // A host that carries its bundle deploys it by publishing a version (the new version applies
       // its own on its first request, `POST /bundle/deploy` re-applies it after a rollback): in
       // production a bundle posted by hand is never legitimate, only what a leaked bearer would
@@ -313,7 +320,8 @@ const routes: readonly Route[] = [
           409
         );
       }
-      return json(await deployBundle(env, await readJson(request), store));
+      const options = { config: host.config, breakInFlight: breaksInFlight(url) };
+      return json(await deployBundle(env, await readJson(request), store, options));
     },
   },
   {
@@ -328,12 +336,18 @@ const routes: readonly Route[] = [
     method: 'POST',
     path: '/bundle/deploy',
     auth: 'api',
-    async handle({ env, store, host }) {
+    async handle({ url, env, store, host }) {
       if (host.bundle === undefined) return notFound();
       // Forced, and recording the serving version: otherwise an older version still serving
       // during a rollout would put its routes live while the row kept naming the newer one —
       // which then never re-applies its own bundle
-      return json(await deployBundle(env, host.bundle(), store, host.bundleVersion, true));
+      const options = {
+        version: host.bundleVersion,
+        force: true,
+        config: host.config,
+        breakInFlight: breaksInFlight(url),
+      };
+      return json(await deployBundle(env, host.bundle(), store, options));
     },
   },
   {
@@ -420,6 +434,11 @@ function failure(error: unknown): Response {
   }
   // The caller sent a self-inconsistent bundle: their problem to fix, so say what is wrong
   if (error instanceof BundleIntegrityError) return json({ error: error.message }, 400);
+  // The bundle would break journeys still running: the deploy is refused until the bundle keeps
+  // them (or the caller says `?force=1`), and the answer lists which ones and why
+  if (error instanceof InFlightError) {
+    return json({ error: error.message, problems: error.problems }, 409);
+  }
   // The query string is the props: a refusal is the caller's to fix, with the field paths
   if (error instanceof TemplateValidationError) {
     return json({ error: error.message, issues: error.issues }, 400);

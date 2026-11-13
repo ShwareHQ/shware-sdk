@@ -142,7 +142,8 @@ function assertSegmentRefsResolve(
   }
 }
 
-function referencedSegments(workflow: WorkflowIR): Set<string> {
+/** Every segment the workflow names: its trigger, filter, goal, exit condition and the conditions in its flow. */
+export function referencedSegments(workflow: WorkflowIR): Set<string> {
   const refs = new Set<string>();
   if (workflow.trigger.type === 'segment') refs.add(workflow.trigger.segment);
   if (workflow.trigger.type === 'event' && workflow.trigger.filter !== undefined) {

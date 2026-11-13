@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { generateSchema } from './generate';
+import { formatPlan, planDeploy } from './plan';
 import { startStudio } from './server';
 
 /**
@@ -9,6 +10,7 @@ import { startStudio } from './server';
  *   npx workflow-ui --port 5000
  *   npx workflow-ui --config apps/marketing/workflow.config.ts
  *   npx workflow-ui generate --out ../../packages/db/src/schema/workflow.ts [--check]
+ *   npx workflow-ui plan --database-url $DATABASE_URL
  */
 
 interface Args {
@@ -16,6 +18,7 @@ interface Args {
   config?: string;
   stats?: string;
   out?: string;
+  databaseUrl?: string;
   check: boolean;
   open: boolean;
   help: boolean;
@@ -29,6 +32,7 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--open') args.open = true;
     else if (arg === '--check') args.check = true;
     else if (arg === '--out' || arg === '-o') args.out = argv[++i];
+    else if (arg === '--database-url' || arg === '-d') args.databaseUrl = argv[++i];
     else if (arg === '--port' || arg === '-p') args.port = Number(argv[++i]);
     else if (arg === '--config' || arg === '-c') args.config = argv[++i];
     else if (arg === '--stats' || arg === '-s') args.stats = argv[++i];
@@ -42,6 +46,7 @@ const HELP = `
   Usage
     $ workflow-ui [dev] [options]
     $ workflow-ui generate --out <file> [--check] [--config <path>]
+    $ workflow-ui plan --database-url <url> [--config <path>]
 
   Options
     -p, --port <port>    Port to listen on (default 4321)
@@ -50,6 +55,8 @@ const HELP = `
         --open           Open the browser on start
     -o, --out <file>     generate: where the drizzle schema file goes
         --check          generate: fail when the file is out of date, write nothing
+    -d, --database-url   plan: the engine's database (default $DATABASE_URL); exits 1 when the
+                         bundle would break journeys still running there
     -h, --help           Show this message
 `;
 
@@ -76,6 +83,31 @@ async function main(): Promise<void> {
       } else {
         console.log(`\n  ${args.out} ${result === 'written' ? 'written' : 'is up to date'}\n`);
       }
+    } catch (error) {
+      console.error(`\n${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === 'plan') {
+    const args = parseArgs(rest);
+    const databaseUrl = args.databaseUrl ?? process.env.DATABASE_URL;
+    if (args.help || databaseUrl === undefined) {
+      console.log(HELP);
+      if (!args.help) {
+        console.error('\n  plan needs --database-url <url> (or DATABASE_URL in the environment)\n');
+        process.exitCode = 1;
+      }
+      return;
+    }
+    try {
+      const report = await planDeploy({
+        databaseUrl,
+        ...(args.config !== undefined ? { config: args.config } : {}),
+      });
+      console.log(`\n  ${formatPlan(report).join('\n  ')}\n`);
+      if (report.problems.length > 0) process.exitCode = 1;
     } catch (error) {
       console.error(`\n${error instanceof Error ? error.message : String(error)}\n`);
       process.exitCode = 1;
