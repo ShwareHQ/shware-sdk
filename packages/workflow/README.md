@@ -1051,8 +1051,9 @@ settles what happens to people in a deleted tile); it is cheap here because IR
 is declarative — the message node is checked against the schema, no history
 has to be replayed.
 
-On Cloudflare the code of a new version serves from the moment it is published,
-whether or not its bundle is applied, so run the same check _before_
+On Cloudflare a published version's code serves at once, whether or not its
+bundle is applied, and Workflows does not document whether a running instance
+resumes on the version it started on — so run the same check _before_
 publishing: `workflow-ui plan --database-url …` compiles the project, reads the
 pinned IRs from the database and exits non-zero on a problem — put it in CI
 ahead of `wrangler deploy`. `journeyWorker` runs the check again when a version
