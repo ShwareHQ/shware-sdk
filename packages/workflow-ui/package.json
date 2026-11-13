@@ -1,6 +1,6 @@
 {
   "name": "@shware/workflow-ui",
-  "version": "2.1.16",
+  "version": "2.1.17",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
