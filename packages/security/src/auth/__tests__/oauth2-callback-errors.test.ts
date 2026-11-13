@@ -84,10 +84,9 @@ function errorRedirect(response: Response) {
   const location = new URL(response.headers.get('location') ?? '');
   expect(`${location.origin}${location.pathname}`).toBe('https://app.test/');
   expect(location.searchParams.get('status')).toBe('error');
-  return {
-    error: location.searchParams.get('error'),
-    description: location.searchParams.get('error_description'),
-  };
+  // The description is never forwarded: the page acts on the code, the text goes to the logs.
+  expect(location.searchParams.has('error_description')).toBe(false);
+  return { error: location.searchParams.get('error') };
 }
 
 const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
@@ -110,7 +109,8 @@ afterEach(() => {
 });
 
 describe('oauth2 callback errors', () => {
-  it('forwards a provider error and its description to errorUri', async () => {
+  it('forwards a provider error to errorUri by code, its description to the logs', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const auth = createAuth();
     const { cookie, state } = await start(auth);
 
@@ -123,10 +123,8 @@ describe('oauth2 callback errors', () => {
       handler
     );
 
-    expect(errorRedirect(response)).toEqual({
-      error: 'access_denied',
-      description: 'The user denied the request',
-    });
+    expect(errorRedirect(response)).toEqual({ error: 'access_denied' });
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'The user denied the request');
     expect(exchange).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
@@ -140,10 +138,11 @@ describe('oauth2 callback errors', () => {
       handler
     );
 
-    expect(errorRedirect(response)).toEqual({ error: 'invalid_scope', description: null });
+    expect(errorRedirect(response)).toEqual({ error: 'invalid_scope' });
   });
 
   it('reports a state mismatch over the provider error', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const auth = createAuth();
     const { cookie } = await start(auth);
 
@@ -152,11 +151,12 @@ describe('oauth2 callback errors', () => {
       handler
     );
 
-    expect(errorRedirect(response).error).toBe('invalid_request');
-    expect(errorRedirect(response).description).toBe('redirect state mismatch');
+    expect(errorRedirect(response)).toEqual({ error: 'invalid_request' });
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'redirect state mismatch');
   });
 
-  it('maps an unknown provider error to server_error and truncates the description', async () => {
+  it('maps an unknown provider error to server_error and keeps its text off the URL', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     const auth = createAuth();
     const { cookie, state } = await start(auth);
 
@@ -165,9 +165,8 @@ describe('oauth2 callback errors', () => {
       handler
     );
 
-    const { error, description } = errorRedirect(response);
-    expect(error).toBe('server_error');
-    expect(description).toHaveLength(256);
+    expect(errorRedirect(response)).toEqual({ error: 'server_error' });
+    expect(response.headers.get('location')).not.toContain('<script>');
   });
 
   it('keeps an actionable OAuth2Error type and logs its message instead of forwarding it', async () => {
@@ -179,7 +178,7 @@ describe('oauth2 callback errors', () => {
 
     const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
 
-    expect(errorRedirect(response)).toEqual({ error: 'invalid_grant', description: null });
+    expect(errorRedirect(response)).toEqual({ error: 'invalid_grant' });
     expect(log).toHaveBeenCalledWith(expect.any(String), failure);
     expect(handler).not.toHaveBeenCalled();
   });
@@ -194,7 +193,7 @@ describe('oauth2 callback errors', () => {
 
     const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
 
-    expect(errorRedirect(response)).toEqual({ error: 'server_error', description: null });
+    expect(errorRedirect(response)).toEqual({ error: 'server_error' });
   });
 
   it('logs any other failure and redirects with server_error', async () => {
@@ -210,7 +209,7 @@ describe('oauth2 callback errors', () => {
       })
     );
 
-    expect(errorRedirect(response)).toEqual({ error: 'server_error', description: null });
+    expect(errorRedirect(response)).toEqual({ error: 'server_error' });
     expect(log).toHaveBeenCalledWith(expect.any(String), failure);
   });
 
@@ -230,9 +229,7 @@ describe('oauth2 callback errors', () => {
 
     const response = await auth.loginOAuth2Code(callback(cookie, { code: 'c', state }), handler);
 
-    const { error, description } = errorRedirect(response);
-    expect(error).toBe('access_denied');
-    expect(description).toBeNull();
+    expect(errorRedirect(response)).toEqual({ error: 'access_denied' });
     const location = new URL(response.headers.get('location') ?? '');
     expect(location.searchParams.get('reason')).toBe('EMAIL_ALREADY_USED');
     expect(location.searchParams.get('provider')).toBe('GOOGLE');

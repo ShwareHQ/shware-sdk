@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { invariant } from '@shware/utils';
-import { extend, literal, object, regex, string } from 'zod/mini';
+import { custom, extend, literal, object, optional, regex, string } from 'zod/mini';
 import type { Principal } from '../core/index';
 import { loginEmailSchema, sendEmailVerificationCodeSchema } from '../email/schema';
 import { OAuth2Client, googleOneTapSchema, oauth2RedirectQuerySchema } from '../oauth2/client';
@@ -8,6 +8,7 @@ import { OAuth2Error, type OAuth2ErrorType, isKnownOAuth2ErrorType } from '../oa
 import type {
   NativeCredential,
   OAuth2AuthorizationRequest,
+  PersonNameComponents,
   PkceParameters,
   StandardClaims,
 } from '../oauth2/types';
@@ -60,10 +61,6 @@ const SESSION_HEADER = 'X-Auth-Token';
 /** Seconds an OAuth2 state or nonce may be used within. */
 const OAUTH2_PARAMETER_TTL = 10 * 60;
 
-// error_description forwarded to errorUri comes from the provider or an error message: cap it so
-// the redirect URL stays short and an attacker-crafted callback cannot stuff the page with text.
-const MAX_ERROR_DESCRIPTION_LENGTH = 256;
-
 /** An error code safe to put on errorUri: a registered one as is, anything else as `fallback`. */
 function safeErrorType(error: string, fallback: OAuth2ErrorType): OAuth2ErrorType {
   return isKnownOAuth2ErrorType(error) ? error : fallback;
@@ -105,7 +102,8 @@ function authorizationAttributes(
 }
 
 interface RedirectDetails {
-  description?: string;
+  /** What went wrong, for the logs: the page gets the `error` code only. */
+  detail?: string;
   refusal?: AuthenticationError;
   /** The flow's `redirectParams`. */
   params?: Record<string, string>;
@@ -115,7 +113,7 @@ interface RedirectDetails {
  * What the callback's redirects say themselves. A host's `redirectParams` never carry these, even
  * on a redirect that leaves one out (a cancel has no `reason`): the page would read it as the SDK's.
  */
-const REDIRECT_PARAMS = new Set(['status', 'provider', 'error', 'error_description', 'reason']);
+const REDIRECT_PARAMS = new Set(['status', 'provider', 'error', 'reason']);
 
 /** The host's `redirectParams` without the names the redirects keep for themselves. */
 function redirectParams(params: OAuth2AuthorizationOptions['redirectParams']) {
@@ -140,6 +138,31 @@ function isFormPost(request: Request) {
     request.method === 'POST' && !!contentType?.startsWith('application/x-www-form-urlencoded')
   );
 }
+
+/**
+ * The platform's name object as the app posts it (iOS `PersonNameComponents`): any object, since
+ * the provider cleans each part itself and ignores what is not a string.
+ */
+const personNameSchema = custom<PersonNameComponents>(
+  (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+/**
+ * A native login body (`NativeCredential`): each protocol parameter a string when present. Which
+ * ones a provider needs is its own check (a missing `code` is an `OAuth2Error` `invalid_request`);
+ * `code_verifier`'s format has its own reason (`INVALID_CODE_VERIFIER`) and `attributes` their own
+ * schema, so neither is checked here.
+ */
+const nativeCredentialSchema = object({
+  state: optional(string()),
+  code: optional(string()),
+  client_id: optional(string()),
+  redirect_uri: optional(string()),
+  code_verifier: optional(string()),
+  id_token: optional(string()),
+  access_token: optional(string()),
+  fullName: optional(personNameSchema),
+});
 
 /** Google's own form post carries no attributes; an app posting JSON may add them. */
 const oneTapBodySchema = extend(googleOneTapSchema, { attributes: attributesSchema });
@@ -309,19 +332,20 @@ export class Auth implements AuthService {
 
   /**
    * The error redirect of the callback flow: `refusal`'s reason and metadata ride along, and the
-   * flow's `redirectParams` once its authorization request is known.
+   * flow's `redirectParams` once its authorization request is known. `detail` (a failed validation,
+   * the provider's `error_description`) is logged, not forwarded: the page shows a message per
+   * `error` code and never the text, so a URL the browser keeps in its history has no use for it,
+   * and a forged callback could set it to anything.
    */
   private redirect(
     error: OAuth2ErrorType,
-    { description, refusal, params }: RedirectDetails = {}
+    { detail, refusal, params }: RedirectDetails = {}
   ): Response {
     invariant(this.oauth2Client, 'oauth2Client is not initialized');
+    if (detail) console.warn(`OAuth2 callback failed: ${error}`, detail);
     // A refusal's metadata wins over the host's parameters of the same name: it is about this answer.
     const uri = withParams(this.oauth2Client.errorUri, { ...params, ...refusal?.metadata });
     uri.searchParams.set('error', error);
-    if (description) {
-      uri.searchParams.set('error_description', description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH));
-    }
     if (refusal) uri.searchParams.set('reason', refusal.reason);
     return Response.redirect(uri.href, 302);
   }
@@ -505,11 +529,11 @@ export class Auth implements AuthService {
 
     // 1. the session the flow started on, and the authorization request it stored
     const session = await this.loadSession(request);
-    if (!session) return this.redirect('invalid_request', { description: 'session not found' });
+    if (!session) return this.redirect('invalid_request', { detail: 'session not found' });
     mark('load_session');
     const json = session.getAttribute(this.ATTR_OAUTH2_AUTHORIZATION_REQUEST) as string | null;
     if (!json) {
-      return this.redirect('invalid_request', { description: 'authorization request not found' });
+      return this.redirect('invalid_request', { detail: 'authorization request not found' });
     }
     const cached: OAuth2AuthorizationRequest = JSON.parse(json);
     // From here on the redirect back to the app is this flow's, with the host's parameters.
@@ -522,7 +546,7 @@ export class Auth implements AuthService {
       : query(request);
     const parsed = oauth2RedirectQuerySchema.safeParse(data);
     if (!parsed.success) {
-      return this.redirect('invalid_request', { description: 'invalid redirect query', params });
+      return this.redirect('invalid_request', { detail: 'invalid redirect query', params });
     }
     // The provider answered with an error instead of a code (the user pressed Cancel →
     // access_denied, invalid_scope, server_error, ...). Forward it rather than reporting a
@@ -532,23 +556,23 @@ export class Auth implements AuthService {
     // not match still wins, since that is the more accurate (and more alarming) diagnosis.
     if (parsed.data.error) {
       if (parsed.data.state && parsed.data.state !== cached.state) {
-        return this.redirect('invalid_request', { description: 'redirect state mismatch', params });
+        return this.redirect('invalid_request', { detail: 'redirect state mismatch', params });
       }
       return this.redirect(safeErrorType(parsed.data.error, 'server_error'), {
-        description: parsed.data.error_description,
+        detail: parsed.data.error_description,
         params,
       });
     }
     const { code, state, user } = parsed.data;
     if (!code || !state) {
-      return this.redirect('invalid_request', { description: 'invalid redirect query', params });
+      return this.redirect('invalid_request', { detail: 'invalid redirect query', params });
     }
     if (state !== cached.state) {
-      return this.redirect('invalid_request', { description: 'redirect state mismatch', params });
+      return this.redirect('invalid_request', { detail: 'redirect state mismatch', params });
     }
     if (provider !== cached.provider) {
       return this.redirect('invalid_request', {
-        description: 'redirect provider mismatch',
+        detail: 'redirect provider mismatch',
         params,
       });
     }
@@ -642,13 +666,10 @@ export class Auth implements AuthService {
       const body = await readJson(request);
       // Whatever the app sends besides its credentials for `onAuthorized` (a referral code, ...).
       const attributes = bodyAttributes(body);
-      // Only the credentials go on to the provider client.
-      const { attributes: _, ...credentials } = body as NativeCredential & { attributes?: unknown };
-      const { code_verifier } = credentials as { code_verifier?: unknown };
-      if (
-        code_verifier !== undefined &&
-        (typeof code_verifier !== 'string' || !CODE_VERIFIER_FORMAT.test(code_verifier))
-      ) {
+      // Only the credentials go on to the provider client; anything else in the body is dropped.
+      const credentials: NativeCredential = parse(nativeCredentialSchema, body);
+      const { code_verifier } = credentials;
+      if (code_verifier !== undefined && !CODE_VERIFIER_FORMAT.test(code_verifier)) {
         throw invalidArgument(
           'INVALID_CODE_VERIFIER',
           'code_verifier must be 43-128 characters from [A-Za-z0-9-._~]'

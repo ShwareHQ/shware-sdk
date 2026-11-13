@@ -180,6 +180,14 @@ async function reasonOf(response: Response) {
   return body.error.details[0]?.reason;
 }
 
+/** The field a 400 INVALID_ARGUMENT's BadRequest detail names ('' for the body itself). */
+async function fieldOf(response: Response) {
+  const body = (await response.json()) as {
+    error: { details: { fieldViolations?: { field: string }[] }[] };
+  };
+  return body.error.details[0]?.fieldViolations?.[0]?.field;
+}
+
 /** A login the JSON routes refused: 403 with the reason, nobody signed in. */
 async function refused(login: Promise<Response>, reason: string) {
   const response = await login;
@@ -216,6 +224,32 @@ afterEach(() => {
 const CODE_VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk.~';
 
 describe('Sign in with Apple: app and web under one provider', () => {
+  it('native: a body without a code is a 400 OAUTH2_INVALID_REQUEST, not a server fault', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/apple', { id_token: 'only-an-id-token' }),
+      handler
+    );
+    expect(response.status).toBe(400);
+    expect(await reasonOf(response)).toBe('OAUTH2_INVALID_REQUEST');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['not an object', ['c0de'], ''],
+    ['a code that is not a string', { code: 12345 }, 'code'],
+    ['a fullName that is not an object', { code: 'c0de', fullName: 'Jane Doe' }, 'fullName'],
+  ])('native: refuses a body that is %s with a 400 naming the field', async (_, body, field) => {
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/apple', body),
+      handler
+    );
+    expect(response.status).toBe(400);
+    expect(await fieldOf(response)).toBe(field);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('native: exchanges as the bundle id, with the secret minted for it', async () => {
     const auth = createAuth();
     issuedIdToken = await sign({
@@ -569,7 +603,6 @@ describe('Google', () => {
     ['too short', 'a'.repeat(42)],
     ['too long', 'a'.repeat(129)],
     ['outside the unreserved set', `${'a'.repeat(42)}+`],
-    ['not a string', 12345],
   ])('native: refuses a code_verifier %s, before calling Google', async (_, code_verifier) => {
     const response = await createAuth().loginOAuth2Native(
       postJson('/login/oauth2/native/google', {
@@ -583,6 +616,20 @@ describe('Google', () => {
     expect(await reasonOf(response)).toBe('INVALID_CODE_VERIFIER');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('native: a code_verifier that is not a string is a type error of the body', async () => {
+    const response = await createAuth().loginOAuth2Native(
+      postJson('/login/oauth2/native/google', {
+        code: 'c0de',
+        client_id: GOOGLE_IOS,
+        code_verifier: 12345,
+      }),
+      handler
+    );
+    expect(response.status).toBe(400);
+    expect(await fieldOf(response)).toBe('code_verifier');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('native: accepts the web client by name, with its secret (Android server auth code)', async () => {

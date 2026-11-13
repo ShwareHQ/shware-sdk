@@ -111,6 +111,13 @@ export async function checkRateLimit(
   return result;
 }
 
+/**
+ * A token-bucket limiter over a key-value store. The bucket is read, updated and written back as
+ * one value, with no atomic operation on the store, so two requests for one key at the same moment
+ * can both pass: a soft cap for a fast, consistent store such as Redis, not a fit for Cloudflare
+ * Workers KV (one write per key per second, eventually consistent), where the Workers Rate Limiting
+ * binding is the tool.
+ */
 export function rateLimit(options: RateLimitOptions): MiddlewareHandler {
   const {
     kv,

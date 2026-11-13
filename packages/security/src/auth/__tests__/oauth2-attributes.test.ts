@@ -171,6 +171,7 @@ describe('oauth2 authorization attributes', () => {
   });
 
   it('does not hand the attributes over when the state does not match', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const auth = createAuth();
     const handler = vi.fn<AuthorizedHandler>(async () => ({ name: 'user-1' }));
     const { cookie } = await start(auth, { referralCode: 'abc123' });
@@ -181,7 +182,9 @@ describe('oauth2 authorization attributes', () => {
     );
 
     expect(handler).not.toHaveBeenCalled();
-    expect(response.headers.get('location')).toContain('redirect+state+mismatch');
+    const location = new URL(response.headers.get('location') ?? '');
+    expect(location.searchParams.get('error')).toBe('invalid_request');
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'redirect state mismatch');
   });
 
   it('refuses attributes over 2 KB', async () => {
@@ -436,10 +439,9 @@ describe('oauth2 redirect params', () => {
       attempt: 'a1',
       reason: 'EMAIL_ALREADY_USED',
       provider: 'GOOGLE',
-      error_description: 'forged',
     });
 
-    // A cancel carries no reason, provider or description of its own.
+    // A cancel carries no reason or provider of its own.
     const response = await auth.loginOAuth2Code(
       callback(cookie, `error=access_denied&state=${state}`),
       vi.fn<AuthorizedHandler>()
@@ -447,12 +449,13 @@ describe('oauth2 redirect params', () => {
 
     const location = new URL(response.headers.get('location') ?? '');
     expect(location.searchParams.get('attempt')).toBe('a1');
-    for (const key of ['reason', 'provider', 'error_description']) {
+    for (const key of ['reason', 'provider']) {
       expect(location.searchParams.has(key)).toBe(false);
     }
   });
 
   it('adds them on a state mismatch', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { auth, cookie } = await startWith({ attempt: 'a1' });
 
     const response = await auth.loginOAuth2Code(
@@ -461,7 +464,7 @@ describe('oauth2 redirect params', () => {
     );
 
     const location = new URL(response.headers.get('location') ?? '');
-    expect(location.searchParams.get('error_description')).toBe('redirect state mismatch');
+    expect(location.searchParams.get('error')).toBe('invalid_request');
     expect(location.searchParams.get('attempt')).toBe('a1');
   });
 

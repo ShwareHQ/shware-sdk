@@ -66,7 +66,8 @@ export function createGoogleProvider(): OneTapProvider {
       return { data, claims: claims(data) };
     },
     async loginOAuth2Native({ pkce, credentials, ...params }: LoginOAuth2NativeParams) {
-      invariant(credentials.code, 'code is required');
+      // The app's mistake, a 400 like any other malformed login body, not a server fault.
+      if (!credentials.code) throw new OAuth2Error(400, 'invalid_request', 'code is required');
       const { code } = credentials;
       const { tokenUri } = this;
       // An app signs in as its own installed-app client (the iOS / Android client id, custom-scheme
