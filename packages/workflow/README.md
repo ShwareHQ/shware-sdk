@@ -248,7 +248,9 @@ curl -X POST https://workflow.acme.test/bundle/deploy -H "authorization: Bearer 
 ```
 
 `POST /bundle/deploy` compiles the config the Worker was built with and swaps
-the routing table. Run it after every deploy that changes a journey.
+the routing table. Run it after every deploy that changes a journey. Before
+`wrangler deploy`, `workflow-ui plan --database-url $DATABASE_URL` checks the
+bundle against the journeys still running (see [Versioning](#versioning)).
 
 ### 7. Send events
 
@@ -1008,13 +1010,78 @@ is the address the IR is stored under, and a journey is pinned to the hash it
 entered on. An in-flight journey therefore finishes on the version it started,
 however many times you deploy underneath it.
 
+The pin covers the workflow's structure and nothing else, on purpose. The IR
+names a template by channel and key, a segment or an action by id, and each is
+resolved when the journey reaches it, against the deployed bundle and the code
+serving it:
+
+- **Templates: the latest content goes out.** A typo fixed in an email reaches
+  everyone, including the journeys that entered before the fix.
+- **Segments: a segment is a live audience.** A `branch` or `waitUntil` on a
+  segment asks whether the user is in it _now_, under the deployed condition.
+- **Actions: the current handler runs.** Their code ships in the Worker, never
+  in IR.
+
+That is how marketing automation behaves, and the engine does not try to
+improve on it. Customer.io lets people already in a campaign continue their
+journey when its trigger changes, re-evaluates them when a segment filter
+changes, and sends the saved version of a message to those who have not
+reached it yet. Braze's Canvas creates a new version on every update and moves
+the people already in it onto the new version. Iterable switches people in a
+published journey to the new version as they finish their current step, and
+exits those sitting in a deleted tile. Durable-execution engines sit at the
+other end, for another reason: Temporal's _pinned_ mode and AWS Lambda durable
+functions keep an execution on the code version it started on so that replay
+stays deterministic — a property of code, not of content. (Sources at the end
+of this section.)
+
+What a deploy must never do is take away something a pinned IR still names: a
+template removed or moved to another channel, a new required prop the pinned
+props do not supply, a segment or an action no longer in the bundle. A running
+journey would reach that node and fail. So before any write, a deploy holds the
+bundle — and the templates of the code deploying it — against the IRs journeys
+are still running on (`checkInFlight`) and refuses with `InFlightError`: a 409
+on `POST /deploy` and `POST /bundle/deploy`, listing each pinned version, how
+many journeys it carries and what breaks. A compatible change passes: a
+reworded template, a new optional prop, a segment whose condition changed.
+`?force=1` deploys anyway and reports what it broke in `inFlight`. This is the
+engine's counterpart to Temporal's replay test in CI and to the publish-time
+rules of the UI products (Braze refuses some edits on a live Canvas, Iterable
+settles what happens to people in a deleted tile); it is cheap here because IR
+is declarative — the message node is checked against the schema, no history
+has to be replayed.
+
+On Cloudflare the code of a new version serves from the moment it is published,
+whether or not its bundle is applied, so run the same check _before_
+publishing: `workflow-ui plan --database-url …` compiles the project, reads the
+pinned IRs from the database and exits non-zero on a problem — put it in CI
+ahead of `wrangler deploy`. `journeyWorker` runs the check again when a version
+applies its own bundle and leaves the routes alone when it fails (an error is
+logged; `POST /bundle/deploy?force=1` applies it regardless). On AWS the
+platform pins each execution to the published function version, so a template
+change cannot reach a running journey there; the segment and action checks
+still matter, since those come from the database.
+
 `plan()` diffs a compiled bundle against what is deployed and reports which
 workflows actually changed. Deploy recomputes every declared hash and refuses a
 bundle whose hashes do not describe its contents.
 
 Node ids are structural paths, so inserting a node shifts the ids of the nodes
-after it. Template ids are stable identities too: an id in flight takes only
-backward-compatible changes, so a new required prop means a new id.
+after it.
+
+Sources: Customer.io, [Edit triggers, filters, or frequencies in live
+automations](https://docs.customer.io/journeys/campaign-changes/) and [Workflow
+changes](https://docs.customer.io/journeys/workflow-changes/); Braze, [Canvas
+version
+history](https://www.braze.com/docs/user_guide/messaging/canvas/managing_canvases/canvas_version_history)
+and [Edit Canvases after
+launch](https://www.braze.com/docs/user_guide/engagement_tools/canvas/managing_canvases/change_your_canvas_after_launch/);
+Iterable, [Editing
+journeys](https://support.iterable.com/hc/en-us/articles/18346367178644-Editing-Journeys);
+Temporal, [Worker
+versioning](https://docs.temporal.io/production-deployment/worker-deployments/worker-versioning);
+AWS, [Invoking Lambda durable
+functions](https://docs.aws.amazon.com/lambda/latest/dg/durable-invoking.html).
 
 ## Cloudflare setup
 
@@ -1421,6 +1488,9 @@ everything but `GET /health` answers 503.
 - `POST /users/forget` takes `{ userId }`; the erasure takes the user's opt-outs
   with the rest, since nothing is ever sent to that id again.
 - `POST /deploy` takes a compiled bundle and swaps the routing table atomically.
+  It answers 409 when the bundle would break journeys still running, listing
+  them (see [Versioning](#versioning)); `?force=1` deploys anyway and reports
+  what it broke in `inFlight`. `POST /bundle/deploy` takes the same `?force=1`.
 
 `journeyWorker` adds `GET /bundle` (the compiled config), `POST /bundle/deploy`
 (deploy it), `GET /preview/<key>`, `POST /segments/sweep`, and the `/t/...`

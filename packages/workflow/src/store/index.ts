@@ -61,6 +61,13 @@ export interface BundleVersion {
   createdAt: number;
 }
 
+/** A workflow version journeys are still running on: the hash their entries pin, and how many. */
+export interface RunningPin {
+  workflow: string;
+  contentHash: string;
+  running: number;
+}
+
 export interface EntryInput {
   workflow: string;
   userId: string;
@@ -560,6 +567,11 @@ export interface JourneyStore {
   listSegmentTriggers(): Promise<SegmentTriggerRoute[]>;
   putWorkflowIR(workflow: WorkflowIR): Promise<void>;
   getWorkflowIR(contentHash: string): Promise<WorkflowIR | undefined>;
+  /**
+   * The (workflow, hash) pairs with a `running` entry, each with its count: what a deploy must
+   * keep serving (`checkInFlight`).
+   */
+  runningPins(): Promise<RunningPin[]>;
   /**
    * Swap the routing tables (segments, event triggers, segment triggers) for
    * the bundle's — atomically, so a concurrent ingest never sees them half

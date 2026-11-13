@@ -127,6 +127,20 @@ drizzle file on the config's `database.schema` (`workflow` by default), for
 your drizzle-kit to migrate. `--check` writes nothing and fails when the file
 is out of date; formatting differences do not count.
 
+## plan
+
+`workflow-ui plan --database-url <url>` (or `DATABASE_URL`) is the deploy-time
+check run before the deploy. It compiles the project, reads from the database
+which workflow versions journeys are still running on, and holds the bundle —
+with the templates this code would serve — against them: a segment or action a
+pinned journey names that the bundle drops, a template gone or moved to another
+channel, a new required prop the pinned props never supplied. It prints the
+pinned versions, what the database still lacks (migrations), and what would
+break, and exits non-zero on a problem. Run it in CI ahead of `wrangler deploy`:
+on Cloudflare a new version's code serves the moment it is published, so the
+host's own refusal (`409` on deploy) comes too late to protect a running
+journey from a template change. See `@shware/workflow`'s README, "Versioning".
+
 ## Read-only
 
 The studio views your project; it never changes it. Edit workflows, templates
@@ -169,6 +183,9 @@ belongs in a command of its own.
 generate
 -o, --out <file>     Where the drizzle schema file goes
     --check          Fail when the file is out of date, write nothing
+
+plan
+-d, --database-url   The engine's database (default $DATABASE_URL)
 ```
 
 ## How it is built

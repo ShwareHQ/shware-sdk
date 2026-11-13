@@ -23,6 +23,7 @@ import { channelsFromConfig, createProviderCache, runtimeFromConfig } from './ch
 import type { JourneyRunParts } from './execute';
 import { serve } from './http';
 import {
+  InFlightError,
   type SweepResult,
   deployBundle,
   ingestEvent,
@@ -300,6 +301,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
       host: {
         bundle,
         bundleVersion: version,
+        config,
         preview:
           preview === undefined ? undefined : { has: (id) => emailIds.has(id), render: preview },
         tracking: tracking(env, store),
@@ -335,13 +337,24 @@ export function createJourneyHost<Env extends JourneyEnv>(
         const live = await store.liveBundleVersion();
         if (live !== undefined && (live.id === version.id || live.createdAt >= version.createdAt))
           return;
-        const result = await deployBundle(env, bundle(), store, version);
+        const result = await deployBundle(env, bundle(), store, { version, config });
         if (result.applied) console.log(`[workflow] version ${version.id} is live`);
       } finally {
         await close();
       }
     })().catch((error: unknown) => {
       applying = undefined;
+      if (error instanceof InFlightError) {
+        // Nothing a retry would change: the routes stay as they are until a version that keeps
+        // those journeys serving (or `POST /bundle/deploy?force=1`) — and the code of this one is
+        // already serving, which is why the check belongs before publishing (`workflow-ui plan`)
+        retryAt = Number.POSITIVE_INFINITY;
+        console.error(
+          `[workflow] version ${version.id} is not applied: it would break in-flight journeys`,
+          error.problems
+        );
+        return;
+      }
       retryAt = Date.now() + 60_000;
       console.error(`[workflow] could not make version ${version.id} live`, error);
     });

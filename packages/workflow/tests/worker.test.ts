@@ -286,6 +286,64 @@ describe('a version applies its own bundle', () => {
     expect((await database.store.liveBundleVersion())?.id).toBe('v2');
   });
 
+  test('a version whose templates would strand running journeys is not applied, and says so', async () => {
+    await versioned([flow], 'v1', '2026-10-01T00:00:00.000Z')();
+    const pinnedHash = flow.toIR().contentHash;
+    await database.store.enterJourney({
+      workflow: 'welcome',
+      userId: 'u1',
+      instanceId: 'inst-1',
+      hash: pinnedHash,
+      ts: Date.now(),
+    });
+    // v2's welcome needs a `tone` the pinned IR never supplied
+    const stricter = {
+      welcome: emailTemplate({
+        id: 'welcome',
+        transactional: true,
+        from: 'noreply@acme.test',
+        title: 'Welcome',
+        props: z.strictObject({ name: z.string(), tone: z.string() }),
+        subject: 'Welcome aboard',
+        preview: { name: 'A', tone: 'warm' },
+        component: ({ name }) => createElement('p', null, `Hi ${name}`),
+      }),
+    };
+    const v2flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(
+      stricter.welcome,
+      { name: 'friend', tone: 'warm' }
+    );
+    const env = {
+      JOURNEY: new FakeJourney(),
+      ENVIRONMENT: 'development',
+      CF_VERSION_METADATA: { id: 'v2', timestamp: '2026-10-02T00:00:00.000Z' },
+    };
+    const worker = journeyWorker<typeof env>({
+      email: () => quietTransport,
+      store: () => database.store,
+      config: defineConfig({ workflows: [v2flow], templates: { email: stricter } }),
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await worker.fetch(new Request('http://worker/health'), env);
+      expect(logged).toHaveBeenCalledWith(
+        '[workflow] version v2 is not applied: it would break in-flight journeys',
+        [
+          expect.objectContaining({
+            workflow: 'welcome',
+            running: 1,
+            problem: expect.stringContaining("required prop 'tone' is missing"),
+          }),
+        ]
+      );
+    } finally {
+      logged.mockRestore();
+    }
+    // v1's routes and version stay live
+    expect((await database.store.liveBundleVersion())?.id).toBe('v1');
+    expect((await database.store.findTriggers('login'))[0]?.hash).toBe(pinnedHash);
+  });
+
   test('a failed apply is logged and never fails the request', async () => {
     // Keep the deployment table missing without another PGlite cold start in the test budget.
     await database.pg.exec('CREATE SCHEMA IF NOT EXISTS unmigrated');

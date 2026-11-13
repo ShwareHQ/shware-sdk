@@ -1094,3 +1094,49 @@ describe('/subscriptions', () => {
     });
   });
 });
+
+describe('a deploy that would break running journeys', () => {
+  const vip = segment({ id: 'vip', condition: eq(u.subscription_plan, 'business') });
+  const vipNudge = workflow({
+    id: 'vip_nudge',
+    trigger: trigger.event(e.sign_up),
+    goal: vip,
+  }).email(firstTimeRecovery);
+  const plainNudge = workflow({ id: 'vip_nudge', trigger: trigger.event(e.sign_up) }).email(
+    firstTimeRecovery
+  );
+  const post = (path: string, body: unknown) =>
+    new Request(`https://worker.test${path}`, { method: 'POST', body: JSON.stringify(body) });
+
+  test('answers 409 with the problems; ?force=1 deploys anyway and reports them', async () => {
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
+    const first = compileBundle({ workflows: [vipNudge], segments: [vip] });
+    await deployBundle(env, first, database.store);
+    await database.store.enterJourney({
+      workflow: 'vip_nudge',
+      userId: 'u1',
+      instanceId: 'inst-1',
+      hash: first.workflows[0]?.contentHash ?? '',
+      ts: Date.now(),
+    });
+    const next = compileBundle({ workflows: [plainNudge], segments: [] });
+
+    const refused = await handleRequest(post('/deploy', next), env, database.store);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({
+      error: expect.stringContaining('in-flight'),
+      problems: [
+        { workflow: 'vip_nudge', running: 1, problem: "segment 'vip' is not in the bundle" },
+      ],
+    });
+    expect(await rows('segment')).toBe(1);
+
+    const forced = await handleRequest(post('/deploy?force=1', next), env, database.store);
+    expect(forced.status).toBe(200);
+    expect(await forced.json()).toMatchObject({
+      applied: true,
+      inFlight: [{ workflow: 'vip_nudge', running: 1 }],
+    });
+    expect(await rows('segment')).toBe(0);
+  });
+});

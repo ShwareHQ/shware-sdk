@@ -1234,8 +1234,7 @@ describe('second review fixes', () => {
     });
     const base = database.store;
     await deployBundle({ JOURNEY: {} as never }, compileConfig(v3), base, {
-      id: '3',
-      createdAt: 3,
+      version: { id: '3', createdAt: 3 },
     });
     // The routes are read, then version 4 goes live before the start is planned
     let released = false;
@@ -1247,8 +1246,7 @@ describe('second review fixes', () => {
           if (!released) {
             released = true;
             await deployBundle({ JOURNEY: {} as never }, compileConfig(v4), target, {
-              id: '4',
-              createdAt: 4,
+              version: { id: '4', createdAt: 4 },
             });
           }
           return routes;

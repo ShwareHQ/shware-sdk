@@ -33,11 +33,13 @@ import {
 import { type JourneyStore, PostgresJourneyStore } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
 import {
+  activeSubscriber,
   allSegments,
   checkoutRecovery,
   e,
   firstTimeRecovery,
   gettingStarted,
+  purchaser,
   reengagement,
   u,
 } from './fixtures';
@@ -1193,3 +1195,63 @@ async function post(path: string, h: ReturnType<typeof lateCreateHost>) {
   const response = await h.post(path);
   expect(response.status).toBe(200);
 }
+
+describe('deployBundle keeps the journeys still running', () => {
+  /** The first bundle live, and one journey running on its reengagement version. */
+  async function running() {
+    const { env, store } = setup();
+    const first = bundle();
+    await deployBundle(env, first, store);
+    const pinnedHash = first.workflows.find((w) => w.id === 'reengagement')?.contentHash ?? '';
+    await store.enterJourney({
+      workflow: 'reengagement',
+      userId: 'u1',
+      instanceId: 'inst-1',
+      hash: pinnedHash,
+      ts: Date.now(),
+    });
+    // reengagement is triggered by inactive_30d: a bundle without that segment strands it
+    const without = compileBundle({
+      workflows: [checkoutRecovery],
+      segments: [purchaser, activeSubscriber],
+    });
+    return { env, store, pinnedHash, without };
+  }
+
+  test('a bundle that drops a segment a pinned journey names is refused before anything is written', async () => {
+    const { env, store, pinnedHash, without } = await running();
+
+    await expect(deployBundle(env, without, store)).rejects.toMatchObject({
+      name: 'InFlightError',
+      problems: [
+        {
+          workflow: 'reengagement',
+          contentHash: pinnedHash,
+          running: 1,
+          problem: "segment 'inactive_30d' is not in the bundle",
+        },
+      ],
+    });
+    expect(await store.listSegmentTriggers()).toHaveLength(1);
+    expect(await rows('segment')).toBe(allSegments.length);
+  });
+
+  test('told to break them, it deploys and reports what it broke', async () => {
+    const { env, store, without } = await running();
+
+    const forced = await deployBundle(env, without, store, { breakInFlight: true });
+
+    expect(forced.inFlight).toEqual([
+      expect.objectContaining({ workflow: 'reengagement', running: 1 }),
+    ]);
+    expect(await store.listSegmentTriggers()).toEqual([]);
+    expect(await rows('segment')).toBe(2);
+  });
+
+  test('a journey that finished holds nothing back', async () => {
+    const { env, store, without } = await running();
+    await store.setEntryStatus('inst-1', 'completed');
+
+    await expect(deployBundle(env, without, store)).resolves.toMatchObject({ inFlight: [] });
+  });
+});

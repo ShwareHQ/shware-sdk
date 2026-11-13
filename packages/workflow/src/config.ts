@@ -163,26 +163,7 @@ export class ConfigCompileError extends Error {
  * and parsed before sending.
  */
 export function compileConfig(config: JourneyConfig): BundleIR {
-  let index: RegistryIndex;
-  try {
-    const email = indexTemplates('email', config.templates?.email);
-    const push = indexTemplates('push', config.templates?.push);
-    assertEmailConfig(config, email.values());
-    for (const template of push.values()) {
-      assertTemplateTopic(template, `push template '${template.id}'`, 'push', true);
-    }
-    const declared = config.contract?.topics ?? [];
-    assertTopicsDeclared('email', email.values(), declared);
-    assertTopicsDeclared('push', push.values(), declared);
-    index = {
-      email,
-      push,
-      discord: indexTemplates('discord', config.templates?.discord),
-      slack: indexTemplates('slack', config.templates?.slack),
-    };
-  } catch (error) {
-    throw new ConfigCompileError((error as Error).message);
-  }
+  const index = registryIndex(config);
   const bundle = compileBundle({
     workflows: config.workflows,
     ...(config.segments === undefined ? {} : { segments: config.segments }),
@@ -198,6 +179,33 @@ export function compileConfig(config: JourneyConfig): BundleIR {
 }
 
 const TEMPLATE_CHANNELS = ['email', 'push', 'discord', 'slack'] as const;
+
+/**
+ * The config's template registries, indexed by channel and id, after the checks `compileConfig`
+ * documents (every entry a template of its channel, ids registered once, valid email metadata and
+ * `email` config, topics the contract declares). Fails with `ConfigCompileError`.
+ */
+export function registryIndex(config: JourneyConfig): RegistryIndex {
+  try {
+    const email = indexTemplates('email', config.templates?.email);
+    const push = indexTemplates('push', config.templates?.push);
+    assertEmailConfig(config, email.values());
+    for (const template of push.values()) {
+      assertTemplateTopic(template, `push template '${template.id}'`, 'push', true);
+    }
+    const declared = config.contract?.topics ?? [];
+    assertTopicsDeclared('email', email.values(), declared);
+    assertTopicsDeclared('push', push.values(), declared);
+    return {
+      email,
+      push,
+      discord: indexTemplates('discord', config.templates?.discord),
+      slack: indexTemplates('slack', config.templates?.slack),
+    };
+  } catch (error) {
+    throw new ConfigCompileError((error as Error).message);
+  }
+}
 
 /**
  * Every topic template names a topic the contract declares: the engine checks opt-outs by topic,
@@ -223,7 +231,7 @@ function assertTopicsDeclared(
 }
 
 /** The registry by id, per channel. */
-type RegistryIndex = Record<TemplateChannel, ReadonlyMap<string, AnyTemplate>>;
+export type RegistryIndex = Record<TemplateChannel, ReadonlyMap<string, AnyTemplate>>;
 
 /** The channel's templates by id; undefined for a channel templates cannot be declared for. */
 function indexOf(
@@ -298,7 +306,14 @@ function checkMessages(
   }
 }
 
-function checkMessage(
+/**
+ * Whether the registry can send this message node: the template is registered on the node's
+ * channel and takes the node's props (see `compileConfig`). Throws `ConfigCompileError` naming
+ * the workflow, node and what is wrong. Run at compile over the bundle being built, and again
+ * before a deploy over the IRs journeys are still running (`checkInFlight`), against the registry
+ * that would then serve them.
+ */
+export function checkMessage(
   workflow: WorkflowIR,
   node: Extract<NodeIR, { type: 'message' }>,
   index: RegistryIndex,
