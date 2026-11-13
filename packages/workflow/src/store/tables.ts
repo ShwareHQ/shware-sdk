@@ -197,12 +197,16 @@ export const TABLES = {
     doc: 'Who is in each deployed segment and since when: kept by the scheduled sweep, and for trigger-routed segments on every event too.',
     columns: { segment: text, userId: text, ts },
     primaryKey: ['segment', 'userId'],
+    // userId: an erasure deletes every row of a user under their lock (`deleteSubjectRows`), and
+    // the primary key leads with the segment — the same for the other tables indexed on userId
+    indexes: [['userId']],
   }),
   segmentStart: table({
     name: 'segment_start',
     doc: 'Workflows a segment entry still has to start for a member: written with the membership, removed as each one starts, so a failed start is retried by the next evaluation instead of being hidden behind the membership.',
     columns: { segment: text, workflow: text, userId: text, ts },
     primaryKey: ['segment', 'workflow', 'userId'],
+    indexes: [['userId']],
   }),
   segmentSnapshot: table({
     name: 'segment_snapshot',
@@ -231,7 +235,7 @@ export const TABLES = {
     },
     primaryKey: ['workflow', 'userId'],
     // admittedAt: maintenance looks up the few entries still unadmitted (`IS NULL` uses it)
-    indexes: [['instanceId'], ['admittedAt']],
+    indexes: [['instanceId'], ['admittedAt'], ['userId']],
   }),
   subscription: table({
     name: 'subscription',
@@ -305,10 +309,7 @@ export const TABLES = {
       ),
     },
     primaryKey: ['instanceId'],
-    indexes: [
-      ['workflow', 'status'],
-      ['workflow', 'finishedAt'],
-    ],
+    indexes: [['workflow', 'status'], ['workflow', 'finishedAt'], ['userId']],
   }),
   message: table({
     name: 'message',
@@ -349,7 +350,7 @@ export const TABLES = {
     primaryKey: ['id'],
     uuidV7: 'id',
     uniqueIndexes: [['idempotencyKey']],
-    indexes: [['workflow', 'sentAt'], ['instanceId']],
+    indexes: [['workflow', 'sentAt'], ['instanceId'], ['userId']],
   }),
   messageLink: table({
     name: 'message_link',
