@@ -1,5 +1,15 @@
 # @shware/analytics
 
+## 16.4.0
+
+### Minor Changes
+
+- 8332831: `getProbabilisticFingerprint` no longer reads the clipboard by default (`shouldUseClipboard` defaults to `false`), since reading it shows the system's "pasted from" banner on iOS 14+ and Android 12+. Pass `true` to keep collecting the pasted link.
+
+### Patch Changes
+
+- 8332831: The `localStorage` fallback logs `console.warn` instead of `console.error`, since the in-memory store takes over, and the `track` catch blocks log at `warn` instead of `log`. The Meta Graph API and LinkedIn API version constants document the vendors' deprecation rhythm, and `linkedinConversions` accepts an optional `apiVersion` as `metaConversions` does.
+
 ## 16.3.6
 
 ### Patch Changes
