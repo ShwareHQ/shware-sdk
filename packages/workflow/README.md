@@ -378,7 +378,7 @@ workflow({ id: 'welcome_series', trigger: trigger.event(e.login) })
 
 **timeWindow** takes `between: ['09:00', '17:00']` (24-hour, leading zeros, not
 overnight), `days` (all week by default) and `tz`: `'user'` (the default) reads
-the profile's `timezone` property, an IANA id, falling back to UTC when it is
+the profile's `time_zone` property, an IANA id, falling back to UTC when it is
 invalid; any other string is a fixed IANA zone.
 
 **waitUntil** continues on the main line once the condition holds. On timeout it

@@ -38,8 +38,12 @@ import { nextWindowStart } from './time-window';
  */
 const MAX_WAIT_CHECKS = 64;
 
-/** The user property holding an IANA timezone id, read when a time_window says tz: 'user'. Same convention-table status as RECIPIENT_PROPERTY. */
-const TIMEZONE_PROPERTY = 'timezone';
+/**
+ * The user property holding an IANA zone id, read when a time_window says tz: 'user'. Snake case,
+ * like the analytics `time_zone` tag a host fills it from. Same convention-table status as
+ * RECIPIENT_PROPERTY.
+ */
+const TIMEZONE_PROPERTY = 'time_zone';
 
 type FlowSignal =
   | { kind: 'fall_through' }
