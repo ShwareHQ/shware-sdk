@@ -290,7 +290,11 @@ describe('email opt-outs are per topic', () => {
     component: () => null,
   });
   const receipt = plainEmail('receipt'); // transactional
-  const ir = workflow({ id: 'topics', trigger: trigger.event(e.sign_up) })
+  const ir = workflow({
+    id: 'topics',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  })
     .email(offer)
     .email(digest)
     .email(receipt)
@@ -368,7 +372,11 @@ describe('push opt-outs are per topic', () => {
     preview: {},
     content: () => ({ title: 'Your code', body: '123456' }),
   });
-  const ir = workflow({ id: 'push_topics', trigger: trigger.event(e.sign_up) })
+  const ir = workflow({
+    id: 'push_topics',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  })
     .push(offer)
     .push(code)
     .toIR();
@@ -459,7 +467,11 @@ describe('runJourney: send_event', () => {
 
 describe('runJourney: action', () => {
   const sync = action<{ plan: string }>('sync_crm', async () => {});
-  const wf = workflow({ id: 'with_action', trigger: trigger.event(e.sign_up) }).run(sync, {
+  const wf = workflow({
+    id: 'with_action',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  }).run(sync, {
     plan: u.subscription_plan,
   });
 
@@ -557,10 +569,11 @@ describe('step naming', () => {
 
 describe('waitUntil subscriptions', () => {
   test('a property-only condition subscribes to the profile-updated wake event', async () => {
-    const propWait = workflow({ id: 'prop_wait', trigger: trigger.event(e.sign_up) }).waitUntil(
-      eq(u.subscription_status, 'active'),
-      { timeout: '1 hour' }
-    );
+    const propWait = workflow({
+      id: 'prop_wait',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).waitUntil(eq(u.subscription_status, 'active'), { timeout: '1 hour' });
     const { ctx, step } = makeContext();
 
     const outcome = await runJourney(propWait.toIR(), ctx);
@@ -570,10 +583,11 @@ describe('waitUntil subscriptions', () => {
   });
 
   test('the subscription is registered before the first condition check', async () => {
-    const waiter = workflow({ id: 'sub_order', trigger: trigger.event(e.sign_up) }).waitUntil(
-      performed(e.login),
-      { timeout: '1 hour' }
-    );
+    const waiter = workflow({
+      id: 'sub_order',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).waitUntil(performed(e.login), { timeout: '1 hour' });
     const { ctx, step } = makeContext();
 
     await runJourney(waiter.toIR(), ctx);
@@ -588,7 +602,11 @@ describe('waitUntil subscriptions', () => {
 });
 
 describe('the wake budget (MAX_WAIT_CHECKS)', () => {
-  const waiter = workflow({ id: 'budget', trigger: trigger.event(e.sign_up) })
+  const waiter = workflow({
+    id: 'budget',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  })
     .waitUntil(performed(e.login), { timeout: '1 hour', onTimeout: 'exit' })
     .email(proTips);
 
@@ -640,7 +658,11 @@ describe('the wake budget (MAX_WAIT_CHECKS)', () => {
 });
 
 describe('time_window', () => {
-  const windowed = workflow({ id: 'tw', trigger: trigger.event(e.sign_up) })
+  const windowed = workflow({
+    id: 'tw',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  })
     .timeWindow({ days: ['fri'], between: ['09:00', '17:00'], tz: 'UTC' })
     .email(proTips);
 
@@ -659,7 +681,7 @@ describe('time_window', () => {
   });
 
   test("tz: 'user' reads the profile's time_zone, UTC without one", async () => {
-    const userWindowed = workflow({ id: 'tw-user', trigger: trigger.event(e.sign_up) })
+    const userWindowed = workflow({ id: 'tw-user', trigger: trigger.event(e.sign_up), reentry: { mode: 'never' } })
       .timeWindow({ days: ['fri'], between: ['09:00', '17:00'] })
       .email(proTips);
     vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T00:30:00Z') }); // Friday
@@ -695,6 +717,7 @@ describe('time_window', () => {
 describe('goal attribution window (goal.within)', () => {
   const windowed = workflow({
     id: 'goal_window',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e.begin_checkout),
     goal: { condition: performed(e.purchase), within: '1 hour' },
   }).email(firstTimeRecovery);
@@ -746,6 +769,7 @@ describe('goal attribution window (goal.within)', () => {
 describe('the conversion window outlives the flow', () => {
   const windowed = workflow({
     id: 'goal_tail',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e.begin_checkout),
     goal: { condition: performed(e.purchase), within: '3 days' },
   }).email(firstTimeRecovery);
@@ -775,6 +799,7 @@ describe('the conversion window outlives the flow', () => {
     const { ctx, step } = makeContext();
     const open = workflow({
       id: 'goal_open',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: performed(e.purchase),
     }).email(firstTimeRecovery);
@@ -787,6 +812,7 @@ describe('conversion apart from the ending', () => {
   test('exitOnMatch: false keeps the flow going and ends completed, still converted', async () => {
     const wf = workflow({
       id: 'goal_keep_going',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: { condition: performed(e.purchase), exitOnMatch: false },
     }).email(firstTimeRecovery);
@@ -802,6 +828,7 @@ describe('conversion apart from the ending', () => {
   test('exitWhen still ends the instance while it waits out the conversion window', async () => {
     const wf = workflow({
       id: 'goal_tail_exit',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: { condition: performed(e.purchase), within: '3 days' },
       exitWhen: performed(e.login),
@@ -820,6 +847,7 @@ describe('conversion apart from the ending', () => {
   test('the instance is reported started before an entry guard can end it', async () => {
     const wf = workflow({
       id: 'goal_at_entry',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: performed(e.purchase),
     }).email(firstTimeRecovery);
@@ -839,6 +867,7 @@ describe('performed anchoring', () => {
   test('goal ignores events from before workflow entry', async () => {
     const wf = workflow({
       id: 'anchor_goal',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: performed(e.purchase),
     }).email(firstTimeRecovery);
@@ -855,6 +884,7 @@ describe('performed anchoring', () => {
   test('goal counts events after entry', async () => {
     const wf = workflow({
       id: 'anchor_goal',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: performed(e.purchase),
     }).email(firstTimeRecovery);
@@ -868,10 +898,11 @@ describe('performed anchoring', () => {
   });
 
   test('waitUntil ignores events from before the wait began', async () => {
-    const wf = workflow({ id: 'anchor_wait', trigger: trigger.event(e.sign_up) }).waitUntil(
-      performed(e.login),
-      { timeout: '1 hour', onTimeout: 'exit' }
-    );
+    const wf = workflow({
+      id: 'anchor_wait',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).waitUntil(performed(e.login), { timeout: '1 hour', onTimeout: 'exit' });
     const { ctx, facts } = makeContext();
     facts.events.push({ name: 'login', ts: Date.now() - 60_000 });
 
@@ -929,6 +960,7 @@ describe('guards run at entry and suspension points only', () => {
   test('synchronous nodes get no per-node guard', async () => {
     const wf = workflow({
       id: 'guarded',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up),
       goal: performed(e.purchase),
     })
@@ -958,13 +990,18 @@ describe('cohort experiment key', () => {
   };
 
   test('with a key, assignment survives node position changes', async () => {
-    const atHead = workflow({ id: 'ab_head', trigger: trigger.event(e.sign_up) }).cohort(
-      couponArm,
-      {
-        key: 'exp1',
-      }
-    );
-    const shifted = workflow({ id: 'ab_shifted', trigger: trigger.event(e.sign_up) })
+    const atHead = workflow({
+      id: 'ab_head',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).cohort(couponArm, {
+      key: 'exp1',
+    });
+    const shifted = workflow({
+      id: 'ab_shifted',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    })
       .email(firstTimeRecovery)
       .cohort(couponArm, { key: 'exp1' });
 
@@ -974,8 +1011,16 @@ describe('cohort experiment key', () => {
   });
 
   test('without a key, position shifts reshuffle assignments (the reason key exists)', async () => {
-    const atHead = workflow({ id: 'ab_head', trigger: trigger.event(e.sign_up) }).cohort(couponArm);
-    const shifted = workflow({ id: 'ab_shifted', trigger: trigger.event(e.sign_up) })
+    const atHead = workflow({
+      id: 'ab_head',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).cohort(couponArm);
+    const shifted = workflow({
+      id: 'ab_shifted',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    })
       .email(firstTimeRecovery)
       .cohort(couponArm);
 
@@ -989,10 +1034,16 @@ describe('cohort experiment key', () => {
   test('without a key, unrelated workflows bucket independently at the same position', async () => {
     // Both cohorts sit at structural id '0'. Bucketing on the bare id would put
     // every user in the same arm of both — two experiments silently correlated.
-    const first = workflow({ id: 'ab_first', trigger: trigger.event(e.sign_up) }).cohort(couponArm);
-    const second = workflow({ id: 'ab_second', trigger: trigger.event(e.sign_up) }).cohort(
-      couponArm
-    );
+    const first = workflow({
+      id: 'ab_first',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).cohort(couponArm);
+    const second = workflow({
+      id: 'ab_second',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).cohort(couponArm);
 
     let diverged = 0;
     for (let i = 0; i < 40; i++) {
@@ -1002,16 +1053,18 @@ describe('cohort experiment key', () => {
   });
 
   test('a shared key buckets a user identically across workflows', async () => {
-    const first = workflow({ id: 'ab_first', trigger: trigger.event(e.sign_up) }).cohort(
-      couponArm,
-      {
-        key: 'exp_shared',
-      }
-    );
-    const second = workflow({ id: 'ab_second', trigger: trigger.event(e.sign_up) }).cohort(
-      couponArm,
-      { key: 'exp_shared' }
-    );
+    const first = workflow({
+      id: 'ab_first',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).cohort(couponArm, {
+      key: 'exp_shared',
+    });
+    const second = workflow({
+      id: 'ab_second',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).cohort(couponArm, { key: 'exp_shared' });
 
     for (let i = 0; i < 25; i++) {
       expect(await armOf(first, `user_${i}`)).toBe(await armOf(second, `user_${i}`));
@@ -1200,7 +1253,11 @@ describe('murmur3 bucketing', () => {
 
   test('fractional weights are honoured at basis-point precision', async () => {
     // A 0.5% arm: exactly buckets 0..49 of 10,000 — impossible on a 100-bucket grid
-    const ab = workflow({ id: 'bp_split', trigger: trigger.event(e.login) }).cohort(
+    const ab = workflow({
+      id: 'bp_split',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).cohort(
       { tiny: { weight: 0.5, flow: (w: FlowBuilder) => w.email(proTips) }, rest: { weight: 99.5 } },
       { key: 'bp_probe' }
     );
@@ -1342,7 +1399,11 @@ describe('push goes to devices', () => {
   test('one copy per listed device, each keyed by its token', async () => {
     const { ctx, facts, sent } = makeContext();
     facts.devices = [phone, tablet];
-    const ir = workflow({ id: 'push_all', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'push_all',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email })
       .toIR();
     await runJourney(ir, ctx);
@@ -1370,7 +1431,11 @@ describe('push goes to devices', () => {
         sent.push(message);
       },
     };
-    const ir = workflow({ id: 'push_retry', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'push_retry',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email })
       .toIR();
 
@@ -1385,7 +1450,11 @@ describe('push goes to devices', () => {
   test("devices: 'latest' only reaches the most recently registered device", async () => {
     const { ctx, facts, sent } = makeContext();
     facts.devices = [tablet, phone];
-    const ir = workflow({ id: 'push_latest', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'push_latest',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email }, { devices: 'latest' })
       .toIR();
     expect(ir.flow[0]).toMatchObject({ type: 'message', devices: 'latest' });
@@ -1394,7 +1463,11 @@ describe('push goes to devices', () => {
   });
 
   test('the default leaves no devices field, so existing pushes keep their hash', () => {
-    const ir = workflow({ id: 'push_default', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'push_default',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email }, { devices: 'all' })
       .toIR();
     expect(ir.flow[0]).not.toHaveProperty('devices');
@@ -1402,7 +1475,11 @@ describe('push goes to devices', () => {
 
   test('a user without a device is skipped and the journey goes on', async () => {
     const { ctx, sent } = makeContext();
-    const ir = workflow({ id: 'push_none', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'push_none',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email })
       .delay('1 hour')
       .toIR();
@@ -1461,7 +1538,11 @@ describe('template validation before sending', () => {
         });
       },
     };
-    const ir = workflow({ id: 'validated', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'validated',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email })
       .toIR();
     const error = await runJourney(ir, ctx).catch((e: unknown) => e);
@@ -1475,7 +1556,11 @@ describe('template validation before sending', () => {
     facts.devices = [{ token: 'a', platform: 'ios' }];
     facts.props.email = 'ada@acme.test';
     ctx.validator = { validate: ({ props }) => ({ name: `parsed:${String(props.name)}` }) };
-    const ir = workflow({ id: 'validated_ok', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'validated_ok',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email })
       .toIR();
     await runJourney(ir, ctx);
@@ -1495,7 +1580,11 @@ describe('the observer hears positions and copies', () => {
         reached.push(`${name}/${instanceId}/${nodeId}`);
       },
     };
-    const ir = workflow({ id: 'observed', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'observed',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .delay('1 hour')
       .toIR();
@@ -1509,7 +1598,11 @@ describe('the observer hears positions and copies', () => {
 
   test('no observer, no extra steps', async () => {
     const { ctx, step } = makeContext();
-    const ir = workflow({ id: 'plain', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'plain',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
     await runJourney(ir, ctx);
@@ -1537,7 +1630,11 @@ describe('the observer hears positions and copies', () => {
         results.push([message.idempotencyKey, result]);
       },
     };
-    const ir = workflow({ id: 'pushed', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'pushed',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .push(ping, { name: u.email })
       .toIR();
     await runJourney(ir, ctx);
@@ -1560,7 +1657,11 @@ describe('the observer hears positions and copies', () => {
     };
     const sentReports: string[] = [];
     ctx.observer = { messageSent: async (m) => void sentReports.push(m.idempotencyKey) };
-    const ir = workflow({ id: 'failing', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'failing',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
     await expect(runJourney(ir, ctx)).rejects.toThrow('transport down');
@@ -1574,7 +1675,11 @@ describe('the observer hears positions and copies', () => {
         throw new Error('reporting database down');
       },
     };
-    const ir = workflow({ id: 'reporting_down', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'reporting_down',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
     await expect(runJourney(ir, ctx)).resolves.toMatchObject({ status: 'completed' });
@@ -1590,7 +1695,11 @@ describe('the observer hears positions and copies', () => {
       messageSettled: async (m) => settled.has(m.idempotencyKey),
       messageSent: async (m) => void settled.add(m.idempotencyKey),
     };
-    const ir = workflow({ id: 'replayed_send', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'replayed_send',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
 
@@ -1640,7 +1749,11 @@ describe('delivery is at most once', () => {
   }
 
   test('the template carries redelivery into the IR only when it opts into resending', () => {
-    const ir = workflow({ id: 'opt_in', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'opt_in',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .email(receipt)
       .toIR();
@@ -1669,7 +1782,11 @@ describe('delivery is at most once', () => {
         sent.push(m);
       },
     };
-    const ir = workflow({ id: 'fresh', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'fresh',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
     await runJourney(ir, ctx);
@@ -1694,7 +1811,11 @@ describe('delivery is at most once', () => {
       },
     };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const ir = workflow({ id: 'lost_settle', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'lost_settle',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
 
@@ -1713,7 +1834,11 @@ describe('delivery is at most once', () => {
     const { claimed } = fakeReporting(ctx);
     claimed.add('inst_1:0'); // the earlier run claimed it and vanished
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const ir = workflow({ id: 'claimed_only', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'claimed_only',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
     await expect(runJourney(ir, ctx)).resolves.toMatchObject({ status: 'completed' });
@@ -1727,7 +1852,11 @@ describe('delivery is at most once', () => {
     const { claimed } = fakeReporting(ctx);
     claimed.add('inst_1:0');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const ir = workflow({ id: 'resend', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'resend',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(receipt)
       .toIR();
     await runJourney(ir, ctx);
@@ -1741,7 +1870,11 @@ describe('delivery is at most once', () => {
     const { ctx, sent } = makeContext();
     const { settled } = fakeReporting(ctx);
     settled.add('inst_1:0');
-    const ir = workflow({ id: 'settled', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'settled',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(receipt)
       .toIR();
     await runJourney(ir, ctx);
@@ -1759,7 +1892,11 @@ describe('delivery is at most once', () => {
         sent.push(m);
       },
     };
-    const ir = workflow({ id: 'retry', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'retry',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
 
@@ -1787,7 +1924,11 @@ describe('delivery is at most once', () => {
       },
     };
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const ir = workflow({ id: 'release_fails', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'release_fails',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(hello)
       .toIR();
     await expect(runJourney(ir, ctx)).rejects.toThrow('transport down');
@@ -1797,7 +1938,7 @@ describe('delivery is at most once', () => {
 
   test('without an observer, the step alone decides: a replay sends again', async () => {
     const { ctx, sent } = makeContext();
-    const ir = workflow({ id: 'bare', trigger: trigger.event(e.login) })
+    const ir = workflow({ id: 'bare', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
       .email(hello)
       .toIR();
     await runJourney(ir, ctx);

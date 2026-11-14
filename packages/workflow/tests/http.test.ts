@@ -205,9 +205,11 @@ describe('identify', () => {
   test('a profile change can move the user into a trigger-routed segment', async () => {
     const { env } = makeEnv({ ENVIRONMENT: 'development' });
     const vip = segment({ id: 'vip', condition: eq(u.subscription_plan, 'business') });
-    const vipWelcome = workflow({ id: 'vip_welcome', trigger: trigger.segment(vip) }).email(
-      firstTimeRecovery
-    );
+    const vipWelcome = workflow({
+      id: 'vip_welcome',
+      reentry: { mode: 'never' },
+      trigger: trigger.segment(vip),
+    }).email(firstTimeRecovery);
     await deployBundle(
       env,
       compileBundle({ workflows: [vipWelcome], segments: [vip] }),
@@ -360,7 +362,15 @@ describe('a user with an erasure tombstone is refused everywhere that writes abo
       UserErasedError
     );
     await expect(
-      store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 })
+      store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        workflow: 'w',
+        userId: 'u1',
+        instanceId: 'i1',
+        hash: 'h',
+        ts: 1,
+      })
     ).rejects.toBeInstanceOf(UserErasedError);
     await expect(store.subscribe('i1', 'u1', ['login'], 1)).rejects.toBeInstanceOf(UserErasedError);
     for (const table of ['event', 'profile', 'device', 'segment_member', 'entry', 'subscription']) {
@@ -556,7 +566,11 @@ const hostEmails = {
 };
 const hostConfig = defineConfig({
   workflows: [
-    workflow({ id: 'welcome', trigger: trigger.event(e.sign_up) }).email(hostEmails.bienvenue, {}),
+    workflow({
+      id: 'welcome',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).email(hostEmails.bienvenue, {}),
   ],
   templates: { email: hostEmails },
 });
@@ -781,7 +795,11 @@ describe('/subscriptions', () => {
   const config = defineConfig({
     contract,
     workflows: [
-      workflow({ id: 'offers', trigger: trigger.event(contract.events.sign_up) }).email(offer),
+      workflow({
+        id: 'offers',
+        reentry: { mode: 'never' },
+        trigger: trigger.event(contract.events.sign_up),
+      }).email(offer),
     ],
     templates: { email: { offer } },
   });
@@ -1099,12 +1117,15 @@ describe('a deploy that would break running journeys', () => {
   const vip = segment({ id: 'vip', condition: eq(u.subscription_plan, 'business') });
   const vipNudge = workflow({
     id: 'vip_nudge',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e.sign_up),
     goal: vip,
   }).email(firstTimeRecovery);
-  const plainNudge = workflow({ id: 'vip_nudge', trigger: trigger.event(e.sign_up) }).email(
-    firstTimeRecovery
-  );
+  const plainNudge = workflow({
+    id: 'vip_nudge',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  }).email(firstTimeRecovery);
   const post = (path: string, body: unknown) =>
     new Request(`https://worker.test${path}`, { method: 'POST', body: JSON.stringify(body) });
 
@@ -1113,6 +1134,8 @@ describe('a deploy that would break running journeys', () => {
     const first = compileBundle({ workflows: [vipNudge], segments: [vip] });
     await deployBundle(env, first, database.store);
     await database.store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'vip_nudge',
       userId: 'u1',
       instanceId: 'inst-1',

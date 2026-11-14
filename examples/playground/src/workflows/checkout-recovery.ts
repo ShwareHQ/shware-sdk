@@ -47,6 +47,7 @@ const firstTimeFlow = flow((w) =>
  */
 export const checkoutRecovery = workflow({
   id: 'checkout_recovery',
+  reentry: { mode: 'never' },
   name: 'Checkout Recovery',
   trigger: trigger.event(e.begin_checkout),
   goal: purchaser,

@@ -2,7 +2,11 @@ import { defineConfig, trigger, workflow } from '@shware/workflow';
 import { contract } from '../contract';
 import { registry } from './src/templates';
 
-const onboarding = workflow({ id: 'onboarding', trigger: trigger.event(contract.events.sign_up) })
+const onboarding = workflow({
+  id: 'onboarding',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(contract.events.sign_up),
+})
   .email(registry.email.welcome)
   .push(registry.push.nudge);
 

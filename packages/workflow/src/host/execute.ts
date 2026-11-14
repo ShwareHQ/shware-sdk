@@ -164,7 +164,7 @@ export async function executeJourney(
      * An error escaping run() ends the instance, and the ledger is the only
      * place anyone looks afterwards: leaving it at 'running' meant a dead
      * journey stayed indistinguishable from a waiting one, in the dashboard
-     * and in the once-policy, forever.
+     * and in the re-entry policy, forever.
      *
      * Subscriptions go too, as on every ordinary ending: left behind, the
      * rows would only make every later event of the user poke a dead

@@ -63,6 +63,8 @@ async function enter(
 ) {
   await database.store.putWorkflowIR(ir);
   await database.store.enterJourney({
+    occurrence: 'test',
+    reentry: { mode: 'never' },
     workflow: ir.id,
     userId: 'u1',
     instanceId,
@@ -108,6 +110,7 @@ describe('wakeExpired: a thrown wait is a timeout only if the deadline passed', 
 describe('a journey a visitor started', () => {
   const flow = workflow({
     id: 'visitor_checkout',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e.sign_up, { visitors: true }),
     goal: { condition: performed(e.purchase) },
   }).delay('1 minute');
@@ -116,6 +119,8 @@ describe('a journey a visitor started', () => {
     const ir = compileBundle({ workflows: [flow] }).workflows[0];
     await database.store.putWorkflowIR(ir);
     await database.store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: ir.id,
       userId: 'visitor:v9',
       instanceId: 'visitor-inst',
@@ -154,6 +159,7 @@ describe('a journey a visitor started', () => {
 describe('a trigger delivered late', () => {
   const flow = workflow({
     id: 'late_trigger',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e.sign_up),
     goal: { condition: performed(e.purchase) },
   }).delay('1 minute');
@@ -358,6 +364,7 @@ describe('an emitted event the contract refuses', () => {
     });
     const emitter = workflow({
       id: 'emitter',
+      reentry: { mode: 'never' },
       trigger: trigger.event(shop.events.sign_up),
     }).sendEvent(shop.events.purchase, { transaction_id: 't', value: -1 });
     const { env } = makeEnv();
@@ -403,12 +410,20 @@ class CollectingRunner extends StoreRunner {
   }
 }
 
-const waiter = workflow({ id: 'waiter', trigger: trigger.event(e.sign_up) })
+const waiter = workflow({
+  id: 'waiter',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.sign_up),
+})
   .waitUntil(performed(e.login), { timeout: '1 hour', onTimeout: 'continue' })
   .email(gettingStarted);
 
 /** Fridays 09:00–17:00 UTC: on the clock the tests set, the next window is days away. */
-const windowed = workflow({ id: 'windowed', trigger: trigger.event(e.sign_up) })
+const windowed = workflow({
+  id: 'windowed',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.sign_up),
+})
   .timeWindow({ days: ['fri'], between: ['09:00', '17:00'], tz: 'UTC' })
   .email(gettingStarted);
 

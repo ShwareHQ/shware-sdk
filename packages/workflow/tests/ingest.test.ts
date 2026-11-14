@@ -184,9 +184,11 @@ describe('deployBundle', () => {
 
   test('reports workflows whose trigger type has no routing yet', async () => {
     const { env, store } = setup();
-    const holiday = workflow({ id: 'holiday', trigger: trigger.date('2026-12-25 09:00:00') }).email(
-      gettingStarted
-    );
+    const holiday = workflow({
+      id: 'holiday',
+      reentry: { mode: 'never' },
+      trigger: trigger.date('2026-12-25 09:00:00'),
+    }).email(gettingStarted);
 
     const result = await deployBundle(env, compileBundle({ workflows: [holiday] }), store);
 
@@ -227,6 +229,7 @@ describe('event triggers', () => {
     const { env, store } = setup();
     const webOnly = workflow({
       id: 'web_only',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [webOnly] }), store);
@@ -250,6 +253,7 @@ describe('event triggers', () => {
     const { env, store } = setup();
     const activeOnly = workflow({
       id: 'active_only',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up, { filter: eq(u.subscription_status, 'active') }),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [activeOnly] }), store);
@@ -366,7 +370,7 @@ describe('an entry that never ran does not bar the user forever', () => {
     return { env, store, journey, instanceId: entry.instance_id };
   };
 
-  test('a failed entry is reclaimed by the next trigger', async () => {
+  test('a failed entry blocks nothing: the next trigger enters beside it', async () => {
     const { env, store, journey, instanceId: deadInstance } = await enter();
     await store.setEntryStatus(deadInstance, 'failed');
 
@@ -378,9 +382,14 @@ describe('an entry that never ran does not bar the user forever', () => {
 
     expect(again.started).toHaveLength(1);
     const ledger = await entries();
-    expect(ledger).toHaveLength(1); // reclaimed in place, not a second row
-    expect(ledger[0].status).toBe('running');
-    expect(ledger[0].instance_id).not.toBe(deadInstance);
+    // A new occurrence is a new row; the failure stays on the ledger as it was
+    expect(ledger).toHaveLength(2);
+    expect(ledger).toContainEqual(
+      expect.objectContaining({ instance_id: deadInstance, status: 'failed' })
+    );
+    expect(ledger).toContainEqual(
+      expect.objectContaining({ instance_id: again.started[0], status: 'running' })
+    );
     expect(journey.created).toHaveLength(2);
   });
 
@@ -494,7 +503,7 @@ describe('a start lost between the entry and the create', () => {
     const next = await ingestEvent(env, { ...event, id: 'evt-3', ts: event.ts + 120_000 }, store);
     expect(next.started).toHaveLength(1);
     expect(journey.created).toHaveLength(1);
-    expect((await entries())[0].status).toBe('running');
+    expect((await entries()).map((row) => row.status).sort()).toEqual(['failed', 'running']);
   });
 
   test('maintenance leaves an unadmitted entry whose instance exists: it is queued, not lost', async () => {
@@ -529,11 +538,13 @@ describe('a start lost between the entry and the create', () => {
 
     await expect(ingestEvent(env, event, store)).rejects.toThrow('already exists');
 
-    // Still a failure on the ledger: the next, different event reclaims it
+    // Still a failure on the ledger: the next, different event enters beside it
     expect((await entries())[0]).toMatchObject({ instance_id: instanceId, status: 'failed' });
     const next = await ingestEvent(env, { ...event, id: 'evt-2', ts: event.ts + 60_000 }, store);
     expect(next.started).toHaveLength(1);
-    expect((await entries())[0]).toMatchObject({ instance_id: next.started[0], status: 'running' });
+    expect(await entries()).toContainEqual(
+      expect.objectContaining({ instance_id: next.started[0], status: 'running' })
+    );
   });
 
   test('maintenance fails an unadmitted entry whose instance ended before admitting itself', async () => {
@@ -550,7 +561,7 @@ describe('a start lost between the entry and the create', () => {
     expect((await entries())[0].status).toBe('failed');
   });
 
-  test('a segment start is not crossed off while the entry holding it has no instance', async () => {
+  test('a segment start left with no instance is finished by the next evaluation, the same occurrence', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);
     // The segment's workflow fails to start, and its rollback fails with it
@@ -571,19 +582,14 @@ describe('a start lost between the entry and the create', () => {
     }
     journey.create = create;
 
-    // The next evaluation finds the entry taken (null) — but by an attempt with nothing behind it
-    await ingestEvent(env, { userId: 'u2', event: 'begin_checkout', ts: event.ts + 60_000 }, store);
-    expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toContain('reengagement');
-
-    // Maintenance frees the entry; the following evaluation starts the owed journey and only then
-    // crosses it off
-    await failLostStarts(env, store, Date.now() + LOST_START_AFTER_MS + 1);
-    const recovered = await ingestEvent(
+    // The next evaluation retries the same occurrence (the membership's start, not its own clock),
+    // so it finds its own unadmitted entry and finishes the start under the same instance id
+    const retried = await ingestEvent(
       env,
-      { userId: 'u2', event: 'begin_checkout', ts: event.ts + 120_000 },
+      { userId: 'u2', event: 'begin_checkout', ts: event.ts + 60_000 },
       store
     );
-    expect(recovered.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
+    expect(retried.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
     expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toEqual([]);
   });
 });
@@ -641,10 +647,9 @@ describe('an instance that ended on the platform without finalizing its entry', 
       const next = await ingestEvent(env, { ...event, id: 'evt-2', ts: event.ts + 60_000 }, store);
       expect(next.started).toHaveLength(1);
       expect(next.started[0]).not.toBe(instanceId);
-      expect((await entries())[0]).toMatchObject({
-        instance_id: next.started[0],
-        status: 'running',
-      });
+      expect(await entries()).toContainEqual(
+        expect.objectContaining({ instance_id: next.started[0], status: 'running' })
+      );
     }
   );
 
@@ -752,7 +757,9 @@ describe('segment-entry triggers', () => {
       ingestEvent(env, { userId: 'u2', event: 'begin_checkout' }, store)
     ).rejects.toThrow('platform unavailable');
     expect(await store.isSegmentMember('inactive_30d', 'u2')).toBe(true);
-    expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toContain('reengagement');
+    expect(
+      (await store.pendingSegmentStarts('inactive_30d', 'u2')).map((p) => p.workflow)
+    ).toContain('reengagement');
 
     // Next activity: already a member, but the owed start goes out now — once
     journey.create = create;
@@ -985,7 +992,7 @@ function lateCreateHost() {
   const record = action('record', async (_args, { userId }) => {
     actions.push(userId);
   });
-  const flow = workflow({ id: 'w', trigger: trigger.event(te.login) })
+  const flow = workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(te.login) })
     .run(record)
     .email(hi);
   const config = defineConfig({
@@ -1140,7 +1147,7 @@ describe('erasing a user whose instance is still being created', () => {
     }
   });
 
-  test('a failed instance reclaimed by a new one: the old admission is gone, and the new runner meets the tombstone', async () => {
+  test('a failed instance followed by a new one: only the new one runs, and its runner meets the tombstone', async () => {
     const warned = quiet();
     try {
       const h = lateCreateHost();
@@ -1151,7 +1158,7 @@ describe('erasing a user whose instance is still being created', () => {
       // The instance died: its entry failed, the admission still on the row
       await h.store.setEntryStatus(old, 'failed');
 
-      // The next event reclaims the entry under a new instance id: a fresh attempt, not admitted
+      // The next event enters under a new instance id beside the failed row: not admitted yet
       const again = await (
         await h.post('/ingest', { userId: 'u1', events: [{ event: 'login', payload: {} }] })
       ).json();
@@ -1161,8 +1168,8 @@ describe('erasing a user whose instance is still being created', () => {
       expect(await h.store.runningInstances('u1')).toEqual([
         { instanceId: fresh, admitted: false },
       ]);
-      // The old id cannot run under the reclaimed entry
-      expect(await h.store.admitInstance(old, 'u1')).toBe(false);
+      // The old row keeps its failure: nothing of it is running to stop
+      expect(await h.rows('entry', 'u1')).toBe(2);
 
       // Nothing to stop: the erasure completes at once
       expect(await (await h.post('/users/forget', { userId: 'u1' })).json()).toEqual({
@@ -1204,6 +1211,8 @@ describe('deployBundle keeps the journeys still running', () => {
     await deployBundle(env, first, store);
     const pinnedHash = first.workflows.find((w) => w.id === 'reengagement')?.contentHash ?? '';
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'reengagement',
       userId: 'u1',
       instanceId: 'inst-1',

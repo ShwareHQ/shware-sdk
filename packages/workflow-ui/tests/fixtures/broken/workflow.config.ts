@@ -14,7 +14,11 @@ const neverRegistered = emailTemplate({
   component: () => createElement('p', null, 'Hi'),
 });
 
-const onboarding = workflow({ id: 'onboarding', trigger: trigger.event(contract.events.sign_up) })
+const onboarding = workflow({
+  id: 'onboarding',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(contract.events.sign_up),
+})
   .delay('1 day')
   .email(neverRegistered);
 

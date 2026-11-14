@@ -89,7 +89,11 @@ const emails = {
 };
 
 function journeyConfig(timeout: '1 day' | '2 seconds') {
-  const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) })
+  const flow = workflow({
+    id: 'welcome',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.login),
+  })
     .email(emails.welcome, {})
     .waitUntil(performed(e.purchase), { timeout, onTimeout: 'exit' })
     .email(emails.thanks, {});
@@ -345,6 +349,8 @@ describe('AwsInstances', () => {
     const execution = await port.plan({ id: 'i1', params, ts });
     expect(
       await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
         workflow: 'w',
         userId: 'u1',
         instanceId: 'i1',
@@ -358,13 +364,15 @@ describe('AwsInstances', () => {
     // The entry blocks a second entry, and the pending start is what a retry finishes
     expect(
       await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
         workflow: 'w',
         userId: 'u1',
         instanceId: 'i2',
         hash: 'h',
         ts: ts + 1,
       })
-    ).toBeNull();
+    ).toBe('duplicate');
     failing = false;
     await port.resume({ workflow: 'w', userId: 'u1' });
     expect(sentStarts).toHaveLength(2);
@@ -388,6 +396,8 @@ describe('AwsInstances', () => {
     const { store, port } = instances(lambda, () => Date.now() + 13 * 3_600_000);
     const execution = await port.plan({ id: 'i1', params, ts: 1000 });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'w',
       userId: 'u1',
       instanceId: 'i1',
@@ -405,6 +415,8 @@ describe('AwsInstances', () => {
     const { store, port } = instances(control.lambda);
     const execution = await port.plan({ id: 'i1', params, ts: 1000 });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'w',
       userId: 'u1',
       instanceId: 'i1',
@@ -434,6 +446,8 @@ describe('AwsInstances', () => {
     const { store, port } = instances(lambda, () => 10 * 3_600_000);
     const execution = await port.plan({ id: 'i1', params, ts: 1000 });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'w',
       userId: 'u1',
       instanceId: 'i1',
@@ -484,7 +498,7 @@ describe('the router on AwsInstances', () => {
     return { store, port, env };
   }
 
-  test("a failed submit keeps the entry; the user's next event finishes the same start", async () => {
+  test('a failed submit keeps the entry; the redelivered event finishes the same start', async () => {
     const control = fakeLambda();
     let failing = true;
     const lambda: LambdaApi = {
@@ -496,17 +510,16 @@ describe('the router on AwsInstances', () => {
       },
     };
     const { store, env } = await routed(lambda);
-    await expect(ingestEvent(env, { userId: 'u1', event: 'login' }, store)).rejects.toThrow(
-      /socket hang up/
-    );
+    const login = { userId: 'u1', event: 'login', id: 'evt-1', ts: Date.now() };
+    await expect(ingestEvent(env, login, store)).rejects.toThrow(/socket hang up/);
     const entries = await pg.query<{ instance_id: string; status: string }>(
       `SELECT instance_id, status FROM workflow.entry`
     );
     expect(entries.rows).toEqual([{ instance_id: expect.any(String), status: 'running' }]);
 
     failing = false;
-    // A later event: no second entry, and the recorded start is resent as it was
-    const again = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // The same event again: no second entry, and the recorded start is resent as it was
+    const again = await ingestEvent(env, login, store);
     expect(again.started).toEqual([]);
     expect(control.starts).toHaveLength(2);
     expect(control.starts[1]).toEqual(control.starts[0]);
@@ -687,6 +700,8 @@ describe('the router on AwsInstances', () => {
     const ts = Date.now();
     const first = await port.plan({ id: 'old', params: runParams, ts });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'welcome',
       userId: 'u1',
       instanceId: 'old',
@@ -698,6 +713,8 @@ describe('the router on AwsInstances', () => {
     const second = await port.plan({ id: 'new', params: runParams, ts: ts + 1 });
     expect(
       await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
         workflow: 'welcome',
         userId: 'u1',
         instanceId: 'new',
@@ -1037,7 +1054,11 @@ describe('journeyLambda entry points', () => {
       email: () => quietTransport,
       config: defineConfig({
         workflows: [
-          workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(emails.thanks, {}),
+          workflow({
+            id: 'welcome',
+            reentry: { mode: 'never' },
+            trigger: trigger.event(e.login),
+          }).email(emails.thanks, {}),
         ],
         templates: { email: emails },
       }),
@@ -1059,7 +1080,11 @@ describe('journeyLambda entry points', () => {
   test('a delay is a durable wait, and the step before it is not repeated after', async () => {
     const sent: EmailMessage[] = [];
     const control = fakeLambda();
-    const flow = workflow({ id: 'later', trigger: trigger.event(e.login) })
+    const flow = workflow({
+      id: 'later',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .email(emails.welcome, {})
       .delay('2 seconds')
       .email(emails.thanks, {});
@@ -1119,6 +1144,8 @@ describe('review fixes', () => {
   ) {
     const execution = await instances.plan({ id, params: runParams, ts });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'welcome',
       userId: 'u1',
       instanceId: id,
@@ -1191,11 +1218,11 @@ describe('review fixes', () => {
     const env = { JOURNEY: instances };
     await deployBundle(env, compileConfig(journeyConfig('1 day')), store);
     const twoDaysAgo = Date.now() - 48 * HOUR;
-    await expect(
-      ingestEvent(env, { userId: 'u1', event: 'login', ts: twoDaysAgo }, store)
-    ).rejects.toThrow(/down/);
+    const backfilled = { userId: 'u1', event: 'login', id: 'evt-old', ts: twoDaysAgo };
+    await expect(ingestEvent(env, backfilled, store)).rejects.toThrow(/down/);
     failing = false;
-    await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // Redelivered: the same occurrence resumes its recorded start
+    await ingestEvent(env, backfilled, store);
     // Retried, not given up on: the start is minutes old, whatever the event's ts
     expect(sent).toHaveLength(2);
     const [record] = await pg
@@ -1228,7 +1255,11 @@ describe('second review fixes', () => {
     const v3 = journeyConfig('1 day');
     const v4 = defineConfig({
       workflows: [
-        workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(emails.thanks, {}),
+        workflow({
+          id: 'welcome',
+          reentry: { mode: 'never' },
+          trigger: trigger.event(e.login),
+        }).email(emails.thanks, {}),
       ],
       templates: { email: emails },
     });
@@ -1260,7 +1291,11 @@ describe('second review fixes', () => {
       email: () => quietTransport,
       config: defineConfig({
         workflows: [
-          workflow({ id: 'other', trigger: trigger.event(e.purchase) }).email(emails.thanks, {}),
+          workflow({
+            id: 'other',
+            reentry: { mode: 'never' },
+            trigger: trigger.event(e.purchase),
+          }).email(emails.thanks, {}),
         ],
         templates: { email: emails },
       }),
@@ -1286,7 +1321,11 @@ describe('second review fixes', () => {
       email: () => quietTransport,
       config: defineConfig({
         workflows: [
-          workflow({ id: 'other', trigger: trigger.event(e.purchase) }).email(emails.thanks, {}),
+          workflow({
+            id: 'other',
+            reentry: { mode: 'never' },
+            trigger: trigger.event(e.purchase),
+          }).email(emails.thanks, {}),
         ],
         templates: { email: emails },
       }),
@@ -1716,7 +1755,11 @@ describe('the provider clients live with the host, across invocations', () => {
 
   function pushHost() {
     const control = fakeLambda();
-    const flow = workflow({ id: 'nudge', trigger: trigger.event(e.login) }).push(pushes.nudge, {});
+    const flow = workflow({
+      id: 'nudge',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).push(pushes.nudge, {});
     const journeys = journeyLambda({
       config: defineConfig({
         workflows: [flow],

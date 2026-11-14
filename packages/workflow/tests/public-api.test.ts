@@ -54,6 +54,7 @@ const welcome = emailTemplate({
 
 const onboarding = workflow({
   id: 'onboarding',
+  reentry: { mode: 'never' },
   trigger: trigger.event(e.signed_up),
   goal: upgraded,
   description: 'Welcome new users, nudge free ones to upgrade',

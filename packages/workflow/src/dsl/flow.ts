@@ -267,7 +267,7 @@ export interface FlowBuilder {
    * so one fragment can be used in several places and workflows.
    *
    *   const officeHours = flow((w) => w.timeWindow({ days: ['mon', 'tue', 'wed', 'thu', 'fri'], between: ['09:00', '17:00'] }));
-   *   workflow({ id: 'onboarding', ... }).delay('1 day').use(officeHours).email(email.tip, { name: u.name })
+   *   workflow({ id: 'onboarding', reentry: { mode: 'never' }, ... }).delay('1 day').use(officeHours).email(email.tip, { name: u.name })
    */
   use(fragment: SubFlow): this;
 
@@ -287,7 +287,7 @@ export interface FlowBuilder {
    *
    * The optional first argument `label` becomes the node's name in IR (UI title
    * / observability handle). It is not a jump target — there is no goto here;
-   * looping is a future re-entry-policy topic (see sendEvent). Arm labels in
+   * looping goes through re-entry (see sendEvent). Arm labels in
    * the UI are derived from the condition.
    */
   branch(...arms: readonly BranchArm[]): this;
@@ -334,10 +334,11 @@ export interface FlowBuilder {
    * profile refs, not nested JSON): an event whose payload requires a nested
    * field cannot be emitted from a journey, and the types say so.
    *
-   * Note on loops: a trailing self-triggering sendEvent will become the
-   * official periodic-flow shape *once a re-entry policy exists* — today the
-   * entry policy is once-per-user, so a self-trigger cannot re-enter and does
-   * not loop.
+   * Note on loops: a trailing self-triggering sendEvent re-enters the
+   * workflow only as its `reentry` policy allows: under `never` it does not
+   * loop; under `after_exit` the emitted event arrives while this instance is
+   * still running, so it is refused too; `concurrent` (with a `cooldown` to
+   * pace it) is the periodic-flow shape.
    * TODO: the rest of the Data category — outbound webhook / profile update /
    * journey attributes.
    */

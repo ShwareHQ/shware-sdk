@@ -1,5 +1,5 @@
 import type { PushDevice } from '../engine/ports';
-import type { BundleIR, ConditionIR, ScalarIR, WorkflowIR } from '../ir';
+import type { BundleIR, ConditionIR, ReentryIR, ScalarIR, WorkflowIR } from '../ir';
 
 /**
  * The journey engine's data plane. Postgres is the store (`PostgresJourneyStore`); this
@@ -36,6 +36,8 @@ export interface TriggerRoute {
   filter: ConditionIR | null;
   /** Whether a visitor not signed in may enter. */
   visitors: boolean;
+  /** The workflow's re-entry policy, deployed with the route. */
+  reentry: ReentryIR;
   /**
    * The code version that applied these routes; absent after a hand-posted `POST /deploy`. Read
    * in the same row as the hash, so the pair is always one deploy's.
@@ -47,6 +49,8 @@ export interface SegmentTriggerRoute {
   workflow: string;
   hash: string;
   segment: string;
+  /** As `TriggerRoute.reentry`. */
+  reentry: ReentryIR;
   /** As `TriggerRoute.version`. */
   version?: string | undefined;
 }
@@ -73,7 +77,17 @@ export interface EntryInput {
   userId: string;
   instanceId: string;
   hash: string;
+  /** The entry's anchor: the triggering event's time, or when the segment membership began. */
   ts: number;
+  /**
+   * The triggering occurrence's stable identity: the event id from ingest, or the segment
+   * membership (segment and since when) for a segment trigger. A retry of the same occurrence
+   * carries the same one, and the ledger holds at most one entry per (workflow, user,
+   * occurrence) — the idempotency every re-entry mode keeps.
+   */
+  occurrence: string;
+  /** The workflow's re-entry policy, from the IR the entry pins. */
+  reentry: ReentryIR;
   /**
    * The instance's start, recorded in the same transaction as the entry — for a runtime whose
    * start is an asynchronous submit (AWS) that may have to be retried.
@@ -142,11 +156,13 @@ export interface ExecutionRegistry {
 }
 
 /**
- * How an entry attempt ended: a fresh row, a 'failed' row of a dead instance
- * taken over (the once policy does not bar a user over one outage), or
- * refused because the pair already entered and is still alive.
+ * How an entry attempt ended:
+ * - `entered`: a new row for the occurrence;
+ * - `reclaimed`: the occurrence's own 'failed' row (a dead instance) taken over;
+ * - `duplicate`: the occurrence already holds a live entry (running or ended);
+ * - `refused`: the re-entry policy turned it away; nothing of it is owed.
  */
-export type EntryOutcome = 'entered' | 'reclaimed' | null;
+export type EntryOutcome = 'entered' | 'reclaimed' | 'duplicate' | 'refused';
 
 /** A device registered for pushes: its provider token belongs to the user who registered it last. */
 export interface DeviceInput {
@@ -176,7 +192,7 @@ export interface RunningInstance {
   admitted: boolean;
 }
 
-/** One (workflow, user) entry: the attempt it records and how far that attempt got. */
+/** One entry: the attempt it records and how far that attempt got. */
 export interface EntryState {
   instanceId: string;
   /** 'running' until the run finalizes it ('completed', 'goal', 'failed', …). */
@@ -510,8 +526,8 @@ export interface JourneyStore {
   pruneVisitors(before: number, limit: number): Promise<number>;
   /**
    * The visitor became the user: their events, profile, devices, opt-outs and journeys move to the
-   * user, once. A visitor already linked keeps its first user. The user's own entry wins over the
-   * visitor's in the same workflow, and the visitor's instance is dropped.
+   * user, once. A visitor already linked keeps its first user. Where the user already has an entry
+   * in a workflow, theirs win over the visitor's, whose instances there are dropped.
    */
   linkVisitor(visitorId: string, userId: string, at: number): Promise<VisitorMerge | null>;
   /** Who an instance's entry belongs to now. */
@@ -606,30 +622,46 @@ export interface JourneyStore {
     ts: number,
     workflows: readonly string[]
   ): Promise<void>;
-  /** The workflows the member's entry has not started yet. */
-  pendingSegmentStarts(segment: string, userId: string): Promise<string[]>;
+  /**
+   * The workflows the member's entry has not started yet, each with when the membership began
+   * (`since`, the `ts` it was added with): one qualification's stable identity, so a retried start
+   * is the same occurrence and a fresh qualification a new one.
+   */
+  pendingSegmentStarts(
+    segment: string,
+    userId: string
+  ): Promise<{ workflow: string; since: number }[]>;
   completeSegmentStart(segment: string, userId: string, workflow: string): Promise<void>;
   /** Drop the membership and any start it still owed. */
   removeSegmentMember(segment: string, userId: string): Promise<void>;
 
   /* ------------------------------- entry ledger ------------------------------- */
   /**
-   * Record the entry (the once policy). Atomic under concurrent ingests: of
-   * two racing attempts exactly one is 'entered' (or 'reclaimed', when the
-   * pair's previous instance is recorded as 'failed') and the other null.
+   * Record the entry under the workflow's re-entry policy (`entry.reentry`), one row per entry.
+   * The same occurrence is never entered twice: its live row makes the attempt a `duplicate`,
+   * its 'failed' row is reclaimed. A new occurrence is decided on the user's other entries of
+   * the workflow, 'failed' ones left out (an outage, not a journey: they neither block nor start
+   * a cooldown): `never` refuses once any exists, `after_exit` while one is still running, and a
+   * `cooldown` while one entered less than it before (by `ts`); otherwise a new row. Atomic under
+   * concurrent ingests: of two racing attempts the policy admits exactly the ones it would admit
+   * one after the other.
    */
   enterJourney(entry: EntryInput): Promise<EntryOutcome>;
   removeEntry(instanceId: string): Promise<void>;
   setEntryStatus(instanceId: string, status: string): Promise<void>;
-  /** The (workflow, user) entry as it stands, read from the database itself; undefined if none. */
-  getEntry(workflow: string, userId: string): Promise<EntryState | undefined>;
+  /**
+   * The entry the occurrence made in the workflow, as it stands, read from the database itself;
+   * undefined if it made none.
+   */
+  getEntry(workflow: string, userId: string, occurrence: string): Promise<EntryState | undefined>;
   /**
    * Running entries no runner has admitted, claimed before `claimedBefore` (epoch ms), oldest
    * first: candidates for a start that was lost between the claim and the platform's create.
    */
   unadmittedEntries(claimedBefore: number, limit: number): Promise<UnadmittedEntry[]>;
   /**
-   * Mark a lost start `failed`, so the pair's next trigger reclaims it. Only while the entry is
+   * Mark a lost start `failed`: a retry of the occurrence reclaims it, and it no longer blocks
+   * the next entry the policy allows. Only while the entry is
    * still running and unadmitted under this instance id; false when it moved on meanwhile.
    */
   failUnadmittedEntry(instanceId: string): Promise<boolean>;
@@ -641,8 +673,8 @@ export interface JourneyStore {
    */
   admittedEntries(admittedBefore: number, limit: number): Promise<AdmittedEntry[]>;
   /**
-   * Mark an admitted entry whose instance ended without finalizing `failed`, so the pair's next
-   * trigger reclaims it. Only while the entry is still running and admitted under this instance
+   * Mark an admitted entry whose instance ended without finalizing `failed`, so it no longer
+   * counts as running and the next trigger the policy allows enters again. Only while the entry is still running and admitted under this instance
    * id: a run that finalized meanwhile keeps its status, and a reclaim its new attempt; false
    * then.
    */

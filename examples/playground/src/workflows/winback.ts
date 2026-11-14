@@ -27,6 +27,7 @@ const finalOfferPush = push.finalOffer;
 
 export const winback = workflow({
   id: 'winback',
+  reentry: { mode: 'never' },
   name: 'Winback',
   trigger: trigger.event(e.subscription_cancelled),
   goal: purchaser, // paying again is the conversion; exits on match by default

@@ -66,7 +66,8 @@ const templates = {
   },
 };
 
-const start = () => workflow({ id: 'w', trigger: trigger.event(e.login) });
+const start = () =>
+  workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.login) });
 
 /** The executable IR: provenance dropped. */
 function executable(ir: WorkflowIR): unknown {

@@ -44,7 +44,7 @@ import * as z from 'zod/mini';
  * mapping is an explicit migrator's job).
  */
 
-export const IR_VERSION = 2;
+export const IR_VERSION = 3;
 
 /* -------------------------------- Base values ------------------------------- */
 
@@ -422,6 +422,20 @@ export const MetaIR = z.object({
 });
 export type MetaIR = z.infer<typeof MetaIR>;
 
+/**
+ * Re-entry policy (`workflow({ reentry })`, README "Re-entry"): whether a user who already entered
+ * may enter again. `never` enters a user once; `after_exit` again once their previous instance
+ * ended; `concurrent` while it still runs. `cooldown` is the least time from the user's previous
+ * entry to the next one. The `never` branch is strict, so a cooldown on it is refused rather
+ * than dropped.
+ */
+export const ReentryIR = z.discriminatedUnion('mode', [
+  z.strictObject({ mode: z.literal('never') }),
+  z.strictObject({ mode: z.literal('after_exit'), cooldown: z.optional(DurationIR) }),
+  z.strictObject({ mode: z.literal('concurrent'), cooldown: z.optional(DurationIR) }),
+]);
+export type ReentryIR = z.infer<typeof ReentryIR>;
+
 export const WorkflowIR = z.object({
   irVersion: z.literal(IR_VERSION),
   /** Wire identity (`workflow({ id })`): routing tables, the entry ledger and reporting are keyed on it. */
@@ -429,6 +443,7 @@ export const WorkflowIR = z.object({
   contentHash: z.string(),
   meta: z.optional(MetaIR),
   trigger: TriggerIR,
+  reentry: ReentryIR,
   goal: z.optional(GoalIR),
   exitWhen: z.optional(ConditionIR),
   flow: z.array(NodeIR),
