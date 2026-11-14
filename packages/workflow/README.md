@@ -1536,7 +1536,7 @@ to run until they match. Without drizzle,
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
 
-**Upgrading to 11.0 (re-entry).** A breaking change with no migration path for
+**Upgrading to 12.0 (re-entry).** A breaking change with no migration path for
 old data. Every `workflow()` needs a `reentry` policy (`{ mode: 'never' }` is
 the old behaviour). The IR is version 3 (`reentry` is required), so IRs stored
 by an earlier version no longer parse, and every content hash changes. The
