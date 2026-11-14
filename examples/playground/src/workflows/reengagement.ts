@@ -26,6 +26,7 @@ const cameBack = performed(e.login, { within: '7 days' });
 /** Cheapest channel first: a push nudge before any email lands in the inbox. */
 export const reengagement = workflow({
   id: 'reengagement',
+  reentry: { mode: 'never' },
   name: 'Re-engagement',
   trigger: trigger.segment(inactive30d),
 })

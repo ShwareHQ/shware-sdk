@@ -6,6 +6,7 @@ import { activeSubscriber } from './segments';
 /** Scheduled trigger: a holiday promo for active subscribers only. Segment and webhook triggers work the same way. */
 export const christmasPromo = workflow({
   id: 'christmas_promo',
+  reentry: { mode: 'never' },
   name: 'Christmas Promo',
   trigger: trigger.date('2026-12-25 09:00:00'),
 })

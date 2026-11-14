@@ -31,8 +31,8 @@ export interface EventTriggerOptions {
   filter?: Condition;
   /**
    * Let a visitor who has not signed in enter: such a journey reaches them by push, having no
-   * address to email. Off by default, because a user enters a workflow once: an entry made as a
-   * visitor is still theirs after signing in.
+   * address to email. Off by default, because an entry made as a visitor is still theirs after
+   * signing in, and counts against the workflow's `reentry` policy like any other entry.
    */
   visitors?: boolean;
 }
@@ -53,7 +53,9 @@ export interface TriggerFactory {
 
   /**
    * Segment-entry trigger: the user enters the moment they go from not
-   * matching to matching. Only a named segment is accepted — entry semantics
+   * matching to matching. Each fresh qualification (left the segment, matched
+   * again) is one entry attempt under the workflow's `reentry` policy; staying
+   * a member never enters again. Only a named segment is accepted — entry semantics
    * need a membership table, which an anonymous expression cannot provide.
    * Runtime note: membership is maintained lazily (re-evaluated on the user's
    * ingest/identify activity), so purely time-driven drift — e.g. an

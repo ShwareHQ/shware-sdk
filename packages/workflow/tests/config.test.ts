@@ -67,7 +67,11 @@ const pushes = {
 };
 const registry = { email: emails, push: pushes };
 
-const onboarding = workflow({ id: 'onboarding', trigger: trigger.event(e.login) })
+const onboarding = workflow({
+  id: 'onboarding',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.login),
+})
   .email(emails.welcome, { name: u.name })
   .push(pushes.nudge, { name: u.name, tone: 'warm' });
 
@@ -161,7 +165,8 @@ describe('template ids', () => {
       build(w);
       return () => compileConfig(config([w]));
     };
-    const start = () => workflow({ id: 'twin', trigger: trigger.event(e.login) });
+    const start = () =>
+      workflow({ id: 'twin', reentry: { mode: 'never' }, trigger: trigger.event(e.login) });
     const message =
       /workflow 'twin' \(.+config\.test\.ts:\d+\): email template 'welcome' is not the definition registered under that id \(templates\.email\.welcome\)/;
     expect(sends((w) => w.email(twin, { name: 'A' }))).toThrow(message);
@@ -187,14 +192,18 @@ describe('template ids', () => {
 
   test('a fragment used twice, in two workflows, keeps its templates and its own node ids', () => {
     const fragment = flow((b) => b.email(emails.welcome, { name: u.name }).delay('1 day'));
-    const a = workflow({ id: 'a', trigger: trigger.event(e.login) })
+    const a = workflow({ id: 'a', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
       .use(fragment)
       .use(fragment);
-    const b = workflow({ id: 'b', trigger: trigger.event(e.login) }).use(fragment);
+    const b = workflow({
+      id: 'b',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).use(fragment);
     const bundle = compileConfig(config([a, b]));
     expect(bundle.workflows[0].flow.map((n) => n.id)).toEqual(['0', '1', '2', '3']);
     const twin = welcomeTwin();
-    const c = workflow({ id: 'c', trigger: trigger.event(e.login) })
+    const c = workflow({ id: 'c', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
       .use(fragment)
       .email(twin, { name: 'A' });
     expect(() => compileConfig(config([a, c]))).toThrow(
@@ -233,14 +242,19 @@ describe('compileConfig', () => {
   });
 
   test('an unregistered or cross-channel reference names the workflow, node and channel', () => {
-    const missing = workflow({ id: 'w', trigger: trigger.event(e.login) }).email(
-      welcomeTwin('gone'),
-      { name: 'A' }
-    );
+    const missing = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).email(welcomeTwin('gone'), { name: 'A' });
     expect(() => compileConfig(config([missing]))).toThrow(
       new ConfigCompileError("workflow 'w' node 0: email template 'gone' is not registered")
     );
-    const crossed = workflow({ id: 'x', trigger: trigger.event(e.login) }).push(
+    const crossed = workflow({
+      id: 'x',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).push(
       pushTemplate({
         id: 'welcome',
         transactional: true,
@@ -258,7 +272,7 @@ describe('compileConfig', () => {
 
   test('literal props are checked against the schema; user refs by name only', () => {
     const raw = (props: Record<string, unknown>) =>
-      workflow({ id: 'lit', trigger: trigger.event(e.login) }).email(
+      workflow({ id: 'lit', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).email(
         emails.welcome,
         props as never
       );
@@ -319,7 +333,11 @@ describe('emitted events against the contract', () => {
     defineConfig({
       contract: shop,
       workflows: [
-        workflow({ id: 'emit', trigger: trigger.event(shop.events.login) }).sendEvent(
+        workflow({
+          id: 'emit',
+          reentry: { mode: 'never' },
+          trigger: trigger.event(shop.events.login),
+        }).sendEvent(
           { type: 'event_ref', name: event } as never,
           // oxlint-disable-next-line no-unnecessary-type-assertion -- the payload is deliberately untyped
           payload as never
@@ -360,7 +378,11 @@ describe('emitted events against the contract', () => {
 
   test('a nested payload is refused where the workflow is written', () => {
     expect(() =>
-      workflow({ id: 'nested', trigger: trigger.event(shop.events.login) }).sendEvent(
+      workflow({
+        id: 'nested',
+        reentry: { mode: 'never' },
+        trigger: trigger.event(shop.events.login),
+      }).sendEvent(
         shop.events.purchase,
         // @ts-expect-error an emitted payload carries scalar fields only
         { transaction_id: 't', value: 1, items: [{ sku: 'x' }] }

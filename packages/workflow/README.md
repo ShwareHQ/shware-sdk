@@ -8,7 +8,11 @@ Discord), and the host is a Cloudflare Worker on Cloudflare Workflows, with its
 data in your own Postgres.
 
 ```ts
-const welcome = workflow({ id: 'welcome', trigger: trigger.event(e.sign_up) })
+const welcome = workflow({
+  id: 'welcome',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.sign_up),
+})
   .email(email.getting_started, { name: u.name })
   .delay('3 days')
   .waitUntil(performed(e.activated), {
@@ -159,6 +163,7 @@ import { email } from '../email';
 
 export const welcomeSeries = workflow({
   id: 'welcome_series',
+  reentry: { mode: 'never' },
   name: 'Welcome series',
   trigger: trigger.event(e.login),
   goal: { condition: performed(e.purchase), within: '7 days' },
@@ -312,6 +317,7 @@ const u = user<{ userId: string; email: string; plan: string }>();
 | ------------- | --------------------------------------------------------------------------------- |
 | `id`          | Wire identity; never rename it for readability                                    |
 | `trigger`     | A `trigger.xxx()` asset                                                           |
+| `reentry`     | Required: whether a user may enter again — see [Re-entry](#re-entry)              |
 | `goal`        | A condition, or `{ condition, within?, exitOnMatch? }`; exits on match by default |
 | `exitWhen`    | Leave without counting as a conversion (unsubscribed, no longer eligible)         |
 | `name`        | Studio label; metadata, outside the hash                                          |
@@ -370,7 +376,7 @@ the step is reached, and a first choice that fails to send retries as itself.
 Both templates must declare the same props type.
 
 ```ts
-workflow({ id: 'welcome_series', trigger: trigger.event(e.login) })
+workflow({ id: 'welcome_series', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
   .email(email.welcome, { name: u.name })
   .delay('1 day')
   .prefer([push.tip_push, email.tip], { name: u.name }, { label: 'tip by channel' });
@@ -386,7 +392,11 @@ does `onTimeout`: `'continue'` (the default), `'exit'`, or a sub-flow. A
 `performed()` inside it counts from the moment the wait began.
 
 ```ts
-workflow({ id: 'notification_optin', trigger: trigger.event(e.login) }).waitUntil(
+workflow({
+  id: 'notification_optin',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.login),
+}).waitUntil(
   or(
     reachable('push'),
     performed(e.notification_permission, (p) => eq(p.status, 'granted'))
@@ -403,7 +413,11 @@ position is the default arm. With no match and no default, execution
 continues.
 
 ```ts
-workflow({ id: 'nps_followup', trigger: trigger.event(e.nps_sent) }).branch(
+workflow({
+  id: 'nps_followup',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.nps_sent),
+}).branch(
   'by score',
   [
     performed(e.nps_sent, (p) => gte(p.score, 9)),
@@ -422,7 +436,11 @@ intend to read: bucketing then hashes `userId:key`, so assignments survive
 edits to the workflow.
 
 ```ts
-workflow({ id: 'checkout_recovery', trigger: trigger.event(e.begin_checkout) })
+workflow({
+  id: 'checkout_recovery',
+  reentry: { mode: 'after_exit', cooldown: '7 days' },
+  trigger: trigger.event(e.begin_checkout),
+})
   .delay('1 day')
   .cohort(
     {
@@ -434,8 +452,10 @@ workflow({ id: 'checkout_recovery', trigger: trigger.event(e.begin_checkout) })
 ```
 
 **sendEvent** carries scalar fields only (literals or `u.xxx`), and the event is
-checked against the contract like any ingested one. Because the entry policy is
-once per user, a self-triggering `sendEvent` does not loop yet.
+checked against the contract like any ingested one. A self-triggering `sendEvent`
+re-enters only as the workflow's `reentry` allows: not under `never`, and not under
+`after_exit` either (the event arrives while the instance still runs); `concurrent`
+with a `cooldown` makes it a periodic flow.
 
 **run** executes a custom action. The IR records only its name, args and a hash
 of its code; the implementation ships in the Worker and is registered through
@@ -449,9 +469,12 @@ export const issueCoupon = action<{ code: string }>('issue_coupon', async ({ cod
   await billing.issueCoupon({ code, userId: ctx.userId, idempotencyKey: ctx.idempotencyKey });
 });
 
-workflow({ id: 'winback', trigger: trigger.segment(dormant7d) }).run(issueCoupon, {
-  code: '15OFF',
-});
+workflow({ id: 'winback', reentry: { mode: 'never' }, trigger: trigger.segment(dormant7d) }).run(
+  issueCoupon,
+  {
+    code: '15OFF',
+  }
+);
 ```
 
 **flow** names a reusable fragment, for `.use()` or as a branch arm. Each use
@@ -888,10 +911,14 @@ as the user's, except one the user is already in, which stops.
 
 A visitor enters a workflow only if its trigger asks for them. They have no address,
 so such a journey reaches them by push, and an entry made as a visitor counts as the
-user's once they sign in:
+user's once they sign in, against the workflow's `reentry` policy like any other:
 
 ```ts
-workflow({ id: 'offer', trigger: trigger.event(e.browse, { visitors: true }) });
+workflow({
+  id: 'offer',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.browse, { visitors: true }),
+});
 ```
 
 Segments are about users: visitors are not swept and do not enter segment triggers.
@@ -1083,6 +1110,132 @@ Temporal, [Worker
 versioning](https://docs.temporal.io/production-deployment/worker-deployments/worker-versioning);
 AWS, [Invoking Lambda durable
 functions](https://docs.aws.amazon.com/lambda/latest/dg/durable-invoking.html).
+
+## Re-entry
+
+Every workflow says whether a user who already entered it may enter again. The
+option is required:
+
+```ts
+workflow({ id: 'onboarding', trigger: trigger.event(e.sign_up), reentry: { mode: 'never' } });
+workflow({
+  id: 'checkout_recovery',
+  trigger: trigger.event(e.begin_checkout),
+  reentry: { mode: 'after_exit', cooldown: '7 days' },
+});
+workflow({
+  id: 'nps_followup',
+  trigger: trigger.event(e.nps_sent),
+  reentry: { mode: 'concurrent' },
+});
+```
+
+| Mode         | A user enters again…                                                                |
+| ------------ | ----------------------------------------------------------------------------------- |
+| `never`      | never: once per user (onboarding, a welcome series)                                 |
+| `after_exit` | once their previous instance of this workflow has ended; at most one runs at a time |
+| `concurrent` | even while a previous instance still runs                                           |
+
+An instance has ended when it completed, reached its goal, exited (an `exit`
+step or `exitWhen`) or failed. `cooldown` (optional, positive, `after_exit` and
+`concurrent` only) is the least time from the user's **previous entry** to the
+next one — measured from when they entered, not from when they left. With
+`after_exit` the two are independent conditions and both must hold: the previous
+instance has ended, and the cooldown since its entry has passed. A trigger that
+arrives while the policy refuses it is dropped, not queued.
+
+- **Event triggers**: each occurrence is one entry attempt. A redelivered event
+  (the same `id`, see [Give each event an `id`](#give-each-event-an-id)) is the
+  same occurrence and enters at most once, in every mode.
+- **Segment triggers**: an entry attempt is a fresh qualification — the user
+  left the segment and matched again. Staying a member never enters again, however
+  often the segment is evaluated (Customer.io's rule for segment-triggered
+  campaigns).
+- An instance that failed (its start was lost, the platform ended it) records an
+  outage, not a journey: it neither blocks re-entry nor starts a cooldown, and
+  under `never` the next trigger takes its place.
+
+Cross-workflow frequency capping (no more than N messages a week across every
+journey) is a separate concern, not part of re-entry.
+
+### Why it looks like this
+
+**Required, with no default.** Once and every-time are both reasonable defaults,
+and whichever one is picked is wrong for the other half of workflows — silently.
+A recurring workflow that enters each user once looks healthy and simply stops
+reaching anyone who already went through it. A required field makes the policy
+visible where the workflow is defined, and an omitted one is a compile error, not
+a production surprise.
+
+**A discriminated union with a single written form.** The policy is always an
+object naming its `mode`; there is no `'never'` string shorthand and no `{}`
+meaning "allowed". Impossible combinations cannot be written: `never` takes no
+`cooldown`, an unknown mode does not compile, and plain JavaScript callers get
+the same refusal at compile time (`toIR()`). One form keeps the DSL and the IR
+identical (`WorkflowIR.reentry` is exactly what you wrote, with the cooldown
+normalised like every duration), and `grep "mode: 'concurrent'"` finds every
+workflow that allows parallel journeys.
+
+**`reentry`, one word.** It is one English word, spelled like the existing
+`redelivery` option on templates — not `reEntry`.
+
+### How other products do it
+
+These products document behaviour, not storage; the per-entry ledger keyed by
+the trigger occurrence (below) is this package's own choice, driven by the
+engine's idempotent ingest and at-most-once entry.
+
+- **Salesforce Marketing Cloud Journey Builder** offers three contact-entry
+  modes: no re-entry, re-entry only after exiting, and re-entry anytime
+  ([Trailhead](https://trailhead.salesforce.com/content/learn/modules/journey-builder-campaigns/build-a-journey-campaign)).
+  Our modes map 1:1. The third is called `concurrent` here because "anytime"
+  reads as contradicting a cooldown.
+- **Adobe Journey Optimizer** has "Allow re-entrance" plus a "Re-entrance wait
+  period", and a profile cannot re-enter until it fully exited the previous
+  instance
+  ([journey properties](https://experienceleague.adobe.com/en/docs/journey-optimizer/using/orchestrate-journeys/create-journey/journey-properties),
+  [entry management](https://experienceleague.adobe.com/en/docs/journey-optimizer/using/orchestrate-journeys/manage-journey/entry-management)).
+  Adobe's B2B product measures the wait from either the start or the end of the
+  journey
+  ([B2B re-entry](https://experienceleague.adobe.com/en/docs/journey-optimizer-b2b/user/journeys/journey-re-entry));
+  we measure only from entry, which is simpler. A `cooldownFrom` could be added
+  later without breaking anything.
+- **Braze Canvas** has "Allow users to re-enter this Canvas" with a
+  re-eligibility window counted from entry; being re-eligible and being blocked
+  because the user is still inside are separate, and a zero window allows
+  re-entry without exiting
+  ([re-eligibility](https://www.braze.com/docs/user_guide/messaging/messaging_fundamentals/re_eligibility),
+  [troubleshooting](https://braze.com/docs/user_guide/messaging/canvas/troubleshooting/)).
+  That separation is our `after_exit` versus `concurrent`, with `cooldown` as
+  the window.
+- **Iterable** has a simultaneous-entries setting (unlimited is capped at 1,000
+  per user) and a maximum number of entries, documented for scheduled entry
+  sources
+  ([journey entry](https://support.iterable.com/hc/articles/5367225442324),
+  [entry limits](https://community.iterable.com/product-updates/new-options-for-journey-entry-limits-1204)).
+  We did not add a maximum-entries field: only one of these products has it and
+  no current workflow needs it. It can be added later as an optional field on the
+  non-`never` branches without breaking callers.
+- **Customer.io** enters a person once by default, or on every event;
+  segment- and attribute-triggered campaigns re-enter only after the person
+  stops matching and matches again; and it offers re-entry at fixed intervals
+  ([campaign triggers](https://docs.customer.io/journeys/campaign-triggers/),
+  [troubleshooting entrance](https://docs.customer.io/journeys/troubleshoot-campaign-entrance/)).
+  Our segment-trigger rule follows the same re-match edge; fixed intervals were
+  not added.
+
+### How it is stored
+
+The entry ledger (`entry`) holds one row per entry: the instance it started, its
+status (`running` until the run finalizes it), its anchor `ts` and the
+triggering `occurrence` — the event id, or `$segment:<segment>:<since>` for a
+segment qualification. The re-entry decision reads the user's rows of the
+workflow under the user's lock, so concurrent ingests are admitted exactly as
+they would be one after another, and the unique key `(workflow, user_id,
+occurrence)` keeps a redelivered trigger from entering twice. The deploy guard
+counts `running` rows (one per running instance), and an erasure deletes every
+row of the user. A row from before re-entry existed has no occurrence and is that
+user's only entry, ended or running as its status says.
 
 ## Cloudflare setup
 
@@ -1375,6 +1528,22 @@ to run until they match. Without drizzle,
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
 
+**Upgrading to 11.0 (re-entry).** Every `workflow()` needs a `reentry` policy
+(`{ mode: 'never' }` keeps what it did before). `entry` changes from one row per
+`(workflow, user_id)` to one row per entry: its primary key moves to
+`instance_id`, it gains a nullable `occurrence` column and a
+`UNIQUE NULLS NOT DISTINCT (workflow, user_id, occurrence)` constraint, and the
+separate `instance_id` index goes (the primary key covers it). Regenerate the
+drizzle file (`workflow-ui generate`) and let drizzle-kit write an incremental
+migration; it needs no data step and loses nothing. `instance_id` is already
+unique in existing rows, and a row from before keeps its meaning: its null
+`occurrence` makes it the user's only entry, ended or running as its `status`
+says, so under `never` the user stays entered once. Check the generated SQL drops
+the old primary key before adding the new one. `POST /bundle/deploy` refuses to
+run until the column and the constraint exist. Every workflow's content hash
+changes (the policy is part of it), so the first deploy publishes a new version
+of each; journeys in flight finish on the version they are pinned to.
+
 **Upgrading to 9.1 (at-most-once delivery).** `message` gains a nullable
 `claimed_at` (set just before the transport takes a copy, cleared when the send
 throws). Regenerate the drizzle file and let drizzle-kit write the migration; it
@@ -1527,11 +1696,11 @@ the node's identity within the running instance.
 
 ## Entry policy
 
-A user enters a workflow at most once. The entry ledger's primary key enforces
-it, which also makes the check atomic under concurrent ingests. The one
-exception is an entry whose instance died: that row records a failure, not a
-journey the user received, so the next trigger reclaims it. Re-entry beyond that
-is a design question this package does not yet answer.
+Whether a user enters again is the workflow's [`reentry`](#re-entry) policy,
+decided on the entry ledger atomically under concurrent ingests. Whatever the
+mode, one occurrence enters at most once. An entry whose instance died records a
+failure, not a journey the user received: a retry of the same occurrence (and
+under `never` the next trigger) reclaims it.
 
 The entry commits before the platform creates the instance, so a host cut off
 between the two leaves an entry with nothing behind it. Two things repair it: a
@@ -1539,7 +1708,7 @@ retry of the same event (same `id` and `ts`) creates the missing instance — th
 instance id is the platform's identity too, so a second create is harmless — and
 the sweep's maintenance marks an entry left unadmitted for 15 minutes, whose
 instance the runtime does not know or reports ended, as failed, so the user's
-next trigger re-enters. Neither can start a second journey for the pair.
+next trigger re-enters. Neither can start a second journey for the occurrence.
 
 An instance can also end after it was admitted without finalizing its entry:
 terminated from the dashboard or the API, errored for good because a step kept
@@ -1549,8 +1718,8 @@ eventually however many journeys are running), and one whose instance the
 runtime reports `complete`, `errored` or `terminated`, or no longer knows, is
 marked failed, its wake subscriptions dropped and its ending reported — what the
 finalize step would have done. An instance still running, or one whose lookup
-fails for any other reason, is left alone. The next trigger of the pair then
-re-enters.
+fails for any other reason, is left alone. It no longer counts as running, so
+the next trigger the policy allows enters again.
 
 ## Exports
 

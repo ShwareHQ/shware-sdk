@@ -34,13 +34,21 @@ const nudge = flow((w) =>
 
 describe('use()', () => {
   test('compiles to the same executable IR and hash as writing the steps inline', () => {
-    const inline = workflow({ id: 'w', trigger: trigger.event(e.sign_up) })
+    const inline = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    })
       .delay('1 hour')
       .branch('by plan', [eq(u.subscription_plan, 'pro'), (b) => b.email(proTips)], (b) =>
         b.email(gettingStarted)
       )
       .toIR();
-    const used = workflow({ id: 'w', trigger: trigger.event(e.sign_up) })
+    const used = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    })
       .delay('1 hour')
       .use(nudge)
       .toIR();
@@ -52,12 +60,12 @@ describe('use()', () => {
 
   test('one fragment in two places and two workflows shares no nodes and stays unchanged', () => {
     const before = JSON.stringify(nudge);
-    const a = workflow({ id: 'a', trigger: trigger.event(e.sign_up) })
+    const a = workflow({ id: 'a', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
       .use(nudge)
       .delay('1 day')
       .use(nudge)
       .toIR();
-    const b = workflow({ id: 'b', trigger: trigger.event(e.sign_up) })
+    const b = workflow({ id: 'b', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
       .use(nudge)
       .toIR();
     expect(ids(a.flow)).toEqual(['0', '0.c0.0', '0.o.0', '1', '2', '2.c0.0', '2.o.0']);
@@ -68,7 +76,7 @@ describe('use()', () => {
 
   test('repeated compiles are stable', () => {
     const build = () =>
-      workflow({ id: 'w', trigger: trigger.event(e.sign_up) })
+      workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
         .use(nudge)
         .toIR();
     expect(build()).toEqual(build());
@@ -78,7 +86,7 @@ describe('use()', () => {
     const empty = flow((w) => w);
     const exiting = flow((w) => w.email(proTips).exit('done'));
     const nested = flow((w) => w.use(nudge).use(empty));
-    const ir = workflow({ id: 'w', trigger: trigger.event(e.sign_up) })
+    const ir = workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
       .use(empty)
       .use(nested)
       .waitUntil(performed(e.purchase), { timeout: '1 day', onTimeout: (w) => w.use(exiting) })
@@ -93,7 +101,7 @@ describe('use()', () => {
 
   test('an async callback is refused, at the type level and at run time', () => {
     expect(() =>
-      workflow({ id: 'w', trigger: trigger.event(e.sign_up) })
+      workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
         // @ts-expect-error a sub-flow callback must return the builder, not a Promise
         .use(async (w) => w.email(proTips))
     ).toThrow(/must be synchronous/);

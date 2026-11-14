@@ -4,6 +4,7 @@ import {
   IR_VERSION,
   type MetaIR,
   type NodeIR,
+  type ReentryIR,
   type SourceLocIR,
   type WorkflowIR,
   WorkflowIR as WorkflowIRSchema,
@@ -31,6 +32,66 @@ export interface GoalOptions {
   exitOnMatch?: boolean;
 }
 
+/**
+ * Re-entry policy: whether a user who already entered this workflow may enter it again (README
+ * "Re-entry"). Required, with no default, and written one way only — an object naming its `mode`:
+ *
+ * - `{ mode: 'never' }` — a user enters once (onboarding).
+ * - `{ mode: 'after_exit' }` — again, but only once their previous instance of this workflow has
+ *   ended (completed, converted, exited or failed): at most one runs per user at a time.
+ * - `{ mode: 'concurrent' }` — again even while a previous instance still runs.
+ *
+ * `cooldown` (positive) is the least time from the user's previous entry — not its exit — to the
+ * next one; with `after_exit` both conditions must hold. `never` takes no cooldown. A
+ * segment-triggered workflow re-enters a user only when they qualify afresh (left the segment and
+ * matched again), never on every evaluation while they stay a member.
+ *
+ *   workflow({ id: 'checkout_recovery', trigger, reentry: { mode: 'after_exit', cooldown: '7 days' } })
+ */
+export type Reentry =
+  | { mode: 'never' }
+  | { mode: 'after_exit'; cooldown?: Duration }
+  | { mode: 'concurrent'; cooldown?: Duration };
+
+/**
+ * Validate and compile the policy. The types already refuse a bad one; this is for a caller
+ * without them (plain JS, a value cast through `any`), so the message names what is allowed.
+ */
+function reentryIR(value: unknown): ReentryIR {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(
+      "workflow(): `reentry` is required — { mode: 'never' }, { mode: 'after_exit' } or { mode: 'concurrent' }"
+    );
+  }
+  const { mode, cooldown, ...extra } = value as { mode?: unknown; cooldown?: unknown };
+  if (mode !== 'never' && mode !== 'after_exit' && mode !== 'concurrent') {
+    throw new Error(
+      `workflow(): reentry.mode must be 'never', 'after_exit' or 'concurrent', got ${JSON.stringify(mode)}`
+    );
+  }
+  const unknownKeys = Object.keys(extra);
+  if (unknownKeys.length > 0) {
+    throw new Error(
+      `workflow(): reentry takes only \`mode\` and \`cooldown\`, got '${unknownKeys.join("', '")}'`
+    );
+  }
+  if (mode === 'never') {
+    if (cooldown !== undefined) {
+      throw new Error(
+        "workflow(): reentry { mode: 'never' } takes no cooldown — a user enters once"
+      );
+    }
+    return { mode };
+  }
+  if (cooldown === undefined) return { mode };
+  if (typeof cooldown !== 'string') {
+    throw new TypeError(
+      `workflow(): reentry.cooldown must be a duration such as '7 days', got ${JSON.stringify(cooldown)}`
+    );
+  }
+  return { mode, cooldown: positiveDurationIR(cooldown as Duration, 'reentry.cooldown') };
+}
+
 export interface WorkflowDefinition {
   /**
    * Wire identity — engine instances, the entry ledger and stats keys are all
@@ -39,8 +100,14 @@ export interface WorkflowDefinition {
    */
   id: string;
 
-  /** Trigger: a trigger.xxx() asset. TODO: multiple triggers, entry frequency / re-entry policy. */
+  /** Trigger: a trigger.xxx() asset. TODO: multiple triggers. */
   trigger: TriggerRef;
+
+  /**
+   * Re-entry policy, required: whether a user may enter again after their first entry
+   * (`Reentry`). There is no default, so a recurring workflow cannot silently enter users once.
+   */
+  reentry: Reentry;
 
   /**
    * Conversion goal: feeds reporting (conversion rate / attribution) and by
@@ -168,6 +235,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
     const flowNodes = structuredClone(this.nodes);
     assignIds(flowNodes, '');
     assertUniqueIds(flowNodes);
+    const reentry = reentryIR(this.options.reentry);
     const goal = this.goalIR();
     const meta = this.metaIR();
     const body = {
@@ -175,6 +243,7 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
       id: this.options.id,
       ...(meta !== undefined ? { meta } : {}),
       trigger: (this.options.trigger as TriggerInternal).ir,
+      reentry,
       ...(goal !== undefined ? { goal } : {}),
       ...(this.options.exitWhen !== undefined ? { exitWhen: condIR(this.options.exitWhen) } : {}),
       flow: flowNodes,
@@ -186,13 +255,14 @@ class WorkflowBuilderImpl extends FlowBuilderImpl implements WorkflowBuilder {
 }
 
 /**
- * Workflow definition: an id, configuration (trigger / goal / exitWhen),
+ * Workflow definition: an id, configuration (trigger / reentry / goal / exitWhen),
  * optional labels, and chained steps.
  *
  *   export const onboarding = workflow({
  *     id: 'onboarding',
  *     name: 'Onboarding',
  *     trigger: trigger.event(e.sign_up),
+ *     reentry: { mode: 'never' },
  *   }).email(email.welcome);
  */
 export function workflow(definition: WorkflowDefinition): WorkflowBuilder {

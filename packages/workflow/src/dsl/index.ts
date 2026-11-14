@@ -95,6 +95,7 @@ export {
 } from './trigger';
 export {
   type GoalOptions,
+  type Reentry,
   type WorkflowBuilder,
   type WorkflowDefinition,
   workflow,

@@ -32,6 +32,7 @@ export const grantCoupon = action<{ coupon: string }>(
 /** Branch demo: sign up → 5s → clicked goes down A, everyone else down B; an order (the goal) exits at any point. */
 export const demoRecovery = workflow({
   id: 'demo_recovery',
+  reentry: { mode: 'never' },
   trigger: trigger.event(e.demo_signup),
   goal: purchased,
 })
@@ -49,6 +50,10 @@ export const demoRecovery = workflow({
   );
 
 /** wait_until demo: wait to be woken by demo_click, or continue after a 20s timeout. */
-export const demoWaiter = workflow({ id: 'demo_waiter', trigger: trigger.event(e.demo_signup) })
+export const demoWaiter = workflow({
+  id: 'demo_waiter',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.demo_signup),
+})
   .waitUntil(performed(e.demo_click), { timeout: '20 seconds', onTimeout: 'continue' })
   .email(email.welcome, { plan: u.plan });

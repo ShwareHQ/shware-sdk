@@ -44,9 +44,11 @@ const record = action('record', async (_args, { userId }) => {
 });
 const config = defineConfig({
   workflows: [
-    workflow({ id: 'w', trigger: trigger.event(e.login) }).delay('1 minute'),
-    workflow({ id: 'mail', trigger: trigger.event(e.login) }).email(hi),
-    workflow({ id: 'acted', trigger: trigger.event(e.login) })
+    workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).delay(
+      '1 minute'
+    ),
+    workflow({ id: 'mail', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).email(hi),
+    workflow({ id: 'acted', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
       .run(record)
       .email(hi),
   ],
@@ -90,6 +92,8 @@ async function setup(failures: number) {
   const ir = irOf('w');
   await store.putWorkflowIR(ir);
   await store.enterJourney({
+    occurrence: 'test',
+    reentry: { mode: 'never' },
     workflow: 'w',
     userId: 'u1',
     instanceId: 'i1',
@@ -181,6 +185,8 @@ async function admissionSetup(admitFailures: { count: number; error?: Error } = 
   const ir = irOf('mail');
   await plain.putWorkflowIR(ir);
   await plain.enterJourney({
+    occurrence: 'test',
+    reentry: { mode: 'never' },
     workflow: 'mail',
     userId: 'u1',
     instanceId: 'i1',
@@ -354,6 +360,8 @@ async function finalizeSetup(workflowId: 'mail' | 'acted', options: { sendFails?
   const ir = irOf(workflowId);
   await plain.putWorkflowIR(ir);
   await plain.enterJourney({
+    occurrence: 'test',
+    reentry: { mode: 'never' },
     workflow: workflowId,
     userId: 'u1',
     instanceId: 'i1',
