@@ -331,7 +331,7 @@ ctx.waitUntil(
     userId,
     properties: { transaction_id: invoice.id, value: 9.99, currency: 'usd', items: [] },
     createdAt: new Date(invoice.created * 1000).toISOString(),
-    platform: 'web', // a Stripe payment; optional, wins over the session's
+    platform: 'web', // a Stripe payment; optional, read by resolveUser
     environment: invoice.livemode ? 'production' : 'development',
   })
 );
@@ -340,7 +340,7 @@ ctx.waitUntil(
 - `forward(events, data)`: the events a client sent, as stored, to every destination at once.
 - `track(event)`: an event the server reports on its own — a webhook's purchase, renewal or
   refund — with `id` the transaction id, and optionally the `platform` and `environment` the server
-  knows from the payment itself, which win over the session's. `track.resolveUser(userId, event)`
+  knows from the payment itself, for `resolveUser` to read. `track.resolveUser(userId, event)`
   returns what a client event
   would have carried, from the host's records: the user's latest session's `tags` (cookies, page,
   user agent) with the click ids of the touch the conversion is credited to, that session's

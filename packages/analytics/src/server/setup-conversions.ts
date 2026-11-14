@@ -74,13 +74,15 @@ export interface ServerEvent<T extends EventName = EventName> {
   createdAt: string;
   /**
    * Where it happened, when the server knows better than any session: a Stripe payment is `web`,
-   * an App Store one `ios`. Wins over the resolved user's `platform`, which decides each
-   * platform's action source; `resolveUser` gets it too, to pick a session of that platform.
+   * an App Store one `ios`. Read by `resolveUser`, which answers the event's `platform` (it
+   * decides each platform's action source): a session of this platform when the user has one,
+   * or something else for a user with no session at all, such as `unknown` when there is no user
+   * agent to send with a website event.
    */
   platform?: Platform;
   /**
    * Whether it was real, when the server knows: a store's sandbox purchase is `development` even
-   * in a production deployment. Wins over the resolved user's `environment`.
+   * in a production deployment. Read by `resolveUser`, which answers the event's `environment`.
    */
   environment?: Environment;
 }
@@ -94,7 +96,8 @@ export interface ConversionsOptions {
   track?: {
     /**
      * The user behind the event, read from the host's records (see `ConversionUser`), given the
-     * event so a session of its `platform` can be preferred; `undefined` drops the event. A user
+     * event so a session of its `platform` can be preferred and its `platform` / `environment`
+     * answered; what it returns is what the event is sent with. `undefined` drops the event. A user
      * with no session at all can still be matched by the platforms on `data` alone (a hashed
      * email), so a host may answer with empty `tags` and ids of its own rather than drop it.
      */
@@ -168,8 +171,8 @@ export function setupConversions(options: ConversionsOptions) {
         tags: user.tags,
         visitor_id: user.visitor_id,
         session_id: user.session_id,
-        platform: input.platform ?? user.platform,
-        environment: input.environment ?? user.environment,
+        platform: user.platform,
+        environment: user.environment,
         created_at: input.createdAt,
       };
       if (!(await store(event))) return undefined;

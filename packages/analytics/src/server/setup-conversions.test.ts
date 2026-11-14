@@ -260,9 +260,13 @@ describe('track', () => {
     expect(errorSpy).toHaveBeenCalledWith('Conversions not sent, events: txn-1', expect.any(Error));
   });
 
-  it("the event's own platform and environment win over the session's, and resolveUser sees them", async () => {
-    const resolveUser = vi.fn<NonNullable<ConversionsOptions['track']>['resolveUser']>(() =>
-      Promise.resolve(user)
+  it("resolveUser gets the event, and the platform and environment it answers are the event's", async () => {
+    const resolveUser = vi.fn<NonNullable<ConversionsOptions['track']>['resolveUser']>((_, event) =>
+      Promise.resolve({
+        ...user,
+        platform: event.platform ?? 'unknown',
+        environment: 'development',
+      })
     );
     const { destination, track } = setup({ resolveUser });
     const input = { ...purchase, platform: 'web' as const, environment: 'development' as const };
@@ -277,9 +281,9 @@ describe('track', () => {
     );
   });
 
-  it("without them the session's platform and environment are used", async () => {
+  it("the event's platform does not override what resolveUser answers", async () => {
     const { track } = setup();
-    expect(await track(purchase)).toMatchObject({ platform: 'ios', environment: 'production' });
+    expect(await track({ ...purchase, platform: 'web' })).toMatchObject({ platform: 'ios' });
   });
 
   it('sends nothing for a user with no session, and resolves undefined', async () => {
