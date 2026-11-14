@@ -12,6 +12,7 @@ import {
   type EmailAddress,
   type JourneyRuntimeConfig,
   type PropsOf,
+  type Reentry,
   type Topic,
   type UserPropertyRef,
   action,
@@ -81,7 +82,7 @@ inArray(u.subscription_plan, ['pro', 'vip']);
 /* ------------------------------- workflow options ------------------------------ */
 
 // @ts-expect-error trigger must be a trigger.xxx() asset, not a bare string
-workflow({ id: 'bad', trigger: 'sign_up' });
+workflow({ id: 'bad', reentry: { mode: 'never' }, trigger: 'sign_up' });
 
 /* ------------------------------ messages and props ----------------------------- */
 
@@ -138,7 +139,7 @@ flow((w) => w.run(issueCoupon));
 /* -------------------------------- misc positives ------------------------------- */
 
 // branch tuples contextually type both the condition and the sub-flow
-workflow({ id: 'ok', trigger: trigger.event(e.login) }).branch(
+workflow({ id: 'ok', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).branch(
   [exists(u.email), (w) => w.email(limitedTimeOffer, { coupon: 'X', expiresIn: '1 day' })],
   (w) => w.exit()
 );
@@ -326,19 +327,19 @@ emailTemplate({
   component: () => null,
 });
 
-workflow({ id: 'schema_empty', trigger: trigger.event(e.sign_up) })
+workflow({ id: 'schema_empty', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
   .push(emptyPush)
   .push(emptyPush, {})
   // @ts-expect-error an empty schema takes no props
   .push(emptyPush, { name: 'Ada' });
 
-workflow({ id: 'schema', trigger: trigger.event(e.sign_up) })
+workflow({ id: 'schema', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
   .email(welcomeEmail, { name: 'Ada' })
   .email(welcomeEmail, { name: 'Ada', plan: 'pro' })
   .push(creditsPush, { credits: u.docs_count })
   .push(creditsPush, { credits: 3 }, { devices: 'latest' });
 
-workflow({ id: 'schema_bad', trigger: trigger.event(e.sign_up) })
+workflow({ id: 'schema_bad', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
   // @ts-expect-error required props cannot be omitted
   .push(creditsPush, {})
   // @ts-expect-error a user ref of the wrong type
@@ -357,7 +358,7 @@ const alert = slackTemplate<z.ZodObject<{ plan: z.ZodString }>, { WEBHOOK_SLACK:
   webhook: (env) => env.WEBHOOK_SLACK,
   content: ({ plan }) => ({ text: plan }),
 });
-workflow({ id: 'webhook', trigger: trigger.event(e.sign_up) })
+workflow({ id: 'webhook', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
   .slack(alert, { plan: 'pro' })
   // @ts-expect-error a slack template is not a discord template
   .discord(alert, { plan: 'pro' });
@@ -427,13 +428,18 @@ const orders = defineContract({
 });
 
 // scalar fields (or profile refs to them) can be emitted; an optional nested field may be left out
-workflow({ id: 'emit_ok', trigger: trigger.event(orders.events.note) }).sendEvent(
-  orders.events.note,
-  {
-    text: orders.user.name,
-  }
-);
-workflow({ id: 'emit_nested', trigger: trigger.event(orders.events.note) })
+workflow({
+  id: 'emit_ok',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(orders.events.note),
+}).sendEvent(orders.events.note, {
+  text: orders.user.name,
+});
+workflow({
+  id: 'emit_nested',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(orders.events.note),
+})
   // @ts-expect-error a required nested field cannot be emitted from a journey
   .sendEvent(orders.events.order, { id: 'o', total: 1, items: ['a'] });
 
@@ -593,3 +599,24 @@ runtime({ production: {}, development: { timeScale: 600, logMessages: true } });
 runtime({ production: { timeScale: 600 } });
 // only production is held: a mode under any other name is as free as development
 runtime({ rehearsal: { timeScale: 600 } });
+
+/* ------------------------------ re-entry policy ------------------------------ */
+
+const loginTrigger = trigger.event(e.login);
+workflow({ id: 'r1', trigger: loginTrigger, reentry: { mode: 'never' } });
+workflow({ id: 'r2', trigger: loginTrigger, reentry: { mode: 'after_exit' } });
+workflow({ id: 'r3', trigger: loginTrigger, reentry: { mode: 'after_exit', cooldown: '7 days' } });
+workflow({ id: 'r4', trigger: loginTrigger, reentry: { mode: 'concurrent', cooldown: '1 hour' } });
+expectTypeOf<Reentry['mode']>().toEqualTypeOf<'never' | 'after_exit' | 'concurrent'>();
+// @ts-expect-error the policy is required: there is no default
+workflow({ id: 'r5', trigger: loginTrigger });
+// @ts-expect-error a user who enters once has no cooldown to wait out
+workflow({ id: 'r6', trigger: loginTrigger, reentry: { mode: 'never', cooldown: '1 day' } });
+// @ts-expect-error only the three modes exist
+workflow({ id: 'r7', trigger: loginTrigger, reentry: { mode: 'anytime' } });
+// @ts-expect-error one written form: no string shorthand
+workflow({ id: 'r8', trigger: loginTrigger, reentry: 'never' });
+// @ts-expect-error one written form: an empty object is not "allowed"
+workflow({ id: 'r9', trigger: loginTrigger, reentry: {} });
+// @ts-expect-error a cooldown is a duration literal
+workflow({ id: 'r10', trigger: loginTrigger, reentry: { mode: 'concurrent', cooldown: '7 dayz' } });

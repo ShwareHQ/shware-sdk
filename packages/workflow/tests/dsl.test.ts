@@ -40,7 +40,7 @@ import {
 
 /** Compile a single-node flow and return that node's IR. */
 function nodeOf(build: (w: Parameters<Parameters<typeof flow>[0]>[0]) => unknown) {
-  const ir = workflow({ id: 'probe', trigger: trigger.event(e.login) });
+  const ir = workflow({ id: 'probe', reentry: { mode: 'never' }, trigger: trigger.event(e.login) });
   build(ir);
   return ir.toIR().flow[0];
 }
@@ -52,7 +52,11 @@ function nodeOf(build: (w: Parameters<Parameters<typeof flow>[0]>[0]) => unknown
  * not depend on — and is dropped before hashing for the same reason.
  */
 function conditionOf(condition: Parameters<typeof not>[0]) {
-  const node = workflow({ id: 'probe', trigger: trigger.event(e.login) })
+  const node = workflow({
+    id: 'probe',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.login),
+  })
     .filter(condition)
     .toIR().flow[0];
   if (node.type !== 'filter') throw new Error('expected filter node');
@@ -183,6 +187,7 @@ describe('triggers', () => {
   test('event trigger with an entry filter', () => {
     const ir = workflow({
       id: 't',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up, { filter: exists(u.email) }),
     }).toIR();
     expect(stripMeta(ir.trigger)).toEqual({
@@ -197,6 +202,7 @@ describe('triggers', () => {
       stripMeta(
         workflow({
           id: 'w',
+          reentry: { mode: 'never' },
           trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
         }).toIR().trigger
       )
@@ -208,17 +214,26 @@ describe('triggers', () => {
   });
 
   test('segment, date and webhook triggers', () => {
-    expect(workflow({ id: 'a', trigger: trigger.segment(purchaser) }).toIR().trigger).toEqual({
+    expect(
+      workflow({ id: 'a', reentry: { mode: 'never' }, trigger: trigger.segment(purchaser) }).toIR()
+        .trigger
+    ).toEqual({
       type: 'segment',
       segment: 'purchaser',
     });
     expect(
-      workflow({ id: 'b', trigger: trigger.date('2026-12-25 09:00:00') }).toIR().trigger
+      workflow({
+        id: 'b',
+        reentry: { mode: 'never' },
+        trigger: trigger.date('2026-12-25 09:00:00'),
+      }).toIR().trigger
     ).toEqual({
       type: 'date',
       at: '2026-12-25 09:00:00',
     });
-    expect(workflow({ id: 'c', trigger: trigger.webhook() }).toIR().trigger).toEqual({
+    expect(
+      workflow({ id: 'c', reentry: { mode: 'never' }, trigger: trigger.webhook() }).toIR().trigger
+    ).toEqual({
       type: 'webhook',
     });
   });
@@ -294,7 +309,11 @@ describe('flow nodes', () => {
   });
 
   test('nested branches derive nested structural ids', () => {
-    const ir = workflow({ id: 'nested', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'nested',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .branch([activeSubscriber, (w) => w.branch([purchaser, (x) => x.email(gettingStarted)])])
       .toIR();
     const outer = ir.flow[0];
@@ -335,6 +354,7 @@ describe('workflow options', () => {
   test('goal full form keeps window and exitOnMatch', () => {
     const ir = workflow({
       id: 'g',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.login),
       goal: { condition: purchaser, within: '30 days', exitOnMatch: false },
       exitWhen: notExists(u.email),
@@ -356,7 +376,11 @@ describe('workflow options', () => {
 describe('bundle compilation', () => {
   test('segments carry their definition and hash; templates form a manifest', () => {
     const hello = namedEmail('hello');
-    const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).email(hello, { name: 'x' });
+    const wf = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).email(hello, { name: 'x' });
 
     const bundle = compileBundle({
       workflows: [wf],
@@ -412,7 +436,11 @@ describe('bundle compilation', () => {
 
   test('actions form a manifest of names', () => {
     const sync = action('sync_crm', async () => {});
-    const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).run(sync);
+    const wf = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).run(sync);
     const bundle = compileBundle({ workflows: [wf], actions: [sync] });
     expect(() => BundleIR.parse(bundle)).not.toThrow();
     expect(bundle.actions).toEqual([{ irVersion: 2, name: 'sync_crm' }]);
@@ -420,10 +448,11 @@ describe('bundle compilation', () => {
 
   test('an action a workflow runs must be in the bundle, even inside a branch arm', () => {
     const sync = action('sync_crm', async () => {});
-    const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).branch([
-      activeSubscriber,
-      (w) => w.run(sync),
-    ]);
+    const wf = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).branch([activeSubscriber, (w) => w.run(sync)]);
     expect(() => compileBundle({ workflows: [wf], segments: [activeSubscriber] })).toThrow(
       /runs action 'sync_crm' that is not in the bundle/
     );
@@ -434,7 +463,11 @@ describe('bundle compilation', () => {
     // happen to print the same are still two implementations behind one name.
     const used = action('sync_crm', async () => {});
     const listed = action('sync_crm', async () => {});
-    const wf = workflow({ id: 'w', trigger: trigger.event(e.login) }).run(used);
+    const wf = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).run(used);
     expect(() => compileBundle({ workflows: [wf], actions: [listed] })).toThrow(
       /not the definition listed in 'actions'/
     );
@@ -444,15 +477,24 @@ describe('bundle compilation', () => {
     const listed = action('sync_crm', async () => {});
     const other = action('sync_crm', async () => {});
     const fragment = flow((w) => w.run(other));
-    const inBranch = workflow({ id: 'w', trigger: trigger.event(e.login) }).branch([
-      activeSubscriber,
-      fragment,
-    ]);
-    const inCohort = workflow({ id: 'w', trigger: trigger.event(e.login) }).cohort({
+    const inBranch = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).branch([activeSubscriber, fragment]);
+    const inCohort = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).cohort({
       a: { weight: 50, flow: (w) => w.run(other) },
       b: { weight: 50 },
     });
-    const inTimeout = workflow({ id: 'w', trigger: trigger.event(e.login) }).waitUntil(purchaser, {
+    const inTimeout = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).waitUntil(purchaser, {
       timeout: '1 day',
       onTimeout: (w) => w.run(other),
     });
@@ -473,10 +515,18 @@ describe('bundle compilation', () => {
     // in must not decide whether it compiles.
     const listed = action('sync_crm', async () => {});
     const other = action('sync_crm', async () => {});
-    const listedLast = workflow({ id: 'w', trigger: trigger.event(e.login) })
+    const listedLast = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .run(other)
       .run(listed);
-    const listedFirst = workflow({ id: 'w', trigger: trigger.event(e.login) })
+    const listedFirst = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .run(listed)
       .run(other);
 
@@ -523,7 +573,11 @@ describe('node ids are unique', () => {
    */
   test('a fragment reused in two arms gets one id per placement', () => {
     const fragment = flow((w) => w.email(gettingStarted));
-    const ir = workflow({ id: 'reused', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'reused',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .branch(
         [eq(u.subscription_plan, 'pro'), fragment],
         [eq(u.subscription_plan, 'free'), fragment]
@@ -538,7 +592,11 @@ describe('node ids are unique', () => {
 
   test('a fragment reused in sequence is compiled once per placement', () => {
     const fragment = flow((w) => w.email(gettingStarted).delay('1 day'));
-    const ir = workflow({ id: 'twice', trigger: trigger.event(e.login) })
+    const ir = workflow({
+      id: 'twice',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .branch([eq(u.subscription_plan, 'pro'), fragment], fragment)
       .toIR();
 
@@ -552,7 +610,11 @@ describe('node ids are unique', () => {
     // The DSL's own aliasing path is closed (fragments are copied per
     // placement); this reaches past it to prove the assertion is a real net,
     // because what it guards is silent — the second id write simply wins.
-    const wf = workflow({ id: 'aliased', trigger: trigger.event(e.login) }).email(gettingStarted);
+    const wf = workflow({
+      id: 'aliased',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).email(gettingStarted);
     const nodes = (wf as unknown as { nodes: NodeIR[] }).nodes;
     nodes.push(nodes[0]);
 

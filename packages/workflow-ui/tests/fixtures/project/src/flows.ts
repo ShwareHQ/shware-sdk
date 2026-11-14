@@ -4,6 +4,7 @@ import { email } from './email';
 
 export const onboarding = workflow({
   id: 'onboarding',
+  reentry: { mode: 'never' },
   name: 'Onboarding',
   trigger: trigger.event(contract.events.sign_up),
 }).email(email.welcomeEmail);

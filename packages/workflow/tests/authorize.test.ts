@@ -16,7 +16,12 @@ import { type PgliteDatabase, pgliteDatabase } from './pglite';
 const e = event<{ login: Record<string, never> }>();
 const hi = plainEmail('hi');
 const config = defineConfig({
-  workflows: [workflow({ id: 'w', trigger: trigger.event(e.login) }).email(hi, {})],
+  workflows: [
+    workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).email(
+      hi,
+      {}
+    ),
+  ],
   templates: { email: { hi } },
 });
 

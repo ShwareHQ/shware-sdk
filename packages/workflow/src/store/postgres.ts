@@ -1008,12 +1008,16 @@ export class PostgresJourneyStore implements JourneyStore {
     });
   }
 
-  async pendingSegmentStarts(segment: string, userId: string): Promise<string[]> {
-    const rows = await this.sql.query<{ workflow: string }>(
-      `SELECT workflow FROM ${this.t.segmentStart} WHERE segment = $1 AND user_id = $2`,
+  async pendingSegmentStarts(
+    segment: string,
+    userId: string
+  ): Promise<{ workflow: string; since: number }[]> {
+    const rows = await this.sql.query<{ workflow: string; since: number }>(
+      `SELECT workflow, (extract(epoch from ts) * 1000)::double precision AS since
+       FROM ${this.t.segmentStart} WHERE segment = $1 AND user_id = $2`,
       [segment, userId]
     );
-    return rows.map((row) => row.workflow);
+    return rows.map((row) => ({ workflow: row.workflow, since: row.since }));
   }
 
   async completeSegmentStart(segment: string, userId: string, workflow: string): Promise<void> {
@@ -1052,34 +1056,98 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   private async claimEntry(sql: SqlClientLike, entry: EntryInput): Promise<EntryOutcome> {
-    // The (workflow, user_id) primary key makes the once policy atomic:
-    // concurrent ingests race on the insert and exactly one wins.
+    // Every read and write below runs under the user's lock (enterJourney), so the policy is
+    // decided on rows no concurrent attempt can change: two racing attempts are admitted exactly
+    // as they would be one after the other.
     const claimedAt = Date.now();
+    const { workflow, userId, occurrence, reentry } = entry;
+
+    // The same occurrence again (a redelivered event, a retried segment start): never a second
+    // entry, in any mode. Its row is taken over only when it records an instance that died.
+    const same = await sql.query<{ instance_id: string; status: string }>(
+      `SELECT instance_id, status FROM ${this.t.entry}
+       WHERE workflow = $1 AND user_id = $2 AND occurrence = $3`,
+      [workflow, userId, occurrence]
+    );
+    const previous = same.at(0);
+    if (previous !== undefined) {
+      if (previous.status !== 'failed') return null;
+      return this.reclaimEntry(sql, entry, previous.instance_id, claimedAt);
+    }
+
+    // The policy, on the user's other entries of the workflow. A 'failed' one records an outage,
+    // not a journey: it neither blocks nor starts a cooldown.
+    const cooldownMs = reentry.mode === 'never' ? 0 : (reentry.cooldown?.ms ?? 0);
+    const [{ live, running, cooling }] = await sql.query<{
+      live: number;
+      running: number;
+      cooling: number;
+    }>(
+      `SELECT count(*) FILTER (WHERE status <> 'failed')::int AS live,
+         count(*) FILTER (WHERE status = 'running')::int AS running,
+         count(*) FILTER (WHERE status <> 'failed'
+           AND ts > ${TS('$3')} - $4::double precision * interval '1 millisecond')::int AS cooling
+       FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2`,
+      [workflow, userId, entry.ts, cooldownMs]
+    );
+    if (reentry.mode === 'never') {
+      if (live > 0) return null;
+      // A user who only ever failed to start is not barred by the once policy: their failed row
+      // is reclaimed, so the ledger keeps one row per user here
+      const failed = await sql.query<{ instance_id: string }>(
+        `SELECT instance_id FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2
+         ORDER BY ts DESC LIMIT 1`,
+        [workflow, userId]
+      );
+      const corpse = failed.at(0);
+      if (corpse !== undefined) return this.reclaimEntry(sql, entry, corpse.instance_id, claimedAt);
+    } else {
+      if (reentry.mode === 'after_exit' && running > 0) return null;
+      if (cooling > 0) return null;
+    }
+
     const inserted = await sql.query(
-      `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, hash, status, ts, claimed_at)
-       SELECT $1, $2, $3, $4, 'running', ${TS('$5')}, ${TS('$6')} ${this.notErased('$2')}
-       ON CONFLICT (workflow, user_id) DO NOTHING RETURNING instance_id`,
-      [entry.workflow, entry.userId, entry.instanceId, entry.hash, entry.ts, claimedAt]
+      `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, occurrence, hash, status, ts, claimed_at)
+       SELECT $1, $2, $3, $4, $5, 'running', ${TS('$6')}, ${TS('$7')} ${this.notErased('$2')}
+       ON CONFLICT DO NOTHING RETURNING instance_id`,
+      [workflow, userId, entry.instanceId, occurrence, entry.hash, entry.ts, claimedAt]
     );
     if (inserted.length > 0) return 'entered';
+    // Refused by the tombstone, or an instance id already taken: tell them apart
+    await this.refuseIfErased(sql, userId);
+    return null;
+  }
 
-    // An existing row blocks the entry unless it records an instance that died:
-    // 'failed' is reclaimed rather than barring the user forever over one
-    // outage. The status test is inside the UPDATE, so of two concurrent
-    // retries exactly one gets a row back. The reclaim is a new attempt: it
-    // starts unadmitted, even under the same instance id, so the previous
-    // attempt's admission is not inherited (`runningInstances` would report a
-    // runner that has not been created yet).
+  /**
+   * Take over the row of a dead instance rather than barring the user over one outage. The
+   * status test is inside the UPDATE, as a second guard beside the lock. The reclaim is a new
+   * attempt: it starts unadmitted, even under the same instance id, so the previous attempt's
+   * admission is not inherited (`runningInstances` would report a runner that has not been
+   * created yet).
+   */
+  private async reclaimEntry(
+    sql: SqlClientLike,
+    entry: EntryInput,
+    instanceId: string,
+    claimedAt: number
+  ): Promise<EntryOutcome> {
     const claimed = await sql.query(
-      `UPDATE ${this.t.entry} SET instance_id = $1, hash = $2, status = 'running', ts = ${TS('$3')},
-         admitted_at = NULL, claimed_at = ${TS('$6')}
-       WHERE workflow = $4 AND user_id = $5 AND status = 'failed'
-         AND NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = $5)
+      `UPDATE ${this.t.entry} SET instance_id = $1, occurrence = $2, hash = $3, status = 'running',
+         ts = ${TS('$4')}, admitted_at = NULL, claimed_at = ${TS('$5')}
+       WHERE instance_id = $6 AND status = 'failed'
+         AND NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = $7)
        RETURNING instance_id`,
-      [entry.instanceId, entry.hash, entry.ts, entry.workflow, entry.userId, claimedAt]
+      [
+        entry.instanceId,
+        entry.occurrence,
+        entry.hash,
+        entry.ts,
+        claimedAt,
+        instanceId,
+        entry.userId,
+      ]
     );
     if (claimed.length > 0) return 'reclaimed';
-    // Taken by a live instance, or refused by the tombstone: tell them apart
     await this.refuseIfErased(sql, entry.userId);
     return null;
   }
@@ -1122,14 +1190,18 @@ export class PostgresJourneyStore implements JourneyStore {
     await this.sql.query(`DELETE FROM ${this.t.entry} WHERE instance_id = $1`, [instanceId]);
   }
 
-  async getEntry(workflow: string, userId: string): Promise<EntryState | undefined> {
+  async getEntry(
+    workflow: string,
+    userId: string,
+    occurrence: string
+  ): Promise<EntryState | undefined> {
     // In a transaction, so Hyperdrive answers from the database: the caller decides whether a
     // start is lost on this read, and a cached row could still show an admission as missing
     const rows = await this.sql.transaction((tx) =>
       tx.query<{ instance_id: string; status: string; admitted: boolean }>(
         `SELECT instance_id, status, admitted_at IS NOT NULL AS admitted
-         FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2`,
-        [workflow, userId]
+         FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2 AND occurrence = $3`,
+        [workflow, userId, occurrence]
       )
     );
     const row = rows.at(0);

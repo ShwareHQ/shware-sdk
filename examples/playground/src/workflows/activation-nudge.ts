@@ -13,6 +13,7 @@ import { activated } from './segments';
  */
 export const activationNudge = workflow({
   id: 'activation_nudge',
+  reentry: { mode: 'never' },
   name: 'Activation Nudge',
   trigger: trigger.event(e.activation_nudge_due),
   goal: { condition: activated, within: '30 days', exitOnMatch: true },

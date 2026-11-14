@@ -18,6 +18,7 @@ import {
 const base = () =>
   workflow({
     id: 'checkout_recovery',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e.begin_checkout),
     goal: purchaser,
     description: 'Recover abandoned checkouts',
@@ -33,6 +34,7 @@ describe('metadata is excluded from contentHash', () => {
     const before = base().toIR();
     const after = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'A completely different description',
@@ -50,6 +52,7 @@ describe('metadata is excluded from contentHash', () => {
   test('changing a branch label keeps contentHash stable', () => {
     const labelled = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Recover abandoned checkouts',
@@ -66,6 +69,7 @@ describe('metadata is excluded from contentHash', () => {
   test('changing execution semantics does change contentHash', () => {
     const longer = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
     })
@@ -78,7 +82,7 @@ describe('metadata is excluded from contentHash', () => {
 
   test('cohort arm names stay in the hash (they form node ids)', () => {
     const build = (armName: string) =>
-      workflow({ id: 'ab', trigger: trigger.event(e.sign_up) })
+      workflow({ id: 'ab', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) })
         .cohort({ control: { weight: 50 }, [armName]: { weight: 50 } })
         .toIR();
 
@@ -107,6 +111,7 @@ describe('plan', () => {
     const deployed = bundleOf(base());
     const edited = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Reworded for the growth review',
@@ -124,6 +129,7 @@ describe('plan', () => {
     const deployed = bundleOf(base());
     const edited = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up), // trigger changed
       goal: purchaser,
     })
@@ -163,6 +169,7 @@ describe('plan', () => {
     const deployed = bundleOf(base());
     const edited = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Recover abandoned checkouts',
@@ -182,7 +189,7 @@ describe('plan', () => {
 
   test('reweighting a cohort is visible on the cohort node itself', () => {
     const ab = (control: number) =>
-      workflow({ id: 'ab', trigger: trigger.event(e.sign_up) }).cohort({
+      workflow({ id: 'ab', reentry: { mode: 'never' }, trigger: trigger.event(e.sign_up) }).cohort({
         control: { weight: control },
         variant: { weight: 100 - control },
       });
@@ -233,6 +240,7 @@ describe('provenance never reaches plan', () => {
     const deployed = movedLocs(bundleOf(base()));
     const edited = workflow({
       id: 'checkout_recovery',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
       description: 'Reworded for the growth review',

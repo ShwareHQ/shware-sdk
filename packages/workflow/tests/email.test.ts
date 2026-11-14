@@ -276,7 +276,11 @@ describe('the renderer provides the resolved email to its components', () => {
 });
 
 describe('the config', () => {
-  const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(welcome, {
+  const flow = workflow({
+    id: 'welcome',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.login),
+  }).email(welcome, {
     name: 'friend',
   });
 

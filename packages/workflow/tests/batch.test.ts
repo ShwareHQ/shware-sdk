@@ -32,7 +32,11 @@ const contract = defineContract({
 });
 
 const e = event<{ login: { method: string } }>();
-const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).sendEvent(e.login, {
+const flow = workflow({
+  id: 'welcome',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.login),
+}).sendEvent(e.login, {
   method: 'again',
 });
 const config = defineConfig({ contract, workflows: [flow], templates: {} } as never);
@@ -325,9 +329,14 @@ describe('a visitor before and after sign-in', () => {
     },
     profile: z.strictObject({ email: z.optional(z.email()), name: z.string() }),
   });
-  const open = workflow({ id: 'open', trigger: trigger.event(e2.browse) }).delay('1 hour');
+  const open = workflow({
+    id: 'open',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e2.browse),
+  }).delay('1 hour');
   const forVisitors = workflow({
     id: 'for_visitors',
+    reentry: { mode: 'never' },
     trigger: trigger.event(e2.browse, { visitors: true }),
   }).delay('1 hour');
 
@@ -362,7 +371,7 @@ describe('a visitor before and after sign-in', () => {
 
     expect(journey.created).toHaveLength(1);
     expect(journey.created[0]?.id).toMatch(/^for_visitors-/);
-    expect(await database.store.getEntry('open', 'visitor:v1')).toBeUndefined();
+    expect(await database.store.getEntry('open', 'visitor:v1', 'a')).toBeUndefined();
   });
 
   test('no id at all is refused, and a user id cannot pose as a visitor', async () => {
@@ -387,15 +396,25 @@ describe('a visitor before and after sign-in', () => {
     expect(await store.listDevices('u1')).toEqual([{ token: 't1', platform: 'ios' }]);
     expect(await store.listDevices('visitor:v1')).toEqual([]);
     expect(
-      await store.entryOwner((await store.getEntry('for_visitors', 'u1'))?.instanceId ?? '')
+      await store.entryOwner((await store.getEntry('for_visitors', 'u1', 'a'))?.instanceId ?? '')
     ).toBe('u1');
   });
 
   test('what moved wakes the waits on it, and the visitor of a dropped journey no longer wakes it', async () => {
     const { journey, post } = await visitorSetup();
     const { store } = database;
-    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'own', hash: 'h', ts: 1 });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId: 'u1',
+      instanceId: 'own',
+      hash: 'h',
+      ts: 1,
+    });
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'w',
       userId: 'visitor:v1',
       instanceId: 'dup',
@@ -439,6 +458,8 @@ describe('a visitor before and after sign-in', () => {
     await post('/ingest', { visitorId: 'linked', events: [browse('l')] });
     await post('/ingest', { userId: 'u1', visitorId: 'linked', profile: { name: 'A' } });
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'x',
       userId: 'visitor:busy',
       instanceId: 'b',
@@ -493,7 +514,7 @@ describe('a visitor before and after sign-in', () => {
       1
     );
     const before = journey.created.length;
-    const visitorInstance = (await database.store.getEntry('for_visitors', 'visitor:v1'))
+    const visitorInstance = (await database.store.getEntry('for_visitors', 'visitor:v1', 'a'))
       ?.instanceId;
 
     await post('/ingest', { userId: 'u1', visitorId: 'v1', profile: { name: 'Ada' } });

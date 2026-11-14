@@ -79,7 +79,12 @@ describe('compile: workflow -> IR', () => {
   });
 
   test('goal shorthand condition expands with exitOnMatch: true', () => {
-    const ir = workflow({ id: 'g', trigger: trigger.event(e.login), goal: purchaser }).toIR();
+    const ir = workflow({
+      id: 'g',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+      goal: purchaser,
+    }).toIR();
     expect(ir.goal?.exitOnMatch).toBe(true);
   });
 
@@ -96,6 +101,7 @@ describe('compile: workflow -> IR', () => {
     expect(() =>
       workflow({
         id: 'g',
+        reentry: { mode: 'never' },
         trigger: trigger.event(e.login),
         goal: { condition: purchaser, within: '0 days' },
       }).toIR()
@@ -176,7 +182,7 @@ describe('compile: workflow -> IR', () => {
   });
 
   test('cohort arms keep the order they were written in', () => {
-    const node = workflow({ id: 'ab', trigger: trigger.event(e.login) })
+    const node = workflow({ id: 'ab', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
       .cohort({ zulu: { weight: 10 }, alpha: { weight: 90 } })
       .toIR().flow[0];
     if (node.type !== 'cohort') throw new Error('expected cohort');
@@ -247,20 +253,27 @@ describe('compileBundle guards', () => {
 
   test('a payload predicate outside a where clause fails to compile', () => {
     // Both ref kinds produce Condition, so this type-checks — the bundle catches it
-    const leaked = workflow({ id: 'leaked', trigger: trigger.event(e.sign_up) }).filter(
+    const leaked = workflow({
+      id: 'leaked',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).filter(
       performed(e.sign_up, (p) => eq(p.method, 'google')) // fine
     );
     expect(() => compileBundle({ workflows: [leaked] })).not.toThrow();
 
-    const escaped = workflow({ id: 'escaped', trigger: trigger.event(e.sign_up) }).filter(
-      payloadPredicateOutsideWhere()
-    );
+    const escaped = workflow({
+      id: 'escaped',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).filter(payloadPredicateOutsideWhere());
     expect(() => compileBundle({ workflows: [escaped] })).toThrow(/outside a where clause/);
   });
 
   test('a where clause may not contain profile facts', () => {
     const wf = workflow({
       id: 'bad_where',
+      reentry: { mode: 'never' },
       // the callback's return type is just Condition, so a profile predicate type-checks
       trigger: trigger.event(e.sign_up, () => performed(e.purchase)),
     });

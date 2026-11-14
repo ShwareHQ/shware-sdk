@@ -14,7 +14,7 @@ import {
   describeInFlight,
   pinnedWorkflows,
 } from '../inflight';
-import { BundleIR, type ConditionIR, type TriggerIR } from '../ir';
+import { BundleIR, type ConditionIR, DEFAULT_REENTRY, type TriggerIR } from '../ir';
 import { isMessageId } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
 import {
@@ -116,10 +116,10 @@ export async function ingestEvent(
    * first attempt did not finish — it committed the row and then failed — so
    * returning early would strand the journeys the retry exists to start. Both
    * halves are independently idempotent: waking an instance that already moved
-   * on is a no-op, and the entry ledger refuses a second entry.
+   * on is a no-op, and the entry ledger never enters the same event twice.
    */
   const woke = await wakeSubscribers(env, store, input.userId, [input.event]);
-  const started = await startTriggeredJourneys(env, store, { ...input, payload }, ts);
+  const started = await startTriggeredJourneys(env, store, { ...input, payload }, id, ts);
   started.push(...(await refreshSegmentTriggers(env, store, input.userId, ts)));
   return { id, stored, woke, started };
 }
@@ -171,6 +171,8 @@ async function startTriggeredJourneys(
   env: JourneyEnv,
   store: JourneyStore,
   input: IngestInput & { payload: Record<string, unknown> },
+  /** The event's id: the occurrence a redelivery repeats, so it enters at most once. */
+  occurrence: string,
   ts: number
 ): Promise<string[]> {
   const started: string[] = [];
@@ -187,13 +189,14 @@ async function startTriggeredJourneys(
       if (!(await evaluateCondition(route.filter, facts, ts))) continue;
     }
 
-    const instanceId = await startJourney(
+    const { instanceId } = await startJourney(
       env,
       store,
       route.workflow,
       route.hash,
       input.userId,
       ts,
+      occurrence,
       {
         event: input.event,
         payload: input.payload,
@@ -210,7 +213,8 @@ async function startTriggeredJourneys(
  * Segment-entry triggers, maintained lazily: on each ingest/identify for a
  * user, re-evaluate every trigger-routed segment for that user and act on the
  * membership transition (enter → start journeys, leave → drop membership so a
- * later re-entry is observable). Purely time-driven drift (an inactivity
+ * later re-qualification is a new entry attempt under the workflow's re-entry
+ * policy). Purely time-driven drift (an inactivity
  * segment turning true by clock alone) has no event to ride on: the scheduled
  * sweep catches it (`sweepSegments`).
  */
@@ -227,7 +231,10 @@ export async function refreshSegmentTriggers(
  * Re-evaluate segments for one user — the routed ones only, or with `segments` every one named —
  * and act on each membership transition: entering records the membership and starts the
  * segment's routed workflows, leaving drops it. A segment trigger therefore starts journeys for
- * users who enter after it is deployed; a user already a member is not entered again.
+ * users who enter after it is deployed; a user already a member is not entered again. Re-entry
+ * rides on that edge: one qualification is one occurrence (`$segment:<segment>:<since>`, since
+ * when the membership began), so a retried start is the same occurrence and only leaving and
+ * matching again makes a new one for the workflow's `reentry` policy to judge.
  *
  * Why the membership writes and the starts are separate store calls, and why that is safe:
  * - Each segment's transition is one store operation. `addSegmentMember` writes the membership
@@ -238,8 +245,8 @@ export async function refreshSegmentTriggers(
  *   fails stays pending and is retried by the next evaluation (the sweep, the user's next event);
  *   it is crossed off only once an instance is known to exist (`entryStarted`).
  * - A retried or concurrent start cannot run a journey twice: `startJourney` goes through the
- *   entry ledger, keyed by (workflow, user) under the once policy, and the membership insert is
- *   `ON CONFLICT DO NOTHING`.
+ *   entry ledger, which holds one entry per (workflow, user, occurrence), and the membership
+ *   insert is `ON CONFLICT DO NOTHING`.
  * - Segments are independent memberships. A failure on one leaves the others where they were;
  *   every evaluation recomputes each from facts and the stored membership, so the next one
  *   converges rather than building on a partial run.
@@ -303,26 +310,43 @@ async function refreshSegments(
     // Every start the entry still owes — a fresh entry's, or one an earlier evaluation failed on.
     // Each is crossed off once its instance exists, so one workflow failing neither blocks the
     // others nor gets lost: the next evaluation (the sweep, the user's next event) retries it.
-    const pending = new Set(await store.pendingSegmentStarts(segmentId, userId));
+    const pending = new Map(
+      (await store.pendingSegmentStarts(segmentId, userId)).map((start) => [
+        start.workflow,
+        Math.round(start.since),
+      ])
+    );
     for (const route of segmentRoutes) {
-      if (!pending.has(route.workflow)) continue;
+      const since = pending.get(route.workflow);
+      if (since === undefined) continue;
       try {
-        const instanceId = await startJourney(
+        // The membership's start, not this evaluation's clock: every retry of the start is the
+        // same occurrence with the same instance id, and the entry is anchored where the user
+        // qualified
+        const occurrence = `$segment:${segmentId}:${since}`;
+        const { instanceId, outcome } = await startJourney(
           env,
           store,
           route.workflow,
           route.hash,
           userId,
-          ts,
+          since,
+          occurrence,
           { event: '$segment_entry', payload: { segment: segmentId } },
           route.version
         );
         if (instanceId !== null) started.push(instanceId);
-        // Crossed off only once an instance is known to exist. A null here means another
-        // attempt holds the entry — one whose create may still fail and roll the entry back;
-        // crossing the start off on its word would lose the journey for good. Left pending, the
-        // next evaluation asks again, and the ledger keeps that from starting a second one.
-        if (instanceId !== null || (await entryStarted(env, store, route.workflow, userId))) {
+        // Crossed off once an instance is known to exist, or once the re-entry policy refused
+        // this qualification (it is not queued for later: the next one is a new edge). A
+        // duplicate means another attempt of this occurrence holds the entry — one whose create
+        // may still fail and roll the entry back; crossing the start off on its word would lose
+        // the journey for good. Left pending, the next evaluation asks again, and the ledger
+        // keeps that from starting a second one.
+        if (
+          instanceId !== null ||
+          outcome === 'refused' ||
+          (await entryStarted(env, store, route.workflow, userId, occurrence))
+        ) {
           await store.completeSegmentStart(segmentId, userId, route.workflow);
         }
       } catch (error) {
@@ -594,7 +618,7 @@ export async function sweepSegments(
 }
 
 /**
- * Whether the (workflow, user) entry's start is known to have happened: the runner admitted
+ * Whether the occurrence's entry's start is known to have happened: the runner admitted
  * itself, the entry already ended, or the runtime knows its instance and it has not ended. An
  * unadmitted entry whose instance cannot be found, cannot be looked up right now, or ended without
  * admitting itself is not; the caller asks again.
@@ -603,9 +627,10 @@ async function entryStarted(
   env: JourneyEnv,
   store: JourneyStore,
   workflow: string,
-  userId: string
+  userId: string,
+  occurrence: string
 ): Promise<boolean> {
-  const entry = await store.getEntry(workflow, userId);
+  const entry = await store.getEntry(workflow, userId, occurrence);
   // A failed entry is reclaimed by the next evaluation: its start is still owed
   if (entry === undefined || entry.status === 'failed') return false;
   if (entry.admitted || entry.status !== 'running') return true;
@@ -648,10 +673,20 @@ async function createInstance(
 }
 
 /**
- * Create one journey instance behind the entry ledger. Returns null when the
- * once-policy blocks the entry (the store's attempt is atomic, so concurrent
- * ingests cannot double-enter). A pair whose previous instance is recorded as
- * 'failed' is reclaimed rather than barred forever over one outage.
+ * What a start attempt came to: the instance this call started (null otherwise), and why not —
+ * `duplicate` when the occurrence already holds an entry (alive, or being started by another
+ * attempt), `refused` when the workflow's re-entry policy turned it away.
+ */
+interface StartResult {
+  instanceId: string | null;
+  outcome: 'started' | 'duplicate' | 'refused';
+}
+
+/**
+ * Create one journey instance behind the entry ledger, as the workflow's re-entry policy (read
+ * from the IR the entry pins) allows. The store's attempt is atomic, so concurrent ingests cannot
+ * enter the same occurrence twice nor get past the policy together. An occurrence whose previous
+ * instance is recorded as 'failed' is reclaimed rather than lost over one outage.
  */
 async function startJourney(
   env: JourneyEnv,
@@ -660,34 +695,50 @@ async function startJourney(
   hash: string,
   userId: string,
   ts: number,
+  occurrence: string,
   trigger: { event: string; payload: Record<string, unknown>; ts?: number },
   /** The code version whose bundle routed this start, read with the hash (see TriggerRoute). */
   version?: string
-): Promise<string | null> {
-  const instanceId = buildInstanceId(workflow, hash, userId, ts);
+): Promise<StartResult> {
+  const instanceId = buildInstanceId(workflow, hash, userId, ts, occurrence);
   const params: JourneyParams = { workflowId: workflow, contentHash: hash, userId, trigger };
+  // A route without its IR is a broken deploy the runner fails on anyway; until then it enters
+  // a user once, as an IR from before the policy existed does
+  const reentry = (await store.getWorkflowIR(hash))?.reentry ?? DEFAULT_REENTRY;
   const execution = await env.JOURNEY.plan?.({ id: instanceId, params, ts, version });
 
-  const outcome = await store.enterJourney({ workflow, userId, instanceId, hash, ts, execution });
+  const outcome = await store.enterJourney({
+    workflow,
+    userId,
+    instanceId,
+    hash,
+    ts,
+    occurrence,
+    reentry,
+    execution,
+  });
   if (outcome === null) {
-    // Already entered and still alive — unless its start never got through: this retry is the
-    // first chance to finish it
-    if (env.JOURNEY.resume !== undefined) {
-      // A runtime that records its starts (AWS) retries the recorded one
-      await env.JOURNEY.resume({ workflow, userId });
-      return null;
-    }
+    const entry = await store.getEntry(workflow, userId, occurrence);
+    // A runtime that records its starts (AWS) retries the recorded one still pending for the
+    // pair, if any: whichever entry refused this one — this occurrence's own, or under the
+    // policy another one — its start may never have got through, and this is a chance to finish it
+    if (env.JOURNEY.resume !== undefined) await env.JOURNEY.resume({ workflow, userId });
+    // Not this occurrence's row: the policy turned it away, and nothing of it is owed
+    if (entry === undefined) return { instanceId: null, outcome: 'refused' };
+    // This occurrence already entered and is still alive — unless its start never got
+    // through: this retry is the first chance to finish it
+    if (env.JOURNEY.resume !== undefined) return { instanceId: null, outcome: 'duplicate' };
     // A runtime that does not (Cloudflare): the ledger alone says a start is owed. Only a retry
-    // of this very attempt — same instance id, so same event and ts — may finish it; a later
-    // event of the user carries another id and must not start a second journey. The id is the
-    // platform's identity too, so creating it again is idempotent (`createInstance`).
-    const entry = await store.getEntry(workflow, userId);
-    if (entry?.instanceId !== instanceId || entry.status !== 'running' || entry.admitted) {
-      return null;
+    // of this very attempt — same instance id, so same occurrence and ts — may finish it. The id
+    // is the platform's identity too, so creating it again is idempotent (`createInstance`).
+    if (entry.instanceId !== instanceId || entry.status !== 'running' || entry.admitted) {
+      return { instanceId: null, outcome: 'duplicate' };
     }
     // Reported as started only when this retry is what created it: a duplicate delivery of an
     // event whose first attempt succeeded finds the instance there and starts nothing
-    return (await createInstance(env, instanceId, params)) ? instanceId : null;
+    return (await createInstance(env, instanceId, params))
+      ? { instanceId, outcome: 'started' }
+      : { instanceId: null, outcome: 'duplicate' };
   }
 
   try {
@@ -705,25 +756,35 @@ async function startJourney(
       await store.setEntryStatus(instanceId, 'failed');
     } else {
       // Roll the ledger back so a retried ingest can enter — otherwise the
-      // once-policy would permanently record an entry that never ran.
+      // ledger would permanently record an entry that never ran.
       await store.removeEntry(instanceId);
     }
     throw error;
   }
-  return instanceId;
+  return { instanceId, outcome: 'started' };
 }
 
 const utf8 = new TextEncoder();
 
 /**
  * Instance id: addressable (the host gets it directly to wake it), ≤100
- * chars, legal charset. The murmur3 fingerprint keeps ids distinct when the
- * sanitized/truncated userId alone would collide.
+ * chars, legal charset. The murmur3 fingerprints keep ids distinct when the
+ * sanitized/truncated userId alone would collide, and tell apart two entries
+ * of one user made at the same ts by different occurrences (re-entry). The
+ * same occurrence always yields the same id: a retried start is idempotent on
+ * the platform too.
  */
-function buildInstanceId(workflow: string, hash: string, userId: string, ts: number): string {
+function buildInstanceId(
+  workflow: string,
+  hash: string,
+  userId: string,
+  ts: number,
+  occurrence: string
+): string {
   const uid = userId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 24);
   const fingerprint = murmur3(utf8.encode(userId)).toString(36);
-  return `${workflow.slice(0, 32)}-${hash.slice(0, 8)}-${uid}-${fingerprint}-${ts.toString(36)}`;
+  const occurrenceFingerprint = murmur3(utf8.encode(occurrence)).toString(36);
+  return `${workflow.slice(0, 32)}-${hash.slice(0, 8)}-${uid}-${fingerprint}-${ts.toString(36)}-${occurrenceFingerprint}`;
 }
 
 /* --------------------------------- identify --------------------------------- */

@@ -184,9 +184,11 @@ describe('deployBundle', () => {
 
   test('reports workflows whose trigger type has no routing yet', async () => {
     const { env, store } = setup();
-    const holiday = workflow({ id: 'holiday', trigger: trigger.date('2026-12-25 09:00:00') }).email(
-      gettingStarted
-    );
+    const holiday = workflow({
+      id: 'holiday',
+      reentry: { mode: 'never' },
+      trigger: trigger.date('2026-12-25 09:00:00'),
+    }).email(gettingStarted);
 
     const result = await deployBundle(env, compileBundle({ workflows: [holiday] }), store);
 
@@ -227,6 +229,7 @@ describe('event triggers', () => {
     const { env, store } = setup();
     const webOnly = workflow({
       id: 'web_only',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up, (p) => eq(p.method, 'google')),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [webOnly] }), store);
@@ -250,6 +253,7 @@ describe('event triggers', () => {
     const { env, store } = setup();
     const activeOnly = workflow({
       id: 'active_only',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.sign_up, { filter: eq(u.subscription_status, 'active') }),
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [activeOnly] }), store);
@@ -550,7 +554,7 @@ describe('a start lost between the entry and the create', () => {
     expect((await entries())[0].status).toBe('failed');
   });
 
-  test('a segment start is not crossed off while the entry holding it has no instance', async () => {
+  test('a segment start left with no instance is finished by the next evaluation, the same occurrence', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);
     // The segment's workflow fails to start, and its rollback fails with it
@@ -571,19 +575,14 @@ describe('a start lost between the entry and the create', () => {
     }
     journey.create = create;
 
-    // The next evaluation finds the entry taken (null) — but by an attempt with nothing behind it
-    await ingestEvent(env, { userId: 'u2', event: 'begin_checkout', ts: event.ts + 60_000 }, store);
-    expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toContain('reengagement');
-
-    // Maintenance frees the entry; the following evaluation starts the owed journey and only then
-    // crosses it off
-    await failLostStarts(env, store, Date.now() + LOST_START_AFTER_MS + 1);
-    const recovered = await ingestEvent(
+    // The next evaluation retries the same occurrence (the membership's start, not its own clock),
+    // so it finds its own unadmitted entry and finishes the start under the same instance id
+    const retried = await ingestEvent(
       env,
-      { userId: 'u2', event: 'begin_checkout', ts: event.ts + 120_000 },
+      { userId: 'u2', event: 'begin_checkout', ts: event.ts + 60_000 },
       store
     );
-    expect(recovered.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
+    expect(retried.started.some((id) => id.startsWith('reengagement-'))).toBe(true);
     expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toEqual([]);
   });
 });
@@ -752,7 +751,9 @@ describe('segment-entry triggers', () => {
       ingestEvent(env, { userId: 'u2', event: 'begin_checkout' }, store)
     ).rejects.toThrow('platform unavailable');
     expect(await store.isSegmentMember('inactive_30d', 'u2')).toBe(true);
-    expect(await store.pendingSegmentStarts('inactive_30d', 'u2')).toContain('reengagement');
+    expect(
+      (await store.pendingSegmentStarts('inactive_30d', 'u2')).map((p) => p.workflow)
+    ).toContain('reengagement');
 
     // Next activity: already a member, but the owed start goes out now — once
     journey.create = create;
@@ -985,7 +986,7 @@ function lateCreateHost() {
   const record = action('record', async (_args, { userId }) => {
     actions.push(userId);
   });
-  const flow = workflow({ id: 'w', trigger: trigger.event(te.login) })
+  const flow = workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(te.login) })
     .run(record)
     .email(hi);
   const config = defineConfig({
@@ -1204,6 +1205,8 @@ describe('deployBundle keeps the journeys still running', () => {
     await deployBundle(env, first, store);
     const pinnedHash = first.workflows.find((w) => w.id === 'reengagement')?.contentHash ?? '';
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'reengagement',
       userId: 'u1',
       instanceId: 'inst-1',

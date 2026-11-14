@@ -13,6 +13,7 @@ const tpl = plainEmail('t');
 
 const flow = workflow({
   id: 'scaled',
+  reentry: { mode: 'never' },
   trigger: trigger.event(e.login),
   goal: { condition: performed(e.purchase), within: '30 days' },
 })

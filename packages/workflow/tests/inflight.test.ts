@@ -34,10 +34,11 @@ const welcomeWith = <S extends z.ZodObject>(props: S, preview: z.input<S>) =>
   });
 
 const onboarding = (template: ReturnType<typeof welcomeWith>, props: Record<string, string>) =>
-  workflow({ id: 'onboarding', trigger: trigger.event(e.sign_up) }).email(
-    template as never,
-    props as never
-  );
+  workflow({
+    id: 'onboarding',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.sign_up),
+  }).email(template as never, props as never);
 
 /** A pinned version with `running` journeys on it. */
 const pinned = (flow: { toIR(): PinnedWorkflow['ir'] & object }, running = 3): PinnedWorkflow => {
@@ -88,7 +89,13 @@ describe('against the registry the code would serve', () => {
   test('a template gone from the registry', () => {
     const other = plainEmail('other');
     const config = defineConfig({
-      workflows: [workflow({ id: 'other', trigger: trigger.event(e.login) }).email(other)],
+      workflows: [
+        workflow({
+          id: 'other',
+          reentry: { mode: 'never' },
+          trigger: trigger.event(e.login),
+        }).email(other),
+      ],
       templates: { email: { other } },
     });
     expect(checkInFlight([pinnedV1], compileConfig(config), config)).toEqual([
@@ -102,7 +109,11 @@ describe('against the registry the code would serve', () => {
 describe('against the bundle alone', () => {
   test('a template missing from the manifest; no manifest, no template check', () => {
     const other = plainEmail('other');
-    const flow = workflow({ id: 'other', trigger: trigger.event(e.login) }).email(other);
+    const flow = workflow({
+      id: 'other',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).email(other);
     expect(
       checkInFlight([pinnedV1], compileBundle({ workflows: [flow], templates: [other] }))
     ).toEqual([
@@ -116,13 +127,16 @@ describe('against the bundle alone', () => {
   test('a segment the pinned IR names must stay; its condition may change', () => {
     const goalFlow = workflow({
       id: 'checkout',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.begin_checkout),
       goal: purchaser,
     }).email(plainEmail('nudge'));
     const pin = pinned(goalFlow, 2);
-    const plain = workflow({ id: 'checkout', trigger: trigger.event(e.begin_checkout) }).email(
-      plainEmail('nudge')
-    );
+    const plain = workflow({
+      id: 'checkout',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.begin_checkout),
+    }).email(plainEmail('nudge'));
 
     expect(checkInFlight([pin], compileBundle({ workflows: [plain], segments: [] }))).toEqual([
       {
@@ -141,13 +155,19 @@ describe('against the bundle alone', () => {
 
   test('an action the pinned IR runs must stay in the bundle', () => {
     const grant = action('grant', async () => {});
-    const flow = workflow({ id: 'grants', trigger: trigger.event(e.sign_up) })
+    const flow = workflow({
+      id: 'grants',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    })
       .run(grant)
       .email(plainEmail('done'));
     const pin = pinned(flow);
-    const without = workflow({ id: 'grants', trigger: trigger.event(e.sign_up) }).email(
-      plainEmail('done')
-    );
+    const without = workflow({
+      id: 'grants',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).email(plainEmail('done'));
     expect(checkInFlight([pin], compileBundle({ workflows: [without] }))).toEqual([
       expect.objectContaining({ problem: "node 0: action 'grant' is not in the bundle" }),
     ]);

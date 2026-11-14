@@ -40,10 +40,11 @@ describe('a host without an email transport', () => {
   test('fails when created if a workflow sends email, naming the workflows', () => {
     const config = defineConfig({
       workflows: [
-        workflow({ id: 'welcome', trigger: trigger.event(e.login) }).branch(
-          [performed(e.purchase), (f) => f.email(hi, {})],
-          (f) => f.delay('1 day')
-        ),
+        workflow({
+          id: 'welcome',
+          reentry: { mode: 'never' },
+          trigger: trigger.event(e.login),
+        }).branch([performed(e.purchase), (f) => f.email(hi, {})], (f) => f.delay('1 day')),
       ],
       templates: { email: { hi } },
     });
@@ -57,12 +58,21 @@ describe('a host without an email transport', () => {
 
   test('is fine when no workflow emails, or when `messages` replaces every channel', () => {
     const quiet = defineConfig({
-      workflows: [workflow({ id: 'wait', trigger: trigger.event(e.login) }).delay('1 day')],
+      workflows: [
+        workflow({ id: 'wait', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).delay(
+          '1 day'
+        ),
+      ],
       templates: { email: { hi } },
     });
     expect(() => journeyWorker({ config: quiet, store })).not.toThrow();
     const emailing = defineConfig({
-      workflows: [workflow({ id: 'w', trigger: trigger.event(e.login) }).email(hi, {})],
+      workflows: [
+        workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.login) }).email(
+          hi,
+          {}
+        ),
+      ],
       templates: { email: { hi } },
     });
     expect(() =>
@@ -105,7 +115,7 @@ describe('longestJourneyMs', () => {
     compileConfig(defineConfig({ workflows: [flow], templates: { email: { hi } } })).workflows[0];
 
   test('delays add up; waits count to their timeout; the longest arm wins', () => {
-    const flow = workflow({ id: 'w', trigger: trigger.event(e.login) })
+    const flow = workflow({ id: 'w', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
       .delay('2 days')
       .waitUntil(performed(e.purchase), {
         timeout: '3 days',
@@ -119,6 +129,7 @@ describe('longestJourneyMs', () => {
   test("a goal's window keeps the instance alive past its last step", () => {
     const flow = workflow({
       id: 'w',
+      reentry: { mode: 'never' },
       trigger: trigger.event(e.login),
       goal: { condition: performed(e.purchase), within: '30 days' },
     }).delay('1 day');
@@ -129,10 +140,10 @@ describe('longestJourneyMs', () => {
 describe('journeyLambda({ executionTimeoutMs })', () => {
   const config = defineConfig({
     workflows: [
-      workflow({ id: 'long', trigger: trigger.event(e.login) })
+      workflow({ id: 'long', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
         .delay('40 days')
         .email(hi, {}),
-      workflow({ id: 'short', trigger: trigger.event(e.login) })
+      workflow({ id: 'short', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
         .delay('1 day')
         .email(hi, {}),
     ],

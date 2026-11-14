@@ -148,7 +148,7 @@ describe('audit reasons are metadata, not semantics', () => {
    */
   test('rewording an exit reason keeps contentHash stable', () => {
     const build = (reason: string) =>
-      workflow({ id: 'gate', trigger: trigger.event(e.login) })
+      workflow({ id: 'gate', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
         .exit(reason)
         .toIR();
 
@@ -157,7 +157,7 @@ describe('audit reasons are metadata, not semantics', () => {
 
   test('rewording a filter reason keeps contentHash stable, but the condition still counts', () => {
     const build = (reason: string, plan: 'pro' | 'free' = 'pro') =>
-      workflow({ id: 'gate', trigger: trigger.event(e.login) })
+      workflow({ id: 'gate', reentry: { mode: 'never' }, trigger: trigger.event(e.login) })
         .filter(eq(u.subscription_plan, plan), { reason })
         .toIR();
 
@@ -166,7 +166,11 @@ describe('audit reasons are metadata, not semantics', () => {
   });
 
   test('the reason survives into the IR the studio and the audit log read', () => {
-    const node = workflow({ id: 'gate', trigger: trigger.event(e.login) })
+    const node = workflow({
+      id: 'gate',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
       .exit('not eligible')
       .toIR().flow[0];
     expect(node).toMatchObject({ type: 'exit', reason: 'not eligible' });
@@ -198,10 +202,12 @@ describe('contentHash is a permanent contract', () => {
      * the move is total and deliberate: anything deployed before it has to be republished.
      * They moved again when email nodes gained `topic` (null here: the fixtures are
      * transactional) — what an email step checks the opt-outs against is part of what it does.
+     * And again when every workflow gained its `reentry` policy: who may enter, and how often, is
+     * part of what the workflow does.
      */
-    expect(checkoutRecovery.toIR().contentHash).toBe('e21b8d538b1b2dd704fcba40fbc3e2cb');
-    expect(winback.toIR().contentHash).toBe('23c5eb32213fdc68004254dcd2a7bda1');
-    expect(reengagement.toIR().contentHash).toBe('2156e98408f831b372e44f8759f791e2');
-    expect(nudge.toIR().contentHash).toBe('1d63209b944241a3ebe2cd432f792e17');
+    expect(checkoutRecovery.toIR().contentHash).toBe('ccd83c13b3cf97c067860291f766a4a4');
+    expect(winback.toIR().contentHash).toBe('baaa10445d1ddb8e5476fdd771f54ac0');
+    expect(reengagement.toIR().contentHash).toBe('ce8a2f36388d146a6df4ec4f7b957140');
+    expect(nudge.toIR().contentHash).toBe('1e745d3b42f1223c1d55d3c193e07db8');
   });
 });
