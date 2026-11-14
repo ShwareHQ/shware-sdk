@@ -1,5 +1,5 @@
 import { OAuth2Error, type OAuth2ErrorType } from '../oauth2/error';
-import { AuthenticationError } from './error';
+import { AuthenticationError, type RequestReason } from './error';
 
 /**
  * How the JSON routes answer a failure: a google.rpc error body, as `@shware/http` reads it, with
@@ -50,21 +50,22 @@ export class RequestError extends Error {
  * `BadRequest` naming the fields a schema refused), so `getErrorInfo` finds the reason whatever
  * else the body carries.
  */
-export function invalidArgument(reason: string, message: string, details: unknown[] = []) {
+export function invalidArgument(reason: RequestReason, message: string, details: unknown[] = []) {
   const body = errorBody(400, 'INVALID_ARGUMENT', reason, message);
   body.error.details.push(...details);
   return new RequestError(body);
 }
 
 export function unauthenticated(message: string) {
-  return new RequestError(errorBody(401, 'UNAUTHENTICATED', 'UNAUTHENTICATED', message));
+  const reason: RequestReason = 'UNAUTHENTICATED';
+  return new RequestError(errorBody(401, 'UNAUTHENTICATED', reason, message));
 }
 
-export function resourceExhausted(reason: string, message: string) {
+export function resourceExhausted(reason: RequestReason, message: string) {
   return new RequestError(errorBody(429, 'RESOURCE_EXHAUSTED', reason, message));
 }
 
-export function unavailable(reason: string, message: string) {
+export function unavailable(reason: RequestReason, message: string) {
   return new RequestError(errorBody(503, 'UNAVAILABLE', reason, message));
 }
 

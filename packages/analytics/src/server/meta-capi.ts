@@ -35,7 +35,11 @@ import { eventTimeMs } from './event-time';
 import { pageLocation } from './page-location';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
-/** Matches the Graph API version the pinned business SDK speaks (`FacebookAdsApi.VERSION`). */
+/**
+ * Matches the Graph API version the pinned business SDK speaks (`FacebookAdsApi.VERSION`). Meta
+ * keeps each Graph API version for about two years from its release, then requests to it fail,
+ * so this must be bumped with each release (or overridden through `apiVersion`).
+ */
 const API_VERSION = 'v24.0';
 
 const USER_ASSIGNED_COUNTRIES: string[] = ['xk'];

@@ -211,7 +211,7 @@ export const storage: Storage = {
     try {
       return localStorage.getItem(key);
     } catch {
-      console.error('localStorage is not available');
+      console.warn('localStorage is not available; falling back to in-memory storage');
       return map.get(key) ?? null;
     }
   },
@@ -219,7 +219,7 @@ export const storage: Storage = {
     try {
       localStorage.setItem(key, value);
     } catch {
-      console.error('localStorage is not available');
+      console.warn('localStorage is not available; falling back to in-memory storage');
       map.set(key, value);
     }
   },

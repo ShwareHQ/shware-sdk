@@ -12,8 +12,8 @@ indexed by principal so a user's sessions can be listed and revoked.
 pnpm add @shware/security zod
 ```
 
-No peer dependencies. `ioredis` is a regular dependency; you only need a client instance if you
-use the Redis repositories.
+`zod` is a peer dependency (the schemas are read from the host's copy). `ioredis` is an optional
+peer: you only need it, and a client instance, if you use the Redis repositories.
 
 ## Entry points
 
@@ -184,7 +184,10 @@ throw new AuthenticationError('EMAIL_ALREADY_USED', {
 ```
 
 `AuthenticationReason` is the union of all reasons, for the client-side switch;
-`AUTHENTICATION_REASONS` lists the built-in ones at runtime, for a message table.
+`AUTHENTICATION_REASONS` lists the built-in ones at runtime, for a message table. The reasons the
+SDK answers about the request itself (`INVALID_ARGUMENT`, `INVALID_JSON`,
+`VERIFICATION_CODE_RESEND_TOO_SOON`, `EMAIL_DELIVERY_FAILED`, …; see "Errors") are
+`REQUEST_REASONS` and `RequestReason` in the same way.
 
 `Auth` answers it in the shape of the route: the redirect flow lands on `errorUri` with
 `error=access_denied&reason=EMAIL_ALREADY_USED&provider=GOOGLE`; the JSON routes (native, One
