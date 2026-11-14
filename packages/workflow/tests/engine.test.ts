@@ -658,6 +658,27 @@ describe('time_window', () => {
     }
   });
 
+  test("tz: 'user' reads the profile's time_zone, UTC without one", async () => {
+    const userWindowed = workflow({ id: 'tw-user', trigger: trigger.event(e.sign_up) })
+      .timeWindow({ days: ['fri'], between: ['09:00', '17:00'] })
+      .email(proTips);
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T00:30:00Z') }); // Friday
+    try {
+      // 08:30 in Shanghai: half an hour before the window opens there.
+      const shanghai = makeContext();
+      shanghai.facts.props.time_zone = 'Asia/Shanghai';
+      await runJourney(userWindowed.toIR(), shanghai.ctx);
+      expect(shanghai.step.sleeps).toEqual([{ name: '0:sleep', ms: 30 * 60_000 }]);
+
+      // Without a zone the window is UTC's: Friday 09:00 UTC, 8.5 hours away.
+      const unknown = makeContext();
+      await runJourney(userWindowed.toIR(), unknown.ctx);
+      expect(unknown.step.sleeps).toEqual([{ name: '0:sleep', ms: 8.5 * 3600_000 }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('already inside the window, nothing is slept', async () => {
     vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T10:00:00Z') }); // Friday
     try {

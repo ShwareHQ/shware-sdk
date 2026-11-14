@@ -8,8 +8,11 @@ import type { ConditionIR, DurationIR, NodeIR, WorkflowIR } from '../ir';
  *
  * Everything that is a Duration scales together (delays, random delays, wait
  * timeouts, goal and `performed(... within)` windows inside the workflow), so
- * the journey keeps its shape, just faster. What does not scale: wall-clock
- * `timeWindow`s (they are times of day, not durations). Segment definitions
+ * the journey keeps its shape, just faster. Wall-clock `timeWindow`s cannot
+ * scale (they are times of day, not durations), so a scaled flow drops them:
+ * a rehearsal reaching a 09:00 window at night would otherwise sleep real hours
+ * in a journey that runs in seconds. The other nodes keep their ids, so step
+ * names stay put. Segment definitions
  * and trigger routes live in the store rather than the workflow body;
  * `scaleSegmentWindows` scales them as they are read — one segment for an
  * event-driven evaluation, all of them for the scheduled sweep, a route's
@@ -69,7 +72,7 @@ export function scaleCondition(condition: ConditionIR, factor: number): Conditio
 }
 
 function scaleFlow(nodes: readonly NodeIR[], factor: number): NodeIR[] {
-  return nodes.map((node) => scaleNode(node, factor));
+  return nodes.flatMap((node) => (node.type === 'time_window' ? [] : [scaleNode(node, factor)]));
 }
 
 function scaleNode(node: NodeIR, factor: number): NodeIR {

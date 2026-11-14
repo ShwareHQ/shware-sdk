@@ -27,6 +27,28 @@ const flow = workflow({
 const DAY = 24 * 60 * 60 * 1000;
 
 describe('scaleDurations', () => {
+  test('drops time windows, which are times of day, and keeps every other id', () => {
+    const windowed = workflow({ id: 'windowed', trigger: trigger.event(e.login) })
+      .delay('1 hour')
+      .timeWindow({ between: ['09:00', '21:00'] })
+      .email(tpl)
+      .branch([
+        performed(e.purchase),
+        (w) => w.timeWindow({ between: ['09:00', '21:00'] }).email(tpl),
+      ])
+      .toIR();
+    const scaled = scaleDurations(windowed, 600);
+    const types = (nodes: readonly { type: string }[]) => nodes.map((node) => node.type);
+
+    expect(types(scaled.flow)).toEqual(['delay', 'message', 'branch']);
+    expect(scaled.flow.map((node) => node.id)).toEqual(['0', '2', '3']);
+    const [, , branch] = scaled.flow;
+    if (branch?.type !== 'branch') throw new Error('expected the branch third');
+    expect(branch.cases.map((c) => types(c.flow))).toEqual([['message']]);
+    // Unscaled, nothing is touched.
+    expect(scaleDurations(windowed, 1)).toBe(windowed);
+  });
+
   test('divides every duration by the factor and keeps the source text', () => {
     const ir = flow.toIR();
     const scaled = scaleDurations(ir, 3600);
