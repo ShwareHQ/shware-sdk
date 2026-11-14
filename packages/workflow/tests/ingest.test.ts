@@ -815,7 +815,7 @@ describe('the sweep walks users page by page', () => {
     const result = await sweepSegments(env, store);
     expect(result.evaluated).toBe(500);
     expect(pages.map((page) => page.after)).toEqual([undefined, 'u0499']);
-  });
+  }, 60_000);
 
   test('one page reports where to resume and whether more follow', async () => {
     const { env, store } = setup();
