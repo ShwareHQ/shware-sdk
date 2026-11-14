@@ -1,5 +1,5 @@
-import 'expo-sqlite/localStorage/install';
 import { getAndroidId, getInstallReferrerAsync, getIosIdForVendorAsync } from 'expo-application';
+import 'expo-sqlite/localStorage/install';
 import { randomUUID } from 'expo-crypto';
 import {
   DeviceType,
@@ -15,6 +15,7 @@ import { getAdvertisingId } from 'expo-tracking-transparency';
 import { Dimensions, PixelRatio, Platform } from 'react-native';
 import { keys } from '../constants/storage';
 import { type Storage, cache, config } from '../setup/index';
+import { warnOnce } from '../third-parties/warn-once';
 import type { TrackTags } from '../track/types';
 
 const map = new Map<string, string>();
@@ -24,7 +25,7 @@ export const storage: Storage = {
     try {
       return localStorage.getItem(key);
     } catch {
-      console.error('localStorage is not available');
+      warnOnce('localStorage is not available; falling back to in-memory storage');
       return map.get(key) ?? null;
     }
   },
@@ -32,7 +33,7 @@ export const storage: Storage = {
     try {
       localStorage.setItem(key, value);
     } catch {
-      console.error('localStorage is not available');
+      warnOnce('localStorage is not available; falling back to in-memory storage');
       map.set(key, value);
     }
   },

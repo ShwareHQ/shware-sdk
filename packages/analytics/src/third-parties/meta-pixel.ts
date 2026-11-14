@@ -9,6 +9,7 @@ import {
   adsTracker,
   isLocalHost,
 } from './integration';
+import { warnOnce } from './warn-once';
 
 declare global {
   interface Window {
@@ -25,7 +26,7 @@ export function sendFBEvent<T extends EventName>(
   event_id?: string
 ) {
   if (typeof window === 'undefined' || !window.fbq) {
-    console.warn('fbq has not been initialized');
+    warnOnce('fbq has not been initialized');
     return false;
   }
   if (metrics.includes(name)) return;
@@ -47,7 +48,7 @@ export function sendFBEvent<T extends EventName>(
 export function setFBUser(pixelId: PixelId) {
   return ({ user_id, user_data }: UpdateVisitorDTO) => {
     if (typeof window === 'undefined' || !window.fbq) {
-      console.warn('fbq has not been initialized');
+      warnOnce('fbq has not been initialized');
       return;
     }
 

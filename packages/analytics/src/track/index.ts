@@ -85,7 +85,7 @@ async function captureTags(): Promise<TrackTags> {
   try {
     return await config.getTags();
   } catch (e: unknown) {
-    if (e instanceof Error) console.log(e.message);
+    if (e instanceof Error) console.warn(e.message);
     return cache.tags ?? {};
   }
 }
@@ -137,7 +137,7 @@ function callIntegrations(integrations: readonly Integration[], event: TrackEven
       return track(event.name, event.properties, event.id) === false;
     } catch (e: unknown) {
       // A third-party script does not get to take the tracking call, or the other trackers, with it.
-      if (e instanceof Error) console.log(e.message);
+      if (e instanceof Error) console.warn(e.message);
       return false;
     }
   });
@@ -235,7 +235,7 @@ async function flush() {
     await Promise.all(list.map((item) => item.tagged));
   } catch (e: unknown) {
     // Nothing has left the queue yet: the events wait for the next send.
-    if (e instanceof Error) console.log(e.message);
+    if (e instanceof Error) console.warn(e.message);
     return;
   }
 
@@ -285,7 +285,7 @@ async function send(items: Item[], headers: Record<string, string>) {
     // an answer that is not even JSON does not turn a stored batch into a failure.
     items.forEach(({ event, options }) => options.onSucceed?.({ id: event.id }));
   } catch (e: unknown) {
-    if (e instanceof Error) console.log(e.message);
+    if (e instanceof Error) console.warn(e.message);
     fail(items, e);
   }
 }

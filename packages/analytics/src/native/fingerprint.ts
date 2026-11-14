@@ -47,8 +47,13 @@ export async function getDeterministicFingerprint(): Promise<DeterministicFinger
   return { click_id: params.get('click_id') ?? null };
 }
 
+/**
+ * The device profile used to match an install to the click that led to it. `shouldUseClipboard`
+ * also reads the clipboard for a pasted link; off by default, since reading it shows the system's
+ * "pasted from" banner on iOS 14+ and Android 12+, so turn it on only where that is acceptable.
+ */
 export async function getProbabilisticFingerprint(
-  shouldUseClipboard = true
+  shouldUseClipboard = false
 ): Promise<ProbabilisticFingerprint> {
   const screen = Dimensions.get('screen');
   const screen_width = Math.floor(screen.width);

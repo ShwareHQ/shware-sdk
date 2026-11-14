@@ -1,8 +1,10 @@
 export {
   AUTHENTICATION_REASONS,
   AuthenticationError,
+  REQUEST_REASONS,
   type AuthenticationReason,
   type AuthenticationReasons,
+  type RequestReason,
 } from './auth/error';
 export { Auth, PATH } from './auth/index';
 export { errorResponse, type ErrorBody } from './auth/respond';

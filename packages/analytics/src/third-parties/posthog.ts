@@ -9,6 +9,7 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type Integration, isLocalHost } from './integration';
+import { warnOnce } from './warn-once';
 
 export type { PostHog, PostHogConfig } from '@posthog/types';
 
@@ -82,7 +83,7 @@ export function sendPosthogEvent<T extends EventName>(
   if (typeof document === 'undefined') return;
   const posthog = getPosthog();
   if (!posthog) {
-    console.warn('posthog has not been initialized');
+    warnOnce('posthog has not been initialized');
     return false;
   }
   if (metrics.includes(name)) return;
@@ -104,7 +105,7 @@ export function sendPosthogEvent<T extends EventName>(
 export function setPosthogUser({ user_id, user_data }: Omit<UpdateVisitorDTO, 'tags'>) {
   const posthog = getPosthog();
   if (!posthog) {
-    console.warn('posthog has not been initialized');
+    warnOnce('posthog has not been initialized');
     return;
   }
   if (!user_id) {

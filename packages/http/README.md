@@ -18,8 +18,6 @@ pnpm add hono     # @shware/http/hono
 pnpm add i18next  # types for getErrorMessage()
 ```
 
-`react` is also declared as an optional peer; no entry point currently requires it.
-
 ## Entry points
 
 | Import                        | Contents                                                       |

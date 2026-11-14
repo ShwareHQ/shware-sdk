@@ -20,6 +20,7 @@ import {
   adsTracker,
   isLocalHost,
 } from './integration';
+import { warnOnce } from './warn-once';
 
 declare global {
   interface Window {
@@ -45,7 +46,7 @@ export function sendOpenAIEvent<T extends EventName>(
   eventId?: string
 ) {
   if (typeof window === 'undefined' || !window.oaiq) {
-    console.warn('oaiq has not been initialized');
+    warnOnce('oaiq has not been initialized');
     return false;
   }
   if (NON_AD_EVENTS.includes(name)) return;
@@ -73,7 +74,7 @@ export function sendOpenAIEvent<T extends EventName>(
 export function setOpenAIUser(pixelId: string) {
   return ({ user_id, user_data }: UpdateVisitorDTO) => {
     if (typeof window === 'undefined' || !window.oaiq) {
-      console.warn('oaiq has not been initialized');
+      warnOnce('oaiq has not been initialized');
       return;
     }
     // Capture the narrowed reference so the deferred `init` closure keeps it non-optional.

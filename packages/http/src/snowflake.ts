@@ -31,8 +31,8 @@ export class UidGenerator {
   private sequence = BigInt(0);
   private lastTimestamp = BigInt(-1);
 
-  constructor(mackineId: number) {
-    this.machineId = BigInt(mackineId) % this.maxMachineId;
+  constructor(machineId: number) {
+    this.machineId = BigInt(machineId) % this.maxMachineId;
   }
 
   public readonly next = (): bigint => {
@@ -58,5 +58,10 @@ export class UidGenerator {
   };
 }
 
-const machineId = Math.floor(Math.random() * 1024);
-export const uid = new UidGenerator(machineId);
+/**
+ * A ready-made generator whose machine id is drawn at random (0-1023) once per isolate, so its ids
+ * are unique within one isolate but may collide across isolates (several Workers, Lambdas or
+ * processes) that generate in the same millisecond. A multi-instance deployment should construct
+ * its own `UidGenerator` with a machine id assigned per instance.
+ */
+export const uid = new UidGenerator(Math.floor(Math.random() * 1024));

@@ -3,6 +3,7 @@ import type { Lintrk } from '../track/lintrk';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import { getFirst } from '../utils/field';
 import { type Integration, isLocalHost } from './integration';
+import { warnOnce } from './warn-once';
 
 declare global {
   interface Window {
@@ -24,7 +25,7 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
     event_id?: string
   ) => {
     if (typeof window === 'undefined' || !window.lintrk) {
-      console.warn('lintrk has not been initialized');
+      warnOnce('lintrk has not been initialized');
       return false;
     }
     if (isLocalHost()) return;
@@ -37,7 +38,7 @@ export function sendLinkedinEvent(config: LinkedinConversionConfig) {
 
 export function setLinkedinUser({ user_data }: UpdateVisitorDTO) {
   if (typeof window === 'undefined' || !window.lintrk) {
-    console.warn('lintrk has not been initialized');
+    warnOnce('lintrk has not been initialized');
     return;
   }
 

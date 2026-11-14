@@ -116,12 +116,20 @@ export type { LinkedinConversionConfig } from '../third-parties/linkedin-insight
  */
 const MAX_EVENT_AGE_MS = 90 * 24 * 60 * 60 * 1000 - 60 * 1000;
 
+/**
+ * The `LinkedIn-Version` (YYYYMM) the request is made against. LinkedIn supports each version
+ * for one year from its release, then requests to it fail, so this must be bumped with each
+ * release (or overridden through `apiVersion`).
+ */
+const API_VERSION = '202609';
+
 export async function sendEvents(
   accessToken: string,
   config: LinkedinConversionConfig,
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
   events: TrackEvent<any>[],
-  data: UserProvidedData = {}
+  data: UserProvidedData = {},
+  apiVersion: string = API_VERSION
 ) {
   const address = getFirst(data.address);
   const userIds: { idType: UserIdType; idValue: string }[] = [];
@@ -197,7 +205,7 @@ export async function sendEvents(
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'LinkedIn-Version': '202609',
+      'LinkedIn-Version': apiVersion,
       'X-Restli-Protocol-Version': '2.0.0',
       'X-RestLi-Method': 'BATCH_CREATE',
     },
@@ -210,10 +218,15 @@ export async function sendEvents(
 
 /** LinkedIn's Conversions API, sent the events in `conversions`, as `linkedInAds` is. */
 export function linkedinConversions(
-  options: Pick<LinkedInAdsOptions, 'conversions'> & { accessToken: string }
+  options: Pick<LinkedInAdsOptions, 'conversions'> & {
+    accessToken: string;
+    /** `LinkedIn-Version` header (YYYYMM), e.g. '202609'. */
+    apiVersion?: string;
+  }
 ): ConversionDestination {
   return conversionDestination(
     (name) => options.conversions[name as TrackName] !== undefined,
-    (events, data) => sendEvents(options.accessToken, options.conversions, events, data)
+    (events, data) =>
+      sendEvents(options.accessToken, options.conversions, events, data, options.apiVersion)
   );
 }

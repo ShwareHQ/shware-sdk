@@ -92,7 +92,7 @@ describe('getDeterministicFingerprint', () => {
 describe('getProbabilisticFingerprint', () => {
   it('assembles the device profile, floored screen and pasted link', async () => {
     state.referrer = 'utm_source=meta';
-    const fp = await getProbabilisticFingerprint();
+    const fp = await getProbabilisticFingerprint(true);
 
     expect(fp).toMatchObject({
       os: 'Android 16',
@@ -114,8 +114,8 @@ describe('getProbabilisticFingerprint', () => {
     expect(fp.timestamp).toBeGreaterThan(0);
   });
 
-  it('leaves the clipboard untouched when asked not to read it', async () => {
-    const fp = await getProbabilisticFingerprint(false);
+  it('leaves the clipboard untouched by default', async () => {
+    const fp = await getProbabilisticFingerprint();
     expect(getStringAsync).not.toHaveBeenCalled();
     expect(fp.pasted_link).toBeNull();
   });

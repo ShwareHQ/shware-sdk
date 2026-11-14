@@ -12,6 +12,7 @@ import {
   adsTracker,
   isLocalHost,
 } from './integration';
+import { warnOnce } from './warn-once';
 
 declare global {
   interface Window {
@@ -49,7 +50,7 @@ export function sendUETEvent<T extends EventName>(
   eventId?: string
 ) {
   if (typeof window === 'undefined' || !window.uetq) {
-    console.warn('uetq has not been initialized');
+    warnOnce('uetq has not been initialized');
     return false;
   }
   if (metrics.includes(name) || name === 'page_view') return;
@@ -72,7 +73,7 @@ export function sendUETEvent<T extends EventName>(
  */
 export function setUETUser({ user_id, user_data }: UpdateVisitorDTO) {
   if (typeof window === 'undefined' || !window.uetq) {
-    console.warn('uetq has not been initialized');
+    warnOnce('uetq has not been initialized');
     return;
   }
 
