@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { keys } from '../constants/storage';
 import { type Link, getLink } from '../link/index';
 import { type Storage, cache, config } from '../setup/index';
-import { warnOnce } from '../third-parties/warn-once';
 import type { TrackTags } from '../track/types';
 import { redactUrl } from '../utils/redact-url';
 import { getPageKey } from './page-key';
@@ -212,7 +211,7 @@ export const storage: Storage = {
     try {
       return localStorage.getItem(key);
     } catch {
-      warnOnce('localStorage is not available; falling back to in-memory storage');
+      console.warn('localStorage is not available; falling back to in-memory storage');
       return map.get(key) ?? null;
     }
   },
@@ -220,7 +219,7 @@ export const storage: Storage = {
     try {
       localStorage.setItem(key, value);
     } catch {
-      warnOnce('localStorage is not available; falling back to in-memory storage');
+      console.warn('localStorage is not available; falling back to in-memory storage');
       map.set(key, value);
     }
   },

@@ -9,7 +9,6 @@ import {
   adsTracker,
   isLocalHost,
 } from './integration';
-import { warnOnce } from './warn-once';
 
 declare global {
   interface Window {
@@ -26,7 +25,7 @@ export function sendRedditEvent<T extends EventName>(
   eventId?: string
 ) {
   if (typeof window === 'undefined' || !window.rdt) {
-    warnOnce('rdt has not been initialized');
+    console.warn('rdt has not been initialized');
     return false;
   }
   if (metrics.includes(name)) return;
@@ -46,7 +45,7 @@ export function sendRedditEvent<T extends EventName>(
 export function setRedditUser(pixelId: PixelId) {
   return ({ user_id, user_data }: UpdateVisitorDTO) => {
     if (typeof window === 'undefined' || !window.rdt) {
-      warnOnce('rdt has not been initialized');
+      console.warn('rdt has not been initialized');
       return;
     }
 

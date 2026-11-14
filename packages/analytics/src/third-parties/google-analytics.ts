@@ -2,7 +2,6 @@ import type { UpdateVisitorDTO } from '../schema/index';
 import type { GaId, Gtag } from '../track/gtag';
 import type { EventName, TrackName, TrackProperties } from '../track/types';
 import type { Integration } from './integration';
-import { warnOnce } from './warn-once';
 
 declare global {
   interface Window {
@@ -16,7 +15,7 @@ export function sendGAEvent<T extends EventName>(
   properties?: TrackProperties<T>
 ) {
   if (typeof window === 'undefined' || !window.gtag) {
-    warnOnce('GA has not been initialized');
+    console.warn('GA has not been initialized');
     return false;
   }
   window.gtag('event', name, properties);
@@ -24,7 +23,7 @@ export function sendGAEvent<T extends EventName>(
 
 export function setGAUser({ user_id, user_data }: UpdateVisitorDTO) {
   if (typeof window === 'undefined' || !window.gtag) {
-    warnOnce('GA has not been initialized');
+    console.warn('GA has not been initialized');
     return;
   }
   // No user is sign-out (`reset()`): GA keeps a set user_id for every later event on the page, so
