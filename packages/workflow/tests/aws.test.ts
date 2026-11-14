@@ -372,7 +372,7 @@ describe('AwsInstances', () => {
         hash: 'h',
         ts: ts + 1,
       })
-    ).toBeNull();
+    ).toBe('duplicate');
     failing = false;
     await port.resume({ workflow: 'w', userId: 'u1' });
     expect(sentStarts).toHaveLength(2);
@@ -498,7 +498,7 @@ describe('the router on AwsInstances', () => {
     return { store, port, env };
   }
 
-  test("a failed submit keeps the entry; the user's next event finishes the same start", async () => {
+  test('a failed submit keeps the entry; the redelivered event finishes the same start', async () => {
     const control = fakeLambda();
     let failing = true;
     const lambda: LambdaApi = {
@@ -510,17 +510,16 @@ describe('the router on AwsInstances', () => {
       },
     };
     const { store, env } = await routed(lambda);
-    await expect(ingestEvent(env, { userId: 'u1', event: 'login' }, store)).rejects.toThrow(
-      /socket hang up/
-    );
+    const login = { userId: 'u1', event: 'login', id: 'evt-1', ts: Date.now() };
+    await expect(ingestEvent(env, login, store)).rejects.toThrow(/socket hang up/);
     const entries = await pg.query<{ instance_id: string; status: string }>(
       `SELECT instance_id, status FROM workflow.entry`
     );
     expect(entries.rows).toEqual([{ instance_id: expect.any(String), status: 'running' }]);
 
     failing = false;
-    // A later event: no second entry, and the recorded start is resent as it was
-    const again = await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // The same event again: no second entry, and the recorded start is resent as it was
+    const again = await ingestEvent(env, login, store);
     expect(again.started).toEqual([]);
     expect(control.starts).toHaveLength(2);
     expect(control.starts[1]).toEqual(control.starts[0]);
@@ -1219,11 +1218,11 @@ describe('review fixes', () => {
     const env = { JOURNEY: instances };
     await deployBundle(env, compileConfig(journeyConfig('1 day')), store);
     const twoDaysAgo = Date.now() - 48 * HOUR;
-    await expect(
-      ingestEvent(env, { userId: 'u1', event: 'login', ts: twoDaysAgo }, store)
-    ).rejects.toThrow(/down/);
+    const backfilled = { userId: 'u1', event: 'login', id: 'evt-old', ts: twoDaysAgo };
+    await expect(ingestEvent(env, backfilled, store)).rejects.toThrow(/down/);
     failing = false;
-    await ingestEvent(env, { userId: 'u1', event: 'login' }, store);
+    // Redelivered: the same occurrence resumes its recorded start
+    await ingestEvent(env, backfilled, store);
     // Retried, not given up on: the start is minutes old, whatever the event's ts
     expect(sent).toHaveLength(2);
     const [record] = await pg

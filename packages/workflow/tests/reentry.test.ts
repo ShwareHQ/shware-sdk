@@ -79,14 +79,14 @@ describe('compiling the policy', () => {
     expect(() => compile({ mode: 'after_exit', maxEntries: 3 })).toThrow(/got 'maxEntries'/);
   });
 
-  test('the IR schema refuses impossible combinations, and reads an IR from before the policy', () => {
+  test('the IR schema refuses impossible combinations and requires the policy', () => {
     expect(() => ReentryIR.parse({ mode: 'never', cooldown: { value: '1 day', ms: DAY } })).toThrow(
       /unrecognized_keys/
     );
     expect(() => ReentryIR.parse({ mode: 'anytime' })).toThrow(/invalid_union/);
     const ir = compile({ mode: 'never' });
-    const { reentry: _, ...legacy } = ir;
-    expect(WorkflowIR.parse(legacy).reentry).toBeUndefined();
+    const { reentry: _, ...without } = ir;
+    expect(() => WorkflowIR.parse(without)).toThrow(/reentry/);
   });
 });
 
@@ -114,27 +114,31 @@ describe('the store decides on the per-entry ledger', () => {
   test('never: a second entry is refused, whether the first still runs or ended', async () => {
     const never = { mode: 'never' } as const;
     expect(await store().enterJourney(entry(never, 'e1', 1_000))).toBe('entered');
-    expect(await store().enterJourney(entry(never, 'e2', 2_000))).toBeNull();
+    expect(await store().enterJourney(entry(never, 'e2', 2_000))).toBe('refused');
     await end('e1');
-    expect(await store().enterJourney(entry(never, 'e3', 3_000))).toBeNull();
+    expect(await store().enterJourney(entry(never, 'e3', 3_000))).toBe('refused');
     expect(await entryRows('w')).toHaveLength(1);
   });
 
-  test('never: an entry that only failed is reclaimed, keeping one row', async () => {
+  test('never: a failed entry blocks nothing, and a new occurrence is a new row', async () => {
     const never = { mode: 'never' } as const;
     expect(await store().enterJourney(entry(never, 'e1', 1_000))).toBe('entered');
     await end('e1', 'failed');
-    expect(await store().enterJourney(entry(never, 'e2', 2_000))).toBe('reclaimed');
-    expect(await entryRows('w')).toEqual([expect.objectContaining({ occurrence: 'e2' })]);
+    expect(await store().enterJourney(entry(never, 'e2', 2_000))).toBe('entered');
+    expect((await entryRows('w')).map((row) => [row.occurrence, row.status])).toEqual([
+      ['e1', 'failed'],
+      ['e2', 'running'],
+    ]);
+    expect(await store().enterJourney(entry(never, 'e3', 3_000))).toBe('refused');
   });
 
   test('after_exit: refused while the previous instance runs, entered once it ended', async () => {
     const policy = { mode: 'after_exit' } as const;
     expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBe('entered');
-    expect(await store().enterJourney(entry(policy, 'e2', 2_000))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e2', 2_000))).toBe('refused');
     await end('e1', 'goal');
     expect(await store().enterJourney(entry(policy, 'e3', 3_000))).toBe('entered');
-    expect(await store().enterJourney(entry(policy, 'e4', 4_000))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e4', 4_000))).toBe('refused');
     // A failed instance is not running either
     await end('e3', 'failed');
     expect(await store().enterJourney(entry(policy, 'e5', 5_000))).toBe('entered');
@@ -156,22 +160,22 @@ describe('the store decides on the per-entry ledger', () => {
     expect(await store().enterJourney(entry(policy, 'e1', 0))).toBe('entered');
     // Ended right away: the exit does not restart the clock
     await end('e1');
-    expect(await store().enterJourney(entry(policy, 'e2', DAY - 1))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e2', DAY - 1))).toBe('refused');
     expect(await store().enterJourney(entry(policy, 'e3', DAY))).toBe('entered');
     // Measured from that latest entry now
-    expect(await store().enterJourney(entry(policy, 'e4', DAY + DAY / 2))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e4', DAY + DAY / 2))).toBe('refused');
     // An occurrence older than the latest entry (delivered out of order) is within it too
-    expect(await store().enterJourney(entry(policy, 'e5', 10))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e5', 10))).toBe('refused');
   });
 
   test('after_exit with a cooldown: both conditions must hold', async () => {
     const policy = { mode: 'after_exit', cooldown: { value: '1 day', ms: DAY } } as const;
     expect(await store().enterJourney(entry(policy, 'e1', 0))).toBe('entered');
     // Past the cooldown, still running
-    expect(await store().enterJourney(entry(policy, 'e2', 2 * DAY))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e2', 2 * DAY))).toBe('refused');
     await end('e1');
     // Ended, but within the cooldown of the entry
-    expect(await store().enterJourney(entry(policy, 'e3', DAY / 2))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e3', DAY / 2))).toBe('refused');
     expect(await store().enterJourney(entry(policy, 'e4', 2 * DAY))).toBe('entered');
   });
 
@@ -189,10 +193,10 @@ describe('the store decides on the per-entry ledger', () => {
     { mode: 'concurrent', cooldown: { value: '1 hour', ms: 3_600_000 } },
   ])('the same occurrence never enters twice (%o)', async (policy) => {
     expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBe('entered');
-    expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBe('duplicate');
     await end('e1');
     // Ended: still the same occurrence, still refused
-    expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBeNull();
+    expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBe('duplicate');
     // Failed: reclaimed, never a second row
     await end('e1', 'failed');
     expect(await store().enterJourney(entry(policy, 'e1', 1_000))).toBe('reclaimed');
@@ -205,18 +209,6 @@ describe('the store decides on the per-entry ledger', () => {
       ['a', 'b', 'c', 'd'].map((occurrence) => store().enterJourney(entry(policy, occurrence, 1)))
     );
     expect(outcomes.filter((outcome) => outcome === 'entered')).toHaveLength(1);
-  });
-
-  test('a row from before re-entry (no occurrence) is the user’s entry, ended or running', async () => {
-    await database.client.query(
-      `INSERT INTO workflow.entry (workflow, user_id, instance_id, occurrence, hash, status, ts)
-       VALUES ('w', 'u1', 'legacy', NULL, 'h', 'running', to_timestamp(0))`
-    );
-    expect(await store().enterJourney(entry({ mode: 'never' }, 'e1', 1_000))).toBeNull();
-    expect(await store().enterJourney(entry({ mode: 'after_exit' }, 'e1', 1_000))).toBeNull();
-    await store().setEntryStatus('legacy', 'completed');
-    expect(await store().enterJourney(entry({ mode: 'never' }, 'e1', 1_000))).toBeNull();
-    expect(await store().enterJourney(entry({ mode: 'after_exit' }, 'e1', 1_000))).toBe('entered');
   });
 
   test('the deploy guard counts the running entries, one per running instance', async () => {

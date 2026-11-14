@@ -315,7 +315,7 @@ describe('ingest', () => {
         instanceId: 'i2',
         ts: 2,
       })
-    ).toBeNull();
+    ).toBe('duplicate');
     await store.setEntryStatus('i1', 'failed');
     expect(
       await store.enterJourney({
@@ -703,7 +703,7 @@ describe('erasure', () => {
         ...entry,
         instanceId: 'i2',
       })
-    ).toBeNull();
+    ).toBe('duplicate');
     await store.subscribe('i1', 'u1', ['x'], 1);
     await store.subscribe('i1', 'u1', ['x'], 2);
     expect(await store.findWakeHandles('u1', 'x')).toEqual(['i1']);

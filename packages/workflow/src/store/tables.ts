@@ -162,6 +162,10 @@ export const TABLES = {
     columns: {
       workflow: text,
       hash: text,
+      reentry: {
+        type: 'jsonb',
+        doc: "The workflow's re-entry policy (`ReentryIR`), carried with the route so an entry is decided without reading the IR.",
+      },
       event: text,
       where: nullable(jsonb),
       filter: nullable(jsonb),
@@ -183,6 +187,10 @@ export const TABLES = {
     columns: {
       workflow: text,
       hash: text,
+      reentry: {
+        type: 'jsonb',
+        doc: "The workflow's re-entry policy (`ReentryIR`), carried with the route so an entry is decided without reading the IR.",
+      },
       segment: text,
       version: nullable(
         text,
@@ -216,15 +224,15 @@ export const TABLES = {
   }),
   entry: table({
     name: 'entry',
-    doc: "Entry ledger, one row per entry: the instance it started and how that ended (`status`). The workflow's `reentry` policy is decided on a user's rows of the workflow; the (workflow, user, occurrence) key makes a redelivered trigger enter at most once in every mode. A row from before re-entry existed has no occurrence and is that user's only entry.",
+    doc: "Entry ledger, one row per entry: the instance it started and how that ended (`status`). The workflow's `reentry` policy is decided on a user's rows of the workflow; the (workflow, user, occurrence) key makes a redelivered trigger enter at most once in every mode.",
     columns: {
       workflow: text,
       userId: text,
       instanceId: text,
-      occurrence: nullable(
-        text,
-        'The triggering occurrence: the event id, or `$segment:<segment>:<membership since>` for a segment trigger. Null on rows written before re-entry existed (one per workflow and user then).'
-      ),
+      occurrence: {
+        type: 'text',
+        doc: 'The triggering occurrence: the event id, or `$segment:<segment>:<membership since>` for a segment trigger.',
+      },
       hash: text,
       status: text,
       ts,
@@ -238,9 +246,9 @@ export const TABLES = {
       ),
     },
     primaryKey: ['instanceId'],
-    uniqueConstraints: [{ columns: ['workflow', 'userId', 'occurrence'], nullsNotDistinct: true }],
+    uniqueIndexes: [['workflow', 'userId', 'occurrence']],
     // admittedAt: maintenance looks up the few entries still unadmitted (`IS NULL` uses it). The
-    // re-entry decision reads a user's rows of a workflow through the unique constraint's index
+    // re-entry decision reads a user's rows of a workflow through the unique index
     indexes: [['admittedAt'], ['userId']],
   }),
   subscription: table({

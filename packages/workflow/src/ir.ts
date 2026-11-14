@@ -44,7 +44,7 @@ import * as z from 'zod/mini';
  * mapping is an explicit migrator's job).
  */
 
-export const IR_VERSION = 2;
+export const IR_VERSION = 3;
 
 /* -------------------------------- Base values ------------------------------- */
 
@@ -436,9 +436,6 @@ export const ReentryIR = z.discriminatedUnion('mode', [
 ]);
 export type ReentryIR = z.infer<typeof ReentryIR>;
 
-/** What an IR without `reentry` means: one compiled before the policy existed entered a user once. */
-export const DEFAULT_REENTRY: ReentryIR = { mode: 'never' };
-
 export const WorkflowIR = z.object({
   irVersion: z.literal(IR_VERSION),
   /** Wire identity (`workflow({ id })`): routing tables, the entry ledger and reporting are keyed on it. */
@@ -446,13 +443,7 @@ export const WorkflowIR = z.object({
   contentHash: z.string(),
   meta: z.optional(MetaIR),
   trigger: TriggerIR,
-  /**
-   * Always written by the compiler. Optional on read only so an IR stored before the policy
-   * existed (a version in-flight journeys are still pinned to) still parses: absent means
-   * `never` (`DEFAULT_REENTRY`), which is what the engine did then. An added optional field, so
-   * `irVersion` stays.
-   */
-  reentry: z.optional(ReentryIR),
+  reentry: ReentryIR,
   goal: z.optional(GoalIR),
   exitWhen: z.optional(ConditionIR),
   flow: z.array(NodeIR),

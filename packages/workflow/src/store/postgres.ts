@@ -1,5 +1,5 @@
 import type { PushDevice } from '../engine/ports';
-import { type BundleIR, ConditionIR, WorkflowIR } from '../ir';
+import { type BundleIR, ConditionIR, ReentryIR, WorkflowIR } from '../ir';
 import { conditionToSql } from './condition-sql';
 import { type ErasureState, UserErasedError } from './erasure';
 import { visitorIdOf, visitorSubject } from './identity';
@@ -79,7 +79,7 @@ function asJson<T>(value: unknown): T {
 
 /**
  * The journey data plane on Postgres: native types where Postgres has them
- * (jsonb, timestamptz), and the concurrency guarantees come from the database: ON CONFLICT for the once policy and
+ * (jsonb, timestamptz), and the concurrency guarantees come from the database: the user lock for the entry ledger, ON CONFLICT for
  * idempotent subscriptions, a transaction for the route swap, a jsonb merge
  * for /identify. The tables are declared in tables.ts.
  *
@@ -828,9 +828,10 @@ export class PostgresJourneyStore implements JourneyStore {
       where_clause: unknown;
       filter: unknown;
       visitors: boolean | null;
+      reentry: unknown;
       version: string | null;
     }>(
-      `SELECT workflow, hash, "where" AS where_clause, filter, visitors, version FROM ${this.t.trigger} WHERE event = $1`,
+      `SELECT workflow, hash, "where" AS where_clause, filter, visitors, reentry, version FROM ${this.t.trigger} WHERE event = $1`,
       [event]
     );
     return rows.map((row) => ({
@@ -839,6 +840,7 @@ export class PostgresJourneyStore implements JourneyStore {
       where: row.where_clause === null ? null : ConditionIR.parse(asJson(row.where_clause)),
       filter: row.filter === null ? null : ConditionIR.parse(asJson(row.filter)),
       visitors: row.visitors === true,
+      reentry: ReentryIR.parse(asJson(row.reentry)),
       version: row.version ?? undefined,
     }));
   }
@@ -848,12 +850,14 @@ export class PostgresJourneyStore implements JourneyStore {
       workflow: string;
       hash: string;
       segment: string;
+      reentry: unknown;
       version: string | null;
-    }>(`SELECT workflow, hash, segment, version FROM ${this.t.segmentTrigger}`);
+    }>(`SELECT workflow, hash, segment, reentry, version FROM ${this.t.segmentTrigger}`);
     return rows.map((row) => ({
       workflow: row.workflow,
       hash: row.hash,
       segment: row.segment,
+      reentry: ReentryIR.parse(asJson(row.reentry)),
       version: row.version ?? undefined,
     }));
   }
@@ -952,7 +956,7 @@ export class PostgresJourneyStore implements JourneyStore {
     for (const workflow of bundle.workflows) {
       if (workflow.trigger.type === 'event') {
         await tx.query(
-          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter, visitors, version) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb, $6, $7)`,
+          `INSERT INTO ${this.t.trigger} (workflow, hash, event, "where", filter, visitors, reentry, version) VALUES ($1, $2, $3, $4::text::jsonb, $5::text::jsonb, $6, $7::text::jsonb, $8)`,
           [
             workflow.id,
             workflow.contentHash,
@@ -960,13 +964,20 @@ export class PostgresJourneyStore implements JourneyStore {
             workflow.trigger.where === undefined ? null : JSON.stringify(workflow.trigger.where),
             workflow.trigger.filter === undefined ? null : JSON.stringify(workflow.trigger.filter),
             workflow.trigger.visitors === true,
+            JSON.stringify(workflow.reentry),
             version ?? null,
           ]
         );
       } else if (workflow.trigger.type === 'segment') {
         await tx.query(
-          `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment, version) VALUES ($1, $2, $3, $4)`,
-          [workflow.id, workflow.contentHash, workflow.trigger.segment, version ?? null]
+          `INSERT INTO ${this.t.segmentTrigger} (workflow, hash, segment, reentry, version) VALUES ($1, $2, $3, $4::text::jsonb, $5)`,
+          [
+            workflow.id,
+            workflow.contentHash,
+            workflow.trigger.segment,
+            JSON.stringify(workflow.reentry),
+            version ?? null,
+          ]
         );
       }
     }
@@ -1048,7 +1059,7 @@ export class PostgresJourneyStore implements JourneyStore {
     return this.sql.transaction(async (tx) => {
       await this.lockUser(tx, entry.userId);
       const outcome = await this.claimEntry(tx, entry);
-      if (outcome !== null && execution !== undefined) {
+      if ((outcome === 'entered' || outcome === 'reclaimed') && execution !== undefined) {
         await this.recordStart(tx, entry, execution);
       }
       return outcome;
@@ -1071,12 +1082,12 @@ export class PostgresJourneyStore implements JourneyStore {
     );
     const previous = same.at(0);
     if (previous !== undefined) {
-      if (previous.status !== 'failed') return null;
+      if (previous.status !== 'failed') return 'duplicate';
       return this.reclaimEntry(sql, entry, previous.instance_id, claimedAt);
     }
 
-    // The policy, on the user's other entries of the workflow. A 'failed' one records an outage,
-    // not a journey: it neither blocks nor starts a cooldown.
+    // A new occurrence: the policy, on the user's other entries of the workflow. A 'failed' one
+    // records an outage, not a journey: it neither blocks nor starts a cooldown.
     const cooldownMs = reentry.mode === 'never' ? 0 : (reentry.cooldown?.ms ?? 0);
     const [{ live, running, cooling }] = await sql.query<{
       live: number;
@@ -1090,37 +1101,31 @@ export class PostgresJourneyStore implements JourneyStore {
        FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2`,
       [workflow, userId, entry.ts, cooldownMs]
     );
-    if (reentry.mode === 'never') {
-      if (live > 0) return null;
-      // A user who only ever failed to start is not barred by the once policy: their failed row
-      // is reclaimed, so the ledger keeps one row per user here
-      const failed = await sql.query<{ instance_id: string }>(
-        `SELECT instance_id FROM ${this.t.entry} WHERE workflow = $1 AND user_id = $2
-         ORDER BY ts DESC LIMIT 1`,
-        [workflow, userId]
-      );
-      const corpse = failed.at(0);
-      if (corpse !== undefined) return this.reclaimEntry(sql, entry, corpse.instance_id, claimedAt);
-    } else {
-      if (reentry.mode === 'after_exit' && running > 0) return null;
-      if (cooling > 0) return null;
+    const refused =
+      reentry.mode === 'never'
+        ? live > 0
+        : (reentry.mode === 'after_exit' && running > 0) || cooling > 0;
+    if (refused) {
+      // A tombstone outranks the policy: the caller must learn the user is erased
+      await this.refuseIfErased(sql, userId);
+      return 'refused';
     }
 
     const inserted = await sql.query(
       `INSERT INTO ${this.t.entry} (workflow, user_id, instance_id, occurrence, hash, status, ts, claimed_at)
        SELECT $1, $2, $3, $4, $5, 'running', ${TS('$6')}, ${TS('$7')} ${this.notErased('$2')}
-       ON CONFLICT DO NOTHING RETURNING instance_id`,
+       RETURNING instance_id`,
       [workflow, userId, entry.instanceId, occurrence, entry.hash, entry.ts, claimedAt]
     );
     if (inserted.length > 0) return 'entered';
-    // Refused by the tombstone, or an instance id already taken: tell them apart
-    await this.refuseIfErased(sql, userId);
-    return null;
+    throw new UserErasedError(userId);
   }
 
   /**
-   * Take over the row of a dead instance rather than barring the user over one outage. The
-   * status test is inside the UPDATE, as a second guard beside the lock. The reclaim is a new
+   * Take over the occurrence's row of a dead instance rather than losing the occurrence over one
+   * outage (the unique key leaves no room for a second row). The status test is inside the
+   * UPDATE, as a second guard beside the lock; the only other way it matches nothing is the
+   * tombstone. The reclaim is a new
    * attempt: it starts unadmitted, even under the same instance id, so the previous attempt's
    * admission is not inherited (`runningInstances` would report a runner that has not been
    * created yet).
@@ -1148,8 +1153,7 @@ export class PostgresJourneyStore implements JourneyStore {
       ]
     );
     if (claimed.length > 0) return 'reclaimed';
-    await this.refuseIfErased(sql, entry.userId);
-    return null;
+    throw new UserErasedError(entry.userId);
   }
 
   /**

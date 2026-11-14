@@ -205,9 +205,9 @@ describe('contentHash is a permanent contract', () => {
      * And again when every workflow gained its `reentry` policy: who may enter, and how often, is
      * part of what the workflow does.
      */
-    expect(checkoutRecovery.toIR().contentHash).toBe('ccd83c13b3cf97c067860291f766a4a4');
-    expect(winback.toIR().contentHash).toBe('baaa10445d1ddb8e5476fdd771f54ac0');
-    expect(reengagement.toIR().contentHash).toBe('ce8a2f36388d146a6df4ec4f7b957140');
-    expect(nudge.toIR().contentHash).toBe('1e745d3b42f1223c1d55d3c193e07db8');
+    expect(checkoutRecovery.toIR().contentHash).toBe('95b36b9be03619831b65a80289c5d89a');
+    expect(winback.toIR().contentHash).toBe('5d838312f8bc253676d117b88d027730');
+    expect(reengagement.toIR().contentHash).toBe('85d45507684901a6ce16e075ccf924ae');
+    expect(nudge.toIR().contentHash).toBe('e6bde4a90541389a78e1b55fcd5897ac');
   });
 });

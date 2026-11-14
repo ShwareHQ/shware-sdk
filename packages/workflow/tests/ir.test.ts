@@ -7,6 +7,7 @@ const checkoutRecoveryIR = {
   id: 'checkout_recovery',
   contentHash: 'a3f8c2d1e5b90776',
   trigger: { type: 'event', event: 'begin_checkout' },
+  reentry: { mode: 'never' },
   goal: {
     condition: { type: 'segment', segment: 'purchaser' },
     exitOnMatch: true,

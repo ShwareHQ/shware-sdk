@@ -443,7 +443,7 @@ describe('bundle compilation', () => {
     }).run(sync);
     const bundle = compileBundle({ workflows: [wf], actions: [sync] });
     expect(() => BundleIR.parse(bundle)).not.toThrow();
-    expect(bundle.actions).toEqual([{ irVersion: 2, name: 'sync_crm' }]);
+    expect(bundle.actions).toEqual([{ irVersion: 3, name: 'sync_crm' }]);
   });
 
   test('an action a workflow runs must be in the bundle, even inside a branch arm', () => {

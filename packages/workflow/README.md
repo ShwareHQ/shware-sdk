@@ -415,7 +415,7 @@ continues.
 ```ts
 workflow({
   id: 'nps_followup',
-  reentry: { mode: 'never' },
+  reentry: { mode: 'after_exit' },
   trigger: trigger.event(e.nps_sent),
 }).branch(
   'by score',
@@ -1128,6 +1128,11 @@ workflow({
 workflow({
   id: 'nps_followup',
   trigger: trigger.event(e.nps_sent),
+  reentry: { mode: 'after_exit' },
+});
+workflow({
+  id: 'purchase_thanks',
+  trigger: trigger.event(e.purchase),
   reentry: { mode: 'concurrent' },
 });
 ```
@@ -1154,8 +1159,9 @@ arrives while the policy refuses it is dropped, not queued.
   often the segment is evaluated (Customer.io's rule for segment-triggered
   campaigns).
 - An instance that failed (its start was lost, the platform ended it) records an
-  outage, not a journey: it neither blocks re-entry nor starts a cooldown, and
-  under `never` the next trigger takes its place.
+  outage, not a journey: it neither blocks re-entry nor starts a cooldown, in
+  every mode. A retry of the same occurrence takes its row over; any other
+  occurrence is a new entry if the policy allows it.
 
 Cross-workflow frequency capping (no more than N messages a week across every
 journey) is a separate concern, not part of re-entry.
@@ -1236,8 +1242,8 @@ workflow under the user's lock, so concurrent ingests are admitted exactly as
 they would be one after another, and the unique key `(workflow, user_id,
 occurrence)` keeps a redelivered trigger from entering twice. The deploy guard
 counts `running` rows (one per running instance), and an erasure deletes every
-row of the user. A row from before re-entry existed has no occurrence and is that
-user's only entry, ended or running as its status says.
+row of the user. Each route (`trigger`, `segment_trigger`) carries the workflow's
+policy as deployed, so deciding an entry reads no IR.
 
 ## Cloudflare setup
 
@@ -1530,21 +1536,24 @@ to run until they match. Without drizzle,
 alters them at runtime: `POST /bundle/deploy` checks the live database first
 and answers 503 with every missing table or column.
 
-**Upgrading to 11.0 (re-entry).** Every `workflow()` needs a `reentry` policy
-(`{ mode: 'never' }` keeps what it did before). `entry` changes from one row per
-`(workflow, user_id)` to one row per entry: its primary key moves to
-`instance_id`, it gains a nullable `occurrence` column and a
-`UNIQUE NULLS NOT DISTINCT (workflow, user_id, occurrence)` constraint, and the
-separate `instance_id` index goes (the primary key covers it). Regenerate the
-drizzle file (`workflow-ui generate`) and let drizzle-kit write an incremental
-migration; it needs no data step and loses nothing. `instance_id` is already
-unique in existing rows, and a row from before keeps its meaning: its null
-`occurrence` makes it the user's only entry, ended or running as its `status`
-says, so under `never` the user stays entered once. Check the generated SQL drops
-the old primary key before adding the new one. `POST /bundle/deploy` refuses to
-run until the column and the constraint exist. Every workflow's content hash
-changes (the policy is part of it), so the first deploy publishes a new version
-of each; journeys in flight finish on the version they are pinned to.
+**Upgrading to 11.0 (re-entry).** A breaking change with no migration path for
+old data. Every `workflow()` needs a `reentry` policy (`{ mode: 'never' }` is
+the old behaviour). The IR is version 3 (`reentry` is required), so IRs stored
+by an earlier version no longer parse, and every content hash changes. The
+tables change:
+
+- `entry`: one row per entry instead of one per `(workflow, user_id)` — the
+  primary key moves to `instance_id`, a NOT NULL `occurrence` column is added
+  with a unique index on `(workflow, user_id, occurrence)`, and the separate
+  `instance_id` index goes (the primary key covers it).
+- `trigger` and `segment_trigger`: a NOT NULL `reentry` jsonb column.
+
+Old ledger rows, stored IRs and journeys in flight are not migrated: the engine
+has no meaning for an entry without an occurrence or an IR without a policy.
+Drain or reset the engine's data (or migrate it as you see fit), regenerate the
+drizzle file (`workflow-ui generate`), let drizzle-kit write the migration, and
+redeploy, which rewrites the routes. `POST /bundle/deploy` refuses to run until
+the new columns and indexes exist.
 
 **Upgrading to 9.1 (at-most-once delivery).** `message` gains a nullable
 `claimed_at` (set just before the transport takes a copy, cleared when the send
@@ -1701,8 +1710,8 @@ the node's identity within the running instance.
 Whether a user enters again is the workflow's [`reentry`](#re-entry) policy,
 decided on the entry ledger atomically under concurrent ingests. Whatever the
 mode, one occurrence enters at most once. An entry whose instance died records a
-failure, not a journey the user received: a retry of the same occurrence (and
-under `never` the next trigger) reclaims it.
+failure, not a journey the user received: it blocks nothing, and a retry of the
+same occurrence reclaims its row.
 
 The entry commits before the platform creates the instance, so a host cut off
 between the two leaves an entry with nothing behind it. Two things repair it: a

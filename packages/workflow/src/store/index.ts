@@ -36,6 +36,8 @@ export interface TriggerRoute {
   filter: ConditionIR | null;
   /** Whether a visitor not signed in may enter. */
   visitors: boolean;
+  /** The workflow's re-entry policy, deployed with the route. */
+  reentry: ReentryIR;
   /**
    * The code version that applied these routes; absent after a hand-posted `POST /deploy`. Read
    * in the same row as the hash, so the pair is always one deploy's.
@@ -47,6 +49,8 @@ export interface SegmentTriggerRoute {
   workflow: string;
   hash: string;
   segment: string;
+  /** As `TriggerRoute.reentry`. */
+  reentry: ReentryIR;
   /** As `TriggerRoute.version`. */
   version?: string | undefined;
 }
@@ -152,12 +156,13 @@ export interface ExecutionRegistry {
 }
 
 /**
- * How an entry attempt ended: a fresh row, a 'failed' row of a dead instance
- * taken over (the same occurrence's, or under `never` the user's only entry:
- * one outage does not bar a user), or refused — the occurrence already entered
- * and is alive, or the re-entry policy does not allow another entry now.
+ * How an entry attempt ended:
+ * - `entered`: a new row for the occurrence;
+ * - `reclaimed`: the occurrence's own 'failed' row (a dead instance) taken over;
+ * - `duplicate`: the occurrence already holds a live entry (running or ended);
+ * - `refused`: the re-entry policy turned it away; nothing of it is owed.
  */
-export type EntryOutcome = 'entered' | 'reclaimed' | null;
+export type EntryOutcome = 'entered' | 'reclaimed' | 'duplicate' | 'refused';
 
 /** A device registered for pushes: its provider token belongs to the user who registered it last. */
 export interface DeviceInput {
@@ -633,11 +638,11 @@ export interface JourneyStore {
   /* ------------------------------- entry ledger ------------------------------- */
   /**
    * Record the entry under the workflow's re-entry policy (`entry.reentry`), one row per entry.
-   * The decision reads the user's entries of the workflow: `never` refuses once any exists,
-   * `after_exit` while one is still running, and a `cooldown` while the latest entry is younger
-   * than it (by `ts`). A 'failed' entry neither blocks nor starts a cooldown: it records an
-   * outage, not a journey, and under `never` or for the same occurrence it is reclaimed.
-   * An occurrence already in the ledger is never entered twice, whatever the mode. Atomic under
+   * The same occurrence is never entered twice: its live row makes the attempt a `duplicate`,
+   * its 'failed' row is reclaimed. A new occurrence is decided on the user's other entries of
+   * the workflow, 'failed' ones left out (an outage, not a journey: they neither block nor start
+   * a cooldown): `never` refuses once any exists, `after_exit` while one is still running, and a
+   * `cooldown` while one entered less than it before (by `ts`); otherwise a new row. Atomic under
    * concurrent ingests: of two racing attempts the policy admits exactly the ones it would admit
    * one after the other.
    */
@@ -655,8 +660,8 @@ export interface JourneyStore {
    */
   unadmittedEntries(claimedBefore: number, limit: number): Promise<UnadmittedEntry[]>;
   /**
-   * Mark a lost start `failed`, so the occurrence's retry (or under `never` the next trigger)
-   * reclaims it. Only while the entry is
+   * Mark a lost start `failed`: a retry of the occurrence reclaims it, and it no longer blocks
+   * the next entry the policy allows. Only while the entry is
    * still running and unadmitted under this instance id; false when it moved on meanwhile.
    */
   failUnadmittedEntry(instanceId: string): Promise<boolean>;

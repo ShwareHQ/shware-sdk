@@ -14,7 +14,7 @@ import {
   describeInFlight,
   pinnedWorkflows,
 } from '../inflight';
-import { BundleIR, type ConditionIR, DEFAULT_REENTRY, type TriggerIR } from '../ir';
+import { BundleIR, type ConditionIR, type ReentryIR, type TriggerIR } from '../ir';
 import { isMessageId } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
 import {
@@ -189,21 +189,11 @@ async function startTriggeredJourneys(
       if (!(await evaluateCondition(route.filter, facts, ts))) continue;
     }
 
-    const { instanceId } = await startJourney(
-      env,
-      store,
-      route.workflow,
-      route.hash,
-      input.userId,
+    const { instanceId } = await startJourney(env, store, route, input.userId, ts, occurrence, {
+      event: input.event,
+      payload: input.payload,
       ts,
-      occurrence,
-      {
-        event: input.event,
-        payload: input.payload,
-        ts,
-      },
-      route.version
-    );
+    });
     if (instanceId !== null) started.push(instanceId);
   }
   return started;
@@ -266,16 +256,10 @@ async function refreshSegments(
 ): Promise<string[]> {
   // Segments are about users: a visitor is not one until they sign in
   if (isVisitorSubject(userId)) return [];
-  const bySegment = new Map<string, { workflow: string; hash: string; version?: string }[]>(
-    segments.map((name) => [name, []])
-  );
+  const bySegment = new Map<string, SegmentTriggerRoute[]>(segments.map((name) => [name, []]));
   for (const route of routes) {
     const list = bySegment.get(route.segment) ?? [];
-    list.push({
-      workflow: route.workflow,
-      hash: route.hash,
-      ...(route.version === undefined ? {} : { version: route.version }),
-    });
+    list.push(route);
     bySegment.set(route.segment, list);
   }
   if (bySegment.size === 0) return [];
@@ -327,13 +311,11 @@ async function refreshSegments(
         const { instanceId, outcome } = await startJourney(
           env,
           store,
-          route.workflow,
-          route.hash,
+          route,
           userId,
           since,
           occurrence,
-          { event: '$segment_entry', payload: { segment: segmentId } },
-          route.version
+          { event: '$segment_entry', payload: { segment: segmentId } }
         );
         if (instanceId !== null) started.push(instanceId);
         // Crossed off once an instance is known to exist, or once the re-entry policy refused
@@ -381,10 +363,10 @@ const LOST_START_BATCH = 25;
 /**
  * Starts lost between the entry and the platform's create — the Worker cut off there, or a
  * create that failed with its rollback failing too — leave a `running` entry nothing will ever
- * admit, and the once-policy would then bar the user from the workflow for good. An instance that
+ * admit, and as a running entry it would block re-entry for good. An instance that
  * ended before admitting itself leaves the same. An entry old enough, unadmitted, whose instance
- * the runtime does not know or reports ended, is marked `failed`: the pair's next trigger reclaims
- * it. Nothing of such an instance ran, since admission precedes its first effect. Platform-neutral:
+ * the runtime does not know or reports ended, is marked `failed`: it blocks
+ * nothing, and a retry of its occurrence reclaims it. Nothing of such an instance ran, since admission precedes its first effect. Platform-neutral:
  * on AWS a planned start is always known to `get` (its registry row), and reads as ended only once
  * its retries have given up, so only a start with nothing behind it is touched.
  */
@@ -432,8 +414,8 @@ const LOST_INSTANCE_BATCH = 50;
 /**
  * Instances that ended on the platform without finalizing their entry: terminated from outside
  * (the dashboard, the API), errored for good because a finalize step kept failing, or no longer
- * known to the runtime at all. The entry stays `running`, and the once-policy would bar the user
- * from the workflow for good. Only admitted entries are looked at — an unadmitted one is
+ * known to the runtime at all. The entry stays `running`, and as such would block re-entry for
+ * good. Only admitted entries are looked at — an unadmitted one is
  * `failLostStarts`' — and only a terminal status, or not found, ends one: an admitted instance
  * did reach the runtime, so not found now means it finished and was evicted (as `stopInstance`
  * reads it). A lookup that fails otherwise proves nothing and leaves the entry alone. The update
@@ -631,7 +613,7 @@ async function entryStarted(
   occurrence: string
 ): Promise<boolean> {
   const entry = await store.getEntry(workflow, userId, occurrence);
-  // A failed entry is reclaimed by the next evaluation: its start is still owed
+  // A failed entry is reclaimed by the occurrence's next evaluation: its start is still owed
   if (entry === undefined || entry.status === 'failed') return false;
   if (entry.admitted || entry.status !== 'running') return true;
   try {
@@ -682,29 +664,33 @@ interface StartResult {
   outcome: 'started' | 'duplicate' | 'refused';
 }
 
+/** Which workflow version a start enters, as its route carries it. */
+interface StartRoute {
+  workflow: string;
+  hash: string;
+  reentry: ReentryIR;
+  /** The code version whose bundle routed this start, read with the hash (see TriggerRoute). */
+  version?: string | undefined;
+}
+
 /**
- * Create one journey instance behind the entry ledger, as the workflow's re-entry policy (read
- * from the IR the entry pins) allows. The store's attempt is atomic, so concurrent ingests cannot
- * enter the same occurrence twice nor get past the policy together. An occurrence whose previous
- * instance is recorded as 'failed' is reclaimed rather than lost over one outage.
+ * Create one journey instance behind the entry ledger, as the workflow's re-entry policy (carried
+ * on the route) allows. The store's attempt is atomic, so concurrent ingests cannot enter the
+ * same occurrence twice nor get past the policy together. An occurrence whose previous instance
+ * is recorded as 'failed' is reclaimed rather than lost over one outage.
  */
 async function startJourney(
   env: JourneyEnv,
   store: JourneyStore,
-  workflow: string,
-  hash: string,
+  route: StartRoute,
   userId: string,
   ts: number,
   occurrence: string,
-  trigger: { event: string; payload: Record<string, unknown>; ts?: number },
-  /** The code version whose bundle routed this start, read with the hash (see TriggerRoute). */
-  version?: string
+  trigger: { event: string; payload: Record<string, unknown>; ts?: number }
 ): Promise<StartResult> {
+  const { workflow, hash, reentry, version } = route;
   const instanceId = buildInstanceId(workflow, hash, userId, ts, occurrence);
   const params: JourneyParams = { workflowId: workflow, contentHash: hash, userId, trigger };
-  // A route without its IR is a broken deploy the runner fails on anyway; until then it enters
-  // a user once, as an IR from before the policy existed does
-  const reentry = (await store.getWorkflowIR(hash))?.reentry ?? DEFAULT_REENTRY;
   const execution = await env.JOURNEY.plan?.({ id: instanceId, params, ts, version });
 
   const outcome = await store.enterJourney({
@@ -717,21 +703,21 @@ async function startJourney(
     reentry,
     execution,
   });
-  if (outcome === null) {
-    const entry = await store.getEntry(workflow, userId, occurrence);
-    // A runtime that records its starts (AWS) retries the recorded one still pending for the
-    // pair, if any: whichever entry refused this one — this occurrence's own, or under the
-    // policy another one — its start may never have got through, and this is a chance to finish it
-    if (env.JOURNEY.resume !== undefined) await env.JOURNEY.resume({ workflow, userId });
-    // Not this occurrence's row: the policy turned it away, and nothing of it is owed
-    if (entry === undefined) return { instanceId: null, outcome: 'refused' };
+  // The policy turned it away: nothing of this occurrence is owed
+  if (outcome === 'refused') return { instanceId: null, outcome: 'refused' };
+  if (outcome === 'duplicate') {
     // This occurrence already entered and is still alive — unless its start never got
     // through: this retry is the first chance to finish it
-    if (env.JOURNEY.resume !== undefined) return { instanceId: null, outcome: 'duplicate' };
+    if (env.JOURNEY.resume !== undefined) {
+      // A runtime that records its starts (AWS) retries the recorded one
+      await env.JOURNEY.resume({ workflow, userId });
+      return { instanceId: null, outcome: 'duplicate' };
+    }
     // A runtime that does not (Cloudflare): the ledger alone says a start is owed. Only a retry
     // of this very attempt — same instance id, so same occurrence and ts — may finish it. The id
     // is the platform's identity too, so creating it again is idempotent (`createInstance`).
-    if (entry.instanceId !== instanceId || entry.status !== 'running' || entry.admitted) {
+    const entry = await store.getEntry(workflow, userId, occurrence);
+    if (entry?.instanceId !== instanceId || entry.status !== 'running' || entry.admitted) {
       return { instanceId: null, outcome: 'duplicate' };
     }
     // Reported as started only when this retry is what created it: a duplicate delivery of an
