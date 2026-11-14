@@ -29,7 +29,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 describe('scaleDurations', () => {
   test('drops time windows, which are times of day, and keeps every other id', () => {
-    const windowed = workflow({ id: 'windowed', trigger: trigger.event(e.login) })
+    const windowed = workflow({ id: 'windowed', trigger: trigger.event(e.login), reentry: { mode: 'never' } })
       .delay('1 hour')
       .timeWindow({ between: ['09:00', '21:00'] })
       .email(tpl)
