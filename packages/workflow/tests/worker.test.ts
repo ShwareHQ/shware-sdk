@@ -53,7 +53,11 @@ const emails = {
     component: ({ name }) => createElement('p', null, `Hi ${name}`),
   }),
 };
-const flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(emails.welcome, {
+const flow = workflow({
+  id: 'welcome',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.login),
+}).email(emails.welcome, {
   name: 'friend',
 });
 const config = defineConfig({ workflows: [flow], templates: { email: emails } });
@@ -166,10 +170,11 @@ describe('sweep', () => {
     id: 'dormant',
     condition: not(performed(te.login, { within: '7 days' })),
   });
-  const comeBack = workflow({ id: 'come_back', trigger: trigger.segment(dormant) }).email(
-    emails.welcome,
-    { name: 'friend' }
-  );
+  const comeBack = workflow({
+    id: 'come_back',
+    reentry: { mode: 'never' },
+    trigger: trigger.segment(dormant),
+  }).email(emails.welcome, { name: 'friend' });
   const sweeping = defineConfig({
     workflows: [comeBack],
     segments: [dormant],
@@ -228,7 +233,11 @@ describe('sweep', () => {
 });
 
 describe('a version applies its own bundle', () => {
-  const other = workflow({ id: 'other', trigger: trigger.event(e.login) }).email(emails.welcome, {
+  const other = workflow({
+    id: 'other',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(e.login),
+  }).email(emails.welcome, {
     name: 'friend',
   });
   const versioned = (workflows: (typeof flow)[], id: string, timestamp: string) => {
@@ -290,6 +299,8 @@ describe('a version applies its own bundle', () => {
     await versioned([flow], 'v1', '2026-10-01T00:00:00.000Z')();
     const pinnedHash = flow.toIR().contentHash;
     await database.store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'welcome',
       userId: 'u1',
       instanceId: 'inst-1',
@@ -309,10 +320,11 @@ describe('a version applies its own bundle', () => {
         component: ({ name }) => createElement('p', null, `Hi ${name}`),
       }),
     };
-    const v2flow = workflow({ id: 'welcome', trigger: trigger.event(e.login) }).email(
-      stricter.welcome,
-      { name: 'friend', tone: 'warm' }
-    );
+    const v2flow = workflow({
+      id: 'welcome',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    }).email(stricter.welcome, { name: 'friend', tone: 'warm' });
     const env = {
       JOURNEY: new FakeJourney(),
       ENVIRONMENT: 'development',

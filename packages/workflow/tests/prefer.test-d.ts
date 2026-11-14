@@ -67,7 +67,11 @@ const templates = {
   },
 };
 
-const w = workflow({ id: 'prefer_types', trigger: trigger.event(e.login) });
+const w = workflow({
+  id: 'prefer_types',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.login),
+});
 
 /* ---------------------------------- accepted ---------------------------------- */
 

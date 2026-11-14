@@ -202,6 +202,8 @@ describe.skipIf(url === undefined || url === '')('Postgres user locks over two c
     instanceId,
     hash: 'h',
     ts: 1,
+    occurrence: 'test',
+    reentry: { mode: 'never' } as const,
     execution: { name: `n-${instanceId}`, target: 't', input: '{}' },
   });
   // Both read on connection B: only once no gate holds a transaction there

@@ -29,6 +29,7 @@ const subscriberSplit = flow((w) =>
  */
 export const onboarding = workflow({
   id: 'onboarding',
+  reentry: { mode: 'never' },
   name: 'Onboarding · Core',
   trigger: signedUp,
 })

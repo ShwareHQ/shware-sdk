@@ -22,7 +22,11 @@ const contract = defineContract({
 describe('defineContract', () => {
   test('declared event names and refs the DSL compiles against', () => {
     expect(contract.eventNames).toEqual(['login', 'purchase']);
-    const ir = workflow({ id: 'w', trigger: trigger.event(contract.events.login) })
+    const ir = workflow({
+      id: 'w',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(contract.events.login),
+    })
       .branch([performed(contract.events.purchase, { count: 2 }), (b) => b.exit()])
       .toIR();
     expect(ir.trigger).toMatchObject({ type: 'event', event: 'login' });
@@ -192,6 +196,7 @@ describe('ingest validation in the Worker', () => {
     const store = database.store;
     const welcome = workflow({
       id: 'welcome',
+      reentry: { mode: 'never' },
       trigger: trigger.event(contract.events.login),
     }).exit();
     await deployBundle(env, compileBundle({ workflows: [welcome] }), store);

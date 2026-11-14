@@ -83,9 +83,14 @@ const welcome = plainEmail('welcome');
 const pro = segment({ id: 'pro', condition: eq(u.plan, 'pro') });
 const purchased = segment({ id: 'purchased', condition: performed(e.purchase) });
 
-const welcomeFlow = workflow({ id: 'welcome', trigger: trigger.event(e.signed_up) }).email(welcome);
+const welcomeFlow = workflow({
+  id: 'welcome',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.signed_up),
+}).email(welcome);
 const proNudge = workflow({
   id: 'pro_nudge',
+  reentry: { mode: 'never' },
   trigger: trigger.segment(pro),
   goal: purchased,
 }).email(welcome);
@@ -173,6 +178,8 @@ describe('ingest', () => {
     );
     expect(
       await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
         workflow: 'welcome',
         userId: 'u1',
         instanceId: 'x',
@@ -291,10 +298,34 @@ describe('ingest', () => {
   test('a failed entry is reclaimed, a live one is not', async () => {
     const { store } = setup();
     const entry = { workflow: 'welcome', userId: 'u1', hash: 'h' };
-    expect(await store.enterJourney({ ...entry, instanceId: 'i1', ts: 1 })).toBe('entered');
-    expect(await store.enterJourney({ ...entry, instanceId: 'i2', ts: 2 })).toBeNull();
+    expect(
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        ...entry,
+        instanceId: 'i1',
+        ts: 1,
+      })
+    ).toBe('entered');
+    expect(
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        ...entry,
+        instanceId: 'i2',
+        ts: 2,
+      })
+    ).toBeNull();
     await store.setEntryStatus('i1', 'failed');
-    expect(await store.enterJourney({ ...entry, instanceId: 'i2', ts: 2 })).toBe('reclaimed');
+    expect(
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        ...entry,
+        instanceId: 'i2',
+        ts: 2,
+      })
+    ).toBe('reclaimed');
     const rows = await pg.query<{ instance_id: string; status: string }>(
       'SELECT instance_id, status FROM workflow.entry'
     );
@@ -418,6 +449,8 @@ describe('subscriptions and entries', () => {
   test('entry status is updated by instance id', async () => {
     const { store } = setup();
     await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
       workflow: 'welcome',
       userId: 'u1',
       instanceId: 'i1',
@@ -430,6 +463,8 @@ describe('subscriptions and entries', () => {
     await store.removeEntry('i1');
     expect(
       await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
         workflow: 'welcome',
         userId: 'u1',
         instanceId: 'i2',
@@ -489,7 +524,15 @@ describe('erasure', () => {
     await store.mergeProfile('u1', { plan: 'pro' });
     await store.subscribe('i1', 'u1', ['x'], 1);
     await store.addSegmentMember('s', 'u1', 1, ['w']);
-    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId: 'u1',
+      instanceId: 'i1',
+      hash: 'h',
+      ts: 1,
+    });
     await store.mergeProfile('u2', { plan: 'free' });
     await store.updateSuppressions('u1', 'email', [{ topic: null, suppressed: true }], 1);
     await store.updateSuppressions('u2', 'email', [{ topic: 'tips', suppressed: true }], 1);
@@ -536,7 +579,15 @@ describe('erasure', () => {
       const { store } = setup();
       await store.mergeProfile('u2', { plan: 'free' });
       // An entry of u1 that died, to show the reclaim is gated like the insert
-      await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i0', hash: 'h', ts: 1 });
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        workflow: 'w',
+        userId: 'u1',
+        instanceId: 'i0',
+        hash: 'h',
+        ts: 1,
+      });
       await store.setEntryStatus('i0', 'failed');
       // The tombstone lands after any pre-check a caller made
       await store.requestErasure('u1', 5);
@@ -556,13 +607,31 @@ describe('erasure', () => {
         UserErasedError
       );
       await expect(
-        store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 7 })
-      ).rejects.toBeInstanceOf(UserErasedError);
-      await expect(
-        store.enterJourney({ workflow: 'w2', userId: 'u1', instanceId: 'i2', hash: 'h', ts: 7 })
+        store.enterJourney({
+          occurrence: 'test',
+          reentry: { mode: 'never' },
+          workflow: 'w',
+          userId: 'u1',
+          instanceId: 'i1',
+          hash: 'h',
+          ts: 7,
+        })
       ).rejects.toBeInstanceOf(UserErasedError);
       await expect(
         store.enterJourney({
+          occurrence: 'test',
+          reentry: { mode: 'never' },
+          workflow: 'w2',
+          userId: 'u1',
+          instanceId: 'i2',
+          hash: 'h',
+          ts: 7,
+        })
+      ).rejects.toBeInstanceOf(UserErasedError);
+      await expect(
+        store.enterJourney({
+          occurrence: 'test',
+          reentry: { mode: 'never' },
           workflow: 'w3',
           userId: 'u1',
           instanceId: 'i3',
@@ -619,9 +688,22 @@ describe('erasure', () => {
     const row = { id: 'e1', userId: 'u1', event: 'x', ts: 1, payload: {} };
     expect(await store.insertEvent(row)).toBe(true);
     expect(await store.insertEvent(row)).toBe(false);
-    const entry = { workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 };
+    const entry = {
+      workflow: 'w',
+      userId: 'u1',
+      instanceId: 'i1',
+      hash: 'h',
+      ts: 1,
+      occurrence: 'test',
+      reentry: { mode: 'never' } as const,
+    };
     expect(await store.enterJourney(entry)).toBe('entered');
-    expect(await store.enterJourney({ ...entry, instanceId: 'i2' })).toBeNull();
+    expect(
+      await store.enterJourney({
+        ...entry,
+        instanceId: 'i2',
+      })
+    ).toBeNull();
     await store.subscribe('i1', 'u1', ['x'], 1);
     await store.subscribe('i1', 'u1', ['x'], 2);
     expect(await store.findWakeHandles('u1', 'x')).toEqual(['i1']);
@@ -642,7 +724,15 @@ describe('admitInstance', () => {
 
   test('records the admission once: a replay keeps the first time', async () => {
     const { store } = setup();
-    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId: 'u1',
+      instanceId: 'i1',
+      hash: 'h',
+      ts: 1,
+    });
     expect(await store.runningInstances('u1')).toEqual([{ instanceId: 'i1', admitted: false }]);
     expect(await admittedAt('i1')).toBeNull();
 
@@ -660,7 +750,15 @@ describe('admitInstance', () => {
 
   test('is refused once the user has a tombstone, and for an entry not in the ledger', async () => {
     const { store } = setup();
-    await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId: 'u1',
+      instanceId: 'i1',
+      hash: 'h',
+      ts: 1,
+    });
     await store.requestErasure('u1', 2);
     expect(await store.admitInstance('i1', 'u1')).toBe(false);
     expect(await admittedAt('i1')).toBeNull();
@@ -668,11 +766,27 @@ describe('admitInstance', () => {
 
     expect(await store.admitInstance('nope', 'u2')).toBe(false);
     // Another user's entry cannot be admitted under this user
-    await store.enterJourney({ workflow: 'w', userId: 'u2', instanceId: 'i2', hash: 'h', ts: 1 });
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId: 'u2',
+      instanceId: 'i2',
+      hash: 'h',
+      ts: 1,
+    });
     expect(await store.admitInstance('i2', 'u3')).toBe(false);
     expect(await store.admitInstance('i2', 'u2')).toBe(true);
     // Nor a terminal entry never admitted
-    await store.enterJourney({ workflow: 'w', userId: 'u4', instanceId: 'i4', hash: 'h', ts: 1 });
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId: 'u4',
+      instanceId: 'i4',
+      hash: 'h',
+      ts: 1,
+    });
     await store.setEntryStatus('i4', 'completed');
     expect(await store.admitInstance('i4', 'u4')).toBe(false);
     expect(await admittedAt('i4')).toBeNull();
@@ -682,7 +796,15 @@ describe('admitInstance', () => {
     'an admitted instance replays its finalisation after the entry is %s; the status is kept',
     async (status) => {
       const { store } = setup();
-      await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i1', hash: 'h', ts: 1 });
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        workflow: 'w',
+        userId: 'u1',
+        instanceId: 'i1',
+        hash: 'h',
+        ts: 1,
+      });
       expect(await store.admitInstance('i1', 'u1')).toBe(true);
       const first = await admittedAt('i1');
       await store.setEntryStatus('i1', status);
@@ -705,11 +827,25 @@ describe('admitInstance', () => {
     async (_, next) => {
       const { store } = setup();
       const entry = { workflow: 'w', userId: 'u1', hash: 'h' };
-      await store.enterJourney({ ...entry, instanceId: 'i1', ts: 1 });
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        ...entry,
+        instanceId: 'i1',
+        ts: 1,
+      });
       expect(await store.admitInstance('i1', 'u1')).toBe(true);
       await store.setEntryStatus('i1', 'failed');
 
-      expect(await store.enterJourney({ ...entry, instanceId: next, ts: 2 })).toBe('reclaimed');
+      expect(
+        await store.enterJourney({
+          occurrence: 'test',
+          reentry: { mode: 'never' },
+          ...entry,
+          instanceId: next,
+          ts: 2,
+        })
+      ).toBe('reclaimed');
       // Nothing of the new attempt has run: the erasure must not wait for a runner that does not exist
       expect(await store.runningInstances('u1')).toEqual([{ instanceId: next, admitted: false }]);
       expect(await admittedAt(next)).toBeNull();
@@ -725,7 +861,15 @@ describe('admitInstance', () => {
 
 describe('admitted entries', () => {
   const enter = (userId: string, instanceId: string) =>
-    database.store.enterJourney({ workflow: 'w', userId, instanceId, hash: 'h', ts: 1 });
+    database.store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'w',
+      userId,
+      instanceId,
+      hash: 'h',
+      ts: 1,
+    });
   const ids = (entries: { instanceId: string }[]) =>
     entries.map((entry) => entry.instanceId).sort();
 
@@ -761,26 +905,40 @@ describe('admitted entries', () => {
     await enter('u1', 'i1');
     expect(await store.admitInstance('i1', 'u1')).toBe(true);
     expect(await store.failAdmittedEntry('i1')).toBe(true);
-    expect(await store.getEntry('w', 'u1')).toMatchObject({ instanceId: 'i1', status: 'failed' });
+    expect(await store.getEntry('w', 'u1', 'test')).toMatchObject({
+      instanceId: 'i1',
+      status: 'failed',
+    });
     expect(await store.failAdmittedEntry('i1')).toBe(false);
 
     // Never admitted: `failUnadmittedEntry` is its rule
     await enter('u2', 'i2');
     expect(await store.failAdmittedEntry('i2')).toBe(false);
-    expect(await store.getEntry('w', 'u2')).toMatchObject({ status: 'running' });
+    expect(await store.getEntry('w', 'u2', 'test')).toMatchObject({ status: 'running' });
     // Finalized meanwhile: the run's own status stands
     await enter('u3', 'i3');
     expect(await store.admitInstance('i3', 'u3')).toBe(true);
     await store.setEntryStatus('i3', 'goal');
     expect(await store.failAdmittedEntry('i3')).toBe(false);
-    expect(await store.getEntry('w', 'u3')).toMatchObject({ status: 'goal' });
+    expect(await store.getEntry('w', 'u3', 'test')).toMatchObject({ status: 'goal' });
     // Reclaimed under a new id meanwhile: the new attempt is not touched under the old id
     await store.setEntryStatus('i1', 'failed');
     expect(
-      await store.enterJourney({ workflow: 'w', userId: 'u1', instanceId: 'i9', hash: 'h', ts: 2 })
+      await store.enterJourney({
+        occurrence: 'test',
+        reentry: { mode: 'never' },
+        workflow: 'w',
+        userId: 'u1',
+        instanceId: 'i9',
+        hash: 'h',
+        ts: 2,
+      })
     ).toBe('reclaimed');
     expect(await store.failAdmittedEntry('i1')).toBe(false);
-    expect(await store.getEntry('w', 'u1')).toMatchObject({ instanceId: 'i9', status: 'running' });
+    expect(await store.getEntry('w', 'u1', 'test')).toMatchObject({
+      instanceId: 'i9',
+      status: 'running',
+    });
     expect(await store.failAdmittedEntry('nope')).toBe(false);
   });
 });

@@ -57,6 +57,7 @@ const eduModule =
 
 export const onboardingEdu = workflow({
   id: 'onboarding_edu',
+  reentry: { mode: 'never' },
   name: 'Onboarding · Education Series',
   trigger: login,
 })

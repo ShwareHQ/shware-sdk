@@ -151,6 +151,7 @@ export const csAlert = slackTemplate({
 /** Two-arm branch, personalization, goal absorbing the exit paths. */
 export const checkoutRecovery = workflow({
   id: 'checkout_recovery',
+  reentry: { mode: 'never' },
   trigger: trigger.event(e.begin_checkout),
   goal: purchaser,
 })
@@ -168,6 +169,7 @@ export const checkoutRecovery = workflow({
 /** Multi-arm branch, in-arm exit (no rejoin), shared rejoin tail. */
 export const winback = workflow({
   id: 'winback',
+  reentry: { mode: 'never' },
   trigger: trigger.event(e.subscription_cancelled),
   goal: purchaser,
 })
@@ -187,7 +189,11 @@ export const winback = workflow({
 const cameBack = performed(e.login, { within: '7 days' });
 
 /** Segment trigger, wait_until, in-arm exit, trailing single-arm branch with a cohort. */
-export const reengagement = workflow({ id: 'reengagement', trigger: trigger.segment(inactive30d) })
+export const reengagement = workflow({
+  id: 'reengagement',
+  reentry: { mode: 'never' },
+  trigger: trigger.segment(inactive30d),
+})
   .email(firstTimeRecovery)
   .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' })
   .branch([cameBack, (w) => w.exit('reengaged')])
@@ -206,7 +212,11 @@ export const reengagement = workflow({ id: 'reengagement', trigger: trigger.segm
   ]);
 
 /** send_event coverage: emits an event at the end of the flow. */
-export const nudge = workflow({ id: 'nudge', trigger: trigger.event(e.sign_up) })
+export const nudge = workflow({
+  id: 'nudge',
+  reentry: { mode: 'never' },
+  trigger: trigger.event(e.sign_up),
+})
   .email(gettingStarted)
   .sendEvent(e.nudge_due);
 
