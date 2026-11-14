@@ -72,6 +72,17 @@ export interface ServerEvent<T extends EventName = EventName> {
   properties?: TrackProperties<T>;
   /** When it happened, as an ISO 8601 string. */
   createdAt: string;
+  /**
+   * Where it happened, when the server knows better than any session: a Stripe payment is `web`,
+   * an App Store one `ios`. Wins over the resolved user's `platform`, which decides each
+   * platform's action source; `resolveUser` gets it too, to pick a session of that platform.
+   */
+  platform?: Platform;
+  /**
+   * Whether it was real, when the server knows: a store's sandbox purchase is `development` even
+   * in a production deployment. Wins over the resolved user's `environment`.
+   */
+  environment?: Environment;
 }
 
 export interface ConversionsOptions {
@@ -82,10 +93,12 @@ export interface ConversionsOptions {
    */
   track?: {
     /**
-     * The user behind the event, read from the host's records (see `ConversionUser`);
-     * `undefined` for one the host has no session of, whose event is then dropped.
+     * The user behind the event, read from the host's records (see `ConversionUser`), given the
+     * event so a session of its `platform` can be preferred; `undefined` drops the event. A user
+     * with no session at all can still be matched by the platforms on `data` alone (a hashed
+     * email), so a host may answer with empty `tags` and ids of its own rather than drop it.
      */
-    resolveUser: (userId: string) => Promise<ConversionUser | undefined>;
+    resolveUser: (userId: string, event: ServerEvent) => Promise<ConversionUser | undefined>;
     /**
      * Stores the event, e.g. in the events table, returning whether it was new: `track` sends
      * only an event it stored, so a webhook delivered again (its handler failed on something
@@ -143,7 +156,7 @@ export function setupConversions(options: ConversionsOptions) {
     input: ServerEvent<T>
   ): Promise<TrackEvent<T> | undefined> {
     try {
-      const user = await resolveUser(input.userId);
+      const user = await resolveUser(input.userId, input);
       if (!user) {
         console.warn(`Conversion not reported, event: ${input.id}: no session for ${input.userId}`);
         return undefined;
@@ -155,8 +168,8 @@ export function setupConversions(options: ConversionsOptions) {
         tags: user.tags,
         visitor_id: user.visitor_id,
         session_id: user.session_id,
-        platform: user.platform,
-        environment: user.environment,
+        platform: input.platform ?? user.platform,
+        environment: input.environment ?? user.environment,
         created_at: input.createdAt,
       };
       if (!(await store(event))) return undefined;
