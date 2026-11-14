@@ -42,8 +42,9 @@ describe('scaleDurations', () => {
 
     expect(types(scaled.flow)).toEqual(['delay', 'message', 'branch']);
     expect(scaled.flow.map((node) => node.id)).toEqual(['0', '2', '3']);
-    const branch = scaled.flow[2];
-    expect(branch?.type === 'branch' && types(branch.cases[0]?.flow ?? [])).toEqual(['message']);
+    const [, , branch] = scaled.flow;
+    if (branch?.type !== 'branch') throw new Error('expected the branch third');
+    expect(branch.cases.map((c) => types(c.flow))).toEqual([['message']]);
     // Unscaled, nothing is touched.
     expect(scaleDurations(windowed, 1)).toBe(windowed);
   });
