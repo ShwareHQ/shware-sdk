@@ -807,7 +807,9 @@ Discord; supply anything else with `journeyWorker({ messages })`.
 | `database`  | `{ schema? }`: the Postgres schema, `workflow` by default                                 |
 
 The `ENVIRONMENT` var picks the `runtime` entry (production when unset).
-`timeScale` fast-forwards every duration: 600 turns "1 day" into 2.4 minutes. The `production`
+`timeScale` fast-forwards every duration: 600 turns "1 day" into 2.4 minutes. Time windows are
+times of day and cannot be compressed, so a scaled journey skips them instead of sleeping until
+the morning. The `production`
 entry's type holds it at `1` (`ProductionRuntimeOptions`): a development factor pasted under the
 production key is a compile error, not every user's journey compressed. A deploy meant to run fast
 is not production: give it a mode of its own (`ENVIRONMENT=rehearsal`), as free as `development`.
