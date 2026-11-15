@@ -6,7 +6,15 @@ import { resourceExhausted, unavailable } from './respond';
 /** Seconds an email verification code, and its attempt counter, stay valid. */
 export const EMAIL_VERIFICATION_CODE_TTL = 10 * 60;
 
-export type EmailSender = (data: { email: string; verificationCode: string }) => Promise<void>;
+/**
+ * Delivers a code. `ttl` is how many seconds the code stays valid (`EMAIL_VERIFICATION_CODE_TTL`),
+ * for the email to state instead of repeating the number.
+ */
+export type EmailSender = (data: {
+  email: string;
+  verificationCode: string;
+  ttl: number;
+}) => Promise<void>;
 
 /**
  * The six-digit codes mailed to prove an address, in the KV store: one pending code per email,
@@ -51,7 +59,7 @@ export class EmailVerificationCodes {
     const verificationCode = randomInt(1_000_000).toString().padStart(6, '0');
     try {
       // Sent before it is stored, so a failed delivery leaves the previous code usable.
-      await sender({ email, verificationCode });
+      await sender({ email, verificationCode, ttl: EMAIL_VERIFICATION_CODE_TTL });
     } catch (error) {
       console.error('Failed to send email verification code', error);
       await this.kv.removeItem(cooldownKey);

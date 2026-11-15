@@ -64,7 +64,7 @@ const ATTEMPTS_KEY = `email:verification-attempts:${EMAIL}`;
 const COOLDOWN_KEY = `email:verification-cooldown:${EMAIL}`;
 
 let kv: ReturnType<typeof memoryKV>;
-type Sender = (data: { email: string; verificationCode: string }) => Promise<void>;
+type Sender = (data: { email: string; verificationCode: string; ttl: number }) => Promise<void>;
 let sender: Mock<Sender>;
 let handler: Mock<AuthorizedHandler>;
 
@@ -351,7 +351,7 @@ describe('email address normalization', () => {
 
     expect((await send(auth, '  User@Example.COM \n')).status).toBe(200);
 
-    expect(sender).toHaveBeenCalledWith({ email: EMAIL, verificationCode: sentCode() });
+    expect(sender).toHaveBeenCalledWith({ email: EMAIL, verificationCode: sentCode(), ttl: 600 });
     expect(kv.store.get(CODE_KEY)?.value).toBe(sentCode());
     expect(kv.store.has(COOLDOWN_KEY)).toBe(true);
     expect([...kv.store.keys()].every((key) => key.endsWith(EMAIL))).toBe(true);
