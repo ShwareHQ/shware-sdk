@@ -37,7 +37,7 @@ describe('github exchangeAuthorizationCode', () => {
     expect(headersOf(fetch, 0).get('User-Agent')).toBe('@shware/security');
   });
 
-  test('refuses an error body answered with HTTP 200', async () => {
+  test('refuses an error body answered with HTTP 200; an expired code is invalid_grant', async () => {
     stubFetch(
       Response.json({
         error: 'bad_verification_code',
@@ -53,7 +53,7 @@ describe('github exchangeAuthorizationCode', () => {
 
     const error = await exchange.catch((e: unknown) => e);
     expect(error).toBeInstanceOf(OAuth2Error);
-    expect(error).toMatchObject({ status: 400, error: 'bad_verification_code' });
+    expect(error).toMatchObject({ status: 400, error: 'invalid_grant' });
     expect((error as OAuth2Error).message).toBe('The code passed is incorrect or expired.');
   });
 });

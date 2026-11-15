@@ -387,6 +387,15 @@ describe('Sign in with Apple: app and web under one provider', () => {
 });
 
 describe('nonce', () => {
+  it('refuses a provider that is not configured, writing nothing (state too)', async () => {
+    const auth = createAuth();
+    const nonce = await auth.oauth2Nonce(new Request('https://api.test/oauth2/nonce/nope'));
+    const state = await auth.oauth2State(new Request('https://api.test/oauth2/state/nope'));
+    expect(nonce.status).toBe(400);
+    expect(state.status).toBe(400);
+    expect(kv.store.size).toBe(0);
+  });
+
   it('accepts a nonce issued for the provider, once', async () => {
     const auth = createAuth();
     const { nonce } = (await (
