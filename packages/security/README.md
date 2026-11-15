@@ -604,8 +604,9 @@ const auth = new Auth({
 });
 
 app.post(PATH.SEND_EMAIL_VERIFICATION_CODE, (c) =>
-  auth.sendEmailVerificationCode(c.req.raw, async ({ email, verificationCode }) => {
-    await sendMail({ to: email, subject: 'Your sign-in code', text: verificationCode });
+  auth.sendEmailVerificationCode(c.req.raw, async ({ email, verificationCode, ttl }) => {
+    const text = `${verificationCode} (valid for ${ttl / 60} minutes)`;
+    await sendMail({ to: email, subject: 'Your sign-in code', text });
   })
 );
 app.post(PATH.LOGIN_EMAIL, (c) => auth.loginEmail(c.req.raw, onAuthorized));
