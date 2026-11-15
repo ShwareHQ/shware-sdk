@@ -1,5 +1,11 @@
 # @shware/workflow
 
+## 12.0.1
+
+### Patch Changes
+
+- 7f7d41b: Document that the config's `title` is also the title of the pages recipients see (the one-click unsubscribe confirmation), so it should name the product rather than the Studio.
+
 ## 12.0.0
 
 ### Major Changes
