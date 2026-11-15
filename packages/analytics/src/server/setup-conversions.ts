@@ -72,6 +72,19 @@ export interface ServerEvent<T extends EventName = EventName> {
   properties?: TrackProperties<T>;
   /** When it happened, as an ISO 8601 string. */
   createdAt: string;
+  /**
+   * Where it happened, when the server knows better than any session: a Stripe payment is `web`,
+   * an App Store one `ios`. Read by `resolveUser`, which answers the event's `platform` (it
+   * decides each platform's action source): a session of this platform when the user has one,
+   * or something else for a user with no session at all, such as `unknown` when there is no user
+   * agent to send with a website event.
+   */
+  platform?: Platform;
+  /**
+   * Whether it was real, when the server knows: a store's sandbox purchase is `development` even
+   * in a production deployment. Read by `resolveUser`, which answers the event's `environment`.
+   */
+  environment?: Environment;
 }
 
 export interface ConversionsOptions {
@@ -82,10 +95,13 @@ export interface ConversionsOptions {
    */
   track?: {
     /**
-     * The user behind the event, read from the host's records (see `ConversionUser`);
-     * `undefined` for one the host has no session of, whose event is then dropped.
+     * The user behind the event, read from the host's records (see `ConversionUser`), given the
+     * event so a session of its `platform` can be preferred and its `platform` / `environment`
+     * answered; what it returns is what the event is sent with. `undefined` drops the event. A user
+     * with no session at all can still be matched by the platforms on `data` alone (a hashed
+     * email), so a host may answer with empty `tags` and ids of its own rather than drop it.
      */
-    resolveUser: (userId: string) => Promise<ConversionUser | undefined>;
+    resolveUser: (userId: string, event: ServerEvent) => Promise<ConversionUser | undefined>;
     /**
      * Stores the event, e.g. in the events table, returning whether it was new: `track` sends
      * only an event it stored, so a webhook delivered again (its handler failed on something
@@ -143,7 +159,7 @@ export function setupConversions(options: ConversionsOptions) {
     input: ServerEvent<T>
   ): Promise<TrackEvent<T> | undefined> {
     try {
-      const user = await resolveUser(input.userId);
+      const user = await resolveUser(input.userId, input);
       if (!user) {
         console.warn(`Conversion not reported, event: ${input.id}: no session for ${input.userId}`);
         return undefined;

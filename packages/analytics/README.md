@@ -315,7 +315,7 @@ export const conversions = setupConversions({
   ],
   // Only for conversions.track(), which is returned only with it; forward needs none of it.
   track: {
-    resolveUser: async (userId) => latestSessionOf(userId),
+    resolveUser: async (userId, event) => latestSessionOf(userId, event.platform),
     store: async (event) => (await insertEvents([event])).length > 0,
   },
 });
@@ -331,13 +331,17 @@ ctx.waitUntil(
     userId,
     properties: { transaction_id: invoice.id, value: 9.99, currency: 'usd', items: [] },
     createdAt: new Date(invoice.created * 1000).toISOString(),
+    platform: 'web', // a Stripe payment; optional, read by resolveUser
+    environment: invoice.livemode ? 'production' : 'development',
   })
 );
 ```
 
 - `forward(events, data)`: the events a client sent, as stored, to every destination at once.
 - `track(event)`: an event the server reports on its own — a webhook's purchase, renewal or
-  refund — with `id` the transaction id. `track.resolveUser(userId)` returns what a client event
+  refund — with `id` the transaction id, and optionally the `platform` and `environment` the server
+  knows from the payment itself, for `resolveUser` to read. `track.resolveUser(userId, event)`
+  returns what a client event
   would have carried, from the host's records: the user's latest session's `tags` (cookies, page,
   user agent) with the click ids of the touch the conversion is credited to, that session's
   `visitor_id`, `session_id`, `platform` (which decides website or app) and `environment`, and the
@@ -345,8 +349,10 @@ ctx.waitUntil(
   server's conversions count wherever the client's do — and says whether it was new: only a new
   one is sent, so a webhook delivered again is not reported twice. That matters: the platforms
   document deduplicating a server event against a browser one, and only Microsoft (on `eventId`)
-  and Google Ads (on `transaction_id`) a server event sent twice. A user with no session is
-  skipped.
+  and Google Ads (on `transaction_id`) a server event sent twice. `resolveUser` answering
+  `undefined` skips the event; a user with no session at all (their browser blocked the analytics
+  requests) can instead be answered with empty `tags`, ids of the host's own and `data` from the
+  account, since the platforms also match on a hashed email.
 
 Neither throws, so reporting a conversion cannot fail the request it runs in — least of all a
 payment webhook, which its provider would deliver again and again. A failure is logged with the
