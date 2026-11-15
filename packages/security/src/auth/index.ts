@@ -463,19 +463,27 @@ export class Auth implements AuthService {
     return false;
   }
 
-  oauth2State = async (request: Request): Promise<Response> => {
-    const { provider } = param(request, PATH.OAUTH2_STATE);
-    const state = randomUUID();
-    await this.kv.setItem(this.getOauth2StateKey(state), provider, OAUTH2_PARAMETER_TTL);
-    return Response.json({ state });
-  };
+  // Both refuse a provider that is not configured (400 `invalid_request`) before writing: the key
+  // comes from the path, and an unknown one would only leave a row nobody can spend.
+  oauth2State = (request: Request): Promise<Response> =>
+    this.guard(async () => {
+      invariant(this.oauth2Client, 'oauth2Client is not initialized');
+      const { provider } = param(request, PATH.OAUTH2_STATE);
+      await this.oauth2Client.nonceSupport(provider);
+      const state = randomUUID();
+      await this.kv.setItem(this.getOauth2StateKey(state), provider, OAUTH2_PARAMETER_TTL);
+      return Response.json({ state });
+    });
 
-  oauth2Nonce = async (request: Request): Promise<Response> => {
-    const { provider } = param(request, PATH.OAUTH2_NONCE);
-    const nonce = randomUUID();
-    await this.kv.setItem(this.getOauth2NonceKey(nonce), provider, OAUTH2_PARAMETER_TTL);
-    return Response.json({ nonce });
-  };
+  oauth2Nonce = (request: Request): Promise<Response> =>
+    this.guard(async () => {
+      invariant(this.oauth2Client, 'oauth2Client is not initialized');
+      const { provider } = param(request, PATH.OAUTH2_NONCE);
+      await this.oauth2Client.nonceSupport(provider);
+      const nonce = randomUUID();
+      await this.kv.setItem(this.getOauth2NonceKey(nonce), provider, OAUTH2_PARAMETER_TTL);
+      return Response.json({ nonce });
+    });
 
   oauth2Authorization = (
     request: Request,

@@ -44,7 +44,12 @@ export function createGithubProvider(): Provider {
       // GitHub answers a failed exchange (bad_verification_code, incorrect_client_credentials, ...)
       // with HTTP 200 and an error body, so a 200 alone does not mean a token was issued.
       const body = (await response.json()) as GithubToken & Partial<GithubErrorResponse>;
-      if (body.error) throw new OAuth2Error(400, body.error, body.error_description);
+      // An expired or reused code is RFC 6749's `invalid_grant`, which the callback shows the user
+      // as such rather than as a server fault.
+      if (body.error) {
+        const error = body.error === 'bad_verification_code' ? 'invalid_grant' : body.error;
+        throw new OAuth2Error(400, error, body.error_description);
+      }
       return body;
     },
     async getUserInfo({ access_token }) {

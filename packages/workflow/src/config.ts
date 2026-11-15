@@ -26,7 +26,7 @@ import {
  * one object, so everything is registered exactly once:
  *
  *   export default defineConfig({
- *     title: 'Workflow Studio · Acme',
+ *     title: 'Acme',
  *     contract,
  *     workflows, // [onboarding, notificationTest]
  *     templates, // { email, push }: the definitions the workflows send
@@ -92,7 +92,10 @@ export interface DatabaseConfig {
 }
 
 export interface JourneyConfigDefinition<C extends Contract | undefined = Contract | undefined> {
-  /** Studio title (the browser tab names the project). */
+  /**
+   * The product's name: the Studio's browser tab, and the title of the pages recipients see (the
+   * one-click unsubscribe confirmation), so it names the product, not the tool.
+   */
   title?: string;
   /** The shared `defineContract(...)` the Worker validates ingest against. */
   contract?: C;
