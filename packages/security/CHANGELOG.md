@@ -1,5 +1,11 @@
 # @shware/security
 
+## 9.4.0
+
+### Minor Changes
+
+- 64e881f: `EmailSender` also receives `ttl`, the seconds the mailed code stays valid, so an email can state the validity instead of repeating the number.
+
 ## 9.3.1
 
 ### Patch Changes
