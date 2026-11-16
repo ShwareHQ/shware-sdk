@@ -74,7 +74,9 @@ export interface AuthConfig {
      * expiry (sliding expiration, as Spring Session and `express-session`'s `rolling` do), but
      * the row is only rewritten when the previous access is older than this, so expiry lags real
      * activity by at most this much while active sessions cost one write per interval. Default
-     * 3600 (an hour); `0` writes on every authenticated request.
+     * 3600 (an hour); `0` writes on every authenticated request. The cookie's `Max-Age` slides
+     * only when the host passes responses through `renew(request, response)`, which renews it on
+     * the request that rewrote the row.
      */
     touchInterval?: number;
     /**
@@ -176,6 +178,14 @@ export interface AuthService {
   ) => Promise<T extends true ? Session : Session | null>;
   deleteSession: (sessionId: string) => Promise<void>;
   getPrincipal: (request: Request) => Promise<Principal | null>;
+  /**
+   * `response` with the session cookie renewed (fresh `Max-Age`, the attributes its login wrote)
+   * when `request` authenticated through `getPrincipal` / `isAuthenticated` and that rewrote the
+   * session (once per `session.touchInterval`); otherwise `response` as is. Call it on every
+   * response for the cookie to slide with the session; a route that wrote the cookie itself keeps
+   * its own. May return a copy when `response`'s headers are immutable.
+   */
+  renew: (request: Request, response: Response) => Response;
   listSessions: (principal: Principal) => Promise<Session[]>;
   cleanupExpiredSessions: (cleanupCount?: number) => Promise<Response>;
 }

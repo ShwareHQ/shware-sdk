@@ -58,6 +58,12 @@ const CODE_VERIFIER_FORMAT = /^[A-Za-z0-9._~-]{43,128}$/;
 /** The header a session id travels in besides the cookie, with `session.header` on. */
 const SESSION_HEADER = 'X-Auth-Token';
 
+/**
+ * The cookie attributes a desktop session is written with (`desktopExchange`), whatever the
+ * configured ones: the renderer's `file://` / `app://` origin fetches cross-site.
+ */
+const DESKTOP_COOKIE: CookieOptions = { sameSite: 'none', secure: true };
+
 /** Seconds an OAuth2 state or nonce may be used within. */
 const OAUTH2_PARAMETER_TTL = 10 * 60;
 
@@ -226,6 +232,8 @@ export class Auth implements AuthService {
   private readonly nonceOptional: ReadonlySet<string>;
   private readonly touchInterval: number;
   private readonly sessionHeader: boolean;
+  /** Sessions `touch` rewrote, by the request that authenticated with them, for `renew`. */
+  private readonly touched = new WeakMap<Request, Session>();
   private readonly ATTR_OAUTH2_AUTHORIZATION_REQUEST = 'oauth2AuthorizationRequest';
 
   constructor({
@@ -836,10 +844,7 @@ export class Auth implements AuthService {
       const session = await this.signIn(principal);
       session.setAttribute('client_type', 'desktop');
       await this.repository.save(session);
-      return this.withSession(Response.json({ ok: true }), session, {
-        sameSite: 'none',
-        secure: true,
-      });
+      return this.withSession(Response.json({ ok: true }), session, DESKTOP_COOKIE);
     });
 
   // ---- session management ----------------------------------------------------------------------
@@ -856,21 +861,42 @@ export class Auth implements AuthService {
    * who keeps using the app is never signed out after `maxInactiveInterval` of not calling one
    * particular endpoint. No extra read: the session was just loaded to authenticate, and its
    * `lastAccessedTime` is compared in memory; writes are spaced by `session.touchInterval` (see
-   * `AuthConfig`), so a session accessed again within the interval is not rewritten.
+   * `AuthConfig`), so a session accessed again within the interval is not rewritten. A rewrite is
+   * remembered for `request`, whose response `renew` then gives a cookie as long-lived.
    */
-  private async touch(session: Session) {
+  private async touch(session: Session, request: Request) {
     const now = Date.now();
     if (now - session.getLastAccessedTime() < this.touchInterval) return;
     session.setLastAccessedTime(now);
     await this.repository.save(session);
+    this.touched.set(request, session);
   }
 
   getPrincipal = async (request: Request): Promise<Principal | null> => {
     const session = await this.loadSession(request);
     const principal = session && this.principalOf(session);
     if (!principal) return null;
-    await this.touch(session);
+    await this.touch(session, request);
     return principal;
+  };
+
+  renew = (request: Request, response: Response): Response => {
+    const session = this.touched.get(request);
+    if (!session) return response;
+    this.touched.delete(request);
+    // The route wrote the cookie itself (a login, `logged`, `logout`): a renewal after it would win.
+    const prefix = `${this.cookieName}=`;
+    if (response.headers.getSetCookie().some((cookie) => cookie.startsWith(prefix))) {
+      return response;
+    }
+    const cookie = session.getAttribute('client_type') === 'desktop' ? DESKTOP_COOKIE : undefined;
+    try {
+      return this.withSession(response, session, cookie);
+    } catch (error) {
+      // `Response.redirect` and fetched responses have immutable headers.
+      if (!(error instanceof TypeError)) throw error;
+      return this.withSession(new Response(response.body, response), session, cookie);
+    }
   };
 
   isAuthenticated = async (request: Request): Promise<boolean> => {
