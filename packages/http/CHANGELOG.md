@@ -1,5 +1,11 @@
 # @shware/http
 
+## 4.1.0
+
+### Minor Changes
+
+- ac06779: Add the `sessionRenewal({ auth })` Hono middleware, which passes every response through `auth.renew` so the session cookie slides with the session.
+
 ## 4.0.6
 
 ### Patch Changes
