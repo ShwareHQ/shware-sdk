@@ -224,8 +224,23 @@ devices"). `kick(principal)` is the same eviction for a principal other than the
 
 Besides the route handlers, `Auth` exposes session helpers: `getPrincipal(request)`,
 `isAuthenticated(request)`, `getSession(request, create)`, `listSessions(principal)`,
-`deleteSession(sessionId)`, `kick(principal)` (deletes all of a user's sessions) and
-`cleanupExpiredSessions(cleanupCount?)`.
+`deleteSession(sessionId)`, `kick(principal)` (deletes all of a user's sessions),
+`renew(request, response)` and `cleanupExpiredSessions(cleanupCount?)`.
+
+Expiry slides: `getPrincipal` and `isAuthenticated` rewrite the session's `lastAccessedTime`, at
+most once per `session.touchInterval` (default an hour). The cookie only slides with it when the
+response goes through `renew(request, response)`: on the request whose access rewrote the session
+it adds the cookie again with a fresh `Max-Age` and the attributes its login wrote (a desktop
+session keeps `SameSite=None; Secure`), and otherwise returns the response untouched, so it is
+cheap to call on every response. Without it the cookie expires `maxInactiveInterval` after sign-in
+(or the last `logged` call) even while the session is in use. With Hono, `@shware/http/hono`'s
+`sessionRenewal` does it after every route:
+
+```ts
+import { sessionRenewal } from '@shware/http/hono';
+
+app.use(sessionRenewal({ auth })); // before the routes and `authorizer`
+```
 
 ```ts
 import type { Context } from 'hono';

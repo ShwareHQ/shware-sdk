@@ -229,16 +229,17 @@ for sign-in and checkout flows; `PurchaseError` is a const enum of purchase fail
 
 ## Hono (`@shware/http/hono`)
 
-| Export         | Description                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `errorHandler` | `app.onError` handler turning any error into an `ErrorBody` response |
-| `zValidator`   | zod / zod mini validator; failures become `INVALID_ARGUMENT`         |
-| `zBeaconJson`  | `json` validator that also accepts `text/plain` beacon bodies        |
-| `bigintId`     | zod mini schema parsing a decimal string into a `bigint`             |
-| `csrf`         | Double-submit cookie CSRF check (`XSRF-TOKEN` / `X-XSRF-TOKEN`)      |
-| `authorizer`   | Requires authentication on the paths matching `rules`                |
-| `rateLimit`    | Token-bucket rate limiter over a fast, consistent key-value store    |
-| `geolocation`  | Visitor geolocation from Cloudflare, Vercel or CloudFront headers    |
+| Export           | Description                                                          |
+| ---------------- | -------------------------------------------------------------------- |
+| `errorHandler`   | `app.onError` handler turning any error into an `ErrorBody` response |
+| `zValidator`     | zod / zod mini validator; failures become `INVALID_ARGUMENT`         |
+| `zBeaconJson`    | `json` validator that also accepts `text/plain` beacon bodies        |
+| `bigintId`       | zod mini schema parsing a decimal string into a `bigint`             |
+| `csrf`           | Double-submit cookie CSRF check (`XSRF-TOKEN` / `X-XSRF-TOKEN`)      |
+| `authorizer`     | Requires authentication on the paths matching `rules`                |
+| `sessionRenewal` | Renews the session cookie on responses via `auth.renew`              |
+| `rateLimit`      | Token-bucket rate limiter over a fast, consistent key-value store    |
+| `geolocation`    | Visitor geolocation from Cloudflare, Vercel or CloudFront headers    |
 
 ### Wiring an app
 
@@ -249,7 +250,7 @@ error response gets a `RequestInfo` detail; 5xx are logged with `console.error`,
 ```ts
 import '@shware/http/polyfills';
 import { Status } from '@shware/http';
-import { type CSRFConfig, authorizer, csrf, errorHandler } from '@shware/http/hono';
+import { type CSRFConfig, authorizer, csrf, errorHandler, sessionRenewal } from '@shware/http/hono';
 import { OAuth2Error } from '@shware/security';
 import { Hono } from 'hono';
 import { requestId } from 'hono/request-id';
@@ -274,6 +275,7 @@ app.onError((error, c) => {
 
 app.use(requestId());
 app.use(csrf(csrfConfig));
+app.use(sessionRenewal({ auth })); // { renew: (request: Request, response: Response) => Response }
 app.use(
   authorizer({
     auth, // { isAuthenticated: (request: Request) => Promise<boolean> }
@@ -288,7 +290,9 @@ and throws `PERMISSION_DENIED`. A `secFetchSite` of `same-site` lets in every su
 registrable domain, so leave it out when other sites share the root domain: allow `same-origin`
 and list your other origins in `origin`. `authorizer` skips `OPTIONS`, matches `HEAD` against the
 `GET` rules (Hono serves it with the `GET` handler), and throws `UNAUTHENTICATED` for matching
-paths when `auth.isAuthenticated()` is false.
+paths when `auth.isAuthenticated()` is false. `sessionRenewal` passes every response through
+`auth.renew` after the route, so the session cookie (`@shware/security`'s `Auth`) slides with the
+session on the requests that renewed it; register it before `authorizer` and the routes.
 
 ### Validation
 
