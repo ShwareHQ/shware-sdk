@@ -668,7 +668,7 @@ describe('sendBeacon', () => {
 
     expect(beacon).toHaveBeenCalledTimes(1);
     const [, blob] = beacon.mock.calls[0];
-    if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+    if (!(blob instanceof Blob)) throw new TypeError('Expected a Blob beacon body');
     const [event] = JSON.parse(await blob.text());
     expect(event.visitor_id).toBe(STORED_VISITOR);
     expect(event.tags).toEqual({});
@@ -691,7 +691,7 @@ describe('sendBeacon', () => {
     sendBeacon('user_engagement', { engagement_time_msec: 1200, trigger: 'pagehide' });
 
     const [, blob] = beacon.mock.calls[0];
-    if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+    if (!(blob instanceof Blob)) throw new TypeError('Expected a Blob beacon body');
     const [event] = JSON.parse(await blob.text());
     expect(event.session_id).toBe('old-session');
     expect(storage.map.get('session')).toBe(`1.old-session.${stale}`);
@@ -917,7 +917,7 @@ describe('reset and the queue', () => {
     async function beaconed() {
       return Promise.all(
         beacon.mock.calls.map(async ([, blob]) => {
-          if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+          if (!(blob instanceof Blob)) throw new TypeError('Expected a Blob beacon body');
           return JSON.parse(await blob.text()) as Record<string, unknown>[];
         })
       );

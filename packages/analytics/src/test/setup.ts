@@ -46,6 +46,6 @@ export function requestUrl(input: Parameters<typeof globalThis.fetch>[0]): strin
 
 /** These transports serialize JSON to a text body; an absent or binary body is a test failure. */
 export function textRequestBody(init: RequestInit | undefined): string {
-  if (typeof init?.body !== 'string') throw new Error('Expected a text request body');
+  if (typeof init?.body !== 'string') throw new TypeError('Expected a text request body');
   return init.body;
 }

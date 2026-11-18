@@ -31,10 +31,14 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
   data: unknown,
   t: TFunction<Ns, KPrefix>
 ): { reason: ResolvedErrorReason | null; message: string } {
+  // The keys come off the wire, so they cannot be checked against the caller's resources; i18next
+  // 27's strict interpolation types reject them on a generic `TFunction`, so call it untyped.
+  const translate = t as unknown as (key: string, options?: Record<string, string>) => string;
+
   // 0. unknown error
   if (typeof data !== 'object' || data === null || !('error' in data)) {
     console.error('Unknown API error:', data);
-    return { reason: null, message: t('UNKNOWN') };
+    return { reason: null, message: translate('UNKNOWN') };
   }
 
   const { error } = data as LooseErrorBody;
@@ -48,7 +52,7 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
   if (errorInfo) {
     return {
       reason: errorInfo.reason,
-      message: t(errorInfo.reason, errorInfo.metadata),
+      message: translate(errorInfo.reason, errorInfo.metadata),
     };
   }
 
@@ -57,11 +61,11 @@ export function getErrorMessage<Ns extends Namespace = DefaultNamespace, KPrefix
   if (hasText(message)) return { reason: null, message };
 
   // 4. from server via status code
-  if (error?.status) return { reason: null, message: t(error.status) };
+  if (error?.status) return { reason: null, message: translate(error.status) };
 
   // 5. unknown error
   console.error('Unknown API error:', data);
-  return { reason: null, message: t('UNKNOWN') };
+  return { reason: null, message: translate('UNKNOWN') };
 }
 
 /**

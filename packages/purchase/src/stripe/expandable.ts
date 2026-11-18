@@ -22,6 +22,7 @@ export function expanded<T extends { id: string }>(ref: string | T, what: string
 export function expanded<T extends { id: string }>(ref: Ref<T>, what: string): T | null;
 export function expanded<T extends { id: string }>(ref: Ref<T>, what: string): T | null {
   if (!ref) return null;
-  if (typeof ref === 'string') throw new Error(`${what} ${ref} was retrieved without expanding it`);
+  if (typeof ref === 'string')
+    throw new TypeError(`${what} ${ref} was retrieved without expanding it`);
   return ref;
 }

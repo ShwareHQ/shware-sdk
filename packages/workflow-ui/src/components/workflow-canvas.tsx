@@ -480,7 +480,7 @@ function CanvasSurface({
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        colorMode={colorMode}
+        forceColorMode={colorMode}
         onNodeClick={(_event, node) => onSelectNode?.(node.id)}
         onPaneClick={() => onSelectNode?.(undefined)}
         // Overrides react-flow's own dark surface, which sits between our page and card
