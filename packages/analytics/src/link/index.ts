@@ -2,10 +2,12 @@ import { fetch } from '@shware/utils';
 import type { CreateLinkDTO } from '../schema/index';
 import { config } from '../setup/index';
 
-export interface Link extends CreateLinkDTO {
-  id: string;
-  created_at: string;
-}
+/** A stored link as the server answers it: a tag the link was created without comes back `null`. */
+export type Link = {
+  [K in keyof CreateLinkDTO]: undefined extends CreateLinkDTO[K]
+    ? CreateLinkDTO[K] | null
+    : CreateLinkDTO[K];
+} & { id: string; created_at: string };
 
 export async function createLink(dto: CreateLinkDTO) {
   const response = await fetch(`${config.endpoint}/links`, {
