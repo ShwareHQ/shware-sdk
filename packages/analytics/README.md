@@ -17,7 +17,8 @@ pnpm add @shware/analytics zod
 
 Every framework and platform integration is an optional peer dependency: install only what your
 entry point imports (`next`, `@tanstack/react-start`, the `expo-*`
-modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on).
+modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, `posthog-react-native` for
+`/native/posthog`, and so on).
 
 ## Entry points
 
@@ -28,6 +29,7 @@ modules for `/native`, `react-native-fbsdk-next` for `/native/fbsdk`, and so on)
 | `@shware/analytics/native`          | Expo    | The same for React Native, plus `deepLink` and `useAppAnalytics`            |
 | `@shware/analytics/native/firebase` | Expo    | `firebaseAnalytics()`, the integration for Firebase Analytics               |
 | `@shware/analytics/native/fbsdk`    | Expo    | `metaAppEvents()`, the integration for Facebook App Events                  |
+| `@shware/analytics/native/posthog`  | Expo    | `posthogAnalytics()` for PostHog in an app, with error tracking             |
 | `@shware/analytics/next`            | browser | `<Analytics />` for the Next.js App Router                                  |
 | `@shware/analytics/react`           | browser | `<Analytics />` for any React router (TanStack Router, React Router, …)     |
 | `@shware/analytics/tanstack`        | both    | `createClickIdMiddleware` for TanStack Start                                |
@@ -142,7 +144,7 @@ posthogAnalytics({
 
 Each exception carries the session id, so its issue links to the session's replay. `capturePosthogException(error, properties?)` reports one yourself — from an http client's error hook, or a `catch` that recovers — queued on the stub like `sendPosthogEvent`, and never throws. `<PosthogErrorBoundary fallback={…}>` (with `posthog-js/react`'s props) sends a render error with its component stack and renders `fallback` instead. What no boundary of yours sees — an uncaught error, one a framework's boundary caught (TanStack Router's), a hydration mismatch React recovered from — `setupPosthogReactErrorHandler()` reports from React 19's root options in the client entry, logging it with `console.error` as React would (a callback replaces that logging): `hydrateRoot(document, <StartClient />, { onUncaughtError: setupPosthogReactErrorHandler(), onCaughtError: setupPosthogReactErrorHandler(), onRecoverableError: setupPosthogReactErrorHandler() })`. Every one of them goes through the `errorTracking` filter.
 
-Under `posthogFlagsReady()` with `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `@posthog/types`, PostHog's types-only package for the snippet, a dependency of this one: the host does not install `posthog-js` for them. In an app, `firebaseAnalytics()` (every event) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
+Under `posthogFlagsReady()` with `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `@posthog/types`, PostHog's types-only package for the snippet, a dependency of this one: the host does not install `posthog-js` for them. In an app, `firebaseAnalytics()` (every event), `posthogAnalytics()` from `/native/posthog` (every event, see [PostHog in an app](#posthog-in-an-app)) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
 
@@ -173,6 +175,88 @@ deepLink.open(url);
 
 In the app, call `useAppAnalytics(pathname)` from `@shware/analytics/native` in the root layout
 so screen changes are tracked as page views.
+
+### PostHog in an app
+
+`posthogAnalytics` from `@shware/analytics/native/posthog` is the app's counterpart of the web
+integration of the same name, on the official `posthog-react-native` client: every `track()` reaches
+PostHog under the same name and properties as on the web, `identify` identifies the person by the
+user's id and `reset()` resets it, and exceptions go to the same project's error tracking. Install
+the library and the Expo modules it reads the device, app and storage from:
+
+```bash
+npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization
+```
+
+```ts
+import { posthogAnalytics } from '@shware/analytics/native/posthog';
+
+setupAnalytics({
+  // …the options above
+  integrations: [
+    posthogAnalytics({
+      token: 'phc_XXXXXXX',
+      // Passed to `new PostHog(token, config)` as is.
+      config: { host: 'https://us.i.posthog.com' },
+      errorTracking: __DEV__ ? false : { ignoreErrors: ['Network request failed'] },
+    }),
+  ],
+});
+```
+
+It creates the one client of the app (a second call, from Fast Refresh, reuses it), which
+`getPosthog()` returns for what the integration does not cover — feature flags, surveys, or
+`<PostHogProvider client={getPosthog()}>` for the library's own hooks. `release` and `environment`
+are not sent, as on the web: the library adds the app's version and build to every event itself.
+
+With `errorTracking` on, the library's exception autocapture reports uncaught errors (it chains
+React Native's global handler, so the red box and the crash are unchanged) and Hermes' unhandled
+rejections; options take its `autocapture` settings (`nativeCrashes`, …), and `ignoreErrors` works as
+on the web. There is no `denyUrls`: every frame of the app's JavaScript is in one bundle, so a
+frame's file cannot tell whose code it is. `false` sends no exception at all, for development (where
+React Native's own unhandled-rejection warning stays, since the library's tracker is not installed).
+`capturePosthogException(error, properties?)` reports one yourself and never throws (a no-op before
+`posthogAnalytics`). It is the app's own function of the web's name: each platform imports its
+`capturePosthogException` from its own entry (`/third-parties` on the web, `/native/posthog` in an
+app), so neither PostHog library reaches the other platform's bundle.
+`<PosthogErrorBoundary fallback={…}>` takes the web boundary's props and sends a render error once,
+its component stack in `$exception_component_stack`:
+
+```tsx
+import { PosthogErrorBoundary } from '@shware/analytics/native/posthog';
+
+<PosthogErrorBoundary fallback={({ resetError }) => <ErrorScreen onRetry={resetError} />}>
+  <Stack />
+</PosthogErrorBoundary>;
+```
+
+There is no `setupPosthogReactErrorHandler` for apps: React Native creates the root itself, with
+fixed error handlers that hand an error no boundary caught to `ExceptionsManager` as fatal — which
+the autocapture reports — and a caught one as non-fatal, which it does not, so a boundary's error is
+reported once, by the boundary. An error caught by a boundary of another library (an expo-router
+route's `ErrorBoundary` export) is therefore not reported: call `capturePosthogException` from it.
+
+#### Readable stack traces
+
+Hermes reports positions in the minified bundle. To have PostHog symbolicate them, follow
+[PostHog's React Native source maps guide](https://posthog.com/docs/error-tracking/upload-source-maps/react-native);
+for an Expo app that is:
+
+1. `metro.config.js`: `const { getPostHogExpoConfig } = require('posthog-react-native/metro');` and
+   `module.exports = getPostHogExpoConfig(__dirname);`, which stamps each bundle with the id its map
+   is uploaded under.
+2. `app.config.ts`: add the `'posthog-react-native/expo'` config plugin, which uploads the Hermes
+   source maps from the iOS and Android release builds (and, with `uploadNativeSymbols`, native
+   symbols for `nativeCrashes`).
+3. The build machine (EAS included) needs `posthog-cli` (`@posthog/cli`) and its credentials,
+   `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`, as environment variables or in the plugin's
+   `dotenvFile`.
+
+By default (the plugin's `releaseMode: 'event'`) an exception's release is the app version and build
+the library reads from `expo-application`, so keep that module installed, and do not replace
+`config.customAppProperties` with an object that drops `$app_version` / `$app_build`. Pass the same
+version as `setupAnalytics({ release })` (e.g. `nativeApplicationVersion`), so a release reads the
+same in your events and in PostHog's issues.
 
 ### The `<Analytics />` component (web)
 

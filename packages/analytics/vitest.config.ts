@@ -50,7 +50,6 @@ export default defineConfig({
         'src/tanstack/index.ts',
         'src/native/fbsdk.ts',
         'src/native/firebase.ts',
-        'src/native/posthog.ts',
         'src/native/index.ts',
       ],
     },
