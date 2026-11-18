@@ -17,10 +17,10 @@ peer: you only need it, and a client instance, if you use the Redis repositories
 
 ## Entry points
 
-| Import path                        | Contents                                                                                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `@shware/security`                 | `Auth`, `PATH`, `AuthenticationError`, session/KV repositories, `OAuth2Client`, `OAuth2Error`, `PROVIDERS`, types |
-| `@shware/security/oauth2/provider` | Built-in OAuth2 providers (`apple`, `facebook`, `github`, `google`, `wechat`, `x`) and `createAppleClientSecret`  |
+| Import path                        | Contents                                                                                                                                  |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `@shware/security`                 | `Auth`, `PATH`, `AuthenticationError`, session/KV repositories, `OAuth2Client`, `OAuth2Error`, `PROVIDERS`, `verifyTurnstileToken`, types |
+| `@shware/security/oauth2/provider` | Built-in OAuth2 providers (`apple`, `facebook`, `github`, `google`, `wechat`, `x`) and `createAppleClientSecret`                          |
 
 ## Quick start (Hono)
 
@@ -197,16 +197,17 @@ server fault: `server_error` on the redirect, rethrown to your error handler on 
 
 ## `Auth` options
 
-| Option               | Type                                | Notes                                                                                         |
-| -------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------- |
-| `sessionRepository`  | `SessionRepository`                 | Required. Where sessions live (see below).                                                    |
-| `kvRepository`       | `KVRepository`                      | Required. Short-lived values: OAuth2 state/nonce, verification and desktop codes.             |
-| `cookie`             | `CookieOptions & { name?: string }` | Session cookie. Defaults: name `SESSION`, `path: '/'`, `SameSite=None`, `Secure`, `HttpOnly`. |
-| `oauth2.client`      | `OAuth2ClientConfig`                | `baseUri`, `errorUri`, `successUri`, `providers` (object or async function).                  |
-| `oauth2.nonce`       | `{ optional?: string[] }`           | Providers whose logins may come without a nonce; every id-token flow requires one otherwise.  |
-| `turnstileSecretKey` | `string`                            | Cloudflare Turnstile secret; required by `sendEmailVerificationCode`.                         |
-| `verificationCode`   | `{ maxAttempts?, resendCooldown? }` | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
-| `timing`             | `boolean`                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
+| Option               | Type                                                | Notes                                                                                         |
+| -------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `sessionRepository`  | `SessionRepository`                                 | Required. Where sessions live (see below).                                                    |
+| `kvRepository`       | `KVRepository`                                      | Required. Short-lived values: OAuth2 state/nonce, verification and desktop codes.             |
+| `cookie`             | `CookieOptions & { name?: string }`                 | Session cookie. Defaults: name `SESSION`, `path: '/'`, `SameSite=None`, `Secure`, `HttpOnly`. |
+| `oauth2.client`      | `OAuth2ClientConfig`                                | `baseUri`, `errorUri`, `successUri`, `providers` (object or async function).                  |
+| `oauth2.nonce`       | `{ optional?: string[] }`                           | Providers whose logins may come without a nonce; every id-token flow requires one otherwise.  |
+| `turnstileSecretKey` | `string`                                            | Cloudflare Turnstile secret; required by `sendEmailVerificationCode`.                         |
+| `turnstile`          | `{ remoteIp?, hostname?, action?, siteverifyUrl? }` | How `sendEmailVerificationCode` verifies the token; see "Turnstile".                          |
+| `verificationCode`   | `{ maxAttempts?, resendCooldown? }`                 | Email code limits: guesses per code (default 5), seconds between sends (default 60).          |
+| `timing`             | `boolean`                                           | Adds a `Server-Timing` header to OAuth2 responses.                                            |
 
 The session id lives in the cookie. For clients without a cookie jar (a CLI, a desktop shell),
 `session: { header: true }` also carries it in `X-Auth-Token`, as Spring Session does: every
@@ -609,7 +610,9 @@ must carry one issued by `GET /oauth2/nonce/:provider`, which it consumes.
 ## Email sign-in
 
 A six-digit code, valid for 10 minutes, protected by Cloudflare Turnstile. Set
-`turnstileSecretKey` and wire both routes; you supply the function that delivers the email.
+`turnstileSecretKey` and wire both routes; you supply the function that delivers the email. The
+token is checked with `verifyTurnstileToken` (see "Turnstile") before a code is sent, so a failed
+or unavailable check never claims the resend cooldown.
 
 ```ts
 const auth = new Auth({
@@ -650,7 +653,8 @@ Error reasons (`google.rpc.ErrorInfo`, see "Errors"):
 
 | Reason                                | Status                   | When                                                                              |
 | ------------------------------------- | ------------------------ | --------------------------------------------------------------------------------- |
-| `TURNSTILE_VERIFICATION_FAILED`       | `400 INVALID_ARGUMENT`   | The Turnstile token was rejected.                                                 |
+| `TURNSTILE_VERIFICATION_FAILED`       | `403 PERMISSION_DENIED`  | The Turnstile challenge was not passed (rejected token, hostname/action).         |
+| `TURNSTILE_UNAVAILABLE`               | `503 UNAVAILABLE`        | Turnstile's siteverify failed or timed out; retry later.                          |
 | `VERIFICATION_CODE_RESEND_TOO_SOON`   | `429 RESOURCE_EXHAUSTED` | A code was sent to this email within `resendCooldown`.                            |
 | `EMAIL_DELIVERY_FAILED`               | `503 UNAVAILABLE`        | The sender threw; the cooldown is released, so the user can retry at once.        |
 | `INVALID_VERIFICATION_CODE`           | `403 PERMISSION_DENIED`  | Wrong code, or no code is pending for this email.                                 |
@@ -659,6 +663,63 @@ Error reasons (`google.rpc.ErrorInfo`, see "Errors"):
 Every login attempt against a pending code is counted before the code is compared, so parallel
 requests cannot exceed `maxAttempts` guesses either. A new code starts with a fresh budget.
 
+## Turnstile
+
+`verifyTurnstileToken` is the check `sendEmailVerificationCode` runs, exported for your own
+endpoints that take a Turnstile token (a feedback form, a sign-up). It posts the token to Cloudflare's
+siteverify with a 5-second timeout and resolves when the challenge was passed; otherwise it throws
+one of two errors, which `errorResponse` answers like every other `Auth` failure, so an error
+handler that starts with `errorResponse(error) ?? …` needs nothing else:
+
+```ts
+import { verifyTurnstileToken } from '@shware/security';
+
+app.post('/feedback', async (c) => {
+  const dto = createFeedbackSchema.parse(await c.req.json());
+  await verifyTurnstileToken({
+    secret: env.TURNSTILE_SECRET_KEY,
+    token: dto.turnstileToken,
+    remoteIp: c.req.header('CF-Connecting-IP'),
+    hostname: 'app.example.com', // optional
+    action: 'feedback', // optional, the widget's data-action
+  });
+  // … store the feedback
+});
+```
+
+| Outcome           | Status                  | Reason                          | When                                                                                                             |
+| ----------------- | ----------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Challenge failed  | `403 PERMISSION_DENIED` | `TURNSTILE_VERIFICATION_FAILED` | siteverify answered `success: false` (invalid, expired or spent token), or `hostname` / `action` differ.         |
+| Check unavailable | `503 UNAVAILABLE`       | `TURNSTILE_UNAVAILABLE`         | siteverify answered non-2xx or a body without a boolean `success`, took over 5 seconds, or could not be reached. |
+
+A failed challenge is the visitor's to fix: reset the widget and try with a fresh token. An
+unavailable check is not their fault: keep the form and let them retry. Both are logged
+(`console.warn` with siteverify's error codes, `console.error` with the cause); neither reaches the
+response.
+
+| Option          | Notes                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `secret`        | Required. The widget's secret key.                                                                                    |
+| `token`         | Required. The token the widget gave the client.                                                                       |
+| `remoteIp`      | The visitor's IP, sent as `remoteip`. Behind Cloudflare, `CF-Connecting-IP`. Not sent when empty.                     |
+| `hostname`      | A hostname or a list of them; a token solved elsewhere fails. Unchecked when omitted.                                 |
+| `action`        | The widget's `data-action`; a token solved for another action fails. Unchecked when omitted.                          |
+| `siteverifyUrl` | The endpoint, default `TURNSTILE_SITEVERIFY_URL` (Cloudflare's). Point it at a configured origin, or a stub in tests. |
+
+`sendEmailVerificationCode` takes the same choices from `Auth`'s `turnstile` option. `remoteIp`
+there is a function of the request, defaulting to the `CF-Connecting-IP` header the Cloudflare
+edge sets (absent elsewhere, and then not sent); behind another proxy, return the address it
+vouches for:
+
+```ts
+const auth = new Auth({
+  sessionRepository,
+  kvRepository,
+  turnstileSecretKey: env.TURNSTILE_SECRET_KEY,
+  turnstile: { hostname: 'app.example.com', action: 'login' },
+});
+```
+
 ## Errors
 
 The JSON routes (native, One Tap, email, desktop) answer every failure with a google.rpc error
@@ -666,13 +727,13 @@ body, the shape `@shware/http`'s `getErrorInfo` reads: `{ error: { code, status,
 [{ '@type': '…google.rpc.ErrorInfo', reason, metadata? }] } }`. Branch on `reason`; the status
 tells the kind:
 
-| Status                   | What                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `400 INVALID_ARGUMENT`   | The request itself: a body that is not JSON (`INVALID_JSON`), a wrong content type, a field that failed validation (`INVALID_ARGUMENT` with a `BadRequest` detail naming it), `INVALID_ATTRIBUTES`, `INVALID_CODE_VERIFIER`.               |
-| `401 UNAUTHENTICATED`    | `desktopAuthorize` without a signed-in session.                                                                                                                                                                                            |
-| `403 PERMISSION_DENIED`  | An `AuthenticationError`: the host refused the sign-in (see "The `onAuthorized` handler"), or the SDK did (`INVALID_VERIFICATION_CODE`, `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`, `NONCE_MISSING`, `NONCE_MISMATCH`, `INVALID_DESKTOP_CODE`). |
-| `429 RESOURCE_EXHAUSTED` | `VERIFICATION_CODE_RESEND_TOO_SOON`.                                                                                                                                                                                                       |
-| `503 UNAVAILABLE`        | `EMAIL_DELIVERY_FAILED`, or the provider is down.                                                                                                                                                                                          |
+| Status                   | What                                                                                                                                                                                                                                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400 INVALID_ARGUMENT`   | The request itself: a body that is not JSON (`INVALID_JSON`), a wrong content type, a field that failed validation (`INVALID_ARGUMENT` with a `BadRequest` detail naming it), `INVALID_ATTRIBUTES`, `INVALID_CODE_VERIFIER`.                                                                                               |
+| `401 UNAUTHENTICATED`    | `desktopAuthorize` without a signed-in session.                                                                                                                                                                                                                                                                            |
+| `403 PERMISSION_DENIED`  | An `AuthenticationError`: the host refused the sign-in (see "The `onAuthorized` handler"), or the SDK did (`INVALID_VERIFICATION_CODE`, `VERIFICATION_CODE_ATTEMPTS_EXCEEDED`, `NONCE_MISSING`, `NONCE_MISMATCH`, `INVALID_DESKTOP_CODE`); or a Turnstile challenge that was not passed (`TURNSTILE_VERIFICATION_FAILED`). |
+| `429 RESOURCE_EXHAUSTED` | `VERIFICATION_CODE_RESEND_TOO_SOON`.                                                                                                                                                                                                                                                                                       |
+| `503 UNAVAILABLE`        | `EMAIL_DELIVERY_FAILED`, `TURNSTILE_UNAVAILABLE`, or the provider is down.                                                                                                                                                                                                                                                 |
 
 An `OAuth2Error` from the provider client is answered by what it means, with `OAUTH2_<error>` as
 the reason: `OAUTH2_INVALID_REQUEST` and the other malformed-request codes as `400`,

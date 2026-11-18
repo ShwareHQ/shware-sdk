@@ -76,14 +76,19 @@ export const REQUEST_REASONS = [
   'INVALID_CONTENT_TYPE',
   /** 400: the body of a JSON route is not JSON. */
   'INVALID_JSON',
-  /** 400: the Turnstile token sent with an email code request was rejected. */
-  'TURNSTILE_VERIFICATION_FAILED',
   /** 401: `desktopAuthorize` without a signed-in session. */
   'UNAUTHENTICATED',
+  /**
+   * 403: the Turnstile challenge was not passed: siteverify rejected the token, or its hostname or
+   * action is not the one expected (`verifyTurnstileToken`, the email code request).
+   */
+  'TURNSTILE_VERIFICATION_FAILED',
   /** 429: a code was sent to this email within `verificationCode.resendCooldown`. */
   'VERIFICATION_CODE_RESEND_TOO_SOON',
   /** 503: the email sender threw; the cooldown is released so the user can retry at once. */
   'EMAIL_DELIVERY_FAILED',
+  /** 503: siteverify failed, timed out or answered garbage: not the visitor's fault, retry. */
+  'TURNSTILE_UNAVAILABLE',
 ] as const;
 
 /** A reason the SDK answers a malformed, too-soon or unauthenticated request with. */

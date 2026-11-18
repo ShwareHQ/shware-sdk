@@ -1,0 +1,7 @@
+---
+'@shware/security': minor
+---
+
+`verifyTurnstileToken({ secret, token, remoteIp?, hostname?, action?, siteverifyUrl? })` is exported for a host's own endpoints that take a Cloudflare Turnstile token, and `sendEmailVerificationCode` now runs through it. The siteverify request has a 5-second timeout and sends `remoteip` when the visitor's IP is known (by default the `CF-Connecting-IP` header for the email route); an optional `hostname` / `action` expectation fails a token solved on another site or for another form, and the endpoint can be pointed at another origin (`TURNSTILE_SITEVERIFY_URL` is the default). The new `Auth` option `turnstile: { remoteIp?, hostname?, action?, siteverifyUrl? }` configures the email route; without it existing hosts behave as before apart from the two changes below.
+
+Behaviour changes clients may see: a Turnstile challenge that was not passed is now answered `403 PERMISSION_DENIED` instead of `400 INVALID_ARGUMENT` (the reason is still `TURNSTILE_VERIFICATION_FAILED`, so a client branching on the reason is unaffected), matching the SDK's other refused credentials; and a siteverify that is down, slow, answers non-2xx or a body that is not the expected JSON is now `503 UNAVAILABLE` with the new reason `TURNSTILE_UNAVAILABLE` (added to `REQUEST_REASONS`), a retryable error, where it used to escape as an unknown error (a 500) or pass as a failed challenge.

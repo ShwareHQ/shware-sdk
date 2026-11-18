@@ -23,7 +23,8 @@ import {
   setCookie,
 } from '../utils/http';
 import { timing } from '../utils/timing';
-import { parse, readForm, readJson, verifyTurnstileToken } from '../utils/valid';
+import { verifyTurnstileToken } from '../utils/turnstile';
+import { parse, readForm, readJson } from '../utils/valid';
 import {
   MAX_ATTRIBUTES_BYTES,
   attributesSchema,
@@ -211,6 +212,9 @@ export const PATH = {
   CLEANUP_EXPIRED_SESSIONS: '/sessions/expired/cleanup',
 } as const;
 
+/** The visitor's address as the Cloudflare edge sets it; absent (and so not sent) elsewhere. */
+const defaultRemoteIp = (request: Request) => request.headers.get('CF-Connecting-IP');
+
 /**
  * The login routes and session helpers. Every route is one straight line: read and validate the
  * request, check the credential, call the host's `onAuthorized`, sign in. Failures are thrown and
@@ -225,6 +229,7 @@ export class Auth implements AuthService {
   private readonly kv: KVRepository;
   private readonly repository: SessionRepository;
   private readonly turnstileSecretKey?: string;
+  private readonly turnstile: NonNullable<AuthConfig['turnstile']>;
   private readonly emailCodes: EmailVerificationCodes;
   private readonly desktopCodes: DesktopCodes;
   private readonly oauth2Client: OAuth2Client | null;
@@ -240,6 +245,7 @@ export class Auth implements AuthService {
     sessionRepository,
     kvRepository,
     turnstileSecretKey,
+    turnstile,
     verificationCode,
     oauth2,
     cookie,
@@ -250,6 +256,7 @@ export class Auth implements AuthService {
     this.kv = kvRepository;
     this.repository = sessionRepository;
     this.turnstileSecretKey = turnstileSecretKey;
+    this.turnstile = turnstile ?? {};
     const maxAttempts = verificationCode?.maxAttempts ?? 5;
     const resendCooldown = verificationCode?.resendCooldown ?? 60;
     invariant(maxAttempts >= 1, 'verificationCode.maxAttempts must be at least 1');
@@ -769,7 +776,13 @@ export class Auth implements AuthService {
         sendEmailVerificationCodeSchema,
         await readJson(request)
       );
-      await verifyTurnstileToken(this.turnstileSecretKey, turnstileToken);
+      const { remoteIp = defaultRemoteIp, ...expected } = this.turnstile;
+      await verifyTurnstileToken({
+        secret: this.turnstileSecretKey,
+        token: turnstileToken,
+        remoteIp: remoteIp(request),
+        ...expected,
+      });
       await this.emailCodes.send(email, sender);
       return Response.json({});
     });

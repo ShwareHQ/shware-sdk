@@ -339,9 +339,89 @@ describe('email verification code resend cooldown', () => {
     );
     const auth = createAuth();
 
-    expect(await reason(await send(auth))).toBe('TURNSTILE_VERIFICATION_FAILED');
+    const failed = await send(auth);
+
+    expect(failed.status).toBe(403);
+    expect(await reason(failed)).toBe('TURNSTILE_VERIFICATION_FAILED');
     expect(kv.store.has(COOLDOWN_KEY)).toBe(false);
     expect(sender).not.toHaveBeenCalled();
+  });
+
+  it('answers a retryable 503 without claiming the cooldown when siteverify is down', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html>Bad gateway</html>', { status: 502 }))
+    );
+    const auth = createAuth();
+
+    const down = await send(auth);
+
+    expect(down.status).toBe(503);
+    expect(await reason(down)).toBe('TURNSTILE_UNAVAILABLE');
+    expect(kv.store.has(COOLDOWN_KEY)).toBe(false);
+    expect(sender).not.toHaveBeenCalled();
+  });
+});
+
+describe('email code Turnstile check', () => {
+  function sendFrom(auth: Auth, headers: Record<string, string> = {}) {
+    const request = postJson('/auth/sendEmailVerificationCode', {
+      email: EMAIL,
+      turnstileToken: 'token',
+    });
+    for (const [name, value] of Object.entries(headers)) request.headers.set(name, value);
+    return auth.sendEmailVerificationCode(request, sender);
+  }
+
+  function siteverify(answer: object = { success: true }) {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json(answer));
+    vi.stubGlobal('fetch', fetch);
+    return fetch;
+  }
+
+  function form(fetch: ReturnType<typeof siteverify>) {
+    return Object.fromEntries(new URLSearchParams(fetch.mock.calls[0]?.[1]?.body as string));
+  }
+
+  it('sends CF-Connecting-IP as remoteip, and none without it', async () => {
+    const fetch = siteverify();
+    expect((await sendFrom(createAuth(), { 'CF-Connecting-IP': '203.0.113.7' })).status).toBe(200);
+    expect(form(fetch)).toEqual({
+      secret: 'turnstile-secret',
+      response: 'token',
+      remoteip: '203.0.113.7',
+    });
+
+    const without = siteverify();
+    kv = memoryKV();
+    expect((await sendFrom(createAuth())).status).toBe(200);
+    expect(form(without)).toEqual({ secret: 'turnstile-secret', response: 'token' });
+  });
+
+  it('reads the address, expectations and endpoint from the turnstile option', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetch = siteverify({ success: true, hostname: 'app.example.com', action: 'login' });
+    const auth = (action: string) =>
+      new Auth({
+        sessionRepository: memorySessions(),
+        kvRepository: kv,
+        turnstileSecretKey: 'turnstile-secret',
+        turnstile: {
+          remoteIp: (request) => request.headers.get('X-Real-IP'),
+          hostname: 'app.example.com',
+          action,
+          siteverifyUrl: 'https://turnstile.test/siteverify',
+        },
+      });
+
+    const refused = await sendFrom(auth('feedback'), { 'X-Real-IP': '192.0.2.1' });
+    expect(refused.status).toBe(403);
+    expect(await reason(refused)).toBe('TURNSTILE_VERIFICATION_FAILED');
+    expect(fetch.mock.calls[0]?.[0]).toBe('https://turnstile.test/siteverify');
+    expect(form(fetch).remoteip).toBe('192.0.2.1');
+
+    expect((await sendFrom(auth('login'))).status).toBe(200);
   });
 });
 
