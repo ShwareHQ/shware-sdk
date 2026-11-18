@@ -394,10 +394,14 @@ queryClient.setQueryData(['charges'], Pages.removeById<Charge>(id));
 
 ## Google One Tap (`@shware/http/google-one-tap`)
 
-Browser-only. `prompt()` loads the Google Identity Services script and shows One Tap via FedCM. It
-never rejects; when One Tap cannot run (`fedcm_unsupported`, `script_load_failed`,
-`prompt_error`) fall back to `requestCode()`, an OAuth 2.0 authorization-code popup that must be
-called from a user gesture.
+Browser-only. `prompt()` loads the Google Identity Services script and shows One Tap via FedCM.
+When One Tap cannot run (`fedcm_unsupported`, `script_load_failed`, `prompt_error`) it resolves
+with `unsupported`; fall back to `requestCode()`, an OAuth 2.0 authorization-code popup that must
+be called from a user gesture.
+
+`nonce` is a string or a function returning one. Pass a function when the nonce comes from your
+server: it is called only once One Tap can run (FedCM is there and the script loaded), so browsers
+that will never show the prompt cost no request. `prompt()` rejects only if that function does.
 
 ```ts
 import { prompt, requestCode } from '@shware/http/google-one-tap';
