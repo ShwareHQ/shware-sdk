@@ -2,9 +2,20 @@ import { fetch } from '@shware/utils';
 import type { CreateLinkDTO } from '../schema/index';
 import { config } from '../setup/index';
 
-export interface Link extends CreateLinkDTO {
+/** A stored link as the server answers it: a tag the link was created without comes back `null`. */
+export interface Link {
   id: string;
   created_at: string;
+  url: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_id?: string | null;
+  utm_term?: string | null;
+  utm_content?: string | null;
+  utm_source_platform?: string | null;
+  utm_creative_format?: string | null;
+  utm_marketing_tactic?: string | null;
 }
 
 export async function createLink(dto: CreateLinkDTO) {
