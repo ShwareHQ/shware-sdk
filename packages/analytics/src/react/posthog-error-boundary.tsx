@@ -1,34 +1,12 @@
 import type { CaptureResult, Properties } from '@posthog/types';
-import {
-  Component,
-  type ErrorInfo,
-  type FunctionComponent,
-  type ReactNode,
-  isValidElement,
-} from 'react';
+import type { ErrorInfo } from 'react';
 import { getPosthog } from '../third-parties/posthog';
+import { PosthogErrorBoundaryBase } from './error-boundary';
 
-export interface PosthogErrorBoundaryFallbackProps {
-  error: unknown;
-  /** The `$exception` event sent; `undefined` while only the stub is there, which queues it. */
-  exceptionEvent: CaptureResult | undefined;
-  componentStack: string;
-  resetError: () => void;
-}
-
-export interface PosthogErrorBoundaryProps {
-  children?: ReactNode | (() => ReactNode);
-  fallback?: ReactNode | FunctionComponent<PosthogErrorBoundaryFallbackProps>;
-  additionalProperties?: Properties | ((error: unknown, errorInfo: ErrorInfo) => Properties);
-}
-
-interface State {
-  error: unknown;
-  componentStack: string | null;
-  exceptionEvent: CaptureResult | undefined;
-}
-
-const INITIAL_STATE: State = { error: null, componentStack: null, exceptionEvent: undefined };
+export type {
+  PosthogErrorBoundaryFallbackProps,
+  PosthogErrorBoundaryProps,
+} from './error-boundary';
 
 /**
  * The error as PostHog's own boundary reports it: the React component stack added as a cause, so
@@ -71,56 +49,14 @@ function withComponentStack(error: unknown, componentStack: string | null | unde
  * handlers, unhandled rejections) are the library's exception autocapture's, enabled in the
  * snippet's `config` (`capture_exceptions`).
  */
-export class PosthogErrorBoundary extends Component<PosthogErrorBoundaryProps, State> {
-  override state = INITIAL_STATE;
-
-  override componentDidCatch(error: unknown, errorInfo: ErrorInfo) {
-    const componentStack = errorInfo.componentStack ?? '';
-    let exceptionEvent: CaptureResult | undefined;
-    // Reporting must never fail the boundary: an error thrown here would go to the boundary
-    // above it, if any — `additionalProperties` throwing, or an error that cannot take a cause.
-    try {
-      const { additionalProperties } = this.props;
-      const properties =
-        typeof additionalProperties === 'function'
-          ? additionalProperties(error, errorInfo)
-          : additionalProperties;
-      exceptionEvent = this.capture(error, componentStack, properties);
-    } catch (e: unknown) {
-      console.error('PosthogErrorBoundary: the error was not reported', e);
-    }
-    this.setState({ error, componentStack, exceptionEvent });
-  }
-
-  /**
-   * Sends the error, as `posthog-js/react`'s boundary does: the component stack as the error's
-   * cause. The React Native boundary (`@shware/analytics/native/posthog`) overrides it to send
-   * through its own client, as `posthog-react-native`'s does. May throw; the caller catches.
-   */
-  protected capture(
+export class PosthogErrorBoundary extends PosthogErrorBoundaryBase {
+  /** As `posthog-js/react`'s boundary: the component stack as the error's cause. */
+  protected override capture(
     error: unknown,
     componentStack: string,
     properties: Properties | undefined
   ): CaptureResult | undefined {
     return getPosthog()?.captureException(withComponentStack(error, componentStack), properties);
-  }
-
-  resetError = () => {
-    this.setState(INITIAL_STATE);
-  };
-
-  override render() {
-    const { children, fallback } = this.props;
-    const { error, componentStack, exceptionEvent } = this.state;
-    if (componentStack === null) return typeof children === 'function' ? children() : children;
-
-    const element =
-      typeof fallback === 'function'
-        ? fallback({ error, componentStack, exceptionEvent, resetError: this.resetError })
-        : fallback;
-    if (isValidElement(element)) return element;
-    console.warn('PosthogErrorBoundary: fallback is not a React element; rendering nothing');
-    return null;
   }
 }
 

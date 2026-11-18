@@ -1,6 +1,6 @@
 import type { Properties } from '@posthog/types';
 import { PostHog, type PostHogOptions } from 'posthog-react-native';
-import { PosthogErrorBoundary as WebPosthogErrorBoundary } from '../react/posthog-error-boundary';
+import { PosthogErrorBoundaryBase } from '../react/error-boundary';
 import type { UpdateVisitorDTO } from '../schema/index';
 import type { Integration } from '../third-parties/integration';
 import type { ErrorPattern } from '../third-parties/posthog';
@@ -12,7 +12,7 @@ export type { ErrorPattern } from '../third-parties/posthog';
 export type {
   PosthogErrorBoundaryFallbackProps,
   PosthogErrorBoundaryProps,
-} from '../react/posthog-error-boundary';
+} from '../react/error-boundary';
 
 type BeforeSend = Exclude<NonNullable<PostHogOptions['before_send']>, readonly unknown[]>;
 type Autocapture = NonNullable<NonNullable<PostHogOptions['errorTracking']>['autocapture']>;
@@ -77,7 +77,7 @@ export function capturePosthogException(error: unknown, properties?: Properties)
  * non-fatal, which the library's autocapture does not send; only an error no boundary caught
  * reaches it, as a fatal one.
  */
-export class PosthogErrorBoundary extends WebPosthogErrorBoundary {
+export class PosthogErrorBoundary extends PosthogErrorBoundaryBase {
   protected override capture(
     error: unknown,
     componentStack: string,
