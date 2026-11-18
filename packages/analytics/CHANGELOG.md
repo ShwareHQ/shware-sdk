@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 16.5.1
+
+### Patch Changes
+
+- a36b67c: `Link` types an unset optional UTM tag as `string | null`, which is what the server answers, so a server can type its response as `Link` without mapping the row.
+
 ## 16.5.0
 
 ### Minor Changes
