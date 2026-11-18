@@ -31,7 +31,7 @@ async function beaconEvents() {
   const bodies = await Promise.all(
     beaconMock.mock.calls.map(async (call) => {
       const [, blob] = call;
-      if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+      if (!(blob instanceof Blob)) throw new TypeError('Expected a Blob beacon body');
       return JSON.parse(await blob.text()) as Record<string, unknown>[];
     })
   );
@@ -163,7 +163,7 @@ describe('leaving before the first batch', () => {
     const [landing, engagement] = await Promise.all(
       beaconMock.mock.calls.map(async (call) => {
         const [, blob] = call;
-        if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+        if (!(blob instanceof Blob)) throw new TypeError('Expected a Blob beacon body');
         return JSON.parse(await blob.text()) as Record<string, unknown>[];
       })
     );
@@ -186,7 +186,7 @@ describe('leaving before the first batch', () => {
     const [landing, engagement] = await Promise.all(
       beaconMock.mock.calls.map(async (call) => {
         const [, blob] = call;
-        if (!(blob instanceof Blob)) throw new Error('Expected a Blob beacon body');
+        if (!(blob instanceof Blob)) throw new TypeError('Expected a Blob beacon body');
         return JSON.parse(await blob.text()) as Record<string, unknown>[];
       })
     );

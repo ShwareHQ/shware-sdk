@@ -125,7 +125,6 @@ minimumReleaseAgeExclude:
 # Floors for vulnerable transitive resolutions (Dependabot); each override is
 # range-scoped so it becomes a no-op once the parent ranges resolve past it.
 overrides:
-  'fflate@<0.4.9': 0.4.9
   'fast-uri@<3.1.6': 3.1.6
   'browserslist@<4.28.7': 4.28.7
   'brace-expansion@>=4.0.0 <5.0.9': 5.0.9

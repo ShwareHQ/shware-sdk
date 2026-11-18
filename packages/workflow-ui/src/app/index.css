@@ -168,9 +168,9 @@
  * react-flow's own chrome (the zoom controls) on the studio's ramp instead of
  * its stock palette. Its components read `--xy-*` with a `-default` fallback,
  * so setting the un-suffixed names wins in both of its colour modes. Unlayered
- * on purpose: react-flow's stylesheet is unlayered too, and a rule inside
- * @layer base would lose to it. Only custom properties are set here, so no
- * utility class can be shadowed.
+ * on purpose: react-flow's stylesheet sits in `@layer xyflow`, declared after
+ * Tailwind's layers, so a rule inside @layer base would lose to it. Only custom
+ * properties are set here, so no utility class can be shadowed.
  */
 .react-flow {
   --xy-controls-button-background-color: var(--color-card);

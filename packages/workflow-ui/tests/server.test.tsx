@@ -148,7 +148,7 @@ function dispatcher(
 }) => Promise<Answer> {
   const mounted: [path: string, handler: Handler][] = [];
   const configureServer = plugin.configureServer;
-  if (typeof configureServer !== 'function') throw new Error('expected a configureServer hook');
+  if (typeof configureServer !== 'function') throw new TypeError('expected a configureServer hook');
   void configureServer.call(
     undefined as never,
     {

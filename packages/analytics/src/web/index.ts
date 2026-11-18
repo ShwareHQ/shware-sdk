@@ -1,4 +1,4 @@
-import Bowser from 'bowser';
+import { getParser } from 'bowser';
 import { parseCookie } from 'cookie';
 import { v4 as uuidv4 } from 'uuid';
 import { keys } from '../constants/storage';
@@ -96,7 +96,7 @@ function getCachedLink(id: string) {
 }
 
 /** The user agent cannot change while the page is open, so it is parsed once. */
-let parser: ReturnType<typeof Bowser.getParser> | undefined;
+let parser: ReturnType<typeof getParser> | undefined;
 
 export async function getTags() {
   // Read the page before the first await: `getTags` runs when the event happens, and a single
@@ -105,7 +105,7 @@ export async function getTags() {
   const { id: page_load_id, referrer: page_referrer } = currentPage();
   const page_title = document.title;
 
-  parser ??= Bowser.getParser(window.navigator.userAgent);
+  parser ??= getParser(window.navigator.userAgent);
   const params = new URLSearchParams(window.location.search);
   const os = parser.getOS();
   const browser = parser.getBrowser();

@@ -681,7 +681,11 @@ describe('time_window', () => {
   });
 
   test("tz: 'user' reads the profile's time_zone, UTC without one", async () => {
-    const userWindowed = workflow({ id: 'tw-user', trigger: trigger.event(e.sign_up), reentry: { mode: 'never' } })
+    const userWindowed = workflow({
+      id: 'tw-user',
+      trigger: trigger.event(e.sign_up),
+      reentry: { mode: 'never' },
+    })
       .timeWindow({ days: ['fri'], between: ['09:00', '17:00'] })
       .email(proTips);
     vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-23T00:30:00Z') }); // Friday
