@@ -128,15 +128,10 @@ describe('errorTracking', () => {
 
   it('installs no autocapture and sends no exception when false', async () => {
     const { posthogAnalytics, capturePosthogException, PosthogErrorBoundary } = await load();
-    const { setupAnalytics } = await import('../setup/index');
-    const { baseOptions } = await import('../test/setup');
-    const { captureException: captureShared } = await import('../exception/index');
-    const integration = posthogAnalytics({ token, config, errorTracking: false });
-    setupAnalytics({ ...baseOptions(), integrations: [integration] });
+    posthogAnalytics({ token, config, errorTracking: false });
     expect(instances[0]?.options.errorTracking).toEqual({ autocapture: false });
 
     capturePosthogException(new Error('manual'));
-    captureShared(new Error('shared'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(
       <PosthogErrorBoundary fallback={<p>failed</p>}>
@@ -145,8 +140,8 @@ describe('errorTracking', () => {
     );
 
     expect(screen.getByText('failed')).toBeTruthy();
-    // All three reached the client, and its before_send dropped them.
-    expect(captureException).toHaveBeenCalledTimes(3);
+    // Both reached the client, and its before_send dropped them.
+    expect(captureException).toHaveBeenCalledTimes(2);
     expect(sent).toEqual([]);
   });
 

@@ -144,8 +144,6 @@ posthogAnalytics({
 
 Each exception carries the session id, so its issue links to the session's replay. `capturePosthogException(error, properties?)` reports one yourself — from an http client's error hook, or a `catch` that recovers — queued on the stub like `sendPosthogEvent`, and never throws. `<PosthogErrorBoundary fallback={…}>` (with `posthog-js/react`'s props) sends a render error with its component stack and renders `fallback` instead. What no boundary of yours sees — an uncaught error, one a framework's boundary caught (TanStack Router's), a hydration mismatch React recovered from — `setupPosthogReactErrorHandler()` reports from React 19's root options in the client entry, logging it with `console.error` as React would (a callback replaces that logging): `hydrateRoot(document, <StartClient />, { onUncaughtError: setupPosthogReactErrorHandler(), onCaughtError: setupPosthogReactErrorHandler(), onRecoverableError: setupPosthogReactErrorHandler() })`. Every one of them goes through the `errorTracking` filter.
 
-Code shared by the web and an app — an API client reporting a request that failed unexpectedly — calls `captureException(error, properties?)` from `@shware/analytics` instead. It hands the error to every integration that tracks errors (`Integration.captureException`: `posthogAnalytics` here, its app counterpart in an app), so one import works on both platforms and neither PostHog library reaches the other platform's bundle. It is a no-op before `setupAnalytics` and never throws.
-
 Under `posthogFlagsReady()` with `config.bootstrap` the wait ends as soon as the library loads. On Next.js its snippet uses `next/script`'s `beforeInteractive`, so the stub exists before hydration tracks anything; render `<Analytics>` in the root layout for that. `<Analytics>` also preconnects to PostHog's assets host (`Integration.preconnect`, through `react-dom`'s `preconnect`), so `array.js` starts sooner. The `PostHog` and `PostHogConfig` types come from `@posthog/types`, PostHog's types-only package for the snippet, a dependency of this one: the host does not install `posthog-js` for them. In an app, `firebaseAnalytics()` (every event), `posthogAnalytics()` from `/native/posthog` (every event, see [PostHog in an app](#posthog-in-an-app)) and `metaAppEvents({ customEvents })` (the conversions Meta maps, like `metaAds`) are the `integrations`. A platform the SDK does not cover is an object implementing `Integration` (`type`, `track`, and optionally `setUser` and `script`).
 
 `getHeaders` is also accepted, for a backend that wants extra headers on the analytics requests.
@@ -218,7 +216,9 @@ on the web. There is no `denyUrls`: every frame of the app's JavaScript is in on
 frame's file cannot tell whose code it is. `false` sends no exception at all, for development (where
 React Native's own unhandled-rejection warning stays, since the library's tracker is not installed).
 `capturePosthogException(error, properties?)` reports one yourself and never throws (a no-op before
-`posthogAnalytics`); shared code calls `captureException` from `@shware/analytics`.
+`posthogAnalytics`). It is the app's own function of the web's name: each platform imports its
+`capturePosthogException` from its own entry (`/third-parties` on the web, `/native/posthog` in an
+app), so neither PostHog library reaches the other platform's bundle.
 `<PosthogErrorBoundary fallback={…}>` takes the web boundary's props and sends a render error once,
 its component stack in `$exception_component_stack`:
 

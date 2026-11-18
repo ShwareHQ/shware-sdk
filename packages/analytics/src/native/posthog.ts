@@ -56,9 +56,6 @@ function setPosthogUser({ user_id, user_data }: Omit<UpdateVisitorDTO, 'tags'>) 
  * same name: from a `catch` that recovers but should still be known. A no-op before
  * `posthogAnalytics` has been called. Never throws: reporting an error must not become a second
  * one where it is called. The `errorTracking` filter of `posthogAnalytics` applies.
- *
- * Code shared with the web calls `captureException` from `@shware/analytics` instead, which reaches
- * this function through the integration without importing it.
  */
 export function capturePosthogException(error: unknown, properties?: Properties): void {
   try {
@@ -154,7 +151,7 @@ export function posthogAnalytics(options: {
   /**
    * PostHog's error tracking. `true` or options turn on exception autocapture and filter what is
    * sent (`ignoreErrors`); `false` sends no exception at all, autocaptured or reported
-   * (`capturePosthogException`, `PosthogErrorBoundary`, `captureException`) — for development,
+   * (`capturePosthogException`, `PosthogErrorBoundary`) — for development,
    * which would otherwise fill the production project's issues. Left out, the library's own
    * `config.errorTracking` decides (autocapture off by default).
    */
@@ -183,6 +180,5 @@ export function posthogAnalytics(options: {
     type: 'analytics',
     track: sendPosthogEvent,
     setUser: setPosthogUser,
-    captureException: capturePosthogException,
   };
 }

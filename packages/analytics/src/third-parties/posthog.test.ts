@@ -81,14 +81,6 @@ describe('setPosthogUser', () => {
 });
 
 describe('posthogAnalytics', () => {
-  it('reports errors for the shared captureException', () => {
-    const { captureException } = posthogAnalytics({
-      token: 'phc_test',
-      config: { api_host: 'https://us.i.posthog.com' },
-    });
-    expect(captureException).toBe(capturePosthogException);
-  });
-
   it('inits the snippet with the token and config', () => {
     const { script } = posthogAnalytics({
       token: 'phc_test',

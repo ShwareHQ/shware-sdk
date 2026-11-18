@@ -257,7 +257,6 @@ export function posthogAnalytics(options: {
     type: 'analytics',
     track: sendPosthogEvent,
     setUser: setPosthogUser,
-    captureException: capturePosthogException,
     preconnect: originOf(assets),
     script: {
       id: 'posthog-snippet',
