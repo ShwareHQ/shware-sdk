@@ -1,5 +1,15 @@
 # @shware/workflow-ui
 
+## 2.2.4
+
+### Patch Changes
+
+- 74cabab: Update dependencies to their latest versions (`@posthog/types` 1.425, `cookie` 2.0.2, `jose` 6.2.17, `@slack/types` 3.3, `discord-api-types` 0.38.59, the bundled `bowser` 2.15, and the dev toolchain: vitest 5.1, tsdown 0.23.7, oxlint 1.94, oxfmt 0.79, pnpm 12). `path-to-regexp` stays on 8.x in `@shware/security`: 9.0 is ESM-only and moves the greedy match in multi-parameter segments, which would change what `param()` returns.
+- 74cabab: Move the studio to `@xyflow/react` 13, `i18next` 27 and `react-i18next` 18. The canvas passes its colour mode through `forceColorMode` (react-flow 13 renamed `colorMode`); react-flow 13 also fits the view with 5% padding instead of 10%.
+- Updated dependencies [74cabab]
+- Updated dependencies [74cabab]
+  - @shware/workflow@12.0.2
+
 ## 2.2.3
 
 ### Patch Changes
