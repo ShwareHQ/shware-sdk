@@ -71,6 +71,16 @@
         "default": "./dist/native/firebase.cjs"
       }
     },
+    "./native/posthog": {
+      "import": {
+        "types": "./dist/native/posthog.d.mts",
+        "default": "./dist/native/posthog.mjs"
+      },
+      "require": {
+        "types": "./dist/native/posthog.d.cts",
+        "default": "./dist/native/posthog.cjs"
+      }
+    },
     "./web": {
       "import": {
         "types": "./dist/web/index.d.mts",
@@ -178,6 +188,7 @@
     "expo-sqlite": "^57.0.3 || ^58.0.0",
     "expo-tracking-transparency": "^57.0.2 || ^58.0.0",
     "next": "^16.4.3",
+    "posthog-react-native": "^4.87.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-native": "^0.87.1 || ^0.88.0",
@@ -213,6 +224,9 @@
       "optional": true
     },
     "next": {
+      "optional": true
+    },
+    "posthog-react-native": {
       "optional": true
     },
     "react": {
