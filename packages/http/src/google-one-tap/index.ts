@@ -20,8 +20,12 @@ export type Props = {
    * Opaque nonce string forwarded as-is to Google. Google echoes it back in
    * the ID Token's `nonce` claim per the OIDC spec; the caller is responsible
    * for any hashing/encoding required by its verifier.
+   *
+   * A function is called only once One Tap can run (FedCM is there and the GSI
+   * script loaded), so a nonce fetched from a server is not spent on a browser
+   * that will never show the prompt. If it rejects, so does `prompt()`.
    */
-  nonce?: string;
+  nonce?: string | (() => string | Promise<string>);
   client_id: string;
   auto_select?: boolean;
   cancel_on_tap_outside?: boolean;
@@ -149,6 +153,8 @@ export async function prompt({
     return { authorized: false, unsupported: true, reason: 'script_load_failed' };
   }
 
+  const resolvedNonce = typeof nonce === 'function' ? await nonce() : nonce;
+
   return new Promise<PromptResult>((resolve) => {
     let settled = false;
     const settle = (result: PromptResult) => {
@@ -162,7 +168,7 @@ export async function prompt({
         ux_mode: 'popup',
         context: 'signin',
         auto_select,
-        nonce,
+        nonce: resolvedNonce,
         client_id,
         use_fedcm_for_prompt,
         cancel_on_tap_outside,

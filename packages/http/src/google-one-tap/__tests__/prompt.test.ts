@@ -40,6 +40,7 @@ function stubGoogle(moments: Moment[], credential?: { credential: string }) {
       appendChild: (script: { onload?: () => void }) => script.onload?.(),
     },
   });
+  return id;
 }
 
 describe('google one tap prompt result', () => {
@@ -114,6 +115,43 @@ describe('google one tap prompt result', () => {
       authorized: true,
       credential: { credential: 'id-token', select_by: 'auto' },
     });
+  });
+
+  test('a nonce function is called once One Tap can run, and its value reaches GSI', async () => {
+    const id = stubGoogle([{ isSkippedMoment: () => true }]);
+    const nonce = vi.fn<() => Promise<string>>(async () => 'n-1');
+    await prompt({ client_id: 'id', nonce });
+    expect(nonce).toHaveBeenCalledOnce();
+    expect(id.initialize).toHaveBeenCalledWith(expect.objectContaining({ nonce: 'n-1' }));
+  });
+
+  test('a nonce function is not called without FedCM', async () => {
+    stubGoogle([]);
+    vi.stubGlobal('window', {});
+    const nonce = vi.fn<() => Promise<string>>(async () => 'n-1');
+    const result = await prompt({ client_id: 'id', nonce });
+    expect(result).toEqual({ authorized: false, unsupported: true, reason: 'fedcm_unsupported' });
+    expect(nonce).not.toHaveBeenCalled();
+  });
+
+  test('a nonce function is not called when the GSI script fails to load', async () => {
+    stubGoogle([]);
+    vi.stubGlobal('document', {
+      createElement: () => ({}),
+      head: { appendChild: (script: { onerror?: () => void }) => script.onerror?.() },
+    });
+    vi.stubGlobal('window', { IdentityCredential: class {} });
+    const nonce = vi.fn<() => Promise<string>>(async () => 'n-1');
+    const result = await prompt({ client_id: 'id', nonce });
+    expect(result).toEqual({ authorized: false, unsupported: true, reason: 'script_load_failed' });
+    expect(nonce).not.toHaveBeenCalled();
+  });
+
+  test('a rejecting nonce function rejects the prompt', async () => {
+    stubGoogle([]);
+    await expect(
+      prompt({ client_id: 'id', nonce: () => Promise.reject(new Error('no nonce')) })
+    ).rejects.toThrow('no nonce');
   });
 
   test('`in` narrows reason per branch', () => {
