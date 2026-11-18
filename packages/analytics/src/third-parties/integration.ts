@@ -33,6 +33,11 @@ export interface Integration {
   readonly type: 'analytics' | 'ads';
   readonly track: ThirdPartyTracker;
   readonly setUser?: ThirdPartyUserSetter;
+  /**
+   * Sends an error to the platform's error tracking, for `captureException` from
+   * `@shware/analytics`; left out by a platform that tracks no errors. Never throws.
+   */
+  readonly captureException?: (error: unknown, properties?: Record<string, unknown>) => void;
   readonly script?: IntegrationScript;
   /**
    * Origins `<Analytics>` preconnects to (`react-dom`'s `preconnect`), so the connection is up
