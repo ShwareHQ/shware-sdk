@@ -33,7 +33,11 @@ function sendPosthogEvent<T extends EventName>(
   name: TrackName<T>,
   properties?: TrackProperties<T>
 ) {
-  if (!client) return false;
+  // As the web's: `false` says not ready, which `track` retries once on the next macrotask.
+  if (!client) {
+    console.warn('posthog has not been initialized');
+    return false;
+  }
   client.capture(name, properties);
 }
 
