@@ -36,15 +36,3 @@ export function parse<S extends ZodType | ZodMiniType>(schema: S, value: unknown
     { '@type': 'type.googleapis.com/google.rpc.BadRequest', fieldViolations },
   ]);
 }
-
-export async function verifyTurnstileToken(secret: string, token: string): Promise<void> {
-  const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ secret, response: token }),
-  });
-  const data = (await response.json()) as { success: boolean };
-  if (!data.success) {
-    throw invalidArgument('TURNSTILE_VERIFICATION_FAILED', 'Turnstile verification failed');
-  }
-}

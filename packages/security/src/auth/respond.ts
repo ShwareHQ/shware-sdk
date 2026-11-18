@@ -61,6 +61,11 @@ export function unauthenticated(message: string) {
   return new RequestError(errorBody(401, 'UNAUTHENTICATED', reason, message));
 }
 
+/** A check the request did not pass that is about the request, not who is signing in. */
+export function permissionDenied(reason: RequestReason, message: string) {
+  return new RequestError(errorBody(403, 'PERMISSION_DENIED', reason, message));
+}
+
 export function resourceExhausted(reason: RequestReason, message: string) {
   return new RequestError(errorBody(429, 'RESOURCE_EXHAUSTED', reason, message));
 }

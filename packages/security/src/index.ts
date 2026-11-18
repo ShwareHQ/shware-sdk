@@ -9,6 +9,11 @@ export {
 export { Auth, PATH } from './auth/index';
 export { errorResponse, type ErrorBody } from './auth/respond';
 export type { EmailSender } from './auth/email-codes';
+export {
+  TURNSTILE_SITEVERIFY_URL,
+  verifyTurnstileToken,
+  type VerifyTurnstileTokenOptions,
+} from './utils/turnstile';
 export { OAuth2Client, oauth2RedirectQuerySchema } from './oauth2/client';
 export { OAuth2Error, type OAuth2ErrorType } from './oauth2/error';
 export { RedisIndexedSessionRepository, RedisKVRepository } from './session/redis';

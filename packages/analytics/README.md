@@ -567,8 +567,8 @@ events of a new visitor from an 11.0 client (the foreign key fails).
 unauthenticated free-text write, so a Cloudflare Turnstile token is required, as it is on
 `@shware/security`'s `sendEmailVerificationCode`: render the widget in the form, pass its token as
 `turnstileToken`, and verify it server-side against Cloudflare's `siteverify` before storing the
-row, answering a rejected token as `@shware/security` does (`400 INVALID_ARGUMENT`, reason
-`TURNSTILE_VERIFICATION_FAILED`). The token is single-use — Turnstile spends it at verification —
+row: `@shware/security`'s `verifyTurnstileToken` does that and answers a rejected token as its
+email-code route does (`403 PERMISSION_DENIED`, reason `TURNSTILE_VERIFICATION_FAILED`). The token is single-use — Turnstile spends it at verification —
 so reset the widget after every submit, whether it succeeded or failed. The request is not
 retried: it has no deduplication key, and a retry would carry a spent token.
 

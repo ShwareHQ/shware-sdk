@@ -91,7 +91,23 @@ export interface AuthConfig {
      */
     header?: boolean;
   };
+  /** Cloudflare Turnstile secret key; required by `sendEmailVerificationCode`. */
   turnstileSecretKey?: string;
+  /** How `sendEmailVerificationCode` verifies its Turnstile token (`verifyTurnstileToken`). */
+  turnstile?: {
+    /**
+     * The visitor's IP address, sent to siteverify as `remoteip`. Default: the `CF-Connecting-IP`
+     * header, which the Cloudflare edge sets and overwrites (absent elsewhere, and then not sent).
+     * Behind another proxy, return the address it vouches for; return `undefined` to send none.
+     */
+    remoteIp?: (request: Request) => string | null | undefined;
+    /** Hostname(s) the widget may be solved on; others fail verification. Unchecked by default. */
+    hostname?: string | readonly string[];
+    /** The widget's `action`; a token with another fails verification. Unchecked by default. */
+    action?: string;
+    /** The siteverify endpoint; default Cloudflare's (`TURNSTILE_SITEVERIFY_URL`). */
+    siteverifyUrl?: string | URL;
+  };
   /** Limits of email verification codes (a code itself is valid for 10 minutes). */
   verificationCode?: {
     /**
