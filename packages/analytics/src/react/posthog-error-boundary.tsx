@@ -85,14 +85,24 @@ export class PosthogErrorBoundary extends Component<PosthogErrorBoundaryProps, S
         typeof additionalProperties === 'function'
           ? additionalProperties(error, errorInfo)
           : additionalProperties;
-      exceptionEvent = getPosthog()?.captureException(
-        withComponentStack(error, componentStack),
-        properties
-      );
+      exceptionEvent = this.capture(error, componentStack, properties);
     } catch (e: unknown) {
       console.error('PosthogErrorBoundary: the error was not reported', e);
     }
     this.setState({ error, componentStack, exceptionEvent });
+  }
+
+  /**
+   * Sends the error, as `posthog-js/react`'s boundary does: the component stack as the error's
+   * cause. The React Native boundary (`@shware/analytics/native/posthog`) overrides it to send
+   * through its own client, as `posthog-react-native`'s does. May throw; the caller catches.
+   */
+  protected capture(
+    error: unknown,
+    componentStack: string,
+    properties: Properties | undefined
+  ): CaptureResult | undefined {
+    return getPosthog()?.captureException(withComponentStack(error, componentStack), properties);
   }
 
   resetError = () => {
