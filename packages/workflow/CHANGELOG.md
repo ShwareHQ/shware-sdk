@@ -1,5 +1,12 @@
 # @shware/workflow
 
+## 12.0.2
+
+### Patch Changes
+
+- 74cabab: Update dependencies to their latest versions (`@posthog/types` 1.425, `cookie` 2.0.2, `jose` 6.2.17, `@slack/types` 3.3, `discord-api-types` 0.38.59, the bundled `bowser` 2.15, and the dev toolchain: vitest 5.1, tsdown 0.23.7, oxlint 1.94, oxfmt 0.79, pnpm 12). `path-to-regexp` stays on 8.x in `@shware/security`: 9.0 is ESM-only and moves the greedy match in multi-parameter segments, which would change what `param()` returns.
+- 74cabab: Accept the new majors of optional peers: `@react-native-firebase/analytics` 27 in `@shware/analytics` (`^26.4.1 || ^27.0.0`), `i18next` 27 in `@shware/http` (`^26.5.10 || ^27.0.0`; `getErrorMessage` keeps its signature and works with both), and `@aws/durable-execution-sdk-js` 3 in `@shware/workflow` (`^2.7.0 || ^3.0.0`). The `@shware/workflow` Postgres store and the `@shware/workflow-ui` stats source are now tested against `postgres` 4, which their `>=3.4.0` peer range already allowed.
+
 ## 12.0.1
 
 ### Patch Changes
