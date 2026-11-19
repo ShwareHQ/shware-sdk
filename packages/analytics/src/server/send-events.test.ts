@@ -241,4 +241,37 @@ describe('Meta client_user_agent', () => {
     await sendMetaEvents('token', 'pixel', [event()], { user_agent: 'Mozilla/5.0' });
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it('does not warn when every website event carries tags.user_agent, and sends it', async () => {
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await sendMetaEvents('token', 'pixel', [event({ tags: { user_agent: 'Mozilla/5.0' } })], {
+      user_id: 'u1',
+    });
+    expect(warn).not.toHaveBeenCalled();
+    const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.data[0].user_data.client_user_agent).toBe('Mozilla/5.0');
+  });
+
+  it('warns when one website event in the batch has neither a tag nor data user agent', async () => {
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await sendMetaEvents(
+      'token',
+      'pixel',
+      [event({ tags: { user_agent: 'Mozilla/5.0' } }), event({ id: 'event-2' })],
+      { user_id: 'u1' }
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('client_user_agent'));
+  });
+
+  it('does not warn about app events without a user agent', async () => {
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 200 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await sendMetaEvents('token', 'pixel', [event({ platform: 'ios' })], {});
+    expect(warn).not.toHaveBeenCalled();
+  });
 });

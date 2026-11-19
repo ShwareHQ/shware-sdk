@@ -23,6 +23,7 @@ import { type EventActionSource, resolveActionSource } from './action-source';
 import { openaiOppref } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
 import { pageLocation } from './page-location';
+import { requestIpAddress, requestUserAgent } from './request-context';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://bzr.openai.com/v1/events';
@@ -140,8 +141,9 @@ function getUser(
     countries: values(addresses.map((a) => a.country?.trim().toUpperCase())),
     android_advertising_id:
       event.platform === 'android' ? event.tags.advertising_id || undefined : undefined,
-    ip_address: data.ip_address,
-    user_agent: data.user_agent,
+    // The event's own request context (its tags) outranks the caller-wide `data`.
+    ip_address: requestIpAddress(event.tags, data),
+    user_agent: requestUserAgent(event.tags, data),
   };
 
   return Object.values(user).some((value) => value !== undefined) ? user : undefined;

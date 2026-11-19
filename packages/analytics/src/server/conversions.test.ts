@@ -116,6 +116,26 @@ describe('OpenAI', () => {
     expect(ios.user).toBeUndefined();
   });
 
+  it('takes ip and user agent from the event tags, else from data, the tag winning', () => {
+    const tagged = event({ tags: { ip_address: '198.51.100.7', user_agent: 'Tag/1.0' } });
+    expect(openaiServerEvent(tagged, { user_id: 'u1' }).user).toMatchObject({
+      ip_address: '198.51.100.7',
+      user_agent: 'Tag/1.0',
+    });
+    expect(
+      openaiServerEvent(event(), { ip_address: '203.0.113.9', user_agent: 'Data/1.0' }).user
+    ).toMatchObject({ ip_address: '203.0.113.9', user_agent: 'Data/1.0' });
+    expect(
+      openaiServerEvent(tagged, { ip_address: '203.0.113.9', user_agent: 'Data/1.0' }).user
+    ).toMatchObject({ ip_address: '198.51.100.7', user_agent: 'Tag/1.0' });
+    // An empty tag is no value.
+    const empty = event({ tags: { ip_address: '', user_agent: '' } });
+    expect(openaiServerEvent(empty, { user_agent: 'Data/1.0' }).user).toMatchObject({
+      ip_address: undefined,
+      user_agent: 'Data/1.0',
+    });
+  });
+
   it('derives the action source from the platform and lets an override win', () => {
     expect(openaiServerEvent(event({ platform: 'ios' }), {}).action_source).toBe('mobile_app');
     expect(openaiServerEvent(event({ platform: 'unknown' }), {}).action_source).toBeUndefined();
@@ -170,6 +190,23 @@ describe('Reddit', () => {
       idfa: undefined,
       aaid: 'ad-id-1',
     });
+  });
+
+  it('takes ip and user agent from the event tags, else from data, the tag winning', () => {
+    const tagged = event({ tags: { ip_address: '198.51.100.7', user_agent: 'Tag/1.0' } });
+    expect(redditServerEvent(tagged, { user_id: 'u1' }).user).toMatchObject({
+      ip_address: '198.51.100.7',
+      user_agent: 'Tag/1.0',
+    });
+    expect(
+      redditServerEvent(event(), { ip_address: '203.0.113.9', user_agent: 'Data/1.0' }).user
+    ).toMatchObject({ ip_address: '203.0.113.9', user_agent: 'Data/1.0' });
+    expect(
+      redditServerEvent(tagged, { ip_address: '203.0.113.9', user_agent: 'Data/1.0' }).user
+    ).toMatchObject({ ip_address: '198.51.100.7', user_agent: 'Tag/1.0' });
+    expect(redditServerEvent(event({ tags: { user_agent: '' } }), {}).user?.user_agent).toBe(
+      undefined
+    );
   });
 
   it('uses the event id for deduplication', () => {
@@ -385,6 +422,43 @@ describe('LinkedIn', () => {
     });
     const v6 = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
     expect(v6.elements[0].user.userIds).toEqual([]);
+  });
+
+  it("takes each event's IPv4 address from its tags, else from data", async () => {
+    await sendLinkedinEvents(
+      'token',
+      { purchase: 123 },
+      [
+        event({ tags: { ip_address: '198.51.100.7' } }),
+        event({ id: 'event-2' }),
+        // An IPv6 tag cannot be sent, so the IPv4 address in data still is.
+        event({ id: 'event-3', tags: { ip_address: '2001:db8::1' } }),
+      ],
+      { ip_address: '203.0.113.7', email: 'a@b.co' }
+    );
+    const body = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
+    const ips = body.elements.map((element: { user: { userIds: { idType: string }[] } }) =>
+      element.user.userIds.filter(({ idType }) => idType === 'PLAINTEXT_IP_ADDRESS')
+    );
+    expect(ips).toEqual([
+      [{ idType: 'PLAINTEXT_IP_ADDRESS', idValue: '198.51.100.7' }],
+      [{ idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' }],
+      [{ idType: 'PLAINTEXT_IP_ADDRESS', idValue: '203.0.113.7' }],
+    ]);
+    // The address still follows the email, as before.
+    expect(body.elements[0].user.userIds.at(-1).idType).toBe('PLAINTEXT_IP_ADDRESS');
+
+    fetchMock.mockClear();
+    await sendLinkedinEvents(
+      'token',
+      { purchase: 123 },
+      [event({ tags: { ip_address: '198.51.100.7' } })],
+      {}
+    );
+    const tagOnly = JSON.parse(textRequestBody(fetchMock.mock.calls[0][1]));
+    expect(tagOnly.elements[0].user.userIds).toEqual([
+      { idType: 'PLAINTEXT_IP_ADDRESS', idValue: '198.51.100.7' },
+    ]);
   });
 
   it('puts the first-party click id first among the user ids', async () => {

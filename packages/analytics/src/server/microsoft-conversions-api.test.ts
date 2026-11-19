@@ -177,6 +177,29 @@ describe('getServerEvent', () => {
     });
   });
 
+  it('takes clientUserAgent from tags.user_agent, else data.user_agent, the tag winning', () => {
+    const tagged = event({ tags: { user_agent: 'Tag/1.0' } });
+    expect(getServerEvent(tagged, { user_id: 'u1' }).userData.clientUserAgent).toBe('Tag/1.0');
+    expect(getServerEvent(event(), { user_agent: 'Data/1.0' }).userData.clientUserAgent).toBe(
+      'Data/1.0'
+    );
+    // Precedence matches clientIpAddress: the event's own tag outranks the caller data.
+    const both = getServerEvent(
+      event({ tags: { user_agent: 'Tag/1.0', ip_address: '198.51.100.7' } }),
+      { user_agent: 'Data/1.0', ip_address: '203.0.113.9' }
+    );
+    expect(both.userData).toMatchObject({
+      clientUserAgent: 'Tag/1.0',
+      clientIpAddress: '198.51.100.7',
+    });
+    // An empty tag is no user agent.
+    const empty = event({ tags: { user_agent: '' } });
+    expect(getServerEvent(empty, { user_agent: 'Data/1.0' }).userData.clientUserAgent).toBe(
+      'Data/1.0'
+    );
+    expect(getServerEvent(empty).userData.clientUserAgent).toBeUndefined();
+  });
+
   it('drops a phone that is not E.164 instead of guessing a country code', () => {
     expect(getServerEvent(event(), { phone_number: '13800138000' }).userData.ph).toBeUndefined();
     expect(getServerEvent(event(), { phone_number: '+1 (425) 555-1234' }).userData.ph).toBe(
