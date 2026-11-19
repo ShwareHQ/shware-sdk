@@ -15,6 +15,7 @@ import { redditClickId, redditUuid } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
 import { eventTimeMs } from './event-time';
 import { pageLocation } from './page-location';
+import { requestIpAddress, requestUserAgent } from './request-context';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 /**
@@ -135,9 +136,10 @@ export function getServerEvent(
     user: {
       email: getFirst(data.email),
       external_id: data.user_id,
-      ip_address: data.ip_address,
+      // The event's own request context (its tags) outranks the caller-wide `data`.
+      ip_address: requestIpAddress(tags, data),
       phone_number: getFirst(data.phone_number),
-      user_agent: data.user_agent,
+      user_agent: requestUserAgent(tags, data),
       idfa: platform === 'ios' ? tags.advertising_id : undefined,
       aaid: platform === 'android' ? tags.advertising_id : undefined,
       uuid: redditUuid(tags),

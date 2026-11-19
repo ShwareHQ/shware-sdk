@@ -26,6 +26,7 @@ import { microsoftMsclkid } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
 import { eventTimeMs } from './event-time';
 import { pageLocation } from './page-location';
+import { requestIpAddress, requestUserAgent } from './request-context';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 const ENDPOINT = 'https://capi.uet.microsoft.com/v1';
@@ -190,12 +191,9 @@ function getUserData(
     // Microsoft asks for an anonymized id and never a real one. SHA-256, the same digest
     // `sendUETIdSync` applies client-side, so `externalId` and the pixel's `UID` agree too.
     externalId: data.user_id ? sha256(data.user_id) : undefined,
-    // Like the ip below: the user agent of the request that carried this event, recorded by the
-    // server in its tags, outranks the caller-wide `data`.
-    clientUserAgent:
-      typeof tags.user_agent === 'string' && tags.user_agent ? tags.user_agent : data.user_agent,
-    clientIpAddress:
-      typeof tags.ip_address === 'string' && tags.ip_address ? tags.ip_address : data.ip_address,
+    // The event's own request context (its tags) outranks the caller-wide `data`.
+    clientUserAgent: requestUserAgent(tags, data),
+    clientIpAddress: requestIpAddress(tags, data),
     idfa: platform === 'ios' ? tags.advertising_id : undefined,
     gaid: platform === 'android' ? tags.advertising_id : undefined,
   };

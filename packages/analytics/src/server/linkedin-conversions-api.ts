@@ -14,6 +14,7 @@ import type { TrackEvent, TrackName, UserProvidedData } from '../track/types';
 import { getFirst } from '../utils/field';
 import { linkedinFatId } from './click-ids';
 import { ConversionsApiError } from './conversions-api-error';
+import { requestIpAddresses } from './request-context';
 import { type ConversionDestination, conversionDestination } from './setup-conversions';
 
 /**
@@ -148,11 +149,14 @@ export async function sendEvents(
     if (email) userIds.push({ idType: 'SHA256_EMAIL', idValue: hashEmail(email) });
   }
 
-  // LinkedIn takes the IP as is (it salts and hashes it itself), IPv4 only.
+  // LinkedIn takes the IP as is (it salts and hashes it itself), IPv4 only. Per event: the
+  // event's own `tags.ip_address` outranks `data.ip_address`, the first IPv4 of the two is sent.
   // https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api
-  if (data.ip_address && isIPv4(data.ip_address)) {
-    userIds.push({ idType: 'PLAINTEXT_IP_ADDRESS', idValue: data.ip_address });
-  }
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+  const ipIds = (event: TrackEvent<any>): { idType: UserIdType; idValue: string }[] => {
+    const ip = requestIpAddresses(event.tags, data).find((candidate) => isIPv4(candidate));
+    return ip ? [{ idType: 'PLAINTEXT_IP_ADDRESS', idValue: ip }] : [];
+  };
 
   // The identifiers each event carries itself: the click id, and the Android advertising id.
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any
@@ -183,7 +187,7 @@ export async function sendEvents(
           amount: event.properties?.value?.toString() ?? '0',
         },
         user: {
-          userIds: [...eventIds(event), ...userIds],
+          userIds: [...eventIds(event), ...userIds, ...ipIds(event)],
           userInfo,
           externalIds,
         },
