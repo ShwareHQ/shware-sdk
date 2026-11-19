@@ -489,6 +489,40 @@ describe('the normalization rules, pinned to concrete hashes', () => {
   });
 });
 
+describe('client_user_agent: the event tag, else the caller data', () => {
+  const userData = (data: UserProvidedData, tags = {}) =>
+    getCapiEvent(event({ tags }), data).user_data;
+
+  it('is taken from tags.user_agent when data carries none', () => {
+    expect(userData({ user_id: 'u1' }, { user_agent: 'Tag/1.0' }).client_user_agent).toBe(
+      'Tag/1.0'
+    );
+  });
+
+  it('is still taken from data.user_agent when the tags carry none', () => {
+    expect(userData({ user_agent: 'Data/1.0' }).client_user_agent).toBe('Data/1.0');
+  });
+
+  it('prefers the tag over the data, as tags.ip_address outranks data.ip_address', () => {
+    const out = userData(
+      { user_agent: 'Data/1.0', ip_address: '203.0.113.9' },
+      { user_agent: 'Tag/1.0', ip_address: '198.51.100.7' }
+    );
+    expect(out.client_user_agent).toBe('Tag/1.0');
+    expect(out.client_ip_address).toBe('198.51.100.7');
+  });
+
+  it('ignores an empty or non-string tag and falls back to the data', () => {
+    expect(userData({ user_agent: 'Data/1.0' }, { user_agent: '' }).client_user_agent).toBe(
+      'Data/1.0'
+    );
+    expect(userData({ user_agent: 'Data/1.0' }, { user_agent: 42 }).client_user_agent).toBe(
+      'Data/1.0'
+    );
+    expect(userData({}, { user_agent: '' }).client_user_agent).toBeUndefined();
+  });
+});
+
 describe('deliberate divergences from the business SDK, on invalid input only', () => {
   it('a degenerate zip is dropped instead of shipping [null]', () => {
     // The SDK normalizes a sub-2-character zip to null and sends `zp: [null]`.

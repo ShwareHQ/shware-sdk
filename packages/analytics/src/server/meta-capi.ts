@@ -213,8 +213,13 @@ function getUserData(tags: TrackTags, data: UserProvidedData, eventTimeMs: numbe
   if (tags.advertising_id) {
     userData.madid = tags.advertising_id;
   }
+  // The request that carried this event, as the server recorded it in the event's tags, outranks
+  // the caller-wide `data` for both: a batch can hold events from several requests.
   if (tags.ip_address && typeof tags.ip_address === 'string') {
     userData.client_ip_address = tags.ip_address;
+  }
+  if (tags.user_agent && typeof tags.user_agent === 'string') {
+    userData.client_user_agent = tags.user_agent;
   }
 
   return userData;
@@ -423,10 +428,15 @@ export async function sendEvents(
     .filter((event) => Date.now() - Date.parse(event.created_at) <= MAX_EVENT_AGE_MS)
     .map((event) => getCapiEvent(event, data, options.appPackageName));
   if (capiEvents.length === 0) return undefined;
-  // "The client_user_agent is required for website events" — sent from `data.user_agent`.
-  if (!data.user_agent && capiEvents.some((event) => event.action_source === 'website')) {
+  // "The client_user_agent is required for website events" — taken from the event's
+  // `tags.user_agent`, else `data.user_agent`; warn only when a website event has neither.
+  if (
+    capiEvents.some(
+      (event) => event.action_source === 'website' && !event.user_data.client_user_agent
+    )
+  ) {
     console.warn(
-      'Meta conversion: website events sent without client_user_agent (data.user_agent)'
+      'Meta conversion: website events sent without client_user_agent (neither tags.user_agent nor data.user_agent)'
     );
   }
 
