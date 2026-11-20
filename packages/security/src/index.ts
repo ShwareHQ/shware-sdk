@@ -38,6 +38,7 @@ export type {
   PersonNameComponents,
   ProviderConfig,
   StandardClaims,
+  TokenTypeHint,
   UserInfo,
   WebClient,
 } from './oauth2/types';

@@ -13,6 +13,7 @@ import type {
   PkceParameters,
   Provider,
   ProviderConfig,
+  TokenTypeHint,
   WebClient,
 } from './types';
 
@@ -208,19 +209,26 @@ export class OAuth2Client {
     return implementation.refreshAccessToken({ refreshToken, clientId, clientSecret });
   }
 
+  /**
+   * Revokes a token at the provider. `clientId` is the client the token was issued to, as
+   * `Authorization.clientId` named it at sign-in: Sign in with Apple refuses a token revoked as
+   * any other client (the web Services ID vs. the app's bundle id).
+   */
   async revokeToken({
     provider,
     clientId,
     token,
+    tokenTypeHint,
   }: {
     provider: string;
     clientId: string;
     token: string;
+    tokenTypeHint?: TokenTypeHint;
   }) {
     const { implementation, client } = await this.getClient(provider, clientId);
     invariant(implementation.revokeToken, 'Provider does not support revokeToken');
     const clientSecret = await this.resolveSecret(client.clientSecret, clientId);
-    await implementation.revokeToken({ token, clientId, clientSecret });
+    await implementation.revokeToken({ token, clientId, clientSecret, tokenTypeHint });
   }
 
   /**

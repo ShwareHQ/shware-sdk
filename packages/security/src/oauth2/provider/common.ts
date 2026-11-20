@@ -1,6 +1,11 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { OAuth2Error } from '../error';
-import type { ExchangeCodeParams, PkceParameters, RefreshTokenParams } from '../types';
+import type {
+  ExchangeCodeParams,
+  PkceParameters,
+  RefreshTokenParams,
+  TokenTypeHint,
+} from '../types';
 
 export function createAuthorizationUri(options: {
   state: string;
@@ -88,11 +93,13 @@ interface RevokeTokenParams {
   clientSecret?: string;
   tokenRevokeUri: string;
   authentication?: 'basic' | 'post';
+  tokenTypeHint?: TokenTypeHint;
 }
 
 export async function revokeToken(params: RevokeTokenParams) {
   const body = new URLSearchParams();
   body.append('token', params.token);
+  if (params.tokenTypeHint) body.append('token_type_hint', params.tokenTypeHint);
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'Content-Type': 'application/x-www-form-urlencoded',
