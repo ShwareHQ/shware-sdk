@@ -352,19 +352,60 @@ export const auth = new Auth({ sessionRepository, kvRepository: new DBKVReposito
 
 `@shware/security/oauth2/provider` exports ready-made providers to put in `oauth2.client.provider`:
 
-| Export     | Notes                                                               |
-| ---------- | ------------------------------------------------------------------- |
-| `apple`    | Sign in with Apple (web `form_post` callback and native `id_token`) |
-| `facebook` | Facebook Login                                                      |
-| `github`   | GitHub OAuth app                                                    |
-| `google`   | Google, including One Tap / FedCM (`loginOAuth2Onetap`)             |
-| `wechat`   | WeChat                                                              |
-| `x`        | X (Twitter) OAuth 2.0                                               |
+| Export     | Notes                                                                          |
+| ---------- | ------------------------------------------------------------------------------ |
+| `apple`    | Sign in with Apple (web `form_post` callback and native `code`), `revokeToken` |
+| `facebook` | Facebook Login                                                                 |
+| `github`   | GitHub OAuth app                                                               |
+| `google`   | Google, including One Tap / FedCM (`loginOAuth2Onetap`)                        |
+| `wechat`   | WeChat                                                                         |
+| `x`        | X (Twitter) OAuth 2.0                                                          |
 
 Apple has no static client secret; `createAppleClientSecret` signs one per client id and caches it
 until shortly before it expires. Pass the function itself as the `clientSecret` of every Apple
 client, as in the quick start: the app's bundle id and the web's Services ID share the key and get
 a secret each.
+
+### Revoking Sign in with Apple on account deletion
+
+An app that offers Sign in with Apple must revoke the user's authorization when they delete their
+account (App Store Review Guideline 5.1.1(v); Apple's TN3194). Apple revokes by a refresh or
+access token, issued to one client, so keep both at sign-in. Every Apple login (the web callback
+and the native route alike) exchanges the authorization code at Apple's `/auth/token`, and
+`onAuthorized` receives the result: `token.refresh_token`, and `clientId`, the Services ID for a
+web sign-in or the bundle id for an app's. Store them with the identity; the token is a secret.
+
+```ts
+export async function onAuthorized(request: Request, authorization: Authorization) {
+  const { provider, clientId, token } = authorization;
+  // ... upsert the user, then, for Apple:
+  if (provider === 'apple' && clientId && token?.refresh_token) {
+    await saveAppleToken(userId, { clientId, refreshToken: token.refresh_token });
+  }
+}
+```
+
+On deletion, revoke with an `OAuth2Client` built from the same `oauth2.client` config `Auth` gets.
+`clientId` must be the one stored with the token: Apple refuses a token revoked as another client.
+
+```ts
+import { OAuth2Client } from '@shware/security';
+
+const oauth2 = new OAuth2Client(config.oauth2.client);
+await oauth2.revokeToken({
+  provider: 'apple',
+  clientId: stored.clientId,
+  token: stored.refreshToken,
+  tokenTypeHint: 'refresh_token',
+});
+```
+
+Apple answers 200 both when it revoked the token and when the token was already invalid (revoked
+before, or the user stopped using Sign in with Apple for the app in their Apple Account), so
+revoking twice succeeds. Any other answer throws an `OAuth2Error` with Apple's `error`
+(`invalid_client` for a refused secret or client id) or `server_error` for a 5xx without one; the
+host decides whether a failed revoke holds up the deletion. A user who signed in before the host
+kept refresh tokens has none to revoke: TN3194 says the deletion must go ahead regardless.
 
 ### Id token verification
 

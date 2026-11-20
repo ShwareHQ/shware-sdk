@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
+import { invariant } from '@shware/utils';
 import { type JWTPayload, SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { type Mock, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { OAuth2Client } from '../../oauth2/client';
 import { apple, facebook, google } from '../../oauth2/provider/index';
 import { MapSession } from '../../session/map-session';
 import type { KVRepository, SessionRepository } from '../../session/types';
@@ -275,7 +277,12 @@ describe('Sign in with Apple: app and web under one provider', () => {
     const body = tokenRequests()[0];
     expect(body.get('client_id')).toBe(APPLE_APP);
     expect(body.get('client_secret')).toBe(`secret-for-${APPLE_APP}`);
-    expect(handler.mock.calls[0]?.[1]).toMatchObject({ provider: 'apple', clientId: APPLE_APP });
+    // The refresh token and the client it was issued to reach the host, to revoke on deletion.
+    expect(handler.mock.calls[0]?.[1]).toMatchObject({
+      provider: 'apple',
+      clientId: APPLE_APP,
+      token: { refresh_token: 'rt' },
+    });
   });
 
   it('native: leaves a code_verifier out of the exchange, as Apple takes none', async () => {
@@ -334,7 +341,50 @@ describe('Sign in with Apple: app and web under one provider', () => {
     expect(appleSecret).toHaveBeenCalledWith(APPLE_WEB);
     expect(appleSecret).not.toHaveBeenCalledWith(APPLE_APP);
     expect(tokenRequests()[0]?.get('client_id')).toBe(APPLE_WEB);
-    expect(handler.mock.calls[0]?.[1]).toMatchObject({ provider: 'apple', clientId: APPLE_WEB });
+    expect(handler.mock.calls[0]?.[1]).toMatchObject({
+      provider: 'apple',
+      clientId: APPLE_WEB,
+      token: { refresh_token: 'rt' },
+    });
+  });
+
+  it('revokes the refresh token from a sign-in as the client it was issued to', async () => {
+    const auth = createAuth();
+    issuedIdToken = await sign({
+      iss: APPLE_ISS,
+      aud: APPLE_APP,
+      nonce: await issueNonce(auth, 'apple'),
+    });
+    await auth.loginOAuth2Native(postJson('/login/oauth2/native/apple', { code: 'c0de' }), handler);
+    const { provider, clientId, token } = handler.mock.calls[0]?.[1] ?? { provider: '' };
+    const refreshToken = token?.refresh_token;
+    invariant(clientId && refreshToken, 'the sign-in hands over a refresh token and its client');
+
+    // Later, on account deletion, with the same providers config `Auth` was given.
+    fetchMock.mockImplementationOnce(async () => new Response(null, { status: 200 }));
+    const client = new OAuth2Client({
+      baseUri: 'https://api.test',
+      errorUri: 'https://app.test/?status=error',
+      successUri: 'https://app.test/',
+      providers: {
+        apple: { provider: apple, native: [{ clientId: APPLE_APP, clientSecret: appleSecret }] },
+      },
+    });
+    await client.revokeToken({
+      provider,
+      clientId,
+      token: refreshToken,
+      tokenTypeHint: 'refresh_token',
+    });
+
+    const [input, init] = fetchMock.mock.calls.at(-1) ?? [];
+    expect(urlOf(input ?? '').href).toBe('https://appleid.apple.com/auth/revoke');
+    expect(Object.fromEntries(new URLSearchParams(init?.body as URLSearchParams))).toEqual({
+      client_id: APPLE_APP,
+      client_secret: `secret-for-${APPLE_APP}`,
+      token: 'rt',
+      token_type_hint: 'refresh_token',
+    });
   });
 
   it('web: refuses a callback whose id token lacks the nonce it sent, or carries another', async () => {

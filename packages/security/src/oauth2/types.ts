@@ -52,10 +52,15 @@ export interface RefreshTokenParams {
   refreshToken: string;
 }
 
+/** RFC 7009 `token_type_hint`: which kind of token `token` is. */
+export type TokenTypeHint = 'access_token' | 'refresh_token';
+
 export interface RevokeTokenParams {
   token: string;
   clientId: string;
   clientSecret?: string;
+  /** Sent as `token_type_hint` when given; the provider looks the token up either way. */
+  tokenTypeHint?: TokenTypeHint;
 }
 
 export interface LoginOAuth2NativeParams {

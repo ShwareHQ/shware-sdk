@@ -20,6 +20,7 @@ export function createAppleProvider(): Provider {
     // important notice: response_mode=form_post is required for apple
     authorizationUri: 'https://appleid.apple.com/auth/authorize?response_mode=form_post',
     tokenUri: 'https://appleid.apple.com/auth/token',
+    tokenRevokeUri: 'https://appleid.apple.com/auth/revoke',
     jwkSetUri: 'https://appleid.apple.com/auth/keys',
     userNameAttribute: 'sub',
     defaultScope: ['openid', 'name', 'email'],
@@ -96,7 +97,49 @@ export function createAppleProvider(): Provider {
       };
       return { token, userInfo };
     },
+    /**
+     * Revokes a user's refresh or access token and with it the user's authorization of the app
+     * (account deletion, App Store Review Guideline 5.1.1(v)). `clientId` must be the client the
+     * token was issued to: the Services ID for a web sign-in, the bundle id for an app's.
+     *
+     * Apple answers 200 both when it revoked the token and when the token was already invalid
+     * (revoked, or the user removed the app from their Apple Account), so revoking twice is not an
+     * error. Anything else is: a 400 carries Apple's `error` (`invalid_client` for a secret or
+     * client id Apple refuses, which includes a token issued to another client).
+     * https://developer.apple.com/documentation/signinwithapplerestapi/revoke-tokens
+     */
+    async revokeToken({ token, clientId, clientSecret, tokenTypeHint }) {
+      invariant(this.tokenRevokeUri, 'tokenRevokeUri is required');
+      const body = new URLSearchParams({ client_id: clientId, token });
+      if (clientSecret) body.append('client_secret', clientSecret);
+      if (tokenTypeHint) body.append('token_type_hint', tokenTypeHint);
+      const response = await fetch(this.tokenRevokeUri, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+      });
+      if (response.ok) return;
+      throw new OAuth2Error(response.status, await appleErrorType(response), 'Apple revoke failed');
+    },
   };
+}
+
+/**
+ * The `error` of a failed Apple response; Apple's 4xx bodies are an `ErrorResponse`, but a 5xx or
+ * a proxy's page may be anything, which counts as a server error or a malformed request.
+ */
+async function appleErrorType(response: Response): Promise<string> {
+  try {
+    const body: unknown = await response.json();
+    const error = (body as { error?: unknown } | null)?.error;
+    if (typeof error === 'string' && error) return error;
+  } catch {
+    // Not JSON.
+  }
+  return response.status >= 500 ? 'server_error' : 'invalid_request';
 }
 
 export const apple = createAppleProvider();

@@ -14,7 +14,8 @@ export type LoggedHandler = (principal: Principal) => Promise<void>;
  * - `clientId`: the client the user signed in through (the web client, an app's bundle id, ...),
  *   telling the surfaces apart; absent for email sign-in.
  * - `userInfo`: the provider's user info, or the verified email as claims.
- * - `token`: the provider's tokens; absent for email sign-in.
+ * - `token`: the provider's tokens; absent for email sign-in. Apple's carries the `refresh_token`
+ *   to keep with `clientId` for `OAuth2Client.revokeToken` when the user deletes their account.
  * - `attributes`: what the host attached when it started a redirect flow with
  *   `oauth2Authorization(request, { attributes })`, or the `attributes` field of a native, One Tap
  *   (JSON) or email login body; `{}` when there were none.
