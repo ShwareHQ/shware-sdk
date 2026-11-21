@@ -425,6 +425,20 @@ if (result.authorized) {
 Skipped reasons are only partially reported under FedCM, so `reason` is often absent on the
 `skipped` branch.
 
+`cancel()` takes One Tap down. Call it once the visitor has signed in another way (email, another
+provider, another tab), so a prompt left on screen cannot start a second sign-in:
+
+```ts
+import { cancel } from '@shware/http/google-one-tap';
+
+onSignedIn(() => cancel());
+```
+
+Every `prompt()` in flight resolves as `dismissed` with `cancel_called`: one on screen is closed,
+and one still loading the script or waiting for its `nonce` never shows. A credential already
+returned is unaffected, a later `prompt()` runs normally, and with nothing in flight (or outside a
+browser) `cancel()` does nothing.
+
 ## Webhooks (`@shware/http/webhook`)
 
 `verifyStandardWebhook<T>(headers, payload, secret)` verifies the `webhook-id`,

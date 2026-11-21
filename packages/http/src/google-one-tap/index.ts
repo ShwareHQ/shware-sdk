@@ -124,14 +124,68 @@ function readSkippedReason(notification: PromptMomentNotification): SkippedReaso
   }
 }
 
+/** A `prompt()` call in flight, so `cancel()` can stop it before or after it shows. */
+type Flight = {
+  cancelled: boolean;
+  /** Set once One Tap is on screen; settles the pending `prompt()` promise. */
+  settle?: (result: PromptResult) => void;
+};
+
+const flights = new Set<Flight>();
+
+const CANCELLED: PromptResult = { authorized: false, dismissed: true, reason: 'cancel_called' };
+
+/**
+ * Takes down One Tap, e.g. once the visitor signed in another way (email, Apple, another tab).
+ *
+ * Every `prompt()` in flight resolves with `{ authorized: false, dismissed: true, reason:
+ * 'cancel_called' }`: one on screen is closed through GSI's `cancel()`, and one still preparing
+ * (loading the script or awaiting the `nonce` function) never shows. A credential already
+ * returned is unaffected, and a later `prompt()` runs normally. With nothing in flight, or
+ * outside a browser, it does nothing.
+ */
+export function cancel(): void {
+  let shown = false;
+  for (const flight of flights) {
+    flight.cancelled = true;
+    if (flight.settle) shown = true;
+  }
+  if (shown && typeof window !== 'undefined') {
+    try {
+      window.google?.accounts.id.cancel();
+    } catch {
+      // Settled below either way.
+    }
+  }
+  // GSI reports a `cancel_called` dismissal, but under FedCM that may never come.
+  for (const flight of flights) flight.settle?.(CANCELLED);
+  flights.clear();
+}
+
 /** debug: chrome://settings/content/federatedIdentityApi */
-export async function prompt({
-  nonce,
-  client_id,
-  auto_select = false,
-  use_fedcm_for_prompt = true,
-  cancel_on_tap_outside = false,
-}: Props): Promise<PromptResult> {
+export async function prompt(props: Props): Promise<PromptResult> {
+  const flight: Flight = { cancelled: false };
+  flights.add(flight);
+  try {
+    return await run(props, flight);
+  } finally {
+    flights.delete(flight);
+  }
+}
+
+async function run(
+  {
+    nonce,
+    client_id,
+    auto_select = false,
+    use_fedcm_for_prompt = true,
+    cancel_on_tap_outside = false,
+  }: Props,
+  flight: Flight
+): Promise<PromptResult> {
+  // Read through a call: `cancel()` flips it during an await, which narrowing cannot see.
+  const cancelled = () => flight.cancelled;
+
   // FedCM is mandatory for One Tap on capable browsers (GIS completed the
   // migration in early 2025) and there is no viable legacy fallback anymore.
   // When the caller wants FedCM but the browser lacks it, bail early instead
@@ -146,6 +200,7 @@ export async function prompt({
   } catch {
     return { authorized: false, unsupported: true, reason: 'script_load_failed' };
   }
+  if (cancelled()) return CANCELLED;
 
   const accounts = window.google?.accounts;
   if (!accounts) {
@@ -153,15 +208,24 @@ export async function prompt({
     return { authorized: false, unsupported: true, reason: 'script_load_failed' };
   }
 
-  const resolvedNonce = typeof nonce === 'function' ? await nonce() : nonce;
+  let resolvedNonce: string | undefined;
+  try {
+    resolvedNonce = typeof nonce === 'function' ? await nonce() : nonce;
+  } catch (error) {
+    if (cancelled()) return CANCELLED;
+    throw error;
+  }
+  if (cancelled()) return CANCELLED;
 
   return new Promise<PromptResult>((resolve) => {
     let settled = false;
     const settle = (result: PromptResult) => {
       if (settled) return;
       settled = true;
+      flights.delete(flight); // a cancel() after this leaves GSI and the result alone
       resolve(result);
     };
+    flight.settle = settle;
 
     try {
       accounts.id.initialize({
