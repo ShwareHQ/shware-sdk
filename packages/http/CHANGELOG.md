@@ -1,5 +1,11 @@
 # @shware/http
 
+## 4.3.1
+
+### Patch Changes
+
+- 0c437c5: `cancel()` in `@shware/http/google-one-tap` is now built on a shared `AbortController` instead of a set of in-flight prompts. Internal restructuring only: behaviour and the public API are unchanged.
+
 ## 4.3.0
 
 ### Minor Changes
