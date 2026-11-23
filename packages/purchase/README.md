@@ -109,7 +109,11 @@ export const stripe = defineStripeConfig({
   .product('com.example.stripe.sub.monthly.starter', 'STARTER', 'MONTHLY')
   .price('price_live_starter_v2', { credits: 100, expiresIn: '30 days' })
   .price('price_live_starter_v1', { credits: 100, expiresIn: '30 days' }) // grandfathered
-  .default('price_live_starter_v2', { test: 'price_test_starter' });
+  .default('price_live_starter_v2', { test: 'price_test_starter' })
+  // subscription with a 3-day free trial (subscriptions only; every price of the SKU keeps it)
+  .product('com.example.stripe.sub.monthly.pro', 'PRO', 'MONTHLY', { trialDays: 3 })
+  .price('price_live_pro', { credits: 300, expiresIn: '30 days' })
+  .default('price_live_pro', { test: 'price_test_pro' });
 
 export const appStore = defineAppStoreConfig({
   namespace: 'com.example.appstore',
@@ -139,15 +143,22 @@ export const googlePlay = defineGooglePlayConfig({
 
 Lookups:
 
-| Config             | Methods                                                                                                                                                                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `StripeConfig`     | `productIds`, `getPriceId(productId)`, `getProductId(priceId)`, `getPlan`, `getBillingPeriod`, `getMode`, `isSubscription`, `comparePlans(from, to)`, `getCreditAmount(productId, priceId?)`, `getCreditExpiresAt(productId, priceId?)` |
-| `AppStoreConfig`   | `productIds`, `getDefaultProductId(plan, billingPeriod)`, `getPlan`, `getBillingPeriod`, `getMode`, `getCreditAmount`, `getCreditExpiresAt`                                                                                             |
-| `GooglePlayConfig` | `productIds`, `getDefaultPlanIds(productId)`, `getPlan(productId, planId)`, `getBillingPeriod(productId, planId)`, `getMode`, `getCreditAmount(productId, planId?)`, `getCreditExpiresAt(productId, planId?)`                           |
+| Config             | Methods                                                                                                                                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `StripeConfig`     | `productIds`, `getPriceId(productId)`, `getProductId(priceId)`, `getTrialDays(productId)`, `getPlan`, `getBillingPeriod`, `getMode`, `isSubscription`, `comparePlans(from, to)`, `getCreditAmount(productId, priceId?)`, `getCreditExpiresAt(productId, priceId?)` |
+| `AppStoreConfig`   | `productIds`, `getDefaultProductId(plan, billingPeriod)`, `getPlan`, `getBillingPeriod`, `getMode`, `getCreditAmount`, `getCreditExpiresAt`                                                                                                                        |
+| `GooglePlayConfig` | `productIds`, `getDefaultPlanIds(productId)`, `getPlan(productId, planId)`, `getBillingPeriod(productId, planId)`, `getMode`, `getCreditAmount(productId, planId?)`, `getCreditExpiresAt(productId, planId?)`                                                      |
 
 In Stripe test mode the `test` twin of the default price is what `getPriceId` returns, and it
 resolves to the default price's credits. Non-default prices, products and base plans stay declared
 so existing subscribers keep resolving.
+
+`trialDays` (an integer from 1 to 730, checked when the config is defined) is what Stripe reads as
+`subscription_data.trial_period_days`; `getTrialDays` returns it, or `undefined` when the product
+declares none. The SDK only carries the number: Stripe grants the trial on every checkout that
+passes it, so deciding who is eligible (a first subscription, say) is up to your own records. App
+Store and Google Play trials are introductory offers configured in their consoles and have no config
+field.
 
 ## Stripe
 
@@ -288,6 +299,10 @@ app.post(
     const session = await stripe.checkout.sessions.create({
       mode: config.stripe.getMode(productId),
       line_items: [{ price: config.stripe.getPriceId(productId), quantity }],
+      // only for a user your own records say is eligible (e.g. never subscribed before)
+      ...(eligibleForTrial && {
+        subscription_data: { trial_period_days: config.stripe.getTrialDays(productId) },
+      }),
       metadata: { [METADATA_KEYS.USER_ID]: userId, [METADATA_KEYS.PRODUCT_ID]: productId },
       allow_promotion_codes: config.stripe.allowPromotionCodes,
       success_url: successUrl ?? config.stripe.successUrl,

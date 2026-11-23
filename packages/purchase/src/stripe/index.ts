@@ -71,6 +71,7 @@ export {
   type PriceId,
   type StripeInterval,
   type StripeMode,
+  type StripeSubscriptionOptions,
 } from './config';
 export {
   PLAN_CHANGE_ERROR_REASONS,

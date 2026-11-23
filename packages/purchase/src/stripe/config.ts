@@ -13,6 +13,19 @@ export type PriceId = `price_${string}`;
  */
 export type StripeMode = 'live' | 'test';
 
+/** Options of a subscription product, declared once for the SKU and kept by every price of it. */
+export interface StripeSubscriptionOptions {
+  /**
+   * Free-trial length in days, an integer from 1 to 730 (Stripe's limits). Stripe reads it as
+   * `subscription_data.trial_period_days` on the Checkout Session that starts the subscription.
+   * The SDK only carries the number: Stripe gives a trial on every checkout that passes it, so who
+   * is eligible (say, a first subscription only) is the caller's to check against its own records.
+   */
+  trialDays?: number;
+}
+
+const MAX_TRIAL_DAYS = 730;
+
 const addMethod = Symbol('addMethod');
 /** The private constructor's one door, for this module's `define` function only. */
 const construct = Symbol('construct');
@@ -29,6 +42,7 @@ class Product<
   readonly config: StripeConfig<NS, PE, BP, PL, PI>;
   readonly plan: PE | null;
   readonly billingPeriod: BP | null;
+  readonly trialDays: number | undefined;
   readonly prices: Map<PriceId, Metadata>;
 
   defaultPriceId: PriceId | null;
@@ -37,12 +51,14 @@ class Product<
     config: StripeConfig<NS, PE, BP, PL, PI>,
     id: string,
     plan: PE | null = null,
-    billingPeriod: BP | null = null
+    billingPeriod: BP | null = null,
+    trialDays?: number
   ) {
     this.id = id;
     this.config = config;
     this.plan = plan;
     this.billingPeriod = billingPeriod;
+    this.trialDays = trialDays;
     this.prices = new Map();
     this.defaultPriceId = null;
   }
@@ -197,6 +213,7 @@ export class StripeConfig<
   /**
    * One-time products take no extra args; subscriptions require both plan and billingPeriod.
    * A plan+period pair may be declared on only one product — version its prices in that chain.
+   * Only the subscription form takes {@link StripeSubscriptionOptions} (`trialDays`).
    */
   product: {
     <K extends `${NS}.${Lowercase<string>}`>(
@@ -205,13 +222,30 @@ export class StripeConfig<
     <K extends `${NS}.${Lowercase<string>}`, L extends PE, P extends BP>(
       productId: K extends PI ? never : K,
       plan: L,
-      billingPeriod: `${L}:${P}` extends PL ? never : P
+      billingPeriod: `${L}:${P}` extends PL ? never : P,
+      options?: StripeSubscriptionOptions
     ): Product<NS, PE, BP, `${L}:${P}` | PL, K | PI>;
-  } = (productId: string, plan: PE | null = null, billingPeriod: BP | null = null) => {
+  } = (
+    productId: string,
+    plan: PE | null = null,
+    billingPeriod: BP | null = null,
+    options: StripeSubscriptionOptions = {}
+  ) => {
     assertInNamespace(this.namespace, productId);
     assertDeclared(this, plan, billingPeriod);
+    const { trialDays } = options;
+    if (trialDays !== undefined) {
+      invariant(
+        plan !== null,
+        `Product ${productId} is not a subscription and cannot have a trial`
+      );
+      invariant(
+        Number.isInteger(trialDays) && trialDays >= 1 && trialDays <= MAX_TRIAL_DAYS,
+        `Trial days of ${productId} must be an integer from 1 to ${MAX_TRIAL_DAYS}, got ${trialDays}`
+      );
+    }
     // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- widens to the overloads' accumulated generics
-    return new Product(this, productId, plan, billingPeriod) as never;
+    return new Product(this, productId, plan, billingPeriod, trialDays) as never;
   };
 
   getPlan = (productId: string): PE => {
@@ -242,6 +276,18 @@ export class StripeConfig<
   isSubscription = (productId: string): boolean => {
     const product = this.products.get(productId);
     return product !== undefined && product.plan !== null;
+  };
+
+  /**
+   * The free-trial days `productId` declares, for the Checkout Session's
+   * `subscription_data.trial_period_days`, or undefined when it declares none (a one-time product
+   * never does). Throws for an unknown product, as `getMode` does. The SDK does not decide who gets
+   * the trial: Stripe grants it on every checkout that passes it, so check eligibility first.
+   */
+  getTrialDays = (productId: string): number | undefined => {
+    const product = this.products.get(productId);
+    invariant(product, `Product not found for ${productId}`);
+    return product.trialDays;
   };
 
   /** The price new checkouts are created with: the default, or its test twin in test mode. */

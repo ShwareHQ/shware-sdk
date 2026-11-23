@@ -195,6 +195,64 @@ describe('StripeConfig', () => {
     expect(config.getProductId('price_unknown')).toBeNull();
   });
 
+  describe('trialDays', () => {
+    const trials = defineStripeConfig({ ...options, plans: PLANS, billingPeriods: BILLING_PERIODS })
+      .product('io.x.sub.monthly', 'STARTER', 'monthly', { trialDays: 3 })
+      .price('price_tm1')
+      .price('price_tm2') // a price variant of the same SKU keeps the trial
+      .default('price_tm1')
+      .product('io.x.sub.yearly', 'STARTER', 'yearly')
+      .price('price_ty')
+      .default('price_ty')
+      .product('io.x.credits')
+      .price('price_tc')
+      .default('price_tc');
+
+    it('returns the days a subscription product declares', () => {
+      expect(trials.getTrialDays('io.x.sub.monthly')).toBe(3);
+    });
+
+    it('is undefined for a product without a trial and for a one-time product', () => {
+      expect(trials.getTrialDays('io.x.sub.yearly')).toBeUndefined();
+      expect(trials.getTrialDays('io.x.credits')).toBeUndefined();
+    });
+
+    it('throws for an unknown product, as getMode does', () => {
+      expect(() => trials.getTrialDays('nonexistent')).toThrow('Product not found for nonexistent');
+      expect(() => trials.getMode('nonexistent')).toThrow('Product not found for nonexistent');
+    });
+
+    it('accepts the bounds 1 and 730', () => {
+      const fresh = () =>
+        defineStripeConfig({ ...options, plans: PLANS, billingPeriods: BILLING_PERIODS });
+      expect(fresh().product('io.x.a', 'STARTER', 'monthly', { trialDays: 1 }).trialDays).toBe(1);
+      expect(fresh().product('io.x.a', 'STARTER', 'monthly', { trialDays: 730 }).trialDays).toBe(
+        730
+      );
+    });
+
+    it.each([0, -1, 1.5, 731, Number.NaN, Number.POSITIVE_INFINITY])('rejects %s', (trialDays) => {
+      expect(() =>
+        defineStripeConfig({ ...options, plans: PLANS, billingPeriods: BILLING_PERIODS }).product(
+          'io.x.a',
+          'STARTER',
+          'monthly',
+          { trialDays }
+        )
+      ).toThrow(`Trial days of io.x.a must be an integer from 1 to 730, got ${trialDays}`);
+    });
+
+    it('rejects a trial on a one-time product at runtime too', () => {
+      // widened on purpose: only the runtime check stands once the overloads are bypassed
+      const loose = defineStripeConfig(options) as unknown as {
+        product: (id: string, plan: null, period: null, options: { trialDays: number }) => unknown;
+      };
+      expect(() => loose.product('io.x.a', null, null, { trialDays: 3 })).toThrow(
+        'Product io.x.a is not a subscription and cannot have a trial'
+      );
+    });
+  });
+
   it('should reject invalid configurations at the type level', () => {
     // checked by tsc, never executed
     const typeChecks = () => {
@@ -239,6 +297,12 @@ describe('StripeConfig', () => {
       inferred.product('io.inferred.pro', 'PRO', 'MONTHLY');
       // @ts-expect-error not one of the inferred periods
       inferred.product('io.inferred.plus.yearly', 'PLUS', 'YEARLY');
+      // a subscription takes trialDays
+      inferred.product('io.inferred.basic', 'BASIC', 'MONTHLY', { trialDays: 3 });
+      // @ts-expect-error a one-time product takes no options, so no trial
+      inferred.product('io.inferred.credits', { trialDays: 3 });
+      // @ts-expect-error trialDays is a number of days, not a duration string
+      inferred.product('io.inferred.basic', 'BASIC', 'MONTHLY', { trialDays: '3 days' });
       const oneTimeOnly = defineStripeConfig(options);
       // @ts-expect-error a config that sells no subscriptions has no plans to name
       oneTimeOnly.product('io.x.a', 'A', 'B');
