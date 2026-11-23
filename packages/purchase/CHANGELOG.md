@@ -1,5 +1,11 @@
 # @shware/purchase
 
+## 11.1.0
+
+### Minor Changes
+
+- 57f8381: A Stripe subscription product can declare its free-trial days with `.product(id, plan, billingPeriod, { trialDays })`, read back with `getTrialDays(productId)` for Checkout's `subscription_data.trial_period_days`; who gets the trial stays the caller's decision.
+
 ## 11.0.1
 
 ### Patch Changes
