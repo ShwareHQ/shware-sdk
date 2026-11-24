@@ -1,5 +1,13 @@
 # @shware/workflow-ui
 
+## 2.2.5
+
+### Patch Changes
+
+- a836d52: Upgrade the studio's runtime dependencies (TanStack Query, React Flow, i18next, react-i18next, the language detector, lucide-react and tailwind-merge) to their latest releases.
+- Updated dependencies [a836d52]
+  - @shware/workflow@12.0.3
+
 ## 2.2.4
 
 ### Patch Changes
