@@ -15,12 +15,12 @@
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "husky": "^9.1.7",
-    "lint-staged": "^17.6.1",
+    "lint-staged": "^17.6.2",
     "oxfmt": "^0.79.0",
     "oxlint": "^1.94.0",
-    "oxlint-tsgolint": "^7.0.2007",
+    "oxlint-tsgolint": "^7.0.2008",
     "tsdown": "0.23.7",
-    "turbo": "^2.11.11",
+    "turbo": "^2.11.13",
     "typescript": "^7.0.2"
   },
   "lint-staged": {
@@ -35,5 +35,5 @@
   "engines": {
     "node": "24.x"
   },
-  "packageManager": "pnpm@12.21.0"
+  "packageManager": "pnpm@12.23.0"
 }

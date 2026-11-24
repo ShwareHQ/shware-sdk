@@ -26,7 +26,7 @@ export function ToastProvider() {
         closeButton: false,
         // Long enough to read without racing the close button
         duration: 5000,
-        style: { cornerShape: 'superellipse(1.2)' } as CSSProperties,
+        style: { cornerShape: 'superellipse(1.2)' },
         classNames: {
           toast: clsx(
             'flex w-90 items-center gap-x-2 font-sans',

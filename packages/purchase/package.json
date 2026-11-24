@@ -70,9 +70,9 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^26.6.6",
-    "stripe": "^23.1.0",
+    "stripe": "^23.2.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0",
+    "vitest": "^5.1.1",
     "zod": "^4.6.7"
   },
   "peerDependencies": {

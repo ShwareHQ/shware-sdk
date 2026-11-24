@@ -45,15 +45,15 @@
   "dependencies": {
     "@shware/utils": "workspace:^",
     "cookie": "^2.0.2",
-    "jose": "^6.2.17",
-    "path-to-regexp": "^8.4.2"
+    "jose": "^6.2.18",
+    "path-to-regexp": "^9.0.0"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^26.6.6",
     "ioredis": "^6.0.0",
     "typescript": "7.0.2",
-    "vitest": "^5.1.0",
+    "vitest": "^5.1.1",
     "zod": "^4.6.7"
   },
   "peerDependencies": {
