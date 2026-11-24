@@ -1,6 +1,9 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { AUTHENTICATION_REASONS } from '../src/auth/error';
-import { AuthenticationError, type AuthenticationReason } from '../src/auth/error';
+import {
+  type AUTHENTICATION_REASONS,
+  AuthenticationError,
+  type AuthenticationReason,
+} from '../src/auth/error';
 
 declare module '../src/auth/error' {
   interface AuthenticationReasons {
