@@ -1,5 +1,11 @@
 # @shware/workflow
 
+## 12.0.3
+
+### Patch Changes
+
+- a836d52: Upgrade @slack/types to ^3.3.1 and discord-api-types to ^0.38.60.
+
 ## 12.0.2
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @shware/analytics
 
+## 16.6.2
+
+### Patch Changes
+
+- a836d52: Upgrade @posthog/types to ^1.427.0.
+
 ## 16.6.1
 
 ### Patch Changes
