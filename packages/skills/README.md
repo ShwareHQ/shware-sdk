@@ -5,12 +5,14 @@
 it is meant to be used. They are released with the SDK, so a skill changes in the same pull request
 as the API it describes.
 
-| Skill                         | Covers                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------- |
-| `cursor-based-pagination-api` | Cursor-paginated list APIs and infinite-scroll clients (`@shware/http`) |
-| `user-event-tracking`         | GA4-style event tracking and typed custom events (`@shware/analytics`)  |
+| Skill                         | Covers                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `api-error-handling`          | Raising, validating and handling API errors with the error model (`@shware/http`)       |
+| `cursor-based-pagination-api` | Cursor-paginated list APIs and infinite-scroll clients (`@shware/http`)                 |
+| `subscription-purchase`       | Entitlements, catalogs, checkout and store webhooks (`@shware/purchase`)                |
+| `user-event-tracking`         | Events, `trackOnce`, `identify` / `reset` and typed custom events (`@shware/analytics`) |
 
-The examples target `@shware/http` 4 and `@shware/analytics` 16. The package declares no peer
+The examples target `@shware/http` 4, `@shware/analytics` 16 and `@shware/purchase` 11. The package declares no peer
 dependencies on them (changesets would turn every SDK release into a major release of this one),
 so keep it up to date together with the SDK.
 

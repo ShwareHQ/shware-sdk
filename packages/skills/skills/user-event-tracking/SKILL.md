@@ -1,6 +1,6 @@
 ---
 name: user-event-tracking
-description: Implement user event tracking and behavior analytics for frontend/app. Use when adding analytics, tracking user interactions, measuring conversions.
+description: Implement user event tracking and behavior analytics for web and apps with @shware/analytics (track, trackOnce, useTrackImpression, identify, reset, typed custom events). Use when adding analytics, tracking user interactions or conversions, or wiring sign-in and sign-out.
 ---
 
 # User Event Tracking
@@ -11,6 +11,43 @@ This skill provides guidance for implementing user event tracking and behavior a
 
 1. Prefer using [Google Analytics 4 recommended events](https://developers.google.com/analytics/devguides/collection/ga4/reference/events?client_type=gtag) to benefit from built-in reporting support.
 2. Use snake_case for event names and parameters.
+3. An occurrence that can be reported twice (a result page reloaded, a store transaction redelivered) goes through `trackOnce` with the occurrence's own id as its key.
+4. Bind the visitor to the user with `identify` and end it with `reset`; never send the user id as an event property instead.
+
+## Users: `identify` and `reset`
+
+- **`identify(userId, userData?)` on every app start or page load where someone is signed in**, and right after sign-in: not just once. It hands the user to the analytics server and the pixels; it only sends an `identify` event when the user differs from the one this device last identified, so calling it often is free. `userData` (e.g. `{ email }`) goes to the ad pixels for matching only. Signing in as a different user starts a new visitor on its own.
+- **`reset()` at sign-out**, after tracking `logout`, which still belongs to the user leaving. Call it whenever the session ends (expiry, account deletion) and from every tab that notices; a late or repeated call does not cut off the next user.
+
+```ts
+import { identify, reset, track } from '@shware/analytics';
+
+// Sign-in succeeded.
+identify(user.id, { email: user.email });
+track('login', { method: 'google' });
+
+// On every load with a session (e.g. where the profile query resolves).
+if (profile) identify(profile.id);
+
+// Sign-out: logout first, then reset.
+track('logout');
+reset();
+```
+
+## Tracking an occurrence once: `trackOnce`
+
+`trackOnce(name, properties, { key })` tracks at most once per key on this device, so a reload, a back navigation or a redelivered store transaction does not report a second purchase. The key is the occurrence's id (a Stripe checkout session id, a store transaction id), never derived from the properties; the same key under another event name is a separate occurrence.
+
+```ts
+import { trackOnce } from '@shware/analytics';
+import { getPurchaseProperties } from '@shware/purchase/stripe';
+
+// The payment result page, which can be reloaded or reopened from history.
+trackOnce('purchase', getPurchaseProperties(session), { key: session.id });
+if (isTrial) trackOnce('trial_begin', { currency, value: 0 }, { key: session.id });
+```
+
+Use it for conversions (`purchase`, `trial_begin`, `purchase_failed`, `sign_up` from a confirmation link) and `track` for everything else. A failed send is retried by the next call under the same event id, so the server and the pixels deduplicate it. Deduplication is per device: exact revenue belongs to server-side records.
 
 ## Examples
 

@@ -282,8 +282,11 @@ export async function processStripeEvent(signature: string, body: string) {
 
 ### Checkout
 
-`createCheckoutSessionSchema(productIds)` is a `zod/mini` schema for the create-checkout request
-(`productId`, `quantity` default 1, optional `cancelUrl` / `successUrl`). `METADATA_KEYS` names
+`createCheckoutSessionSchema(productIds, { allowedOrigins })` is a `zod/mini` schema for the
+create-checkout request (`productId`, `quantity` default 1, optional `cancelUrl` / `successUrl` /
+`promotionCode`). `cancelUrl` and `successUrl` must be on one of `allowedOrigins` (usually the web
+app's origin), so a session cannot be made to end on someone else's page; `returnUrlSchema` is the
+same check for any other URL handed to Stripe. `METADATA_KEYS` names
 the metadata fields (`user_id`, `product_id`, `referral_code`, ...) the webhook reads back.
 
 ```ts
@@ -292,7 +295,10 @@ import { METADATA_KEYS, createCheckoutSessionSchema } from '@shware/purchase/str
 
 app.post(
   '/v1/checkout/sessions',
-  zValidator('json', createCheckoutSessionSchema(config.stripe.productIds)),
+  zValidator(
+    'json',
+    createCheckoutSessionSchema(config.stripe.productIds, { allowedOrigins: [config.appOrigin] })
+  ),
   async (c) => {
     const { productId, quantity, cancelUrl, successUrl } = c.req.valid('json');
     const userId = await getUserId(c);
