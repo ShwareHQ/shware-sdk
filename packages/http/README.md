@@ -95,7 +95,7 @@ import { Details, Status } from '@shware/http';
 
 const details = Details.new()
   .errorInfo({ reason: 'RATE_LIMIT_EXCEEDED' })
-  .retryInfo({ retryDelay: 60_000 });
+  .retryInfo({ retryDelay: 60 }); // seconds, as rateLimit sends it (the Retry-After value)
 
 throw Status.resourceExhausted('Too many requests, please try again later').error(details);
 ```

@@ -5,23 +5,57 @@
 it is meant to be used. They are released with the SDK, so a skill changes in the same pull request
 as the API it describes.
 
-| Skill                         | Covers                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------- |
-| `cursor-based-pagination-api` | Cursor-paginated list APIs and infinite-scroll clients (`@shware/http`) |
-| `user-event-tracking`         | GA4-style event tracking and typed custom events (`@shware/analytics`)  |
+| Skill                         | Covers                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `api-error-handling`          | Raising, validating and handling API errors with the error model (`@shware/http`)       |
+| `cursor-based-pagination-api` | Cursor-paginated list APIs and infinite-scroll clients (`@shware/http`)                 |
+| `subscription-purchase`       | Entitlements, catalogs, checkout and store webhooks (`@shware/purchase`)                |
+| `user-event-tracking`         | Events, `trackOnce`, `identify` / `reset` and typed custom events (`@shware/analytics`) |
 
-The examples target `@shware/http` 4 and `@shware/analytics` 16. The package declares no peer
+The examples target `@shware/http` 4, `@shware/analytics` 16 and `@shware/purchase` 11. The package declares no peer
 dependencies on them (changesets would turn every SDK release into a major release of this one),
 so keep it up to date together with the SDK.
 
 ## Install
 
-The skills ship in the package's `skills/` directory, the layout
-[skills-npm](https://github.com/antfu/skills-npm) discovers. Install both at the workspace root
-and link the skills from the `prepare` script:
+The skills ship in the package's `skills/<name>/SKILL.md`. Install it at the workspace root:
 
 ```bash
-pnpm add -Dw @shware/skills skills-npm
+pnpm add -Dw @shware/skills
+```
+
+### pnpm 12
+
+pnpm links an approved dependency's skills into `.agents/skills` on install. Approve this one:
+
+```bash
+pnpm approve @shware/skills
+```
+
+That records the decision in `pnpm-workspace.yaml`; commit it:
+
+```yaml
+permissions:
+  '@shware/skills':
+    skills: true
+```
+
+- Every install then symlinks each skill into `.agents/skills/<name>` and lists the links in
+  `.agents/skills/.gitignore` (between `# pnpm` markers), so they stay out of git.
+- pnpm links only into an existing `.agents/skills`: create it (`mkdir -p .agents/skills`) and
+  commit the `.gitignore` pnpm writes there, so a fresh clone gets the links on `pnpm install`.
+- Codex reads `.agents/skills`. For Claude Code, make `.claude/skills` a symlink to
+  `../.agents/skills`.
+- Skills of your own in `.agents/skills` are left alone, and removing the package removes its
+  links.
+
+### npm, Yarn or older pnpm
+
+Use [skills-npm](https://github.com/antfu/skills-npm), which discovers the same layout, from the
+`prepare` script:
+
+```bash
+npm i -D @shware/skills skills-npm
 ```
 
 ```json
@@ -32,10 +66,10 @@ pnpm add -Dw @shware/skills skills-npm
 }
 ```
 
-Every install then symlinks each skill into `.agents/skills/<name>` (relative links into
-`node_modules`), and records them in `skills-npm-lock.json`; commit both. `-a codex` limits it to
-`.agents/skills`, which Codex reads; for Claude Code, make `.claude/skills` a symlink to
-`../.agents/skills`. Skills of your own in `.agents/skills` are left alone.
+`-a codex` links only into `.agents/skills`. The links and `skills-npm-lock.json` are meant to be
+committed.
 
-Updating is `pnpm up @shware/skills`: the links point into `node_modules`, so they pick up the new
-content, and a skill added or removed in the release is linked or unlinked on that install.
+## Updating
+
+`pnpm up @shware/skills` (or `npm update`). The links point into `node_modules`, so they pick up
+the new content, and a skill added or removed in the release is linked or unlinked on that install.
