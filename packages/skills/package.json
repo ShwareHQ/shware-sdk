@@ -1,0 +1,16 @@
+{
+  "name": "@shware/skills",
+  "version": "0.0.0",
+  "private": false,
+  "description": "Agent skills for building with the @shware SDK packages",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShwareHQ/shware-sdk.git"
+  },
+  "files": [
+    "skills"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
