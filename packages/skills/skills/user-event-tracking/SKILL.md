@@ -71,10 +71,15 @@ export function HomeHero() {
 
 ### Using Custom Events
 
-Declare every custom event, with its properties, by merging into `CustomEventProperties`; find the project's existing `declare module '@shware/analytics'` block and add to it. If that block turns on `strict`, an undeclared event name is a compile error at every `track` call.
+Declare every custom event, with its properties, by merging into `CustomEventProperties`. Find the project's existing `declare module '@shware/analytics'` block and add to it; create one (e.g. `src/analytics.d.ts` or a shared contract package) only if there is none.
+
+Turn on `strict` in `AnalyticsOptions` in the same block. It constrains every event name app-wide — in `track`, `trackOnce`, `sendBeacon`, `useTrackImpression` and the third-party senders — to GA4's standard events and the keys of `CustomEventProperties`, so a typo (`purchse`) or an undeclared event is a compile error at the call site instead of a new event in the reports. It is type-only and changes nothing at runtime. Without it, an undeclared event still compiles, with open properties.
 
 ```ts
 declare module '@shware/analytics' {
+  interface AnalyticsOptions {
+    strict: true;
+  }
   interface CustomEventProperties {
     process_image: {
       image_id: string;
@@ -82,6 +87,7 @@ declare module '@shware/analytics' {
       image_size: number;
       image_format: string;
     };
+    account_deleted: undefined; // an event with no properties
   }
 }
 ```
