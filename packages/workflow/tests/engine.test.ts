@@ -342,6 +342,45 @@ describe('email opt-outs are per topic', () => {
     expect(all.sent).toEqual([]);
   });
 
+  test('the opt-out checked is the topic the template declares now, not the one compiled in', async () => {
+    // Since `ir` was compiled, `offer` moved to another topic and `receipt` became a topic email
+    const describe = ({ template }: { template: string }) =>
+      ({ offer: { topic: 'deals' }, digest: { topic: 'newsletter' }, receipt: { topic: 'tips' } })[
+        template
+      ];
+    const run = async (optOut: string) => {
+      const { ctx, facts, sent } = makeContext();
+      ctx.validator = { validate: ({ props }) => props, describe };
+      facts.props = { email: 'ada@acme.test' };
+      facts.suppressed.add(optOut);
+      await runJourney(ir, ctx);
+      return sent.map((m) => [m.template, m.topic]);
+    };
+    // The opt-out the user can give today is honoured, and the copies carry today's topics
+    expect(await run('email:deals')).toEqual([
+      ['digest', 'newsletter'],
+      ['receipt', 'tips'],
+    ]);
+    expect(await run('email:tips')).toEqual([
+      ['offer', 'deals'],
+      ['digest', 'newsletter'],
+    ]);
+    // The compiled-in topic no longer skips anything
+    expect(await run('email:promotions')).toHaveLength(3);
+  });
+
+  test('a registry that does not hold the template leaves the compiled-in topic standing', async () => {
+    const { ctx, facts, sent } = makeContext();
+    ctx.validator = { validate: ({ props }) => props, describe: () => undefined };
+    facts.props = { email: 'ada@acme.test' };
+    facts.suppressed.add('email:promotions');
+    await runJourney(ir, ctx);
+    expect(sent.map((m) => [m.template, m.topic])).toEqual([
+      ['digest', 'newsletter'],
+      ['receipt', null],
+    ]);
+  });
+
   test("reachable('email') reads the channel-wide opt-out only", async () => {
     const facts = new FakeFacts();
     facts.props = { email: 'ada@acme.test' };

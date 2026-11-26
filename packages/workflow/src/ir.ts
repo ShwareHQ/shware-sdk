@@ -16,8 +16,14 @@ import * as z from 'zod/mini';
  * 1. IR format version (irVersion): evolution of the IR schema itself. Adding
  *    optional fields does not bump it; only structurally incompatible changes
  *    do (changing a discriminant, dropping a field, altering semantics).
- *    Readers dispatch on irVersion to the matching schema/migrator; writers
- *    always write the current version.
+ *    Writers always write the current version, and readers accept only it:
+ *    every schema below takes `irVersion` as the literal `IR_VERSION`, and
+ *    there is no reader for an earlier version nor a migrator to this one. A
+ *    bump therefore strands what is stored — pinned IRs stop parsing and the
+ *    journeys running on them fail — and `irVersion` is part of the hash, so
+ *    every content hash changes with it. Until readers dispatch on irVersion
+ *    and migrate, a bump is a breaking release that drains or clears the
+ *    engine's data first (README "Upgrading to 12.0" was one).
  * 2. Content version (contentHash): a content-addressed id for a single
  *    definition's **execution semantics** — the canonical-JSON hash after
  *    metadata (meta / label / reason) is stripped, see hash.ts. It is used to:

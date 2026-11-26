@@ -269,6 +269,21 @@ export interface MessageValidator {
     template: string;
     props: Record<string, ScalarIR | undefined>;
   }): Record<string, ScalarIR | undefined>;
+  /**
+   * What the registered template says about itself now: its subscription `topic` (null:
+   * transactional) and whether it opts into resending. Undefined for a template or a channel the
+   * registry does not hold. The node carries both as they were when its workflow was compiled,
+   * but a journey sends the template as it is today, and the opt-out a send checks has to be the
+   * one the copy is rendered with and recorded under. Without this the node's own values stand.
+   */
+  describe?(message: { channel: ChannelIR; template: string }): MessagePolicy | undefined;
+}
+
+/** A message's opt-out topic and redelivery policy, as its template declares them. */
+export interface MessagePolicy {
+  /** The subscription topic; null for a transactional message; absent for a channel without topics. */
+  topic?: string | null;
+  redelivery?: 'resend';
 }
 
 /** send_event's outlet: feeds back into ingest (the event edge between workflows). */
