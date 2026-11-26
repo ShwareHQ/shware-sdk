@@ -65,14 +65,31 @@ interface Subscription {
 }
 
 /**
- * The push services of the browsers that implement Web Push: Chrome and the Chromium browsers
- * (FCM), Firefox (Mozilla's autopush), Edge (WNS) and Safari. `*.` covers every subdomain.
+ * The push services browsers hand out subscription endpoints on. The hosts are those of
+ * Pushpad's `known-push-services` list, which it derives from the endpoints of some 200M real
+ * subscriptions, checked against Chromium's `push_messaging_constants.cc` and Apple's and
+ * Microsoft's own guidance. `*.` covers every subdomain.
+ *
+ * - `fcm.googleapis.com`: Chrome and the Chromium browsers that use Google's service (Opera,
+ *   Brave and others; the list above holds no host of their own). `android.googleapis.com` is its GCM predecessor and
+ *   `jmt17.google.com` the staging service of Chromium's source; both still turn up in stored
+ *   subscriptions, and both are Google's own.
+ * - `updates.push.services.mozilla.com`: Firefox (autopush). The two `mozaws.net` hosts are its
+ *   stage and dev deployments.
+ * - `*.notify.windows.com`: Edge, on a regional WNS host (`sg2p.notify.windows.com`). Microsoft
+ *   tells senders to push to no channel outside this domain.
+ * - `*.push.apple.com`: Safari (`web.push.apple.com`). Apple's guidance is to allow every
+ *   subdomain.
+ *
+ * A service not listed here (KaiOS's, a self-hosted one) is named in `webPush.pushServices`.
  */
 export const PUSH_SERVICE_HOSTS: readonly string[] = [
   'fcm.googleapis.com',
-  'jmt17.google.com',
   'android.googleapis.com',
+  'jmt17.google.com',
   '*.push.services.mozilla.com',
+  'updates-autopush.stage.mozaws.net',
+  'updates-autopush.dev.mozaws.net',
   '*.notify.windows.com',
   '*.push.apple.com',
 ];

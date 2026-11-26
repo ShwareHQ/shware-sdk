@@ -351,6 +351,15 @@ describe('web push', () => {
     );
     expect(isPushServiceEndpoint('https://db5p.notify.windows.com/w/?token=a')).toBe(true);
     expect(isPushServiceEndpoint('https://web.push.apple.com/a')).toBe(true);
+    // Hosts real subscriptions still carry: FCM's predecessor, the staging services
+    for (const host of [
+      'android.googleapis.com',
+      'jmt17.google.com',
+      'updates-autopush.stage.mozaws.net',
+      'updates-autopush.dev.mozaws.net',
+    ]) {
+      expect(isPushServiceEndpoint(`https://${host}/a`)).toBe(true);
+    }
     // The bare parent of a `*.` entry is not a subdomain of it
     expect(isPushServiceEndpoint('https://notify.windows.com/a')).toBe(false);
     expect(isPushServiceEndpoint('https://xnotify.windows.com/a')).toBe(false);
