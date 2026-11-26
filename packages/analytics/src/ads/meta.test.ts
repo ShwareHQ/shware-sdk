@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  MetaAdsApiError,
-  fetchMetaAdPerformance,
-  fetchMetaAdPerformanceHistory,
-  spread,
-} from './meta';
+import { MetaAdsApiError, fetchMetaAdPerformance, fetchMetaAdPerformanceHistory } from './meta';
+import { spread } from './spread';
 
 const options = {
   accessToken: 'token-1',
