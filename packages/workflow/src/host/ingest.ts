@@ -759,6 +759,11 @@ const utf8 = new TextEncoder();
  * of one user made at the same ts by different occurrences (re-entry). The
  * same occurrence always yields the same id: a retried start is idempotent on
  * the platform too.
+ *
+ * The workflow id is the author's (`checkout.recovery`, `onboarding/v2`), so it is sanitized
+ * like the user id: Cloudflare takes only `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$` and answers anything
+ * else `instance.invalid_id` on every start. The hash that follows keeps two workflows whose
+ * ids sanitize alike apart.
  */
 function buildInstanceId(
   workflow: string,
@@ -770,7 +775,11 @@ function buildInstanceId(
   const uid = userId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 24);
   const fingerprint = murmur3(utf8.encode(userId)).toString(36);
   const occurrenceFingerprint = murmur3(utf8.encode(occurrence)).toString(36);
-  return `${workflow.slice(0, 32)}-${hash.slice(0, 8)}-${uid}-${fingerprint}-${ts.toString(36)}-${occurrenceFingerprint}`;
+  const name = workflow
+    .slice(0, 32)
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .replace(/^-/, '_');
+  return `${name}-${hash.slice(0, 8)}-${uid}-${fingerprint}-${ts.toString(36)}-${occurrenceFingerprint}`;
 }
 
 /* --------------------------------- identify --------------------------------- */

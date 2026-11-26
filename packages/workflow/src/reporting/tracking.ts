@@ -119,13 +119,19 @@ export async function handleTracking(
     return new Response(null, { status: known ? 204 : 404 });
   }
   if (kind === 'p' && who.method === 'POST') {
-    // A notification tap: a person, as the message id is what proves it is theirs
+    // A notification tap: a person, as the message id is what proves it is theirs. Only a push
+    // copy's id proves that: an email's id is in every link of the email (forwarded, scanned,
+    // logged by proxies), and taking it here would let anyone holding one forge a human open and
+    // have the host ingest an event as the recipient
     const at = Date.now();
     let userId: string | undefined;
     const known = await reporting.recordOpen(id, (message) => {
+      // A push copy is recorded per platform (`push_ios`, `push_web`, ...)
+      if (!message.channel.startsWith('push')) return undefined;
       userId = message.userId;
       return { at, machine: false, reason: null, ...network(who) };
     });
+    if (known && userId === undefined) return new Response(null, { status: 404 });
     if (known && userId !== undefined && options.pushOpened !== undefined) {
       try {
         await options.pushOpened({ messageId: id, userId, at });

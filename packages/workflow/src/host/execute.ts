@@ -151,6 +151,10 @@ export async function executeJourney(
       // A delivery that arrives late still enters when the trigger happened: a purchase made
       // while the begin_checkout was being retried is the goal, not history from before entry
       enteredAtMs: Math.min(input.enteredAtMs, input.params.trigger.ts ?? input.enteredAtMs),
+      trigger:
+        input.params.trigger.ts === undefined
+          ? undefined
+          : { event: input.params.trigger.event, ts: input.params.trigger.ts },
       step,
       facts: new JourneyFactSource(store, userId, owner),
       messages,

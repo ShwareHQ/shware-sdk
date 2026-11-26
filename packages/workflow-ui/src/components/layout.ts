@@ -212,7 +212,11 @@ function nodeData(n: NodeIR): CanvasNodeData {
     case 'wait_until':
       return {
         title: `Wait until ${conditionLabel(n.condition, '…')}`,
-        subtitle: `timeout ${n.timeout.value}`,
+        // A timeout flow is drawn as its own arm; the two that are not must still read apart —
+        // one ends the journey, the other goes on to the next node
+        subtitle: Array.isArray(n.onTimeout)
+          ? `timeout ${n.timeout.value}`
+          : `timeout ${n.timeout.value} → ${n.onTimeout === 'exit' ? 'exit' : 'continue'}`,
         category: 'delay',
         variant: 'card',
         icon: 'wait_until',

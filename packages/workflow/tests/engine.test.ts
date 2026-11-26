@@ -901,6 +901,62 @@ describe('performed anchoring', () => {
     expect(sent).toHaveLength(0);
   });
 
+  test('the event that started the instance is not its own conversion', async () => {
+    const repeat = workflow({
+      id: 'repeat_purchase',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.purchase),
+      goal: { condition: performed(e.purchase), within: '30 days' },
+    }).email(firstTimeRecovery);
+    const { ctx, facts, sent } = makeContext();
+    // As the host hands it over: the entry anchor is the trigger's own time
+    ctx.trigger = { event: 'purchase', ts: ctx.enteredAtMs };
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs });
+
+    expect(await runJourney(repeat.toIR(), ctx)).toEqual({ status: 'completed' });
+    expect(sent).toHaveLength(1);
+
+    // The next purchase is the conversion
+    const next = makeContext();
+    next.ctx.trigger = { event: 'purchase', ts: next.ctx.enteredAtMs };
+    next.facts.events.push(
+      { name: 'purchase', ts: next.ctx.enteredAtMs },
+      { name: 'purchase', ts: next.ctx.enteredAtMs + 1 }
+    );
+    expect(await runJourney(repeat.toIR(), next.ctx)).toEqual({
+      status: 'goal',
+      convertedAt: expect.any(Number),
+    });
+    expect(next.sent).toHaveLength(0);
+  });
+
+  test('another event at the very time of the trigger still converts', async () => {
+    const wf = workflow({
+      id: 'same_instant',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.begin_checkout),
+      goal: { condition: performed(e.purchase), within: '1 hour' },
+    }).email(firstTimeRecovery);
+    const { ctx, facts } = makeContext();
+    ctx.trigger = { event: 'begin_checkout', ts: ctx.enteredAtMs };
+    facts.events.push({ name: 'purchase', ts: ctx.enteredAtMs });
+
+    expect(await runJourney(wf.toIR(), ctx)).toMatchObject({ status: 'goal' });
+  });
+
+  test('waitUntil does not count what happened after its deadline, however late the check', async () => {
+    const wf = workflow({
+      id: 'late_check',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.sign_up),
+    }).waitUntil(performed(e.login), { timeout: '1 hour', onTimeout: 'exit' });
+    const { ctx, facts } = makeContext();
+    // A login two hours on, seen by a check that runs late (an instance resumed after an outage)
+    facts.events.push({ name: 'login', ts: Date.now() + 7_200_000 });
+
+    expect(await runJourney(wf.toIR(), ctx)).toEqual({ status: 'exited', reason: '0:timeout' });
+  });
+
   test('waitUntil ignores events from before the wait began', async () => {
     const wf = workflow({
       id: 'anchor_wait',

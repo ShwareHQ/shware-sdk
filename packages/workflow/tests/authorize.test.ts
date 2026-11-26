@@ -152,6 +152,39 @@ describe('authorize', () => {
     expect((await open.call('/bundle')).status).toBe(503);
   });
 
+  test('running open has to be asked for by name: an unknown mode is held to production', async () => {
+    // A typo, or a value copied from another project, is not a way to serve /deploy to anyone
+    for (const mode of ['prod', 'Production', 'PRODUCTION', 'staging', '']) {
+      const { call } = setup(undefined, { ENVIRONMENT: mode });
+      const refused = await call('/bundle');
+      expect([mode, refused.status]).toEqual([mode, 503]);
+      // What recipients open and the health check stay up, as in production
+      expect((await call('/health')).status).toBe(200);
+    }
+    const typo = await setup(undefined, { ENVIRONMENT: 'prod' }).call('/bundle');
+    expect(await typo.json()).toEqual({ error: expect.stringContaining('ENVIRONMENT="prod"') });
+    // With a token the same mode serves, behind the bearer
+    const guarded = setup(undefined, { ENVIRONMENT: 'prod', API_TOKEN: 'secret' });
+    expect((await guarded.call('/bundle')).status).toBe(401);
+    expect(
+      (await guarded.call('/bundle', { headers: { authorization: 'Bearer secret' } })).status
+    ).toBe(200);
+  });
+
+  test('development, test and a mode the config gives a runtime entry run open', async () => {
+    for (const mode of ['development', 'test']) {
+      expect((await setup(undefined, { ENVIRONMENT: mode }).call('/bundle')).status).toBe(200);
+    }
+    const { env } = makeEnv({ ENVIRONMENT: 'rehearsal' });
+    const worker = journeyWorker<JourneyEnv>({
+      config: defineConfig({ ...config, runtime: { rehearsal: { timeScale: 600 } } }),
+      store: () => database.store,
+      email: () => ({ send: async () => ({}) }),
+    });
+    const response = await worker.fetch(new Request('https://w.test/bundle'), env);
+    expect(response.status).toBe(200);
+  });
+
   test("without one, the env's API_TOKEN bearer applies", async () => {
     const { call } = setup(undefined, { API_TOKEN: 'secret' });
     const withAuth = (authorization?: string) =>

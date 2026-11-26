@@ -359,11 +359,16 @@ export interface JourneyReporting {
   /**
    * Record an open of the copy, judged by `judge` against the copy (its recipient and when it was
    * delivered — when it was sent, before the transport answered); `undefined` from the judge
-   * records nothing. Read and written in one transaction. False for an unknown copy.
+   * records nothing. Read and written in one transaction. False for an unknown copy. The copy's
+   * `channel` lets a route refuse a copy of another channel (a push beacon given an email's id).
    */
   recordOpen(
     messageId: string,
-    judge: (message: { userId: string; deliveredAt: number }) => Engagement | undefined
+    judge: (message: {
+      userId: string;
+      deliveredAt: number;
+      channel: string;
+    }) => Engagement | undefined
   ): Promise<boolean>;
   /**
    * Record a click on the copy's link at `position`, judged by `judge` against the link, how
@@ -395,7 +400,7 @@ export interface JourneyReporting {
   ): Promise<{ userId: string; topic: string | null } | undefined>;
   /** The copy's owner, channel and topic; undefined for an unknown copy. */
   lookupMessage(messageId: string): Promise<MessageSummary | undefined>;
-  /** A push copy the device reported it received. False for an unknown copy. */
+  /** A push copy the device reported it received. False for an unknown copy, or one of another channel. */
   recordDeviceDelivered(messageId: string, at: number): Promise<boolean>;
   /** Drop members of segments no longer deployed, then record every deployed segment's size. */
   snapshotSegments(at: number): Promise<{ segment: string; size: number }[]>;

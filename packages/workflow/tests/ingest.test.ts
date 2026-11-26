@@ -206,6 +206,24 @@ describe('deployBundle', () => {
 });
 
 describe('event triggers', () => {
+  test("a workflow id the platform's instance ids cannot carry still starts", async () => {
+    const { env, store, journey } = setup();
+    const dotted = workflow({
+      id: 'checkout.recovery/v2',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.begin_checkout),
+    }).email(firstTimeRecovery);
+    await deployBundle(env, compileBundle({ workflows: [dotted], segments: [] }), store);
+
+    const result = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' }, store);
+
+    // Cloudflare answers `instance.invalid_id` to a `.` or a `/` (the fake does too): the id
+    // is sanitized, and the ledger still names the workflow as its author did
+    expect(result.started).toHaveLength(1);
+    expect(journey.created[0]?.id).toMatch(/^checkout-recovery-v2-[a-zA-Z0-9_-]+$/);
+    expect((await entries()).map((entry) => entry.workflow)).toEqual(['checkout.recovery/v2']);
+  });
+
   test('starts a journey once; the entry ledger blocks re-entry', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);

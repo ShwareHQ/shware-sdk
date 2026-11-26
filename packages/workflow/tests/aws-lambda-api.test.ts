@@ -112,7 +112,7 @@ describe('sdkLambdaApi', () => {
     await expect(api.executionState('throttled')).rejects.toThrow(/TooManyRequests/);
   });
 
-  test('an execution is found by name among the function version’s executions', async () => {
+  test('an execution is found by name among the function’s executions, with no qualifier', async () => {
     const { client, sent } = fakeClient({
       ListDurableExecutionsByFunctionCommand: () => ({
         DurableExecutions: [
@@ -123,10 +123,13 @@ describe('sdkLambdaApi', () => {
     });
     const api = sdkLambdaApi({ client });
     expect(await api.findExecution(TARGET, 'i1')).toBe('arn:i1');
-    expect(sent[0].input).toMatchObject({
+    // Lambda refuses a name filter combined with a qualifier (InvalidParameterValueException:
+    // "Cannot filter by DurableExecutionName when both FunctionName and Qualifier are provided"),
+    // as checked against the real API; names are unique across the function's versions
+    expect(sent[0].input).toEqual({
       FunctionName: 'arn:aws:lambda:us-east-1:123456789012:function:journeys',
-      Qualifier: '7',
       DurableExecutionName: 'i1',
+      MaxItems: 10,
     });
     expect(await api.findExecution(TARGET, 'missing')).toBeUndefined();
   });

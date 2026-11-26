@@ -24,7 +24,12 @@ export class FakeJourney implements WorkflowBindingLike {
   failingCreates = 0;
 
   async create(options: { id: string; params: unknown }): Promise<WorkflowInstanceLike> {
-    // Like Cloudflare Workflows: an instance id is unique, a second create with it is refused
+    // Like Cloudflare Workflows (checked against the platform): an id outside this pattern or
+    // over 100 characters is refused, whatever else is right about the create
+    if (!/^[a-zA-Z0-9_][a-zA-Z0-9-_]*$/.test(options.id) || options.id.length > 100) {
+      throw new Error('(instance.invalid_id) Instance has invalid id');
+    }
+    // An instance id is unique, a second create with it is refused
     if (this.known.has(options.id)) throw new Error(`instance ${options.id} already exists`);
     if (this.failingCreates > 0) {
       this.failingCreates -= 1;
