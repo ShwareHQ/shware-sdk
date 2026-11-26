@@ -145,7 +145,8 @@ describe('web push', () => {
       expect(k).toBe(keys.publicKey);
       expect(claims).toEqual({
         aud: 'https://fcm.googleapis.com',
-        exp: 24 * 3600,
+        // Under RFC 8292's 24 hours, with room for a host clock that runs fast
+        exp: 18 * 3600,
         sub: 'mailto:ops@example.com',
       });
       const publicKey = await crypto.subtle.importKey(
@@ -181,7 +182,7 @@ describe('web push', () => {
       vi.advanceTimersByTime(1);
       const renewed = await vapid.authorization('https://push.example.com/send/one');
       expect(renewed).not.toBe(first);
-      expect(parseVapid(renewed).claims.exp).toBe(1_000_000_000 + 36 * 3600);
+      expect(parseVapid(renewed).claims.exp).toBe(1_000_000_000 + 30 * 3600);
     });
 
     test('concurrent first calls import the key once and sign once', async () => {

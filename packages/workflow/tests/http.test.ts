@@ -730,7 +730,7 @@ describe('an unsubscribe wakes the waits reading email reachability', () => {
       recordLinks: async () => {},
       recordOpen: async (id, judge) => {
         if (id !== messageId) return false;
-        judge({ userId: 'u1', deliveredAt: 0 });
+        judge({ userId: 'u1', deliveredAt: 0, channel: 'email' });
         return true;
       },
       recordClick: async () => undefined,

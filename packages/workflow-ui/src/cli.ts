@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { generateSchema } from './generate';
-import { formatPlan, planDeploy } from './plan';
 import { startStudio } from './server';
 
 /**
@@ -102,6 +101,9 @@ async function main(): Promise<void> {
       return;
     }
     try {
+      // Loaded here, not at the top: `plan` is the one command that needs `postgres`, an optional
+      // peer — a static import would make every command, `--help` included, fail without it
+      const { formatPlan, planDeploy } = await import('./plan');
       const report = await planDeploy({
         databaseUrl,
         ...(args.config !== undefined ? { config: args.config } : {}),

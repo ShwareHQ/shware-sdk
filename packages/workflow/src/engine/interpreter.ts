@@ -99,6 +99,10 @@ async function goalReached(
   const deadline = goalDeadline(ir, ctx);
   const met = await evaluateCondition(goal.condition, ctx.facts, now, {
     anchorMs: ctx.enteredAtMs,
+    // The trigger's own occurrence sits exactly on the anchor: it entered, it did not convert
+    ...(ctx.trigger === undefined
+      ? {}
+      : { after: { event: ctx.trigger.event, ms: ctx.trigger.ts } }),
     ...(deadline === undefined ? {} : { untilMs: deadline }),
   });
   return met ? { at: deadline === undefined ? now : Math.min(now, deadline) } : null;
@@ -541,10 +545,14 @@ async function waitUntil(
   );
   // Anchor at the moment the wait began (deadline is checkpointed, so this is
   // replay-stable): `performed` inside the condition only counts events that
-  // happen during the wait — pre-existing history must not satisfy it.
+  // happen during the wait — pre-existing history must not satisfy it. Nor may what happens
+  // after the deadline: a check that runs late (an instance resumed after an outage, a wake
+  // delivered past the timeout) would otherwise take the timeout for a success.
   const anchorMs = deadline - node.timeout.ms;
   const met = await waitLoop(node.id, ctx, deadline, events, async (now) =>
-    (await evaluateCondition(node.condition, ctx.facts, now, { anchorMs })) ? true : null
+    (await evaluateCondition(node.condition, ctx.facts, now, { anchorMs, untilMs: deadline }))
+      ? true
+      : null
   );
   await ctx.step.unsubscribe(`${node.id}:unsubscribe`);
   return met === true;
@@ -632,8 +640,9 @@ async function waitLoop<R>(
   }
   // Check budget exhausted (see MAX_WAIT_CHECKS). Not a timeout: the wait keeps its deadline,
   // only the wake-ups are given up — sleep to the deadline, then check once more there. The
-  // subscription rows stay until the caller's unsubscribe; a wake landing meanwhile is dropped
-  // by the runtime (nothing is parked on it), which is the point.
+  // subscription rows stay until the caller's unsubscribe. A wake landing meanwhile is not
+  // parked on by anything: AWS refuses it (no callback is armed), Cloudflare buffers it and
+  // hands it to the instance's next wait of that type, which then spends one check on it.
   console.warn(
     `[journey] ${ctx.instanceId} ${id}: ${MAX_WAIT_CHECKS} wake-ups without the condition holding — sleeping to the deadline`
   );

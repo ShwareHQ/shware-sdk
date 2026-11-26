@@ -1260,8 +1260,10 @@ when it sends through Cloudflare Email (`cloudflareEmailTransport({ binding: env
 exported to run the segment sweep.
 
 Set `API_TOKEN` in production: a host whose `ENVIRONMENT` resolves to `production` refuses every
-request but `GET /health` and `/t/...` with a 503 until it is set. Any other mode (`development`,
-say) runs open, for local work only — `/deploy` rewrites the whole routing table. In production a
+request but `GET /health` and `/t/...` with a 503 until it is set. Running open has to be asked
+for by name, for local work only — `/deploy` rewrites the whole routing table: `development`,
+`test`, or a mode with a `runtime` entry of its own in the config (`rehearsal`). Any other value
+is held to production's rule, so a typo (`prod`, `Production`) is refused, not served open. In production a
 host that carries its bundle (`journeyWorker`, the AWS host) refuses `POST /deploy` with a 409:
 it deploys by publishing a version (the new version applies its own bundle on its first request;
 `POST /bundle/deploy` re-applies it after a rollback), so a bundle posted by hand there could only
@@ -1620,8 +1622,9 @@ On Postgres the engine also keeps:
 ## HTTP surface
 
 `handleRequest` serves the ingest API. It applies the same production gate as
-the full host: with `ENVIRONMENT` resolving to `production` and no `API_TOKEN`,
-everything but `GET /health` answers 503.
+the full host: with no `API_TOKEN` and an `ENVIRONMENT` that is not a mode that runs open
+(`development`, `test`; a host's config can name more), everything but `GET /health` and
+`/t/...` answers 503.
 
 - `GET /health` is the only unauthenticated one. Every other route asks the
   host's `authorize`, or without one the `API_TOKEN` bearer: its scheme is

@@ -314,6 +314,11 @@ export interface JourneyContext {
    * Date.now() at run time.
    */
   enteredAtMs: number;
+  /**
+   * The event that started the instance and when it happened, for an instance an event
+   * started: the goal does not count that occurrence as its own conversion.
+   */
+  trigger?: { event: string; ts: number } | undefined;
   /** Who the instance belongs to now, for one that can change hands; `userId` otherwise. */
   currentUserId?: (() => Promise<string>) | undefined;
   step: EngineStep;

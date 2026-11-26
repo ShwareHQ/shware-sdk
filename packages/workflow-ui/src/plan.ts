@@ -59,10 +59,11 @@ export async function planDeploy(options: PlanOptions): Promise<PlanReport> {
   );
   try {
     const schema = await store.checkSchema();
-    // Without the tables there are no journeys to keep; with columns missing, the pins still read
-    const pinned = schema.some((problem) => problem.startsWith('table '))
-      ? []
-      : await pinnedWorkflows(store);
+    // Running journeys live in the entry ledger: without that table (a database not migrated
+    // yet) there is none to keep. Any other gap leaves the pins to read — a table this SDK
+    // version adds says nothing about the journeys already running, and taking it for "nothing
+    // is pinned" would report every deploy safe. A read that then fails fails the plan.
+    const pinned = schema.some(isEntryTableMissing) ? [] : await pinnedWorkflows(store);
     const carried = new Set(bundle.workflows.map((w) => w.contentHash));
     return {
       pinned: pinned.map((pin) => ({
@@ -79,6 +80,10 @@ export async function planDeploy(options: PlanOptions): Promise<PlanReport> {
     await close();
   }
 }
+
+/** `checkSchema`'s line for a missing entry ledger (`table "<schema>"."entry" is missing`). */
+export const isEntryTableMissing = (problem: string): boolean =>
+  /^table (?:"[^"]*"\.)?"entry" is missing$/.test(problem);
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 

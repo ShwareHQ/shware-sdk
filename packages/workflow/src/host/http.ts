@@ -398,16 +398,35 @@ function matches(path: Route['path'], pathname: string): boolean {
   return path(pathname);
 }
 
+/** The modes that run open without being named anywhere: local work and test runs. */
+const OPEN_MODES: ReadonlySet<string> = new Set(['development', 'test']);
+
 /**
- * Production without a bearer token (and no authorizer of the host's own) is not an open
- * instance, it is a mistake: anyone could ingest, identify and deploy. Only what recipients open
- * (`/t/*`) and the health check stay up.
+ * Whether `ENVIRONMENT` names a mode that may serve without a token. Open is what has to be
+ * asked for, by name: `development`, `test`, or a mode the config gives a `runtime` entry of its
+ * own (`rehearsal`). Anything else is held to production's rule — `production` itself, an
+ * unset var, and a value nobody declared, which is how a typo reads (`prod`, `Production`,
+ * a `staging` copied from another project): comparing against the one string `production`
+ * would serve all of those open, `/deploy` and `/users/forget` included.
+ */
+function runsOpen(ctx: ServeContext): boolean {
+  const mode = journeyMode(ctx.env);
+  if (mode === 'production') return false;
+  if (OPEN_MODES.has(mode)) return true;
+  const declared = ctx.host?.config?.runtime;
+  return declared !== undefined && Object.hasOwn(declared, mode);
+}
+
+/**
+ * Without a bearer token (and no authorizer of the host's own) a mode that does not run open
+ * is not an open instance, it is a mistake: anyone could ingest, identify and deploy. Only what
+ * recipients open (`/t/*`) and the health check stay up.
  */
 function refusesOpen(request: Request, ctx: ServeContext, pathname: string): boolean {
   return (
     ctx.authorize === undefined &&
     ctx.env.API_TOKEN === undefined &&
-    journeyMode(ctx.env) === 'production' &&
+    !runsOpen(ctx) &&
     !pathname.startsWith('/t/') &&
     !(request.method === 'GET' && pathname === '/health')
   );
@@ -457,10 +476,13 @@ function failure(error: unknown): Response {
 export async function serve(request: Request, ctx: ServeContext): Promise<Response> {
   const url = new URL(request.url);
   if (refusesOpen(request, ctx, url.pathname)) {
+    const mode = journeyMode(ctx.env);
     return json(
       {
         error:
-          'API_TOKEN is not set: production refuses to serve without it (set ENVIRONMENT=development to run open)',
+          mode === 'production'
+            ? 'API_TOKEN is not set: production refuses to serve without it (set ENVIRONMENT=development to run open)'
+            : `API_TOKEN is not set, and ENVIRONMENT=${JSON.stringify(mode)} is not a mode that runs open: set API_TOKEN, or use 'development', 'test' or a mode with a runtime entry in the config`,
       },
       503
     );

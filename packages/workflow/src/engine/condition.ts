@@ -11,10 +11,15 @@ import { RECIPIENT_PROPERTY } from './recipient';
  * - untilMs: the latest instant `performed` counts events up to — the goal's
  *   attribution window ends there, so an event after it is no conversion even
  *   when the check runs later (a resumed instance, a delayed wake).
+ * - after: one occurrence `performed` must not count — the event that started the instance.
+ *   The entry anchor is that event's own time and the window's bounds are inclusive, so
+ *   without this a goal on the trigger's event (a repeat purchase) holds at entry, by the
+ *   very purchase that entered. Only events of that name, strictly later, count.
  */
 export interface EvaluateOptions {
   anchorMs?: number;
   untilMs?: number;
+  after?: { event: string; ms: number } | undefined;
 }
 
 /**
@@ -78,6 +83,9 @@ async function evaluate(
       const bounds: number[] = [];
       if (condition.within !== undefined) bounds.push(nowMs - condition.within.ms);
       if (opts?.anchorMs !== undefined) bounds.push(opts.anchorMs);
+      if (opts?.after !== undefined && opts.after.event === condition.event) {
+        bounds.push(opts.after.ms + 1);
+      }
       const sinceMs = bounds.length > 0 ? Math.max(...bounds) : undefined;
       const atLeast = condition.count ?? 1;
       const count = await facts.countEvents(condition.event, {

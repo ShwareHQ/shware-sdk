@@ -61,7 +61,7 @@ export class PostgresReporting implements JourneyReporting {
     tx: SqlClientLike,
     messageId: string,
     forUpdate = false
-  ): Promise<{ userId: string; deliveredAt: number } | undefined> {
+  ): Promise<{ userId: string; deliveredAt: number; channel: string } | undefined> {
     await beginReadCommitted(tx);
     const owners = await tx.query<{ user_id: string }>(
       `SELECT user_id FROM ${this.t.message} WHERE id = $1`,
@@ -70,8 +70,12 @@ export class PostgresReporting implements JourneyReporting {
     const owner = owners.at(0);
     if (owner === undefined) return undefined;
     await lockUser(tx, this.schema, owner.user_id);
-    const rows = await tx.query<{ user_id: string; delivered_at: number | string }>(
-      `SELECT user_id, ${MS('coalesce(delivered_at, sent_at)')} AS delivered_at
+    const rows = await tx.query<{
+      user_id: string;
+      delivered_at: number | string;
+      channel: string;
+    }>(
+      `SELECT user_id, channel, ${MS('coalesce(delivered_at, sent_at)')} AS delivered_at
        FROM ${this.t.message} WHERE id = $1
          AND NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = ${this.t.message}.user_id)
        ${forUpdate ? 'FOR UPDATE' : ''}`,
@@ -79,7 +83,7 @@ export class PostgresReporting implements JourneyReporting {
     );
     const row = rows.at(0);
     if (row === undefined) return undefined;
-    return { userId: row.user_id, deliveredAt: Number(row.delivered_at) };
+    return { userId: row.user_id, deliveredAt: Number(row.delivered_at), channel: row.channel };
   }
 
   async instanceStarted(input: {
@@ -249,7 +253,11 @@ export class PostgresReporting implements JourneyReporting {
 
   async recordOpen(
     messageId: string,
-    judge: (message: { userId: string; deliveredAt: number }) => Engagement | undefined
+    judge: (message: {
+      userId: string;
+      deliveredAt: number;
+      channel: string;
+    }) => Engagement | undefined
   ): Promise<boolean> {
     // In a transaction: read through Hyperdrive, a bare read may come from its cache, from before
     // the copy existed
@@ -368,7 +376,7 @@ export class PostgresReporting implements JourneyReporting {
       if ((await this.lockMessage(tx, messageId)) === undefined) return false;
       const rows = await tx.query<{ id: string }>(
         `UPDATE ${this.t.message} SET device_delivered_at = coalesce(device_delivered_at, ${TS('$2')})
-         WHERE id = $1 RETURNING id`,
+         WHERE id = $1 AND channel LIKE 'push%' RETURNING id`,
         [messageId, at]
       );
       return rows.length > 0;

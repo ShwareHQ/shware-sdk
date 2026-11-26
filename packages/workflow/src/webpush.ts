@@ -148,8 +148,13 @@ export async function encryptPayload(
   return concat(header, senderPublic, sealed);
 }
 
-/** How long a VAPID token is good for: RFC 8292 §2 allows at most 24 hours. */
-const VAPID_EXP_S = 24 * 3600;
+/**
+ * How long a VAPID token is good for. RFC 8292 §2 allows at most 24 hours, counted on the push
+ * service's clock: at exactly 24 a host whose clock runs a little fast signs an `exp` the
+ * service sees as more than a day away and refuses. 18 hours leaves six for a fast clock, and
+ * six past the 12 the token is reused for a slow one.
+ */
+const VAPID_EXP_S = 18 * 3600;
 /** How long a signed token is reused: half its life, so it is never sent near expiry. */
 const VAPID_TTL_MS = 12 * 3600_000;
 

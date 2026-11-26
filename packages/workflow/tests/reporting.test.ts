@@ -592,11 +592,26 @@ describe('tracking', () => {
     expect((await post(`/t/d/${id}`))?.status).toBe(204);
     expect((await post(`/t/p/${id}`))?.status).toBe(204);
     expect((await post('/t/d/0190f000-0000-7000-8000-000000000000'))?.status).toBe(404);
+    // An email's id is no push copy: it is in every link of the email, so it proves nothing here
+    await observer.messagePrepared?.(email({ idempotencyKey: 'i1:mail' }));
+    const emailId = (
+      await pg.query<{ id: string }>("SELECT id FROM workflow.message WHERE channel = 'email'")
+    ).rows[0]?.id;
+    expect(emailId).toEqual(expect.any(String));
+    expect((await post(`/t/d/${emailId}`))?.status).toBe(404);
+    expect((await post(`/t/p/${emailId}`))?.status).toBe(404);
+    expect(
+      (
+        await pg.query(
+          "SELECT device_delivered_at IS NOT NULL AS delivered, human_opened_at IS NOT NULL AS opened FROM workflow.message WHERE channel = 'email'"
+        )
+      ).rows
+    ).toEqual([{ delivered: false, opened: false }]);
     // A scanner's GET does neither
     expect(await handleTracking(get(`/t/d/${id}`), reporting())).toBeUndefined();
     const [row] = (
       await pg.query(
-        'SELECT device_delivered_at IS NOT NULL AS delivered, human_opened_at IS NOT NULL AS opened FROM workflow.message'
+        "SELECT device_delivered_at IS NOT NULL AS delivered, human_opened_at IS NOT NULL AS opened FROM workflow.message WHERE channel <> 'email'"
       )
     ).rows;
     expect(row).toEqual({ delivered: true, opened: true });

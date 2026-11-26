@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { formatPlan } from '../src/plan';
+import { formatPlan, isEntryTableMissing } from '../src/plan';
 
 const pin = (workflow: string, contentHash: string, running: number, carried: boolean) => ({
   workflow,
@@ -7,6 +7,17 @@ const pin = (workflow: string, contentHash: string, running: number, carried: bo
   running,
   carried,
   ir: undefined,
+});
+
+describe('isEntryTableMissing', () => {
+  test('only a missing entry ledger means there is no journey to keep', () => {
+    expect(isEntryTableMissing('table "workflow"."entry" is missing')).toBe(true);
+    expect(isEntryTableMissing('table "tenant_a"."entry" is missing')).toBe(true);
+    // A table a newer SDK adds says nothing about the journeys already running
+    expect(isEntryTableMissing('table "workflow"."message_open" is missing')).toBe(false);
+    expect(isEntryTableMissing('table "workflow"."entry_log" is missing')).toBe(false);
+    expect(isEntryTableMissing('column "workflow"."entry"."claimed_at" is missing')).toBe(false);
+  });
 });
 
 describe('formatPlan', () => {

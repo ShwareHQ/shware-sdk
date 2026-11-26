@@ -123,13 +123,14 @@ export function sdkLambdaApi(
 
     async findExecution(target, name) {
       const { sdk, client } = await load();
-      // The name is unique per function; the version is part of the target ARN
-      const qualifier = target.split(':').at(7);
+      // The name is unique per function, across its versions, so the function alone is asked:
+      // Lambda refuses a name filter together with a qualifier ("Cannot filter by
+      // DurableExecutionName when both FunctionName and Qualifier are provided"), whether the
+      // qualifier is its own parameter or part of the ARN
       const functionName = target.split(':').slice(0, 7).join(':');
       const response = await client.send(
         new sdk.ListDurableExecutionsByFunctionCommand({
           FunctionName: functionName,
-          ...(qualifier === undefined ? {} : { Qualifier: qualifier }),
           DurableExecutionName: name,
           MaxItems: 10,
         })
