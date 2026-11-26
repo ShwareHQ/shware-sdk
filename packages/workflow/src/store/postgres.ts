@@ -218,6 +218,28 @@ export class PostgresJourneyStore implements JourneyStore {
     });
   }
 
+  async storedEvent(
+    userId: string,
+    id: string
+  ): Promise<{ event: string; ts: number; payload: Record<string, unknown> } | undefined> {
+    // In a transaction, so Hyperdrive answers from the database: the caller asks right after
+    // an insert that found the row there, and a cached read could still miss it
+    const rows = await this.sql.transaction((tx) =>
+      tx.query<{ name: string; ts: number | string; payload: unknown }>(
+        `SELECT name, (extract(epoch from ts) * 1000)::double precision AS ts, payload
+         FROM ${this.t.event} WHERE user_id = $1 AND event_id = $2`,
+        [userId, id]
+      )
+    );
+    const row = rows.at(0);
+    if (row === undefined) return undefined;
+    return {
+      event: row.name,
+      ts: Math.round(Number(row.ts)),
+      payload: asJson<Record<string, unknown>>(row.payload),
+    };
+  }
+
   /** The condition every write about a user carries: no erasure tombstone for `$user`. */
   private notErased(user: string): string {
     return `WHERE NOT EXISTS (SELECT 1 FROM ${this.t.erasure} WHERE user_id = ${user})`;
@@ -1006,8 +1028,15 @@ export class PostgresJourneyStore implements JourneyStore {
          ON CONFLICT DO NOTHING RETURNING segment`,
         [segment, userId, ts]
       );
-      // Already a member, or refused: either way the starts below write nothing new
-      if (member.length === 0) await this.refuseIfErased(tx, userId);
+      // Already a member, or refused: no entry happened here, so no start is owed. The caller
+      // read "not a member" outside the lock, and a concurrent evaluation (another event, the
+      // sweep) may have entered the user since — and already started and crossed off its
+      // starts. Writing them again, under this call's `ts`, would be a second occurrence of the
+      // one qualification, and a second journey wherever the re-entry policy allows one.
+      if (member.length === 0) {
+        await this.refuseIfErased(tx, userId);
+        return;
+      }
       for (const workflow of workflows) {
         await tx.query(
           `INSERT INTO ${this.t.segmentStart} (segment, workflow, user_id, ts)

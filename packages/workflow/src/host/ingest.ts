@@ -96,8 +96,8 @@ export async function ingestEvent(
   // Also reached from a running instance's send_event: an erased user's instances are stopped
   // before the erase, so one that still gets here is refused like any other writer
   await refuseIfErased(store, input.userId);
-  const ts = input.ts ?? Date.now();
-  const payload = input.payload ?? {};
+  let ts = input.ts ?? Date.now();
+  let payload = input.payload ?? {};
   // No id means the sender is not claiming this is a repeat of anything, which
   // a fresh one states truthfully — unlike a key derived from the contents,
   // which would silently collapse two identical events a second apart.
@@ -111,6 +111,18 @@ export async function ingestEvent(
     payload,
   });
 
+  if (!stored) {
+    // A redelivery acts on the occurrence as it was stored, not as it arrives now. A sender
+    // that repeats the id but not the `ts` (send_event, a client that stamps `now` on each
+    // attempt) would otherwise derive another instance id, and the retry could not finish the
+    // start the first attempt left behind: the ledger answers "duplicate" and nothing is created.
+    const first = await store.storedEvent(input.userId, id);
+    if (first !== undefined && first.event === input.event) {
+      ts = first.ts;
+      payload = first.payload;
+    }
+  }
+
   /*
    * The rest runs even for a duplicate. A retry arrives precisely because the
    * first attempt did not finish — it committed the row and then failed — so
@@ -120,7 +132,10 @@ export async function ingestEvent(
    */
   const woke = await wakeSubscribers(env, store, input.userId, [input.event]);
   const started = await startTriggeredJourneys(env, store, { ...input, payload }, id, ts);
-  started.push(...(await refreshSegmentTriggers(env, store, input.userId, ts)));
+  // Membership is about now, not about when the event happened: an old event delivered late
+  // (an offline buffer, a backfill) evaluated on its own clock would move every `within` window
+  // back with it, enter the user into a segment they are not in today and start its journeys
+  started.push(...(await refreshSegmentTriggers(env, store, input.userId, Date.now())));
   return { id, stored, woke, started };
 }
 
@@ -628,19 +643,19 @@ async function entryStarted(
  * (Cloudflare): a create the platform refuses because the id already exists — a concurrent
  * retry of the same start won the race — is the instance we wanted, not a failure. Rolling the
  * entry back over it would strand a running instance with no ledger row, and it would never be
- * admitted. A create whose instance the runtime cannot find failed, and so did one refused by an
- * instance that already ended: the id stays taken by that corpse, which will never admit itself,
- * and taking it for the start would leave a running entry nothing ever fails. True when this call
- * created it, false when it already existed.
+ * admitted. A create whose instance the runtime cannot find failed, and throws. One refused by
+ * an instance that already ended is `ended`: the id stays taken by that corpse for good, which
+ * will never admit itself — taking it for the start would leave a running entry nothing ever
+ * fails, and no retry of this create can ever succeed either.
  */
 async function createInstance(
   env: JourneyEnv,
   id: string,
   params: JourneyParams
-): Promise<boolean> {
+): Promise<'created' | 'exists' | 'ended'> {
   try {
     await env.JOURNEY.create({ id, params });
-    return true;
+    return 'created';
   } catch (error) {
     let ended: boolean;
     try {
@@ -649,15 +664,36 @@ async function createInstance(
       // Not found, or the lookup failed too: the create's own error is the one to surface
       throw error;
     }
-    if (ended) throw error;
-    return false;
+    return ended ? 'ended' : 'exists';
   }
+}
+
+/**
+ * The occurrence's instance id is held by an instance that ended (terminated by hand, errored
+ * before it finalized its entry). The start is not owed any more: the platform will refuse the
+ * id forever, so throwing would fail every redelivery of the event the same way — a permanent
+ * 500 for the caller, and for a queue the whole batch retried into the dead letter queue with
+ * the events behind this one never stored. The entry records the failure and the caller goes on.
+ */
+async function overDeadInstance(
+  store: JourneyStore,
+  workflow: string,
+  instanceId: string
+): Promise<StartResult> {
+  // Conditional on the entry still running unadmitted: an instance that admitted itself and
+  // finalized between the caller's read and its create ended properly, and keeps its own status
+  await store.failUnadmittedEntry(instanceId);
+  console.warn(
+    `[workflow] ${workflow}: instance ${instanceId} already ended, its occurrence is not started again`
+  );
+  return { instanceId: null, outcome: 'refused' };
 }
 
 /**
  * What a start attempt came to: the instance this call started (null otherwise), and why not —
  * `duplicate` when the occurrence already holds an entry (alive, or being started by another
- * attempt), `refused` when the workflow's re-entry policy turned it away.
+ * attempt), `refused` when nothing of it is owed: the workflow's re-entry policy turned it away,
+ * or its instance already ran and ended (`overDeadInstance`).
  */
 interface StartResult {
   instanceId: string | null;
@@ -722,7 +758,9 @@ async function startJourney(
     }
     // Reported as started only when this retry is what created it: a duplicate delivery of an
     // event whose first attempt succeeded finds the instance there and starts nothing
-    return (await createInstance(env, instanceId, params))
+    const created = await createInstance(env, instanceId, params);
+    if (created === 'ended') return overDeadInstance(store, workflow, instanceId);
+    return created === 'created'
       ? { instanceId, outcome: 'started' }
       : { instanceId: null, outcome: 'duplicate' };
   }
@@ -731,7 +769,9 @@ async function startJourney(
     // A recorded start (AWS) is its own idempotency: there `get` finds the record even when the
     // submit failed, so only a runtime without one reads "already exists" as success
     if (execution !== undefined) await env.JOURNEY.create({ id: instanceId, params });
-    else await createInstance(env, instanceId, params);
+    else if ((await createInstance(env, instanceId, params)) === 'ended') {
+      return await overDeadInstance(store, workflow, instanceId);
+    }
   } catch (error) {
     // A recorded start stays: the runtime may have taken it, and a retry with the same name
     // and payload finds that execution instead of starting a second one
