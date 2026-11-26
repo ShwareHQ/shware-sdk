@@ -65,8 +65,13 @@ export interface CanvasEdge {
   source: string;
   target: string;
   label?: string;
-  /** Label anchor: `target` = the arm's entry corner (real arm); `source` = just below the deciding node (empty pass-through arm). */
-  data?: { anchor: 'source' | 'target' };
+  /**
+   * Label anchor: `target` = the arm's entry corner (real arm); `source` = just below the deciding node (empty pass-through arm).
+   * `lane` is the x of the empty arm's own column, set when the straight way down from the
+   * deciding node is taken by another arm's cards: the connector then runs down that column and
+   * turns back to its target below the arms, with its label hanging in the column.
+   */
+  data?: { anchor: 'source' | 'target'; lane?: number };
 }
 
 /**
@@ -279,6 +284,7 @@ interface Tail {
   id: string;
   label?: string;
   anchor?: 'source' | 'target';
+  lane?: number;
 }
 
 export function layout(
@@ -306,7 +312,9 @@ export function layout(
         source: t.id,
         target,
         ...(t.label !== undefined ? { label: t.label } : {}),
-        ...(t.anchor !== undefined ? { data: { anchor: t.anchor } } : {}),
+        ...(t.anchor !== undefined
+          ? { data: { anchor: t.anchor, ...(t.lane !== undefined ? { lane: t.lane } : {}) } }
+          : {}),
       });
     }
   };
@@ -349,12 +357,27 @@ export function layout(
       const groupTop = bottom + FORK_GAP;
       let maxBottom = groupTop;
       const groupTails: Tail[] = [];
+      // An empty group rejoins straight down the centre line. With an odd number of arms (a
+      // three-way branch with no `otherwise`) an arm's column sits on that line, and the
+      // connector would be drawn through its cards: it takes the empty group's own column then
+      let left = gx;
+      const blocked = groups.some((g, gi) => {
+        const right = left + (widths[gi] ?? W);
+        const across = g.nodes.length > 0 && left < cx && cx < right;
+        left = right + HGAP;
+        return across;
+      });
 
       groups.forEach((g, gi) => {
         const center = gx + (widths[gi] ?? W) / 2;
         if (g.nodes.length === 0) {
           // Empty group: the parent rejoins straight down, so anchor the label right below it
-          groupTails.push({ id: n.id, label: g.label, anchor: 'source' });
+          groupTails.push({
+            id: n.id,
+            label: g.label,
+            anchor: 'source',
+            ...(blocked ? { lane: center } : {}),
+          });
         } else {
           const r = layoutSeq(g.nodes, center, groupTop, [
             { id: n.id, label: g.label, anchor: 'target' },

@@ -442,15 +442,24 @@ const VITE_DEFAULT_DENY = ['.env', '.env.*', '*.{crt,pem}', '**/.git/**'];
  * journey project keeps beside its code. `fs.allow` spans the project and its linked workspace
  * packages (see {@link studioFsAllow}), so without these
  * `/@fs/<path>/.dev.vars` (wrangler's secrets), an APNs `.p8` or a Firebase service account would
- * be one request away for any page that can reach the port.
+ * be one request away for any page that can reach the port. The same goes for what sits beside
+ * any project: registry and network tokens (`.npmrc`, `.netrc`), direnv's `.envrc` (which
+ * `.env.*` does not match), key stores, and the wrangler config with its `vars`.
  */
 export const STUDIO_FS_DENY: readonly string[] = [
   ...VITE_DEFAULT_DENY,
   '**/.dev.vars*',
+  '**/.envrc',
+  '**/.npmrc',
+  '**/.netrc',
+  '**/wrangler.{toml,json,jsonc}',
   '**/*.p8',
   '**/*.plist',
   '**/google-services.json',
   '**/*.pfx',
+  '**/*.p12',
+  '**/*.jks',
+  '**/*.keystore',
   '**/*.pem',
   '**/*.key',
 ];

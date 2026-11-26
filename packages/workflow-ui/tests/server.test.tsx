@@ -416,6 +416,16 @@ describe('credentials beside the project are not served to the page', () => {
       'certs/push.pem',
       'certs/server.key',
       '.env',
+      '.envrc',
+      '.npmrc',
+      'apps/worker/.npmrc',
+      '.netrc',
+      'wrangler.toml',
+      'apps/worker/wrangler.jsonc',
+      'apps/worker/wrangler.json',
+      'certs/push.p12',
+      'android/release.jks',
+      'android/release.keystore',
     ];
     expect(secrets.filter((file) => serves(file))).toEqual([]);
     expect(serves('src/email/index.ts')).toBe(true);

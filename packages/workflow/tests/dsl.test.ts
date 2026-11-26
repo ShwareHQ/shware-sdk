@@ -259,6 +259,17 @@ describe('flow nodes', () => {
     });
   });
 
+  test('time window refuses a time zone the runtime does not know, naming it', () => {
+    const window = (tz: string) => nodeOf((w) => w.timeWindow({ between: ['09:00', '17:00'], tz }));
+    // At the window an unknown zone is read as UTC: the typo has to fail here
+    expect(() => window('America/New_Yrok')).toThrow(TypeError);
+    expect(() => window('America/New_Yrok')).toThrow(/'America\/New_Yrok'/);
+    expect(() => window('')).toThrow(TypeError);
+    expect(window('America/New_York')).toMatchObject({ tz: 'America/New_York' });
+    expect(window('UTC')).toMatchObject({ tz: 'UTC' });
+    expect(window('user')).toMatchObject({ tz: 'user' });
+  });
+
   test('cohort compiles the explicit experiment key', () => {
     expect(
       nodeOf((w) => w.cohort({ a: { weight: 50 }, b: { weight: 50 } }, { key: 'exp_coupon' }))

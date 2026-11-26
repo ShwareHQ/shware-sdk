@@ -73,6 +73,14 @@ export interface WebPushConfig {
    * (a `performed(e.push_opened)` segment). One event per copy, however often it is tapped.
    */
   openedEvent?: string;
+  /**
+   * Push service hosts accepted besides the browsers' own (FCM, Mozilla, WNS, Apple — see
+   * `PUSH_SERVICE_HOSTS` in `@shware/workflow/webpush`): an exact host, or `*.example.com` for
+   * its subdomains. A subscription whose endpoint is on no listed host is refused at
+   * registration and never sent to, since the endpoint is the client's word and the host
+   * would be the one making the request.
+   */
+  pushServices?: readonly string[];
 }
 
 /** FCM HTTP v1 for Android; the service account is `GOOGLE_APPLICATION_CREDENTIALS_BASE64` in the environment. */

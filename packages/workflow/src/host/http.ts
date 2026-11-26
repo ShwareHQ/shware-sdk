@@ -13,6 +13,7 @@ import {
   visitorSubject,
 } from '../store/index';
 import { TemplateValidationError } from '../templates';
+import { isPushServiceEndpoint, subscriptionEndpoint } from '../webpush';
 import { type Authorize, authorized } from './auth';
 import { identityError, ingestBatch, isNonEmptyString, isPlainObject, parseBatch } from './batch';
 import { journeyMode } from './channels';
@@ -187,7 +188,7 @@ const routes: readonly Route[] = [
     method: 'POST',
     path: '/devices',
     auth: 'api',
-    async handle({ request, env, store }) {
+    async handle({ request, env, store, host }) {
       const { deviceId, userId, visitorId, token, platform } = await readBody(request);
       const refused = identityError(userId, visitorId);
       if (refused !== undefined) return json({ error: refused }, 400);
@@ -197,6 +198,24 @@ const routes: readonly Route[] = [
       if (!isNonEmptyString(token)) return json({ error: 'token required' }, 400);
       if (platform !== 'ios' && platform !== 'android' && platform !== 'web') {
         return json({ error: "platform must be 'ios', 'android' or 'web'" }, 400);
+      }
+      // A browser's subscription names the URL pushes are POSTed to: one that is not a push
+      // service's is refused here, where the caller can be told, rather than kept and dropped
+      // at its first send
+      if (platform === 'web') {
+        const endpoint = subscriptionEndpoint(token);
+        if (endpoint === undefined) {
+          return json({ error: 'token must be a PushSubscription as JSON for platform web' }, 400);
+        }
+        if (!isPushServiceEndpoint(endpoint, host.config?.webPush?.pushServices)) {
+          return json(
+            {
+              error:
+                "the subscription's endpoint is not a known push service's (https, on FCM, Mozilla, WNS or Apple); other hosts are named in the config's webPush.pushServices",
+            },
+            400
+          );
+        }
       }
       const device = {
         deviceId,

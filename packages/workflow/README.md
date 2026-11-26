@@ -679,22 +679,22 @@ Pushes go to the devices the engine keeps. The app registers each token with
 to the latest user that registers it. Each platform is turned on by the config,
 with its secret in the environment:
 
-| Platform  | Config                                         | Secret                                  | Transport                  |
-| --------- | ---------------------------------------------- | --------------------------------------- | -------------------------- |
-| `ios`     | `apns: { topic, keyId, teamId, environment? }` | `APNS_PRIVATE_KEY_BASE64` (the `.p8`)   | `@shware/workflow/apns`    |
-| `android` | `fcm: { androidChannelId? }`                   | `GOOGLE_APPLICATION_CREDENTIALS_BASE64` | `@shware/workflow/fcm`     |
-| `web`     | `webPush: { subject, openedEvent? }`           | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `@shware/workflow/webpush` |
+| Platform  | Config                                              | Secret                                  | Transport                  |
+| --------- | --------------------------------------------------- | --------------------------------------- | -------------------------- |
+| `ios`     | `apns: { topic, keyId, teamId, environment? }`      | `APNS_PRIVATE_KEY_BASE64` (the `.p8`)   | `@shware/workflow/apns`    |
+| `android` | `fcm: { androidChannelId? }`                        | `GOOGLE_APPLICATION_CREDENTIALS_BASE64` | `@shware/workflow/fcm`     |
+| `web`     | `webPush: { subject, openedEvent?, pushServices? }` | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `@shware/workflow/webpush` |
 
 A secret is only read when something is sent on that platform. Only a token
 the provider reports as gone is removed (and waits on `reachable('push')` wake
 on every device change); a configuration error keeps the device and fails the
 step without retrying, and a transient answer is retried:
 
-| Provider | Token removed, copy settled         | Settled, device kept                          | Failed, no retry (`PermanentError`)                                                                                   | Retried                                                                 |
-| -------- | ----------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| APNs     | 410; `Unregistered`, `ExpiredToken` | `BadDeviceToken` (a token or the environment) | `DeviceTokenNotForTopic`, `TopicDisallowed`, `BadTopic`, `MissingTopic`, bad certificate or provider token, other 4xx | 403 `ExpiredProviderToken` (re-signed), 429, 5xx                        |
-| FCM      | `UNREGISTERED`; 404 `NOT_FOUND`     | `INVALID_ARGUMENT`                            | `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR`, other 4xx                                                             | 401 (access token re-minted), `QUOTA_EXCEEDED`, `UNAVAILABLE`, 429, 5xx |
-| Web Push | 404, 410                            | —                                             | payload over 3993 bytes (refused before sending), 400, 401, 403, 413, other 4xx                                       | 429, 5xx                                                                |
+| Provider | Token removed, copy settled                     | Settled, device kept                          | Failed, no retry (`PermanentError`)                                                                                   | Retried                                                                 |
+| -------- | ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| APNs     | 410; `Unregistered`, `ExpiredToken`             | `BadDeviceToken` (a token or the environment) | `DeviceTokenNotForTopic`, `TopicDisallowed`, `BadTopic`, `MissingTopic`, bad certificate or provider token, other 4xx | 403 `ExpiredProviderToken` (re-signed), 429, 5xx                        |
+| FCM      | `UNREGISTERED`; 404 `NOT_FOUND`                 | `INVALID_ARGUMENT`                            | `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR`, other 4xx                                                             | 401 (access token re-minted), `QUOTA_EXCEEDED`, `UNAVAILABLE`, 429, 5xx |
+| Web Push | 404, 410; an endpoint that is no push service's | —                                             | payload over 3993 bytes (refused before sending), 400, 401, 403, 413, other 4xx                                       | 429, 5xx                                                                |
 
 Every APNs request carries `apns-id` and `apns-collapse-id`, and every web
 push a `Topic`, derived from the copy's idempotency key, so the rare copy sent
@@ -710,6 +710,15 @@ while the senders themselves are built per run.
 per environment with `generateVapidKeys()` from `@shware/workflow/webpush`.
 `webPush.openedEvent` names the contract event a browser's notification tap is
 also recorded as (`{ message_id }`), so conditions see web opens too.
+
+A browser subscription's endpoint is the URL the host POSTs each push to, and
+it is whatever the registering client says. Only an https endpoint on a
+browser's push service is used — `fcm.googleapis.com` (Chrome and the Chromium
+browsers), `*.push.services.mozilla.com` (Firefox), `*.notify.windows.com`
+(Edge) and `*.push.apple.com` (Safari): `POST /devices` answers 400 for any
+other, and one already stored is settled undelivered and forgotten at its next
+send, without a request being made. `webPush.pushServices` names further hosts
+(`'push.example.com'`, or `'*.example.com'` for its subdomains).
 
 APNs speaks HTTP/2 only, which `wrangler dev` cannot. Locally, run the relay
 next to it and point the Worker at it with `APNS_RELAY_ORIGIN`:
@@ -826,7 +835,7 @@ Discord; supply anything else with `journeyWorker({ messages })`.
 | `runtime`   | Per mode (`development`, `production`, …): `{ timeScale?, logMessages? }`                 |
 | `apns`      | `{ topic, keyId, teamId, environment? }`                                                  |
 | `fcm`       | `{ androidChannelId? }`                                                                   |
-| `webPush`   | `{ subject, openedEvent? }`                                                               |
+| `webPush`   | `{ subject, openedEvent?, pushServices? }`                                                |
 | `database`  | `{ schema? }`: the Postgres schema, `workflow` by default                                 |
 
 The `ENVIRONMENT` var picks the `runtime` entry (production when unset).
@@ -848,10 +857,16 @@ Secrets never go in the config; the Worker reads them from its environment:
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | The Web Push key pair                                      |
 | `APNS_RELAY_ORIGIN`                     | Development only: the local APNs relay                     |
 
-`journeyWorker` (and `journeyLambda`) also take `observer`, `messages` and `runtime` overrides,
-`contractMode: 'report'` to log contract refusals instead of answering 400, and `authorize` to
-replace the `API_TOKEN` bearer with a check of your own (see
+`journeyWorker` (and `journeyLambda`) also take `messages` and `runtime` overrides, an
+`observer`, `contractMode: 'report'` to log contract refusals instead of answering 400, and
+`authorize` to replace the `API_TOKEN` bearer with a check of your own (see
 [AWS deployment notes](#aws-deployment-notes)).
+
+An `observer` is added to the store's own, not put in its place: the store keeps recording
+(its claim is what delivers a copy [at most once](#delivery-guarantee)), and your hooks run after
+its own. Only an observer that decides delivery itself — one that implements `messageSettled`,
+`messageClaimed` and `messageReleased`, such as `reportingObserver(...)` spread into an object
+of your own — is used alone.
 
 ## `JourneyClient`
 
@@ -1314,7 +1329,7 @@ database.
   - 10,000 steps per instance by default, configurable up to 25,000. Sleeps do not count, but every
     wait attempt costs a few steps.
   - A step's result is at most 1 MiB.
-  - A completed instance's state is kept 30 days.
+  - A completed instance's state is kept 7 days by default, and up to 30 on a paid plan.
 - **Authorization.** Set `API_TOKEN` with `wrangler secret put`, or pass `authorize` (below).
   The tracking routes (`/t/...`) stay public by design.
 - **Deploying.** With the `CF_VERSION_METADATA` binding, each `wrangler deploy` makes its own

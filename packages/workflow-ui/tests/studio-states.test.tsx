@@ -2,6 +2,7 @@ import { type NodeIR, defineConfig } from '@shware/workflow';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { StatsNotice, errorMessage, statsStatus } from '../src/app/routes/metrics';
+import { rememberSelection, rememberedSelection } from '../src/app/routes/workflows';
 import { NodeInspector } from '../src/components/node-inspector';
 import { statsTimeScale } from '../src/postgres';
 import { lookup } from '../src/utils/lookup';
@@ -15,6 +16,27 @@ describe('lookup reads own properties only', () => {
     for (const key of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
       expect(lookup(registry, key)).toBeUndefined();
     }
+  });
+});
+
+describe('the canvas remembers its selection per workflow', () => {
+  afterEach(() => sessionStorage.clear());
+
+  test('the selection is kept under the workflow, not under the node', () => {
+    rememberSelection('onboarding', 'n3');
+    rememberSelection('winback', 'n7');
+    expect(rememberedSelection('onboarding')).toBe('n3');
+    expect(rememberedSelection('winback')).toBe('n7');
+    // The node's own id names nothing
+    expect(rememberedSelection('n3')).toBeUndefined();
+  });
+
+  test("deselecting forgets that workflow's selection only", () => {
+    rememberSelection('onboarding', 'n3');
+    rememberSelection('winback', 'n7');
+    rememberSelection('onboarding', undefined);
+    expect(rememberedSelection('onboarding')).toBeUndefined();
+    expect(rememberedSelection('winback')).toBe('n7');
   });
 });
 

@@ -1,4 +1,4 @@
-import type { JourneyObserver, OutboundMessage } from '../engine';
+import type { JourneyObserver, MessageTracking, OutboundMessage } from '../engine';
 import type { JourneyReporting } from '../store';
 
 /**
@@ -87,4 +87,76 @@ export function reportingObserver(
 function channelOf(message: OutboundMessage): string {
   if (message.channel !== 'push') return message.channel;
   return `push_${message.device?.platform ?? 'unknown'}`;
+}
+
+/**
+ * Whether the observer keeps the delivery record itself: it implements one of the three hooks
+ * that decide if a copy reaches the transport (see `JourneyObserver`).
+ */
+export function decidesDelivery(observer: JourneyObserver): boolean {
+  return (
+    observer.messageSettled !== undefined ||
+    observer.messageClaimed !== undefined ||
+    observer.messageReleased !== undefined
+  );
+}
+
+/**
+ * `extra`'s hooks added to `base`'s: every report reaches both, `base` first. `base` keeps the
+ * delivery record — at-most-once delivery is its claim, which a host adding a hook of its own
+ * must not lose — so `extra` is one that does not decide delivery (`decidesDelivery`). The
+ * tracking `extra` prepares is laid over `base`'s: its fields win, the push `data` of both is
+ * sent, and both commits run before the transport takes the copy.
+ */
+export function composeObservers(base: JourneyObserver, extra: JourneyObserver): JourneyObserver {
+  return {
+    async started(event) {
+      await base.started?.(event);
+      await extra.started?.(event);
+    },
+    async nodeReached(event) {
+      await base.nodeReached?.(event);
+      await extra.nodeReached?.(event);
+    },
+    messageSettled: async (message) => (await base.messageSettled?.(message)) ?? false,
+    async messagePrepared(message) {
+      const prepared = await base.messagePrepared?.(message);
+      return mergeTracking(prepared, await extra.messagePrepared?.(message));
+    },
+    messageClaimed: async (message) => (await base.messageClaimed?.(message)) ?? true,
+    messageReleased: async (message) => base.messageReleased?.(message),
+    async messageSent(message, result) {
+      // The settle first: a report of the host's own that throws must not leave the copy claimed
+      // and unsettled, which a replay reads as possibly delivered
+      await base.messageSent?.(message, result);
+      await extra.messageSent?.(message, result);
+    },
+    async finished(event) {
+      await base.finished?.(event);
+      await extra.finished?.(event);
+    },
+  };
+}
+
+function mergeTracking(
+  base: MessageTracking | undefined,
+  extra: MessageTracking | undefined
+): MessageTracking | undefined {
+  if (base === undefined || extra === undefined) return base ?? extra;
+  const merged: MessageTracking = { ...base };
+  for (const key of ['messageId', 'link', 'pixel', 'unsubscribe'] as const) {
+    if (extra[key] !== undefined) Object.assign(merged, { [key]: extra[key] });
+  }
+  if (extra.data !== undefined) merged.data = { ...base.data, ...extra.data };
+  const first = base.commit;
+  const second = extra.commit;
+  if (first !== undefined && second !== undefined) {
+    merged.commit = async () => {
+      await first();
+      await second();
+    };
+  } else if (second !== undefined) {
+    merged.commit = second;
+  }
+  return merged;
 }
