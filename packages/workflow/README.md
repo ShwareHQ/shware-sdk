@@ -1048,7 +1048,10 @@ resolved when the journey reaches it, against the deployed bundle and the code
 serving it:
 
 - **Templates: the latest content goes out.** A typo fixed in an email reaches
-  everyone, including the journeys that entered before the fix.
+  everyone, including the journeys that entered before the fix. So does what
+  the template says about itself: a send checks the opt-out of the `topic` the
+  template declares now, and follows its `redelivery` as it is now, so the
+  topic a copy is checked against is the one its unsubscribe link names.
 - **Segments: a segment is a live audience.** A `branch` or `waitUntil` on a
   segment asks whether the user is in it _now_, under the deployed condition.
 - **Actions: the current handler runs.** Their code ships in the Worker, never
@@ -1069,8 +1072,10 @@ of this section.)
 
 What a deploy must never do is take away something a pinned IR still names: a
 template removed or moved to another channel, a new required prop the pinned
-props do not supply, a segment or an action no longer in the bundle. A running
-journey would reach that node and fail. So before any write, a deploy holds the
+props do not supply, a segment or an action no longer in the bundle, an event a
+journey emits or still waits for (a `waitUntil`, `exitWhen`, the goal) no longer
+in the contract. A running journey would reach that node and fail, or wait for
+something that can no longer arrive. So before any write, a deploy holds the
 bundle — and the templates of the code deploying it — against the IRs journeys
 are still running on (`checkInFlight`) and refuses with `InFlightError`: a 409
 on `POST /deploy` and `POST /bundle/deploy`, listing each pinned version, how

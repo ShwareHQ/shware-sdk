@@ -5,6 +5,7 @@ import type {
   FactSource,
   JourneyContext,
   JourneyOutcome,
+  MessagePolicy,
   OutboundMessage,
   PushDevice,
 } from './ports';
@@ -290,31 +291,60 @@ function validate(
 }
 
 /**
+ * The message's opt-out topic and redelivery policy at the moment of the send. The template is
+ * resolved when it is used — the latest content goes out — and so is what it says about itself:
+ * a template moved to another topic, or from transactional to a topic, since this journey's
+ * workflow was compiled is sent under what it declares today. The node's own values (the
+ * compile-time snapshot) stand only where no registry answers: a host without a validator, a
+ * channel without templates. Called inside the send's step, so a replay reads the checkpoint.
+ */
+function policyOf(node: Extract<NodeIR, { type: 'message' }>, ctx: JourneyContext): MessagePolicy {
+  const live = ctx.validator?.describe?.({ channel: node.channel, template: node.template });
+  if (live !== undefined) return live;
+  return {
+    ...(node.topic !== undefined ? { topic: node.topic } : {}),
+    ...(node.redelivery === 'resend' ? { redelivery: 'resend' as const } : {}),
+  };
+}
+
+/**
+ * The policy as the copy carries it: what the observer records and the senders may read. An
+ * email or a push always says its topic — one with none known (a node compiled before topics
+ * existed) is recorded as transactional, as it always was.
+ */
+function carried(
+  node: Extract<NodeIR, { type: 'message' }>,
+  policy: MessagePolicy
+): { topic?: string | null; redelivery?: 'resend' } {
+  return {
+    ...(node.channel === 'email' || node.channel === 'push' ? { topic: policy.topic ?? null } : {}),
+    ...(policy.redelivery === 'resend' ? { redelivery: 'resend' as const } : {}),
+  };
+}
+
+/**
  * Whether the user opted out of what this step sends. An email or push step checks its topic —
  * an opt-out of the topic on that channel or of the whole channel skips it — and a transactional
  * message (`topic: null`) is never skipped: a receipt or a code goes out whatever the user opted
- * out of. A node compiled before topics existed (no `topic`) checks the channel-wide opt-out
- * only, as it always did. Other channels check the channel.
+ * out of. With no topic known (a node compiled before topics existed, on a host whose registry
+ * does not answer for it) the channel-wide opt-out alone is checked, as it always was. Other
+ * channels check the channel.
  */
 async function suppressed(
   node: Extract<NodeIR, { type: 'message' }>,
+  policy: MessagePolicy,
   ctx: JourneyContext
 ): Promise<boolean> {
-  if (node.topic === null) return false;
-  return (await ctx.facts.isSuppressed?.(node.channel, node.topic)) === true;
+  if (policy.topic === null) return false;
+  return (await ctx.facts.isSuppressed?.(node.channel, policy.topic)) === true;
 }
 
-/** The copy's topic, for the channels that have one: what the observer records and the senders may read. */
-function topicOf(node: Extract<NodeIR, { type: 'message' }>): { topic?: string | null } {
-  return node.channel === 'email' || node.channel === 'push' ? { topic: node.topic ?? null } : {};
-}
-
-/** The template's `redelivery`, only when it opts into resending: absent is the default, 'skip'. */
-function redeliveryOf(node: Extract<NodeIR, { type: 'message' }>): { redelivery?: 'resend' } {
-  return node.redelivery === 'resend' ? { redelivery: 'resend' } : {};
-}
-
-type PushPlan = { props: Record<string, ScalarIR | undefined>; devices: PushDevice[] };
+type PushPlan = {
+  props: Record<string, ScalarIR | undefined>;
+  devices: PushDevice[];
+  /** Absent in a plan checkpointed before the policy was settled here: the node's values stand. */
+  policy?: MessagePolicy;
+};
 
 /**
  * A push goes to devices, not to a profile address: one copy per device the
@@ -339,10 +369,11 @@ async function sendPush(
   const plan = await ctx.step.do<PushPlan | null>(`${node.id}:send`, async () => {
     const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
     // Once per step, before any device: the topic's opt-out or the channel's (never a transactional push)
-    if (await suppressed(node, ctx)) return null;
+    const policy = policyOf(node, ctx);
+    if (await suppressed(node, policy, ctx)) return null;
     const listed = await ctx.facts.listDevices();
     const devices = node.devices === 'latest' ? listed.slice(0, 1) : listed;
-    return { props, devices };
+    return { props, devices, policy };
   });
   // null: the topic or the channel is opted out
   if (plan === null) return;
@@ -350,6 +381,8 @@ async function sendPush(
     console.log(`[journey] push ${node.template} skipped: no device for user ${ctx.userId}`);
     return;
   }
+  // Settled once with the plan, so every device's copy goes out under the topic the step checked
+  const policy = plan.policy ?? policyOf(node, ctx);
   for (const [index, device] of plan.devices.entries()) {
     await ctx.step.do(`${node.id}:send:${index}`, async () => {
       await deliver(
@@ -364,8 +397,7 @@ async function sendPush(
           recipient: device.token,
           device,
           idempotencyKey: `${ctx.instanceId}:${node.id}:${device.token}`,
-          ...topicOf(node),
-          ...redeliveryOf(node),
+          ...carried(node, policy),
         },
         ctx
       );
@@ -383,7 +415,8 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
       await ctx.step.do(`${node.id}:send`, async () => {
         const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
         // An opted-out channel (an email unsubscribe) is skipped, like a push with no device
-        if (await suppressed(node, ctx)) return;
+        const policy = policyOf(node, ctx);
+        if (await suppressed(node, policy, ctx)) return;
         const recipientPath = RECIPIENT_PROPERTY[node.channel];
         const recipient =
           recipientPath === undefined ? undefined : await ctx.facts.getProperty(recipientPath);
@@ -398,8 +431,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
             userId: await ownerOf(ctx),
             recipient: recipient === undefined ? undefined : String(recipient),
             idempotencyKey: `${ctx.instanceId}:${node.id}`,
-            ...topicOf(node),
-            ...redeliveryOf(node),
+            ...carried(node, policy),
           },
           ctx
         );

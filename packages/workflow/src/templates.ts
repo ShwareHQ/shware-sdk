@@ -748,6 +748,10 @@ export type ResolvedProps = Record<string, ScalarIR | undefined>;
  */
 export function registryValidator(registry: TemplateRegistry): {
   validate(message: { channel: string; template: string; props: ResolvedProps }): ResolvedProps;
+  describe(message: {
+    channel: string;
+    template: string;
+  }): { topic?: string | null; redelivery?: 'resend' } | undefined;
 } {
   const email = indexTemplates('email', registry.email);
   const push = indexTemplates('push', registry.push);
@@ -775,6 +779,19 @@ export function registryValidator(registry: TemplateRegistry): {
         return parseTemplateProps(entry, props) as ResolvedProps;
       }
       return props;
+    },
+    describe({ channel, template }) {
+      const resend = (entry: { redelivery?: 'skip' | 'resend' | undefined }) =>
+        entry.redelivery === 'resend' ? { redelivery: 'resend' as const } : {};
+      if (channel === 'email' || channel === 'push') {
+        const entry = (channel === 'email' ? email : push).get(template);
+        return entry === undefined ? undefined : { topic: entry.topic, ...resend(entry) };
+      }
+      if (channel === 'discord' || channel === 'slack') {
+        const entry = (channel === 'discord' ? discord : slack).get(template);
+        return entry === undefined ? undefined : resend(entry);
+      }
+      return undefined;
     },
   };
 }

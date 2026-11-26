@@ -389,9 +389,10 @@ function refusesUnknownKeys(schema: core.$ZodType): boolean {
  * literal field is undeclared (the Worker would refuse the whole event at
  * emit time, failing the journey where the compile could have failed the
  * build). Values read from the profile are checked when the event is emitted,
- * by the same contract.
+ * by the same contract. Run at compile, and again before a deploy over the IRs journeys are
+ * still running (`checkInFlight`), against the contract that would then take their events.
  */
-function checkEmit(
+export function checkEmit(
   workflow: WorkflowIR,
   node: Extract<NodeIR, { type: 'send_event' }>,
   config: JourneyConfig

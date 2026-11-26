@@ -7,9 +7,11 @@ import {
   compileBundle,
   compileConfig,
   defineConfig,
+  defineContract,
   describeInFlight,
   emailTemplate,
   eq,
+  performed,
   segment,
   trigger,
   workflow,
@@ -180,6 +182,71 @@ describe('against the bundle alone', () => {
     const lost = { ...pinnedV1, ir: undefined };
     expect(checkInFlight([lost], compileBundle({ workflows: [] }))).toEqual([
       expect.objectContaining({ problem: 'its workflow body is not in the store' }),
+    ]);
+  });
+});
+
+describe('against the contract that would take the events', () => {
+  const events = {
+    sign_up: z.looseObject({}),
+    nudged: z.strictObject({ step: z.string() }),
+    replied: z.looseObject({}),
+  };
+  const profile = z.strictObject({ name: z.string() });
+  const v1Contract = defineContract({ events, profile });
+  const { events: ev } = v1Contract;
+  const emitting = workflow({
+    id: 'emitting',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(ev.sign_up),
+  })
+    .delay('1 day')
+    .sendEvent(ev.nudged, { step: 'a' });
+  const waiting = workflow({
+    id: 'waiting',
+    reentry: { mode: 'never' },
+    trigger: trigger.event(ev.sign_up),
+    exitWhen: performed(ev.replied),
+  })
+    .branch([performed(ev.nudged), (f) => f.delay('1 hour')])
+    .waitUntil(performed(ev.replied), { timeout: '7 days', onTimeout: 'continue' });
+  const pins = [pinned(emitting), pinned(waiting)];
+  /** The deploy that follows: nothing but a workflow on `sign_up`, under another contract. */
+  const next = (contract: ReturnType<typeof defineContract>) => {
+    const config = defineConfig({
+      contract: contract as never,
+      workflows: [
+        workflow({
+          id: 'plain',
+          reentry: { mode: 'never' },
+          trigger: trigger.event(ev.sign_up),
+        }).delay('1 hour'),
+      ],
+    });
+    return checkInFlight(pins, compileConfig(config), config);
+  };
+
+  test('the same contract passes', () => {
+    expect(next(v1Contract)).toEqual([]);
+  });
+
+  test('an emitted event gone from the contract, or with a new required field', () => {
+    const { nudged: _nudged, ...rest } = events;
+    expect(next(defineContract({ events: rest, profile })).map((p) => p.problem)).toEqual([
+      expect.stringContaining("emits 'nudged', which is not in the contract"),
+    ]);
+    const stricter = { ...events, nudged: z.strictObject({ step: z.string(), at: z.number() }) };
+    expect(next(defineContract({ events: stricter, profile })).map((p) => p.problem)).toEqual([
+      expect.stringContaining("required field 'at' is missing"),
+    ]);
+  });
+
+  test('an awaited event gone from the contract: the wait and the exit, not the branch that looks back', () => {
+    const { replied: _replied, ...rest } = events;
+    const problems = next(defineContract({ events: rest, profile }));
+    expect(problems.map((p) => [p.workflow, p.problem])).toEqual([
+      ['waiting', "exitWhen waits for 'replied', which is not in the contract"],
+      ['waiting', "node 1 waits for 'replied', which is not in the contract"],
     ]);
   });
 });
