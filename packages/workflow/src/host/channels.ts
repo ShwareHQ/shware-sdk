@@ -323,6 +323,7 @@ export function channelsFromConfig(
           return new WebPushSender({
             credentials,
             render,
+            pushServices: webPush.pushServices,
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
           });
         }),

@@ -191,6 +191,19 @@ export const workflowDetailRoute = createRoute({
 
 const SELECTION_KEY = 'workflow-ui:canvas-selection';
 
+/** The node last selected on `workflowId`'s canvas in this tab, if any. */
+export function rememberedSelection(workflowId: string): string | undefined {
+  if (typeof sessionStorage === 'undefined') return undefined;
+  return sessionStorage.getItem(`${SELECTION_KEY}:${workflowId}`) ?? undefined;
+}
+
+/** Keep (or, with no node, forget) the selection of `workflowId`'s canvas: each workflow remembers its own. */
+export function rememberSelection(workflowId: string, nodeId: string | undefined): void {
+  const key = `${SELECTION_KEY}:${workflowId}`;
+  if (nodeId === undefined) sessionStorage.removeItem(key);
+  else sessionStorage.setItem(key, nodeId);
+}
+
 function CanvasTab() {
   const { id } = workflowDetailRoute.useParams();
   const { config } = workflowDetailRoute.useRouteContext();
@@ -201,17 +214,11 @@ function CanvasTab() {
    * full-reload the page; without this the panel you were reading vanishes and
    * you lose your place.
    */
-  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
-    typeof sessionStorage === 'undefined'
-      ? undefined
-      : (sessionStorage.getItem(`${SELECTION_KEY}:${id}`) ?? undefined)
-  );
+  const [selectedId, setSelectedId] = useState<string | undefined>(() => rememberedSelection(id));
   const select = useCallback(
-    (id: string | undefined) => {
-      setSelectedId(id);
-      const key = `${SELECTION_KEY}:${id}`;
-      if (id === undefined) sessionStorage.removeItem(key);
-      else sessionStorage.setItem(key, id);
+    (nodeId: string | undefined) => {
+      setSelectedId(nodeId);
+      rememberSelection(id, nodeId);
     },
     [id]
   );

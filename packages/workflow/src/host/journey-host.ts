@@ -11,7 +11,7 @@ import { RECIPIENT_PROPERTY } from '../engine/recipient';
 import { scaleSegmentWindows } from '../engine/time-scale';
 import type { BundleIR, NodeIR } from '../ir';
 import { registryRenderer } from '../react-email';
-import { reportingObserver } from '../reporting/observer';
+import { composeObservers, decidesDelivery, reportingObserver } from '../reporting/observer';
 import type { TrackingOptions } from '../reporting/tracking';
 import type { JourneyRuntimeOptions } from '../runtime';
 import type { BundleVersion, JourneyStore, StoreLease } from '../store/index';
@@ -66,7 +66,11 @@ export interface JourneyHostOptions<Env extends JourneyEnv> {
    * Reporting hooks: node arrivals, every copy sent (with the tracking it should carry — click
    * links and an open pixel for email, payload data for a push), and how each instance ended.
    * By default the store records them itself, and the host serves the email tracking routes
-   * (`/t/...`, on `WORKFLOW_ORIGIN`); override to report elsewhere.
+   * (`/t/...`, on `WORKFLOW_ORIGIN`). An observer given here is added to that one, not put in
+   * its place: the store's record is what delivers each copy at most once (the claim), so it is
+   * kept and the hooks here run after its own, to report elsewhere as well. Only an observer
+   * that decides delivery itself — one implementing `messageSettled`, `messageClaimed` and
+   * `messageReleased`, as `reportingObserver` wrapped by hand does — stands alone.
    */
   observer?: (env: Env, store: JourneyStore) => JourneyObserver;
   /** Message outlet override (tests, a custom gateway): replaces every channel, `email` included. */
@@ -231,9 +235,13 @@ export function createJourneyHost<Env extends JourneyEnv>(
     });
   };
 
+  // The host's own observer joins the store's instead of replacing it: the at-most-once claim
+  // lives in the store's, and a host that only wanted to hear of sends would lose it unnoticed
   const observer = (env: Env, store: JourneyStore): JourneyObserver => {
-    if (options.observer !== undefined) return options.observer(env, store);
-    return reportingObserver(store.reporting, env.WORKFLOW_ORIGIN);
+    const reporting = reportingObserver(store.reporting, env.WORKFLOW_ORIGIN);
+    if (options.observer === undefined) return reporting;
+    const own = options.observer(env, store);
+    return decidesDelivery(own) ? own : composeObservers(reporting, own);
   };
 
   const runParts = (env: Env, store: JourneyStore, params: JourneyParams): JourneyRunParts => ({

@@ -10,6 +10,7 @@ import {
   encryptPayload,
   fromBase64url,
   generateVapidKeys,
+  isPushServiceEndpoint,
   webPushTopic,
 } from '../src/webpush';
 
@@ -168,9 +169,9 @@ describe('web push', () => {
     test('signs once per push service origin and reuses the token for 12 hours', async () => {
       vi.useFakeTimers({ now: 1_000_000_000_000 });
       const vapid = await signer();
-      const first = await vapid.authorization('https://push.example.com/send/one');
+      const first = await vapid.authorization('https://fcm.googleapis.com/fcm/send/one');
       // Another endpoint on the same service: the same token, its `aud` is the origin
-      expect(await vapid.authorization('https://push.example.com/send/two')).toBe(first);
+      expect(await vapid.authorization('https://fcm.googleapis.com/fcm/send/two')).toBe(first);
       // Another service: its own token
       const other = await vapid.authorization(
         'https://updates.push.services.mozilla.com/wpush/v2/x'
@@ -178,9 +179,9 @@ describe('web push', () => {
       expect(other).not.toBe(first);
       expect(parseVapid(other).claims.aud).toBe('https://updates.push.services.mozilla.com');
       vi.advanceTimersByTime(12 * 3600_000 - 1);
-      expect(await vapid.authorization('https://push.example.com/send/one')).toBe(first);
+      expect(await vapid.authorization('https://fcm.googleapis.com/fcm/send/one')).toBe(first);
       vi.advanceTimersByTime(1);
-      const renewed = await vapid.authorization('https://push.example.com/send/one');
+      const renewed = await vapid.authorization('https://fcm.googleapis.com/fcm/send/one');
       expect(renewed).not.toBe(first);
       expect(parseVapid(renewed).claims.exp).toBe(1_000_000_000 + 30 * 3600);
     });
@@ -211,7 +212,7 @@ describe('web push', () => {
 
   test('the sender posts the encrypted push with the content and the tracking data', async () => {
     const ua = await browser();
-    const subscription = subscriptionOn(ua, 'https://push.example.com/send/abc');
+    const subscription = subscriptionOn(ua, 'https://fcm.googleapis.com/fcm/send/abc');
     const requests: { url: string; init: RequestInit }[] = [];
     const sender = new WebPushSender({
       credentials: await signer(),
@@ -225,7 +226,7 @@ describe('web push', () => {
     expect(requests).toHaveLength(1);
     const request = requests.at(0);
     if (!request) throw new Error('The push request must be sent');
-    expect(request.url).toBe('https://push.example.com/send/abc');
+    expect(request.url).toBe('https://fcm.googleapis.com/fcm/send/abc');
     const headers = new Headers(request.init.headers);
     expect(headers.get('content-encoding')).toBe('aes128gcm');
     expect(headers.get('authorization')).toMatch(/^vapid t=/);
@@ -247,7 +248,7 @@ describe('web push', () => {
 
   test('two senders on one credential carry the same VAPID token', async () => {
     const ua = await browser();
-    const subscription = subscriptionOn(ua, 'https://push.example.com/send/abc');
+    const subscription = subscriptionOn(ua, 'https://fcm.googleapis.com/fcm/send/abc');
     const auths: (string | null)[] = [];
     const credentials = await signer();
     for (const ttl of [60, 120]) {
@@ -267,7 +268,7 @@ describe('web push', () => {
 
   test('a subscription the push service reports gone is dropped, not retried', async () => {
     const ua = await browser();
-    const subscription = subscriptionOn(ua, 'https://push.example.com/send/gone');
+    const subscription = subscriptionOn(ua, 'https://fcm.googleapis.com/fcm/send/gone');
     const sender = new WebPushSender({
       credentials: await signer(),
       render: async () => ({ title: 'Tip', body: 'Try it' }),
@@ -277,7 +278,7 @@ describe('web push', () => {
     // Not a usable subscription: settled at once, never retried
     for (const bad of [
       'not json',
-      JSON.stringify({ endpoint: 'https://push.example.com/x' }),
+      JSON.stringify({ endpoint: 'https://fcm.googleapis.com/fcm/send/x' }),
       JSON.stringify({
         endpoint: 'http://push.example.com/x',
         keys: JSON.parse(subscription).keys,
@@ -297,9 +298,71 @@ describe('web push', () => {
     ).rejects.toThrow('429');
   });
 
+  test('an endpoint that is no push service is never fetched, and its device is kept', async () => {
+    const ua = await browser();
+    const fetched: string[] = [];
+    const credentials = await signer();
+    const sender = (pushServices?: string[]) =>
+      new WebPushSender({
+        credentials,
+        render: async () => ({ title: 'Tip', body: 'Try it' }),
+        fetch: async (url, init) => {
+          fetched.push(new Request(url, init).url);
+          return new Response(null, { status: 201 });
+        },
+        pushServices,
+      });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const endpoint of [
+        'https://localhost/push',
+        'https://127.0.0.1/push',
+        'https://[fd00::1]/push',
+        'https://169.254.169.254/latest/meta-data',
+        'https://billing.internal/push',
+        'https://push.example.com/send/abc',
+        'https://fcm.googleapis.com.evil.example/fcm/send/abc',
+        'https://fcm.googleapis.com:8443/fcm/send/abc',
+      ]) {
+        // Settled undelivered — not thrown, so not retried — under a reason that keeps the device
+        expect(await sender().send(message(subscriptionOn(ua, endpoint)))).toEqual({
+          delivered: false,
+          reason: 'UnlistedPushService',
+        });
+      }
+      expect(fetched).toEqual([]);
+      // The host is named, never the path (the subscription's capability)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('(push.example.com)'));
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('/send/abc'));
+    } finally {
+      warn.mockRestore();
+    }
+    // A push service the config names is one
+    const own = subscriptionOn(ua, 'https://push.example.com/send/abc');
+    expect(await sender(['push.example.com']).send(message(own))).toBeUndefined();
+    expect(fetched).toEqual(['https://push.example.com/send/abc']);
+  });
+
+  test('isPushServiceEndpoint: https on a listed host, a `*.` entry covering its subdomains', () => {
+    expect(isPushServiceEndpoint('https://fcm.googleapis.com/fcm/send/a')).toBe(true);
+    expect(isPushServiceEndpoint('https://FCM.googleapis.com./fcm/send/a')).toBe(true);
+    expect(isPushServiceEndpoint('https://updates.push.services.mozilla.com/wpush/v2/a')).toBe(
+      true
+    );
+    expect(isPushServiceEndpoint('https://db5p.notify.windows.com/w/?token=a')).toBe(true);
+    expect(isPushServiceEndpoint('https://web.push.apple.com/a')).toBe(true);
+    // The bare parent of a `*.` entry is not a subdomain of it
+    expect(isPushServiceEndpoint('https://notify.windows.com/a')).toBe(false);
+    expect(isPushServiceEndpoint('https://xnotify.windows.com/a')).toBe(false);
+    expect(isPushServiceEndpoint('http://fcm.googleapis.com/fcm/send/a')).toBe(false);
+    expect(isPushServiceEndpoint('fcm.googleapis.com/fcm/send/a')).toBe(false);
+    expect(isPushServiceEndpoint(undefined)).toBe(false);
+    expect(isPushServiceEndpoint('https://push.internal/a', ['*.internal'])).toBe(true);
+  });
+
   test('a payload past the single-record limit is permanent, before anything is sent', async () => {
     const ua = await browser();
-    const subscription = subscriptionOn(ua, 'https://push.example.com/send/abc');
+    const subscription = subscriptionOn(ua, 'https://fcm.googleapis.com/fcm/send/abc');
     let fetched = 0;
     const sender = new WebPushSender({
       credentials: await signer(),
@@ -336,7 +399,7 @@ describe('web push', () => {
     /** What the send did, in the table's terms: how it ended, and whether the device is dead. */
     const observe = async (status: number) => {
       const ua = await browser();
-      const subscription = subscriptionOn(ua, 'https://push.example.com/send/abc');
+      const subscription = subscriptionOn(ua, 'https://fcm.googleapis.com/fcm/send/abc');
       const sender = new WebPushSender({
         credentials: await signer(),
         render: async () => ({ title: 'Tip', body: 'Try it' }),

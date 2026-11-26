@@ -476,7 +476,7 @@ describe('the provider cache', () => {
       'deriveBits',
     ]);
     const subscription = JSON.stringify({
-      endpoint: 'https://push.example.com/send/abc',
+      endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
       keys: {
         p256dh: base64url(new Uint8Array(await webcrypto.subtle.exportKey('raw', pair.publicKey))),
         auth: base64url(crypto.getRandomValues(new Uint8Array(16))),

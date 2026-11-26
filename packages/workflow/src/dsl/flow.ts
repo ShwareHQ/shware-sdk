@@ -16,6 +16,17 @@ import { type Condition, condIR, positiveDurationIR } from './condition';
 import type { EventRef, MessageArgs, PropInput, PropsInput } from './refs';
 import type { PropsOf, TemplateRef } from './template';
 
+/** Whether the runtime's tz database knows `zone` — the same question the engine asks at the window. */
+function isTimeZone(zone: unknown): zone is string {
+  if (typeof zone !== 'string' || zone.trim() === '') return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The flow chain — FlowBuilder is the DSL's step surface (messages, delays,
  * flow control, data), and its implementation is the compiler front half: each
@@ -530,6 +541,13 @@ export class FlowBuilderImpl implements FlowBuilder {
     if (end <= start) {
       throw new Error(
         `timeWindow(): 'between' must open before it closes within one day, got [${opts.between[0]}, ${opts.between[1]}] (overnight windows are not supported yet)`
+      );
+    }
+    // A zone the runtime does not know is read as UTC when the window is computed (a bad
+    // profile value must not hold a journey): a typo here would shift every send, silently
+    if (opts.tz !== undefined && opts.tz !== 'user' && !isTimeZone(opts.tz)) {
+      throw new TypeError(
+        `timeWindow(): 'tz' must be 'user' or an IANA time zone (like 'America/New_York'), got '${String(opts.tz)}'`
       );
     }
     return this.pushNode(

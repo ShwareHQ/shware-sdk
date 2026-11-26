@@ -33,6 +33,8 @@ export interface WebPushOptions {
   render: PushRenderer;
   /** Seconds the push service keeps an undelivered message; a day by default. */
   ttl?: number;
+  /** Push service hosts accepted besides the browsers' own (`PUSH_SERVICE_HOSTS`): the config's `webPush.pushServices`. */
+  pushServices?: readonly string[] | undefined;
   /** Fetch implementation (defaults to the global one). */
   fetch?: typeof fetch;
 }
@@ -44,6 +46,8 @@ export interface WebPushOptions {
  * - dead subscription: 404 and 410 — the browser unsubscribed or the subscription expired
  *   (RFC 8030 §7.3: 410 Gone for an expired subscription) — and a subscription the sender
  *   cannot parse (`InvalidSubscription`). The copy settles undelivered and the host forgets it.
+ * - an https endpoint that is no known push service's (`UnlistedPushService`, see
+ *   `isPushServiceEndpoint`): settled undelivered without a request, and the device is kept.
  * - transient: 429 Too Many Requests (§8.4) and 5xx.
  * - everything else is this request or this sender: 400 (a bad header or body), 401 / 403 (the
  *   VAPID key pair or subject, §8.2 of RFC 8292), 413 (the payload, RFC 8030 §7.2) and any other
@@ -58,6 +62,63 @@ export const DEAD_TOKEN_REASONS: ReadonlySet<string> = new Set([
 interface Subscription {
   endpoint: string;
   keys: { p256dh: string; auth: string };
+}
+
+/**
+ * The push services of the browsers that implement Web Push: Chrome and the Chromium browsers
+ * (FCM), Firefox (Mozilla's autopush), Edge (WNS) and Safari. `*.` covers every subdomain.
+ */
+export const PUSH_SERVICE_HOSTS: readonly string[] = [
+  'fcm.googleapis.com',
+  'jmt17.google.com',
+  'android.googleapis.com',
+  '*.push.services.mozilla.com',
+  '*.notify.windows.com',
+  '*.push.apple.com',
+];
+
+const matchesHost = (hostname: string, pattern: string): boolean => {
+  const wanted = pattern.trim().toLowerCase();
+  if (wanted === '') return false;
+  return wanted.startsWith('*.') ? hostname.endsWith(wanted.slice(1)) : hostname === wanted;
+};
+
+/**
+ * Whether `endpoint` is a URL a push is sent to: https, on the default port, without
+ * credentials, and on a known push service's host (`PUSH_SERVICE_HOSTS`, plus `extra` — the
+ * config's `webPush.pushServices`). The endpoint is whatever the registering client says it is,
+ * and the sender POSTs to it from inside the host's network: without the list, a subscription
+ * naming `https://localhost`, an address literal or an internal service's name would have the
+ * host send requests there. A list of names, not a refusal of private addresses: a name
+ * resolves where its owner says, and the sender never sees the address.
+ */
+export function isPushServiceEndpoint(endpoint: unknown, extra: readonly string[] = []): boolean {
+  if (typeof endpoint !== 'string') return false;
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.port !== '' || url.username !== '' || url.password !== '') {
+    return false;
+  }
+  // A fully qualified name (`fcm.googleapis.com.`) is the same host
+  const hostname = url.hostname.replace(/\.$/, '');
+  return [...PUSH_SERVICE_HOSTS, ...extra].some((pattern) => matchesHost(hostname, pattern));
+}
+
+/**
+ * The endpoint of a browser subscription as it is registered (`JSON.stringify(subscription)`),
+ * or undefined when the token is not one.
+ */
+export function subscriptionEndpoint(token: string): string | undefined {
+  try {
+    const value = JSON.parse(token) as Partial<Subscription> | null;
+    return typeof value?.endpoint === 'string' ? value.endpoint : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** A fresh VAPID key pair (once per project; the private key is a secret). */
@@ -236,24 +297,34 @@ export class VapidSigner {
 }
 
 /**
- * A browser subscription as a sender can use it: an https endpoint, a 65-byte uncompressed P-256
- * key and a 16-byte auth secret. Anything else — not JSON, missing keys, a key of the wrong size,
- * an endpoint that is not https — is undefined.
+ * A browser subscription as a sender can use it: an endpoint on a push service
+ * (`isPushServiceEndpoint`), a 65-byte uncompressed P-256 key and a 16-byte auth secret. Anything
+ * else — not JSON, missing keys, a key of the wrong size, an endpoint that is not https or not a
+ * push service's — is undefined.
  */
 function parseSubscription(
-  token: string
+  token: string,
+  pushServices: readonly string[] | undefined
 ): { endpoint: string; p256dh: Bytes; auth: Bytes } | undefined {
   try {
     const value = JSON.parse(token) as Partial<Subscription>;
-    if (typeof value.endpoint !== 'string' || new URL(value.endpoint).protocol !== 'https:') {
-      return undefined;
-    }
+    if (typeof value.endpoint !== 'string') return undefined;
+    if (!isPushServiceEndpoint(value.endpoint, pushServices)) return undefined;
     const p256dh = fromBase64url(value.keys?.p256dh ?? '');
     const auth = fromBase64url(value.keys?.auth ?? '');
     if (p256dh.length !== 65 || p256dh[0] !== 4 || auth.length !== 16) return undefined;
     return { endpoint: value.endpoint, p256dh, auth };
   } catch {
     return undefined;
+  }
+}
+
+/** The endpoint's host for a log line — never the URL, whose path is the subscription's capability. */
+function hostOf(endpoint: string): string {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return 'not a URL';
   }
 }
 
@@ -267,8 +338,22 @@ export class WebPushSender implements MessageSender {
     if (message.recipient === undefined) {
       throw new Error(`WebPushSender: no subscription for user '${message.userId}'`);
     }
-    const subscription = parseSubscription(message.recipient);
+    const subscription = parseSubscription(message.recipient, this.options.pushServices);
     if (subscription === undefined) {
+      // An https endpoint off the push services' hosts is never fetched, and the copy settles
+      // undelivered — but the device is kept (the reason is not a dead token's): it may be a
+      // real push service this list does not know, and naming it in `webPush.pushServices`
+      // has to bring its devices back rather than find them deleted
+      const endpoint = subscriptionEndpoint(message.recipient);
+      if (
+        endpoint?.startsWith('https://') === true &&
+        !isPushServiceEndpoint(endpoint, this.options.pushServices)
+      ) {
+        console.warn(
+          `[webpush] subscription for user ${message.userId} not sent to: its endpoint is not a known push service's (${hostOf(endpoint)}); see webPush.pushServices`
+        );
+        return { delivered: false, reason: 'UnlistedPushService' };
+      }
       // Not a usable subscription: nothing will ever deliver to it, so do not retry into it
       return { delivered: false, reason: 'InvalidSubscription' };
     }

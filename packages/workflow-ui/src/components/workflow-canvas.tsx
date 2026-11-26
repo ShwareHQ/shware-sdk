@@ -303,7 +303,7 @@ const edgeLabelStyle: CSSProperties = {
   pointerEvents: 'none',
 };
 
-type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
+type WfEdge = Edge<{ anchor?: 'source' | 'target'; lane?: number }, 'wf'>;
 
 /* ----------------------------- Connector routing ---------------------------- */
 
@@ -311,6 +311,12 @@ type WfEdge = Edge<{ anchor?: 'source' | 'target' }, 'wf'>;
 const BEND = 16;
 /** How far a labelled fork runs straight down before it turns. */
 const FORK_STEM = 28;
+/**
+ * How far above its target a lane connector turns back. The layout keeps the arms' last card 72
+ * above the node they rejoin at, and that arm's own connector turns halfway down: the lane
+ * joins it on the same line.
+ */
+const LANE_REJOIN = 36;
 /** Where a label pill hangs below the deciding node. */
 const LABEL_DROP = 56;
 const DOT_R = 3.5;
@@ -368,6 +374,39 @@ function orthogonalPath(sx: number, sy: number, tx: number, ty: number, splitY: 
 }
 
 /**
+ * A pass-through arm's route when the straight way down is taken by another arm's cards (see
+ * `CanvasEdge.data.lane`): out to the arm's own empty column like any fork, down that column
+ * past the arms, and back in to the target.
+ */
+export function lanePath(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  lane: number,
+  splitY: number
+): string {
+  const rejoinY = Math.max(splitY, ty - LANE_REJOIN);
+  const out = Math.sign(lane - sx);
+  const back = Math.sign(tx - lane);
+  const drop = rejoinY - splitY;
+  const r1 = Math.max(0, Math.min(BEND, Math.abs(lane - sx) / 2, splitY - sy, drop / 2));
+  const r2 = Math.max(0, Math.min(BEND, Math.abs(tx - lane) / 2, drop / 2, ty - rejoinY));
+  return [
+    `M ${sx} ${sy}`,
+    `L ${sx} ${splitY - r1}`,
+    corner(sx, splitY - r1, sx, splitY, sx + out * r1, splitY),
+    `L ${lane - out * r1} ${splitY}`,
+    corner(lane - out * r1, splitY, lane, splitY, lane, splitY + r1),
+    `L ${lane} ${rejoinY - r2}`,
+    corner(lane, rejoinY - r2, lane, rejoinY, lane + back * r2, rejoinY),
+    `L ${tx - back * r2} ${rejoinY}`,
+    corner(tx - back * r2, rejoinY, tx, rejoinY, tx, rejoinY + r2),
+    `L ${tx} ${ty}`,
+  ].join(' ');
+}
+
+/**
  * Custom edge with an HTML label: SVG EdgeText's height floats with the font's
  * bounding box, and only HTML can be pinned to exact pixels.
  *
@@ -393,21 +432,23 @@ function WorkflowEdge({
    * descends through. A source anchor hangs directly under the deciding node,
    * where the path has already turned away at FORK_STEM, leaving the pill
    * stranded in open space; so for those the stem runs all the way down to the
-   * pill and turns behind it.
+   * pill and turns behind it. A pass-through arm sent down its own column (a
+   * lane) is in the first case: the pill hangs in that column, on the line.
    */
-  const anchoredAtSource = data?.anchor === 'source';
+  const lane = data?.lane;
+  const anchoredAtSource = data?.anchor === 'source' && lane === undefined;
   const splitY = label
     ? sourceY + (anchoredAtSource ? LABEL_DROP : FORK_STEM)
     : (sourceY + targetY) / 2;
-  const path = orthogonalPath(
-    sourceX,
-    sourceY - HANDLE_INSET,
-    targetX,
-    targetY + HANDLE_INSET,
-    splitY
-  );
+  const path =
+    lane === undefined
+      ? orthogonalPath(sourceX, sourceY - HANDLE_INSET, targetX, targetY + HANDLE_INSET, splitY)
+      : lanePath(sourceX, sourceY - HANDLE_INSET, targetX, targetY + HANDLE_INSET, lane, splitY);
   // The label hangs below the split line, pinned to its own arm's column
-  const labelPos = { x: anchoredAtSource ? sourceX : targetX, y: sourceY + LABEL_DROP };
+  const labelPos = {
+    x: lane ?? (anchoredAtSource ? sourceX : targetX),
+    y: sourceY + LABEL_DROP,
+  };
   return (
     <>
       <BaseEdge id={id} path={path} style={style} />

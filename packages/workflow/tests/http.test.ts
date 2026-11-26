@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { DEVICES_UPDATED_EVENT, profileUpdatedEvent } from '../src/engine/condition';
+import type { JourneyObserver, OutboundMessage } from '../src/engine/ports';
 import { bearerMatches } from '../src/host/auth';
 import { handleRequest } from '../src/host/http';
 import { deployBundle, forgetUser, ingestEvent } from '../src/host/ingest';
@@ -17,6 +18,7 @@ import {
   trigger,
   workflow,
 } from '../src/index';
+import { reportingObserver } from '../src/reporting/observer';
 import { type JourneyReporting, type JourneyStore, UserErasedError } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
 import { e, firstTimeRecovery, u } from './fixtures';
@@ -1161,5 +1163,144 @@ describe('a deploy that would break running journeys', () => {
       inFlight: [{ workflow: 'vip_nudge', running: 1 }],
     });
     expect(await rows('segment')).toBe(0);
+  });
+});
+
+describe("the host's own observer joins the store's", () => {
+  const copy: OutboundMessage = {
+    workflow: 'welcome',
+    instanceId: 'i1',
+    nodeId: 'n1',
+    channel: 'email',
+    template: 'bienvenue',
+    props: {},
+    userId: 'u1',
+    recipient: 'ada@example.com',
+    idempotencyKey: 'i1:n1',
+    topic: null,
+  };
+  const params = {
+    workflowId: 'welcome',
+    contentHash: '',
+    userId: 'u1',
+    trigger: { event: 'sign_up', payload: {} },
+  };
+  const observed = (own: (store: JourneyStore) => JourneyObserver) => {
+    const { env } = makeEnv({ ENVIRONMENT: 'development', WORKFLOW_ORIGIN: 'https://wf.test' });
+    const journeyHost = createJourneyHost({
+      config: hostConfig,
+      email: () => ({ send: async () => ({}) }),
+      store: () => database.store,
+      observer: (_env, store) => own(store),
+    });
+    return journeyHost.runParts(env, database.store, params).observer;
+  };
+
+  test('a reporting hook keeps the at-most-once claim, and hears the send after the settle', async () => {
+    const heard: string[] = [];
+    const observer = observed(() => ({
+      messagePrepared: async () => ({ data: { campaign: 'spring' } }),
+      messageSent: async (message) => {
+        // The store settled the copy before the host's hook ran
+        heard.push(`${message.idempotencyKey}:${await rows('message')}`);
+        throw new Error('the reporting backend is down');
+      },
+    }));
+    expect(await observer?.messageSettled?.(copy)).toBe(false);
+    const tracking = await observer?.messagePrepared?.(copy);
+    // The store's tracking, with the host's laid over it
+    expect(tracking?.pixel).toMatch(/^https:\/\/wf\.test\/t\/o\//);
+    expect(tracking?.data).toEqual({ campaign: 'spring' });
+    // The claim is the store's: one run gets it, a replay of the step does not
+    expect(await observer?.messageClaimed?.(copy)).toBe(true);
+    expect(await observer?.messageClaimed?.(copy)).toBe(false);
+    await expect(observer?.messageSent?.(copy, { delivered: true })).rejects.toThrow('is down');
+    expect(heard).toEqual(['i1:n1:1']);
+    expect(await observer?.messageSettled?.(copy)).toBe(true);
+  });
+
+  test('a released claim is free again for the retry', async () => {
+    const observer = observed(() => ({ finished: async () => {} }));
+    await observer?.messagePrepared?.(copy);
+    expect(await observer?.messageClaimed?.(copy)).toBe(true);
+    await observer?.messageReleased?.(copy);
+    expect(await observer?.messageClaimed?.(copy)).toBe(true);
+  });
+
+  test('an observer that decides delivery itself stands alone', async () => {
+    // `reportingObserver` wrapped by hand: composing it with the store's would claim twice
+    const observer = observed((store) => ({
+      ...reportingObserver(store.reporting, undefined),
+      finished: async () => {},
+    }));
+    const tracking = await observer?.messagePrepared?.(copy);
+    expect(tracking).toBeUndefined();
+    expect(await observer?.messageClaimed?.(copy)).toBe(true);
+    expect(await rows('message')).toBe(1);
+  });
+});
+
+describe('a web device is registered only on a push service', () => {
+  const subscription = (endpoint: string) =>
+    JSON.stringify({ endpoint, keys: { p256dh: 'p', auth: 'a' } });
+  const register = async (token: string, pushServices?: string[]) => {
+    const { env } = makeEnv({ ENVIRONMENT: 'development' });
+    const journeyHost = createJourneyHost({
+      config: defineConfig({
+        ...hostConfig,
+        webPush: {
+          subject: 'mailto:ops@acme.test',
+          ...(pushServices === undefined ? {} : { pushServices }),
+        },
+      }),
+      email: () => ({ send: async () => ({}) }),
+      store: () => database.store,
+    });
+    const body = JSON.stringify({ userId: 'u1', token, platform: 'web' });
+    const request = new Request('https://worker.test/devices', { method: 'POST', body });
+    return journeyHost.handle(request, env, database.store);
+  };
+
+  test("the browsers' push services are accepted", async () => {
+    for (const endpoint of [
+      'https://fcm.googleapis.com/fcm/send/abc',
+      'https://updates.push.services.mozilla.com/wpush/v2/abc',
+      'https://wns2-par02p.notify.windows.com/w/?token=abc',
+      'https://web.push.apple.com/abc',
+    ]) {
+      expect((await register(subscription(endpoint))).status).toBe(200);
+    }
+    expect(await rows('device')).toBe(4);
+  });
+
+  test('anything else is refused with a 400 and nothing is stored', async () => {
+    for (const endpoint of [
+      'https://localhost/x',
+      'https://127.0.0.1/x',
+      'https://[::1]/x',
+      'https://10.0.0.5/x',
+      'https://metadata.internal/x',
+      'https://push.example.com/x',
+      'http://fcm.googleapis.com/fcm/send/abc',
+      'https://fcm.googleapis.com:8443/fcm/send/abc',
+      'https://fcm.googleapis.com.evil.example/fcm/send/abc',
+      'https://evil.example/?fcm.googleapis.com',
+      'https://user:pass@fcm.googleapis.com/fcm/send/abc',
+    ]) {
+      const response = await register(subscription(endpoint));
+      expect([endpoint, response.status]).toEqual([endpoint, 400]);
+    }
+    expect((await register('not a subscription')).status).toBe(400);
+    expect(await rows('device')).toBe(0);
+  });
+
+  test('the config names further push services', async () => {
+    const own = subscription('https://push.example.com/x');
+    expect((await register(own, ['push.example.com'])).status).toBe(200);
+    expect(
+      (await register(subscription('https://a.push.example.org/x'), ['*.example.org'])).status
+    ).toBe(200);
+    // An iOS or Android token is not a URL: untouched
+    expect(await rows('device')).toBe(2);
   });
 });
