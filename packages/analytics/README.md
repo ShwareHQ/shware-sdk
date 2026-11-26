@@ -975,6 +975,119 @@ function addDays(date, days) {
 }
 ```
 
+### Microsoft Advertising, pushed by a script
+
+The same for Microsoft Advertising: a
+[Microsoft Advertising script](https://learn.microsoft.com/advertising/scripts/) (Tools → Bulk
+actions → Scripts) runs as the account's own user, so there is no developer token, Azure app or
+OAuth consent. The host turns the body into rows with `parseMicrosoftAdsScriptReport`.
+
+```ts
+import { MicrosoftAdsReportError, parseMicrosoftAdsScriptReport } from '@shware/analytics/ads';
+
+try {
+  await upsert(parseMicrosoftAdsScriptReport(await request.json()));
+} catch (error) {
+  if (error instanceof MicrosoftAdsReportError) return new Response(error.message, { status: 400 });
+  throw error;
+}
+```
+
+- **Days, spread over hours.** Microsoft's scripts have no report query (no `AdsApp.report`) and
+  no hour: the script reads each ad group's stats one day at a time, and each day is spread evenly
+  over the hours of the account's day. Whole-day sums are Microsoft's exactly; the hours inside a
+  day are an even split. `ad_id` is the ad group id.
+- **Whole days only.** The script stops at yesterday: a day still running would be spread over
+  hours that have not happened yet.
+- **Conversions** are click-through (view-through ones are a separate count), so they fill the
+  total and the click-through columns alike, `revenue` being their value.
+- **Restatement.** A conversion is credited to its click's day up to the conversion window (30
+  days by default) later; the script re-reads the last 30 whole days on every run. Schedule it
+  daily.
+- **History.** Set `SINCE`, run it once by hand, then clear it; it posts 14 days per request.
+- **What scripts lack.** `Utilities.formatDate` (the script formats the date with `Intl`, whose
+  output carries direction marks to strip), `Logger.log` placeholders (`%s` is printed as is), and
+  any search term report.
+
+```js
+const ENDPOINT = 'https://example.com/v1/adPerformance/microsoft';
+const KEY = '<my_bearer_token>'; // the bearer key the endpoint checks
+const DAYS = 30; // whole days re-read every run: conversions restate within the 30-day window
+const CHUNK_DAYS = 14; // days per request
+const SINCE = ''; // a backfill's first day, 'YYYY-MM-DD'; empty for the schedule
+
+function main() {
+  const account = AdsApp.currentAccount();
+  const timeZone = account.getTimeZone();
+  // No Utilities.formatDate here; en-CA formats as YYYY-MM-DD, with direction marks to strip.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone })
+    .format(new Date())
+    .replace(/[^\d-]/g, '');
+  // Whole days only: a day still running would be spread over hours that have not happened.
+  const yesterday = addDays(today, -1);
+  const since = SINCE || addDays(today, -DAYS);
+
+  for (let from = since; from <= yesterday; from = addDays(from, CHUNK_DAYS)) {
+    const last = addDays(from, CHUNK_DAYS - 1);
+    const until = last < yesterday ? last : yesterday;
+    const rows = [];
+    for (let date = from; date <= until; date = addDays(date, 1)) rows.push(...read(date));
+    post({
+      account_id: account.getAccountId(),
+      currency: account.getCurrencyCode(),
+      time_zone: timeZone,
+      rows,
+    });
+    Logger.log(`${from} → ${until}: ${rows.length} rows`);
+  }
+}
+
+/** Every ad group's stats on one day; scripts have no report query and no hours. */
+function read(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  const range = { year, month, day };
+  const rows = [];
+  const groups = AdsApp.adGroups().forDateRange(range, range).get();
+  while (groups.hasNext()) {
+    const group = groups.next();
+    const stats = group.getStats();
+    if (stats.getImpressions() === 0 && stats.getCost() === 0) continue;
+    const campaign = group.getCampaign();
+    rows.push({
+      campaign_id: String(campaign.getId()),
+      campaign_name: campaign.getName(),
+      ad_group_id: String(group.getId()),
+      ad_group_name: group.getName(),
+      date,
+      spend: stats.getCost(),
+      impressions: stats.getImpressions(),
+      clicks: stats.getClicks(),
+      conversions: stats.getConversions(),
+      revenue: stats.getRevenue(),
+    });
+  }
+  return rows;
+}
+
+function post(report) {
+  const response = UrlFetchApp.fetch(ENDPOINT, {
+    method: 'POST',
+    contentType: 'application/json',
+    headers: { Authorization: `Bearer ${KEY}` },
+    payload: JSON.stringify(report),
+    muteHttpExceptions: true,
+  });
+  const code = response.getResponseCode();
+  if (code < 200 || code >= 300) throw new Error(`${code}: ${response.getContentText()}`);
+}
+
+function addDays(date, days) {
+  const moved = new Date(`${date}T00:00:00Z`);
+  moved.setUTCDate(moved.getUTCDate() + days);
+  return moved.toISOString().slice(0, 10);
+}
+```
+
 ## UTM params
 
 Typed as `UTMParams` (exported from `@shware/analytics`). Value unions follow the
