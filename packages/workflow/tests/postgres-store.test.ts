@@ -711,6 +711,37 @@ describe('erasure', () => {
     await store.addSegmentMember('s', 'u1', 2, ['w']);
     expect(await store.isSegmentMember('s', 'u1')).toBe(true);
   });
+
+  test('entering a segment the user is already in owes no start', async () => {
+    // Two evaluations both read "not a member"; the first entered, started and crossed its
+    const { store } = setup();
+    // start off before the second wrote. The second is no new qualification
+    await store.addSegmentMember('s', 'u1', 1000, ['w']);
+    expect(await store.pendingSegmentStarts('s', 'u1')).toEqual([{ workflow: 'w', since: 1000 }]);
+    await store.completeSegmentStart('s', 'u1', 'w');
+
+    await store.addSegmentMember('s', 'u1', 2000, ['w']);
+
+    expect(await store.pendingSegmentStarts('s', 'u1')).toEqual([]);
+  });
+
+  test('a stored event reads back as it was written', async () => {
+    const { store } = setup();
+    await store.insertEvent({
+      id: 'e1',
+      userId: 'u1',
+      event: 'login',
+      ts: 1234,
+      payload: { a: 1 },
+    });
+    expect(await store.storedEvent('u1', 'e1')).toEqual({
+      event: 'login',
+      ts: 1234,
+      payload: { a: 1 },
+    });
+    expect(await store.storedEvent('u1', 'nope')).toBeUndefined();
+    expect(await store.storedEvent('u2', 'e1')).toBeUndefined();
+  });
 });
 
 describe('admitInstance', () => {

@@ -213,10 +213,14 @@ function retryDelay(attempts: number): number {
 }
 
 /**
- * Consume delivered batches one at a time. A batch that can never succeed is acknowledged, not
- * retried: one the contract refuses (logged with the field paths, never the payload) and one for
- * an erased user. Anything else is retried with a backoff until the queue's `max_retries` hands
- * it to its dead letter queue.
+ * Consume delivered batches one at a time. A batch for an erased user can never succeed and is
+ * acknowledged. Anything else that fails is retried with a backoff until the queue's
+ * `max_retries` hands it to its dead letter queue — a batch the contract refuses included
+ * (logged with the field paths, never the payload). The contract is this host's version of it:
+ * a producer deployed first with a new event or field sends batches the host refuses until it
+ * is deployed too, and acknowledging them would drop every one, profile and valid events along,
+ * with nothing left to replay. Retried, they pass once the host catches up; past that, the dead
+ * letter queue keeps them.
  */
 export async function consumeBatches(
   env: JourneyEnv,
@@ -231,7 +235,7 @@ export async function consumeBatches(
       console.error(
         `[workflow queue] batch ${message.id} refused: ${parsed.error}${issues ? ` (${issues})` : ''}`
       );
-      message.ack();
+      message.retry({ delaySeconds: retryDelay(message.attempts) });
       continue;
     }
     try {

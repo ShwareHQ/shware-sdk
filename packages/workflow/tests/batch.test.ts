@@ -189,7 +189,7 @@ describe('journeyWorker queue', () => {
     expect(failed.retry).toHaveBeenCalledWith({ delaySeconds: 900 });
   });
 
-  test('a batch the contract refuses is acknowledged, logged without its payload', async () => {
+  test('a batch the contract refuses is retried towards the dead letter queue, logged without its payload', async () => {
     const { worker, env } = await setup();
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const refused = message({
@@ -200,8 +200,10 @@ describe('journeyWorker queue', () => {
 
     await worker.queue({ messages: [refused] }, env);
 
-    expect(refused.ack).toHaveBeenCalledTimes(1);
-    expect(refused.retry).not.toHaveBeenCalled();
+    // Not acknowledged: the contract is this host's version, and a producer deployed ahead of
+    // it would lose every batch. Retried, it passes once the host catches up
+    expect(refused.ack).not.toHaveBeenCalled();
+    expect(refused.retry).toHaveBeenCalledWith({ delaySeconds: 30 });
     expect(String(error.mock.calls[0]?.[0])).not.toContain('secret-value');
   });
 

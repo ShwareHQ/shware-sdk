@@ -496,6 +496,15 @@ export interface JourneyStore {
    */
   insertEvent(input: EventInput): Promise<boolean>;
   /**
+   * The occurrence as the log holds it: its name, when it happened and its payload. Undefined
+   * when the user has no event under that id. A redelivery reads it to act on what was stored
+   * the first time, not on what this delivery happens to carry.
+   */
+  storedEvent(
+    userId: string,
+    id: string
+  ): Promise<{ event: string; ts: number; payload: Record<string, unknown> } | undefined>;
+  /**
    * Occurrences of `event` for the user, optionally only those within the window. With
    * `atLeast`, counting may stop there: the result is exact below it and some number ≥ it
    * otherwise — all a `performed(…, { count })` check needs, without counting a heavy user's

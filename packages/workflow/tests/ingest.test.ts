@@ -468,6 +468,25 @@ describe('a start lost between the entry and the create', () => {
     expect(journey.created.map((created) => created.id)).toEqual([instanceId]);
   });
 
+  test('a retry that repeats the id but not the ts finishes the start too', async () => {
+    // send_event, and a client that stamps `now` on each attempt: the id is the occurrence, and
+    // the retry acts on the event as it was stored — same instance id, same trigger
+    const { env, store, journey, instanceId } = await strand();
+
+    const retry = await ingestEvent(
+      env,
+      { id: event.id, userId: event.userId, event: event.event, payload: { late: true } },
+      store
+    );
+
+    expect(retry).toMatchObject({ stored: false, started: [instanceId] });
+    expect(journey.created).toHaveLength(1);
+    expect(journey.created[0]).toMatchObject({
+      id: instanceId,
+      params: { trigger: { event: 'begin_checkout', payload: {}, ts: event.ts } },
+    });
+  });
+
   test('a create the platform refuses as a duplicate counts as done, not as a failure to roll back', async () => {
     const { env, store, journey, instanceId } = await strand();
     // A concurrent retry created it a moment ago; this attempt's own create is then refused
@@ -540,7 +559,8 @@ describe('a start lost between the entry and the create', () => {
   /*
    * An instance id is the platform's identity for good: one that ended stays known to `get`, and
    * refuses a second create. That is a corpse, not the instance a retry wanted, and taking it for
-   * one would leave a running entry that nothing ever admits or fails.
+   * one would leave a running entry that nothing ever admits or fails. Nor is it an error to
+   * raise: no retry can ever create that id, so the redelivery is answered and goes on.
    */
   test('the same event redelivered over a dead instance does not take the corpse for its start', async () => {
     const { env, store, journey } = setup();
@@ -554,7 +574,12 @@ describe('a start lost between the entry and the create', () => {
     journey.ended.set(instanceId, 'errored');
     await store.setEntryStatus(instanceId, 'failed');
 
-    await expect(ingestEvent(env, event, store)).rejects.toThrow('already exists');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const again = await ingestEvent(env, event, store);
+    expect(again).toMatchObject({ stored: false, started: [] });
+    expect(journey.created).toHaveLength(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('already ended');
+    warn.mockRestore();
 
     // Still a failure on the ledger: the next, different event enters beside it
     expect((await entries())[0]).toMatchObject({ instance_id: instanceId, status: 'failed' });
@@ -742,6 +767,44 @@ describe('an instance that ended on the platform without finalizing its entry', 
 });
 
 describe('segment-entry triggers', () => {
+  test("an old event delivered late is judged on today's clock, not its own", async () => {
+    const { env, store } = setup();
+    const recentBuyer = workflow({
+      id: 'recent_buyer',
+      reentry: { mode: 'never' },
+      trigger: trigger.segment(purchaser),
+    }).email(firstTimeRecovery);
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [recentBuyer], segments: allSegments }),
+      store
+    );
+    const DAY = 24 * 60 * 60 * 1000;
+
+    // A purchase from 40 days ago arrives now (an offline buffer, a backfill). On its own clock
+    // it is "within 30 days"; today it is not, and the user is no recent buyer
+    const late = await ingestEvent(
+      env,
+      { userId: 'u9', event: 'purchase', ts: Date.now() - 40 * DAY },
+      store
+    );
+    expect(late.started).toEqual([]);
+    expect(await store.isSegmentMember('purchaser', 'u9')).toBe(false);
+
+    // One from yesterday does enter, and the membership begins now, not at the event's time
+    const before = Date.now();
+    const recent = await ingestEvent(
+      env,
+      { userId: 'u9', event: 'purchase', ts: Date.now() - DAY },
+      store
+    );
+    expect(recent.started).toHaveLength(1);
+    const [row] = await database.client.query<{ occurrence: string }>(
+      "SELECT occurrence FROM workflow.entry WHERE workflow = 'recent_buyer'"
+    );
+    expect(Number(row.occurrence.split(':').at(-1))).toBeGreaterThanOrEqual(before);
+  });
+
   test('fires on the not-matching → matching transition and tracks leave', async () => {
     const { env, store } = setup();
     await deployBundle(env, bundle(), store);

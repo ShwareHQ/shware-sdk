@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { deployBundle, ingestEvent } from '../src/host/ingest';
 import {
   type Reentry,
@@ -235,6 +235,13 @@ describe('the store decides on the per-entry ledger', () => {
 /* ---------------------------------- ingest ---------------------------------- */
 
 describe('ingest under the policy', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const setup = (reentry: Reentry) => {
     const { env, journey } = makeEnv();
     const flow = workflow({ id: 'recurring', trigger: trigger.event(e.begin_checkout), reentry })
@@ -296,8 +303,11 @@ describe('ingest under the policy', () => {
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [winback], segments: allSegments }), store);
     const t0 = Date.UTC(2026, 0, 1);
-    const activity = (id: string, event: string, ts: number) =>
-      ingestEvent(env, { userId: 'u1', event, id, ts }, store);
+    const activity = (id: string, event: string, ts: number) => {
+      // Membership is judged on the host's clock: each event arrives when it happened
+      vi.setSystemTime(ts);
+      return ingestEvent(env, { userId: 'u1', event, id, ts }, store);
+    };
 
     // Qualifies (no login in 30 days) and enters
     const entered = await activity('a', 'begin_checkout', t0);
@@ -327,8 +337,11 @@ describe('ingest under the policy', () => {
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [once], segments: allSegments }), store);
     const t0 = Date.UTC(2026, 0, 1);
-    const activity = (id: string, event: string, ts: number) =>
-      ingestEvent(env, { userId: 'u1', event, id, ts }, store);
+    const activity = (id: string, event: string, ts: number) => {
+      // Membership is judged on the host's clock: each event arrives when it happened
+      vi.setSystemTime(ts);
+      return ingestEvent(env, { userId: 'u1', event, id, ts }, store);
+    };
     expect((await activity('a', 'begin_checkout', t0)).started).toHaveLength(1);
     await activity('b', 'login', t0 + DAY);
     // Re-qualifies while the first instance still runs: refused under after_exit

@@ -961,8 +961,11 @@ declare the queue with a dead letter queue:
 ```
 
 The consumer retries a failed batch with a backoff from 30 seconds up to 15
-minutes. It acknowledges a batch the contract refuses, logging its field paths,
-and one for an erased user: neither can ever succeed. Delivery is at least once
+minutes. A batch the contract refuses is retried the same way, logging its field
+paths: the contract is the host's version of it, so a producer deployed ahead of
+the host passes once the host catches up, and what never does ends in the dead
+letter queue rather than dropped. Only a batch for an erased user is acknowledged
+unapplied. Delivery is at least once
 and in no guaranteed order. Batches can arrive out of order, but event ids absorb
 repeats and each profile property keeps its latest `at`, so send what must stay
 in order as one batch.
@@ -1718,7 +1721,7 @@ same occurrence reclaims its row.
 
 The entry commits before the platform creates the instance, so a host cut off
 between the two leaves an entry with nothing behind it. Two things repair it: a
-retry of the same event (same `id` and `ts`) creates the missing instance — the
+retry of the same event (same `id`) creates the missing instance — the
 instance id is the platform's identity too, so a second create is harmless — and
 the sweep's maintenance marks an entry left unadmitted for 15 minutes, whose
 instance the runtime does not know or reports ended, as failed, so the user's
