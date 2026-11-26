@@ -1,8 +1,9 @@
 import { type ComponentType, type ReactElement, createElement } from 'react';
 import { renderToReadableStream } from 'react-dom/server';
-import { type EmailConfig, resolveEmail } from './email';
+import { resolveEmail } from './email';
 import { EmailProvider } from './email-context';
 import type { EmailRenderer } from './email-sender';
+import type { EmailConfig } from './template-rules';
 import {
   type EmailTemplate,
   indexTemplates,

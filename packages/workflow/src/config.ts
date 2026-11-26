@@ -3,9 +3,9 @@ import type * as core from 'zod/v4/core';
 import type { Contract, Topic } from './contract';
 import { type ActionRef, type SegmentRef, type WorkflowBuilder, compileBundle } from './dsl';
 import { templateUses } from './dsl/flow';
-import { type EmailConfig, assertEmailConfig, assertTemplateTopic } from './email';
 import type { BundleIR, ChannelIR, NodeIR, WorkflowIR } from './ir';
 import type { JourneyMode, JourneyRuntimeConfig } from './runtime';
+import { type EmailConfig, assertEmailConfig, assertTemplateTopic } from './template-rules';
 import {
   type AnyTemplate,
   CHANNEL_OF,

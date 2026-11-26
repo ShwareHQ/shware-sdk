@@ -6,5 +6,6 @@ export * from './inflight';
 export * from './runtime';
 export * from './config';
 export * from './email';
+export * from './template-rules';
 export * from './templates';
 export * from './contract';

@@ -1,12 +1,7 @@
-import {
-  type EmailAddress,
-  type EmailRenderOptions,
-  type ResolvedEmail,
-  isEmailAddress,
-  isUnsubscribeLink,
-} from './email';
+import type { EmailRenderOptions, ResolvedEmail } from './email';
 import type { MessageSender, MessageTracking, OutboundMessage, SendResult } from './engine/ports';
 import type { ScalarIR } from './ir';
+import { type EmailAddress, isEmailAddress, isUnsubscribeLink } from './template-rules';
 
 /**
  * The email channel, split where the runtime stops mattering: `EmailSender` renders a copy,

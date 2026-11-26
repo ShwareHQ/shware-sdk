@@ -33,7 +33,6 @@ import {
   DEAD_TOKEN_REASONS as WEB_PUSH_DEAD_TOKEN_REASONS,
   WebPushSender,
 } from '../webpush';
-import { removeDevice } from './ingest';
 import type { JourneyEnv } from './platform';
 import { routeByChannel, routeByPlatform } from './senders';
 
@@ -192,7 +191,15 @@ export function channelsFromConfig(
   config: ChannelsConfig,
   env: JourneyEnv,
   options: {
-    /** The store a token APNs / FCM / a push service reports as gone is removed from. */
+    /**
+     * What to do with a token APNs / FCM / a push service reports as gone. The host forgets the
+     * device and wakes the waits that read devices (`removeDevice`); sending knows neither.
+     */
+    onDeadToken?: ((token: string) => Promise<unknown>) | undefined;
+    /**
+     * Without `onDeadToken`: the store a dead token is removed from. The token is forgotten, but
+     * the waits that read devices are not woken — pass `onDeadToken` for that.
+     */
     store?: JourneyStore | undefined;
     /** Where finished emails go — the host's choice, independent of where the workflow runs. */
     email?: EmailTransport | undefined;
@@ -225,11 +232,14 @@ export function channelsFromConfig(
     if (registry === undefined) return unavailable('no push templates are registered');
     const render = registryPushRenderer(registry);
     /**
-     * A token the provider reports as gone is forgotten (nothing left to deliver to), waking the
-     * waits that read devices, as a removal through the API does. Done here, per run, on the
-     * settled result, so the credential cached across runs (see `ProviderCache`) never holds a
-     * run's store.
+     * A token the provider reports as gone is handed to the host (nothing left to deliver to).
+     * Done here, per run, on the settled result, so the credential cached across runs (see
+     * `ProviderCache`) never holds a run's store.
      */
+    const { store } = options;
+    const onDeadToken =
+      options.onDeadToken ??
+      (store === undefined ? undefined : (token: string) => store.removeDevice(token));
     const dropDeadTokens = (
       provider: MessageSender,
       deadTokenReasons: ReadonlySet<string>
@@ -239,10 +249,9 @@ export function channelsFromConfig(
         if (
           result !== undefined &&
           deadTokenReasons.has(result.reason) &&
-          message.device !== undefined &&
-          options.store !== undefined
+          message.device !== undefined
         ) {
-          await removeDevice(env, message.device.token, options.store);
+          await onDeadToken?.(message.device.token);
         }
         return result;
       },

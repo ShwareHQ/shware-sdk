@@ -1,13 +1,37 @@
-import type { EmailBindingLike } from '../cloudflare/bindings';
 import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
 import { isRetryableStatus } from '../engine/retry';
+import type { EmailAddress } from '../template-rules';
 
 /**
  * `@shware/workflow/transports/cloudflare-email` — Cloudflare Email Service, through the
  * Worker's `send_email` binding or, from anywhere else (a Lambda), its REST API. Both take the
  * same finished email; only the call and the way each reports a failure differ.
  */
+
+/**
+ * Cloudflare Email Service's send_email binding (structural subset).
+ *
+ * `idempotencyKey` is part of the call for the host's own use (a log line, a header, a
+ * fallback transport that can take one): Cloudflare's `send_email` binding itself accepts no
+ * idempotency key or client message id and does not de-duplicate — `send()` takes only the
+ * addresses, subject, body, headers and attachments, and returns a server-generated messageId.
+ * A repeat is prevented upstream: the engine claims a copy before the send and does not send a
+ * claimed copy again (see `OutboundMessage.redelivery`).
+ */
+export interface EmailBindingLike {
+  send(message: {
+    from: EmailAddress;
+    to: EmailAddress;
+    replyTo?: EmailAddress;
+    subject: string;
+    html: string;
+    /** List-Unsubscribe and List-Unsubscribe-Post, when the email has an unsubscribe link. */
+    headers?: Readonly<Record<string, string>>;
+    /** `${instanceId}:${nodeId}`: stable across replays and retries. Cloudflare ignores it; carried for the host's logs or a transport that can use it. */
+    idempotencyKey: string;
+  }): Promise<unknown>;
+}
 
 export type CloudflareEmailTransportOptions =
   | {
