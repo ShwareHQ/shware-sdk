@@ -1,4 +1,3 @@
-import type { EmailAddress } from '../email';
 import { InstanceNotFoundError, type WorkflowBindingLike } from '../host/platform';
 
 /**
@@ -10,29 +9,8 @@ import { InstanceNotFoundError, type WorkflowBindingLike } from '../host/platfor
  * and the real bindings satisfy it structurally at runtime.
  */
 
-/**
- * Cloudflare Email Service's send_email binding (structural subset).
- *
- * `idempotencyKey` is part of the call for the host's own use (a log line, a header, a
- * fallback transport that can take one): Cloudflare's `send_email` binding itself accepts no
- * idempotency key or client message id and does not de-duplicate — `send()` takes only the
- * addresses, subject, body, headers and attachments, and returns a server-generated messageId.
- * A repeat is prevented upstream: the engine claims a copy before the send and does not send a
- * claimed copy again (see `OutboundMessage.redelivery`).
- */
-export interface EmailBindingLike {
-  send(message: {
-    from: EmailAddress;
-    to: EmailAddress;
-    replyTo?: EmailAddress;
-    subject: string;
-    html: string;
-    /** List-Unsubscribe and List-Unsubscribe-Post, when the email has an unsubscribe link. */
-    headers?: Readonly<Record<string, string>>;
-    /** `${instanceId}:${nodeId}`: stable across replays and retries. Cloudflare ignores it; carried for the host's logs or a transport that can use it. */
-    idempotencyKey: string;
-  }): Promise<unknown>;
-}
+// The send_email binding's shape lives with the transport that calls it; re-exported for callers
+export type { EmailBindingLike } from '../transports/cloudflare-email';
 
 /** Cloudflare's Workflow binding, as far as the host uses it. */
 export type CfWorkflowBinding = Pick<WorkflowBindingLike, 'create' | 'get'>;

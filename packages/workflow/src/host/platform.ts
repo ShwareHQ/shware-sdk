@@ -1,5 +1,5 @@
-import type { EmailBindingLike } from '../cloudflare/bindings';
 import type { ExecutionStart } from '../store/index';
+import type { EmailBindingLike } from '../transports/cloudflare-email';
 
 /**
  * The runtime port: what the host needs from the platform it runs on, whichever one that is.

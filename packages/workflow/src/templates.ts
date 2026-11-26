@@ -3,8 +3,8 @@ import type { RESTPostAPIWebhookWithTokenJSONBody } from 'discord-api-types/v10'
 import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
 import type { Contract, Topic } from './contract';
-import { type EmailAddress, assertEmailMetadata, assertTemplateTopic } from './email';
 import type { ScalarIR } from './ir';
+import { type EmailAddress, assertEmailMetadata, assertTemplateTopic } from './template-rules';
 
 /**
  * Template definitions — `emailTemplate`, `pushTemplate`, `discordTemplate` and `slackTemplate`. One

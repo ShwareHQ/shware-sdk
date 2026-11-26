@@ -2,7 +2,6 @@ import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
 import { type JourneyConfig, compileConfig } from '../config';
 import { type Contract, ContractValidationError, checkEvent } from '../contract';
-import { assertEmailConfig } from '../email';
 import type { EmailTransport } from '../email-sender';
 import { RegistryActionInvoker } from '../engine/actions';
 import { profileUpdatedEvent } from '../engine/condition';
@@ -16,6 +15,7 @@ import type { TrackingOptions } from '../reporting/tracking';
 import type { JourneyRuntimeOptions } from '../runtime';
 import type { BundleVersion, JourneyStore, StoreLease } from '../store/index';
 import { DEFAULT_SCHEMA } from '../store/tables';
+import { assertEmailConfig } from '../template-rules';
 import { indexTemplates, registryValidator } from '../templates';
 import type { Authorize } from './auth';
 import { type QueueMessageLike, consumeBatches } from './batch';
@@ -27,6 +27,7 @@ import {
   type SweepResult,
   deployBundle,
   ingestEvent,
+  removeDevice,
   sweepSegments,
   wakeSubscribers,
 } from './ingest';
@@ -224,7 +225,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
   const messages = (env: Env, store: JourneyStore): MessageSender => {
     if (options.messages !== undefined) return options.messages(env, store);
     return channelsFromConfig(config, env, {
-      store,
+      onDeadToken: (token) => removeDevice(env, token, store),
       email: options.email?.(env),
       apnsFetch: platform.apnsFetch,
       providers,

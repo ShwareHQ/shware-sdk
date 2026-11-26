@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { isUnsubscribeLink } from '../src/email';
 import type { OutboundMessage } from '../src/engine/ports';
 import { forgetUser, sweepSegments } from '../src/host/ingest';
 import { InstanceNotFoundError, type JourneyEnv } from '../src/host/platform';
@@ -8,6 +7,7 @@ import { reportingObserver } from '../src/reporting/observer';
 import { handleTracking, recordPushOpen } from '../src/reporting/tracking';
 import { type Engagement, UserErasedError } from '../src/store/index';
 import { PostgresJourneyStore, type SqlClientLike } from '../src/store/postgres';
+import { isUnsubscribeLink } from '../src/template-rules';
 import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 
 /**

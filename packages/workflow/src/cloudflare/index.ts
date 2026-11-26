@@ -41,7 +41,7 @@ export {
   routeByChannel,
   routeByPlatform,
 } from '../host/senders';
-export type { EmailAddress } from '../email';
+export type { EmailAddress } from '../template-rules';
 export { EmailSender, trackEmail } from '../email-sender';
 export type {
   EmailMessage,
