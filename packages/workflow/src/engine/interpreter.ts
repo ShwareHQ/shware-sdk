@@ -323,10 +323,33 @@ function validate(
     return ctx.validator.validate({ channel: node.channel, template: node.template, props });
   } catch (error) {
     if (error instanceof Error) {
-      error.message = `[${ctx.instanceId} ${node.id}] ${error.message}`;
+      error.message = `[${ctx.instanceId} ${node.id}] ${error.message}${missingRefs(node, props)}`;
     }
     throw error;
   }
+}
+
+/**
+ * What a refused message most often lacks: a prop written as a reference (`{ name: u.name }`)
+ * that this user has no value for. A profile field the contract declares as required is still
+ * absent until someone writes it — the contract checks what is written, not that it was — so
+ * the refusal says which field, and the author knows whether to write the data or to declare
+ * the field (and the template's prop) optional.
+ */
+function missingRefs(
+  node: Extract<NodeIR, { type: 'message' }>,
+  props: Record<string, ScalarIR | undefined>
+): string {
+  const missing: string[] = [];
+  for (const [key, value] of Object.entries(node.props)) {
+    if (typeof value !== 'object' || props[key] !== undefined) continue;
+    const source =
+      value.type === 'trigger_payload'
+        ? `trigger payload field '${value.path}'`
+        : `profile field '${value.path}'`;
+    missing.push(`props.${key} reads ${source}, which this user has no value for`);
+  }
+  return missing.length > 0 ? ` (${missing.join('; ')})` : '';
 }
 
 /**

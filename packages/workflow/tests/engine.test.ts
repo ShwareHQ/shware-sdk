@@ -1648,6 +1648,10 @@ describe('template validation before sending', () => {
     const error = await runJourney(ir, ctx).catch((e: unknown) => e);
     expect(error).toMatchObject({ name: 'TemplateValidationError' });
     expect((error as Error).message).toMatch(/^\[inst_1 0\] push template 'ping'/);
+    // And which reference came back empty: the user has no email
+    expect((error as Error).message).toContain(
+      "(props.name reads profile field 'email', which this user has no value for)"
+    );
     expect(sent).toEqual([]);
   });
 
