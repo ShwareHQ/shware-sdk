@@ -384,6 +384,7 @@ describe('web push', () => {
     const error = await sender.send(message(subscription)).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(PermanentError);
     expect(String(error)).toMatch(/at most 3993/);
+    expect(error).toMatchObject({ reason: 'PayloadTooLarge' });
     expect(fetched).toBe(0);
   });
 
@@ -430,6 +431,7 @@ describe('web push', () => {
         settled: result.value,
         dead: result.value === undefined ? undefined : DEAD_TOKEN_REASONS.has(result.value.reason),
         retryable: error === undefined ? undefined : isRetryable(error),
+        reason: error instanceof PermanentError ? error.reason : undefined,
         namesStatus: error instanceof Error ? error.message.includes(String(status)) : undefined,
       };
     };
@@ -440,6 +442,12 @@ describe('web push', () => {
         settled: dead ? { delivered: false, reason } : undefined,
         dead: dead ? true : undefined,
         retryable: dead ? undefined : outcome === 'retryable',
+        reason:
+          outcome === 'PermanentError'
+            ? status === 413
+              ? 'PayloadTooLarge'
+              : `http_${status}`
+            : undefined,
         namesStatus: dead ? undefined : true,
       });
     });

@@ -806,10 +806,12 @@ with its secret in the environment:
 
 A secret is only read when something is sent on that platform. Only a token
 the provider reports as gone is removed (and waits on `reachable('push')` wake
-on every device change); a configuration error keeps the device and fails the
-step without retrying, and a transient answer is retried:
+on every device change); a refusal for good keeps the device and settles the
+copy undelivered under its reason, without a retry and without failing the
+journey (see [Delivery guarantee](#delivery-guarantee)), and a transient answer
+is retried:
 
-| Provider | Token removed, copy settled                     | Settled, device kept                          | Failed, no retry (`PermanentError`)                                                                                   | Retried                                                                 |
+| Provider | Token removed, copy settled                     | Settled, device kept                          | Refused: settled, no retry, device kept                                                                               | Retried                                                                 |
 | -------- | ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | APNs     | 410; `Unregistered`, `ExpiredToken`             | `BadDeviceToken` (a token or the environment) | `DeviceTokenNotForTopic`, `TopicDisallowed`, `BadTopic`, `MissingTopic`, bad certificate or provider token, other 4xx | 403 `ExpiredProviderToken` (re-signed), 429, 5xx                        |
 | FCM      | `UNREGISTERED`; 404 `NOT_FOUND`                 | `INVALID_ARGUMENT`                            | `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR`, other 4xx                                                             | 401 (access token re-minted), `QUOTA_EXCEEDED`, `UNAVAILABLE`, 429, 5xx |
@@ -890,10 +892,11 @@ before the send), the transport takes it, and the result is settled
 (`delivered_at` or `undelivered_reason`). On a replay of the step:
 
 - a settled copy is skipped;
-- a copy the transport refused for sure had its claim released, so the retry
-  sends it, as before. That is a provider answering with a refusal (a 4xx, a 429,
-  a 5xx), or a sender that never got as far as asking: a render that threw,
-  credentials that could not be had;
+- a copy that failed in a way another attempt can fix had its claim released, so
+  the retry sends it. That is a provider answering 429 or 5xx, or a sender that
+  never got as far as asking: a token that expired, an exchange that timed out;
+- a copy **refused for good** is settled undelivered under the refusal's reason,
+  and the journey goes on (see below);
 - a copy that is **claimed but not settled** is treated as possibly delivered and
   is **not sent again**. The run that claimed it died between the transport taking
   the copy and the report (or the step's checkpoint) committing, so no one knows
@@ -912,6 +915,24 @@ treated the same way, and that copy is lost. APNs and Web Push are retried as
 before, because a repeat collapses on the device, and so is a
 `WebhookMessageSender`, whose receiver de-duplicates on the idempotency key. A
 2xx whose body cannot be read is a delivery: the status is the answer.
+
+**A refusal ends the copy, not the journey.** When no attempt would go
+differently — a `PermanentError`, or a transport error with `retryable: false`:
+the provider refused this token, this address or this payload, or the channel is
+not configured — the copy is settled undelivered under the refusal's reason, an
+error is logged with the provider's answer, and the journey goes on to the user's
+other devices and to the next step. The reason is the provider's own code where
+it gave one (`DeviceTokenNotForTopic`, `SENDER_ID_MISMATCH`, `PayloadTooLarge`,
+SES's `MessageRejected`), `http_<status>` for a bare status, `bad_credentials`
+or `not_configured` for a secret that is malformed or missing, and `refused`
+for an error that names none. One device registered under another project or
+one rejected address therefore costs that copy only. So does a deployment-wide
+mistake (a wrong APNs key, a revoked service account): the journeys keep
+running, the later steps still send once it is fixed, and what it cost is the
+count of that reason in the delivery report — watch it, because no instance
+fails for it. A transport of your own names the reason with a `reason` string
+on the error it throws. A message refused before the send — a template refusing
+its props — still fails the step: that is the workflow, not the recipient.
 
 `no_answer` and `unconfirmed` are `undelivered_reason`s like any other, so the
 copies at-most-once cost are in the delivery report and can be counted. A

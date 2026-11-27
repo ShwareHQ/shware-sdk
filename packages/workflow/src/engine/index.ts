@@ -36,4 +36,5 @@ export {
   isRetryable,
   isRetryableStatus,
   isUnanswered,
+  refusalReason,
 } from './retry';

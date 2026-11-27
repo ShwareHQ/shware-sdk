@@ -288,7 +288,12 @@ describe('sesEmailTransport', () => {
     });
     const error = await transport.send(email).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SesSendError);
-    expect(error).toMatchObject({ status: 400, type: 'MessageRejected', retryable: false });
+    expect(error).toMatchObject({
+      status: 400,
+      type: 'MessageRejected',
+      retryable: false,
+      reason: 'MessageRejected',
+    });
   });
 
   test('throttling is retried whatever the status line says; a refusal is not', async () => {
@@ -309,6 +314,12 @@ describe('sesEmailTransport', () => {
     }
     expect(new SesSendError(500, undefined, 'm').retryable).toBe(true);
     expect(new SesSendError(400, undefined, 'm').retryable).toBe(false);
+    // What a refused email settles under: SES's code, else the status
+    expect(new SesSendError(400, undefined, 'm').reason).toBe('http_400');
+    expect(new CloudflareEmailError(403, [{ code: 10000, message: 'no' }]).reason).toBe(
+      'cloudflare_10000'
+    );
+    expect(new CloudflareEmailError(400, []).reason).toBe('http_400');
   });
 
   test("the error type is read from the header, or from the body's __type without it", async () => {

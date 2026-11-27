@@ -386,7 +386,8 @@ export class WebPushSender implements MessageSender {
     if (payload.length > MAX_PLAINTEXT_BYTES) {
       // The same template renders the same size on every attempt: settle it before encrypting
       throw new PermanentError(
-        `[webpush] payload for template '${message.template}' is ${payload.length} bytes; a push message carries at most ${MAX_PLAINTEXT_BYTES}`
+        `[webpush] payload for template '${message.template}' is ${payload.length} bytes; a push message carries at most ${MAX_PLAINTEXT_BYTES}`,
+        { reason: 'PayloadTooLarge' }
       );
     }
     const body = await encryptPayload(payload, subscription.p256dh, subscription.auth);
@@ -414,7 +415,9 @@ export class WebPushSender implements MessageSender {
     }
     const text = await response.text();
     if (isRetryableStatus(status)) throw new Error(`[webpush] ${status}: ${text}`);
-    throw new PermanentError(`[webpush] push service refused the request: ${status} ${text}`);
+    throw new PermanentError(`[webpush] push service refused the request: ${status} ${text}`, {
+      reason: status === 413 ? 'PayloadTooLarge' : `http_${status}`,
+    });
   }
 }
 

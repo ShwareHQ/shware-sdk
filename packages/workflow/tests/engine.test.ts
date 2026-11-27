@@ -17,7 +17,7 @@ import {
   relevantEvents,
   runJourney,
 } from '../src/engine/index';
-import { UnansweredSendError } from '../src/engine/retry';
+import { PermanentError, UnansweredSendError } from '../src/engine/retry';
 import { nextWindowStart } from '../src/engine/time-window';
 import {
   type FlowBuilder,
@@ -2053,6 +2053,143 @@ describe('delivery is at most once', () => {
     expect(sent.map((m) => m.template)).toEqual(['after']);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  test('a send refused for good settles under its reason, keeps its claim and lets the journey go on', async () => {
+    // No attempt would go differently, and one refused copy is not the journey
+    const { ctx, sent } = makeContext();
+    const { claimed, released } = fakeReporting(ctx);
+    const outcomes: unknown[] = [];
+    ctx.observer = {
+      ...ctx.observer,
+      messageSent: async (m, result) => void outcomes.push([m.idempotencyKey, result]),
+    };
+    let attempts = 0;
+    ctx.messages = {
+      send: async (m) => {
+        attempts += 1;
+        if (m.template === 'hello') {
+          throw new PermanentError('SES SendEmail failed (400 MessageRejected)', {
+            reason: 'MessageRejected',
+          });
+        }
+        sent.push(m);
+      },
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ir = workflow({
+      id: 'refused',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(hello)
+      .email(plainEmail('after'))
+      .toIR();
+
+    await runJourney(ir, ctx);
+    expect(attempts).toBe(2);
+    expect(released).toEqual([]);
+    expect(claimed.has('inst_1:0')).toBe(true);
+    expect(outcomes).toEqual([
+      ['inst_1:0', { delivered: false, reason: 'MessageRejected' }],
+      ['inst_1:1', { delivered: true }],
+    ]);
+    expect(sent.map((m) => m.template)).toEqual(['after']);
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
+  });
+
+  test('one device refused for good does not keep the push from the others', async () => {
+    const { ctx, facts, sent } = makeContext();
+    fakeReporting(ctx);
+    const outcomes: unknown[] = [];
+    ctx.observer = {
+      ...ctx.observer,
+      messageSent: async (m, result) => void outcomes.push([m.recipient, result]),
+    };
+    facts.devices = [
+      { token: 'tok-a', platform: 'android' },
+      { token: 'tok-other-project', platform: 'android' },
+      { token: 'tok-c', platform: 'ios' },
+    ];
+    ctx.messages = {
+      send: async (m) => {
+        if (m.recipient === 'tok-other-project') {
+          // A transport of the host's own: the two properties, no class
+          throw Object.assign(new Error('403 SENDER_ID_MISMATCH'), {
+            retryable: false,
+            reason: 'SENDER_ID_MISMATCH',
+          });
+        }
+        sent.push(m);
+      },
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ir = workflow({
+      id: 'refused_device',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .push(
+        pushTemplate({
+          id: 'nudge',
+          transactional: true,
+          title: 'Nudge',
+          props: z.strictObject({}),
+          preview: {},
+          content: () => ({ title: 'Hi', body: 'There' }),
+        })
+      )
+      .email(plainEmail('after'))
+      .toIR();
+
+    await runJourney(ir, ctx);
+    expect(outcomes).toEqual([
+      ['tok-a', { delivered: true }],
+      ['tok-other-project', { delivered: false, reason: 'SENDER_ID_MISMATCH' }],
+      ['tok-c', { delivered: true }],
+      [undefined, { delivered: true }],
+    ]);
+    expect(sent.map((m) => m.recipient ?? m.template)).toEqual(['tok-a', 'tok-c', 'after']);
+    error.mockRestore();
+  });
+
+  test('a refusal that names no reason settles as refused; a failure a retry can fix still fails the step', async () => {
+    const { ctx } = makeContext();
+    const { released } = fakeReporting(ctx);
+    const outcomes: unknown[] = [];
+    ctx.observer = {
+      ...ctx.observer,
+      messageSent: async (_m, result) => void outcomes.push(result),
+    };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ir = workflow({
+      id: 'refused_plain',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(hello)
+      .toIR();
+
+    ctx.messages = {
+      send: async () => {
+        throw new PermanentError("no sender configured for channel 'email'");
+      },
+    };
+    await runJourney(ir, ctx);
+    expect(outcomes).toEqual([{ delivered: false, reason: 'refused' }]);
+    expect(released).toEqual([]);
+
+    const { ctx: flaky } = makeContext();
+    const second = fakeReporting(flaky);
+    flaky.messages = {
+      send: async () => {
+        throw new Error('SES SendEmail failed (503)');
+      },
+    };
+    await expect(runJourney(ir, flaky)).rejects.toThrow('503');
+    expect(second.released).toEqual(['inst_1:0']);
+    error.mockRestore();
   });
 
   test('a host transport marks the same thing with the property alone', async () => {

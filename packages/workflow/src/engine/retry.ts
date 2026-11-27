@@ -10,13 +10,30 @@
  * A failure a retry would only repeat: a missing or malformed configuration, a provider refusing
  * the request itself, an input the runtime cannot act on. Thrown inside a durable step, it ends
  * the step at once (`isRetryable` is false) instead of burning the retry budget.
+ *
+ * Thrown by a message sender, it is a refusal of that one copy: `deliver` settles the copy as
+ * undelivered under `reason` — the provider's own code where it gave one (`BadTopic`,
+ * `SENDER_ID_MISMATCH`, `PayloadTooLarge`) — and the journey goes on.
  */
 export class PermanentError extends Error {
   override readonly name: string = 'PermanentError';
   readonly retryable = false;
-  constructor(message: string, options?: { cause?: unknown }) {
+  /** Short and stable, for the delivery report: a code, not a sentence. */
+  readonly reason?: string;
+  constructor(message: string, options?: { cause?: unknown; reason?: string }) {
     super(message, options);
+    if (options?.reason !== undefined && options.reason !== '') this.reason = options.reason;
   }
+}
+
+/**
+ * The reason a refused copy settles under: the error's own `reason` when it carries one (told by
+ * the property, so a transport of the host's own can name it without importing a class), else
+ * `refused`.
+ */
+export function refusalReason(error: unknown): string {
+  const reason = (error as { reason?: unknown } | null)?.reason;
+  return typeof reason === 'string' && reason !== '' ? reason : 'refused';
 }
 
 /**

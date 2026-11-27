@@ -88,7 +88,8 @@ function unavailable(reason: string): MessageSender {
   return {
     async send(message) {
       throw new PermanentError(
-        `cannot send '${message.template}' on ${message.channel}: ${reason}`
+        `cannot send '${message.template}' on ${message.channel}: ${reason}`,
+        { reason: 'not_configured' }
       );
     },
   };
@@ -106,7 +107,8 @@ function requireSecret(
   if (typeof value !== 'string' || value.length === 0) {
     // Missing on this attempt, missing on the next: the deployment has to change, not the step
     throw new PermanentError(
-      `${name} is not set: the environment must hold it for the configured channel`
+      `${name} is not set: the environment must hold it for the configured channel`,
+      { reason: 'not_configured' }
     );
   }
   return value;
@@ -352,7 +354,8 @@ export function channelsFromConfig(
     const url = template.webhook(env as unknown as Record<string, unknown>);
     if (typeof url !== 'string' || url === '') {
       throw new PermanentError(
-        `${channel} template '${template.id}': its webhook URL is not set in the environment`
+        `${channel} template '${template.id}': its webhook URL is not set in the environment`,
+        { reason: 'not_configured' }
       );
     }
     return url;

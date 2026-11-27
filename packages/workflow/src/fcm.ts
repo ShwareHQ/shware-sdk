@@ -127,7 +127,8 @@ export class FcmAccessToken {
         throw new Error(`FCM token exchange failed: ${detail}`);
       }
       throw new PermanentError(
-        `FCM token exchange refused for '${serviceAccount.client_email}': ${detail}`
+        `FCM token exchange refused for '${serviceAccount.client_email}': ${detail}`,
+        { reason: 'bad_credentials' }
       );
     }
     const json = (await response.json()) as { access_token: string; expires_in: number };
@@ -195,7 +196,8 @@ export class FcmPushSender implements MessageSender {
     }
     if (CONFIGURATION_CODES.has(code)) {
       throw new PermanentError(
-        `FCM refused the request for project '${credentials.projectId}': ${status} ${code}`
+        `FCM refused the request for project '${credentials.projectId}': ${status} ${code}`,
+        { reason: code }
       );
     }
     if (status === 401 || code === 'UNAUTHENTICATED') {
@@ -208,7 +210,9 @@ export class FcmPushSender implements MessageSender {
     if (TRANSIENT_CODES.has(code) || isRetryableStatus(status)) {
       throw new Error(`FCM send failed: ${status} ${code || text}`);
     }
-    throw new PermanentError(`FCM refused the request: ${status} ${code || text}`);
+    throw new PermanentError(`FCM refused the request: ${status} ${code || text}`, {
+      reason: code || `http_${status}`,
+    });
   }
 }
 
@@ -259,11 +263,15 @@ export function serviceAccountFromBase64(value: string): FcmServiceAccount {
     json = JSON.parse(Buffer.from(value, 'base64').toString()) as Partial<FcmServiceAccount>;
   } catch (error) {
     // A secret that is not base64 JSON is the same on every attempt: not worth a retry
-    throw new PermanentError('service account is not base64-encoded JSON', { cause: error });
+    throw new PermanentError('service account is not base64-encoded JSON', {
+      cause: error,
+      reason: 'bad_credentials',
+    });
   }
   if (!json.project_id || !json.client_email || !json.private_key) {
     throw new PermanentError(
-      'service account JSON is missing project_id, client_email or private_key'
+      'service account JSON is missing project_id, client_email or private_key',
+      { reason: 'bad_credentials' }
     );
   }
   return json as FcmServiceAccount;
