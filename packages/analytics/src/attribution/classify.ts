@@ -38,7 +38,7 @@ export type ProductTouch = Omit<Touch, 'channel_group'>;
 
 /**
  * A product's own rule: a landing page convention, a code in the URL. Tried after the campaign
- * rules (utm, click id, ad landing page) and before the referrer and `?ref=`, so a link shared on
+ * rules (utm, click id, ad landing page) and before the referrer and `?ref=` / `?via=`, so a link shared on
  * Facebook or WhatsApp is credited to what the product recognises, not to the site it was shared
  * on — and a product whose `?ref=` carries a referral code, not a site, claims it here first.
  * Returns null when the session is not one of its.
@@ -56,7 +56,7 @@ export interface ClassifyOptions {
   rules?: readonly TouchRule[];
 }
 
-/** What a site names, from the referrer or `?ref=`: no campaign, and the referrer's tier. */
+/** What a site names, from the referrer or `?ref=` / `?via=`: no campaign, and the referrer's tier. */
 type SiteTouch = Pick<Touch, 'channel' | 'medium'>;
 
 const metaPlacements = new Set<string>(META_PLACEMENTS);
@@ -189,13 +189,19 @@ function referrer(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | nul
  * channel, with the `utm_source` aliases folded; a host or URL (`producthunt.com`,
  * `https://news.ycombinator.com/`) is read as a referrer's host, so the same site lands on the
  * same channel either way. Ranks with the referrer: nobody paid for that link.
+ *
+ * `via` is read the same way when there is no `ref`: the referral programs' convention
+ * (Rewardful's and Dub's `?via=`), as common as `ref` and carrying the same kind of value — a
+ * site's name or a referrer's code, which `ref` carries in many programs too.
  */
 function refParam(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | null {
   const location = text(tags, 'page_location');
   if (!location || text(tags, 'page_referrer')) return null;
   let value: string | null;
   try {
-    value = new URL(location, 'https://localhost').searchParams.get('ref');
+    const params = new URL(location, 'https://localhost').searchParams;
+    // `||`, not `??`: an empty `?ref=` names nothing, and a `via` beside it still may.
+    value = params.get('ref') || params.get('via');
   } catch {
     return null;
   }
@@ -249,7 +255,7 @@ export function channelGroupOf(channel: string, medium: string): ChannelGroup {
  *
  * The rules, in order, the first that says something naming the channel: an explicit `utm_source`,
  * a click id, an ad landing page, the product's own rules, the referrer's host, the landing page's
- * `?ref=` when there is no referrer; `(direct)` when none does. `medium` is `utm_medium` as
+ * `?ref=` (else `?via=`) when there is no referrer; `(direct)` when none does. `medium` is `utm_medium` as
  * declared (lower-cased), else what that rule implies: `(not set)` for a utm_source alone, `cpc`
  * for a bare click id or ad landing page, the product rule's own, `referral` for a `?ref=` site
  * name, `organic` / `social` / `video` / `referral` for a referrer (or a host in `?ref=`), `(none)`

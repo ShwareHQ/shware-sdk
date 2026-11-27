@@ -595,6 +595,35 @@ describe('classifyTouch', () => {
     });
   });
 
+  it('reads ?via= as it reads ?ref=, when there is no ref', () => {
+    // A referral program's code: a referral under its own channel, as a ?ref= code is.
+    expect(classifyTouch(at('https://shware.net/?via=john'))).toEqual({
+      channel: 'john',
+      medium: 'referral',
+      channel_group: 'referral',
+      campaign: null,
+      priority: TOUCH_PRIORITY.referrer,
+    });
+    expect(classifyTouch(at('/?via=news.ycombinator.com'))).toMatchObject({
+      channel: 'news.ycombinator.com',
+      medium: 'referral',
+    });
+    expect(classifyTouch(at('/?via=twitter'))).toMatchObject({ channel: 'x' });
+    // ref wins when both are there; an empty ref leaves it to via.
+    expect(classifyTouch(at('/?ref=producthunt&via=john'))).toMatchObject({
+      channel: 'producthunt',
+    });
+    expect(classifyTouch(at('/?ref=&via=john'))).toMatchObject({ channel: 'john' });
+    // Like ref, never read over a referrer, nor over a utm.
+    expect(
+      classifyTouch(at('/?via=john', { page_referrer: 'https://www.google.com/' }))
+    ).toMatchObject({ channel: 'google', medium: 'organic' });
+    expect(classifyTouch(at('/?via=john', { utm_source: 'newsletter' }))).toMatchObject({
+      channel: 'newsletter',
+    });
+    expect(classifyTouch(at('/?via='))).toMatchObject({ channel: '(direct)' });
+  });
+
   it('lets a utm, a click id and a product rule win over ?ref=', () => {
     expect(classifyTouch(at('/?ref=producthunt', { utm_source: 'newsletter' }))).toMatchObject({
       channel: 'newsletter',
