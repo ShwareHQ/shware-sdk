@@ -62,10 +62,13 @@ export const APNS_HOSTS = {
  * - dead token: HTTP 410 `Unregistered` (the app was removed, or the token is inactive for the
  *   topic) and 400 `ExpiredToken`. The device will never deliver again, so the copy settles
  *   undelivered and the host forgets the token.
- * - undelivered, device kept: 400 `BadDeviceToken`. Apple gives it for a malformed token but
- *   just as well for a token of the other environment (a sandbox build pushed through the
- *   production host), which would answer for every device at once; the copy settles with the
- *   reason, so the report shows it, and nothing is deleted on a guess.
+ * - undelivered, device kept: 400 `BadDeviceToken` and 400 `DeviceTokenNotForTopic`. Apple gives
+ *   the first for a malformed token but just as well for a token of the other environment (a
+ *   sandbox build pushed through the production host), and the second for a token of another
+ *   app (another bundle id: a development build registered against this backend). Either is
+ *   about this one device — unless the deployment's own environment or topic is wrong, when
+ *   every device answers so. The copy settles with the reason, so the report shows it; nothing
+ *   is deleted on a guess, and the user's other devices and the rest of the journey go on.
  * - configuration: the topic, certificate or provider key is wrong. Every device on this app
  *   would answer the same, so it is a `PermanentError` and the devices are kept — they are fine,
  *   the deployment is not.
@@ -76,9 +79,11 @@ export const APNS_HOSTS = {
  */
 export const DEAD_TOKEN_REASONS: ReadonlySet<string> = new Set(['Unregistered', 'ExpiredToken']);
 
+/** This one token is refused, and may be fine elsewhere: the copy settles and the device is kept. */
+const DEVICE_REASONS: ReadonlySet<string> = new Set(['BadDeviceToken', 'DeviceTokenNotForTopic']);
+
 /** The app's topic, certificate or provider key is wrong: the request is refused for every device. */
 const CONFIGURATION_REASONS: ReadonlySet<string> = new Set([
-  'DeviceTokenNotForTopic',
   'TopicDisallowed',
   'BadTopic',
   'MissingTopic',
@@ -205,8 +210,9 @@ export class ApnsPushSender implements MessageSender {
       console.warn(`[apns] token gone for user ${message.userId}: ${reason}`);
       return { delivered: false, reason };
     }
-    if (reason === 'BadDeviceToken') {
-      // The token or the environment: settled so the report says which device, nothing deleted
+    if (DEVICE_REASONS.has(reason)) {
+      // The token, its environment or its app: settled so the report says which device, nothing
+      // deleted, and one device's refusal does not end the journey for the others
       console.warn(`[apns] refused for user ${message.userId}: ${status} ${reason}`);
       return { delivered: false, reason };
     }

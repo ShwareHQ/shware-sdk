@@ -245,7 +245,7 @@ describe('ApnsPushSender', () => {
       [410, undefined, 'settled-dead-token'],
       [400, 'BadDeviceToken', 'settled-undelivered'],
       [400, 'ExpiredToken', 'settled-dead-token'],
-      [400, 'DeviceTokenNotForTopic', 'PermanentError'],
+      [400, 'DeviceTokenNotForTopic', 'settled-undelivered'],
       [400, 'TopicDisallowed', 'PermanentError'],
       [400, 'BadTopic', 'PermanentError'],
       [400, 'MissingTopic', 'PermanentError'],
