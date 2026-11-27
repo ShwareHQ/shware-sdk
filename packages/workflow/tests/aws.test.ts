@@ -1461,19 +1461,16 @@ describe('4.0: the sweep is resumable, one durable step per page', () => {
        SELECT 'u' || lpad(i::text, 4, '0'), '{}' FROM generate_series(1, ${count}) i`
     );
 
-  test('501 users are two page steps between maintenance and the snapshot', async () => {
+  test('501 users are two page steps after maintenance, and the pass ends in the last', async () => {
     await seedUsers(501);
     const { store, pages } = pagedStore();
     const { result } = await call(sweeper(store).handler, { type: SWEEP_EVENT_TYPE });
-    expect(result.getResult()).toMatchObject({ evaluated: 501, started: [] });
+    expect(result.getResult()).toMatchObject({ evaluated: 501, started: [], finished: true });
     expect(result.getOperations().map((operation) => operation.getName())).toEqual([
       'sweep:maintain',
       'sweep:date:0',
-      'sweep:seeding',
       'sweep:page:0',
       'sweep:page:1',
-      'sweep:seeded',
-      'sweep:snapshot',
     ]);
     expect(pages).toEqual([undefined, 'u0500']);
   });

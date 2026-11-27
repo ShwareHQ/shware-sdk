@@ -28,6 +28,7 @@ import type {
   SegmentCandidate,
   SegmentTriggerRoute,
   SuppressionChange,
+  SweepPass,
   TriggerRoute,
   UnadmittedEntry,
   VisitorMerge,
@@ -903,6 +904,62 @@ export class PostgresJourneyStore implements JourneyStore {
         [id, since]
       );
     }
+  }
+
+  async openSweepPass(now: number): Promise<SweepPass> {
+    // One transaction: the pass and the seeding it begins with are read together, and Hyperdrive
+    // answers from the database instead of handing a sweep the cursor of the sweep before it
+    return this.sql.transaction(async (tx) => {
+      const seeding = await tx.query<{ id: string; since: number | string }>(
+        `SELECT id, ${MS('seeding_since')} AS since FROM ${this.t.segment}
+         WHERE seeding_since IS NOT NULL ORDER BY id`
+      );
+      await tx.query(
+        `INSERT INTO ${this.t.sweepPass} (id, started_at, cursor, seeding, evaluated)
+         VALUES ('segments', ${TS('$1')}, NULL, $2::text::jsonb, 0)
+         ON CONFLICT (id) DO NOTHING`,
+        [now, JSON.stringify(seeding.map((row) => ({ id: row.id, since: Number(row.since) })))]
+      );
+      const [row] = await tx.query<{
+        started_at: number | string;
+        cursor: string | null;
+        seeding: unknown;
+        evaluated: number;
+      }>(
+        `SELECT ${MS('started_at')} AS started_at, cursor, seeding, evaluated
+         FROM ${this.t.sweepPass} WHERE id = 'segments'`
+      );
+      if (row === undefined) throw new Error('sweep_pass: the pass just opened is gone');
+      return {
+        startedAt: Number(row.started_at),
+        after: row.cursor ?? undefined,
+        seeding: asJson<SeedingSegment[]>(row.seeding),
+        evaluated: row.evaluated,
+      };
+    });
+  }
+
+  async advanceSweepPass(
+    pass: SweepPass,
+    progress: { after: string; evaluated: number }
+  ): Promise<boolean> {
+    const rows = await this.sql.query(
+      `UPDATE ${this.t.sweepPass} SET cursor = $1, evaluated = evaluated + $2::int
+       WHERE id = 'segments' AND started_at = ${TS('$3')} AND cursor IS NOT DISTINCT FROM $4
+       RETURNING id`,
+      [progress.after, progress.evaluated, pass.startedAt, pass.after ?? null]
+    );
+    return rows.length > 0;
+  }
+
+  async finishSweepPass(pass: SweepPass): Promise<boolean> {
+    const rows = await this.sql.query(
+      `DELETE FROM ${this.t.sweepPass}
+       WHERE id = 'segments' AND started_at = ${TS('$1')} AND cursor IS NOT DISTINCT FROM $2
+       RETURNING id`,
+      [pass.startedAt, pass.after ?? null]
+    );
+    return rows.length > 0;
   }
 
   async getSegmentCondition(id: string): Promise<ConditionIR | undefined> {

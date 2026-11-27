@@ -146,11 +146,12 @@ segment).
 
 ### The window
 
-Until the first sweep after a deploy completes, a user who genuinely enters the segment cannot be
-told from one who was already in it, and is recorded without a journey. That is one sweep. A
-sweep that is cut short does not complete, but the next one has less to do (those already
-recorded are no longer candidates), so it converges; review item 2.2 (a Cloudflare sweep cannot
-continue across cron runs) is what makes the window longer for large audiences.
+Until the first pass over every user after a deploy completes, a user who genuinely enters the
+segment cannot be told from one who was already in it, and is recorded without a journey. For
+most audiences that is one sweep. A sweep spends a bounded time and keeps the pass's place in the
+store (`sweep_pass`), so for a large audience the pass takes several sweeps and the window is
+that many sweep intervals; it used to depend on one sweep getting through everyone that was left
+(review item 2.2).
 
 ## A segment used as a condition is not affected
 
@@ -205,7 +206,7 @@ Decisions taken with it (2026-11-27):
   began runs to its end.
 - **The filter is compiled to SQL** to list candidates, as the sweep does for segments; what SQL
   cannot decide goes to the evaluator journeys run on.
-- **A sweep spends a bounded time on it** (about 25 seconds, 8 starts at once) and leaves the rest
+- **A sweep spends a bounded time on it** (about 30 seconds, 8 starts at once) and leaves the rest
   to the next, since a scheduled handler is not given unlimited time. That bounds how fast a large
   audience is reached; a queue-driven fan-out would lift it and is not built.
 

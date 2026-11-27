@@ -378,7 +378,7 @@ Visitors do not.
 - **The sweep does the starting.** The send begins at the first sweep (the cron
   trigger) at or after the time, so a 15-minute cron starts it within 15
   minutes. It goes through the audience a page of 500 at a time and keeps its
-  place in the store: a sweep spends about 25 seconds on it and the next one
+  place in the store: a sweep spends about 30 seconds on it and the next one
   carries on, and one that is cut off loses nobody and repeats nobody. A large
   audience therefore takes several sweeps; run the cron more often around a
   big send if that matters.
@@ -404,9 +404,10 @@ Visitors do not.
 `trigger.enters(s)` looks forward. Whoever already matches `s` when it is first
 deployed — or when its condition changes, or that of a segment it is built on —
 is recorded as a member and starts nothing: they did not enter, they were
-there. The first sweep after the deploy does the recording; from the moment it
-completes, a user who newly matches enters. Until then (one sweep) a user who
-matches on their own activity is recorded the same way.
+there. The sweep after the deploy does the recording, in a pass over every
+user (one sweep for most audiences, several for a large one: below); from the
+moment that pass completes, a user who newly matches enters. Until then a user
+who matches on their own activity is recorded the same way.
 
 So a deploy never starts journeys in bulk, and the outcome does not depend on
 whether the segment happened to exist before its trigger did.
@@ -1724,6 +1725,14 @@ drizzle file (`workflow-ui generate`), let drizzle-kit write the migration, and
 redeploy, which rewrites the routes. `POST /bundle/deploy` refuses to run until
 the new columns and indexes exist.
 
+**Upgrading to 12.5 (a sweep that carries on).** One table is added,
+`sweep_pass`: where the segment sweep's pass over the users stands (one row
+while a pass is under way). Regenerate the drizzle file and let drizzle-kit
+write the migration, before the new version serves; `POST /bundle/deploy`
+refuses to run until it exists. A sweep now stops after about 30 seconds on
+the segments and the next one carries on, so its response may say
+`finished: false` with empty `sizes`.
+
 **Upgrading to 12.3 (date triggers).** Two tables are added, `date_trigger`
 (the routes) and `date_run` (how far each send got). Regenerate the drizzle
 file and let drizzle-kit write the migration, before the new version serves;
@@ -1821,6 +1830,13 @@ On Postgres the engine also keeps:
   page finds who may have to change, compiled from the segments' conditions, and
   the evaluator journeys use decides each of them, so a sweep costs what changed,
   not how many users there are. Its response counts them as `evaluated`.
+  **A sweep spends a bounded time** (about 30 seconds on the segments, as much
+  on the date triggers) and keeps its place in the store (`sweep_pass`): when
+  there is more to change than one call gets through, the next sweep carries on
+  from where this one stopped instead of starting over, on every host. The
+  response's `finished` says whether the pass has been through every user;
+  seeding ends and the sizes are recorded when it has, so `sizes` is empty for
+  a sweep that left the pass unfinished.
 
 `@shware/workflow-ui/postgres` reads all of it for the studio.
 
