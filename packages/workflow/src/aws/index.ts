@@ -11,8 +11,10 @@ import { PermanentError } from '../engine/retry';
 import { executeJourney } from '../host/execute';
 import { readWithRetry } from '../host/fresh-read';
 import {
+  type DateFanout,
   SWEEP_PAGE_SIZE,
   type SweepResult,
+  fanOutDatePage,
   sweepMaintenance,
   sweepSegmentsPaged,
 } from '../host/ingest';
@@ -277,6 +279,38 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       },
       once
     );
+    // The date triggers that are due, one durable step per page: the cursor lives in the store,
+    // so a replayed step answers from its checkpoint and the next one goes on from where the
+    // store says. No budget here — a cut-short invocation is re-invoked. A trigger whose page
+    // failed is left for the next tick; the list of those comes from the steps' own results, so
+    // a replay rebuilds it the same.
+    const dates = new Map<string, DateFanout>();
+    const dated: string[] = [];
+    const failedDates: string[] = [];
+    for (let n = 0; ; n++) {
+      const except = [...failedDates];
+      const page = await context.step(
+        `sweep:date:${n}`,
+        async () => {
+          const { store, env } = open(context);
+          return (await fanOutDatePage(env, store, Date.now(), SWEEP_PAGE_SIZE, except)) ?? null;
+        },
+        once
+      );
+      if (page === null) break;
+      const key = `${page.workflow}@${page.at}`;
+      const fanout = dates.get(key) ?? {
+        workflow: page.workflow,
+        at: page.at,
+        entered: 0,
+        finished: false,
+      };
+      fanout.entered += page.started.length;
+      fanout.finished = page.finished;
+      dates.set(key, fanout);
+      dated.push(...page.started);
+      if (page.failed) failedDates.push(page.workflow);
+    }
     // As `sweepSegments`: the segments being seeded when the pass began are seeded once it ends
     const seeding = await context.step(
       'sweep:seeding',
@@ -284,7 +318,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       once
     );
     let evaluated = 0;
-    const started: string[] = [];
+    const started: string[] = [...dated];
     let after: string | undefined;
     for (let n = 0; ; n++) {
       const page = await context.step(
@@ -313,7 +347,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       },
       once
     );
-    return { evaluated, started, sizes };
+    return { evaluated, started, sizes, dates: [...dates.values()] };
   };
 
   const durable = withDurableExecution(async (input: unknown, context: DurableContext) => {

@@ -1,7 +1,7 @@
 # Segment triggers and the people already in the segment
 
-Status: **decided and implemented in 12.2** (2026-11-27), except for the two follow-ups at the
-end (a backfill, and `trigger.date` with a filter), which are not built.
+Status: **decided and implemented in 12.2** (2026-11-27). Of the two follow-ups at the end,
+`trigger.date` with a filter is built (12.3); the backfill is not.
 
 ## The problem
 
@@ -163,7 +163,7 @@ first deployed.
 So "email every purchaser on Black Friday", written as a scheduled workflow with `purchaser` as
 its filter, reaches the old purchasers: on the day, each user is asked "are you a purchaser now?".
 
-## Not built yet
+## Follow-ups
 
 ### A backfill
 
@@ -184,15 +184,30 @@ single `workflow-ui deploy` that plans, asks, deploys and backfills is the alter
 Cloudflare the bundle goes live with the Worker version, so it would have to wrap `wrangler
 deploy`.
 
-### `trigger.date` with a filter
+### `trigger.date` with a filter — built in 12.3
 
-What the Black Friday workflow lacks is the schedule: `trigger.date(at)` compiles but is not
-routed by the runtime, and takes no filter.
+The Black Friday workflow lacked its schedule: `trigger.date(at)` compiled and was never routed.
+It now is, with a filter:
 
 ```ts
 trigger.date('2026-11-27 09:00:00', { filter: purchaser });
 ```
 
-It and the backfill are close to the same operation — start a journey for a set of users at once,
-rate-limited — and should share one fan-out. The filter can be compiled to SQL to list the
-candidates, as the sweep already does for segments.
+Decisions taken with it (2026-11-27):
+
+- **The sweep starts it**, a page of users at a time, with the cursor in the store
+  (`date_run`). The run is identified by (workflow, time), and its occurrence in the entry ledger
+  is the time, so a page done twice starts nothing twice.
+- **The run is recorded at the first deploy that carries it** and never rewritten: a time that
+  ran is not repeated by a redeploy, and a deploy landing between the time and the sweep does not
+  cancel it. A time already past at that first deploy is recorded as over.
+- **A day's grace.** A run no sweep began within 24 hours of its time is given up. One that
+  began runs to its end.
+- **The filter is compiled to SQL** to list candidates, as the sweep does for segments; what SQL
+  cannot decide goes to the evaluator journeys run on.
+- **A sweep spends a bounded time on it** (about 25 seconds, 8 starts at once) and leaves the rest
+  to the next, since a scheduled handler is not given unlimited time. That bounds how fast a large
+  audience is reached; a queue-driven fan-out would lift it and is not built.
+
+The backfill above is the same fan-out over another set of users (the members of a trigger's
+segment), and is what remains.

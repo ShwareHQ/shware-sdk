@@ -1,3 +1,4 @@
+import { dateTimeMs } from '../date-time';
 import type { PushDevice } from '../engine/ports';
 import { type BundleIR, ConditionIR, ReentryIR, WorkflowIR } from '../ir';
 import { conditionToSql } from './condition-sql';
@@ -6,7 +7,9 @@ import { visitorIdOf, visitorSubject } from './identity';
 import type {
   AdmittedEntry,
   BundleVersion,
+  DateCandidate,
   DeviceInput,
+  DueDateTrigger,
   EntryInput,
   EntryOutcome,
   EntryState,
@@ -427,6 +430,53 @@ export class PostgresJourneyStore implements JourneyStore {
       params
     );
     return rows.map((row) => ({ userId: row.user_id, segments: asJson<string[]>(row.segments) }));
+  }
+
+  async listDateCandidates(page: {
+    filter?: ConditionIR | undefined;
+    now: number;
+    after?: string | undefined;
+    limit: number;
+  }): Promise<DateCandidate[]> {
+    const params: unknown[] = [];
+    const bind = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    let matches = 'TRUE';
+    if (page.filter !== undefined) {
+      const segments = new Map((await this.listSegments()).map((s) => [s.id, s.condition]));
+      matches = conditionToSql(page.filter, {
+        tables: this.t,
+        user: 'u.user_id',
+        props: 'p.props',
+        nowMs: page.now,
+        segments,
+        bind,
+      });
+    }
+    let keyset = '';
+    if (page.after !== undefined) keyset = ` AND user_id > ${bind(page.after)}::text`;
+    const rows = await this.sql.query<{ user_id: string; certain: boolean }>(
+      `WITH u AS MATERIALIZED (
+         SELECT user_id FROM (
+           SELECT user_id FROM ${this.t.profile}
+           UNION SELECT user_id FROM ${this.t.event}
+         ) known
+         -- A date trigger is about users: a visitor is not one until they sign in
+         WHERE user_id NOT LIKE '${visitorSubject('')}%'${keyset}
+       )
+       SELECT u.user_id, m.matches IS TRUE AS certain
+       FROM u
+       LEFT JOIN ${this.t.profile} p ON p.user_id = u.user_id
+       CROSS JOIN LATERAL (SELECT (${matches}) AS matches) m
+       -- NULL is what SQL cannot decide: the evaluator takes it
+       WHERE m.matches IS NOT FALSE
+       ORDER BY u.user_id
+       LIMIT ${bind(page.limit)}::int`,
+      params
+    );
+    return rows.map((row) => ({ userId: row.user_id, certain: row.certain }));
   }
 
   listDevices(subject: string): Promise<PushDevice[]> {
@@ -911,6 +961,73 @@ export class PostgresJourneyStore implements JourneyStore {
     }));
   }
 
+  async dueDateTriggers(now: number): Promise<DueDateTrigger[]> {
+    // In a transaction, so Hyperdrive answers from the database: a cached read would hand a
+    // sweep the cursor of the sweep before it
+    const rows = await this.sql.transaction((tx) =>
+      tx.query<{
+        workflow: string;
+        hash: string;
+        reentry: unknown;
+        version: string | null;
+        at: number | string;
+        filter: unknown;
+        cursor: string | null;
+        entered: number;
+      }>(
+        `SELECT r.workflow, r.hash, r.reentry, r.version, ${MS('r.at')} AS at, r.filter,
+           d.cursor, d.entered
+         FROM ${this.t.dateTrigger} r
+         JOIN ${this.t.dateRun} d ON d.workflow = r.workflow AND d.at = r.at
+         WHERE d.finished_at IS NULL AND r.at <= ${TS('$1')}
+         ORDER BY r.at, r.workflow`,
+        [now]
+      )
+    );
+    return rows.map((row) => ({
+      workflow: row.workflow,
+      hash: row.hash,
+      reentry: ReentryIR.parse(asJson(row.reentry)),
+      version: row.version ?? undefined,
+      at: Number(row.at),
+      filter: row.filter === null ? undefined : ConditionIR.parse(asJson(row.filter)),
+      after: row.cursor ?? undefined,
+      entered: row.entered,
+    }));
+  }
+
+  async advanceDateRun(
+    run: { workflow: string; at: number; after?: string | undefined },
+    progress: {
+      after?: string | undefined;
+      entered?: number;
+      finished?: boolean;
+      skipped?: 'missed';
+      now: number;
+    }
+  ): Promise<void> {
+    const over = progress.finished === true || progress.skipped !== undefined;
+    await this.sql.query(
+      `UPDATE ${this.t.dateRun} SET
+         cursor = COALESCE($3, cursor),
+         entered = entered + $4::int,
+         finished_at = CASE WHEN $5 THEN ${TS('$6')} ELSE finished_at END,
+         skipped = COALESCE($7, skipped)
+       WHERE workflow = $1 AND at = ${TS('$2')} AND finished_at IS NULL
+         AND cursor IS NOT DISTINCT FROM $8`,
+      [
+        run.workflow,
+        run.at,
+        progress.after ?? null,
+        progress.entered ?? 0,
+        over,
+        progress.now,
+        progress.skipped ?? null,
+        run.after ?? null,
+      ]
+    );
+  }
+
   async putWorkflowIR(workflow: WorkflowIR): Promise<void> {
     await this.sql.query(
       `INSERT INTO ${this.t.ir} (content_hash, ir) VALUES ($1, $2::text::jsonb)
@@ -995,6 +1112,7 @@ export class PostgresJourneyStore implements JourneyStore {
   private async swapRoutes(tx: SqlClientLike, bundle: BundleIR, version?: string): Promise<void> {
     await tx.query(`DELETE FROM ${this.t.trigger}`);
     await tx.query(`DELETE FROM ${this.t.segmentTrigger}`);
+    await tx.query(`DELETE FROM ${this.t.dateTrigger}`);
     const before = new Map(
       (
         await tx.query<{ id: string; hash: string; since: number | string | null }>(
@@ -1032,6 +1150,37 @@ export class PostgresJourneyStore implements JourneyStore {
             JSON.stringify(workflow.reentry),
             version ?? null,
           ]
+        );
+      } else if (workflow.trigger.type === 'date') {
+        const at = dateTimeMs(workflow.trigger.at);
+        // Hand-built IR: the DSL refuses a time that is not one
+        if (at === undefined) {
+          throw new Error(
+            `workflow '${workflow.id}': date trigger '${workflow.trigger.at}' is not 'YYYY-MM-DD HH:mm:ss'`
+          );
+        }
+        await tx.query(
+          `INSERT INTO ${this.t.dateTrigger} (workflow, hash, reentry, at, filter, version) VALUES ($1, $2, $3::text::jsonb, ${TS('$4')}, $5::text::jsonb, $6)`,
+          [
+            workflow.id,
+            workflow.contentHash,
+            JSON.stringify(workflow.reentry),
+            at,
+            workflow.trigger.filter === undefined ? null : JSON.stringify(workflow.trigger.filter),
+            version ?? null,
+          ]
+        );
+        // The run exists from the first deploy that carries this (workflow, time), and is never
+        // written again: a later deploy neither repeats a time that ran nor cancels one that is
+        // due. A time already past when first deployed is recorded as over — a workflow whose
+        // date went by must not fire because its code shipped late.
+        await tx.query(
+          `INSERT INTO ${this.t.dateRun} (workflow, at, cursor, entered, finished_at, skipped)
+           SELECT $1, ${TS('$2')}, NULL, 0,
+             CASE WHEN $2::double precision <= $3::double precision THEN ${TS('$3')} END,
+             CASE WHEN $2::double precision <= $3::double precision THEN 'past' END
+           ON CONFLICT DO NOTHING`,
+          [workflow.id, at, now]
         );
       } else if (workflow.trigger.type === 'segment') {
         await tx.query(

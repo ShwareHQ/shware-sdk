@@ -333,7 +333,7 @@ trigger.event(e.login);
 trigger.event(e.purchase_failed, (p) => notInArray(p.code, ['CHECKOUT_CANCELED']));
 trigger.event(e.sign_up, { filter: exists(u.email) });
 trigger.enters(dormant7d);
-trigger.date('2026-12-25 09:00:00');
+trigger.date('2026-12-25 09:00:00', { filter: purchaser });
 trigger.webhook();
 ```
 
@@ -344,8 +344,49 @@ trigger.webhook();
   identifies, and by the segment sweep (the cron trigger), which catches
   segments entered by the clock alone. (`trigger.segment` is its earlier name,
   still accepted.)
-- `date` (one-shot, UTC) and `webhook` compile and deploy, but are not routed
-  by the runtime yet: deploy lists them in `unrouted`.
+- `date` starts a journey, once, for every known user its `filter` holds for
+  when the time comes (below).
+- `webhook` compiles and deploys, but is not routed by the runtime yet: deploy
+  lists it in `unrouted`.
+
+#### A send at a time
+
+```ts
+workflow({
+  id: 'black_friday',
+  reentry: { mode: 'never' },
+  trigger: trigger.date('2026-11-27 09:00:00', { filter: purchaser }),
+}).email(email.black_friday, { name: u.name });
+```
+
+At that time (UTC) every known user the `filter` holds for enters — asked when
+the sweep reaches them, not from a membership kept beforehand, so someone who has been a purchaser for three years enters like
+one who became one yesterday. Without a `filter`, every known user does.
+Visitors do not.
+
+- **The sweep does the starting.** The send begins at the first sweep (the cron
+  trigger) at or after the time, so a 15-minute cron starts it within 15
+  minutes. It goes through the audience a page of 500 at a time and keeps its
+  place in the store: a sweep spends about 25 seconds on it and the next one
+  carries on, and one that is cut off loses nobody and repeats nobody. A large
+  audience therefore takes several sweeps; run the cron more often around a
+  big send if that matters.
+- **A time runs once.** The run is identified by the workflow and the time.
+  Redeploying does not repeat it, and a deploy that lands just after the time
+  does not cancel it. Changing the time is another run, and who enters again
+  is the workflow's `reentry` policy.
+- **A time already past when the trigger is first deployed is not run**, and
+  neither is one that no sweep picked up within a day (a cron that was off):
+  a send that is that late is not the one that was scheduled.
+- **A start that fails is retried.** The page it was on is done again by the
+  next sweep (whoever already entered is skipped), other date triggers that
+  are due go on meanwhile, and a user who still cannot be started a day after
+  the time is passed over.
+- **The filter is checked before an instance exists.** A user it turns away
+  has not entered: no Workflow instance, nothing held against `reentry`,
+  nothing in the entry counts. That is the difference from a `filter` step.
+- The journey's entry time is the trigger's, and its trigger carries no
+  payload.
 
 #### Entering a segment is not being in it
 
@@ -1645,6 +1686,16 @@ drizzle file (`workflow-ui generate`), let drizzle-kit write the migration, and
 redeploy, which rewrites the routes. `POST /bundle/deploy` refuses to run until
 the new columns and indexes exist.
 
+**Upgrading to 12.3 (date triggers).** Two tables are added, `date_trigger`
+(the routes) and `date_run` (how far each send got). Regenerate the drizzle
+file and let drizzle-kit write the migration, before the new version serves;
+`POST /bundle/deploy` refuses to run until they exist. **A workflow on
+`trigger.date` now runs.** Until this version it compiled, deployed and never
+started (`unrouted`); one whose time is still ahead when the new version
+deploys will fire at that time, to every known user unless it has a `filter`.
+One whose time has passed is recorded as over and does nothing. Check the date
+triggers you have before upgrading.
+
 **Upgrading to 12.2 (segment entry).** `segment` gains a nullable
 `seeding_since` (set while a new or changed segment's membership is being
 established). Regenerate the drizzle file and let drizzle-kit write the
@@ -1727,7 +1778,8 @@ On Postgres the engine also keeps:
 - **Segments.** The cron trigger runs `sweepSegments`, which keeps every
   segment's membership and size, starts the journeys of segments entered by
   the clock alone, and ends the seeding of the segments a deploy brought in new
-  or changed. `POST /segments/sweep` runs it on demand. One SQL statement per
+  or changed. Before that it starts the journeys of the date triggers that are
+  due. `POST /segments/sweep` runs it on demand. One SQL statement per
   page finds who may have to change, compiled from the segments' conditions, and
   the evaluator journeys use decides each of them, so a sweep costs what changed,
   not how many users there are. Its response counts them as `evaluated`.

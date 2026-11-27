@@ -255,7 +255,8 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
 /* --------------------------------- Triggers --------------------------------- */
 
 /**
- * Trigger shapes. The event trigger has two independent gates: `where` tests
+ * Trigger shapes. A date trigger starts a journey for every known user its `filter` holds for,
+ * once, when its time comes. The event trigger has two independent gates: `where` tests
  * the triggering event's payload (payload-only subtree, evaluated against the
  * incoming event before anything else), `filter` tests the user's profile.
  */
@@ -268,7 +269,13 @@ export const TriggerIR = z.discriminatedUnion('type', [
     visitors: z.optional(z.literal(true)),
   }),
   z.object({ type: z.literal('segment'), segment: z.string() }),
-  z.object({ type: z.literal('date'), at: z.string() }),
+  z.object({
+    type: z.literal('date'),
+    /** 'YYYY-MM-DD HH:mm:ss', UTC. */
+    at: z.string(),
+    /** Who enters at that time: everyone known when absent, else those the condition holds for then. */
+    filter: z.optional(ConditionIR),
+  }),
   z.object({ type: z.literal('webhook') }),
 ]);
 export type TriggerIR = z.infer<typeof TriggerIR>;

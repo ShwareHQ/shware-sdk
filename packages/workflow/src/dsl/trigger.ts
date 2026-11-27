@@ -1,3 +1,4 @@
+import { dateTimeMs } from '../date-time';
 import type { TriggerIR } from '../ir';
 import { type Condition, type PayloadWhere, type SegmentRef, condIR } from './condition';
 import { type EventRef, type TriggerPayloadRefs, payloadRefs, triggerPayloadRefs } from './refs';
@@ -9,8 +10,18 @@ import { type EventRef, type TriggerPayloadRefs, payloadRefs, triggerPayloadRefs
  * no generics.
  */
 
-/** 'YYYY-MM-DD HH:mm:ss'. TODO: validate at runtime — template literals cannot express leading zeros. */
+/** 'YYYY-MM-DD HH:mm:ss', UTC. `trigger.date` refuses anything else when the workflow is built. */
 export type DateTime = string;
+
+export interface DateTriggerOptions {
+  /**
+   * Who enters: the users the condition holds for when the time comes — a segment
+   * (`{ filter: purchaser }`), a profile predicate, or both. Everyone known to the engine
+   * without it. Checked before an instance is created, so a user it turns away has not
+   * entered: no instance, no entry held against the `reentry` policy.
+   */
+  filter?: Condition;
+}
 
 /** Trigger reference: what trigger.xxx() returns, reusable across workflows. */
 export interface TriggerRef {
@@ -97,13 +108,19 @@ export interface TriggerFactory {
   segment(segment: SegmentRef): TriggerRef;
 
   /**
-   * Scheduled trigger (one-shot, e.g. '2026-12-25 09:00:00', interpreted as
-   * UTC). TODO: not routed by the runtime yet — deployBundle reports it in
-   * `unrouted`; the implementation goes through cron + Queues (instance
-   * creation is rate-limited, a date trigger fans out to the whole audience at
-   * once). TODO: cron/recurring form.
+   * Scheduled trigger: once, at a time (e.g. '2026-12-25 09:00:00', UTC), a
+   * journey starts for every known user the `filter` holds for at that moment —
+   * long-standing members of a segment included, unlike `trigger.enters`.
+   *
+   *   trigger.date('2026-11-27 09:00:00', { filter: purchaser })
+   *
+   * The scheduled sweep (the cron trigger) does the starting, page by page, so
+   * the send begins at the first sweep after the time and takes as many sweeps
+   * as the audience needs. One (workflow, time) pair runs once: redeploying
+   * does not repeat it, and changing the time is another run. A time already
+   * past when the trigger is first deployed is not run. TODO: a recurring form.
    */
-  date(at: DateTime): TriggerRef;
+  date(at: DateTime, opts?: DateTriggerOptions): TriggerRef;
 
   /** Webhook trigger: third-party or external code fires it via a URL; the runtime allocates the endpoint. */
   webhook(): TriggerRef;
@@ -138,6 +155,17 @@ export const trigger: TriggerFactory = {
   enters: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),
   // oxlint-disable-next-line typescript/no-deprecated -- the alias itself
   segment: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),
-  date: (at) => makeTrigger({ type: 'date', at }),
+  date: (at, opts) => {
+    if (dateTimeMs(at) === undefined) {
+      throw new TypeError(
+        `trigger.date(): '${at}' is not a time — write it as 'YYYY-MM-DD HH:mm:ss' (UTC)`
+      );
+    }
+    return makeTrigger({
+      type: 'date',
+      at,
+      ...(opts?.filter !== undefined ? { filter: condIR(opts.filter) } : {}),
+    });
+  },
   webhook: () => makeTrigger({ type: 'webhook' }),
 };

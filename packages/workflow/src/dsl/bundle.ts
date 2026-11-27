@@ -152,7 +152,10 @@ function assertSegmentRefsResolve(
 export function referencedSegments(workflow: WorkflowIR): Set<string> {
   const refs = new Set<string>();
   if (workflow.trigger.type === 'segment') refs.add(workflow.trigger.segment);
-  if (workflow.trigger.type === 'event' && workflow.trigger.filter !== undefined) {
+  if (
+    (workflow.trigger.type === 'event' || workflow.trigger.type === 'date') &&
+    workflow.trigger.filter !== undefined
+  ) {
     collectConditionRefs(workflow.trigger.filter, refs);
   }
   if (workflow.goal !== undefined) collectConditionRefs(workflow.goal.condition, refs);
@@ -271,6 +274,11 @@ function assertConditionPlacement(
           journey: false,
         });
       }
+    }
+    if (workflow.trigger.type === 'date' && workflow.trigger.filter !== undefined) {
+      assertProfileTree(workflow.trigger.filter, `workflow '${workflow.id}' trigger filter`, {
+        journey: false,
+      });
     }
     if (workflow.goal !== undefined) {
       assertProfileTree(workflow.goal.condition, `workflow '${workflow.id}' goal`, JOURNEY);

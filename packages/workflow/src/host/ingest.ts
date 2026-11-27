@@ -19,6 +19,7 @@ import { isMessageId } from '../reporting/tracking';
 import { JourneyFactSource } from '../store/facts';
 import {
   type BundleVersion,
+  type DateCandidate,
   type JourneyStore,
   type ProfileProps,
   SchemaMismatchError,
@@ -392,6 +393,19 @@ export interface SweepResult {
   started: string[];
   /** Each deployed segment's size after the sweep (empty when the store keeps no reporting). */
   sizes: { segment: string; size: number }[];
+  /** The date triggers this sweep worked on: how many journeys it started for each, and whether the fan-out is over. */
+  dates: DateFanout[];
+}
+
+/** What one sweep did for one date trigger. */
+export interface DateFanout {
+  workflow: string;
+  /** The trigger's time, epoch milliseconds. */
+  at: number;
+  /** Journeys this sweep started for it. */
+  entered: number;
+  /** Whether every user has been gone through; false when the next sweep continues. */
+  finished: boolean;
 }
 
 /**
@@ -615,6 +629,161 @@ export async function sweepSegmentsPaged(
   return { evaluated: candidates.length, started, lastUserId, more: listed.length >= limit };
 }
 
+/** What a journey a date trigger started names as the event that started it. */
+export const DATE_TRIGGER_EVENT = '$date';
+
+/**
+ * How long after its time a date trigger may still begin. A send that no sweep picked up for a
+ * day (the cron was off, the database down) is no longer the send that was scheduled: a Black
+ * Friday email on Sunday is worse than none. One that has begun runs to its end however long
+ * that takes.
+ */
+export const DATE_TRIGGER_GRACE_MS = 24 * 60 * 60_000;
+
+/**
+ * How long one sweep spends on date triggers before it leaves the rest to the next one. A
+ * scheduled handler is not given unlimited time, and the fan-out is resumable by construction,
+ * so stopping early costs a sweep interval and running over costs the page in flight.
+ */
+export const DATE_FANOUT_BUDGET_MS = 25_000;
+
+/** Journeys started at once within a page: instance creation is the slow part, and rate-limited. */
+const DATE_FANOUT_CONCURRENCY = 8;
+
+/** One page of one date trigger's fan-out. */
+export interface DatePage {
+  workflow: string;
+  at: number;
+  /** Journeys this page started. */
+  started: string[];
+  /** Whether this trigger's fan-out is over (its last page, or it was given up as missed). */
+  finished: boolean;
+  /** A start failed: the page is kept, and the next sweep takes it again. */
+  failed: boolean;
+}
+
+/**
+ * One page of the earliest date trigger that is due: the next users its filter may hold for, a
+ * journey started for each one it does. Undefined when nothing is due. `except` names the
+ * workflows to leave alone — those whose page failed earlier in this sweep, so that one trigger
+ * in trouble does not keep the others waiting behind it.
+ *
+ * The cursor is saved after the page, so a page cut off before that is done again — which starts
+ * nothing twice: the occurrence is the trigger's time, and the entry ledger holds one entry per
+ * (workflow, user, occurrence). A start that fails leaves the cursor where it was, for the same
+ * reason: the next sweep takes the page again and the ledger skips whoever already entered. That
+ * is kept up for the grace period; past it, a user whose start still fails is passed over, or
+ * one user nobody can start would hold the trigger, and every sweep, forever.
+ */
+export async function fanOutDatePage(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now = Date.now(),
+  limit = SWEEP_PAGE_SIZE,
+  except: readonly string[] = []
+): Promise<DatePage | undefined> {
+  const run = (await store.dueDateTriggers(now)).find((due) => !except.includes(due.workflow));
+  if (run === undefined) return undefined;
+  const { workflow, at } = run;
+  const overdue = now - at > DATE_TRIGGER_GRACE_MS;
+  if (run.after === undefined && run.entered === 0 && overdue) {
+    console.warn(
+      `[workflow] date trigger of '${workflow}' was due ${new Date(at).toISOString()} and no sweep ran it within a day: given up`
+    );
+    await store.advanceDateRun(run, { skipped: 'missed', now });
+    return { workflow, at, started: [], finished: true, failed: false };
+  }
+
+  const candidates = await store.listDateCandidates({
+    filter: run.filter,
+    now,
+    after: run.after,
+    limit,
+  });
+  const erasing = new Set(await store.pendingErasures());
+  const occurrence = `$date:${at}`;
+  const started: string[] = [];
+  let failed = false;
+  const enter = async ({ userId, certain }: DateCandidate): Promise<void> => {
+    if (erasing.has(userId)) return;
+    try {
+      if (!certain && run.filter !== undefined) {
+        const facts = new JourneyFactSource(store, userId);
+        if (!(await evaluateCondition(run.filter, facts, now))) return;
+      }
+      const { instanceId } = await startJourney(env, store, run, userId, at, occurrence, {
+        event: DATE_TRIGGER_EVENT,
+        payload: {},
+        ts: at,
+      });
+      if (instanceId !== null) started.push(instanceId);
+    } catch (error) {
+      // Erased since the page was listed: nothing of theirs is started, and nothing is owed
+      if (error instanceof UserErasedError) return;
+      failed = true;
+      console.error(`[workflow] date trigger of '${workflow}': start for ${userId} failed`, error);
+    }
+  };
+  for (let i = 0; i < candidates.length; i += DATE_FANOUT_CONCURRENCY) {
+    await Promise.all(candidates.slice(i, i + DATE_FANOUT_CONCURRENCY).map(enter));
+  }
+
+  // A failed start keeps the page for the next sweep — until the trigger is a day overdue
+  const kept = failed && !overdue;
+  if (failed && overdue) {
+    console.warn(
+      `[workflow] date trigger of '${workflow}': still failing a day past its time, the users of this page it could not start are passed over`
+    );
+  }
+  const last = candidates.at(-1)?.userId;
+  const finished = !kept && candidates.length < limit;
+  await store.advanceDateRun(run, {
+    after: kept ? undefined : last,
+    entered: started.length,
+    finished,
+    now,
+  });
+  // A store that ignores `after` would hand back the same page forever: refuse to loop on it
+  if (!kept && !finished && last === run.after) {
+    throw new Error(`listDateCandidates did not advance past ${String(run.after)}`);
+  }
+  return { workflow, at, started, finished, failed: kept };
+}
+
+/**
+ * The date triggers that are due, page after page, until none is left or the budget is spent. A
+ * trigger whose page failed is left for the next sweep, and the others go on.
+ */
+export async function sweepDateTriggers(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now = Date.now(),
+  budgetMs = DATE_FANOUT_BUDGET_MS
+): Promise<{ started: string[]; dates: DateFanout[] }> {
+  const began = Date.now();
+  const started: string[] = [];
+  const byRun = new Map<string, DateFanout>();
+  const failed: string[] = [];
+  for (;;) {
+    const page = await fanOutDatePage(env, store, now, SWEEP_PAGE_SIZE, failed);
+    if (page === undefined) break;
+    const key = `${page.workflow}@${page.at}`;
+    const fanout = byRun.get(key) ?? {
+      workflow: page.workflow,
+      at: page.at,
+      entered: 0,
+      finished: false,
+    };
+    fanout.entered += page.started.length;
+    fanout.finished = page.finished;
+    byRun.set(key, fanout);
+    started.push(...page.started);
+    if (page.failed) failed.push(page.workflow);
+    if (Date.now() - began > budgetMs) break;
+  }
+  return { started, dates: [...byRun.values()] };
+}
+
 /**
  * The scheduled sweep: every deployed segment checked against every known user. The store narrows
  * that down in one statement per page (`listSegmentCandidates`), so a sweep with nothing to change
@@ -622,6 +791,7 @@ export async function sweepSegmentsPaged(
  * on decides each remaining case, so a member is exactly who a journey would see in it. Membership
  * follows (joiners keep the time they joined, leavers are removed), segment triggers start the
  * journeys of whoever entered by the clock alone, and the store records each segment's size.
+ * Before all that it starts the journeys of the date triggers that are due (`sweepDateTriggers`).
  */
 export async function sweepSegments(
   env: JourneyEnv,
@@ -629,11 +799,13 @@ export async function sweepSegments(
   now = Date.now()
 ): Promise<SweepResult> {
   await sweepMaintenance(env, store);
+  // First: a date trigger is the one thing here that is late by the clock
+  const dated = await sweepDateTriggers(env, store, now);
   // Read before the first page: only a pass that began with a segment's seeding has been
   // through every user for it
   const seeding = await store.seedingSegments();
   let evaluated = 0;
-  const started: string[] = [];
+  const started: string[] = [...dated.started];
   let after: string | undefined;
   for (;;) {
     const page = await sweepSegmentsPaged(env, store, { after, limit: SWEEP_PAGE_SIZE, now });
@@ -644,7 +816,7 @@ export async function sweepSegments(
   }
   await store.finishSeeding(seeding);
   const sizes = await store.reporting.snapshotSegments(now);
-  return { evaluated, started, sizes };
+  return { evaluated, started, sizes, dates: dated.dates };
 }
 
 /**
@@ -1095,9 +1267,7 @@ export interface DeployResult {
   /**
    * Workflows whose trigger type has no runtime routing yet — they deploy (the
    * IR is stored and versioned) but will never start until the routing lands.
-   * Currently: date (TODO — needs cron + Queues, instance creation is
-   * rate-limited and a date trigger fans out to the whole audience at once)
-   * and webhook (TODO — needs endpoint allocation).
+   * Currently: webhook (TODO — needs endpoint allocation).
    */
   unrouted: { workflow: string; trigger: TriggerIR['type'] }[];
   /**
@@ -1220,7 +1390,7 @@ export async function deployBundle(
   else applied = await store.replaceRoutesIfNewer(parsed, version);
 
   const unrouted = parsed.workflows
-    .filter((workflow) => workflow.trigger.type === 'date' || workflow.trigger.type === 'webhook')
+    .filter((workflow) => workflow.trigger.type === 'webhook')
     .map((workflow) => ({ workflow: workflow.id, trigger: workflow.trigger.type }));
 
   return {

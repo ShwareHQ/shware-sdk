@@ -91,6 +91,7 @@ export {
 } from './flow';
 export {
   type DateTime,
+  type DateTriggerOptions,
   type EventTriggerOptions,
   type EventTriggerRef,
   type TriggerFactory,

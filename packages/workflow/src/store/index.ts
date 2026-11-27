@@ -433,6 +433,33 @@ export interface JourneyReporting {
   snapshotSegments(at: number): Promise<{ segment: string; size: number }[]>;
 }
 
+/**
+ * A date trigger whose time has come and whose fan-out is not over: the route (what to start, on
+ * which version) and how far it got.
+ */
+export interface DueDateTrigger {
+  workflow: string;
+  hash: string;
+  reentry: ReentryIR;
+  version?: string | undefined;
+  /** The trigger's time, epoch milliseconds: with the workflow, the run's identity. */
+  at: number;
+  filter?: ConditionIR | undefined;
+  /** The last user the fan-out went past; undefined before its first page. */
+  after?: string | undefined;
+  /** Journeys started so far. */
+  entered: number;
+}
+
+/**
+ * A user a date trigger's fan-out has to look at. `certain` when SQL alone decided the filter
+ * holds; otherwise the evaluator journeys run on decides.
+ */
+export interface DateCandidate {
+  userId: string;
+  certain: boolean;
+}
+
 /** A user the segment sweep has to evaluate, and for which segments. */
 export interface SegmentCandidate {
   userId: string;
@@ -629,6 +656,35 @@ export interface JourneyStore {
   finishSeeding(segments: readonly SeedingSegment[]): Promise<void>;
   findTriggers(event: string): Promise<TriggerRoute[]>;
   listSegmentTriggers(): Promise<SegmentTriggerRoute[]>;
+  /** Date triggers at or past their time (`at <= now`) with a fan-out still to finish, earliest first. */
+  dueDateTriggers(now: number): Promise<DueDateTrigger[]>;
+  /**
+   * The next users (ascending, at most `limit`, past `after`) a date trigger may enter: every
+   * known user without a filter, else those it holds for or SQL cannot decide.
+   */
+  listDateCandidates(page: {
+    filter?: ConditionIR | undefined;
+    now: number;
+    after?: string | undefined;
+    limit: number;
+  }): Promise<DateCandidate[]>;
+  /**
+   * Record how far a date trigger's fan-out got: the cursor moves to `after`, `entered` is added
+   * to the count, and with `finished` (or `skipped`, the reason it ended without running) the
+   * run is over. Only from the place `run` was read at: two sweeps on one run (an overlap, a
+   * sweep called by hand) both do the page, the ledger keeps the second from starting anything,
+   * and the one that comes back late must not move the cursor back over what the other did since.
+   */
+  advanceDateRun(
+    run: { workflow: string; at: number; after?: string | undefined },
+    progress: {
+      after?: string | undefined;
+      entered?: number;
+      finished?: boolean;
+      skipped?: 'missed';
+      now: number;
+    }
+  ): Promise<void>;
   putWorkflowIR(workflow: WorkflowIR): Promise<void>;
   getWorkflowIR(contentHash: string): Promise<WorkflowIR | undefined>;
   /**
