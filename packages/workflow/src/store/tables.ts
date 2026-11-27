@@ -224,6 +224,21 @@ export const TABLES = {
     },
     primaryKey: ['workflow', 'at'],
   }),
+  sweepPass: table({
+    name: 'sweep_pass',
+    doc: "The segment sweep's pass over every user, while one is under way: at most one row (`id` is 'segments'), written when a pass begins and removed when it has been through everyone. It is what lets a sweep that ran out of time be carried on by the next instead of starting over.",
+    columns: {
+      id: text,
+      startedAt: ts,
+      cursor: nullable(text, 'The last user id the pass went past; the next page starts after it.'),
+      seeding: {
+        type: 'jsonb',
+        doc: 'The segments that were being seeded when the pass began (`SeedingSegment[]`): the ones its end seeds.',
+      },
+      evaluated: { type: 'integer', doc: 'Users evaluated so far.' },
+    },
+    primaryKey: ['id'],
+  }),
   segmentTrigger: table({
     name: 'segment_trigger',
     doc: 'Segment-entry trigger routes.',

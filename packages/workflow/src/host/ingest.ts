@@ -391,8 +391,16 @@ export interface SweepResult {
   evaluated: number;
   /** Journeys the segments' entries started. */
   started: string[];
-  /** Each deployed segment's size after the sweep (empty when the store keeps no reporting). */
+  /**
+   * Each deployed segment's size, recorded when a pass ends: empty while one is still under way
+   * (and when the store keeps no reporting).
+   */
   sizes: { segment: string; size: number }[];
+  /**
+   * Whether the pass over the segments has been through every user. False when this sweep ran
+   * out of time: the pass is kept in the store and the next sweep carries on from there.
+   */
+  finished: boolean;
   /** The date triggers this sweep worked on: how many journeys it started for each, and whether the fan-out is over. */
   dates: DateFanout[];
 }
@@ -588,9 +596,7 @@ export interface SweepPage {
 /**
  * One page of the sweep: the next users (ascending, at most `limit`) the store says may have a
  * membership to change, evaluated for those segments only. The pages are what makes the sweep
- * resumable — a host whose run can be cut short (a Lambda timeout) checkpoints each one and
- * replays the checkpointed pages instead of starting over; `sweepSegments` is the plain loop over
- * them.
+ * resumable: `sweepSegmentPass` saves its place in the store after each one.
  */
 export async function sweepSegmentsPaged(
   env: JourneyEnv,
@@ -645,7 +651,7 @@ export const DATE_TRIGGER_GRACE_MS = 24 * 60 * 60_000;
  * scheduled handler is not given unlimited time, and the fan-out is resumable by construction,
  * so stopping early costs a sweep interval and running over costs the page in flight.
  */
-export const DATE_FANOUT_BUDGET_MS = 25_000;
+export const DATE_FANOUT_BUDGET_MS = 30_000;
 
 /** Journeys started at once within a page: instance creation is the slow part, and rate-limited. */
 const DATE_FANOUT_CONCURRENCY = 8;
@@ -785,6 +791,75 @@ export async function sweepDateTriggers(
 }
 
 /**
+ * How long one sweep spends on the segments before it leaves the rest of the pass to the next
+ * one. As for the date triggers: the handler a schedule calls is not given unlimited time, and
+ * the pass is kept in the store, so stopping early costs a sweep interval and nothing else.
+ */
+export const SWEEP_BUDGET_MS = 30_000;
+
+/** What one sweep did of the pass over the segments. */
+export interface SegmentPassSlice {
+  /** Users evaluated by this sweep. */
+  evaluated: number;
+  /** Journeys the segments' entries started in this sweep. */
+  started: string[];
+  /** The sizes recorded at the end of the pass; empty until then. */
+  sizes: { segment: string; size: number }[];
+  /** Whether the pass has now been through every user. */
+  finished: boolean;
+  /** Whether it stopped for the budget alone, so calling again goes on at once. */
+  more: boolean;
+}
+
+/**
+ * The pass over the segments, from wherever the store says it is: page after page until every
+ * user has been gone through or `budgetMs` is spent (0: one page). The place is saved after each
+ * page (`sweep_pass`), so a sweep that is cut off — by the budget, a timeout, a deploy — costs
+ * the page in flight, and that page done again changes nothing: whoever it already recorded is
+ * no longer a candidate.
+ *
+ * The pass ends once, however many sweeps it took: the segments that were being seeded when it
+ * began are seeded (only a pass that began with them has been through every user for them),
+ * and the sizes are recorded. Two sweeps on one pass (an overlap, one called by hand) both do
+ * their page; the one whose place was moved under it stops there.
+ */
+export async function sweepSegmentPass(
+  env: JourneyEnv,
+  store: JourneyStore,
+  now = Date.now(),
+  budgetMs = SWEEP_BUDGET_MS
+): Promise<SegmentPassSlice> {
+  const began = Date.now();
+  const pass = await store.openSweepPass(now);
+  let evaluated = 0;
+  const started: string[] = [];
+  for (;;) {
+    const page = await sweepSegmentsPaged(env, store, {
+      after: pass.after,
+      limit: SWEEP_PAGE_SIZE,
+      now,
+    });
+    evaluated += page.evaluated;
+    started.push(...page.started);
+    if (!page.more || page.lastUserId === undefined) break;
+    const progress = { after: page.lastUserId, evaluated: page.evaluated };
+    if (!(await store.advanceSweepPass(pass, progress))) {
+      return { evaluated, started, sizes: [], finished: false, more: false };
+    }
+    pass.after = page.lastUserId;
+    if (Date.now() - began >= budgetMs) {
+      return { evaluated, started, sizes: [], finished: false, more: true };
+    }
+  }
+  // Seeded before the pass is removed: cut off in between, the next sweep finds the pass at its
+  // last page and ends it again, which repeats nothing
+  await store.finishSeeding(pass.seeding);
+  const sizes = await store.reporting.snapshotSegments(now);
+  await store.finishSweepPass(pass);
+  return { evaluated, started, sizes, finished: true, more: false };
+}
+
+/**
  * The scheduled sweep: every deployed segment checked against every known user. The store narrows
  * that down in one statement per page (`listSegmentCandidates`), so a sweep with nothing to change
  * costs a few queries however many users there are, and the evaluator a journey's conditions run
@@ -792,31 +867,28 @@ export async function sweepDateTriggers(
  * follows (joiners keep the time they joined, leavers are removed), segment triggers start the
  * journeys of whoever entered by the clock alone, and the store records each segment's size.
  * Before all that it starts the journeys of the date triggers that are due (`sweepDateTriggers`).
+ *
+ * One call spends a bounded time (`budgetMs` on the segments, `DATE_FANOUT_BUDGET_MS` on the
+ * date triggers) and both keep their place in the store, so an audience too large for one call
+ * is gone through by several: `finished` says whether the pass over the segments ended here.
  */
 export async function sweepSegments(
   env: JourneyEnv,
   store: JourneyStore,
-  now = Date.now()
+  now = Date.now(),
+  budgetMs = SWEEP_BUDGET_MS
 ): Promise<SweepResult> {
   await sweepMaintenance(env, store);
   // First: a date trigger is the one thing here that is late by the clock
   const dated = await sweepDateTriggers(env, store, now);
-  // Read before the first page: only a pass that began with a segment's seeding has been
-  // through every user for it
-  const seeding = await store.seedingSegments();
-  let evaluated = 0;
-  const started: string[] = [...dated.started];
-  let after: string | undefined;
-  for (;;) {
-    const page = await sweepSegmentsPaged(env, store, { after, limit: SWEEP_PAGE_SIZE, now });
-    evaluated += page.evaluated;
-    started.push(...page.started);
-    if (!page.more || page.lastUserId === undefined) break;
-    after = page.lastUserId;
-  }
-  await store.finishSeeding(seeding);
-  const sizes = await store.reporting.snapshotSegments(now);
-  return { evaluated, started, sizes, dates: dated.dates };
+  const pass = await sweepSegmentPass(env, store, now, budgetMs);
+  return {
+    evaluated: pass.evaluated,
+    started: [...dated.started, ...pass.started],
+    sizes: pass.sizes,
+    finished: pass.finished,
+    dates: dated.dates,
+  };
 }
 
 /**

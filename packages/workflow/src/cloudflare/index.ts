@@ -24,7 +24,9 @@ export {
   sweepDateTriggers,
   sweepMaintenance,
   sweepSegments,
+  sweepSegmentPass,
   sweepSegmentsPaged,
+  SWEEP_BUDGET_MS,
   SWEEP_PAGE_SIZE,
 } from '../host/ingest';
 export { handleRequest } from '../host/http';

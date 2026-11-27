@@ -16,7 +16,7 @@ import {
   type SweepResult,
   fanOutDatePage,
   sweepMaintenance,
-  sweepSegmentsPaged,
+  sweepSegmentPass,
 } from '../host/ingest';
 import { type JourneyHostOptions, createJourneyHost } from '../host/journey-host';
 import type { JourneyEnv } from '../host/platform';
@@ -265,8 +265,9 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
   /**
    * The sweep as durable steps, one per page of users: an invocation cut short (the function's
    * timeout) is re-invoked, and the re-invocation replays the pages already checkpointed
-   * instead of evaluating everyone again. No step retries on its own — a page that failed is
-   * evaluated again by the next tick.
+   * instead of evaluating them again. What is shared with every other host is the page and where
+   * the pass stands, both in `sweepSegmentPass` and the store; only the steps are this host's.
+   * No step retries on its own — a page that failed is evaluated again by the next tick.
    */
   const sweep = async (context: DurableContext): Promise<SweepResult> => {
     const once = { retryStrategy: () => ({ shouldRetry: false }) };
@@ -311,43 +312,29 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       dated.push(...page.started);
       if (page.failed) failedDates.push(page.workflow);
     }
-    // As `sweepSegments`: the segments being seeded when the pass began are seeded once it ends
-    const seeding = await context.step(
-      'sweep:seeding',
-      async () => open(context).store.seedingSegments(),
-      once
-    );
+    // The pass over the segments, a page a step. Its place is in the store (`sweep_pass`), as
+    // the date triggers' is: a step only says what its page did, and whichever invocation runs
+    // the next one goes on from there. The pass ends — seeding, sizes — inside its last page.
     let evaluated = 0;
     const started: string[] = [...dated];
-    let after: string | undefined;
+    let sizes: SweepResult['sizes'] = [];
+    let finished = false;
     for (let n = 0; ; n++) {
-      const page = await context.step(
+      const slice = await context.step(
         `sweep:page:${n}`,
         async () => {
           const { store, env } = open(context);
-          return sweepSegmentsPaged(env, store, { after, limit: SWEEP_PAGE_SIZE });
+          return sweepSegmentPass(env, store, Date.now(), 0);
         },
         once
       );
-      evaluated += page.evaluated;
-      started.push(...page.started);
-      if (!page.more || page.lastUserId === undefined) break;
-      after = page.lastUserId;
+      evaluated += slice.evaluated;
+      started.push(...slice.started);
+      sizes = slice.sizes;
+      finished = slice.finished;
+      if (!slice.more) break;
     }
-    await context.step(
-      'sweep:seeded',
-      async () => open(context).store.finishSeeding(seeding),
-      once
-    );
-    const sizes = await context.step(
-      'sweep:snapshot',
-      async () => {
-        const { store } = open(context);
-        return store.reporting.snapshotSegments(Date.now());
-      },
-      once
-    );
-    return { evaluated, started, sizes, dates: [...dates.values()] };
+    return { evaluated, started, sizes, finished, dates: [...dates.values()] };
   };
 
   const durable = withDurableExecution(async (input: unknown, context: DurableContext) => {

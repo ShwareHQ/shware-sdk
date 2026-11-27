@@ -73,6 +73,21 @@ export interface SeedingSegment {
 }
 
 /**
+ * One pass of the segment sweep over every user. It lives in the store, not in the sweep that
+ * began it: a sweep that runs out of time leaves it where it got to and the next one carries on,
+ * so a pass ends however many sweeps it takes. `seeding` is what `seedingSegments` answered when
+ * it began — only that pass has been through every user for them.
+ */
+export interface SweepPass {
+  startedAt: number;
+  /** The last user id the pass went past; undefined before its first page. */
+  after?: string | undefined;
+  seeding: SeedingSegment[];
+  /** Users evaluated so far. */
+  evaluated: number;
+}
+
+/**
  * A Worker version, as Cloudflare's version metadata binding names it: the bundle compiled into
  * that version goes live only over an older one (`replaceRoutesIfNewer`).
  */
@@ -654,6 +669,18 @@ export interface JourneyStore {
    * since (another `since`) stays as it is, for the next sweep.
    */
   finishSeeding(segments: readonly SeedingSegment[]): Promise<void>;
+  /** The segment sweep's pass under way, or a new one begun at `now` with the segments being seeded. */
+  openSweepPass(now: number): Promise<SweepPass>;
+  /**
+   * The pass went past `after`. Only from the place `pass` was read at: false when another sweep
+   * moved it meanwhile (an overlap, a sweep called by hand), and this one should leave it alone.
+   */
+  advanceSweepPass(
+    pass: SweepPass,
+    progress: { after: string; evaluated: number }
+  ): Promise<boolean>;
+  /** The pass has been through every user: the next sweep begins another. False as above. */
+  finishSweepPass(pass: SweepPass): Promise<boolean>;
   findTriggers(event: string): Promise<TriggerRoute[]>;
   listSegmentTriggers(): Promise<SegmentTriggerRoute[]>;
   /** Date triggers at or past their time (`at <= now`) with a fan-out still to finish, earliest first. */
