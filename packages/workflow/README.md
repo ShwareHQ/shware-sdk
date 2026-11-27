@@ -944,8 +944,9 @@ mistake (a wrong APNs key, a revoked service account): the journeys keep
 running, the later steps still send once it is fixed, and what it cost is the
 count of that reason in the delivery report — watch it, because no instance
 fails for it. A transport of your own names the reason with a `reason` string
-on the error it throws. A message refused before the send — a template refusing
-its props — still fails the step: that is the workflow, not the recipient.
+on the error it throws. A template refusing its props or its content still
+fails the step, before the send or inside the sender: that is the workflow, not
+the recipient.
 
 `no_answer` and `unconfirmed` are `undelivered_reason`s like any other, so the
 copies at-most-once cost are in the delivery report and can be counted. A

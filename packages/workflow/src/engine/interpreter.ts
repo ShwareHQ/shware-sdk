@@ -14,7 +14,7 @@ import type {
   PushDevice,
 } from './ports';
 import { RECIPIENT_PROPERTY } from './recipient';
-import { isRetryable, isUnanswered, refusalReason } from './retry';
+import { isRefusedSend, isUnanswered, refusalReason } from './retry';
 import { nextWindowStart } from './time-window';
 
 /**
@@ -187,12 +187,15 @@ async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
  *
  * Delivery is at most once. A send that throws is a definite failure — the provider answered
  * with a refusal, or the sender never got as far as asking. What happens next depends on whether
- * another attempt could go differently (`isRetryable`):
+ * another attempt could go differently:
  *
  * - it could (a 429, a 5xx, a token that expired): the claim is released, the step retries, and
- *   the copy is reported when it settles;
- * - it could not (a `PermanentError`, a transport's `retryable: false`: the provider refused this
- *   token, this address or this payload, or the channel is not configured): the copy settles
+ *   the copy is reported when it settles. So it is for the engine's own refusals raised inside a
+ *   sender (a template refusing its props or content, an erased user), which no retry fixes: the
+ *   claim is released and the step fails, because that is the workflow, not the recipient;
+ * - it could not (`isRefusedSend`: a `PermanentError`, a transport's `retryable: false` — the
+ *   provider refused this token, this address or this payload, or the channel is not
+ *   configured): the copy settles
  *   undelivered under the refusal's reason and the journey goes on. One device, one address or
  *   one misconfigured channel does not end the journey for the user — the copies to their other
  *   devices and the steps after this one still run, and the report counts the refusals.
@@ -246,7 +249,7 @@ async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<v
       await settleUncertain(copy, 'no_answer', ctx);
       return;
     }
-    if (!isRetryable(error)) {
+    if (isRefusedSend(error)) {
       // Refused for good: no attempt will go differently, and the journey is not this copy
       const reason = refusalReason(error);
       console.error(

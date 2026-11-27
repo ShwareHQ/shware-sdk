@@ -87,6 +87,17 @@ export function isRetryable(error: unknown): boolean {
   return (error as { retryable?: unknown }).retryable !== false;
 }
 
+/**
+ * A send refused for good, the copy `deliver` settles instead of failing the step: an error that
+ * says `retryable: false` — a provider's answer, a channel that is not configured. Not the
+ * engine's own refusals, which are told by name: a template refusing its props or its content is
+ * the workflow, not the recipient, and an erased user ends the journey; both still fail the step.
+ */
+export function isRefusedSend(error: unknown): boolean {
+  if (!(error instanceof Error) || isRetryable(error)) return false;
+  return !DETERMINISTIC.has(error.name) && error.name !== 'UserErasedError';
+}
+
 /** An HTTP answer a retry can change: a timeout, throttling, or the provider's own fault. */
 export function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;

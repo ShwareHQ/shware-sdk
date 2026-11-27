@@ -2192,6 +2192,36 @@ describe('delivery is at most once', () => {
     error.mockRestore();
   });
 
+  test('a template refusing its content inside the sender still fails the step: that is the workflow', async () => {
+    const { ctx } = makeContext();
+    const { released } = fakeReporting(ctx);
+    const outcomes: unknown[] = [];
+    ctx.observer = {
+      ...ctx.observer,
+      messageSent: async (_m, result) => void outcomes.push(result),
+    };
+    const ir = workflow({
+      id: 'refused_template',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(hello)
+      .toIR();
+    for (const name of ['TemplateValidationError', 'UserErasedError']) {
+      ctx.messages = {
+        send: async () => {
+          throw Object.assign(new Error(`${name} raised in the sender`), {
+            name,
+            retryable: false,
+          });
+        },
+      };
+      await expect(runJourney(ir, ctx)).rejects.toThrow(name);
+    }
+    expect(outcomes).toEqual([]);
+    expect(released).toEqual(['inst_1:0', 'inst_1:0']);
+  });
+
   test('a host transport marks the same thing with the property alone', async () => {
     const { ctx } = makeContext();
     const { released } = fakeReporting(ctx);

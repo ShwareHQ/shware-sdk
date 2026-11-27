@@ -35,6 +35,7 @@ export {
   awaitAnswer,
   isRetryable,
   isRetryableStatus,
+  isRefusedSend,
   isUnanswered,
   refusalReason,
 } from './retry';
