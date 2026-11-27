@@ -1,4 +1,4 @@
-import type { EngineStep, JourneyOutcome } from '../engine/ports';
+import type { EngineStep, JourneyOutcome, StepOptions } from '../engine/ports';
 import { isRetryable } from '../engine/retry';
 import {
   InstanceNotFoundError,
@@ -7,7 +7,7 @@ import {
   type WorkflowInstanceLike,
 } from '../host/platform';
 import { type JourneyStore, instanceOwner } from '../store/index';
-import type { ClaimedRun, RunStore, StepRecord, Suspension } from './runs';
+import type { ClaimedRun, RunStore, StepRecord, StepWrites, Suspension } from './runs';
 
 /**
  * The self-hosted runtime: journeys as rows, run a turn at a time.
@@ -88,6 +88,13 @@ const messageOf = (error: unknown): string =>
  */
 class TurnStep implements EngineStep {
   private readonly seen = new Map<string, number>();
+  /**
+   * Checkpoints not written yet: the engine's bookkeeping steps, a sleep's instant, a retry's
+   * backoff. They go with the next checkpoint that cannot wait, or with the statement that ends
+   * the turn — always together with what follows them, so a replay never finds a later step
+   * recorded and an earlier one missing.
+   */
+  private readonly held = new Map<string, StepRecord>();
   private readonly inFlight = new Set<Promise<unknown>>();
   /** The wake counter as the latest `subscribe` read it: what the next wait compares against. */
   private baseline = 0;
@@ -148,21 +155,31 @@ class TurnStep implements EngineStep {
    * turn that was only suspended still holds its run: a step finishing beside the one that
    * suspended it is recorded.
    */
-  private async save(key: string, record: StepRecord): Promise<boolean> {
+  private async save(key: string, record: StepRecord, later = false): Promise<boolean> {
     if (this.lost) return false;
+    this.held.set(key, record);
+    this.records.set(key, record);
+    if (later) return true;
+    const writes = Array.from(this.held);
     let kept: boolean;
     try {
-      kept = await this.runs.checkpoint(this.run, key, record, this.now());
+      kept = await this.runs.checkpoint(this.run, writes, this.now());
     } catch (error) {
       void this.fail(error);
       return false;
     }
-    if (kept) this.records.set(key, record);
+    // Only what was sent: a step finishing meanwhile holds its own
+    if (kept) for (const [written] of writes) this.held.delete(written);
     else void this.abandon();
     return kept;
   }
 
-  async do<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  /** The checkpoints still held, for the statement that ends the turn. */
+  take(): StepWrites {
+    return Array.from(this.held);
+  }
+
+  async do<T>(name: string, fn: () => Promise<T>, options?: StepOptions): Promise<T> {
     const key = this.key(name);
     const record = this.records.get(key);
     if (record?.done === true) return record.result as T;
@@ -186,12 +203,12 @@ class TurnStep implements EngineStep {
       // retries: the journey gets the error, as on the other runtimes
       if (!isRetryable(error) || failed >= this.retry.limit) throw error;
       const wakeAt = this.now() + this.retry.delayMs * 2 ** failed;
-      const kept = await this.save(key, {
-        kind: 'do',
-        done: false,
-        result: wakeAt,
-        attempts: failed + 1,
-      });
+      // Held: the suspension that follows writes it
+      const kept = await this.save(
+        key,
+        { kind: 'do', done: false, result: wakeAt, attempts: failed + 1 },
+        true
+      );
       if (kept) {
         console.warn(
           `[workflow] step ${name} of ${this.run.instanceId} failed (attempt ${failed + 1}), retrying: ${messageOf(error)}`
@@ -200,7 +217,11 @@ class TurnStep implements EngineStep {
       return this.halt({ status: 'sleeping', wakeAt });
     }
     this.inFlight.delete(attempt);
-    const kept = await this.save(key, { kind: 'do', done: true, result, attempts: failed + 1 });
+    const kept = await this.save(
+      key,
+      { kind: 'do', done: true, result, attempts: failed + 1 },
+      options?.idempotent === true
+    );
     return kept ? result : never<T>();
   }
 
@@ -228,7 +249,10 @@ class TurnStep implements EngineStep {
       if (this.stopped) return never();
       // The instant is fixed the first time the sleep is reached: a replay sleeps to the same one
       until = this.now() + ms;
-      if (!(await this.save(key, { kind: 'sleep', done: true, result: until, attempts: 0 }))) {
+      // Held: the suspension that follows writes it (a sleep of no length has nothing to lose)
+      if (
+        !(await this.save(key, { kind: 'sleep', done: true, result: until, attempts: 0 }, true))
+      ) {
         return never();
       }
     }
@@ -361,7 +385,7 @@ export class NodeRuntime {
       });
       const step = new TurnStep(
         run,
-        await this.runs.steps(instanceId),
+        run.steps,
         this.runs,
         parts.store,
         run.params.userId,
@@ -385,14 +409,14 @@ export class NodeRuntime {
         // run is taken again
         if (step.fault !== undefined) throw step.fault.error;
         if (end.how === 'abandoned' || step.lost) return { instanceId, ended: 'abandoned' };
-        await this.runs.suspend(run, end.how, this.now());
+        await this.runs.suspend(run, end.how, this.now(), step.take());
         return { instanceId, ended: 'suspended', wakeAt: end.how.wakeAt };
       }
       if ('error' in end) {
-        await this.runs.finish(run, 'errored', this.now(), messageOf(end.error));
+        await this.runs.finish(run, 'errored', this.now(), messageOf(end.error), step.take());
         return { instanceId, ended: 'errored', error: end.error };
       }
-      await this.runs.finish(run, 'complete', this.now());
+      await this.runs.finish(run, 'complete', this.now(), undefined, step.take());
       return { instanceId, ended: 'complete', outcome: end.outcome };
     } finally {
       clearInterval(beat);

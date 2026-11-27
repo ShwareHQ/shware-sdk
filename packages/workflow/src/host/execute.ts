@@ -136,12 +136,16 @@ export async function executeJourney(
     // In a step: a read that fails is retried like any other, and one that keeps failing ends
     // the instance through the failure path below rather than leaving its entry 'running'.
     // Content addressing makes the IR immutable, so the checkpointed copy is the one to replay
-    const stored = await step.do('$workflow:ir', async () => {
-      const found = await store.getWorkflowIR(contentHash);
-      if (found === undefined)
-        throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
-      return found;
-    });
+    const stored = await step.do(
+      '$workflow:ir',
+      async () => {
+        const found = await store.getWorkflowIR(contentHash);
+        if (found === undefined)
+          throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
+        return found;
+      },
+      { idempotent: true }
+    );
     // Development runs the journey in fast-forward; the pinned hash still names the version.
     const ir = scaleDurations(stored, runtime.timeScale);
     outcome = await runJourney(ir, {
@@ -178,19 +182,27 @@ export async function executeJourney(
      * A paused instance never gets here: a durable wait suspends the run
      * without throwing through it.
      */
-    await step.do('finalize:failed', async () => {
-      await store.setEntryStatus(instanceId, 'failed');
-      await store.unsubscribe(instanceId);
-      await finished('failed');
-    });
+    await step.do(
+      'finalize:failed',
+      async () => {
+        await store.setEntryStatus(instanceId, 'failed');
+        await store.unsubscribe(instanceId);
+        await finished('failed');
+      },
+      { idempotent: true }
+    );
     throw error;
   }
 
-  await step.do('finalize', async () => {
-    await store.setEntryStatus(instanceId, outcome.status);
-    await store.unsubscribe(instanceId);
-    await finished(outcome.status, outcome.convertedAt);
-  });
+  await step.do(
+    'finalize',
+    async () => {
+      await store.setEntryStatus(instanceId, outcome.status);
+      await store.unsubscribe(instanceId);
+      await finished(outcome.status, outcome.convertedAt);
+    },
+    { idempotent: true }
+  );
 
   return outcome;
 }

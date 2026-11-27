@@ -15,9 +15,22 @@ import type { ChannelIR, ConditionIR, ScalarIR } from '../ir';
  *   must happen inside step.do, so its result is persisted and replay lines up.
  */
 
+/** What the interpreter knows about a step that a runtime may use. */
+export interface StepOptions {
+  /**
+   * The step is the engine's own bookkeeping: run again it does the same thing over, and what
+   * it returns does not decide where the journey goes. A runtime that writes its own
+   * checkpoints may hold this one back and write it with the next step's (one that is not
+   * marked), saving the round trip — if the process dies in between, the step simply runs
+   * again. Never set for anything whose result picks a branch, reads the clock for the journey,
+   * or reaches outside the engine's store: those are durable before the next step begins.
+   */
+  idempotent?: boolean;
+}
+
 export interface EngineStep {
   /** Durable step: fn's return value is checkpointed; on replay the result is reused without re-running. */
-  do<T>(name: string, fn: () => Promise<T>): Promise<T>;
+  do<T>(name: string, fn: () => Promise<T>, options?: StepOptions): Promise<T>;
 
   /**
    * Durable sleep: suspended time is not billed. The only sleep primitive — a wait until an
