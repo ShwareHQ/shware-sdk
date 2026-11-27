@@ -446,7 +446,7 @@ the returns are estimates until measured:
 
 1. **Fewer round trips a run.** Write a turn's checkpoints together; read the run's checkpoints
    in the claim; end the run with its last checkpoint; claim several runs in one statement.
-   Something like 21 transactions to 8–10.
+   Something like 21 transactions to 8–10. **The first three are done — see below.**
 2. **Prepared statements.** The host sends every statement as text, planned anew each time;
    whether the client can prepare them, and what it returns, has not been tried.
 3. **Not storing the workflow's definition in every run's checkpoints** (`$workflow:ir`): it is
@@ -454,3 +454,43 @@ the returns are estimates until measured:
 4. **A partial index for the claim and room for HOT updates on `run`**: for bloat over months,
    not for the rate. Nothing here shows a need yet.
 5. More cores on the database. This load should follow them; that too is unmeasured.
+
+### After the first cut in round trips (2026-11-28)
+
+Three changes, the tables above being from before them:
+
+- **The engine marks its own bookkeeping steps** (`StepOptions.idempotent`: the stored
+  definition, the entry started, a node reached, the ending). The runtime holds their
+  checkpoints and writes them with the next step's that cannot wait — an action, a decision —
+  in one statement. Nothing whose result picks a branch or reaches outside the store is held.
+  If the process dies in between, the bookkeeping runs again, as it could before.
+- **The statement that ends a turn carries the checkpoints still held**: the run's end with
+  its last one, a suspension with the sleep's instant or the retry's backoff.
+- **The claim returns the run's checkpoints**, instead of a second round trip to read them.
+
+The same machine and sizes, 100k users, one run of each cell:
+
+| Hosts      | Runs at once, each | Runs/s before | Runs/s after | Change |
+| ---------- | ------------------ | ------------- | ------------ | ------ |
+| 2 × 1 vCPU | 10                 | 343           | 434          | +27%   |
+| 1 × 1 vCPU | 10                 | 356           | 406          | +14%   |
+| 4 × 1 vCPU | 10                 | 329           | 425          | +29%   |
+| 2 × 1 vCPU | 50                 | 308           | 377          | +22%   |
+
+| A run of three actions | Before | After                     |
+| ---------------------- | ------ | ------------------------- |
+| Statements             | 47     | 38                        |
+| Transactions           | 21     | 14                        |
+| Writes of checkpoints  | 9      | 3 (+1 with the run's end) |
+| Statement execution    | 1.1 ms | 1.3 ms                    |
+| WAL                    | 6.9 kB | 9.5 kB                    |
+
+- The database is still the limit, at both cores, in every cell.
+- **The journey with a wait did not move** (parked 269 → 266 runs/s, woken to end 295 → 280:
+  noise). Its steps are the wait's own checks, which are decisions and are not held.
+- **The WAL went up, and that is not explained.** The same rows are written in fewer
+  statements; more bytes were not expected. Not looked into.
+- What is left is mostly not the runtime's: of the 38 statements, 24 are six transactions of
+  the store's own (`BEGIN`, `SET TRANSACTION`, the user's advisory lock, `COMMIT` around one
+  write each) for the entry and the reporting row. Folding those is a change to the store
+  every host shares, and the next thing to measure.

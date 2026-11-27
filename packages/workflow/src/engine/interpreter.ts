@@ -145,6 +145,9 @@ async function runFlow(nodes: NodeIR[], ir: WorkflowIR, ctx: JourneyContext): Pr
   return FALL_THROUGH;
 }
 
+/** The engine's own reports: the same over again, and nothing the journey's path depends on. */
+const BOOKKEEPING = { idempotent: true } as const;
+
 /**
  * Tell the observer the instance entered — before the entry guards, which can end it before the
  * first node: an instance is counted from its entry, not from its first node.
@@ -152,14 +155,18 @@ async function runFlow(nodes: NodeIR[], ir: WorkflowIR, ctx: JourneyContext): Pr
 async function started(ir: WorkflowIR, ctx: JourneyContext): Promise<void> {
   const observer = ctx.observer;
   if (observer?.started === undefined) return;
-  await ctx.step.do('entry:started', async () => {
-    await observer.started?.({
-      workflow: ir.id,
-      instanceId: ctx.instanceId,
-      userId: await ownerOf(ctx),
-      at: ctx.enteredAtMs,
-    });
-  });
+  await ctx.step.do(
+    'entry:started',
+    async () => {
+      await observer.started?.({
+        workflow: ir.id,
+        instanceId: ctx.instanceId,
+        userId: await ownerOf(ctx),
+        at: ctx.enteredAtMs,
+      });
+    },
+    BOOKKEEPING
+  );
 }
 
 /**
@@ -169,15 +176,19 @@ async function started(ir: WorkflowIR, ctx: JourneyContext): Promise<void> {
 async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promise<void> {
   const observer = ctx.observer;
   if (observer?.nodeReached === undefined) return;
-  await ctx.step.do(`${node.id}:reached`, async () => {
-    await observer.nodeReached?.({
-      workflow: ir.id,
-      instanceId: ctx.instanceId,
-      userId: await ownerOf(ctx),
-      nodeId: node.id,
-      at: Date.now(),
-    });
-  });
+  await ctx.step.do(
+    `${node.id}:reached`,
+    async () => {
+      await observer.nodeReached?.({
+        workflow: ir.id,
+        instanceId: ctx.instanceId,
+        userId: await ownerOf(ctx),
+        nodeId: node.id,
+        at: Date.now(),
+      });
+    },
+    BOOKKEEPING
+  );
 }
 
 /**

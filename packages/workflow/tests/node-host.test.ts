@@ -301,6 +301,43 @@ describe('leases', () => {
   });
 });
 
+describe('round trips', () => {
+  test("the engine's bookkeeping is written with the action's checkpoint, the last of it with the run's end", async () => {
+    const { host, ingest } = await deployed();
+    await ingest('order', { total: 3 });
+    const checkpoint = vi.spyOn(RunStore.prototype, 'checkpoint');
+    const finish = vi.spyOn(RunStore.prototype, 'finish');
+
+    expect(await host.drain()).toMatchObject([{ ended: 'complete' }]);
+    // One write for the action, carrying what led up to it
+    expect(checkpoint.mock.calls.map(([, writes]) => writes.map(([key]) => key))).toEqual([
+      ['$workflow:ir', 'entry:started', '0:reached', '0:run'],
+    ]);
+    expect(finish.mock.calls.map(([, , , , writes]) => writes?.map(([key]) => key))).toEqual([
+      ['finalize'],
+    ]);
+    const keys = await database.client.query<{ key: string }>(
+      'SELECT key FROM workflow.run_step ORDER BY key'
+    );
+    expect(keys.map((row) => row.key)).toEqual(
+      ['$workflow:ir', '0:reached', '0:run', 'entry:started', 'finalize'].sort()
+    );
+  });
+
+  test('a sleep and what led up to it are written by the statement that suspends the run', async () => {
+    const { host, ingest } = await deployed();
+    await ingest('nap');
+    const checkpoint = vi.spyOn(RunStore.prototype, 'checkpoint');
+    await host.drain();
+    // The action before the sleep is the only checkpoint written on its own
+    expect(checkpoint).toHaveBeenCalledTimes(1);
+    advance(HOUR);
+    // The replay answers everything before the sleep from the rows, the sleep included
+    expect(await host.drain()).toMatchObject([{ ended: 'complete' }]);
+    expect(log).toEqual(['first', 'second']);
+  });
+});
+
 describe('the store failing under a turn', () => {
   test('is not the journey failing: the turn throws, and the run is replayed from its checkpoints', async () => {
     const { host, ingest } = await deployed();
@@ -312,15 +349,14 @@ describe('the store failing under a turn', () => {
     const spy = vi.spyOn(RunStore.prototype, 'checkpoint').mockImplementation(async function (
       this: RunStore,
       run,
-      key,
-      record,
+      writes,
       now
     ) {
-      if (!dropped && record.kind === 'do' && record.done && log.includes('first')) {
+      if (!dropped && log.includes('first')) {
         dropped = true;
         throw Object.assign(new Error('connection terminated'), { code: '08006' });
       }
-      return original.call(this, run, key, record, now);
+      return original.call(this, run, writes, now);
     });
 
     await expect(host.runtime.turn()).rejects.toThrow('connection terminated');

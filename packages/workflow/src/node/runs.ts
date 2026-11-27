@@ -43,7 +43,12 @@ export interface ClaimedRun {
   enteredAtMs: number;
   /** The fencing token: what every write of this turn is checked against. */
   gen: number;
+  /** Its checkpoints so far, read by the claim itself. */
+  steps: Map<string, StepRecord>;
 }
+
+/** Checkpoints written together: each key and its record. */
+export type StepWrites = readonly (readonly [key: string, record: StepRecord])[];
 
 /** One checkpoint, as a turn reads it back. */
 export interface StepRecord {
@@ -161,16 +166,21 @@ export class RunStore {
       params: unknown;
       entered_at: number | string;
       lease_gen: number;
+      steps: unknown;
     }>(
-      `UPDATE ${this.run} SET status = 'running', lease_owner = $1,
-         lease_until = ${TS('$3')}, lease_gen = lease_gen + 1
-       WHERE instance_id = (
+      // The checkpoints come back with the claim: one round trip, not a second one to read them
+      `UPDATE ${this.run} AS r SET status = 'running', lease_owner = $1,
+         lease_until = ${TS('$3')}, lease_gen = r.lease_gen + 1
+       WHERE r.instance_id = (
          SELECT instance_id FROM ${this.run}
          WHERE status IN ${LIVE} AND wake_at <= ${TS('$2')}
            AND (lease_until IS NULL OR lease_until < ${TS('$2')})
          ORDER BY wake_at LIMIT 1 FOR UPDATE SKIP LOCKED
        )
-       RETURNING instance_id, params, ${MS('entered_at')} AS entered_at, lease_gen`,
+       RETURNING r.instance_id, r.params, ${MS('r.entered_at')} AS entered_at, r.lease_gen,
+         (SELECT jsonb_agg(jsonb_build_object('key', s.key, 'kind', s.kind, 'done', s.done,
+                                              'result', s.result, 'attempts', s.attempts))
+          FROM ${this.step} s WHERE s.instance_id = r.instance_id) AS steps`,
       [owner, now, now + leaseMs]
     );
     const row = rows.at(0);
@@ -182,6 +192,13 @@ export class RunStore {
         : row.params) as JourneyParams,
       enteredAtMs: Number(row.entered_at),
       gen: row.lease_gen,
+      steps: new Map(
+        (
+          ((typeof row.steps === 'string' ? JSON.parse(row.steps) : row.steps) ?? []) as ({
+            key: string;
+          } & StepRecord)[]
+        ).map(({ key, kind, done, result, attempts }) => [key, { kind, done, result, attempts }])
+      ),
     };
   }
 
@@ -203,88 +220,98 @@ export class RunStore {
     return rows.at(0)?.signals ?? 0;
   }
 
-  async steps(id: string): Promise<Map<string, StepRecord>> {
-    const rows = await this.sql.transaction((tx) =>
-      tx.query<{
-        key: string;
-        kind: StepRecord['kind'];
-        done: boolean;
-        result: unknown;
-        attempts: number;
-      }>(`SELECT key, kind, done, result, attempts FROM ${this.step} WHERE instance_id = $1`, [id])
-    );
-    return new Map(
-      rows.map((row) => [
-        row.key,
-        {
-          kind: row.kind,
-          done: row.done,
-          // A driver that hands jsonb back as text is read the same way
-          result: typeof row.result === 'string' ? (JSON.parse(row.result) as unknown) : row.result,
-          attempts: row.attempts,
-        },
-      ])
-    );
-  }
-
-  /** Write a checkpoint, behind the fence. False when the turn no longer holds the run. */
-  async checkpoint(
-    run: ClaimedRun,
-    key: string,
-    record: StepRecord,
-    now: number
-  ): Promise<boolean> {
-    const rows = await this.write(
-      `INSERT INTO ${this.step} (instance_id, key, kind, done, result, attempts, created_at)
-       SELECT $1, $3, $4, $5, $6::text::jsonb, $7, ${TS('$8')}
+  /**
+   * The checkpoints as one insert, behind the fence: `$1` the instance, `$2` its `lease_gen`,
+   * and the two parameters named for the records (JSON) and the time. Nothing is written when
+   * the turn no longer holds the run.
+   */
+  private insertSteps(records: string, at: string): string {
+    return `INSERT INTO ${this.step} (instance_id, key, kind, done, result, attempts, created_at)
+       SELECT $1, s.key, s.kind, s.done, s.result, s.attempts, ${TS(at)}
+       FROM jsonb_to_recordset(${records}::text::jsonb)
+         AS s(key text, kind text, done boolean, result jsonb, attempts integer)
        WHERE EXISTS (SELECT 1 FROM ${this.run}
                      WHERE instance_id = $1 AND lease_gen = $2 AND status = 'running')
        ON CONFLICT (instance_id, key) DO UPDATE
          SET done = EXCLUDED.done, result = EXCLUDED.result, attempts = EXCLUDED.attempts
-       RETURNING key`,
-      [
-        run.instanceId,
-        run.gen,
-        key,
-        record.kind,
-        record.done,
-        // undefined has no JSON: a step that returns nothing is stored as null
-        JSON.stringify(record.result ?? null),
-        record.attempts,
-        now,
-      ]
+       RETURNING key`;
+  }
+
+  private static encode(writes: StepWrites): string {
+    return JSON.stringify(
+      // undefined has no JSON: a step that returns nothing is stored as null
+      writes.map(([key, record]) => ({ key, ...record, result: record.result ?? null }))
     );
+  }
+
+  /**
+   * Write checkpoints, behind the fence, in one statement: all of them or none. False when the
+   * turn no longer holds the run.
+   */
+  async checkpoint(run: ClaimedRun, writes: StepWrites, now: number): Promise<boolean> {
+    if (writes.length === 0) return true;
+    const rows = await this.write(this.insertSteps('$3', '$4'), [
+      run.instanceId,
+      run.gen,
+      RunStore.encode(writes),
+      now,
+    ]);
     return rows.length > 0;
   }
 
   /**
-   * End a turn that did not end the run, releasing it. A wait's park is conditional on no wake
-   * having arrived since it subscribed; when one has, the run is queued again at once.
+   * End a turn that did not end the run, releasing it — with the checkpoints the turn still
+   * holds, in the same statement. A wait's park is conditional on no wake having arrived since
+   * it subscribed; when one has, the run is queued again at once.
    */
-  async suspend(run: ClaimedRun, suspension: Suspension, now: number): Promise<void> {
+  async suspend(
+    run: ClaimedRun,
+    suspension: Suspension,
+    now: number,
+    writes: StepWrites = []
+  ): Promise<void> {
     const { status, wakeAt, ifSignals } = suspension;
+    const held = writes.length > 0;
     await this.write(
-      `UPDATE ${this.run} SET
+      `${held ? `WITH saved AS (${this.insertSteps('$7', '$6')}) ` : ''}UPDATE ${this.run} SET
          status = CASE WHEN $5::int IS NULL OR signals = $5::int THEN $3 ELSE 'queued' END,
          wake_at = CASE WHEN $5::int IS NULL OR signals = $5::int THEN ${TS('$4')} ELSE ${TS('$6')} END,
          lease_owner = NULL, lease_until = NULL
        WHERE instance_id = $1 AND lease_gen = $2 AND status = 'running'`,
-      [run.instanceId, run.gen, status, wakeAt, ifSignals ?? null, now]
+      [
+        run.instanceId,
+        run.gen,
+        status,
+        wakeAt,
+        ifSignals ?? null,
+        now,
+        ...(held ? [RunStore.encode(writes)] : []),
+      ]
     );
   }
 
-  /** The run is over: it returned, or it threw. */
+  /** The run is over: it returned, or it threw. Its last checkpoints go in the same statement. */
   async finish(
     run: ClaimedRun,
     status: 'complete' | 'errored',
     now: number,
-    error?: string
+    error?: string,
+    writes: StepWrites = []
   ): Promise<void> {
+    const held = writes.length > 0;
     await this.write(
-      `UPDATE ${this.run} SET status = $3, wake_at = NULL, finished_at = ${TS('$4')}, error = $5,
+      `${held ? `WITH saved AS (${this.insertSteps('$6', '$4')}) ` : ''}UPDATE ${this.run}
+         SET status = $3, wake_at = NULL, finished_at = ${TS('$4')}, error = $5,
          lease_owner = NULL, lease_until = NULL
        WHERE instance_id = $1 AND lease_gen = $2 AND status = 'running'`,
-      [run.instanceId, run.gen, status, now, error ?? null]
+      [
+        run.instanceId,
+        run.gen,
+        status,
+        now,
+        error ?? null,
+        ...(held ? [RunStore.encode(writes)] : []),
+      ]
     );
   }
 
