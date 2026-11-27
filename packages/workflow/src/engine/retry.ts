@@ -13,7 +13,7 @@
  *
  * Thrown by a message sender, it is a refusal of that one copy: `deliver` settles the copy as
  * undelivered under `reason` — the provider's own code where it gave one (`BadTopic`,
- * `SENDER_ID_MISMATCH`, `PayloadTooLarge`) — and the journey goes on.
+ * `THIRD_PARTY_AUTH_ERROR`, `PayloadTooLarge`) — and the journey goes on.
  */
 export class PermanentError extends Error {
   override readonly name: string = 'PermanentError';

@@ -262,9 +262,9 @@ describe('FcmPushSender', () => {
       sender(fakeFetch(status, body).fetchFn)
         .send(message)
         .catch((e: unknown) => e);
-    expect(await refused(403, fcmError('SENDER_ID_MISMATCH'))).toMatchObject({
-      reason: 'SENDER_ID_MISMATCH',
-    });
+    expect(await refused(401, fcmError('UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR'))).toMatchObject(
+      { name: 'PermanentError', reason: 'THIRD_PARTY_AUTH_ERROR' }
+    );
     expect(await refused(400, 'not json')).toMatchObject({ reason: 'http_400' });
   });
 
@@ -284,7 +284,7 @@ describe('FcmPushSender', () => {
         403,
         fcmError('PERMISSION_DENIED', 'SENDER_ID_MISMATCH'),
         'SENDER_ID_MISMATCH',
-        'PermanentError',
+        'settled-undelivered',
       ],
       [
         401,
