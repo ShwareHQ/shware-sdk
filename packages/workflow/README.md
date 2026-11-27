@@ -936,7 +936,7 @@ not configured — the copy is settled undelivered under the refusal's reason, a
 error is logged with the provider's answer, and the journey goes on to the user's
 other devices and to the next step. The reason is the provider's own code where
 it gave one (`BadTopic`, `THIRD_PARTY_AUTH_ERROR`, `PayloadTooLarge`, SES's
-`MessageRejected`), `http_<status>` for a bare status, `bad_credentials`
+`MessageRejected`), `Refused<status>` for a bare status, `bad_credentials`
 or `not_configured` for a secret that is malformed or missing, and `refused`
 for an error that names none. One rejected address or one template whose push
 is too large therefore costs that copy only. So does a deployment-wide

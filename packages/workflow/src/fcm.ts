@@ -214,7 +214,7 @@ export class FcmPushSender implements MessageSender {
       throw new Error(`FCM send failed: ${status} ${code || text}`);
     }
     throw new PermanentError(`FCM refused the request: ${status} ${code || text}`, {
-      reason: code || `http_${status}`,
+      reason: code || `Refused${status}`,
     });
   }
 }

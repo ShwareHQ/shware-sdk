@@ -75,7 +75,7 @@ export class SesSendError extends Error {
     message: string
   ) {
     super(`SES SendEmail failed (${status}${type === undefined ? '' : ` ${type}`}): ${message}`);
-    this.reason = type ?? `http_${status}`;
+    this.reason = type ?? `Refused${status}`;
     this.retryable = isRetryableStatus(status) || (type !== undefined && RETRYABLE_TYPES.has(type));
   }
 }

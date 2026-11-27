@@ -315,11 +315,11 @@ describe('sesEmailTransport', () => {
     expect(new SesSendError(500, undefined, 'm').retryable).toBe(true);
     expect(new SesSendError(400, undefined, 'm').retryable).toBe(false);
     // What a refused email settles under: SES's code, else the status
-    expect(new SesSendError(400, undefined, 'm').reason).toBe('http_400');
+    expect(new SesSendError(400, undefined, 'm').reason).toBe('Refused400');
     expect(new CloudflareEmailError(403, [{ code: 10000, message: 'no' }]).reason).toBe(
       'cloudflare_10000'
     );
-    expect(new CloudflareEmailError(400, []).reason).toBe('http_400');
+    expect(new CloudflareEmailError(400, []).reason).toBe('Refused400');
   });
 
   test("the error type is read from the header, or from the body's __type without it", async () => {

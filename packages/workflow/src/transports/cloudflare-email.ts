@@ -66,7 +66,7 @@ export class CloudflareEmailError extends Error {
     // A 200 with `success: false` says nothing about retrying: treat it as transient
     this.retryable = status < 400 || isRetryableStatus(status);
     const code = errors[0]?.code;
-    this.reason = code === undefined ? `http_${status}` : `cloudflare_${code}`;
+    this.reason = code === undefined ? `Refused${status}` : `cloudflare_${code}`;
   }
 }
 

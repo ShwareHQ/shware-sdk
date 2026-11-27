@@ -233,7 +233,7 @@ export class ApnsPushSender implements MessageSender {
       throw new Error(`APNs send failed: ${status} ${reason || text}`);
     }
     throw new PermanentError(`APNs refused the request: ${status} ${reason || text}`, {
-      reason: reason || `http_${status}`,
+      reason: reason || `Refused${status}`,
     });
   }
 }

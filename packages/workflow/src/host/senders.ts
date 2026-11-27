@@ -36,7 +36,7 @@ export class WebhookMessageSender implements MessageSender {
       throw new Error(`message webhook failed: ${response.status}`);
     }
     throw new PermanentError(`message webhook refused the message: ${response.status}`, {
-      reason: `http_${response.status}`,
+      reason: `Refused${response.status}`,
     });
   }
 }

@@ -265,7 +265,7 @@ describe('FcmPushSender', () => {
     expect(await refused(401, fcmError('UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR'))).toMatchObject(
       { name: 'PermanentError', reason: 'THIRD_PARTY_AUTH_ERROR' }
     );
-    expect(await refused(400, 'not json')).toMatchObject({ reason: 'http_400' });
+    expect(await refused(400, 'not json')).toMatchObject({ reason: 'Refused400' });
   });
 
   describe('classification', () => {

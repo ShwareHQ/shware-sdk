@@ -248,7 +248,7 @@ describe('ApnsPushSender', () => {
       reason: 'BadTopic',
     });
     expect(await refused(413, 'PayloadTooLarge')).toMatchObject({ reason: 'PayloadTooLarge' });
-    expect(await refused(400)).toMatchObject({ reason: 'http_400' });
+    expect(await refused(400)).toMatchObject({ reason: 'Refused400' });
   });
 
   describe('classification', () => {

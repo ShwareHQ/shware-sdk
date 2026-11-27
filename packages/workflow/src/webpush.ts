@@ -421,7 +421,7 @@ export class WebPushSender implements MessageSender {
     // Not a refusal at all (a redirect the fetch did not follow): nothing a device can explain
     if (status < 400) {
       throw new PermanentError(`[webpush] unexpected answer from the push service: ${status}`, {
-        reason: `http_${status}`,
+        reason: `Unexpected${status}`,
       });
     }
     // This subscription, or this sender: the answer does not say. Settled with the device kept,
