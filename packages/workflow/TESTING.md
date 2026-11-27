@@ -18,6 +18,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `stubs/cf-step.ts`                   | `FakeCfStep`: a replaying `WorkflowStep` (`replay()`, scripted wakes, `evictAt`)    |
 | `runner.test.ts`                     | The Cloudflare step adapter: timeouts after eviction, NonRetryableError             |
 | `worker.test.ts`                     | `journeyWorker`: leases, own-bundle deploys, the sweep, the Workflow binding port   |
+| `workflow-cache.test.ts`             | The host's memory of workflow bodies: one read a version, bounded, frozen           |
 | `execute.test.ts`                    | One run end to end over the ports: ledger, failure path, subscriptions              |
 | `aws.test.ts`                        | The Lambda adapter: starts, waits, sweep pages, forged runs                         |
 | `node-host.test.ts`                  | The self-hosted runtime: turns, sleeps, wakes, retries, leases, the HTTP server     |

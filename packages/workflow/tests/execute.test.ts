@@ -139,7 +139,8 @@ describe('executeJourney', () => {
       parts
     );
     expect(outcome.status).toBe('completed');
-    expect(step.names[0]).toBe('$workflow:ir');
+    // The read is not a step: a workflow's body is not checkpointed with the instance
+    expect(step.names).not.toContain('$workflow:ir');
     expect(await status()).toBe('completed');
   });
 
@@ -333,7 +334,7 @@ describe('executeJourney admits the runner before anything observable', () => {
     await expect(run(step)).resolves.toMatchObject({ status: 'completed' });
     expect(admissions).toEqual([true]);
     expect(started).toEqual(['i1']);
-    expect(step.names[0]).toBe('$workflow:ir');
+    expect(step.names[0]).toBe('entry:started');
     expect(sent).toEqual(['hi']);
     expect(await status()).toBe('completed');
     expect((await parts.plain.runningInstances('u1')).map((i) => i.admitted)).toEqual([]);

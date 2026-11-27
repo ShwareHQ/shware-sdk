@@ -16,6 +16,7 @@ import { type JourneyStore, instanceOwner } from '../store/index';
 import { readWithRetry } from './fresh-read';
 import { ingestEvent } from './ingest';
 import type { JourneyEnv, JourneyParams } from './platform';
+import type { WorkflowCache } from './workflow-cache';
 
 /**
  * One journey instance run to its end, on whatever durable runtime supplies the `EngineStep`:
@@ -38,6 +39,8 @@ export interface JourneyRunParts {
   contract?: Contract | undefined;
   validator?: MessageValidator | undefined;
   observer?: JourneyObserver | undefined;
+  /** The workflow bodies this host has read. Without it the store is asked on every turn. */
+  workflows?: WorkflowCache | undefined;
 }
 
 export interface JourneyRunInput {
@@ -133,19 +136,19 @@ export async function executeJourney(
 
   let outcome: JourneyOutcome;
   try {
-    // In a step: a read that fails is retried like any other, and one that keeps failing ends
-    // the instance through the failure path below rather than leaving its entry 'running'.
-    // Content addressing makes the IR immutable, so the checkpointed copy is the one to replay
-    const stored = await step.do(
-      '$workflow:ir',
-      async () => {
-        const found = await store.getWorkflowIR(contentHash);
-        if (found === undefined)
-          throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
-        return found;
-      },
-      { idempotent: true }
-    );
+    /*
+     * Not a step: a step's result is checkpointed, and that put a whole copy of the workflow
+     * in every instance's state — the same bytes, once per journey in flight. The hash pinned
+     * at entry names the body for good, so reading it again on a replay gives what a
+     * checkpoint would have, and the host keeps what it has read (`WorkflowCache`): the store
+     * is asked once per version and process. A read that fails is retried briefly, like the
+     * admission above; one that keeps failing, or a body that is not there, ends the instance
+     * through the failure path below rather than leaving its entry 'running'.
+     */
+    const load = () =>
+      readWithRetry(() => store.getWorkflowIR(contentHash), { what: 'workflow', instanceId });
+    const stored = await (parts.workflows?.get(contentHash, load) ?? load());
+    if (stored === undefined) throw new Error(`WorkflowIR not found: ${workflowId}@${contentHash}`);
     // Development runs the journey in fast-forward; the pinned hash still names the version.
     const ir = scaleDurations(stored, runtime.timeScale);
     outcome = await runJourney(ir, {

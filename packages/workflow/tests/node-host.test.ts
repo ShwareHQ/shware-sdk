@@ -4,6 +4,7 @@ import { PermanentError } from '../src/engine/retry';
 import { InstanceNotFoundError } from '../src/host/platform';
 import { action, defineConfig, event, performed, trigger, workflow } from '../src/index';
 import { DEFAULT_LEASE_MS, RunStore, journeyNode } from '../src/node/index';
+import { PostgresJourneyStore } from '../src/store/index';
 import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
 
 /**
@@ -311,7 +312,7 @@ describe('round trips', () => {
     expect(await host.drain()).toMatchObject([{ ended: 'complete' }]);
     // One write for the action, carrying what led up to it
     expect(checkpoint.mock.calls.map(([, writes]) => writes.map(([key]) => key))).toEqual([
-      ['$workflow:ir', 'entry:started', '0:reached', '0:run'],
+      ['entry:started', '0:reached', '0:run'],
     ]);
     expect(finish.mock.calls.map(([, , , , writes]) => writes?.map(([key]) => key))).toEqual([
       ['finalize'],
@@ -320,7 +321,7 @@ describe('round trips', () => {
       'SELECT key FROM workflow.run_step ORDER BY key'
     );
     expect(keys.map((row) => row.key)).toEqual(
-      ['$workflow:ir', '0:reached', '0:run', 'entry:started', 'finalize'].sort()
+      ['0:reached', '0:run', 'entry:started', 'finalize'].sort()
     );
   });
 
@@ -335,6 +336,60 @@ describe('round trips', () => {
     // The replay answers everything before the sleep from the rows, the sleep included
     expect(await host.drain()).toMatchObject([{ ended: 'complete' }]);
     expect(log).toEqual(['first', 'second']);
+  });
+});
+
+describe("the workflow's body", () => {
+  test('is not kept with the run, is read from the store once a version, and a run goes on with the version it entered', async () => {
+    const reads = vi.spyOn(PostgresJourneyStore.prototype, 'getWorkflowIR');
+    const { host, ingest } = await deployed();
+    await ingest('nap', undefined, 'u1');
+    await ingest('nap', undefined, 'u2');
+    await host.drain();
+    expect(log).toEqual(['first', 'first']);
+    // Two runs, one read; and no checkpoint holds the body
+    expect(reads).toHaveBeenCalledTimes(1);
+    const kept = await database.client.query<{ key: string }>(
+      `SELECT key FROM workflow.run_step WHERE key LIKE '$workflow%'`
+    );
+    expect(kept).toEqual([]);
+
+    // Another version of the code takes over while they sleep: the same workflow, another ending
+    const next = journeyNode({
+      config: defineConfig({
+        ...config,
+        workflows: [
+          workflow({ id: 'nap', reentry: again, trigger: trigger.event(e.nap) })
+            .run(first)
+            .delay('1 hour')
+            .run(woke),
+        ],
+      }),
+      sql: database.client,
+      vars: { ENVIRONMENT: 'development' },
+    });
+    expect((await post(next, '/bundle/deploy')).status).toBe(200);
+    advance(HOUR);
+    // The runs that entered before it end as their own version says, read from the store by hash
+    expect(await next.drain()).toMatchObject([{ ended: 'complete' }, { ended: 'complete' }]);
+    expect(log).toEqual(['first', 'first', 'second', 'second']);
+
+    // One that enters now runs the new one
+    const response = await post(next, '/ingest', { userId: 'u3', events: [{ event: 'nap' }] });
+    expect(response.status).toBe(200);
+    await next.drain();
+    advance(HOUR);
+    await next.drain();
+    expect(log).toEqual(['first', 'first', 'second', 'second', 'first', 'woke']);
+  });
+
+  test('a body that is not in the store fails the run and its entry', async () => {
+    const { host, ingest } = await deployed();
+    await ingest('order', { total: 1 });
+    await database.client.query('DELETE FROM workflow.ir');
+    expect(await host.drain()).toMatchObject([{ ended: 'errored' }]);
+    expect(log).toEqual([]);
+    expect(await entryStatus()).toBe('failed');
   });
 });
 

@@ -344,6 +344,22 @@ Measured by `bench/node-host.mjs`, on one machine's Docker (an M1 Max; nothing l
 Read them as the shape of the thing on small instances, not as a capacity plan: one run of each
 cell, local disks, and a network of no distance between the host and its database.
 
+**Where it stands now** (2026-11-28, after the two changes at the end of this document; the
+tables in between are the first measurement and are kept as the baseline):
+
+| 2 hosts × 1 vCPU, 10 runs at once each, 2 vCPU Postgres | First measurement | Now      |
+| ------------------------------------------------------- | ----------------- | -------- |
+| Runs/s, a batch of three-action journeys, 100k users    | 343               | 461      |
+| The same at 1M users                                    | 342               | 446      |
+| Runs/s to parked, a journey with a wait, 100k users     | 269               | 295      |
+| Runs/s woken to end, 100k users                         | 295               | 324      |
+| Statements a run                                        | 47                | 37       |
+| Transactions a run                                      | 21                | 13       |
+| WAL a run                                               | 6.9 kB            | 5.9 kB   |
+| Engine schema on disk, 1M users asleep                  | 3,518 MB          | 2,336 MB |
+
+The database is the limit throughout, at both its cores.
+
 ### A batch already queued: three actions, one turn
 
 | Users | Hosts      | Runs at once, each | Runs/s | Transactions/run | Postgres CPU | Host CPU |
@@ -449,7 +465,7 @@ the returns are estimates until measured:
    Something like 21 transactions to 8–10. **The first three are done — see below.**
 2. **Prepared statements.** The host sends every statement as text, planned anew each time;
    whether the client can prepare them, and what it returns, has not been tried.
-3. **Not storing the workflow's definition in every run's checkpoints** (`$workflow:ir`): it is
+3. **Not storing the workflow's definition in every run's checkpoints** (`$workflow:ir`; **done — see the end**): it is
    most of the 3.5 GB above, and of the WAL. The definition is in `ir`, under its hash.
 4. **A partial index for the claim and room for HOT updates on `run`**: for bloat over months,
    not for the rate. Nothing here shows a need yet.
@@ -494,3 +510,52 @@ The same machine and sizes, 100k users, one run of each cell:
   the store's own (`BEGIN`, `SET TRANSACTION`, the user's advisory lock, `COMMIT` around one
   write each) for the entry and the reporting row. Folding those is a change to the store
   every host shares, and the next thing to measure.
+
+### The workflow's body, no longer kept with every run (2026-11-28)
+
+Reading the workflow by the hash pinned at entry was a step, and a step's result is
+checkpointed: every instance carried a whole copy of its workflow's definition — the same
+bytes, once per journey in flight. It holds nothing of the user's; the hash names it for good.
+The read is no longer a step, and the host keeps the bodies it has read (`WorkflowCache`, by
+content hash, bounded): the store is asked once per version and process. This is the shared
+code, so the Cloudflare and AWS hosts stop carrying the copy in their instances' state too,
+and run one step fewer.
+
+What it gives up: the read was retried as a step is (five times, over minutes); it is now
+retried briefly, like the admission just before it, and then the instance fails. With the
+body in memory after the first read, that is one read per version and process.
+
+The same machine, sizes and benchmark; one run of each cell. "Before" is the table of the
+first cut in round trips where it has the cell, and the first tables otherwise.
+
+| Engine schema on disk | Before   | After    | Change |
+| --------------------- | -------- | -------- | ------ |
+| 1M users asleep       | 3,518 MB | 2,336 MB | −34%   |
+
+(The smaller sizes are not compared: the earlier run had 15,000 more finished runs in them.)
+
+| 100k users, a batch queued | Runs/s before | Runs/s after | Change |
+| -------------------------- | ------------- | ------------ | ------ |
+| 2 hosts, 10 at once        | 434           | 461          | +6%    |
+| 1 host, 10 at once         | 406           | 471          | +16%   |
+| 4 hosts, 10 at once        | 425           | 460          | +8%    |
+| 2 hosts, 50 at once        | 377           | 413          | +10%   |
+
+| 100k users, a wait in service | Before | After | Change |
+| ----------------------------- | ------ | ----- | ------ |
+| Runs/s to parked              | 266    | 295   | +11%   |
+| Runs/s woken to end           | 280    | 324   | +16%   |
+
+| A run of three actions | Before | After  |
+| ---------------------- | ------ | ------ |
+| Statements             | 38     | 37     |
+| WAL                    | 9.5 kB | 5.9 kB |
+
+- **A third of the disk, not most of it**: about 1.2 kB an instance here, where the workflows
+  are three nodes long. A longer workflow's copy was larger; the rest of an instance (profile,
+  event, entry, reporting row, run, three checkpoints, their indexes) is about 2.3 kB.
+- **At a million users the figure that was out of line is not any more**: woken to end, 173
+  runs/s before, 320 now, level with the smaller sizes. That fits the guess that the data had
+  stopped fitting in memory; it is one run each way and does not prove it.
+- The rise in WAL after the first cut is gone with the copy (it was the largest row written);
+  why it rose then is still not explained.
