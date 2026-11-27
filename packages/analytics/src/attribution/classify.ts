@@ -194,7 +194,7 @@ function referrer(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | nul
  * (Rewardful's and Dub's `?via=`), as common as `ref` and carrying the same kind of value — a
  * site's name or a referrer's code, which `ref` carries in many programs too.
  */
-function refParam(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | null {
+function referralParam(tags: TrackTags, ownHosts: readonly RegExp[]): SiteTouch | null {
   const location = text(tags, 'page_location');
   if (!location || text(tags, 'page_referrer')) return null;
   let value: string | null;
@@ -277,7 +277,7 @@ export function classifyTouch(tags: TrackTags, options: ClassifyOptions = {}): T
   const landing = landingChannel(tags);
   const product = productTouch(tags, options.rules ?? []);
   const ownHosts = options.ownHosts ?? [];
-  const referred = referrer(tags, ownHosts) ?? refParam(tags, ownHosts);
+  const referred = referrer(tags, ownHosts) ?? referralParam(tags, ownHosts);
 
   const channel =
     utm ?? click ?? landing ?? product?.channel ?? referred?.channel ?? DIRECT_CHANNEL;
