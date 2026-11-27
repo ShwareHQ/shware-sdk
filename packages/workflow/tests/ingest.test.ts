@@ -187,12 +187,12 @@ describe('deployBundle', () => {
     const holiday = workflow({
       id: 'holiday',
       reentry: { mode: 'never' },
-      trigger: trigger.date('2026-12-25 09:00:00'),
+      trigger: trigger.webhook(),
     }).email(gettingStarted);
 
     const result = await deployBundle(env, compileBundle({ workflows: [holiday] }), store);
 
-    expect(result.unrouted).toEqual([{ workflow: 'holiday', trigger: 'date' }]);
+    expect(result.unrouted).toEqual([{ workflow: 'holiday', trigger: 'webhook' }]);
   });
 
   test('redeploy swaps the routing tables instead of accumulating', async () => {

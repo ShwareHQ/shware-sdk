@@ -189,6 +189,41 @@ export const TABLES = {
     primaryKey: ['workflow'],
     indexes: [['event']],
   }),
+  dateTrigger: table({
+    name: 'date_trigger',
+    doc: 'Date-trigger routes: at `at`, a journey for every known user `filter` holds for.',
+    columns: {
+      workflow: text,
+      hash: text,
+      reentry: {
+        type: 'jsonb',
+        doc: "The workflow's re-entry policy (`ReentryIR`), as on `trigger`.",
+      },
+      at: ts,
+      filter: nullable(jsonb),
+      version: nullable(text, 'As on `trigger`.'),
+    },
+    primaryKey: ['workflow'],
+  }),
+  dateRun: table({
+    name: 'date_run',
+    doc: "One row per (workflow, time) a date trigger was deployed with, kept across deploys: how far its fan-out got. Written when the route is first deployed — already finished when the time had passed by then (`skipped`: 'past') — so a time runs once, and a redeploy after it neither repeats nor cancels it.",
+    columns: {
+      workflow: text,
+      at: ts,
+      cursor: nullable(
+        text,
+        'The last user id the fan-out went past; the next page starts after it.'
+      ),
+      entered: { type: 'integer', doc: 'Journeys started so far.' },
+      finishedAt: nullable(ts),
+      skipped: nullable(
+        text,
+        "Why it ended without running: 'past' (the time had passed when first deployed) or 'missed' (no sweep picked it up within the grace period)."
+      ),
+    },
+    primaryKey: ['workflow', 'at'],
+  }),
   segmentTrigger: table({
     name: 'segment_trigger',
     doc: 'Segment-entry trigger routes.',

@@ -9,8 +9,11 @@ export type {
 export { InstanceNotFoundError, WAKE_EVENT_TYPE } from '../host/platform';
 export {
   BundleIntegrityError,
+  DATE_FANOUT_BUDGET_MS,
+  DATE_TRIGGER_GRACE_MS,
   EventPayloadTooLargeError,
   MAX_EVENT_PAYLOAD_BYTES,
+  fanOutDatePage,
   deployBundle,
   identifyUser,
   ingestEvent,
@@ -18,6 +21,7 @@ export {
   registerDevice,
   removeDevice,
   unbindDevice,
+  sweepDateTriggers,
   sweepMaintenance,
   sweepSegments,
   sweepSegmentsPaged,

@@ -1468,6 +1468,7 @@ describe('4.0: the sweep is resumable, one durable step per page', () => {
     expect(result.getResult()).toMatchObject({ evaluated: 501, started: [] });
     expect(result.getOperations().map((operation) => operation.getName())).toEqual([
       'sweep:maintain',
+      'sweep:date:0',
       'sweep:seeding',
       'sweep:page:0',
       'sweep:page:1',

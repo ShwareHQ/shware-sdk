@@ -406,7 +406,7 @@ export function layout(
       : t.type === 'segment'
         ? `enters ${t.segment}`
         : t.type === 'date'
-          ? t.at
+          ? `${t.at}${t.filter ? ' · +filter' : ''}`
           : 'webhook';
   addNode('__trigger', -CARD_SIZE.w / 2, 0, {
     title: 'Trigger',
