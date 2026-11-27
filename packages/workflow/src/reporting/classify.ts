@@ -9,11 +9,12 @@
  * Strong, alone enough:
  * - `scanner`: a security gateway or link checker announcing itself (Barracuda, Mimecast,
  *   Proofpoint, Safe Links, curl, a headless browser…);
- * - `datacenter` (clicks): the request came from a cloud or security vendor's network (AWS,
- *   Azure, Google Cloud, Proofpoint…), where people do not browse — Microsoft Defender detonates
- *   links from Azure. Not Cloudflare, Akamai or Fastly: iCloud Private Relay egresses there. Not
- *   for opens: Gmail's, Outlook's and Yahoo's image proxies fetch from their own networks when
- *   the person opens the message;
+ * - `datacenter` (clicks): the request came from a cloud's or a mail security vendor's network
+ *   (AWS, Azure, Google Cloud, Proofpoint, Mimecast…), where people do not browse — Microsoft
+ *   Defender detonates links from Azure, and the person's own click arrives from their own
+ *   network. Not Cloudflare, Akamai or Fastly: iCloud Private Relay egresses there. Not for
+ *   opens: Gmail's, Outlook's and Yahoo's image proxies fetch from their own networks when the
+ *   person opens the message;
  * - `apple_privacy_proxy` (opens): Apple Mail Privacy Protection, which fetches every image on
  *   delivery through Apple's proxies with the bare `Mozilla/5.0` user agent, read or not;
  * - `head_request` (clicks): a person's click is a GET;
@@ -23,7 +24,13 @@
  *
  * Weak, machine only together:
  * - `quick`: within `quickMs` of delivery (1 s by default, `email.tracking.quickClickMs`);
- * - `link_pair`: another link of the same message clicked within a few seconds.
+ * - `link_pair`: another link of the same message clicked within a few seconds;
+ * - `proxy` (clicks): the request came from the network of a vendor whose web proxy a company's
+ *   staff browse through (Zscaler, Cisco, Forcepoint, Fortinet, Sophos, Symantec/Broadcom, Trend
+ *   Micro). The vendor's scanner and the employee's browser leave from the same network, so the
+ *   network alone does not tell them apart: with either other weak signal it is a machine
+ *   (`proxy+quick`, `proxy+link_pair`), alone it is a person. The cost is the scanner that
+ *   follows one link, late: it counts as a person.
  *
  * Gmail's image proxy fetches when the person opens the message, so its opens count as human —
  * unless it fetched within `quickMs` of delivery (`gmail_prefetch`).
@@ -63,7 +70,9 @@ export const DEFAULT_QUICK_MS = 1_000;
 const SCANNER =
   /(?<![a-z])(?:(?!cubot)[a-z]*bot|crawler|spider|headlesschrome|phantomjs|barracuda|mimecast|proofpoint|safelinks|symantec|trend ?micro|forcepoint|zscaler|cisco|fortinet|sophos|messagelabs)(?![a-z])|curl\/|wget\/|python|go-http-client|java\/|okhttp/i;
 const DATACENTER =
-  /\b(?:amazon|aws|microsoft|azure|google cloud|digitalocean|ovh|hetzner|linode|akamai connected cloud|vultr|oracle|alibaba|tencent|proofpoint|mimecast|barracuda|forcepoint|zscaler|cisco|fortinet|sophos|trend ?micro|symantec|broadcom)\b/i;
+  /\b(?:amazon|aws|microsoft|azure|google cloud|digitalocean|ovh|hetzner|linode|akamai connected cloud|vultr|oracle|alibaba|tencent|proofpoint|mimecast|barracuda)\b/i;
+// Secure web gateways: an employee's own browser leaves from these networks too
+const PROXY = /\b(?:forcepoint|zscaler|cisco|fortinet|sophos|trend ?micro|symantec|broadcom)\b/i;
 const GOOGLE_PROXY = /GoogleImageProxy|ggpht\.com/i;
 
 const human: Verdict = { machine: false, reason: null };
@@ -94,5 +103,9 @@ export function classifyClick(facts: ClickFacts, options: ClassifyOptions = {}):
   const quick = facts.sinceDeliveredMs < quickMs;
   const pair = facts.linksInBurst >= 2;
   if (quick && pair) return machine('quick+link_pair');
+  if (PROXY.test(facts.organization ?? '')) {
+    if (quick) return machine('proxy+quick');
+    if (pair) return machine('proxy+link_pair');
+  }
   return human;
 }
