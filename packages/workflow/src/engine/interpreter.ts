@@ -14,7 +14,7 @@ import type {
   PushDevice,
 } from './ports';
 import { RECIPIENT_PROPERTY } from './recipient';
-import { isUnanswered } from './retry';
+import { isRefusedSend, isUnanswered, refusalReason } from './retry';
 import { nextWindowStart } from './time-window';
 
 /**
@@ -186,9 +186,21 @@ async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
  * send → sent.
  *
  * Delivery is at most once. A send that throws is a definite failure — the provider answered
- * with a refusal, or the sender never got as far as asking: the claim is released, the step
- * retries, and the copy is reported when it settles. Two cases are uncertain, and in neither is
- * the copy sent again:
+ * with a refusal, or the sender never got as far as asking. What happens next depends on whether
+ * another attempt could go differently:
+ *
+ * - it could (a 429, a 5xx, a token that expired): the claim is released, the step retries, and
+ *   the copy is reported when it settles. So it is for the engine's own refusals raised inside a
+ *   sender (a template refusing its props or content, an erased user), which no retry fixes: the
+ *   claim is released and the step fails, because that is the workflow, not the recipient;
+ * - it could not (`isRefusedSend`: a `PermanentError`, a transport's `retryable: false` — the
+ *   provider refused this token, this address or this payload, or the channel is not
+ *   configured): the copy settles
+ *   undelivered under the refusal's reason and the journey goes on. One device, one address or
+ *   one misconfigured channel does not end the journey for the user — the copies to their other
+ *   devices and the steps after this one still run, and the report counts the refusals.
+ *
+ * Two cases are uncertain, and in neither is the copy sent again:
  *
  * - the provider never answered (`UnansweredSendError`: the connection dropped, the fetch timed
  *   out) — it may have taken the message, so the claim is kept and the copy settles undelivered
@@ -235,6 +247,20 @@ async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<v
         error
       );
       await settleUncertain(copy, 'no_answer', ctx);
+      return;
+    }
+    if (isRefusedSend(error)) {
+      // Refused for good: no attempt will go differently, and the journey is not this copy
+      const reason = refusalReason(error);
+      console.error(
+        `[workflow] ${copy.idempotencyKey} (${copy.channel} '${copy.template}') was refused, settled as undelivered (${reason}) and the journey goes on`,
+        error
+      );
+      try {
+        await observer?.messageSent?.(copy, { delivered: false, reason });
+      } catch (reportError) {
+        console.error(`[workflow] reporting ${copy.idempotencyKey} as refused failed`, reportError);
+      }
       return;
     }
     // A thrown send is a definite failure: the copy did not go out, so the retry must be free to send it

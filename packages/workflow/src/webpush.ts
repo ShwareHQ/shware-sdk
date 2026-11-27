@@ -389,7 +389,8 @@ export class WebPushSender implements MessageSender {
     if (payload.length > MAX_PLAINTEXT_BYTES) {
       // The same template renders the same size on every attempt: settle it before encrypting
       throw new PermanentError(
-        `[webpush] payload for template '${message.template}' is ${payload.length} bytes; a push message carries at most ${MAX_PLAINTEXT_BYTES}`
+        `[webpush] payload for template '${message.template}' is ${payload.length} bytes; a push message carries at most ${MAX_PLAINTEXT_BYTES}`,
+        { reason: 'PayloadTooLarge' }
       );
     }
     const body = await encryptPayload(payload, subscription.p256dh, subscription.auth);
@@ -419,7 +420,9 @@ export class WebPushSender implements MessageSender {
     if (isRetryableStatus(status)) throw new Error(`[webpush] ${status}: ${text}`);
     // Not a refusal at all (a redirect the fetch did not follow): nothing a device can explain
     if (status < 400) {
-      throw new PermanentError(`[webpush] unexpected answer from the push service: ${status}`);
+      throw new PermanentError(`[webpush] unexpected answer from the push service: ${status}`, {
+        reason: `Unexpected${status}`,
+      });
     }
     // This subscription, or this sender: the answer does not say. Settled with the device kept,
     // and loud — if it is the VAPID key, every subscription answers so

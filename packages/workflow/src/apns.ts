@@ -225,13 +225,16 @@ export class ApnsPushSender implements MessageSender {
     }
     if (CONFIGURATION_REASONS.has(reason)) {
       throw new PermanentError(
-        `APNs refused the request for topic '${this.options.topic}' (${this.options.environment}): ${status} ${reason}`
+        `APNs refused the request for topic '${this.options.topic}' (${this.options.environment}): ${status} ${reason}`,
+        { reason }
       );
     }
     if (isRetryableStatus(status)) {
       throw new Error(`APNs send failed: ${status} ${reason || text}`);
     }
-    throw new PermanentError(`APNs refused the request: ${status} ${reason || text}`);
+    throw new PermanentError(`APNs refused the request: ${status} ${reason || text}`, {
+      reason: reason || `Refused${status}`,
+    });
   }
 }
 
@@ -276,11 +279,14 @@ export function apnsKeyFromBase64(value: string): string {
   } catch (error) {
     // A secret that is not base64 is the same on every attempt: not worth a retry
     throw new PermanentError('APNs key is not base64 (expected the .p8 file, base64-encoded)', {
+      reason: 'bad_credentials',
       cause: error,
     });
   }
   if (!pem.includes('-----BEGIN PRIVATE KEY-----')) {
-    throw new PermanentError('APNs key is not a PKCS #8 PEM (.p8) file');
+    throw new PermanentError('APNs key is not a PKCS #8 PEM (.p8) file', {
+      reason: 'bad_credentials',
+    });
   }
   return pem;
 }

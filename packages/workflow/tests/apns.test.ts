@@ -238,6 +238,19 @@ describe('ApnsPushSender', () => {
    * reason (the host forgets the device), a configuration or request problem fails it for good,
    * throttling and outages retry.
    */
+  test('a refusal carries the reason its copy settles under: the APNs reason, else the status', async () => {
+    const refused = async (status: number, reason?: string) =>
+      sender(fakeFetch(status, reason === undefined ? undefined : { reason }).fetchFn)
+        .send(message)
+        .catch((e: unknown) => e);
+    expect(await refused(400, 'BadTopic')).toMatchObject({
+      name: 'PermanentError',
+      reason: 'BadTopic',
+    });
+    expect(await refused(413, 'PayloadTooLarge')).toMatchObject({ reason: 'PayloadTooLarge' });
+    expect(await refused(400)).toMatchObject({ reason: 'Refused400' });
+  });
+
   describe('classification', () => {
     type Outcome = 'settled-dead-token' | 'settled-undelivered' | 'PermanentError' | 'retryable';
     const table: [status: number, reason: string | undefined, outcome: Outcome][] = [

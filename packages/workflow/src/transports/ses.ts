@@ -67,12 +67,15 @@ export class SesSendError extends Error {
    * throttled one is worth another attempt even when it came as a 400.
    */
   readonly retryable: boolean;
+  /** What a refused email settles under in the delivery report: SES's code, else the status. */
+  readonly reason: string;
   constructor(
     readonly status: number,
     readonly type: string | undefined,
     message: string
   ) {
     super(`SES SendEmail failed (${status}${type === undefined ? '' : ` ${type}`}): ${message}`);
+    this.reason = type ?? `Refused${status}`;
     this.retryable = isRetryableStatus(status) || (type !== undefined && RETRYABLE_TYPES.has(type));
   }
 }

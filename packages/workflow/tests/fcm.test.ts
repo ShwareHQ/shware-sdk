@@ -257,6 +257,17 @@ describe('FcmPushSender', () => {
    * may be the payload, not the token), a configuration problem fails it for good, throttling and
    * outages retry.
    */
+  test('a refusal carries the reason its copy settles under: the FCM code, else the status', async () => {
+    const refused = async (status: number, body: unknown) =>
+      sender(fakeFetch(status, body).fetchFn)
+        .send(message)
+        .catch((e: unknown) => e);
+    expect(await refused(401, fcmError('UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR'))).toMatchObject(
+      { name: 'PermanentError', reason: 'THIRD_PARTY_AUTH_ERROR' }
+    );
+    expect(await refused(400, 'not json')).toMatchObject({ reason: 'Refused400' });
+  });
+
   describe('classification', () => {
     type Outcome = 'settled-dead-token' | 'settled-undelivered' | 'PermanentError' | 'retryable';
     const table: [status: number, body: unknown, reason: string, outcome: Outcome][] = [

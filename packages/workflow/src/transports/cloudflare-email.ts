@@ -55,6 +55,8 @@ export class CloudflareEmailError extends Error {
   override readonly name = 'CloudflareEmailError';
   /** A refused request (bad token, invalid schema) fails the same way every time. */
   readonly retryable: boolean;
+  /** What a refused email settles under in the delivery report: Cloudflare's first error code, else the status. */
+  readonly reason: string;
   constructor(
     readonly status: number,
     readonly errors: readonly { code?: number; message?: string }[]
@@ -63,6 +65,8 @@ export class CloudflareEmailError extends Error {
     super(`Cloudflare Email send failed (${status})${said === '' ? '' : `: ${said}`}`);
     // A 200 with `success: false` says nothing about retrying: treat it as transient
     this.retryable = status < 400 || isRetryableStatus(status);
+    const code = errors[0]?.code;
+    this.reason = code === undefined ? `Refused${status}` : `cloudflare_${code}`;
   }
 }
 

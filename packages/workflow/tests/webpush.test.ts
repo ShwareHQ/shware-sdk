@@ -384,6 +384,7 @@ describe('web push', () => {
     const error = await sender.send(message(subscription)).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(PermanentError);
     expect(String(error)).toMatch(/at most 3993/);
+    expect(error).toMatchObject({ reason: 'PayloadTooLarge' });
     expect(fetched).toBe(0);
   });
 

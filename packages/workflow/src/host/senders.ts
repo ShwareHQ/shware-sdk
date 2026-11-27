@@ -35,7 +35,9 @@ export class WebhookMessageSender implements MessageSender {
     if (isRetryableStatus(response.status)) {
       throw new Error(`message webhook failed: ${response.status}`);
     }
-    throw new PermanentError(`message webhook refused the message: ${response.status}`);
+    throw new PermanentError(`message webhook refused the message: ${response.status}`, {
+      reason: `Refused${response.status}`,
+    });
   }
 }
 
@@ -51,7 +53,9 @@ export function routeByChannel(
     async send(message) {
       const sender = senders[message.channel];
       if (sender === undefined) {
-        throw new PermanentError(`no sender configured for channel '${message.channel}'`);
+        throw new PermanentError(`no sender configured for channel '${message.channel}'`, {
+          reason: 'not_configured',
+        });
       }
       return sender.send(message);
     },
@@ -70,10 +74,14 @@ export function routeByPlatform(senders: Record<string, MessageSender>): Message
     async send(message) {
       const platform = message.device?.platform;
       if (platform === undefined) {
-        throw new PermanentError(`push for user '${message.userId}' carries no device`);
+        throw new PermanentError(`push for user '${message.userId}' carries no device`, {
+          reason: 'no_device',
+        });
       }
       if (!Object.hasOwn(senders, platform)) {
-        throw new PermanentError(`no push sender configured for platform '${platform}'`);
+        throw new PermanentError(`no push sender configured for platform '${platform}'`, {
+          reason: 'not_configured',
+        });
       }
       return senders[platform].send(message);
     },
