@@ -64,6 +64,8 @@ export interface JourneyNodeOptions<Env extends JourneyEnv> extends Omit<
   /** How often the sweep runs (segments, date triggers, maintenance); one process does each. */
   sweepMs?: number;
   retentionMs?: number;
+  /** The largest request body the HTTP server reads; a larger one is answered 413. 10 MB. */
+  maxBodyBytes?: number;
   leaseMs?: number;
   retry?: Partial<StepRetryPolicy>;
   now?: () => number;
@@ -86,6 +88,7 @@ export interface JourneyNode {
 const DEFAULT_CONCURRENCY = 10;
 const DEFAULT_POLL_MS = 1_000;
 const DEFAULT_SWEEP_MS = 15 * 60_000;
+const DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<Env>): JourneyNode {
   const { sql, version } = options;
@@ -145,7 +148,7 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
     // of its own to respect, so it carries on at once rather than an interval later — for as
     // long as an interval, and only while each round gets somewhere (a fan-out held up by a
     // failure is the next turn's to try again)
-    const until = Date.now() + (options.sweepMs ?? DEFAULT_SWEEP_MS);
+    const until = now() + (options.sweepMs ?? DEFAULT_SWEEP_MS);
     const result = await host.sweep(env);
     let last = result;
     const open = (round: SweepResult) =>
@@ -154,7 +157,7 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
       round.evaluated > 0 ||
       round.started.length > 0 ||
       round.dates.some((date) => date.entered > 0);
-    while (open(last) && moved(last) && !stopping && Date.now() < until) {
+    while (open(last) && moved(last) && !stopping && now() < until) {
       last = await host.sweep(env);
       result.evaluated += last.evaluated;
       result.started.push(...last.started);
@@ -188,6 +191,8 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
   let stopping = false;
   let workers: Promise<void>[] = [];
   let sweeper: ReturnType<typeof setInterval> | undefined;
+  /** The sweep this process is in the middle of, if any: `stop()` waits for it. */
+  let sweeping: Promise<unknown> | undefined;
   let server: Server | undefined;
 
   /** Sleep until something is due, or the poll interval passes, whichever is first. */
@@ -221,10 +226,14 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
     workers = Array.from({ length: options.concurrency ?? DEFAULT_CONCURRENCY }, work);
     const sweepMs = options.sweepMs ?? DEFAULT_SWEEP_MS;
     const tick = () => {
-      void claimSweep(sweepMs)
+      if (sweeping !== undefined) return;
+      sweeping = claimSweep(sweepMs)
         .then((mine) => (mine ? sweep() : undefined))
         .catch((error: unknown) => {
           console.error('[workflow node] the sweep failed', error);
+        })
+        .finally(() => {
+          sweeping = undefined;
         });
     };
     // Checked several times an interval, so the process that takes over from a dead one is not
@@ -232,12 +241,24 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
     sweeper = setInterval(tick, Math.max(1_000, sweepMs / 4));
     tick();
     if (port !== undefined) {
-      server = createServer((request, response) => {
-        void serve(fetch, request, response);
+      const listener = createServer((request, response) => {
+        void serve(fetch, request, response, options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES);
       });
-      await new Promise<void>((listening) => {
-        server?.listen(port, hostname, listening);
-      });
+      server = listener;
+      try {
+        await new Promise<void>((listening, refused) => {
+          listener.once('error', refused);
+          listener.listen(port, hostname, () => {
+            listener.off('error', refused);
+            listening();
+          });
+        });
+      } catch (error) {
+        // A port that is taken: nothing of this host is left running
+        server = undefined;
+        await stop();
+        throw error;
+      }
     }
   };
 
@@ -256,6 +277,8 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
     // A turn in flight ends at its next checkpoint; one that does not is taken over by lease
     await Promise.all(workers);
     workers = [];
+    // The sweep stops after the round it is in
+    await sweeping;
   };
 
   return { runtime, fetch, drain: (limit) => runtime.drain(limit), sweep, start, stop };
@@ -265,7 +288,8 @@ export function journeyNode<Env extends JourneyEnv>(options: JourneyNodeOptions<
 async function serve(
   fetch: (request: Request) => Promise<Response>,
   incoming: IncomingMessage,
-  outgoing: ServerResponse
+  outgoing: ServerResponse,
+  maxBodyBytes: number
 ): Promise<void> {
   try {
     const method = (incoming.method ?? 'GET').toUpperCase();
@@ -275,7 +299,17 @@ async function serve(
       for (const one of Array.isArray(value) ? value : [value]) headers.append(name, one);
     }
     const chunks: Uint8Array[] = [];
-    for await (const chunk of incoming) chunks.push(chunk as Uint8Array);
+    let size = 0;
+    for await (const chunk of incoming) {
+      size += (chunk as Uint8Array).byteLength;
+      // Nothing has looked at the request yet, its token included: not held in memory
+      if (size > maxBodyBytes) {
+        outgoing.writeHead(413, { connection: 'close' }).end();
+        incoming.destroy();
+        return;
+      }
+      chunks.push(chunk as Uint8Array);
+    }
     const body = Buffer.concat(chunks);
     const origin = `http://${incoming.headers.host ?? 'localhost'}`;
     const response = await fetch(

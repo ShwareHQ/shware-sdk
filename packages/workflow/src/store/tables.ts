@@ -393,7 +393,7 @@ export const TABLES = {
       instanceId: text,
       key: {
         type: 'text',
-        doc: 'The step name and its occurrence in the run (`n3:send#1`): a name used twice is two steps.',
+        doc: 'The step name, and from its second occurrence in the run which one it is (`n3:send`, `n3:send#2`): a name used twice is two steps.',
       },
       kind: { type: 'text', doc: '`do`, `sleep` or `wait`.' },
       done: { type: 'boolean', doc: 'False while a step that threw is waiting for its retry.' },

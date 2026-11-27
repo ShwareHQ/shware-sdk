@@ -37,7 +37,11 @@ export const DEFAULT_STEP_RETRY: StepRetryPolicy = {
   timeoutMs: 10 * 60_000,
 };
 
-/** How long a claim holds before another worker may take the run; a running turn keeps extending it. */
+/**
+ * How long a claim holds before another worker may take the run; a running turn keeps extending
+ * it. Leases are told by each process's own clock, so the processes' clocks must agree to well
+ * within this (NTP does): one far ahead takes runs that are still being run.
+ */
 export const DEFAULT_LEASE_MS = 60_000;
 
 /** What one run of the journey is given: the store it reads and writes, and how to close it. */
@@ -88,6 +92,10 @@ class TurnStep implements EngineStep {
   /** The wake counter as the latest `subscribe` read it: what the next wait compares against. */
   private baseline = 0;
   private stopped = false;
+  /** The run is no longer this turn's: a write was refused, or the runtime's store failed. */
+  lost = false;
+  /** The store's failure, when that is why: the driver throws it, and the run is replayed. */
+  fault: { error: unknown } | undefined;
 
   constructor(
     private readonly run: ClaimedRun,
@@ -120,12 +128,37 @@ class TurnStep implements EngineStep {
     return never<T>();
   }
 
-  /** Write a checkpoint; a write the fence refuses ends the turn, with nothing more written. */
+  private abandon<T>(): Promise<T> {
+    this.lost = true;
+    return this.halt('abandoned');
+  }
+
+  /**
+   * The runtime's own store failed (the connection, a failover). That is not the journey
+   * failing: thrown to the interpreter it would end the run as errored, for a database that is
+   * back a second later. The turn is dropped instead and the run replayed from its checkpoints.
+   */
+  private fail<T>(error: unknown): Promise<T> {
+    this.fault ??= { error };
+    return this.abandon();
+  }
+
+  /**
+   * Write a checkpoint; a write the fence refuses ends the turn, with nothing more written. A
+   * turn that was only suspended still holds its run: a step finishing beside the one that
+   * suspended it is recorded.
+   */
   private async save(key: string, record: StepRecord): Promise<boolean> {
-    if (this.stopped) return false;
-    const kept = await this.runs.checkpoint(this.run, key, record, this.now());
+    if (this.lost) return false;
+    let kept: boolean;
+    try {
+      kept = await this.runs.checkpoint(this.run, key, record, this.now());
+    } catch (error) {
+      void this.fail(error);
+      return false;
+    }
     if (kept) this.records.set(key, record);
-    else void this.halt('abandoned');
+    else void this.abandon();
     return kept;
   }
 
@@ -171,7 +204,11 @@ class TurnStep implements EngineStep {
     return kept ? result : never<T>();
   }
 
-  /** One attempt, given up on after the step timeout. */
+  /**
+   * One attempt, given up on after the step timeout. Nothing can stop the body itself: a call
+   * that answers after its step was given up on has still happened, and the retry repeats it
+   * (steps are at least once).
+   */
   private attempt<T>(fn: () => Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
@@ -228,8 +265,14 @@ class TurnStep implements EngineStep {
       (await this.save(key, { kind: 'wait', done: true, result: verdict, attempts: 0 }))
         ? verdict
         : never<'event' | 'timeout'>();
+    let signals: number;
+    try {
+      signals = await this.runs.signals(this.run.instanceId);
+    } catch (error) {
+      return this.fail(error);
+    }
     // A wake first: one that arrived at the deadline is still a wake
-    if ((await this.runs.signals(this.run.instanceId)) > this.baseline) return answer('event');
+    if (signals > this.baseline) return answer('event');
     if (this.now() >= deadlineMs) return answer('timeout');
     // Parked only if the counter is still where the subscribe found it; otherwise the run is
     // queued again at once and the replay answers 'event' above
@@ -307,7 +350,8 @@ export class NodeRuntime {
       () => {
         void this.runs.extend(run, this.now() + this.leaseMs).catch(() => {});
       },
-      Math.max(1_000, this.leaseMs / 3)
+      // Three chances a lease, however short the lease
+      Math.max(50, this.leaseMs / 3)
     );
     const parts = this.options.open(run);
     try {
@@ -337,7 +381,10 @@ export class NodeRuntime {
         // Steps running beside the one that stopped the turn (a push to several devices) get
         // to their own checkpoints before the run is let go
         await step.settled();
-        if (end.how === 'abandoned') return { instanceId, ended: 'abandoned' };
+        // The store failed under the turn: the caller hears of it, the lease runs out, and the
+        // run is taken again
+        if (step.fault !== undefined) throw step.fault.error;
+        if (end.how === 'abandoned' || step.lost) return { instanceId, ended: 'abandoned' };
         await this.runs.suspend(run, end.how, this.now());
         return { instanceId, ended: 'suspended', wakeAt: end.how.wakeAt };
       }

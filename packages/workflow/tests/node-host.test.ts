@@ -301,6 +301,43 @@ describe('leases', () => {
   });
 });
 
+describe('the store failing under a turn', () => {
+  test('is not the journey failing: the turn throws, and the run is replayed from its checkpoints', async () => {
+    const { host, ingest } = await deployed();
+    await ingest('nap');
+    // The connection drops as the first action's checkpoint is written
+    let dropped = false;
+    // oxlint-disable-next-line typescript/unbound-method -- called with its own `this` below
+    const original = RunStore.prototype.checkpoint;
+    const spy = vi.spyOn(RunStore.prototype, 'checkpoint').mockImplementation(async function (
+      this: RunStore,
+      run,
+      key,
+      record,
+      now
+    ) {
+      if (!dropped && record.kind === 'do' && record.done && log.includes('first')) {
+        dropped = true;
+        throw Object.assign(new Error('connection terminated'), { code: '08006' });
+      }
+      return original.call(this, run, key, record, now);
+    });
+
+    await expect(host.runtime.turn()).rejects.toThrow('connection terminated');
+    expect(dropped).toBe(true);
+    // Not errored: still held by the turn that was dropped, until its lease runs out
+    expect(await runs()).toEqual([{ status: 'running', error: null }]);
+    expect(await entryStatus()).not.toBe('failed');
+    spy.mockRestore();
+
+    advance(DEFAULT_LEASE_MS + 1);
+    expect(await host.drain()).toMatchObject([{ ended: 'suspended' }]);
+    advance(HOUR);
+    expect(await host.drain()).toMatchObject([{ ended: 'complete' }]);
+    expect(await runs()).toEqual([{ status: 'complete', error: null }]);
+  });
+});
+
 describe('the runtime port', () => {
   test('an id names one run for good, an unknown one answers InstanceNotFoundError', async () => {
     const { binding } = node().runtime;
@@ -375,6 +412,51 @@ describe('started', () => {
         });
       });
     });
+
+  test('a port that is taken refuses the start, and leaves nothing running', async () => {
+    vi.useRealTimers();
+    const taken = createServer();
+    const port = await new Promise<number>((resolve) => {
+      taken.listen(0, '127.0.0.1', () => {
+        const address = taken.address();
+        resolve(typeof address === 'object' && address !== null ? address.port : 0);
+      });
+    });
+    const host = node({ pollMs: 20, sweepMs: 3_600_000 });
+    try {
+      await expect(host.start({ port, hostname: '127.0.0.1' })).rejects.toMatchObject({
+        code: 'EADDRINUSE',
+      });
+      // Stopped: a run made due now is taken by nobody
+      expect((await post(host, '/bundle/deploy')).status).toBe(200);
+      await post(host, '/ingest', { userId: 'u1', events: [{ event: 'order', payload: {} }] });
+      await new Promise((resolve) => {
+        setTimeout(resolve, 150);
+      });
+      expect(await runs()).toEqual([{ status: 'queued', error: null }]);
+    } finally {
+      await new Promise((resolve) => {
+        taken.close(resolve);
+      });
+    }
+  }, 20_000);
+
+  test('a request body over the limit is answered 413 and not read', async () => {
+    vi.useRealTimers();
+    const port = await freePort();
+    const host = node({ pollMs: 20, sweepMs: 3_600_000, maxBodyBytes: 1_000 });
+    await host.start({ port, hostname: '127.0.0.1' });
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/ingest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId: 'u1', events: [], padding: 'x'.repeat(5_000) }),
+      });
+      expect(response.status).toBe(413);
+    } finally {
+      await host.stop();
+    }
+  }, 20_000);
 
   test('workers pick up what the HTTP server takes in, with nobody draining', async () => {
     vi.useRealTimers();
