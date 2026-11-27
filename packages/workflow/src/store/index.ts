@@ -671,10 +671,12 @@ export interface JourneyStore {
   /**
    * Record how far a date trigger's fan-out got: the cursor moves to `after`, `entered` is added
    * to the count, and with `finished` (or `skipped`, the reason it ended without running) the
-   * run is over.
+   * run is over. Only from the place `run` was read at: two sweeps on one run (an overlap, a
+   * sweep called by hand) both do the page, the ledger keeps the second from starting anything,
+   * and the one that comes back late must not move the cursor back over what the other did since.
    */
   advanceDateRun(
-    run: { workflow: string; at: number },
+    run: { workflow: string; at: number; after?: string | undefined },
     progress: {
       after?: string | undefined;
       entered?: number;

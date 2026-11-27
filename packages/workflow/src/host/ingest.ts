@@ -664,23 +664,29 @@ export interface DatePage {
 
 /**
  * One page of the earliest date trigger that is due: the next users its filter may hold for, a
- * journey started for each one it does. Undefined when nothing is due.
+ * journey started for each one it does. Undefined when nothing is due. `except` names the
+ * workflows to leave alone — those whose page failed earlier in this sweep, so that one trigger
+ * in trouble does not keep the others waiting behind it.
  *
  * The cursor is saved after the page, so a page cut off before that is done again — which starts
  * nothing twice: the occurrence is the trigger's time, and the entry ledger holds one entry per
  * (workflow, user, occurrence). A start that fails leaves the cursor where it was, for the same
- * reason: the next sweep takes the page again and the ledger skips whoever already entered.
+ * reason: the next sweep takes the page again and the ledger skips whoever already entered. That
+ * is kept up for the grace period; past it, a user whose start still fails is passed over, or
+ * one user nobody can start would hold the trigger, and every sweep, forever.
  */
 export async function fanOutDatePage(
   env: JourneyEnv,
   store: JourneyStore,
   now = Date.now(),
-  limit = SWEEP_PAGE_SIZE
+  limit = SWEEP_PAGE_SIZE,
+  except: readonly string[] = []
 ): Promise<DatePage | undefined> {
-  const run = (await store.dueDateTriggers(now)).at(0);
+  const run = (await store.dueDateTriggers(now)).find((due) => !except.includes(due.workflow));
   if (run === undefined) return undefined;
   const { workflow, at } = run;
-  if (run.after === undefined && run.entered === 0 && now - at > DATE_TRIGGER_GRACE_MS) {
+  const overdue = now - at > DATE_TRIGGER_GRACE_MS;
+  if (run.after === undefined && run.entered === 0 && overdue) {
     console.warn(
       `[workflow] date trigger of '${workflow}' was due ${new Date(at).toISOString()} and no sweep ran it within a day: given up`
     );
@@ -722,25 +728,31 @@ export async function fanOutDatePage(
     await Promise.all(candidates.slice(i, i + DATE_FANOUT_CONCURRENCY).map(enter));
   }
 
+  // A failed start keeps the page for the next sweep — until the trigger is a day overdue
+  const kept = failed && !overdue;
+  if (failed && overdue) {
+    console.warn(
+      `[workflow] date trigger of '${workflow}': still failing a day past its time, the users of this page it could not start are passed over`
+    );
+  }
   const last = candidates.at(-1)?.userId;
-  const finished = !failed && candidates.length < limit;
+  const finished = !kept && candidates.length < limit;
   await store.advanceDateRun(run, {
-    // A failed start keeps the page for the next sweep
-    after: failed ? undefined : last,
+    after: kept ? undefined : last,
     entered: started.length,
     finished,
     now,
   });
   // A store that ignores `after` would hand back the same page forever: refuse to loop on it
-  if (!failed && !finished && last === run.after) {
+  if (!kept && !finished && last === run.after) {
     throw new Error(`listDateCandidates did not advance past ${String(run.after)}`);
   }
-  return { workflow, at, started, finished, failed };
+  return { workflow, at, started, finished, failed: kept };
 }
 
 /**
- * The date triggers that are due, page after page, until none is left, the budget is spent, or a
- * page failed (the earliest due trigger would be that one again: the next sweep takes it up).
+ * The date triggers that are due, page after page, until none is left or the budget is spent. A
+ * trigger whose page failed is left for the next sweep, and the others go on.
  */
 export async function sweepDateTriggers(
   env: JourneyEnv,
@@ -751,8 +763,9 @@ export async function sweepDateTriggers(
   const began = Date.now();
   const started: string[] = [];
   const byRun = new Map<string, DateFanout>();
+  const failed: string[] = [];
   for (;;) {
-    const page = await fanOutDatePage(env, store, now);
+    const page = await fanOutDatePage(env, store, now, SWEEP_PAGE_SIZE, failed);
     if (page === undefined) break;
     const key = `${page.workflow}@${page.at}`;
     const fanout = byRun.get(key) ?? {
@@ -765,7 +778,8 @@ export async function sweepDateTriggers(
     fanout.finished = page.finished;
     byRun.set(key, fanout);
     started.push(...page.started);
-    if (page.failed || Date.now() - began > budgetMs) break;
+    if (page.failed) failed.push(page.workflow);
+    if (Date.now() - began > budgetMs) break;
   }
   return { started, dates: [...byRun.values()] };
 }

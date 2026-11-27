@@ -243,6 +243,83 @@ describe('the fan-out is resumable', () => {
   }, 60_000);
 });
 
+describe('when things go wrong around it', () => {
+  test('two sweeps on one run: the late one does not move the cursor back over the other’s work', async () => {
+    const { env, store, journey } = setup();
+    for (const id of ['a', 'b', 'c', 'd']) await buyer(id);
+    clock('2026-11-20 00:00:00');
+    await deployBundle(env, bundle(sale()), store);
+    clock('2026-11-27 09:00:00');
+
+    // Both read the run at its start; one goes two pages on while the other is still on its first
+    const [stale] = await store.dueDateTriggers(Date.now());
+    await fanOutDatePage(env, store, Date.now(), 2);
+    await fanOutDatePage(env, store, Date.now(), 2);
+    expect(await run()).toMatchObject({ cursor: 'd', entered: 4 });
+
+    if (stale === undefined) throw new Error('expected a due run');
+    await store.advanceDateRun(stale, { after: 'b', entered: 0, now: Date.now() });
+    expect(await run()).toMatchObject({ cursor: 'd', entered: 4 });
+    expect(journey.created).toHaveLength(4);
+  });
+
+  test('a trigger whose starts fail does not keep another due trigger waiting behind it', async () => {
+    const { env, store, journey } = setup();
+    await buyer('a');
+    const other = workflow({
+      id: 'notice',
+      reentry: { mode: 'never' },
+      trigger: trigger.date('2026-11-27 09:10:00'),
+    }).email(plainEmail('notice'));
+    clock('2026-11-20 00:00:00');
+    await deployBundle(
+      env,
+      compileBundle({ workflows: [sale(), other], segments: [purchaser] }),
+      store
+    );
+    clock('2026-11-27 09:15:00');
+    const create = journey.create.bind(journey);
+    journey.create = async (options) => {
+      if (options.id.startsWith('sale-')) throw new Error('platform unavailable');
+      return create(options);
+    };
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const sweep = await sweepDateTriggers(env, store);
+    expect(sweep.dates).toEqual([
+      { workflow: 'sale', at: at(BLACK_FRIDAY), entered: 0, finished: false },
+      { workflow: 'notice', at: at('2026-11-27 09:10:00'), entered: 1, finished: true },
+    ]);
+    quiet.mockRestore();
+  });
+
+  test('a start that still fails a day on is passed over, so one user cannot hold the trigger forever', async () => {
+    const { env, store, journey } = setup();
+    for (const id of ['a', 'b', 'c']) await buyer(id);
+    clock('2026-11-20 00:00:00');
+    await deployBundle(env, bundle(sale()), store);
+    clock('2026-11-27 09:00:00');
+    const create = journey.create.bind(journey);
+    journey.create = async (options) => {
+      if (options.id.includes('-b-')) throw new Error('never works');
+      return create(options);
+    };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect((await sweepDateTriggers(env, store)).dates[0]).toMatchObject({ finished: false });
+    // Retried for the grace period, the others already in
+    vi.setSystemTime(at(BLACK_FRIDAY) + DATE_TRIGGER_GRACE_MS + 1);
+    const late = await sweepDateTriggers(env, store);
+    expect(late.dates[0]).toMatchObject({ entered: 0, finished: true });
+    expect(await entered()).toEqual(['a', 'c']);
+    expect(await run()).toMatchObject({ done: true, skipped: null, entered: 2 });
+    expect(warnings).toHaveBeenCalledWith(expect.stringContaining('passed over'));
+    errors.mockRestore();
+    warnings.mockRestore();
+  });
+});
+
 describe('a time runs once, whatever is deployed around it', () => {
   test('a time already past when the trigger is first deployed is not run', async () => {
     const { env, store, journey } = setup();

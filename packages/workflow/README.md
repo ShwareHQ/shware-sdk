@@ -359,8 +359,8 @@ workflow({
 }).email(email.black_friday, { name: u.name });
 ```
 
-At that time (UTC) every known user the `filter` holds for enters — asked at
-that moment, so someone who has been a purchaser for three years enters like
+At that time (UTC) every known user the `filter` holds for enters — asked when
+the sweep reaches them, not from a membership kept beforehand, so someone who has been a purchaser for three years enters like
 one who became one yesterday. Without a `filter`, every known user does.
 Visitors do not.
 
@@ -378,6 +378,10 @@ Visitors do not.
 - **A time already past when the trigger is first deployed is not run**, and
   neither is one that no sweep picked up within a day (a cron that was off):
   a send that is that late is not the one that was scheduled.
+- **A start that fails is retried.** The page it was on is done again by the
+  next sweep (whoever already entered is skipped), other date triggers that
+  are due go on meanwhile, and a user who still cannot be started a day after
+  the time is passed over.
 - **The filter is checked before an instance exists.** A user it turns away
   has not entered: no Workflow instance, nothing held against `reentry`,
   nothing in the entry counts. That is the difference from a `filter` step.

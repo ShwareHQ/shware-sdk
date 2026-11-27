@@ -997,7 +997,7 @@ export class PostgresJourneyStore implements JourneyStore {
   }
 
   async advanceDateRun(
-    run: { workflow: string; at: number },
+    run: { workflow: string; at: number; after?: string | undefined },
     progress: {
       after?: string | undefined;
       entered?: number;
@@ -1013,7 +1013,8 @@ export class PostgresJourneyStore implements JourneyStore {
          entered = entered + $4::int,
          finished_at = CASE WHEN $5 THEN ${TS('$6')} ELSE finished_at END,
          skipped = COALESCE($7, skipped)
-       WHERE workflow = $1 AND at = ${TS('$2')} AND finished_at IS NULL`,
+       WHERE workflow = $1 AND at = ${TS('$2')} AND finished_at IS NULL
+         AND cursor IS NOT DISTINCT FROM $8`,
       [
         run.workflow,
         run.at,
@@ -1022,6 +1023,7 @@ export class PostgresJourneyStore implements JourneyStore {
         over,
         progress.now,
         progress.skipped ?? null,
+        run.after ?? null,
       ]
     );
   }

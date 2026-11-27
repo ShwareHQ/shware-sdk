@@ -281,16 +281,19 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
     );
     // The date triggers that are due, one durable step per page: the cursor lives in the store,
     // so a replayed step answers from its checkpoint and the next one goes on from where the
-    // store says. No budget here — a cut-short invocation is re-invoked — only the stop on a
-    // page whose start failed, which the next tick takes again.
+    // store says. No budget here — a cut-short invocation is re-invoked. A trigger whose page
+    // failed is left for the next tick; the list of those comes from the steps' own results, so
+    // a replay rebuilds it the same.
     const dates = new Map<string, DateFanout>();
     const dated: string[] = [];
+    const failedDates: string[] = [];
     for (let n = 0; ; n++) {
+      const except = [...failedDates];
       const page = await context.step(
         `sweep:date:${n}`,
         async () => {
           const { store, env } = open(context);
-          return (await fanOutDatePage(env, store)) ?? null;
+          return (await fanOutDatePage(env, store, Date.now(), SWEEP_PAGE_SIZE, except)) ?? null;
         },
         once
       );
@@ -306,7 +309,7 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       fanout.finished = page.finished;
       dates.set(key, fanout);
       dated.push(...page.started);
-      if (page.failed) break;
+      if (page.failed) failedDates.push(page.workflow);
     }
     // As `sweepSegments`: the segments being seeded when the pass began are seeded once it ends
     const seeding = await context.step(
