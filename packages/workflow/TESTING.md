@@ -31,6 +31,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `public-api.test.ts`                 | Consumer-perspective smoke: public entry points only, end to end                    |
 | `types.test-d.ts`                    | Type-safety regressions (never executed, see below)                                 |
 | `integration/postgres-locks.test.ts` | The store's per-user locks over two real Postgres connections (see below)           |
+| `conformance/*.test.ts`              | One set of journeys on every host, held to the same results (see below)             |
 | `integration/node-host.test.ts`      | The self-hosted runtime over many connections and processes (see below)             |
 
 ## Rules
@@ -49,6 +50,51 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
    verification harness, not a test.
 5. **Every public API change lands with tests in the same commit** — functional
    coverage here, plus a `types.test-d.ts` entry when the type surface moved.
+
+## Host conformance
+
+`tests/conformance/` runs one config on the three hosts — Node, Cloudflare, AWS — and holds
+each to the same observable results. It is what says a journey behaves the same wherever it is
+deployed; a host's own file (`node-host.test.ts`, `worker.test.ts`, `runner.test.ts`,
+`aws.test.ts`) stays the place for what only that host does (leases, eviction, callbacks).
+
+| File                         | What it is                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `journeys.ts`                | The config every host deploys, its actions, the one message sender, and the `probe` |
+| `scenarios.ts`               | The table: a script per scenario over a `World`, with its expectations              |
+| `world.ts`                   | What a script may do (the HTTP API, the clock, the sweep) and read back             |
+| `driver.ts`                  | The `Driver` / `Host` interface: request, settle, advance, sweep                    |
+| `node-driver.ts`             | `journeyNode`: `fetch`, `drain`, a faked `Date`                                     |
+| `cloudflare-driver.ts`       | `journeyWorker` over `cloudflare-runtime.ts`                                        |
+| `cloudflare-runtime.ts`      | `FakeJourney` with its instances run: sleeps, waits and retries park on the clock   |
+| `aws-driver.ts`              | `journeyLambda` on the local durable runner (`skipTime`), one runner per execution  |
+| `suite.ts`, `<host>.test.ts` | The suite over the table, and one file a host: each runs in a process of its own    |
+
+The AWS file does not run on Linux, so not in CI: under `skipTime` the local durable runner's
+first execution never returns there (out of memory after two minutes), for a reason not yet
+found. Run it locally on macOS (`npx vitest run tests/conformance/aws.test.ts`).
+
+Rules:
+
+1. **A scenario never names a host.** It acts through the HTTP API every host serves and reads
+   only what is host-independent: the action calls and the copies handed to the sender (`probe`,
+   idempotency keys with the instance id normalized), and the `entry`, `instance`, `message`,
+   `event` and `subscription` tables. A host's own state (`run`, `execution`, the fake
+   binding) is the driver's business.
+2. **A difference between hosts is recorded, not hidden.** `diverges: { <host>: 'why' }` on the
+   scenario makes it `test.fails` for that host — red again the day the host agrees. Do not
+   weaken the expectation and do not change `src/` to make it pass in the same commit as the
+   scenario that found it.
+3. **A harness that cannot drive a script says so.** `cannot: { <host>: 'why' }` makes it
+   `test.skip` with the reason in the title. Today that is AWS only: the local durable runner
+   ends a sleep as soon as nothing else runs (no scenario can stand in the middle of one), and
+   keeps a callback's timeout on the real clock (a `waitUntil` of an hour never times out; the
+   `brief*` workflows time out after a second and are waited out in real time).
+4. **Hold a journey with a wait, not a delay**, unless the delay is the subject: `hold`
+   (`journeys.ts`) parks an instance until the user's `release` event, which every host can do.
+5. **New workflow, new start event.** Scenarios share one config, so each workflow is started
+   by an event of its own (`start_<id>`) and assertions on shared events read one workflow's
+   calls (`world.of(id)`).
 
 ## Integration tests (real Postgres)
 
