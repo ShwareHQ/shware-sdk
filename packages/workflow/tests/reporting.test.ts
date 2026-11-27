@@ -149,6 +149,24 @@ describe('observer', () => {
     expect(message).toEqual({ channel: 'email', delivered: true });
   });
 
+  test('a delivery reported late replaces the guess, and no guess is written over a delivery', async () => {
+    const observer = reportingObserver(reporting(), undefined);
+    await observer.messagePrepared?.(email());
+    const row = async () =>
+      (
+        await pg.query(
+          'SELECT delivered_at IS NOT NULL AS delivered, undelivered_reason FROM workflow.message'
+        )
+      ).rows[0];
+    // A replay settled the claimed copy as unconfirmed while the first send was still out
+    await observer.messageSent?.(email(), { delivered: false, reason: 'unconfirmed' });
+    expect(await row()).toEqual({ delivered: false, undelivered_reason: 'unconfirmed' });
+    await observer.messageSent?.(email(), { delivered: true });
+    expect(await row()).toEqual({ delivered: true, undelivered_reason: null });
+    await observer.messageSent?.(email(), { delivered: false, reason: 'no_answer' });
+    expect(await row()).toEqual({ delivered: true, undelivered_reason: null });
+  });
+
   test('a retried step finds the copy it already recorded', async () => {
     const observer = reportingObserver(reporting(), 'https://wf.example.com');
     const first = await observer.messagePrepared?.(email());

@@ -14,6 +14,7 @@ import type {
   PushDevice,
 } from './ports';
 import { RECIPIENT_PROPERTY } from './recipient';
+import { isUnanswered } from './retry';
 import { nextWindowStart } from './time-window';
 
 /**
@@ -184,13 +185,21 @@ async function reached(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
  * (the row, the tracking) → claimed (handed to the transport, committed before the send) →
  * send → sent.
  *
- * Delivery is at most once. A send that throws is a definite failure: the claim is released, the
- * step retries, and the copy is reported when it settles. A copy that was claimed but never
- * settled is the uncertain case — the earlier run died between the transport taking it and the
- * report (or the step's checkpoint) — and a replay does not send it again; it logs and moves on.
- * The templates that must arrive opt out of that per template (`redelivery: 'resend'`), and are
- * sent again as the step retries. A report that fails after the send is logged, never thrown:
- * the step would retry, and the copy — now claimed — would be skipped.
+ * Delivery is at most once. A send that throws is a definite failure — the provider answered
+ * with a refusal, or the sender never got as far as asking: the claim is released, the step
+ * retries, and the copy is reported when it settles. Two cases are uncertain, and in neither is
+ * the copy sent again:
+ *
+ * - the provider never answered (`UnansweredSendError`: the connection dropped, the fetch timed
+ *   out) — it may have taken the message, so the claim is kept and the copy settles undelivered
+ *   as `no_answer`, and the journey goes on;
+ * - the copy was claimed and never settled — the earlier run died between the transport taking
+ *   it and the report (or the step's checkpoint) — and a replay settles it as `unconfirmed`.
+ *
+ * Both are in the report under those reasons: what at-most-once cost is countable. The templates
+ * that must arrive opt out per template (`redelivery: 'resend'`), and are sent again as the step
+ * retries. A report that fails after the send is logged, never thrown: the step would retry,
+ * and the copy — now claimed — would be skipped.
  *
  * Why at most once (decided 2026-11-10, after reviewing the alternatives): exactly-once is out of
  * reach — Cloudflare Email Service (the `send_email` binding and the REST endpoint alike) and SES
@@ -212,12 +221,22 @@ async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<v
     console.warn(
       `[workflow] ${copy.idempotencyKey} was handed to the transport by an earlier run and never settled: not sent again (redelivery: 'skip')`
     );
+    await settleUncertain(copy, 'unconfirmed', ctx);
     return;
   }
   let result: Awaited<ReturnType<typeof ctx.messages.send>>;
   try {
     result = await ctx.messages.send(copy);
   } catch (error) {
+    if (isUnanswered(error) && copy.redelivery !== 'resend') {
+      // The provider may have taken it: the claim stays, and nothing sends this copy again
+      console.warn(
+        `[workflow] ${copy.idempotencyKey} got no answer from the provider: not sent again (redelivery: 'skip')`,
+        error
+      );
+      await settleUncertain(copy, 'no_answer', ctx);
+      return;
+    }
     // A thrown send is a definite failure: the copy did not go out, so the retry must be free to send it
     try {
       await observer?.messageReleased?.(copy);
@@ -233,6 +252,22 @@ async function deliver(message: OutboundMessage, ctx: JourneyContext): Promise<v
     await observer?.messageSent?.(copy, result ?? { delivered: true });
   } catch (error) {
     console.error(`[workflow] reporting ${copy.idempotencyKey} as sent failed`, error);
+  }
+}
+
+/**
+ * A copy that may or may not have reached the user, settled as undelivered under the reason that
+ * says which uncertainty it was. Logged, never thrown, like every report after a send.
+ */
+async function settleUncertain(
+  copy: OutboundMessage,
+  reason: 'no_answer' | 'unconfirmed',
+  ctx: JourneyContext
+): Promise<void> {
+  try {
+    await ctx.observer?.messageSent?.(copy, { delivered: false, reason });
+  } catch (error) {
+    console.error(`[workflow] reporting ${copy.idempotencyKey} as ${reason} failed`, error);
   }
 }
 

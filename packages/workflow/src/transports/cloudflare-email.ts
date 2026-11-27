@@ -1,6 +1,6 @@
 import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
-import { isRetryableStatus } from '../engine/retry';
+import { awaitAnswer, isRetryableStatus } from '../engine/retry';
 import type { EmailAddress } from '../template-rules';
 
 /**
@@ -90,9 +90,8 @@ export function cloudflareEmailTransport(options: CloudflareEmailTransportOption
   const fetchImpl = options.fetch ?? fetch;
   return {
     async send(message: EmailMessage) {
-      const response = await fetchImpl(
-        `${endpoint}/accounts/${encodeURIComponent(accountId)}/email/sending/send`,
-        {
+      const response = await awaitAnswer('Cloudflare Email send', () =>
+        fetchImpl(`${endpoint}/accounts/${encodeURIComponent(accountId)}/email/sending/send`, {
           method: 'POST',
           headers: {
             authorization: `Bearer ${apiToken}`,
@@ -106,14 +105,18 @@ export function cloudflareEmailTransport(options: CloudflareEmailTransportOption
             html: message.html,
             ...(message.headers === undefined ? {} : { headers: message.headers }),
           }),
-        }
+        })
       );
-      let body: { success?: unknown; errors?: unknown; result?: { message_id?: unknown } } = {};
+      let body: { success?: unknown; errors?: unknown; result?: { message_id?: unknown } } | null;
       try {
         body = (await response.json()) as typeof body;
       } catch {
-        body = {};
+        body = null;
       }
+      // A 2xx whose body cannot be read took the email: only its id is lost. Calling that a
+      // failure would send it again, and nothing de-duplicates (see below)
+      if (response.ok && body === null) return {};
+      body ??= {};
       if (!response.ok || body.success !== true) {
         throw new CloudflareEmailError(
           response.status,

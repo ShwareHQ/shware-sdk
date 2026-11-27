@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto';
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
-import { PermanentError, isRetryable } from '../src/engine/retry';
+import { PermanentError, isRetryable, isUnanswered } from '../src/engine/retry';
 import {
   DEAD_TOKEN_REASONS,
   FcmAccessToken,
@@ -350,6 +350,28 @@ describe('FcmPushSender', () => {
     expect(() => serviceAccountFromBase64(btoa('{oops'))).toThrow(PermanentError);
     expect(() => serviceAccountFromBase64(btoa('{"project_id":"p"}'))).toThrow(PermanentError);
     expect(serviceAccountFromBase64(btoa(JSON.stringify(account)))).toEqual(account);
+  });
+
+  test('a send FCM never answered is an unanswered send; a token exchange that fails is not', async () => {
+    const token = () => Response.json({ access_token: 't', expires_in: 3600 });
+    const noAnswer: typeof fetch = async (url) => {
+      if (typeof url === 'string' && url.includes('oauth2')) return token();
+      throw new TypeError('fetch failed');
+    };
+    const sent = await sender(noAnswer)
+      .send(message)
+      .catch((e: unknown) => e);
+    expect(isUnanswered(sent)).toBe(true);
+
+    // Nothing was handed to FCM: the retry is free to send
+    const noToken = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const exchange = await sender(noToken)
+      .send(message)
+      .catch((e: unknown) => e);
+    expect(exchange).toBeInstanceOf(Error);
+    expect(isUnanswered(exchange)).toBe(false);
   });
 
   test('rejects other channels and missing tokens', async () => {

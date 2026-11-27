@@ -227,13 +227,23 @@ export class PostgresReporting implements JourneyReporting {
     at: number
   ): Promise<void> {
     if (result.delivered) {
+      // A delivery is what happened, whenever it is reported: it replaces a guess written while
+      // the answer was still out (`unconfirmed`, `no_answer` — a replay overtaking a slow send)
       await this.sql.query(
-        `UPDATE ${this.t.message} SET delivered_at = coalesce(delivered_at, ${TS('$2')}) WHERE idempotency_key = $1`,
+        `UPDATE ${this.t.message} SET
+           delivered_at = coalesce(delivered_at, ${TS('$2')}),
+           undelivered_reason = CASE
+             WHEN undelivered_reason IN ('unconfirmed', 'no_answer') THEN NULL
+             ELSE undelivered_reason
+           END
+         WHERE idempotency_key = $1`,
         [idempotencyKey, at]
       );
     } else {
+      // And is never written over: a copy known to be delivered has no reason not to be
       await this.sql.query(
-        `UPDATE ${this.t.message} SET undelivered_reason = $2 WHERE idempotency_key = $1`,
+        `UPDATE ${this.t.message} SET undelivered_reason = $2
+         WHERE idempotency_key = $1 AND delivered_at IS NULL`,
         [idempotencyKey, result.reason]
       );
     }

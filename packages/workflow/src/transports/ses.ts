@@ -1,6 +1,6 @@
 import { mimeAddress } from '../email';
 import type { EmailMessage, EmailTransport } from '../email-sender';
-import { isRetryableStatus } from '../engine/retry';
+import { awaitAnswer, isRetryableStatus } from '../engine/retry';
 import { signRequest } from './sigv4';
 
 /**
@@ -156,8 +156,12 @@ export function sesEmailTransport(options: SesEmailTransportOptions): EmailTrans
       });
       // No retries here: the durable step owns them, and counts them — SES cannot de-duplicate,
       // so every extra attempt of an accepted send is another chance to deliver twice
-      const response = await fetchImpl(url, { method: 'POST', headers, body });
-      const text = await response.text();
+      const response = await awaitAnswer('SES SendEmail', () =>
+        fetchImpl(url, { method: 'POST', headers, body })
+      );
+      // The status is the answer. A body that cannot be read changes nothing about it: a 2xx
+      // took the email (only its id is lost), anything else refused it
+      const text = await response.text().catch(() => '');
       if (!response.ok) {
         let detail = text;
         let parsed: unknown;

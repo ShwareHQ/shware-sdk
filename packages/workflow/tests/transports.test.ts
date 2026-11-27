@@ -4,6 +4,7 @@ import { fromResponse, isFunctionUrlEvent, toRequest } from '../src/aws/function
 import { mimeAddress } from '../src/email';
 import { type EmailMessage, EmailSender, unsubscribeHeaders } from '../src/email-sender';
 import type { OutboundMessage } from '../src/engine/ports';
+import { isUnanswered } from '../src/engine/retry';
 import { CloudflareEmailError, cloudflareEmailTransport } from '../src/transports/cloudflare-email';
 import { SesSendError, sesEmailTransport, sesErrorType } from '../src/transports/ses';
 import { signRequest } from '../src/transports/sigv4';
@@ -148,7 +149,66 @@ describe('signRequest canonicalization', () => {
   });
 });
 
+/** A fetch whose request leaves and never gets an answer back. */
+const droppedFetch = (async () => {
+  throw new TypeError('fetch failed');
+}) as unknown as typeof fetch;
+
+/** A response whose status arrived and whose body did not. */
+const unreadable = (status: number) =>
+  ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers(),
+    text: async () => {
+      throw new TypeError('terminated');
+    },
+    json: async () => {
+      throw new TypeError('terminated');
+    },
+  }) as unknown as Response;
+
 describe('sesEmailTransport', () => {
+  const ses = (fetchImpl: typeof fetch) =>
+    sesEmailTransport({
+      region: 'us-east-1',
+      credentials: { accessKeyId: 'AKID', secretAccessKey: 'secret' },
+      fetch: fetchImpl,
+    });
+
+  test('a request SES never answered is an unanswered send, not a refusal', async () => {
+    const error = await ses(droppedFetch)
+      .send(email)
+      .catch((e: unknown) => e);
+    expect(isUnanswered(error)).toBe(true);
+    expect((error as Error).message).toBe('SES SendEmail: no answer (fetch failed)');
+  });
+
+  test('a 200 whose body cannot be read took the email: no id, no error', async () => {
+    expect(await ses(async () => unreadable(200)).send(email)).toEqual({});
+  });
+
+  test('a refusal whose body cannot be read is still a refusal, and not an unanswered send', async () => {
+    const error = await ses(async () => unreadable(503))
+      .send(email)
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'SesSendError', status: 503 });
+    expect(isUnanswered(error)).toBe(false);
+  });
+
+  test('credentials that cannot be had fail before the send: nothing went out', async () => {
+    const transport = sesEmailTransport({
+      region: 'us-east-1',
+      credentials: async () => {
+        throw new Error('no credentials');
+      },
+      fetch: droppedFetch,
+    });
+    const error = await transport.send(email).catch((e: unknown) => e);
+    expect((error as Error).message).toBe('no credentials');
+    expect(isUnanswered(error)).toBe(false);
+  });
+
   const saved = { ...process.env };
   afterEach(() => {
     process.env = { ...saved };
@@ -333,6 +393,28 @@ describe('sesEmailTransport', () => {
 });
 
 describe('cloudflareEmailTransport', () => {
+  const rest = (fetchImpl: typeof fetch) =>
+    cloudflareEmailTransport({ accountId: 'acc', apiToken: 'cf-token', fetch: fetchImpl });
+
+  test('the REST API not answering is an unanswered send', async () => {
+    const error = await rest(droppedFetch)
+      .send(email)
+      .catch((e: unknown) => e);
+    expect(isUnanswered(error)).toBe(true);
+  });
+
+  test('a 200 whose body cannot be read took the email; a 200 that says success: false did not', async () => {
+    expect(await rest(async () => unreadable(200)).send(email)).toEqual({});
+    const refused = (async () =>
+      new Response(JSON.stringify({ success: false, errors: [{ code: 1, message: 'no' }] }), {
+        status: 200,
+      })) as unknown as typeof fetch;
+    await expect(rest(refused).send(email)).rejects.toMatchObject({
+      name: 'CloudflareEmailError',
+      status: 200,
+    });
+  });
+
   test('the binding gets the finished email, idempotency key included', async () => {
     const received: unknown[] = [];
     const transport = cloudflareEmailTransport({
