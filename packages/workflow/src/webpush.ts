@@ -417,6 +417,10 @@ export class WebPushSender implements MessageSender {
     }
     const text = await response.text();
     if (isRetryableStatus(status)) throw new Error(`[webpush] ${status}: ${text}`);
+    // Not a refusal at all (a redirect the fetch did not follow): nothing a device can explain
+    if (status < 400) {
+      throw new PermanentError(`[webpush] unexpected answer from the push service: ${status}`);
+    }
     // This subscription, or this sender: the answer does not say. Settled with the device kept,
     // and loud — if it is the VAPID key, every subscription answers so
     console.error(

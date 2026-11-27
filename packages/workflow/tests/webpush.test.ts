@@ -397,6 +397,7 @@ describe('web push', () => {
     const table: [status: number, reason: string, outcome: Outcome][] = [
       [404, 'NotFound', 'settled-dead-token'],
       [410, 'Gone', 'settled-dead-token'],
+      [300, '', 'PermanentError'],
       [400, 'Refused400', 'settled-undelivered'],
       [401, 'Refused401', 'settled-undelivered'],
       [403, 'Refused403', 'settled-undelivered'],
