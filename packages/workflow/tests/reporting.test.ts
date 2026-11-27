@@ -972,4 +972,17 @@ describe('classify', () => {
         .reason
     ).toBe('quick+link_pair');
   });
+
+  test('a web proxy network is a machine only with another weak signal', () => {
+    const proxied = { ...click, organization: 'ZSCALER-SJC' };
+    // An employee behind the gateway, minutes after delivery, one link
+    expect(classifyClick(proxied).machine).toBe(false);
+    expect(classifyClick({ ...proxied, organization: 'Cisco Systems, Inc.' }).machine).toBe(false);
+    expect(classifyClick({ ...proxied, sinceDeliveredMs: 400 }).reason).toBe('proxy+quick');
+    expect(classifyClick({ ...proxied, linksInBurst: 2 }).reason).toBe('proxy+link_pair');
+    // A mail security vendor has no browsing staff behind it
+    expect(classifyClick({ ...click, organization: 'Proofpoint, Inc.' }).reason).toBe('datacenter');
+    // The user agent still decides alone when the scanner names itself
+    expect(classifyClick({ ...proxied, userAgent: 'Zscaler/1.0' }).reason).toBe('scanner');
+  });
 });

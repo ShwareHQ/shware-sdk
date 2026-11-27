@@ -1907,7 +1907,13 @@ On Postgres the engine also keeps:
   by the default observer. With `WORKFLOW_ORIGIN` set, email links and an open
   pixel are tracked through the Worker's `/t/...` routes. Each open and click
   is classified as a person's or a machine's (Apple Mail Privacy Protection,
-  link scanners, prefetches). An email's unsubscribe link gets a confirmation
+  link scanners, prefetches). A click from a cloud's or a mail security
+  vendor's network is a machine's; one from a corporate web proxy's (Zscaler,
+  Cisco…) is a machine's only if it also came within a second of delivery or
+  with another link, since staff browse through those. The network is known on
+  Cloudflare only, so on AWS and Node these two rules do not apply and the
+  human click rate reads higher
+  ([why](./docs/decisions/click-classification.md)). An email's unsubscribe link gets a confirmation
   page; which link that is was fixed when the email was sent. Following it is
   recorded, and counts as an open, but is not a click of the copy: `clicked_at`
   and the click rates are about the links of the content.

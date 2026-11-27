@@ -277,7 +277,8 @@ async function recordClick(
     );
     return {
       engagement: { at, ...verdict, ...network(who) },
-      backdate: verdict.reason === 'link_burst' || verdict.reason === 'quick+link_pair',
+      // The earlier click of a pair was judged before its other half arrived
+      backdate: verdict.reason === 'link_burst' || (verdict.reason ?? '').endsWith('link_pair'),
     };
   });
   return recorded?.url;
