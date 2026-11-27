@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { EnvValidationError, journeyWorker } from '../src/cloudflare/worker';
 import { defineConfig } from '../src/config';
 import type { OutboundMessage } from '../src/engine/ports';
-import { PermanentError } from '../src/engine/retry';
+import { PermanentError, isUnanswered } from '../src/engine/retry';
 import { channelsFromConfig } from '../src/host/channels';
 import {
   discordTemplate,
@@ -169,6 +169,39 @@ describe('webhook senders', () => {
         fetch: recording(410, 'channel_is_archived').fetchImpl,
       }).send(message('slack', 'signup'))
     ).toEqual({ delivered: false, reason: 'channel_is_archived' });
+  });
+});
+
+describe('a webhook that does not answer', () => {
+  test('is an unanswered send for Discord and Slack: the post may have gone through', async () => {
+    const dropped = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const discord = await new DiscordWebhookSender({
+      render: () => ({ url: 'https://example.com/hook', content: { content: 'x' } }),
+      fetch: dropped,
+    })
+      .send(message('discord', 'churn'))
+      .catch((e: unknown) => e);
+    expect(isUnanswered(discord)).toBe(true);
+    const slack = await new SlackWebhookSender({
+      render: () => ({ url: 'https://example.com/hook', content: { text: 'x' } }),
+      fetch: dropped,
+    })
+      .send(message('slack', 'signup'))
+      .catch((e: unknown) => e);
+    expect(isUnanswered(slack)).toBe(true);
+  });
+
+  test('a render that throws is not one: nothing was posted', async () => {
+    const error = await new DiscordWebhookSender({
+      render: () => {
+        throw new Error('no such template');
+      },
+    })
+      .send(message('discord', 'churn'))
+      .catch((e: unknown) => e);
+    expect(isUnanswered(error)).toBe(false);
   });
 });
 

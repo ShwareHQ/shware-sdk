@@ -1,4 +1,5 @@
 import type { MessageSender, OutboundMessage, SendResult } from './engine';
+import { awaitAnswer } from './engine/retry';
 import type { DiscordContent, SlackContent } from './templates';
 
 /**
@@ -10,7 +11,8 @@ import type { DiscordContent, SlackContent } from './templates';
  * A request the channel refuses for good — the webhook deleted, the channel archived, a message
  * Discord or Slack rejects (4xx) — settles the copy undelivered instead of retrying into it, so a
  * team-channel post never holds up the customer messages after it. Rate limits (429), timeouts
- * (408) and server errors throw, and the step retries.
+ * (408) and server errors throw, and the step retries. A post that got no answer at all throws
+ * an `UnansweredSendError`: it may have been posted, and is not posted again.
  */
 
 /** A 4xx that retrying cannot fix. */
@@ -36,12 +38,20 @@ async function post(
   url: string,
   body: unknown
 ): Promise<{ status: number; text: string }> {
-  const response = await doFetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return { status: response.status, text: response.ok ? '' : await response.text() };
+  // Neither Discord nor Slack de-duplicates a webhook post: one they never answered is not
+  // posted again (see deliver)
+  const response = await awaitAnswer('webhook post', () =>
+    doFetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  );
+  // The status is the answer; a refusal whose body cannot be read is still a refusal
+  return {
+    status: response.status,
+    text: response.ok ? '' : await response.text().catch(() => ''),
+  };
 }
 
 function requireChannel(message: OutboundMessage, channel: 'discord' | 'slack') {

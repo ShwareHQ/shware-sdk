@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 import type { MessageSender, OutboundMessage, SendResult } from './engine';
-import { PermanentError, isRetryableStatus } from './engine/retry';
+import { PermanentError, awaitAnswer, isRetryableStatus } from './engine/retry';
 import { base64url, pemToDer } from './jwt';
 import type { PushRenderer } from './push';
 
@@ -149,12 +149,14 @@ export class FcmPushSender implements MessageSender {
     const { credentials, android, apns } = this.options;
     const doFetch = this.options.fetch ?? fetch;
 
-    const response = await doFetch(
-      `https://fcm.googleapis.com/v1/projects/${credentials.projectId}/messages:send`,
-      {
+    // Before the send, not inside it: a token that cannot be had means nothing went out
+    const token = await credentials.token();
+    // FCM does not de-duplicate: a request it never answered is not sent again (see deliver)
+    const response = await awaitAnswer('FCM send', () =>
+      doFetch(`https://fcm.googleapis.com/v1/projects/${credentials.projectId}/messages:send`, {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${await credentials.token()}`,
+          authorization: `Bearer ${token}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -173,7 +175,7 @@ export class FcmPushSender implements MessageSender {
             apns: { payload: { aps: { sound: 'default', ...apns } } },
           },
         }),
-      }
+      })
     );
     if (response.ok) return;
 

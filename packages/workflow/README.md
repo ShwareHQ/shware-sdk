@@ -873,13 +873,35 @@ before the send), the transport takes it, and the result is settled
 (`delivered_at` or `undelivered_reason`). On a replay of the step:
 
 - a settled copy is skipped;
-- a copy the transport refused for sure — a thrown send, a 5xx, a 429 — had its
-  claim released, so the retry sends it, as before;
+- a copy the transport refused for sure had its claim released, so the retry
+  sends it, as before. That is a provider answering with a refusal (a 4xx, a 429,
+  a 5xx), or a sender that never got as far as asking: a render that threw,
+  credentials that could not be had;
 - a copy that is **claimed but not settled** is treated as possibly delivered and
   is **not sent again**. The run that claimed it died between the transport taking
   the copy and the report (or the step's checkpoint) committing, so no one knows
-  whether it went out. The engine logs a warning with the idempotency key and
-  moves on.
+  whether it went out. The engine logs a warning with the idempotency key,
+  settles the copy undelivered as `unconfirmed` and moves on.
+
+**A request the provider never answered is not a refusal.** The connection
+dropped or the fetch timed out after the request left: the provider may have
+taken the message, and a second attempt would be a second message. The senders
+that cannot de-duplicate — SES, the Cloudflare Email REST API, FCM, the Slack and
+Discord webhooks — throw an `UnansweredSendError` for it. The engine keeps the
+claim, settles the copy undelivered as `no_answer`, and goes on to the next
+step; nothing is retried. A `fetch` that fails does not say whether it failed
+before or after the request left, so a connection that could not be opened is
+treated the same way, and that copy is lost. APNs and Web Push are retried as
+before, because a repeat collapses on the device, and so is a
+`WebhookMessageSender`, whose receiver de-duplicates on the idempotency key. A
+2xx whose body cannot be read is a delivery: the status is the answer.
+
+`no_answer` and `unconfirmed` are `undelivered_reason`s like any other, so the
+copies at-most-once cost are in the delivery report and can be counted. A
+transport of your own marks the same case by throwing an error with
+`unanswered: true` (or `UnansweredSendError`, `awaitAnswer` from
+`@shware/workflow/engine`). The Cloudflare `send_email` binding is not covered:
+what it throws is taken as a refusal and retried, as before.
 
 Exactly-once is not available: Cloudflare Email Service accepts no idempotency
 key or client message id — the `send_email` binding's `send()` takes only the

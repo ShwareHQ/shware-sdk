@@ -29,4 +29,11 @@ export type {
   SendResult,
 } from './ports';
 export { longestJourneyMs } from './duration';
-export { PermanentError, isRetryable, isRetryableStatus } from './retry';
+export {
+  PermanentError,
+  UnansweredSendError,
+  awaitAnswer,
+  isRetryable,
+  isRetryableStatus,
+  isUnanswered,
+} from './retry';

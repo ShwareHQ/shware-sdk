@@ -17,6 +17,7 @@ import {
   relevantEvents,
   runJourney,
 } from '../src/engine/index';
+import { UnansweredSendError } from '../src/engine/retry';
 import { nextWindowStart } from '../src/engine/time-window';
 import {
   type FlowBuilder,
@@ -2006,6 +2007,117 @@ describe('delivery is at most once', () => {
     await runJourney(ir, ctx); // the step's retry
     expect(attempts).toBe(2);
     expect(sent).toHaveLength(1);
+  });
+
+  test('a send the provider never answered keeps its claim, settles as no_answer and lets the journey go on', async () => {
+    // The request left and nothing came back: the provider may have taken the email, and it
+    // cannot de-duplicate, so a second attempt is a second email
+    const { ctx, sent } = makeContext();
+    const { claimed, released } = fakeReporting(ctx);
+    const outcomes: unknown[] = [];
+    ctx.observer = {
+      ...ctx.observer,
+      messageSent: async (m, result) => void outcomes.push([m.idempotencyKey, result]),
+    };
+    let attempts = 0;
+    ctx.messages = {
+      send: async (m) => {
+        attempts += 1;
+        if (m.template === 'hello') throw new UnansweredSendError('SES SendEmail: no answer');
+        sent.push(m);
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ir = workflow({
+      id: 'unanswered',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(hello)
+      .email(plainEmail('after'))
+      .toIR();
+
+    await runJourney(ir, ctx);
+    expect(attempts).toBe(2);
+    expect(released).toEqual([]);
+    expect(claimed.has('inst_1:0')).toBe(true);
+    expect(outcomes).toEqual([
+      ['inst_1:0', { delivered: false, reason: 'no_answer' }],
+      ['inst_1:1', { delivered: true }],
+    ]);
+    // The step after it ran: one unanswered email does not end the journey
+    expect(sent.map((m) => m.template)).toEqual(['after']);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test('a host transport marks the same thing with the property alone', async () => {
+    const { ctx } = makeContext();
+    const { released } = fakeReporting(ctx);
+    ctx.messages = {
+      send: async () => {
+        throw Object.assign(new Error('socket hang up'), { unanswered: true });
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ir = workflow({
+      id: 'unanswered_own',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(hello)
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(released).toEqual([]);
+    warn.mockRestore();
+  });
+
+  test("a redelivery: 'resend' template is sent again after an unanswered send", async () => {
+    const { ctx, sent } = makeContext();
+    const { released } = fakeReporting(ctx);
+    let attempts = 0;
+    ctx.messages = {
+      send: async (m) => {
+        attempts += 1;
+        if (attempts === 1) throw new UnansweredSendError('SES SendEmail: no answer');
+        sent.push(m);
+      },
+    };
+    const ir = workflow({
+      id: 'unanswered_resend',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(receipt)
+      .toIR();
+
+    await expect(runJourney(ir, ctx)).rejects.toThrow('no answer');
+    expect(released).toEqual(['inst_1:0']);
+    await runJourney(ir, ctx); // the step's retry
+    expect(sent).toHaveLength(1);
+  });
+
+  test('a copy claimed by a run that died is settled as unconfirmed, so the report shows it', async () => {
+    const { ctx, sent } = makeContext();
+    const { claimed } = fakeReporting(ctx);
+    claimed.add('inst_1:0');
+    const outcomes: unknown[] = [];
+    ctx.observer = {
+      ...ctx.observer,
+      messageSent: async (m, result) => void outcomes.push([m.idempotencyKey, result]),
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ir = workflow({
+      id: 'unconfirmed',
+      reentry: { mode: 'never' },
+      trigger: trigger.event(e.login),
+    })
+      .email(hello)
+      .toIR();
+    await runJourney(ir, ctx);
+    expect(sent).toHaveLength(0);
+    expect(outcomes).toEqual([['inst_1:0', { delivered: false, reason: 'unconfirmed' }]]);
+    warn.mockRestore();
   });
 
   test('a release that fails does not hide the send error', async () => {
