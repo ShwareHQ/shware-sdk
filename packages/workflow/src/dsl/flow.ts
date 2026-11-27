@@ -1,4 +1,4 @@
-import type { ChannelIR, ConditionIR, NodeIR, PropValueIR, SourceLocIR } from '../ir';
+import type { ChannelIR, ConditionIR, NodeIR, SourceLocIR } from '../ir';
 import { captureLoc } from '../provenance';
 import {
   type AnyTemplate,
@@ -13,7 +13,14 @@ import {
 import type { ActionRef } from './action';
 import { type Duration, type TimeOfDay, type Weekday, durationIR, timeOfDayMinutes } from './base';
 import { type Condition, condIR, positiveDurationIR } from './condition';
-import type { EventRef, MessageArgs, PropInput, PropsInput } from './refs';
+import {
+  type EventRef,
+  type MessageArgs,
+  type PropInput,
+  type PropsInput,
+  propValuesIR,
+  triggerRefOf,
+} from './refs';
 import type { PropsOf, TemplateRef } from './template';
 
 /** Whether the runtime's tz database knows `zone` — the same question the engine asks at the window. */
@@ -391,7 +398,7 @@ function messageNode(
     type: 'message',
     channel,
     template: templateKey(channel, tpl),
-    props: (props ?? {}) as Record<string, PropValueIR>,
+    props: propValuesIR(props),
     // Absent for 'all', so adding the option left every existing push's hash as it was
     ...(devices !== undefined ? { devices } : {}),
     // An email's or push's topic (null: transactional) is what the engine checks the opt-outs against
@@ -705,12 +712,13 @@ export class FlowBuilderImpl implements FlowBuilder {
     const values = (payload[0] ?? {}) as Record<string, unknown>;
     for (const [field, value] of Object.entries(values)) {
       const ref =
-        typeof value === 'object' &&
-        value !== null &&
-        (value as { type?: unknown }).type === 'user_property';
+        triggerRefOf(value) !== undefined ||
+        (typeof value === 'object' &&
+          value !== null &&
+          (value as { type?: unknown }).type === 'user_property');
       if (!ref && !['string', 'number', 'boolean'].includes(typeof value)) {
         throw new TypeError(
-          `sendEvent('${ev.name}'): '${field}' is not a scalar or a u.xxx reference — an emitted payload carries scalar fields only`
+          `sendEvent('${ev.name}'): '${field}' is not a scalar, a u.xxx reference or a trigger payload reference — an emitted payload carries scalar fields only`
         );
       }
     }
@@ -719,7 +727,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         id: '',
         type: 'send_event',
         event: ev.name,
-        payload: values as Record<string, PropValueIR>,
+        payload: propValuesIR(values),
       },
       captureLoc(this.sendEvent)
     );
@@ -732,7 +740,7 @@ export class FlowBuilderImpl implements FlowBuilder {
         id: '',
         type: 'action',
         action: a.name,
-        args: (args[0] ?? {}) as Record<string, PropValueIR>,
+        args: propValuesIR(args[0]),
       },
       captureLoc(this.run)
     );

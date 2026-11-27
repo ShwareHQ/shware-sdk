@@ -34,6 +34,9 @@ export {
   type PayloadRefs,
   type PropInput,
   type PropsInput,
+  type TriggerPayloadRef,
+  type TriggerPayloadRefNode,
+  type TriggerPayloadRefs,
   type UserPropertyRef,
   type UserRefs,
   event,
@@ -89,6 +92,7 @@ export {
 export {
   type DateTime,
   type EventTriggerOptions,
+  type EventTriggerRef,
   type TriggerFactory,
   type TriggerRef,
   trigger,

@@ -6,8 +6,10 @@ import {
   PAYLOAD_PATH,
   type PayloadRef,
   type PayloadRefs,
+  type TriggerPayloadRef,
   type UserPropertyRef,
   payloadRefs,
+  triggerRefOf,
 } from './refs';
 import type { Channel } from './template';
 
@@ -60,11 +62,13 @@ export const condIR = (c: Condition): ConditionIR => {
 type Scalar = string | number | boolean;
 
 /**
- * Predicates accept either kind of reference: a user property (profile
- * condition) or an event payload field (only valid inside a `where` — the
- * bundle compiler enforces the placement, since both produce `Condition`).
+ * Predicates accept three kinds of reference: a user property (profile
+ * condition), an event payload field (only valid inside a `where`) or a field
+ * of the triggering event's payload (`t.payload.x`, only valid in the workflow
+ * that event triggers). All produce `Condition`, so the bundle compiler
+ * enforces the placement.
  */
-type CondRef<T> = UserPropertyRef<T> | PayloadRef<T>;
+type CondRef<T> = UserPropertyRef<T> | PayloadRef<T> | TriggerPayloadRef<T>;
 
 /**
  * A payload ref identifies itself by a symbol key, and a user-property ref by
@@ -96,14 +100,24 @@ function prop(
   values?: readonly Scalar[],
   loc?: SourceLocIR
 ): Condition {
+  const operands = {
+    op,
+    ...(value !== undefined ? { value } : {}),
+    ...(values !== undefined ? { values: [...values] } : {}),
+  };
+  const triggerRef = triggerRefOf(ref);
+  if (triggerRef !== undefined) {
+    return cond(
+      { type: 'trigger_payload', event: triggerRef.event, path: triggerRef.path, ...operands },
+      loc
+    );
+  }
   const payloadPath = payloadPathOf(ref);
   return cond(
     {
       type: payloadPath !== undefined ? 'payload' : 'property',
       path: payloadPath ?? (ref as UserPropertyRef<unknown>).path,
-      op,
-      ...(value !== undefined ? { value } : {}),
-      ...(values !== undefined ? { values: [...values] } : {}),
+      ...operands,
     },
     loc
   );

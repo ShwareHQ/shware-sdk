@@ -1,4 +1,4 @@
-import { event, performed, trigger, workflow } from '@shware/workflow';
+import { event, gte, performed, trigger, workflow } from '@shware/workflow';
 import { describe, expect, test } from 'vitest';
 import { layout } from '../src/components/layout';
 
@@ -16,5 +16,17 @@ describe('a wait without a timeout flow', () => {
     // Drawn alike otherwise: one arrow down to the next node, whichever of the two it is
     expect(subtitleOf('exit')).toBe('timeout 3 days → exit');
     expect(subtitleOf('continue')).toBe('timeout 3 days → continue');
+  });
+});
+
+describe('a condition on the triggering event', () => {
+  test('reads as trigger.<field>, apart from a profile property of the same name', () => {
+    const shop = event<{ begin_checkout: { value: number } }>();
+    const checkout = trigger.event(shop.begin_checkout);
+    const ir = workflow({ id: 'c', reentry: { mode: 'never' }, trigger: checkout })
+      .waitUntil(gte(checkout.payload.value, 100), { timeout: '1 day', onTimeout: 'exit' })
+      .toIR();
+    const wait = layout(ir).nodes.find((node) => node.data.icon === 'wait_until');
+    expect(wait?.data.title).toBe('Wait until trigger.value gte 100');
   });
 });

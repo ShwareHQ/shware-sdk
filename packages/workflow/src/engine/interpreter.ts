@@ -1,8 +1,12 @@
-import type { NodeIR, PropValueIR, ScalarIR, WorkflowIR } from '../ir';
+import type { ConditionIR, NodeIR, PropValueIR, ScalarIR, WorkflowIR } from '../ir';
 import { hashToBucket } from './bucket';
-import { evaluateCondition, relevantEvents } from './condition';
+import {
+  type EvaluateOptions,
+  evaluateCondition,
+  payloadScalar,
+  relevantEvents,
+} from './condition';
 import type {
-  FactSource,
   JourneyContext,
   JourneyOutcome,
   MessagePolicy,
@@ -98,7 +102,7 @@ async function goalReached(
   const goal = ir.goal;
   if (goal === undefined) return null;
   const deadline = goalDeadline(ir, ctx);
-  const met = await evaluateCondition(goal.condition, ctx.facts, now, {
+  const met = await holds(goal.condition, ctx, now, {
     anchorMs: ctx.enteredAtMs,
     // The trigger's own occurrence sits exactly on the anchor: it entered, it did not convert
     ...(ctx.trigger === undefined
@@ -257,7 +261,7 @@ async function checkGuards(
       goal !== undefined && state.convertedAt === undefined
         ? await goalReached(ir, ctx, now)
         : null;
-    const exitMet = exitWhen !== undefined && (await evaluateCondition(exitWhen, ctx.facts, now));
+    const exitMet = exitWhen !== undefined && (await holds(exitWhen, ctx, now));
     return { goalAt: goalHit?.at ?? null, exitMet };
   });
 
@@ -367,7 +371,7 @@ async function sendPush(
   ctx: JourneyContext
 ): Promise<void> {
   const plan = await ctx.step.do<PushPlan | null>(`${node.id}:send`, async () => {
-    const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
+    const props = validate(node, await resolveValues(node.props, ctx), ctx);
     // Once per step, before any device: the topic's opt-out or the channel's (never a transactional push)
     const policy = policyOf(node, ctx);
     if (await suppressed(node, policy, ctx)) return null;
@@ -413,7 +417,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         return FALL_THROUGH;
       }
       await ctx.step.do(`${node.id}:send`, async () => {
-        const props = validate(node, await resolveValues(node.props, ctx.facts), ctx);
+        const props = validate(node, await resolveValues(node.props, ctx), ctx);
         // An opted-out channel (an email unsubscribe) is skipped, like a push with no device
         const policy = policyOf(node, ctx);
         if (await suppressed(node, policy, ctx)) return;
@@ -486,7 +490,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
       const matched = await ctx.step.do(`${node.id}:eval`, async () => {
         const now = Date.now();
         for (const [i, branchCase] of node.cases.entries()) {
-          if (await evaluateCondition(branchCase.condition, ctx.facts, now)) {
+          if (await holds(branchCase.condition, ctx, now)) {
             return i;
           }
         }
@@ -501,7 +505,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
 
     case 'filter': {
       const pass = await ctx.step.do(`${node.id}:eval`, async () =>
-        evaluateCondition(node.condition, ctx.facts, Date.now())
+        holds(node.condition, ctx, Date.now())
       );
       return pass ? FALL_THROUGH : { kind: 'exit', reason: node.reason ?? `${node.id}:filtered` };
     }
@@ -529,7 +533,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
 
     case 'send_event': {
       await ctx.step.do(`${node.id}:emit`, async () => {
-        const payload = await resolveValues(node.payload, ctx.facts);
+        const payload = await resolveValues(node.payload, ctx);
         try {
           await ctx.events.emit(node.event, payload, `${ctx.instanceId}:${node.id}`);
         } catch (error) {
@@ -551,7 +555,7 @@ async function runNode(node: NodeIR, ir: WorkflowIR, ctx: JourneyContext): Promi
         );
       }
       await ctx.step.do(`${node.id}:run`, async () => {
-        const args = await resolveValues(node.args, ctx.facts);
+        const args = await resolveValues(node.args, ctx);
         await invoker.invoke({
           action: node.action,
           args,
@@ -582,9 +586,7 @@ async function waitUntil(
   // delivered past the timeout) would otherwise take the timeout for a success.
   const anchorMs = deadline - node.timeout.ms;
   const met = await waitLoop(node.id, ctx, deadline, events, async (now) =>
-    (await evaluateCondition(node.condition, ctx.facts, now, { anchorMs, untilMs: deadline }))
-      ? true
-      : null
+    (await holds(node.condition, ctx, now, { anchorMs, untilMs: deadline })) ? true : null
   );
   await ctx.step.unsubscribe(`${node.id}:unsubscribe`);
   return met === true;
@@ -615,7 +617,7 @@ async function awaitTail(ir: WorkflowIR, ctx: JourneyContext): Promise<FlowSigna
   const hit = await waitLoop('goal', ctx, deadline, events, async (now) => {
     const reached = await goalReached(ir, ctx, now);
     if (reached !== null) return { kind: 'goal' as const, at: reached.at };
-    if (exitWhen !== undefined && (await evaluateCondition(exitWhen, ctx.facts, now))) {
+    if (exitWhen !== undefined && (await holds(exitWhen, ctx, now))) {
       return { kind: 'exit_when' as const, at: now };
     }
     return null;
@@ -695,13 +697,33 @@ async function finalCheck<R>(
   return ctx.step.do(`${id}:final`, async () => check(Date.now()));
 }
 
+/**
+ * A journey's condition: the facts are the user's, and the trigger payload is the instance's
+ * own. An instance started with none (a segment or webhook trigger) reads an empty payload —
+ * the compiler refuses trigger references in such a workflow, so only hand-built IR gets here.
+ */
+function holds(
+  condition: ConditionIR,
+  ctx: JourneyContext,
+  nowMs: number,
+  opts?: EvaluateOptions
+): Promise<boolean> {
+  return evaluateCondition(condition, ctx.facts, nowMs, {
+    ...opts,
+    triggerPayload: ctx.triggerPayload ?? {},
+  });
+}
+
 async function resolveValues(
   values: Record<string, PropValueIR>,
-  facts: FactSource
+  ctx: JourneyContext
 ): Promise<Record<string, ScalarIR | undefined>> {
   const resolved: Record<string, ScalarIR | undefined> = {};
   for (const [key, value] of Object.entries(values)) {
-    resolved[key] = typeof value === 'object' ? await facts.getProperty(value.path) : value;
+    if (typeof value !== 'object') resolved[key] = value;
+    else if (value.type === 'trigger_payload') {
+      resolved[key] = payloadScalar(ctx.triggerPayload, value.path);
+    } else resolved[key] = await ctx.facts.getProperty(value.path);
   }
   return resolved;
 }

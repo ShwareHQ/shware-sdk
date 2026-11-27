@@ -100,7 +100,9 @@ function conditionFields(condition: ConditionIR, scope: string): NodeField[] {
   const own: NodeField[] = [];
 
   if (
-    (condition.type === 'property' || condition.type === 'payload') &&
+    (condition.type === 'property' ||
+      condition.type === 'payload' ||
+      condition.type === 'trigger_payload') &&
     condition.value !== undefined
   ) {
     own.push({ key: 'value', value: String(condition.value), scope });

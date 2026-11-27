@@ -315,6 +315,54 @@ describe('tracking', () => {
     expect(await handleTracking(get('/ingest'), reporting())).toBeUndefined();
   });
 
+  test('following the unsubscribe link is not a click of the copy; a content link is', async () => {
+    vi.useFakeTimers({ now: 1_000_000, toFake: ['Date'] });
+    const { id } = await sendEmail(
+      ['https://app.example.com/a', 'https://app.example.com/unsubscribe?list=journeys'],
+      'https://app.example.com/unsubscribe'
+    );
+    const links = await pg.query(
+      'SELECT position, purpose FROM workflow.message_link ORDER BY position'
+    );
+    expect(links.rows).toEqual([
+      { position: 0, purpose: null },
+      { position: 1, purpose: 'unsubscribe' },
+    ]);
+    const engagement = async () =>
+      (
+        await pg.query(
+          `SELECT clicked_at IS NOT NULL AS clicked, human_clicked_at IS NOT NULL AS human_click,
+             opened_at IS NOT NULL AS opened, human_opened_at IS NOT NULL AS human_open
+           FROM workflow.message`
+        )
+      ).rows[0];
+
+    // A person, well after delivery, follows the unsubscribe link: they opened the email, and
+    // the click is on record, but the copy has no click
+    vi.setSystemTime(1_000_000 + 60_000);
+    await handleTracking(get(`/t/u/${id}/1`), reporting());
+    expect(await engagement()).toEqual({
+      clicked: false,
+      human_click: false,
+      opened: true,
+      human_open: true,
+    });
+    expect((await pg.query('SELECT position FROM workflow.message_click')).rows).toEqual([
+      { position: 1 },
+    ]);
+
+    // A content link later is the copy's click, and the earlier one does not stand in for it
+    vi.setSystemTime(1_000_000 + 600_000);
+    await handleTracking(get(`/t/l/${id}/0`), reporting());
+    expect(await engagement()).toMatchObject({ clicked: true, human_click: true });
+    const [first] = (
+      await pg.query<{ at: string }>(
+        `SELECT (extract(epoch from human_clicked_at) * 1000)::bigint AS at FROM workflow.message`
+      )
+    ).rows;
+    expect(Number(first.at)).toBe(1_000_000 + 600_000);
+  });
+
   test('the unsubscribe link asks first; only the confirmation unsubscribes', async () => {
     const { id, tracked } = await sendEmail(
       ['https://app.example.com/a', 'https://app.example.com/unsubscribe?list=journeys'],

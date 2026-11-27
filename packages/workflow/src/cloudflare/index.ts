@@ -9,6 +9,8 @@ export type {
 export { InstanceNotFoundError, WAKE_EVENT_TYPE } from '../host/platform';
 export {
   BundleIntegrityError,
+  EventPayloadTooLargeError,
+  MAX_EVENT_PAYLOAD_BYTES,
   deployBundle,
   identifyUser,
   ingestEvent,

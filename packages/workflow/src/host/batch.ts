@@ -12,6 +12,7 @@ import {
   identifyUser,
   ingestEvent,
   linkVisitor,
+  payloadSizeError,
 } from './ingest';
 import type { JourneyEnv } from './platform';
 
@@ -166,6 +167,8 @@ export function parseBatch(raw: unknown, validation: IngestValidation): ParsedBa
         else if (validation.mode === 'report') report(what, result.issues);
         else return { ok: false, error: `${what} refused by the contract`, issues: result.issues };
       }
+      const oversized = payloadSizeError(event, accepted);
+      if (oversized !== undefined) return refuse(oversized);
       parsed.push({ event, payload: accepted, id, ts });
     }
     batch.events = parsed;

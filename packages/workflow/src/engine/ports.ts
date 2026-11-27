@@ -334,6 +334,12 @@ export interface JourneyContext {
    * started: the goal does not count that occurrence as its own conversion.
    */
   trigger?: { event: string; ts: number } | undefined;
+  /**
+   * The payload of the event that started the instance, as it entered: what `trigger_payload`
+   * references and predicates read. Must be replay-stable — the adapter hands over the
+   * instance's own params, never a fresh read of the event log.
+   */
+  triggerPayload?: Record<string, unknown> | undefined;
   /** Who the instance belongs to now, for one that can change hands; `userId` otherwise. */
   currentUserId?: (() => Promise<string>) | undefined;
   step: EngineStep;

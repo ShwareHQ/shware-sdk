@@ -1,4 +1,4 @@
-import type { PushDevice } from '../engine/ports';
+import type { LinkPurpose, PushDevice } from '../engine/ports';
 import type { BundleIR, ConditionIR, ReentryIR, ScalarIR, WorkflowIR } from '../ir';
 
 /**
@@ -269,6 +269,12 @@ export interface SuppressionChange {
 }
 
 /** What a click is judged by. */
+/** One tracked link of an email: where it goes and what following it means. */
+export interface TrackedLink {
+  url: string;
+  purpose: LinkPurpose;
+}
+
 export interface ClickContext {
   url: string;
   deliveredAt: number;
@@ -354,8 +360,12 @@ export interface JourneyReporting {
     result: { delivered: true } | { delivered: false; reason: string },
     at: number
   ): Promise<void>;
-  /** An email's tracked links, in document order. */
-  recordLinks(messageId: string, urls: readonly string[]): Promise<void>;
+  /**
+   * An email's tracked links, in document order. A bare URL is a link of the email's content;
+   * one with a purpose other than 'link' (the unsubscribe link) is followed and recorded all the
+   * same, but a click on it is not engagement: it sets no `clicked_at` on the copy.
+   */
+  recordLinks(messageId: string, links: readonly (string | TrackedLink)[]): Promise<void>;
   /**
    * Record an open of the copy, judged by `judge` against the copy (its recipient and when it was
    * delivered — when it was sent, before the transport answered); `undefined` from the judge
