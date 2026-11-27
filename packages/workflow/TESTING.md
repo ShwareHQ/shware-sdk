@@ -20,6 +20,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `worker.test.ts`                     | `journeyWorker`: leases, own-bundle deploys, the sweep, the Workflow binding port   |
 | `execute.test.ts`                    | One run end to end over the ports: ledger, failure path, subscriptions              |
 | `aws.test.ts`                        | The Lambda adapter: starts, waits, sweep pages, forged runs                         |
+| `node-host.test.ts`                  | The self-hosted runtime: turns, sleeps, wakes, retries, leases, the HTTP server     |
 | `channels.test.ts`                   | Senders from the config: provider cache, dead tokens, secrets                       |
 | `postgres-store.test.ts`             | The Postgres store on PGlite: schema check, entries, erasure, pages                 |
 | `facts.test.ts`                      | Fact source over the store: the profile read's scalar boundary                      |
@@ -29,6 +30,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `public-api.test.ts`                 | Consumer-perspective smoke: public entry points only, end to end                    |
 | `types.test-d.ts`                    | Type-safety regressions (never executed, see below)                                 |
 | `integration/postgres-locks.test.ts` | The store's per-user locks over two real Postgres connections (see below)           |
+| `integration/node-host.test.ts`      | The self-hosted runtime over many connections and processes (see below)             |
 
 ## Rules
 
@@ -76,6 +78,13 @@ connection's store until the gate holding the lock is released.
 
 Without the variable the file still runs under `pnpm test`, skips its suite and warns
 (`[integration] WORKFLOW_TEST_DATABASE_URL unset`) — never silently.
+
+`tests/integration/node-host.test.ts` does the same for the self-hosted runtime, with the same
+variable: sixteen connections claiming at once, a wake sent against a park, four hosts on their
+own pools, and three processes of the built package of which one is killed mid-step. Its
+interleavings are the server's, not barriers', so it asserts what holds under every order and
+prints how the orders fell. The process case needs `dist/` (`pnpm build`) and says so when
+there is none.
 
 ## Type tests
 

@@ -1710,6 +1710,55 @@ one real message for `dkim=pass` with `list-unsubscribe` in `h=`.
 **Memory.** Size it for the app; the store is remote. APNs goes over the package's Node HTTP/2
 client, because Node 24's `fetch` speaks HTTP/1.1 only (see `src/http2-client.ts`).
 
+## Node (self-hosted)
+
+The same host as a Node process, with Postgres and nothing else: no Workflow binding, no
+durable-function service. The process is the runtime — instances are rows, and workers in every
+process started this way take them a turn at a time.
+
+```ts
+import { journeyNode } from '@shware/workflow/node';
+import { postgresJsClient } from '@shware/workflow/postgres-js';
+import postgres from 'postgres';
+import config from './workflow.config';
+
+const journeys = journeyNode({
+  config,
+  sql: postgresJsClient(postgres(process.env.DATABASE_URL)),
+  vars: { ENVIRONMENT: 'production', API_TOKEN: process.env.API_TOKEN },
+  version: { id: process.env.GIT_SHA, createdAt: Date.parse(process.env.BUILD_TIME) },
+});
+await journeys.start({ port: 8787 });
+process.on('SIGTERM', () => void journeys.stop());
+```
+
+- `sql` is a client several things may use at once (a pool). `vars` is what the other hosts read
+  from their platform's env.
+- With `version`, the bundle compiled into the process goes live by itself, only over an older
+  one. Without it, deploy with `POST /bundle/deploy`.
+- Run as many processes as you like: a run is claimed with `FOR UPDATE SKIP LOCKED`, and every
+  write of a turn is fenced by the claim, so a worker that stalled cannot write over the one that
+  took its run. One of the processes runs each sweep.
+- A step is retried 5 times (10 seconds, doubling) and an attempt may take 10 minutes; a process
+  takes 10 runs at once; a run that ended is kept 7 days. `retry`, `concurrency`, `retentionMs`,
+  `pollMs`, `sweepMs` and `leaseMs` change them.
+- Steps are **at least once**, as on the other runtimes: a process that dies between a step's
+  effect and its checkpoint leaves the step to be run again.
+- For tests, `journeys.fetch(request)` and `journeys.drain()` run everything in-process with
+  nothing started, over PGlite if you like.
+
+- **Set `concurrency` from your slowest action.** A run holds one of the process's places while
+  its action runs, so a process does `concurrency ÷ action time` actions a second: at the
+  default of 10 and a send that takes a second, that is 10 sends a second, with the process
+  and the database idle. Waiting on a provider costs almost nothing — 200 is reasonable on one
+  vCPU — and the pool need not grow with it: a connection is held for a query, not an action.
+
+This host is new. Its claim, its wakes and a process killed mid-step are tested on a real
+Postgres with several connections and processes (`tests/integration/node-host.test.ts`). On a
+2 vCPU Postgres it ran about 300 runs (1,000 actions) a second whatever the size of the user
+base up to a million, the database being the limit; `bench/node-host.mjs` measures it, and
+`docs/decisions/self-hosted-host.md` has the tables, the design and what is not built.
+
 ## Postgres
 
 A host on Postgres (through Hyperdrive, say) keeps Cloudflare Workflows for
@@ -1759,6 +1808,12 @@ Drain or reset the engine's data (or migrate it as you see fit), regenerate the
 drizzle file (`workflow-ui generate`), let drizzle-kit write the migration, and
 redeploy, which rewrites the routes. `POST /bundle/deploy` refuses to run until
 the new columns and indexes exist.
+
+**Upgrading to 12.7 (self-hosted runtime).** Two tables are added, `run` and
+`run_step`, the state of `@shware/workflow/node`. Regenerate the drizzle file and
+let drizzle-kit write the migration; `POST /bundle/deploy` refuses to run until
+they exist, on every runtime (the schema check knows one set of tables). On
+Cloudflare and AWS they stay empty.
 
 **Upgrading to 12.5 (a sweep that carries on).** One table is added,
 `sweep_pass`: where the segment sweep's pass over the users stands (one row
