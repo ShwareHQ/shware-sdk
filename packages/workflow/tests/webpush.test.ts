@@ -389,18 +389,18 @@ describe('web push', () => {
 
   /**
    * How each push service answer ends the copy: a gone subscription settles it under a
-   * `DEAD_TOKEN_REASONS` reason (the host forgets the device), a refused request fails it for
+   * `DEAD_TOKEN_REASONS` reason (the host forgets the device), a refused request settles it with the device kept, an oversized payload fails it for
    * good, throttling and outages retry.
    */
   describe('classification', () => {
-    type Outcome = 'settled-dead-token' | 'PermanentError' | 'retryable';
+    type Outcome = 'settled-dead-token' | 'settled-undelivered' | 'PermanentError' | 'retryable';
     const table: [status: number, reason: string, outcome: Outcome][] = [
       [404, 'NotFound', 'settled-dead-token'],
       [410, 'Gone', 'settled-dead-token'],
-      [400, '', 'PermanentError'],
-      [401, '', 'PermanentError'],
-      [403, '', 'PermanentError'],
-      [413, '', 'PermanentError'],
+      [400, 'Refused400', 'settled-undelivered'],
+      [401, 'Refused401', 'settled-undelivered'],
+      [403, 'Refused403', 'settled-undelivered'],
+      [413, 'Refused413', 'settled-undelivered'],
       [429, '', 'retryable'],
       [500, '', 'retryable'],
       [503, '', 'retryable'],
@@ -421,7 +421,9 @@ describe('web push', () => {
       const { error } = result;
       const outcome: Outcome | undefined =
         error === undefined
-          ? 'settled-dead-token'
+          ? DEAD_TOKEN_REASONS.has(result.value?.reason ?? '')
+            ? 'settled-dead-token'
+            : 'settled-undelivered'
           : error instanceof PermanentError
             ? 'PermanentError'
             : 'retryable';
@@ -435,12 +437,14 @@ describe('web push', () => {
     };
     test.each(table)('%i → %s', async (status, reason, outcome) => {
       const dead = outcome === 'settled-dead-token';
+      const settled = dead || outcome === 'settled-undelivered';
       expect(await observe(status)).toEqual({
         outcome,
-        settled: dead ? { delivered: false, reason } : undefined,
-        dead: dead ? true : undefined,
-        retryable: dead ? undefined : outcome === 'retryable',
-        namesStatus: dead ? undefined : true,
+        settled: settled ? { delivered: false, reason } : undefined,
+        // Only a gone subscription is forgotten: a refused one is kept
+        dead: settled ? dead : undefined,
+        retryable: settled ? undefined : outcome === 'retryable',
+        namesStatus: settled ? undefined : true,
       });
     });
   });

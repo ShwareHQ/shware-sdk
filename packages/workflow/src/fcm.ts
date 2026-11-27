@@ -52,19 +52,21 @@ export interface FcmPushOptions {
  *   just as well for a payload problem (a message too big, a bad data key, a bad TTL), which
  *   would hit every device of the template at once; the copy settles with the reason, so the
  *   report shows it, and nothing is deleted on a guess.
- * - configuration: 403 `SENDER_ID_MISMATCH` (the token belongs to another Firebase project) and
- *   401 `THIRD_PARTY_AUTH_ERROR` (the APNs or web push credentials in the Firebase project):
- *   `PermanentError`, devices kept.
+ *   So does 403 `SENDER_ID_MISMATCH`: the token belongs to another Firebase project — a
+ *   development build registered against this backend — which is about this one device, unless
+ *   the deployment's own service account is another project's, when every device answers so.
+ *   The user's other devices and the rest of the journey go on either way.
+ * - configuration: 401 `THIRD_PARTY_AUTH_ERROR` (the APNs or web push credentials in the
+ *   Firebase project): `PermanentError`, devices kept.
  * - transient: 401 `UNAUTHENTICATED` (the cached access token is dropped first), 429
  *   `QUOTA_EXCEEDED`, 503 `UNAVAILABLE`, 500 `INTERNAL` and any other 429 / 5xx.
  * - everything else (another 4xx) is this request itself: a `PermanentError`.
  */
 export const DEAD_TOKEN_REASONS: ReadonlySet<string> = new Set(['UNREGISTERED', 'NOT_FOUND']);
 
-const CONFIGURATION_CODES: ReadonlySet<string> = new Set([
-  'SENDER_ID_MISMATCH',
-  'THIRD_PARTY_AUTH_ERROR',
-]);
+/** This one token is refused, or this payload: the copy settles and the device is kept. */
+const DEVICE_CODES: ReadonlySet<string> = new Set(['INVALID_ARGUMENT', 'SENDER_ID_MISMATCH']);
+const CONFIGURATION_CODES: ReadonlySet<string> = new Set(['THIRD_PARTY_AUTH_ERROR']);
 const TRANSIENT_CODES: ReadonlySet<string> = new Set(['QUOTA_EXCEEDED', 'UNAVAILABLE', 'INTERNAL']);
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
@@ -188,8 +190,9 @@ export class FcmPushSender implements MessageSender {
       console.warn(`[fcm] token gone for user ${message.userId}: ${code}`);
       return { delivered: false, reason: code };
     }
-    if (code === 'INVALID_ARGUMENT') {
-      // The token or our payload: settled so the report says which device, nothing deleted
+    if (DEVICE_CODES.has(code)) {
+      // The token, its project or our payload: settled so the report says which device, nothing
+      // deleted, and one device's refusal does not end the journey for the others
       console.warn(`[fcm] refused for user ${message.userId}: ${status} ${text}`);
       return { delivered: false, reason: code };
     }

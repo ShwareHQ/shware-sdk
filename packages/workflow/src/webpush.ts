@@ -49,9 +49,12 @@ export interface WebPushOptions {
  * - an https endpoint that is no known push service's (`UnlistedPushService`, see
  *   `isPushServiceEndpoint`): settled undelivered without a request, and the device is kept.
  * - transient: 429 Too Many Requests (§8.4) and 5xx.
- * - everything else is this request or this sender: 400 (a bad header or body), 401 / 403 (the
- *   VAPID key pair or subject, §8.2 of RFC 8292), 413 (the payload, RFC 8030 §7.2) and any other
- *   4xx are a `PermanentError`.
+ * - undelivered, device kept: any other 4xx — 400 (a bad header or body), 401 / 403 (the VAPID
+ *   key pair or subject, §8.2 of RFC 8292: also what a subscription made under another key
+ *   answers, after a key was rotated), 413 (the payload, RFC 8030 §7.2). A push service names
+ *   no finer reason, so one subscription's refusal cannot be told from the sender's; the copy
+ *   settles as `Refused<status>` and is logged as an error, and the user's other devices and
+ *   the rest of the journey go on.
  */
 export const DEAD_TOKEN_REASONS: ReadonlySet<string> = new Set([
   'Gone',
@@ -414,7 +417,12 @@ export class WebPushSender implements MessageSender {
     }
     const text = await response.text();
     if (isRetryableStatus(status)) throw new Error(`[webpush] ${status}: ${text}`);
-    throw new PermanentError(`[webpush] push service refused the request: ${status} ${text}`);
+    // This subscription, or this sender: the answer does not say. Settled with the device kept,
+    // and loud — if it is the VAPID key, every subscription answers so
+    console.error(
+      `[webpush] push service refused the request for user ${message.userId}: ${status} ${text}`
+    );
+    return { delivered: false, reason: `Refused${status}` };
   }
 }
 

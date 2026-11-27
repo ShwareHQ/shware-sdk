@@ -273,7 +273,7 @@ describe('FcmPushSender', () => {
         403,
         fcmError('PERMISSION_DENIED', 'SENDER_ID_MISMATCH'),
         'SENDER_ID_MISMATCH',
-        'PermanentError',
+        'settled-undelivered',
       ],
       [
         401,

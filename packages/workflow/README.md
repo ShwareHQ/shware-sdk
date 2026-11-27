@@ -809,11 +809,22 @@ the provider reports as gone is removed (and waits on `reachable('push')` wake
 on every device change); a configuration error keeps the device and fails the
 step without retrying, and a transient answer is retried:
 
-| Provider | Token removed, copy settled                     | Settled, device kept                          | Failed, no retry (`PermanentError`)                                                                                   | Retried                                                                 |
-| -------- | ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| APNs     | 410; `Unregistered`, `ExpiredToken`             | `BadDeviceToken` (a token or the environment) | `DeviceTokenNotForTopic`, `TopicDisallowed`, `BadTopic`, `MissingTopic`, bad certificate or provider token, other 4xx | 403 `ExpiredProviderToken` (re-signed), 429, 5xx                        |
-| FCM      | `UNREGISTERED`; 404 `NOT_FOUND`                 | `INVALID_ARGUMENT`                            | `SENDER_ID_MISMATCH`, `THIRD_PARTY_AUTH_ERROR`, other 4xx                                                             | 401 (access token re-minted), `QUOTA_EXCEEDED`, `UNAVAILABLE`, 429, 5xx |
-| Web Push | 404, 410; an endpoint that is no push service's | —                                             | payload over 3993 bytes (refused before sending), 400, 401, 403, 413, other 4xx                                       | 429, 5xx                                                                |
+| Provider | Token removed, copy settled                     | Settled, device kept                                                                             | Failed, no retry (`PermanentError`)                                                         | Retried                                                                 |
+| -------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| APNs     | 410; `Unregistered`, `ExpiredToken`             | `BadDeviceToken` (a token or the environment), `DeviceTokenNotForTopic` (a token of another app) | `TopicDisallowed`, `BadTopic`, `MissingTopic`, bad certificate or provider token, other 4xx | 403 `ExpiredProviderToken` (re-signed), 429, 5xx                        |
+| FCM      | `UNREGISTERED`; 404 `NOT_FOUND`                 | `INVALID_ARGUMENT`, `SENDER_ID_MISMATCH` (a token of another Firebase project)                   | `THIRD_PARTY_AUTH_ERROR`, other 4xx                                                         | 401 (access token re-minted), `QUOTA_EXCEEDED`, `UNAVAILABLE`, 429, 5xx |
+| Web Push | 404, 410; an endpoint that is no push service's | 400, 401, 403, 413, other 4xx (`Refused<status>`)                                                | payload over 3993 bytes (refused before sending)                                            | 429, 5xx                                                                |
+
+**One device's refusal does not end the journey.** A step that fails without a
+retry fails the instance: the user's other devices are not sent to, and neither
+is anything later in the workflow. So an answer that is about one device — a
+development build's token registered against the production backend is the
+usual one — settles that copy as undelivered, with the reason in the report,
+and the journey goes on. The device is kept: the same answers are what every
+device gives when the deployment's own environment, project or VAPID key is
+wrong, and nothing is deleted on a guess. If a reason in this column shows up
+for every device, it is the configuration. What still fails the step is what
+no device could get past: the topic, the certificate, the provider key.
 
 Every APNs request carries `apns-id` and `apns-collapse-id`, and every web
 push a `Topic`, derived from the copy's idempotency key, so the rare copy sent
