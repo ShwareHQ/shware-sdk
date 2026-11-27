@@ -30,7 +30,7 @@ All tests live in `tests/` — `src/` ships, `tests/` never does.
 | `public-api.test.ts`                 | Consumer-perspective smoke: public entry points only, end to end                    |
 | `types.test-d.ts`                    | Type-safety regressions (never executed, see below)                                 |
 | `integration/postgres-locks.test.ts` | The store's per-user locks over two real Postgres connections (see below)           |
-| `conformance/hosts.test.ts`          | One set of journeys on every host, held to the same results (see below)             |
+| `conformance/*.test.ts`              | One set of journeys on every host, held to the same results (see below)             |
 | `integration/node-host.test.ts`      | The self-hosted runtime over many connections and processes (see below)             |
 
 ## Rules
@@ -57,17 +57,17 @@ each to the same observable results. It is what says a journey behaves the same 
 deployed; a host's own file (`node-host.test.ts`, `worker.test.ts`, `runner.test.ts`,
 `aws.test.ts`) stays the place for what only that host does (leases, eviction, callbacks).
 
-| File                    | What it is                                                                          |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `journeys.ts`           | The config every host deploys, its actions, the one message sender, and the `probe` |
-| `scenarios.ts`          | The table: a script per scenario over a `World`, with its expectations              |
-| `world.ts`              | What a script may do (the HTTP API, the clock, the sweep) and read back             |
-| `driver.ts`             | The `Driver` / `Host` interface: request, settle, advance, sweep                    |
-| `node-driver.ts`        | `journeyNode`: `fetch`, `drain`, a faked `Date`                                     |
-| `cloudflare-driver.ts`  | `journeyWorker` over `cloudflare-runtime.ts`                                        |
-| `cloudflare-runtime.ts` | `FakeJourney` with its instances run: sleeps, waits and retries park on the clock   |
-| `aws-driver.ts`         | `journeyLambda` on the local durable runner (`skipTime`), one runner per execution  |
-| `hosts.test.ts`         | `describe.each(drivers)` over the table                                             |
+| File                         | What it is                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `journeys.ts`                | The config every host deploys, its actions, the one message sender, and the `probe` |
+| `scenarios.ts`               | The table: a script per scenario over a `World`, with its expectations              |
+| `world.ts`                   | What a script may do (the HTTP API, the clock, the sweep) and read back             |
+| `driver.ts`                  | The `Driver` / `Host` interface: request, settle, advance, sweep                    |
+| `node-driver.ts`             | `journeyNode`: `fetch`, `drain`, a faked `Date`                                     |
+| `cloudflare-driver.ts`       | `journeyWorker` over `cloudflare-runtime.ts`                                        |
+| `cloudflare-runtime.ts`      | `FakeJourney` with its instances run: sleeps, waits and retries park on the clock   |
+| `aws-driver.ts`              | `journeyLambda` on the local durable runner (`skipTime`), one runner per execution  |
+| `suite.ts`, `<host>.test.ts` | The suite over the table, and one file a host: each runs in a process of its own    |
 
 Rules:
 

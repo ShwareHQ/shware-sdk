@@ -1,10 +1,7 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, test, vi } from 'vitest';
 import { type PgliteDatabase, pgliteDatabase, truncateAll } from '../pglite';
-import { awsDriver } from './aws-driver';
-import { cloudflareDriver } from './cloudflare-driver';
 import type { Driver, Host } from './driver';
 import { config, probe, sender } from './journeys';
-import { nodeDriver } from './node-driver';
 import { scenarios } from './scenarios';
 import { World } from './world';
 
@@ -14,26 +11,22 @@ import { World } from './world';
  * results. What differs between hosts is in the scenario table, never here.
  */
 
-const drivers: Driver[] = [nodeDriver, cloudflareDriver, awsDriver];
-
-let database: PgliteDatabase;
-beforeAll(async () => {
-  database = await pgliteDatabase();
-}, 30_000);
-afterAll(async () => {
-  await database.close();
-});
-
-describe.each(drivers)('$name', (driver) => {
-  let host: Host;
-  let world: World;
-
+/**
+ * The suite for one host. Each host has a test file of its own (`node.test.ts`,
+ * `cloudflare.test.ts`, `aws.test.ts`) and so a process of its own: the hosts' harnesses fake
+ * the clock in different ways, and nothing one leaves behind reaches another.
+ */
+export function conformance(driver: Driver): void {
+  let database: PgliteDatabase;
   beforeAll(async () => {
-    await driver.setup?.();
+    database = await pgliteDatabase();
   }, 30_000);
   afterAll(async () => {
-    await driver.teardown?.();
+    await database.close();
   });
+
+  let host: Host;
+  let world: World;
 
   beforeEach(async () => {
     await truncateAll(database.pg);
@@ -64,4 +57,4 @@ describe.each(drivers)('$name', (driver) => {
     // oxlint-disable-next-line vitest/expect-expect, vitest/valid-title -- the scenario holds the assertions and the name
     run(`${scenario.name}${note}`, () => scenario.run(world));
   }
-});
+}

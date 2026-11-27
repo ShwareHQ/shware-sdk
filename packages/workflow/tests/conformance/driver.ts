@@ -40,9 +40,6 @@ export interface Host {
 
 export interface Driver {
   name: HostName;
-  /** Once per file, before any host is booted. */
-  setup?(): Promise<void>;
-  teardown?(): Promise<void>;
   /** A fresh host: the database is empty, the bundle is not deployed yet. */
   boot(database: PgliteDatabase, options: HostOptions): Promise<Host>;
 }

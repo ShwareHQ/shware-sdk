@@ -72,12 +72,6 @@ async function until(what: string, done: () => boolean | Promise<boolean>, turns
 
 export const awsDriver: Driver = {
   name: 'aws',
-  async setup() {
-    await LocalDurableTestRunner.setupTestEnvironment({ skipTime: true });
-  },
-  async teardown() {
-    await LocalDurableTestRunner.teardownTestEnvironment();
-  },
   async boot(database, { config, messages }): Promise<Host> {
     const clock = runnerClock();
     clock.setSystemTime(START);
