@@ -1,5 +1,12 @@
 # @shware/workflow-ui
 
+## 2.2.20
+
+### Patch Changes
+
+- Updated dependencies [9a379b1]
+  - @shware/workflow@12.7.2
+
 ## 2.2.19
 
 ### Patch Changes
