@@ -1913,8 +1913,8 @@ On Postgres the engine also keeps:
   with another link, since staff browse through those. The network is known on
   Cloudflare only, so on AWS and Node these two rules do not apply and the
   human click rate reads higher
-  ([why](./docs/decisions/click-classification.md)). An email's unsubscribe link gets a confirmation
-  page; which link that is was fixed when the email was sent. Following it is
+  ([why](./docs/decisions/click-classification.md)). An email's unsubscribe
+  link gets a confirmation page; which link that is was fixed when the email was sent. Following it is
   recorded, and counts as an open, but is not a click of the copy: `clicked_at`
   and the click rates are about the links of the content.
   A push carries `message_id`; report the tap with `messageOpened`.
