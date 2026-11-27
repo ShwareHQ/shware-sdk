@@ -21,6 +21,7 @@ import type {
   ProfileProps,
   RunningInstance,
   RunningPin,
+  SeedingSegment,
   SegmentCandidate,
   SegmentTriggerRoute,
   SuppressionChange,
@@ -72,6 +73,8 @@ const UDT: Record<ColumnType, string> = {
 
 /** Epoch milliseconds → timestamptz, so the tables keep the database's native type. */
 const TS = (param: string) => `to_timestamp(${param}::double precision / 1000)`;
+/** A timestamptz column as epoch milliseconds, the inverse of `TS`. */
+const MS = (column: string) => `(extract(epoch FROM ${column}) * 1000)::double precision`;
 
 function asJson<T>(value: unknown): T {
   return (typeof value === 'string' ? JSON.parse(value) : value) as T;
@@ -834,6 +837,24 @@ export class PostgresJourneyStore implements JourneyStore {
     }));
   }
 
+  async seedingSegments(): Promise<SeedingSegment[]> {
+    const rows = await this.sql.query<{ id: string; since: number | string }>(
+      `SELECT id, ${MS('seeding_since')} AS since FROM ${this.t.segment}
+       WHERE seeding_since IS NOT NULL ORDER BY id`
+    );
+    return rows.map((row) => ({ id: row.id, since: Number(row.since) }));
+  }
+
+  async finishSeeding(segments: readonly SeedingSegment[]): Promise<void> {
+    for (const { id, since } of segments) {
+      await this.sql.query(
+        `UPDATE ${this.t.segment} SET seeding_since = NULL
+         WHERE id = $1 AND seeding_since = ${TS('$2')}`,
+        [id, since]
+      );
+    }
+  }
+
   async getSegmentCondition(id: string): Promise<ConditionIR | undefined> {
     const rows = await this.sql.query<{ condition: unknown }>(
       `SELECT condition FROM ${this.t.segment} WHERE id = $1`,
@@ -874,11 +895,17 @@ export class PostgresJourneyStore implements JourneyStore {
       segment: string;
       reentry: unknown;
       version: string | null;
-    }>(`SELECT workflow, hash, segment, reentry, version FROM ${this.t.segmentTrigger}`);
+      seeding: boolean;
+    }>(
+      `SELECT r.workflow, r.hash, r.segment, r.reentry, r.version,
+         COALESCE(s.seeding_since IS NOT NULL, false) AS seeding
+       FROM ${this.t.segmentTrigger} r LEFT JOIN ${this.t.segment} s ON s.id = r.segment`
+    );
     return rows.map((row) => ({
       workflow: row.workflow,
       hash: row.hash,
       segment: row.segment,
+      seeding: row.seeding ? true : undefined,
       reentry: ReentryIR.parse(asJson(row.reentry)),
       version: row.version ?? undefined,
     }));
@@ -968,11 +995,27 @@ export class PostgresJourneyStore implements JourneyStore {
   private async swapRoutes(tx: SqlClientLike, bundle: BundleIR, version?: string): Promise<void> {
     await tx.query(`DELETE FROM ${this.t.trigger}`);
     await tx.query(`DELETE FROM ${this.t.segmentTrigger}`);
+    const before = new Map(
+      (
+        await tx.query<{ id: string; hash: string; since: number | string | null }>(
+          `SELECT id, hash, ${MS('seeding_since')} AS since FROM ${this.t.segment}`
+        )
+      ).map((row) => [row.id, row])
+    );
     await tx.query(`DELETE FROM ${this.t.segment}`);
+    // A segment that is new, or whose members may differ from the recorded ones (its condition
+    // changed, or that of a segment it is built on), is seeded again: the next sweep records who
+    // is in it without starting a journey for anyone. One that is as it was keeps its state,
+    // seeding included — every version redeploys the bundle, and that must not start it over.
+    const reseeded = changedSegments(bundle.segments, before);
+    const now = Date.now();
     for (const segment of bundle.segments) {
+      const kept = before.get(segment.id)?.since ?? null;
+      const since = reseeded.has(segment.id) ? now : kept === null ? null : Number(kept);
       await tx.query(
-        `INSERT INTO ${this.t.segment} (id, condition, hash) VALUES ($1, $2::text::jsonb, $3)`,
-        [segment.id, JSON.stringify(segment.condition), segment.contentHash]
+        `INSERT INTO ${this.t.segment} (id, condition, hash, seeding_since)
+         VALUES ($1, $2::text::jsonb, $3, ${TS('$4')})`,
+        [segment.id, JSON.stringify(segment.condition), segment.contentHash, since]
       );
     }
     for (const workflow of bundle.workflows) {
@@ -1522,5 +1565,45 @@ class PostgresExecutions implements ExecutionRegistry {
       `UPDATE ${this.table} SET checked_at = ${TS('$2')} WHERE instance_id = $1`,
       [instanceId, at]
     );
+  }
+}
+
+/**
+ * The segments of a bundle whose membership has to be established again: those not deployed
+ * before, those whose condition changed, and those built on one of either (a segment names the
+ * segments it uses by id, so its own hash does not move when theirs do).
+ */
+function changedSegments(
+  segments: BundleIR['segments'],
+  before: ReadonlyMap<string, { hash: string }>
+): Set<string> {
+  const changed = new Set(
+    segments
+      .filter((segment) => before.get(segment.id)?.hash !== segment.contentHash)
+      .map((segment) => segment.id)
+  );
+  const uses = new Map(segments.map((segment) => [segment.id, segmentsNamed(segment.condition)]));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [id, named] of uses) {
+      if (changed.has(id) || !named.some((name) => changed.has(name))) continue;
+      changed.add(id);
+      grew = true;
+    }
+  }
+  return changed;
+}
+
+function segmentsNamed(condition: ConditionIR): string[] {
+  switch (condition.type) {
+    case 'and':
+    case 'or':
+      return condition.conditions.flatMap(segmentsNamed);
+    case 'not':
+      return segmentsNamed(condition.condition);
+    case 'segment':
+      return [condition.segment];
+    default:
+      return [];
   }
 }

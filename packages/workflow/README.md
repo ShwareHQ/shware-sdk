@@ -332,19 +332,41 @@ from workflow entry, so earlier history cannot satisfy it.
 trigger.event(e.login);
 trigger.event(e.purchase_failed, (p) => notInArray(p.code, ['CHECKOUT_CANCELED']));
 trigger.event(e.sign_up, { filter: exists(u.email) });
-trigger.segment(dormant7d);
+trigger.enters(dormant7d);
 trigger.date('2026-12-25 09:00:00');
 trigger.webhook();
 ```
 
 - `event` takes an optional payload `where` (typed by the event) and a profile
   `filter`; the user enters only when the event fired and both hold.
-- `segment` starts the journey when a user goes from not matching a named
+- `enters` starts the journey when a user goes from not matching a named
   segment to matching it. Membership is re-evaluated on the user's events and
   identifies, and by the segment sweep (the cron trigger), which catches
-  segments entered by the clock alone.
+  segments entered by the clock alone. (`trigger.segment` is its earlier name,
+  still accepted.)
 - `date` (one-shot, UTC) and `webhook` compile and deploy, but are not routed
   by the runtime yet: deploy lists them in `unrouted`.
+
+#### Entering a segment is not being in it
+
+`trigger.enters(s)` looks forward. Whoever already matches `s` when it is first
+deployed — or when its condition changes, or that of a segment it is built on —
+is recorded as a member and starts nothing: they did not enter, they were
+there. The first sweep after the deploy does the recording; from the moment it
+completes, a user who newly matches enters. Until then (one sweep) a user who
+matches on their own activity is recorded the same way.
+
+So a deploy never starts journeys in bulk, and the outcome does not depend on
+whether the segment happened to exist before its trigger did.
+
+A segment named in a condition is a different question and has no such rule: a
+trigger's `filter`, a `branch` or a `waitUntil` on `s` asks each user whether
+they match **now**, long-standing members included.
+
+```ts
+trigger.enters(dormant7d); // whoever goes quiet from here on
+trigger.event(e.session_start, { filter: purchaser }); // every purchaser, at their next session
+```
 
 #### Reading the triggering event
 
@@ -508,7 +530,7 @@ export const issueCoupon = action<{ code: string }>('issue_coupon', async ({ cod
   await billing.issueCoupon({ code, userId: ctx.userId, idempotencyKey: ctx.idempotencyKey });
 });
 
-workflow({ id: 'winback', reentry: { mode: 'never' }, trigger: trigger.segment(dormant7d) }).run(
+workflow({ id: 'winback', reentry: { mode: 'never' }, trigger: trigger.enters(dormant7d) }).run(
   issueCoupon,
   {
     code: '15OFF',
@@ -1108,6 +1130,9 @@ serving it:
   topic a copy is checked against is the one its unsubscribe link names.
 - **Segments: a segment is a live audience.** A `branch` or `waitUntil` on a
   segment asks whether the user is in it _now_, under the deployed condition.
+  A changed condition starts no journey by itself: the people it newly covers
+  are recorded as members of a segment a `trigger.enters` waits on, not entered
+  into it (Triggers, "Entering a segment is not being in it").
 - **Actions: the current handler runs.** Their code ships in the Worker, never
   in IR.
 
@@ -1620,6 +1645,17 @@ drizzle file (`workflow-ui generate`), let drizzle-kit write the migration, and
 redeploy, which rewrites the routes. `POST /bundle/deploy` refuses to run until
 the new columns and indexes exist.
 
+**Upgrading to 12.2 (segment entry).** `segment` gains a nullable
+`seeding_since` (set while a new or changed segment's membership is being
+established). Regenerate the drizzle file and let drizzle-kit write the
+migration, before the new version serves; it needs no data step, and the
+segments already deployed keep working as they did (a null is a seeded
+segment). What changes is what a deploy does from then on: a segment shipped
+together with its `trigger.enters`, or one whose condition was edited, used to
+start a journey for everyone it covered at the next sweep, and now starts none
+for them. To reach everyone in a segment, name it in a trigger's `filter`.
+`POST /bundle/deploy` refuses to run until the column exists.
+
 **Upgrading to 12.1 (unsubscribe clicks).** `message_link` gains a nullable
 `purpose` (null for a link of the email's content, `'unsubscribe'` for its
 unsubscribe link). Regenerate the drizzle file and let drizzle-kit write the
@@ -1689,8 +1725,9 @@ On Postgres the engine also keeps:
   and the click rates are about the links of the content.
   A push carries `message_id`; report the tap with `messageOpened`.
 - **Segments.** The cron trigger runs `sweepSegments`, which keeps every
-  segment's membership and size and starts the journeys of segments entered by
-  the clock alone. `POST /segments/sweep` runs it on demand. One SQL statement per
+  segment's membership and size, starts the journeys of segments entered by
+  the clock alone, and ends the seeding of the segments a deploy brought in new
+  or changed. `POST /segments/sweep` runs it on demand. One SQL statement per
   page finds who may have to change, compiled from the segments' conditions, and
   the evaluator journeys use decides each of them, so a sweep costs what changed,
   not how many users there are. Its response counts them as `evaluated`.

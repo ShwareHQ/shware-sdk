@@ -11,7 +11,7 @@ import {
 import type { EntryInput, JourneyStore } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
 import { allSegments, e, firstTimeRecovery, inactive30d } from './fixtures';
-import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
+import { type PgliteDatabase, pgliteDatabase, seeded, truncateAll } from './pglite';
 
 /**
  * The per-workflow re-entry policy (`workflow({ reentry })`): the compile step's validation, the
@@ -298,10 +298,11 @@ describe('ingest under the policy', () => {
     const { env, store } = setup({ mode: 'never' });
     const winback = workflow({
       id: 'winback_again',
-      trigger: trigger.segment(inactive30d),
+      trigger: trigger.enters(inactive30d),
       reentry: { mode: 'after_exit' },
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [winback], segments: allSegments }), store);
+    await seeded(store);
     const t0 = Date.UTC(2026, 0, 1);
     const activity = (id: string, event: string, ts: number) => {
       // Membership is judged on the host's clock: each event arrives when it happened
@@ -332,10 +333,11 @@ describe('ingest under the policy', () => {
     const { env, store } = setup({ mode: 'never' });
     const once = workflow({
       id: 'winback_once',
-      trigger: trigger.segment(inactive30d),
+      trigger: trigger.enters(inactive30d),
       reentry: { mode: 'after_exit' },
     }).email(firstTimeRecovery);
     await deployBundle(env, compileBundle({ workflows: [once], segments: allSegments }), store);
+    await seeded(store);
     const t0 = Date.UTC(2026, 0, 1);
     const activity = (id: string, event: string, ts: number) => {
       // Membership is judged on the host's clock: each event arrives when it happened

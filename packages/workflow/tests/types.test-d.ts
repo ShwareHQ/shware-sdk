@@ -639,4 +639,4 @@ void checkoutTrigger.payload.coupon;
 flow((w) => w.email(upgradeRecovery, { plan: checkoutTrigger.payload.value }));
 
 // @ts-expect-error a segment trigger has no event, so no payload
-void trigger.segment(purchaser).payload;
+void trigger.enters(purchaser).payload;

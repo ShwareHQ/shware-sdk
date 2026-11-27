@@ -192,7 +192,7 @@ const cameBack = performed(e.login, { within: '7 days' });
 export const reengagement = workflow({
   id: 'reengagement',
   reentry: { mode: 'never' },
-  trigger: trigger.segment(inactive30d),
+  trigger: trigger.enters(inactive30d),
 })
   .email(firstTimeRecovery)
   .waitUntil(cameBack, { timeout: '7 days', onTimeout: 'continue' })

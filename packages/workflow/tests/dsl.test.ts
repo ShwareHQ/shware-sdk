@@ -215,7 +215,7 @@ describe('triggers', () => {
 
   test('segment, date and webhook triggers', () => {
     expect(
-      workflow({ id: 'a', reentry: { mode: 'never' }, trigger: trigger.segment(purchaser) }).toIR()
+      workflow({ id: 'a', reentry: { mode: 'never' }, trigger: trigger.enters(purchaser) }).toIR()
         .trigger
     ).toEqual({
       type: 'segment',

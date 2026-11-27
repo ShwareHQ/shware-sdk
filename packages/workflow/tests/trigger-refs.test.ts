@@ -233,7 +233,7 @@ describe('compiling', () => {
     const bySegment = workflow({
       id: 'by_segment',
       reentry: { mode: 'never' },
-      trigger: trigger.segment(pro),
+      trigger: trigger.enters(pro),
     }).email(offer, { total: checkout.payload.value, currency: 'EUR' });
     expect(() => compileBundle({ workflows: [bySegment], segments: [pro] })).toThrow(
       /workflow 'by_segment' node \S+ reads 'value' from the payload of a 'begin_checkout' trigger, but the workflow has a segment trigger/

@@ -277,6 +277,12 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       },
       once
     );
+    // As `sweepSegments`: the segments being seeded when the pass began are seeded once it ends
+    const seeding = await context.step(
+      'sweep:seeding',
+      async () => open(context).store.seedingSegments(),
+      once
+    );
     let evaluated = 0;
     const started: string[] = [];
     let after: string | undefined;
@@ -294,6 +300,11 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
       if (!page.more || page.lastUserId === undefined) break;
       after = page.lastUserId;
     }
+    await context.step(
+      'sweep:seeded',
+      async () => open(context).store.finishSeeding(seeding),
+      once
+    );
     const sizes = await context.step(
       'sweep:snapshot',
       async () => {

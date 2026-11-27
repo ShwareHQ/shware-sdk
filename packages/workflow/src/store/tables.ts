@@ -153,7 +153,15 @@ export const TABLES = {
   segment: table({
     name: 'segment',
     doc: 'Deployed segment definitions, resolved by name at evaluation time.',
-    columns: { id: text, condition: jsonb, hash: text },
+    columns: {
+      id: text,
+      condition: jsonb,
+      hash: text,
+      seedingSince: nullable(
+        ts,
+        'Set when a deploy brings the segment in new or with a changed condition, cleared by the first sweep to complete after it. While set, whoever matches is recorded as a member without a journey being started: they were already in it, they did not enter.'
+      ),
+    },
     primaryKey: ['id'],
   }),
   trigger: table({
