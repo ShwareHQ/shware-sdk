@@ -334,10 +334,13 @@ export function postgresStats(options: PostgresStatsOptions): StatsSource {
         select c.url, count(*)::int as clicks
         from ${t('message_click')} c
         join ${t('message')} m on m.id = c.message_id
+        join ${t('message_link')} l on l.message_id = c.message_id and l.position = c.position
         where m.workflow = ${workflow} and ${channelFilter(query.channel)}
           and c.clicked_at between ${from} and ${to}
           -- People's clicks only: a scanner follows every link, the footer's included
           and not c.machine
+          -- Links of the content only: following the unsubscribe link is not engagement
+          and l.purpose is null
         group by c.url order by clicks desc limit 50`;
     },
 

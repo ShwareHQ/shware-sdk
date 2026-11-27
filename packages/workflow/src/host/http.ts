@@ -19,6 +19,7 @@ import { identityError, ingestBatch, isNonEmptyString, isPlainObject, parseBatch
 import { journeyMode } from './channels';
 import {
   BundleIntegrityError,
+  EventPayloadTooLargeError,
   InFlightError,
   type SweepResult,
   deployBundle,
@@ -483,6 +484,7 @@ function failure(error: unknown): Response {
   }
   // The user has an erasure tombstone: gone, and nothing about them is taken, now or later
   if (error instanceof UserErasedError) return json({ error: 'user is erased' }, 410);
+  if (error instanceof EventPayloadTooLargeError) return json({ error: error.message }, 413);
   // The operator's to fix (run the migrations), so the response says what is missing
   if (error instanceof SchemaMismatchError) {
     return json({ error: error.message, problems: error.problems }, 503);

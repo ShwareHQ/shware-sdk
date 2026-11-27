@@ -5,9 +5,11 @@ import {
   type ConditionIR,
   IR_VERSION,
   type NodeIR,
+  type PropValueIR,
   type SegmentIR,
   type WorkflowIR,
 } from '../ir';
+import { nodesOf } from '../plan';
 import { type AnyTemplate, CHANNEL_OF } from '../templates';
 import type { ActionRef } from './action';
 import type { SegmentInternal, SegmentRef } from './condition';
@@ -92,6 +94,10 @@ export function compileBundle(input: {
   // placement is checked here: payload only inside where-trees, and where-trees
   // contain nothing but payload predicates and combinators.
   assertConditionPlacement(workflows, segments);
+
+  // A trigger payload reference carries the event it was taken from, and a
+  // workflow can only read the payload it was itself started with.
+  for (const workflow of workflows) assertTriggerRefs(workflow);
 
   // Same rationale as segments: the runtime registry is looked up by name, so
   // an action a workflow runs must be in the bundle — and it must be the very
@@ -261,31 +267,49 @@ function assertConditionPlacement(
         assertWhereTree(workflow.trigger.where, `workflow '${workflow.id}' trigger where`);
       }
       if (workflow.trigger.filter !== undefined) {
-        assertProfileTree(workflow.trigger.filter, `workflow '${workflow.id}' trigger filter`);
+        assertProfileTree(workflow.trigger.filter, `workflow '${workflow.id}' trigger filter`, {
+          journey: false,
+        });
       }
     }
     if (workflow.goal !== undefined) {
-      assertProfileTree(workflow.goal.condition, `workflow '${workflow.id}' goal`);
+      assertProfileTree(workflow.goal.condition, `workflow '${workflow.id}' goal`, JOURNEY);
     }
     if (workflow.exitWhen !== undefined) {
-      assertProfileTree(workflow.exitWhen, `workflow '${workflow.id}' exitWhen`);
+      assertProfileTree(workflow.exitWhen, `workflow '${workflow.id}' exitWhen`, JOURNEY);
     }
     assertNodeTrees(workflow.flow, `workflow '${workflow.id}'`);
   }
   for (const segment of segments) {
-    assertProfileTree(segment.condition, `segment '${segment.id}'`);
+    assertProfileTree(segment.condition, `segment '${segment.id}'`, { journey: false });
   }
 }
 
-/** A profile-context tree: payload predicates may appear only under a performed.where. */
-function assertProfileTree(condition: ConditionIR, owner: string): void {
+/** Whether the tree is evaluated inside a running journey, which alone has a trigger payload. */
+interface Placement {
+  journey: boolean;
+}
+const JOURNEY: Placement = { journey: true };
+
+/**
+ * A profile-context tree: payload predicates may appear only under a performed.where, and
+ * trigger payload predicates only where a journey is running.
+ */
+function assertProfileTree(condition: ConditionIR, owner: string, at: Placement): void {
   switch (condition.type) {
     case 'and':
     case 'or':
-      for (const child of condition.conditions) assertProfileTree(child, owner);
+      for (const child of condition.conditions) assertProfileTree(child, owner, at);
       break;
     case 'not':
-      assertProfileTree(condition.condition, owner);
+      assertProfileTree(condition.condition, owner, at);
+      break;
+    case 'trigger_payload':
+      if (!at.journey) {
+        throw new Error(
+          `compileBundle: ${owner} reads the trigger payload ('${condition.path}') — only a running journey has one; in a trigger, test the event with a where clause`
+        );
+      }
       break;
     case 'performed':
       if (condition.where !== undefined) assertWhereTree(condition.where, owner);
@@ -322,24 +346,110 @@ function assertNodeTrees(nodes: readonly NodeIR[], owner: string): void {
   for (const node of nodes) {
     switch (node.type) {
       case 'wait_until':
-        assertProfileTree(node.condition, owner);
+        assertProfileTree(node.condition, owner, JOURNEY);
         if (Array.isArray(node.onTimeout)) assertNodeTrees(node.onTimeout, owner);
         break;
       case 'branch':
         for (const branchCase of node.cases) {
-          assertProfileTree(branchCase.condition, owner);
+          assertProfileTree(branchCase.condition, owner, JOURNEY);
           assertNodeTrees(branchCase.flow, owner);
         }
         if (node.otherwise) assertNodeTrees(node.otherwise, owner);
         break;
       case 'filter':
-        assertProfileTree(node.condition, owner);
+        assertProfileTree(node.condition, owner, JOURNEY);
         break;
       case 'cohort':
         for (const arm of node.arms) assertNodeTrees(arm.flow, owner);
         break;
       default:
         break;
+    }
+  }
+}
+
+/* --------------------------- trigger payload references --------------------------- */
+
+/** One read of the trigger payload: the event the reference was taken from, the field, and where. */
+export interface TriggerRefUse {
+  event: string;
+  path: string;
+  /** 'node n3', 'the goal' or 'exitWhen'. */
+  where: string;
+}
+
+/** Every trigger payload reference in a workflow — predicates and values alike. */
+export function triggerRefUses(workflow: WorkflowIR): TriggerRefUse[] {
+  const uses: TriggerRefUse[] = [];
+  const inCondition = (condition: ConditionIR, where: string): void => {
+    switch (condition.type) {
+      case 'and':
+      case 'or':
+        for (const child of condition.conditions) inCondition(child, where);
+        break;
+      case 'not':
+        inCondition(condition.condition, where);
+        break;
+      case 'trigger_payload':
+        uses.push({ event: condition.event, path: condition.path, where });
+        break;
+      default:
+        break;
+    }
+  };
+  const inValues = (values: Record<string, PropValueIR>, where: string): void => {
+    for (const value of Object.values(values)) {
+      if (typeof value === 'object' && value.type === 'trigger_payload') {
+        uses.push({ event: value.event, path: value.path, where });
+      }
+    }
+  };
+  if (workflow.goal !== undefined) inCondition(workflow.goal.condition, 'the goal');
+  if (workflow.exitWhen !== undefined) inCondition(workflow.exitWhen, 'exitWhen');
+  for (const node of nodesOf(workflow.flow)) {
+    const where = `node ${node.id}`;
+    switch (node.type) {
+      case 'wait_until':
+      case 'filter':
+        inCondition(node.condition, where);
+        break;
+      case 'branch':
+        for (const branchCase of node.cases) inCondition(branchCase.condition, where);
+        break;
+      case 'message':
+        inValues(node.props, where);
+        break;
+      case 'send_event':
+        inValues(node.payload, where);
+        break;
+      case 'action':
+        inValues(node.args, where);
+        break;
+      default:
+        break;
+    }
+  }
+  return uses;
+}
+
+/**
+ * A workflow reads only the payload it was started with: every reference names the workflow's
+ * own trigger event. A handle taken from another trigger type-checks just the same, and would
+ * read fields the entering event never had.
+ */
+function assertTriggerRefs(workflow: WorkflowIR): void {
+  const { trigger } = workflow;
+  for (const use of triggerRefUses(workflow)) {
+    const at = `compileBundle: workflow '${workflow.id}' ${use.where} reads '${use.path}' from the payload of a '${use.event}' trigger`;
+    if (trigger.type !== 'event') {
+      throw new Error(
+        `${at}, but the workflow has a ${trigger.type} trigger, which has no payload`
+      );
+    }
+    if (trigger.event !== use.event) {
+      throw new Error(
+        `${at}, but the workflow is triggered by '${trigger.event}' — use the handle of its own trigger`
+      );
     }
   }
 }

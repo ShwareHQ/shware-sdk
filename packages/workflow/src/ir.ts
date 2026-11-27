@@ -75,8 +75,20 @@ export const UserPropertyRefIR = z.object({
 });
 export type UserPropertyRefIR = z.infer<typeof UserPropertyRefIR>;
 
-/** A message prop / event payload value: either a literal or a user-property reference. */
-export const PropValueIR = z.union([ScalarIR, UserPropertyRefIR]);
+/**
+ * A field of the event that started the journey (`t.payload.<field>` in the DSL), read from the
+ * payload the instance entered with. `event` names the workflow's own trigger event — the
+ * compiler refuses any other — and `path` is dotted for nested fields.
+ */
+export const TriggerPayloadRefIR = z.object({
+  type: z.literal('trigger_payload'),
+  event: z.string(),
+  path: z.string(),
+});
+export type TriggerPayloadRefIR = z.infer<typeof TriggerPayloadRefIR>;
+
+/** A message prop / event payload value: a literal, a user-property reference or a trigger payload reference. */
+export const PropValueIR = z.union([ScalarIR, UserPropertyRefIR, TriggerPayloadRefIR]);
 export type PropValueIR = z.infer<typeof PropValueIR>;
 
 export const ChannelIR = z.enum(['email', 'sms', 'push', 'in_app', 'slack', 'discord', 'survey']);
@@ -168,6 +180,19 @@ export type ConditionIR =
       values?: ScalarIR[] | undefined;
     })
   | (ConditionBaseIR & {
+      /**
+       * A predicate on the payload of the event that started the journey. Valid in the workflow
+       * that event triggers (flow conditions, goal, exitWhen) and nowhere else: a segment or a
+       * trigger filter has no journey to read it from.
+       */
+      type: 'trigger_payload';
+      event: string;
+      path: string;
+      op: PropertyOperatorIR;
+      value?: ScalarIR | undefined;
+      values?: ScalarIR[] | undefined;
+    })
+  | (ConditionBaseIR & {
       type: 'performed';
       event: string;
       /** Payload filter: only events matching it count (a payload-only subtree). */
@@ -201,6 +226,15 @@ export const ConditionIR: z.ZodMiniType<ConditionIR> = z.lazy(() =>
     z.object({
       ...conditionBase,
       type: z.literal('payload'),
+      path: z.string(),
+      op: PropertyOperatorIR,
+      value: z.optional(ScalarIR),
+      values: z.optional(z.array(ScalarIR)),
+    }),
+    z.object({
+      ...conditionBase,
+      type: z.literal('trigger_payload'),
+      event: z.string(),
       path: z.string(),
       op: PropertyOperatorIR,
       value: z.optional(ScalarIR),

@@ -1,5 +1,5 @@
 import type { JourneyObserver, MessageTracking, OutboundMessage } from '../engine';
-import type { JourneyReporting } from '../store';
+import type { JourneyReporting, TrackedLink } from '../store';
 
 /**
  * The observer journeyWorker installs when the store keeps reporting: every node arrival, copy
@@ -47,17 +47,17 @@ export function reportingObserver(
         sentAt: Date.now(),
       });
       if (message.channel === 'email' && base !== undefined) {
-        const urls: string[] = [];
+        const links: TrackedLink[] = [];
         return {
           messageId: id,
           link: (url, purpose) => {
-            urls.push(url);
-            return `${base}/t/${purpose === 'unsubscribe' ? 'u' : 'l'}/${id}/${urls.length - 1}`;
+            links.push({ url, purpose });
+            return `${base}/t/${purpose === 'unsubscribe' ? 'u' : 'l'}/${id}/${links.length - 1}`;
           },
           pixel: `${base}/t/o/${id}`,
           unsubscribe: `${base}/t/u/${id}`,
           // Before the transport takes it, so no click can reach a link not yet recorded
-          commit: () => reporting.recordLinks(id, urls),
+          commit: () => reporting.recordLinks(id, links),
         };
       }
       if (message.channel === 'push') {

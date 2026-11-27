@@ -1,6 +1,6 @@
 import type { TriggerIR } from '../ir';
 import { type Condition, type PayloadWhere, type SegmentRef, condIR } from './condition';
-import { type EventRef, payloadRefs } from './refs';
+import { type EventRef, type TriggerPayloadRefs, payloadRefs, triggerPayloadRefs } from './refs';
 
 /**
  * Triggers — the four ways into a workflow, mirroring customer.io's campaign
@@ -15,6 +15,25 @@ export type DateTime = string;
 /** Trigger reference: what trigger.xxx() returns, reusable across workflows. */
 export interface TriggerRef {
   readonly type: 'event' | 'segment' | 'date' | 'webhook';
+}
+
+/**
+ * What `trigger.event()` returns: the trigger, and a handle on the event that
+ * fired it. `payload` is the table of that event's fields as the journey
+ * entered with them:
+ *
+ *   const checkout = trigger.event(e.begin_checkout);
+ *   workflow({ id: 'checkout_recovery', trigger: checkout })
+ *     .branch([gte(checkout.payload.value, 100), (w) => w.email(email.vip_offer)])
+ *     .email(email.reminder, { total: checkout.payload.value });
+ *
+ * The value is a snapshot: a later begin_checkout does not change what a
+ * running journey reads. A reference is only valid in the workflow this
+ * trigger starts — compileBundle refuses it anywhere else.
+ */
+export interface EventTriggerRef<P = unknown> extends TriggerRef {
+  readonly type: 'event';
+  readonly payload: TriggerPayloadRefs<P>;
 }
 
 /** @internal the compiled shape behind a TriggerRef — workflow.toIR reads .ir off it */
@@ -48,8 +67,12 @@ export interface TriggerFactory {
    * - `filter` tests the user's profile (customer.io's trigger Filters).
    * The user enters only if the event fired *and* both gates hold.
    */
-  event<P>(event: EventRef<P>, opts?: EventTriggerOptions): TriggerRef;
-  event<P>(event: EventRef<P>, where: PayloadWhere<P>, opts?: EventTriggerOptions): TriggerRef;
+  event<P>(event: EventRef<P>, opts?: EventTriggerOptions): EventTriggerRef<P>;
+  event<P>(
+    event: EventRef<P>,
+    where: PayloadWhere<P>,
+    opts?: EventTriggerOptions
+  ): EventTriggerRef<P>;
 
   /**
    * Segment-entry trigger: the user enters the moment they go from not
@@ -90,13 +113,18 @@ export const trigger: TriggerFactory = {
   ) => {
     const where = typeof whereOrOpts === 'function' ? whereOrOpts : undefined;
     const opts = typeof whereOrOpts === 'function' ? maybeOpts : whereOrOpts;
-    return makeTrigger({
+    const impl: TriggerInternal & EventTriggerRef<P> = {
       type: 'event',
-      event: ev.name,
-      ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
-      ...(opts?.filter !== undefined ? { filter: condIR(opts.filter) } : {}),
-      ...(opts?.visitors === true ? { visitors: true } : {}),
-    });
+      ir: {
+        type: 'event',
+        event: ev.name,
+        ...(where !== undefined ? { where: condIR(where(payloadRefs<P>())) } : {}),
+        ...(opts?.filter !== undefined ? { filter: condIR(opts.filter) } : {}),
+        ...(opts?.visitors === true ? { visitors: true } : {}),
+      },
+      payload: triggerPayloadRefs<P>(ev.name),
+    };
+    return impl;
   },
   segment: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),
   date: (at) => makeTrigger({ type: 'date', at }),

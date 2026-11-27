@@ -11,6 +11,7 @@ import { RECIPIENT_PROPERTY } from './recipient';
  * - untilMs: the latest instant `performed` counts events up to — the goal's
  *   attribution window ends there, so an event after it is no conversion even
  *   when the check runs later (a resumed instance, a delayed wake).
+ * - triggerPayload: see the field.
  * - after: one occurrence `performed` must not count — the event that started the instance.
  *   The entry anchor is that event's own time and the window's bounds are inclusive, so
  *   without this a goal on the trigger's event (a repeat purchase) holds at entry, by the
@@ -20,6 +21,12 @@ export interface EvaluateOptions {
   anchorMs?: number;
   untilMs?: number;
   after?: { event: string; ms: number } | undefined;
+  /**
+   * The payload of the event that started the journey — what a `trigger_payload` predicate
+   * reads. Only a running journey has one: evaluating such a predicate without it (a segment,
+   * a trigger filter) is an error, not a miss.
+   */
+  triggerPayload?: unknown;
 }
 
 /**
@@ -111,6 +118,14 @@ async function evaluate(
       // the webhook channels post to a team channel, not to the user
       return path === undefined || (await facts.getProperty(path)) !== undefined;
     }
+    case 'trigger_payload':
+      // Placement is validated at compile; reaching here without one means hand-built IR
+      if (opts?.triggerPayload === undefined) {
+        throw new Error(
+          'trigger payload conditions are only valid in the workflow their event triggers'
+        );
+      }
+      return comparePayload(condition, opts.triggerPayload);
     case 'payload':
       // Placement is validated at compile; reaching here means hand-built IR
       throw new Error(
@@ -133,20 +148,36 @@ export function matchesWhere(payload: unknown, where: ConditionIR): boolean {
       return where.conditions.some((child) => matchesWhere(payload, child));
     case 'not':
       return !matchesWhere(payload, where.condition);
-    case 'payload': {
-      const raw = valueAtPath(payload, where.path);
-      if (where.op === 'exists') return raw !== undefined && raw !== null;
-      if (where.op === 'not_exists') return raw === undefined || raw === null;
-      const actual =
-        typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean'
-          ? raw
-          : undefined;
-      return compareProperty(where, actual);
-    }
+    case 'payload':
+      return comparePayload(where, payload);
     default:
       // compileBundle rejects these; defend against hand-built IR
       throw new Error(`where clause may not contain a '${where.type}' condition`);
   }
+}
+
+/** One predicate against one payload: exists sees objects, comparisons see scalars only. */
+function comparePayload(
+  condition: {
+    path: string;
+    op: PropertyOperatorIR;
+    value?: ScalarIR | undefined;
+    values?: ScalarIR[] | undefined;
+  },
+  payload: unknown
+): boolean {
+  const raw = valueAtPath(payload, condition.path);
+  if (condition.op === 'exists') return raw !== undefined && raw !== null;
+  if (condition.op === 'not_exists') return raw === undefined || raw === null;
+  return compareProperty(condition, scalarOf(raw));
+}
+
+const scalarOf = (raw: unknown): ScalarIR | undefined =>
+  typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean' ? raw : undefined;
+
+/** The scalar at a dotted path of a payload; undefined when it is missing or not a scalar. */
+export function payloadScalar(payload: unknown, path: string): ScalarIR | undefined {
+  return scalarOf(valueAtPath(payload, path));
 }
 
 function valueAtPath(payload: unknown, path: string): unknown {
@@ -278,6 +309,8 @@ export async function relevantEvents(condition: ConditionIR, facts: FactSource):
       }
       case 'payload':
         break; // only appears inside performed.where, which is not walked
+      case 'trigger_payload':
+        break; // fixed at entry: nothing that happens later changes it
     }
   }
   await walk(condition);

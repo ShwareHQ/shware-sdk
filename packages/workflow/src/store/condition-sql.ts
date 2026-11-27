@@ -83,7 +83,9 @@ function compile(
     case 'reachable':
       return reachable(condition.channel, context);
     case 'payload':
-      // The evaluator rejects a payload condition outside a where clause
+    case 'trigger_payload':
+      // The evaluator rejects both here: a payload condition outside a where clause, and a
+      // trigger payload condition where there is no journey
       return UNKNOWN;
   }
 }

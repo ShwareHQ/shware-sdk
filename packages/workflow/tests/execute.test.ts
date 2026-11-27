@@ -170,6 +170,62 @@ describe('executeJourney', () => {
   });
 });
 
+describe('the trigger payload', () => {
+  test('a journey reads the payload in its own params, not the event log', async () => {
+    await pg.exec('TRUNCATE workflow.entry, workflow.ir, workflow.subscription');
+    const shop = event<{ begin_checkout: { value: number; currency: string } }>();
+    const checkout = trigger.event(shop.begin_checkout);
+    const got: Record<string, unknown>[] = [];
+    const note = action<{ value: number; currency: string }>('note', async (args) => {
+      got.push(args);
+    });
+    const ir = workflow({ id: 'cart', reentry: { mode: 'never' }, trigger: checkout })
+      .run(note, { value: checkout.payload.value, currency: checkout.payload.currency })
+      .toIR();
+    const store = database.store;
+    await store.putWorkflowIR(ir);
+    await store.enterJourney({
+      occurrence: 'test',
+      reentry: { mode: 'never' },
+      workflow: 'cart',
+      userId: 'u1',
+      instanceId: 'i1',
+      hash: ir.contentHash,
+      ts: 1_000,
+    });
+    // A later occurrence in the log: the journey still reads the one it entered with
+    await store.insertEvent({
+      id: 'later',
+      userId: 'u1',
+      event: 'begin_checkout',
+      ts: 2_000,
+      payload: { value: 5, currency: 'USD' },
+    });
+    const outcome = await executeJourney(
+      {
+        instanceId: 'i1',
+        params: {
+          workflowId: 'cart',
+          contentHash: ir.contentHash,
+          userId: 'u1',
+          trigger: { event: 'begin_checkout', payload: { value: 120, currency: 'EUR' }, ts: 1_000 },
+        },
+        enteredAtMs: 1_000,
+        step: retryingStep(0),
+      },
+      {
+        store,
+        env: { JOURNEY: {} as never },
+        runtime: {},
+        messages: new LogMessageSender(),
+        actions: new RegistryActionInvoker([note]),
+      }
+    );
+    expect(outcome.status).toBe('completed');
+    expect(got).toEqual([{ value: 120, currency: 'EUR' }]);
+  });
+});
+
 /* --------------------------------- admission -------------------------------- */
 
 /** An erasure state read by the store, reported through console.warn; quiet it. */

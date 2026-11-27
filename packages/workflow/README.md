@@ -346,6 +346,45 @@ trigger.webhook();
 - `date` (one-shot, UTC) and `webhook` compile and deploy, but are not routed
   by the runtime yet: deploy lists them in `unrouted`.
 
+#### Reading the triggering event
+
+`trigger.event()` returns a handle on the event that started the journey. Its
+`payload` is a table of that event's fields, typed by the event, and a field
+can go wherever a profile property can: a predicate, a message prop, an
+emitted payload, an action argument.
+
+```ts
+const checkout = trigger.event(e.begin_checkout);
+
+workflow({ id: 'checkout_recovery', reentry: { mode: 'never' }, trigger: checkout })
+  .delay('1 hour')
+  .branch([gte(checkout.payload.value, 100), (w) => w.email(email.vip_offer)], (w) =>
+    w.email(email.reminder)
+  )
+  .email(email.cart_summary, {
+    total: checkout.payload.value,
+    currency: checkout.payload.currency,
+  });
+```
+
+- **It is a snapshot.** The journey reads the payload it entered with, for as
+  long as it runs. A second `begin_checkout` a day later changes nothing a
+  running journey reads (whether it starts another journey is the `reentry`
+  policy's business).
+- **Scalars only.** A nested field is reached by its path
+  (`checkout.payload.cart.items`); an object or an array is not a value, and
+  reads as missing. A field the event left out reads as missing too, as an
+  unset profile property does.
+- **Only in the workflow the trigger starts.** `compileBundle` refuses a
+  reference taken from another trigger, one in a workflow with a segment, date
+  or webhook trigger (they carry no payload), and one in a segment or a trigger
+  `filter` (neither runs inside a journey: test the event with the trigger's
+  `where`). With a contract, `compileConfig` also checks that every field read
+  is one the event declares.
+- To act on an event that arrives _during_ the journey, use
+  `performed(e.purchase, (p) => gte(p.value, 100))` in a `waitUntil` or a
+  `branch`: that tests the event log, not the trigger.
+
 ### Steps
 
 | Step                                          | What it does                                                              |
@@ -1087,7 +1126,8 @@ of this section.)
 
 What a deploy must never do is take away something a pinned IR still names: a
 template removed or moved to another channel, a new required prop the pinned
-props do not supply, a segment or an action no longer in the bundle, an event a
+props do not supply, a segment or an action no longer in the bundle, a field of
+the triggering event's payload a journey reads gone from the contract, an event a
 journey emits or still waits for (a `waitUntil`, `exitWhen`, the goal) no longer
 in the contract. A running journey would reach that node and fail, or wait for
 something that can no longer arrive. So before any write, a deploy holds the
@@ -1580,6 +1620,14 @@ drizzle file (`workflow-ui generate`), let drizzle-kit write the migration, and
 redeploy, which rewrites the routes. `POST /bundle/deploy` refuses to run until
 the new columns and indexes exist.
 
+**Upgrading to 12.1 (unsubscribe clicks).** `message_link` gains a nullable
+`purpose` (null for a link of the email's content, `'unsubscribe'` for its
+unsubscribe link). Regenerate the drizzle file and let drizzle-kit write the
+migration; it needs no data step. Links recorded before the upgrade keep a null
+purpose, so clicks on the unsubscribe links of emails already sent go on
+counting as clicks; emails sent after it are measured without them.
+`POST /bundle/deploy` refuses to run until the column exists.
+
 **Upgrading to 9.1 (at-most-once delivery).** `message` gains a nullable
 `claimed_at` (set just before the transport takes a copy, cleared when the send
 throws). Regenerate the drizzle file and let drizzle-kit write the migration; it
@@ -1631,7 +1679,9 @@ On Postgres the engine also keeps:
   pixel are tracked through the Worker's `/t/...` routes. Each open and click
   is classified as a person's or a machine's (Apple Mail Privacy Protection,
   link scanners, prefetches). An email's unsubscribe link gets a confirmation
-  page; which link that is was fixed when the email was sent.
+  page; which link that is was fixed when the email was sent. Following it is
+  recorded, and counts as an open, but is not a click of the copy: `clicked_at`
+  and the click rates are about the links of the content.
   A push carries `message_id`; report the tap with `messageOpened`.
 - **Segments.** The cron trigger runs `sweepSegments`, which keeps every
   segment's membership and size and starts the journeys of segments entered by
@@ -1662,7 +1712,10 @@ the full host: with no `API_TOKEN` and an `ENVIRONMENT` that is not a mode that 
   ahead of the host's clock (400 otherwise). Profile values are scalars (string,
   number, boolean); a property set to `null` is removed, which is the only way to
   unset one. Nested objects are refused with a 400. A property written with a later
-  `at` keeps its value.
+  `at` keeps its value. An event's `payload` may be at most 128 KiB as JSON
+  (`MAX_EVENT_PAYLOAD_BYTES`): a larger one refuses the batch with a 400 naming the
+  event and its size. A triggering event's payload travels in the instance's
+  parameters for the whole journey, and the runtimes cap those.
 - A user with an erasure tombstone (`POST /users/forget`, finished or not) is
   refused on `/ingest` and `/devices` with a 410: nothing is
   written about them between the stop of their journeys and the erase, and the

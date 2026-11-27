@@ -113,7 +113,10 @@ const OP_LABEL: Record<string, string> = {
 function conditionLabel(c: ConditionIR, fallback: string): string {
   if (c.type === 'segment') return c.segment;
   if (c.type === 'not') return `not ${conditionLabel(c.condition, fallback)}`;
-  if (c.type === 'property') {
+  if (c.type === 'property' || c.type === 'trigger_payload') {
+    // A field of the event that started the journey reads as `trigger.<field>`, apart from a
+    // profile property of the same name
+    const path = c.type === 'property' ? c.path : `trigger.${c.path}`;
     const op = OP_LABEL[c.op] ?? c.op;
     const value =
       c.op === 'between'
@@ -123,7 +126,7 @@ function conditionLabel(c: ConditionIR, fallback: string): string {
           : c.value !== undefined
             ? String(c.value)
             : '';
-    return value === '' ? `${c.path} ${op}` : `${c.path} ${op} ${value}`;
+    return value === '' ? `${path} ${op}` : `${path} ${op} ${value}`;
   }
   if (c.type === 'performed') return `did ${c.event}`;
   if (c.type === 'reachable') return `reachable by ${c.channel}`;

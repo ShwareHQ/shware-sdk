@@ -155,6 +155,7 @@ export async function executeJourney(
         input.params.trigger.ts === undefined
           ? undefined
           : { event: input.params.trigger.event, ts: input.params.trigger.ts },
+      triggerPayload: input.params.trigger.payload,
       step,
       facts: new JourneyFactSource(store, userId, owner),
       messages,

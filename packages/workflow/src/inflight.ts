@@ -3,6 +3,7 @@ import {
   type JourneyConfig,
   checkEmit,
   checkMessage,
+  checkTriggerRefs,
   registryIndex,
 } from './config';
 import { referencedSegments } from './dsl/bundle';
@@ -22,7 +23,8 @@ import type { JourneyStore } from './store/index';
  * themselves, against the bundle and registry that would serve them. A compatible change (a
  * reworded template, a new optional prop, a segment's condition) passes; an incompatible one (a
  * template gone or moved to another channel, a new required prop, a segment or action removed,
- * an event a journey emits or waits for gone from the contract) is reported with the journeys it
+ * an event a journey emits or waits for gone from the contract, a trigger payload field a
+ * journey reads gone from the event's schema) is reported with the journeys it
  * would break.
  *
  * Not checked: a profile field whose type changed under a template prop that reads it. The
@@ -97,6 +99,15 @@ export function checkInFlight(
         if (!contract.isEvent(event)) {
           report(`${where} waits for '${String(event)}', which is not in the contract`);
         }
+      }
+    }
+    if (config !== undefined) {
+      // A field gone from the contract reads as missing from then on, and nothing fails
+      try {
+        checkTriggerRefs(pin.ir, config);
+      } catch (error) {
+        if (!(error instanceof ConfigCompileError)) throw error;
+        report(error.message);
       }
     }
     for (const node of nodesOf(pin.ir.flow)) {

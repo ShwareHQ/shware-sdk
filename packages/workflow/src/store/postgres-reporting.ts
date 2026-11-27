@@ -5,6 +5,7 @@ import type {
   JourneyReporting,
   MessageRecord,
   MessageSummary,
+  TrackedLink,
 } from './index';
 import { type SqlClientLike, uuidv7 } from './sql';
 import type { TableKey } from './tables';
@@ -238,15 +239,20 @@ export class PostgresReporting implements JourneyReporting {
     }
   }
 
-  async recordLinks(messageId: string, urls: readonly string[]): Promise<void> {
-    if (urls.length === 0) return;
-    const values = urls.map((_, i) => `($1, ${i}, $${i + 2})`).join(', ');
+  async recordLinks(messageId: string, links: readonly (string | TrackedLink)[]): Promise<void> {
+    if (links.length === 0) return;
+    const urls = links.map((link) => (typeof link === 'string' ? link : link.url));
+    // Null is a link of the content — what every row from before the column is
+    const purposes = links.map((link) =>
+      typeof link === 'string' || link.purpose === 'link' ? null : link.purpose
+    );
+    const values = urls.map((_, i) => `($1, ${i}, $${i + 2}, $${i + 2 + urls.length})`).join(', ');
     await this.sql.transaction(async (tx) => {
       // No copy (or one being erased): nothing to record the links under
       if ((await this.lockMessage(tx, messageId)) === undefined) return;
       await tx.query(
-        `INSERT INTO ${this.t.messageLink} (message_id, position, url) VALUES ${values} ON CONFLICT DO NOTHING`,
-        [messageId, ...urls]
+        `INSERT INTO ${this.t.messageLink} (message_id, position, url, purpose) VALUES ${values} ON CONFLICT DO NOTHING`,
+        [messageId, ...urls, ...purposes]
       );
     });
   }
@@ -305,8 +311,12 @@ export class PostgresReporting implements JourneyReporting {
       // judged one at a time
       const message = await this.lockMessage(tx, messageId, true);
       if (message === undefined) return undefined;
-      const links = await tx.query<{ url: string; link_count: number | string }>(
-        `SELECT l.url,
+      const links = await tx.query<{
+        url: string;
+        purpose: string | null;
+        link_count: number | string;
+      }>(
+        `SELECT l.url, l.purpose,
            (SELECT count(*) FROM ${this.t.messageLink} a WHERE a.message_id = l.message_id) AS link_count
          FROM ${this.t.messageLink} l WHERE l.message_id = $1 AND l.position = $2`,
         [messageId, position]
@@ -352,20 +362,23 @@ export class PostgresReporting implements JourneyReporting {
           [messageId, since, at, click.reason]
         );
       }
-      // First opens and clicks, from the classified rows (a click implies an open)
+      // First opens and clicks, from the classified rows. Any click implies an open; only one on
+      // a link of the content is a click of the copy — following the unsubscribe link is not
+      // engagement, though its row is kept (a scanner's walk across the copy includes it)
       await tx.query(
         `UPDATE ${this.t.message} m SET
-           clicked_at = coalesce(m.clicked_at, ${TS('$2')}),
+           clicked_at = CASE WHEN $3 THEN coalesce(m.clicked_at, ${TS('$2')}) ELSE m.clicked_at END,
            opened_at = coalesce(m.opened_at, ${TS('$2')}),
            human_clicked_at = (SELECT min(c.clicked_at) FROM ${this.t.messageClick} c
-             WHERE c.message_id = m.id AND NOT c.machine),
+             JOIN ${this.t.messageLink} l ON l.message_id = c.message_id AND l.position = c.position
+             WHERE c.message_id = m.id AND NOT c.machine AND l.purpose IS NULL),
            human_opened_at = (SELECT min(t) FROM (
              SELECT o.opened_at AS t FROM ${this.t.messageOpen} o WHERE o.message_id = m.id AND NOT o.machine
              UNION ALL
              SELECT c.clicked_at FROM ${this.t.messageClick} c WHERE c.message_id = m.id AND NOT c.machine
            ) human)
          WHERE m.id = $1`,
-        [messageId, at]
+        [messageId, at, link.purpose === null]
       );
       return { url: link.url, engagement: click };
     });

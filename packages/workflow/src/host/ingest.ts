@@ -54,6 +54,28 @@ async function refuseIfErased(store: JourneyStore, userId: string): Promise<void
   if ((await store.erasureState(userId)) !== 'none') throw new UserErasedError(userId);
 }
 
+/**
+ * The largest payload an event may carry, as UTF-8 bytes of its JSON. A triggering event's
+ * payload rides in the instance's params for the whole journey (`t.payload.x` reads it there),
+ * and the runtimes cap those: Cloudflare Workflows at 1 MiB, and a batch arriving through a
+ * queue at 128 KiB a message. Refusing at the door, with the size in the message, replaces an
+ * instance that fails to start with an error nobody traces back to one oversized event.
+ */
+export const MAX_EVENT_PAYLOAD_BYTES = 128 * 1024;
+
+/** What is wrong with a payload's size, or undefined when it fits. */
+export function payloadSizeError(event: string, payload: unknown): string | undefined {
+  if (payload === undefined) return undefined;
+  const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  if (bytes <= MAX_EVENT_PAYLOAD_BYTES) return undefined;
+  return `event '${event}': payload is ${bytes} bytes as JSON, over the ${MAX_EVENT_PAYLOAD_BYTES}-byte limit`;
+}
+
+/** An event whose payload is over `MAX_EVENT_PAYLOAD_BYTES`: the caller's to fix, never retried into fitting. */
+export class EventPayloadTooLargeError extends Error {
+  override readonly name = 'EventPayloadTooLargeError';
+}
+
 export interface IngestInput {
   userId: string;
   event: string;
@@ -93,6 +115,10 @@ export async function ingestEvent(
   if (input.event.startsWith('$')) {
     throw new Error(`event name '${input.event}' is reserved ('$' prefix is internal)`);
   }
+  // The batch parser refuses this with a 400 first; here it guards the callers that skip it (an
+  // instance's send_event, a host calling in directly), before anything is written
+  const oversized = payloadSizeError(input.event, input.payload);
+  if (oversized !== undefined) throw new EventPayloadTooLargeError(oversized);
   // Also reached from a running instance's send_event: an erased user's instances are stopped
   // before the erase, so one that still gets here is refused like any other writer
   await refuseIfErased(store, input.userId);

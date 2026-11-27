@@ -36,7 +36,7 @@ import {
   trigger,
   workflow,
 } from '../src/index';
-import { e, gettingStarted, limitedTimeOffer, u, upgradeRecovery } from './fixtures';
+import { e, gettingStarted, limitedTimeOffer, purchaser, u, upgradeRecovery } from './fixtures';
 
 /* ------------------------------ reference tables ------------------------------ */
 
@@ -620,3 +620,23 @@ workflow({ id: 'r8', trigger: loginTrigger, reentry: 'never' });
 workflow({ id: 'r9', trigger: loginTrigger, reentry: {} });
 // @ts-expect-error a cooldown is a duration literal
 workflow({ id: 'r10', trigger: loginTrigger, reentry: { mode: 'concurrent', cooldown: '7 dayz' } });
+
+/* ------------------------------- trigger payload ------------------------------- */
+
+const checkoutTrigger = trigger.event(e.begin_checkout);
+
+// a trigger payload ref carries the field's type into predicates and props
+gte(checkoutTrigger.payload.value, 100);
+flow((w) => w.sendEvent(e.purchase, { value: checkoutTrigger.payload.value, currency: 'USD' }));
+
+// @ts-expect-error the value must match the field's type (value is a number)
+gte(checkoutTrigger.payload.value, '100');
+
+// @ts-expect-error only the event's declared fields exist
+void checkoutTrigger.payload.coupon;
+
+// @ts-expect-error a ref must match the prop's declared type (value: number vs. the plan union)
+flow((w) => w.email(upgradeRecovery, { plan: checkoutTrigger.payload.value }));
+
+// @ts-expect-error a segment trigger has no event, so no payload
+void trigger.segment(purchaser).payload;

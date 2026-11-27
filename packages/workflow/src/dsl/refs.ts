@@ -1,3 +1,4 @@
+import type { PropValueIR } from '../ir';
 import type { EventMap, UserPropertyBase } from './base';
 
 /**
@@ -62,8 +63,10 @@ export function event<E extends EventMap>(): EventRefs<E> {
   });
 }
 
-/** An impossible field cannot be supplied indirectly through a profile reference either. */
-export type PropInput<T> = [T] extends [never] ? never : T | UserPropertyRef<T>;
+/** An impossible field cannot be supplied indirectly through a reference either. */
+export type PropInput<T> = [T] extends [never]
+  ? never
+  : T | UserPropertyRef<T> | TriggerPayloadRef<T>;
 export type PropsInput<P> = { [K in keyof P]: PropInput<P[K]> };
 
 /** Props may be omitted when a template declares none, and are required when it does. */
@@ -131,4 +134,81 @@ export function payloadRefs<P>(prefix = ''): PayloadRefs<P> {
       return payloadRefs(prefix === '' ? prop : `${prefix}.${prop}`);
     },
   });
+}
+
+/* --------------------------- trigger payload references -------------------------- */
+
+/**
+ * Where a trigger payload ref keeps its own state — a symbol key for the same
+ * reason as PAYLOAD_PATH: the ref doubles as the table of its sub-fields, so a
+ * string key would shadow an author's field of that name.
+ */
+export const TRIGGER_REF: unique symbol = Symbol('workflow.triggerRef');
+
+/**
+ * A field of the event that started the journey: what `t.payload.<field>` hands
+ * out, for `const t = trigger.event(e.begin_checkout)`. Unlike a `where`
+ * callback's payload ref it is valid anywhere in the workflow that event
+ * triggers — predicates (branch / filter / waitUntil / goal / exitWhen),
+ * message props, emitted payloads and action args — and reads the same value
+ * for the whole journey: the payload the user entered with, never a later
+ * occurrence of the event.
+ */
+export interface TriggerPayloadRef<T> {
+  readonly [TRIGGER_REF]: { readonly event: string; readonly path: string };
+  readonly __t?: T;
+}
+
+/** A trigger payload field that is itself an object also acts as the table of its sub-field refs. */
+export type TriggerPayloadRefNode<T> = [NonNullable<T>] extends [never]
+  ? TriggerPayloadRef<T>
+  : [NonNullable<T>] extends [object]
+    ? TriggerPayloadRef<T> & {
+        readonly [
+          K in keyof NonNullable<T> & string as [NonNullable<T>[K]] extends [never] ? never : K
+        ]-?: TriggerPayloadRefNode<NonNullable<T>[K]>;
+      }
+    : TriggerPayloadRef<T>;
+
+/** The table `t.payload` is, for a triggering event whose payload is P. */
+export type TriggerPayloadRefs<P> = [P] extends [object]
+  ? {
+      readonly [
+        K in keyof P & string as [P[K]] extends [never] ? never : K
+      ]-?: TriggerPayloadRefNode<P[K]>;
+    }
+  : Record<string, TriggerPayloadRef<unknown>>;
+
+/** @internal used by trigger.event() to build `t.payload` */
+export function triggerPayloadRefs<P>(event: string, prefix = ''): TriggerPayloadRefs<P> {
+  return new Proxy({} as TriggerPayloadRefs<P>, {
+    get: (_target, prop) => {
+      if (prop === TRIGGER_REF) return { event, path: prefix };
+      if (typeof prop === 'symbol') return undefined;
+      return triggerPayloadRefs(event, prefix === '' ? prop : `${prefix}.${prop}`);
+    },
+  });
+}
+
+/** @internal the event and path behind a trigger payload ref; undefined for anything else */
+export function triggerRefOf(value: unknown): { event: string; path: string } | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  return (value as Partial<TriggerPayloadRef<unknown>>)[TRIGGER_REF];
+}
+
+/**
+ * @internal Message props, an emitted payload or action args as IR values. A
+ * user-property ref is already its own IR; a trigger payload ref is a Proxy,
+ * so it is replaced by the plain value reference it stands for.
+ */
+export function propValuesIR(values: object | undefined): Record<string, PropValueIR> {
+  const out: Record<string, PropValueIR> = {};
+  for (const [key, value] of Object.entries(values ?? {})) {
+    const ref = triggerRefOf(value);
+    out[key] =
+      ref === undefined
+        ? (value as PropValueIR)
+        : { type: 'trigger_payload', event: ref.event, path: ref.path };
+  }
+  return out;
 }

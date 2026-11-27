@@ -369,7 +369,15 @@ export const TABLES = {
   messageLink: table({
     name: 'message_link',
     doc: "A sent email's links in document order: the tracked URL names a message and a position, and the redirect goes only to the URL recorded here.",
-    columns: { messageId: uuid, position: integer, url: text },
+    columns: {
+      messageId: uuid,
+      position: integer,
+      url: text,
+      purpose: nullable(
+        text,
+        "Null for a link of the email's content; 'unsubscribe' for its unsubscribe link, whose clicks are not engagement."
+      ),
+    },
     primaryKey: ['messageId', 'position'],
     references: [{ columns: ['messageId'], table: 'message', foreignColumns: ['id'] }],
   }),

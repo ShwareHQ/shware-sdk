@@ -2,6 +2,7 @@ import * as z from 'zod/mini';
 import type * as core from 'zod/v4/core';
 import type { Contract, Topic } from './contract';
 import { type ActionRef, type SegmentRef, type WorkflowBuilder, compileBundle } from './dsl';
+import { triggerRefUses } from './dsl/bundle';
 import { templateUses } from './dsl/flow';
 import type { BundleIR, ChannelIR, NodeIR, WorkflowIR } from './ir';
 import type { JourneyMode, JourneyRuntimeConfig } from './runtime';
@@ -183,6 +184,7 @@ export function compileConfig(config: JourneyConfig): BundleIR {
     subscriptions: { topics: config.contract?.topics ?? [] },
   });
   bundle.workflows.forEach((workflow, i) => {
+    checkTriggerRefs(workflow, config);
     checkMessages(workflow, workflow.flow, index, config);
     checkUses(workflow, config.workflows[i], index, config);
   });
@@ -351,6 +353,8 @@ export function checkMessage(
       problems.push(`'${field}' is not a prop of the template`);
       continue;
     }
+    // A trigger payload ref's field is checked against the event's schema (checkTriggerRefs)
+    if (typeof value === 'object' && value.type === 'trigger_payload') continue;
     if (typeof value === 'object' && 'type' in value) {
       // A user ref's value exists only at send time (parsed then); here its name can be checked
       const profile = config.contract?.schemas.profile._zod.def;
@@ -379,6 +383,43 @@ export function checkMessage(
       `${where}: ${node.channel} '${node.template}': ${problems.join('; ')}`
     );
   }
+}
+
+/**
+ * Every field a workflow reads from its trigger's payload is one the contract declares for that
+ * event, nested fields included. The DSL's types already say so for a workflow compiled now;
+ * this is the same check on IR, so it also runs before a deploy over the IRs journeys are still
+ * running (`checkInFlight`) — a field dropped from the contract would read as missing for the
+ * journeys that entered after, with nothing failing. Throws `ConfigCompileError`.
+ */
+export function checkTriggerRefs(workflow: WorkflowIR, config: JourneyConfig): void {
+  const contract = config.contract;
+  if (contract === undefined) return;
+  for (const use of triggerRefUses(workflow)) {
+    const where = `workflow '${workflow.id}' ${use.where}`;
+    if (!contract.isEvent(use.event)) {
+      throw new ConfigCompileError(
+        `${where}: reads the payload of '${String(use.event)}', which is not in the contract`
+      );
+    }
+    if (!declaresPath(contract.schemas.events[use.event], use.path.split('.'))) {
+      throw new ConfigCompileError(
+        `${where}: reads '${use.path}' from the payload of '${use.event}', which the contract does not declare for the event`
+      );
+    }
+  }
+}
+
+/** Whether an object schema declares the field at `keys`, looking through optional and nullable wrappers. */
+function declaresPath(schema: core.$ZodType, keys: readonly string[]): boolean {
+  if (keys.length === 0) return true;
+  const [key, ...rest] = keys as [string, ...string[]];
+  let def = schema._zod.def;
+  while ('innerType' in def) def = (def.innerType as core.$ZodType)._zod.def;
+  // Past a field that is not an object (a record, a union, unknown) nothing more can be said
+  if (def.type !== 'object') return true;
+  const shape = (def as core.$ZodObjectDef).shape;
+  return Object.hasOwn(shape, key) && declaresPath(shape[key], rest);
 }
 
 /**
