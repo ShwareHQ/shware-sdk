@@ -69,6 +69,10 @@ deployed; a host's own file (`node-host.test.ts`, `worker.test.ts`, `runner.test
 | `aws-driver.ts`              | `journeyLambda` on the local durable runner (`skipTime`), one runner per execution  |
 | `suite.ts`, `<host>.test.ts` | The suite over the table, and one file a host: each runs in a process of its own    |
 
+The AWS file does not run on Linux, so not in CI: under `skipTime` the local durable runner's
+first execution never returns there (out of memory after two minutes), for a reason not yet
+found. Run it locally on macOS (`npx vitest run tests/conformance/aws.test.ts`).
+
 Rules:
 
 1. **A scenario never names a host.** It acts through the HTTP API every host serves and reads
