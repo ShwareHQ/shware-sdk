@@ -788,6 +788,13 @@ export class PostgresJourneyStore implements JourneyStore {
         [subject]
       );
     }
+    // The self-hosted runtime's own record of the user's instances, found through their entries
+    for (const table of [this.t.runStep, this.t.run]) {
+      await tx.query(
+        `DELETE FROM ${table} WHERE instance_id IN (SELECT instance_id FROM ${this.t.entry} WHERE user_id = $1)`,
+        [subject]
+      );
+    }
     for (const table of [
       this.t.message,
       this.t.instance,

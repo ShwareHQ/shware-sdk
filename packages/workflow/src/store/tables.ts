@@ -351,6 +351,58 @@ export const TABLES = {
     primaryKey: ['instanceId'],
     indexes: [['workflow', 'userId'], ['submittedAt'], ['userId']],
   }),
+  run: table({
+    name: 'run',
+    doc: 'Instances of the self-hosted runtime (`@shware/workflow/node`), where the process itself is the durable runtime: what Cloudflare Workflows and Lambda durable functions keep on their side. Unused on those.',
+    columns: {
+      instanceId: text,
+      params: jsonb,
+      enteredAt: ts,
+      status: {
+        type: 'text',
+        doc: '`queued`, `running`, `sleeping`, `waiting`; or how it ended: `complete`, `errored`, `terminated`.',
+      },
+      wakeAt: nullable(
+        ts,
+        "When a worker may next pick it up: at once, at the end of a sleep or a retry backoff, at a wait's deadline. Null once ended."
+      ),
+      signals: {
+        type: 'integer',
+        doc: 'Incremented by every wake: a wait compares it with the value read when it subscribed, so a wake that lands while a turn is running is not lost.',
+      },
+      leaseOwner: nullable(text),
+      leaseUntil: nullable(
+        ts,
+        'Until when the worker running it holds it; past that, another may.'
+      ),
+      leaseGen: {
+        type: 'integer',
+        doc: 'Incremented at every claim. Every write of a turn carries the value it claimed with, so a worker that was only slow, not dead, cannot write over its successor.',
+      },
+      error: nullable(text),
+      createdAt: ts,
+      finishedAt: nullable(ts),
+    },
+    primaryKey: ['instanceId'],
+    indexes: [['wakeAt'], ['finishedAt']],
+  }),
+  runStep: table({
+    name: 'run_step',
+    doc: "A run's checkpoints: what a step returned, when a sleep ends, how a wait ended. A turn replays the journey from the top and answers from these.",
+    columns: {
+      instanceId: text,
+      key: {
+        type: 'text',
+        doc: 'The step name, and from its second occurrence in the run which one it is (`n3:send`, `n3:send#2`): a name used twice is two steps.',
+      },
+      kind: { type: 'text', doc: '`do`, `sleep` or `wait`.' },
+      done: { type: 'boolean', doc: 'False while a step that threw is waiting for its retry.' },
+      result: nullable(jsonb),
+      attempts: integer,
+      createdAt: ts,
+    },
+    primaryKey: ['instanceId', 'key'],
+  }),
   deployment: table({
     name: 'deployment',
     doc: "The Worker version whose compiled bundle the routes came from, one row (`scope` = 'routes'): journeyWorker applies its own bundle only over an older version, so one still serving during a rollout cannot put its routes back. A forced `POST /bundle/deploy` records the version that served it; a hand-posted `POST /deploy` leaves it as it is.",
