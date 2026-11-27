@@ -1755,7 +1755,7 @@ process.on('SIGTERM', () => void journeys.stop());
 
 This host is new. Its claim, its wakes and a process killed mid-step are tested on a real
 Postgres with several connections and processes (`tests/integration/node-host.test.ts`). On a
-2 vCPU Postgres it ran about 400 runs (1,200 actions) a second whatever the size of the user
+2 vCPU Postgres it ran about 450 runs (1,350 actions) a second whatever the size of the user
 base up to a million, the database being the limit; `bench/node-host.mjs` measures it, and
 `docs/decisions/self-hosted-host.md` has the tables, the design and what is not built.
 

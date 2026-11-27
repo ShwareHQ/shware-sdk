@@ -32,6 +32,7 @@ import {
   wakeSubscribers,
 } from './ingest';
 import type { JourneyEnv, JourneyParams } from './platform';
+import { WorkflowCache } from './workflow-cache';
 
 /**
  * What a journey host is, apart from the runtime it runs on: the validated environment, the
@@ -245,6 +246,8 @@ export function createJourneyHost<Env extends JourneyEnv>(
     return decidesDelivery(own) ? own : composeObservers(reporting, own);
   };
 
+  /** One for the host's life: every run of a version after the first reads its body from here. */
+  const workflows = new WorkflowCache();
   const runParts = (env: Env, store: JourneyStore, params: JourneyParams): JourneyRunParts => ({
     store,
     env,
@@ -256,6 +259,7 @@ export function createJourneyHost<Env extends JourneyEnv>(
     contract: config.contract,
     validator: registryValidator(config.templates ?? {}),
     observer: observer(env, store),
+    workflows,
   });
 
   const preview = emails === undefined ? undefined : registryRenderer(emails, config.email);
