@@ -71,6 +71,17 @@ The profile is a flat object of string, number, boolean, enum and literal
 fields. Defaults, transforms, coercion and custom refinements are refused when
 the contract is defined, because input and output must mean the same JSON.
 
+**A profile field's schema checks what is written, not that it was written.**
+The profile is merged a patch at a time (`identify`), so `name: string()` means
+"a name, when there is one, is a string": a user nobody has sent a name for has
+none, and `null` removes one. The DSL takes the declaration at its word and
+types `u.name` as a `string`, which holds only if your app writes the field for
+every user a journey can reach (at sign-up, say). Where it does not — a sign-in
+that gives no name, an event that arrives before the first `identify`, a
+visitor — declare the field `optional(string())`: `u.name` is then
+`string | undefined`, a template whose prop is required no longer compiles with
+it, and the template says what to show instead. The engine fills no defaults.
+
 `subscriptions.topics` lists the subscription topics: content categories
 ("offers", "tips"), not channels — ids only (a plain token; the app's i18n gives
 them names). A plain array literal is enough: `defineContract` keeps the
@@ -470,7 +481,12 @@ workflow({ id: 'checkout_recovery', reentry: { mode: 'never' }, trigger: checkou
 | `.use(fragment)`                              | Splice a `flow(...)` fragment in place                                    |
 
 Props may reference the profile (`{ name: u.name }`); references resolve at send
-time and are parsed by the template then. Durations are typed literals such as
+time and are parsed by the template then. A reference the user has no value
+for is passed as absent: a template that requires the prop refuses it, the
+message is not sent and the journey fails there without a retry, with an error
+that names the field (`props.name reads profile field 'name', which this user
+has no value for`). Either the data is missing or the field should have been
+declared optional (see the contract above). Durations are typed literals such as
 `'30 minutes'`, `'1 day'` or `'2 weeks'`, so a typo does not compile.
 
 **prefer** is sugar for the branch it compiles to: the choice is made once when
