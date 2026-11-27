@@ -266,8 +266,8 @@ export function journeyLambda<Env extends JourneyLambdaEnv>(
    * The sweep as durable steps, one per page of users: an invocation cut short (the function's
    * timeout) is re-invoked, and the re-invocation replays the pages already checkpointed
    * instead of evaluating them again. What is shared with every other host is the page and where
-   * the pass stands, both in `sweepSegmentPass` and the store; only the steps are this host's. No step retries on its own — a page that failed is
-   * evaluated again by the next tick.
+   * the pass stands, both in `sweepSegmentPass` and the store; only the steps are this host's.
+   * No step retries on its own — a page that failed is evaluated again by the next tick.
    */
   const sweep = async (context: DurableContext): Promise<SweepResult> => {
     const once = { retryStrategy: () => ({ shouldRetry: false }) };
