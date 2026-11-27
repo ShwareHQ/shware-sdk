@@ -33,7 +33,7 @@ import { TABLES, renderDrizzleSchema, renderPostgresDdl } from '../src/store/tab
 const OXFMT = resolve(import.meta.dirname, '../../../node_modules/.bin/oxfmt');
 import { FakeJourney } from './fake-cloudflare';
 import { plainEmail } from './fixtures';
-import { type PgliteDatabase, pgliteClient, pgliteDatabase, truncateAll } from './pglite';
+import { type PgliteDatabase, pgliteClient, pgliteDatabase, seeded, truncateAll } from './pglite';
 
 /**
  * PostgresJourneyStore against a real Postgres (PGlite, in-process) through the router — the
@@ -91,7 +91,7 @@ const welcomeFlow = workflow({
 const proNudge = workflow({
   id: 'pro_nudge',
   reentry: { mode: 'never' },
-  trigger: trigger.segment(pro),
+  trigger: trigger.enters(pro),
   goal: purchased,
 }).email(welcome);
 const bundle = () =>
@@ -408,6 +408,7 @@ describe('identify', () => {
   test('merges properties in the database, null unsets, and enters segments', async () => {
     const { env, journey, store } = setup();
     await deployBundle(env, bundle(), store);
+    await seeded(store);
     const facts = new JourneyFactSource(store, 'u1');
 
     const first = await identifyUser(env, 'u1', { email: 'a@example.com' }, store);

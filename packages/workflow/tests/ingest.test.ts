@@ -43,7 +43,7 @@ import {
   reengagement,
   u,
 } from './fixtures';
-import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
+import { type PgliteDatabase, pgliteDatabase, seeded, truncateAll } from './pglite';
 import { FakeCfStep } from './stubs/cf-step';
 
 /**
@@ -227,6 +227,7 @@ describe('event triggers', () => {
   test('starts a journey once; the entry ledger blocks re-entry', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);
+    await seeded(store);
 
     const first = await ingestEvent(env, { userId: 'u1', event: 'begin_checkout' }, store);
     // begin_checkout starts checkout_recovery; the user also has no login
@@ -607,6 +608,7 @@ describe('a start lost between the entry and the create', () => {
   test('a segment start left with no instance is finished by the next evaluation, the same occurrence', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);
+    await seeded(store);
     // The segment's workflow fails to start, and its rollback fails with it
     const create = journey.create.bind(journey);
     journey.create = async (options) => {
@@ -772,13 +774,14 @@ describe('segment-entry triggers', () => {
     const recentBuyer = workflow({
       id: 'recent_buyer',
       reentry: { mode: 'never' },
-      trigger: trigger.segment(purchaser),
+      trigger: trigger.enters(purchaser),
     }).email(firstTimeRecovery);
     await deployBundle(
       env,
       compileBundle({ workflows: [recentBuyer], segments: allSegments }),
       store
     );
+    await seeded(store);
     const DAY = 24 * 60 * 60 * 1000;
 
     // A purchase from 40 days ago arrives now (an offline buffer, a backfill). On its own clock
@@ -808,6 +811,7 @@ describe('segment-entry triggers', () => {
   test('fires on the not-matching → matching transition and tracks leave', async () => {
     const { env, store } = setup();
     await deployBundle(env, bundle(), store);
+    await seeded(store);
 
     // First activity: no login history → inactive_30d matches → enter
     const first = await ingestEvent(env, { userId: 'u2', event: 'begin_checkout' }, store);
@@ -826,6 +830,7 @@ describe('segment-entry triggers', () => {
   test('a start that failed is retried by the next evaluation, behind the membership', async () => {
     const { env, store, journey } = setup();
     await deployBundle(env, bundle(), store);
+    await seeded(store);
     const create = journey.create.bind(journey);
     // Only the segment's workflow fails to start; the event-triggered one goes out
     journey.create = async (options) => {

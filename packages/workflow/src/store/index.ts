@@ -49,10 +49,27 @@ export interface SegmentTriggerRoute {
   workflow: string;
   hash: string;
   segment: string;
+  /**
+   * The segment is being seeded (see `SeedingSegment`): a user found matching is recorded as a
+   * member and no journey is started for them.
+   */
+  seeding?: boolean | undefined;
   /** As `TriggerRoute.reentry`. */
   reentry: ReentryIR;
   /** As `TriggerRoute.version`. */
   version?: string | undefined;
+}
+
+/**
+ * A segment a deploy brought in new, or with a changed condition, that no sweep has gone through
+ * yet. Its membership says nothing so far, so a user who matches cannot be told from one who has
+ * matched all along — and a segment trigger is about entering, not about being in. Until a sweep
+ * completes, matching users become members without a journey; from then on a new member entered.
+ * `since` is when the deploy set it: a sweep ends the seeding it began with, not a later one's.
+ */
+export interface SeedingSegment {
+  id: string;
+  since: number;
 }
 
 /**
@@ -603,6 +620,13 @@ export interface JourneyStore {
   getSegmentCondition(id: string): Promise<ConditionIR | undefined>;
   /** Every deployed segment with its definition: what the segment sweep evaluates. */
   listSegments(): Promise<{ id: string; condition: ConditionIR }[]>;
+  /** The segments still being seeded, as a sweep reads them before its first page. */
+  seedingSegments(): Promise<SeedingSegment[]>;
+  /**
+   * A sweep went through every user: the segments it began with are seeded. One redeployed
+   * since (another `since`) stays as it is, for the next sweep.
+   */
+  finishSeeding(segments: readonly SeedingSegment[]): Promise<void>;
   findTriggers(event: string): Promise<TriggerRoute[]>;
   listSegmentTriggers(): Promise<SegmentTriggerRoute[]>;
   putWorkflowIR(workflow: WorkflowIR): Promise<void>;

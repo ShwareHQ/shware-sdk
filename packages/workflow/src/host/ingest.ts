@@ -319,12 +319,15 @@ async function refreshSegments(
     const member = await store.isSegmentMember(segmentId, userId);
 
     if (matches && !member) {
-      // Entry transition: the membership and the starts it owes, recorded together
+      // Entry transition: the membership and the starts it owes, recorded together. While the
+      // segment is being seeded nothing is owed: its membership is still being established, so
+      // this user was in it already for all anyone can tell (`SeedingSegment`)
+      const seeding = segmentRoutes.some((route) => route.seeding === true);
       await store.addSegmentMember(
         segmentId,
         userId,
         ts,
-        segmentRoutes.map((route) => route.workflow)
+        seeding ? [] : segmentRoutes.map((route) => route.workflow)
       );
     } else if (!matches && member) {
       await store.removeSegmentMember(segmentId, userId);
@@ -626,6 +629,9 @@ export async function sweepSegments(
   now = Date.now()
 ): Promise<SweepResult> {
   await sweepMaintenance(env, store);
+  // Read before the first page: only a pass that began with a segment's seeding has been
+  // through every user for it
+  const seeding = await store.seedingSegments();
   let evaluated = 0;
   const started: string[] = [];
   let after: string | undefined;
@@ -636,6 +642,7 @@ export async function sweepSegments(
     if (!page.more || page.lastUserId === undefined) break;
     after = page.lastUserId;
   }
+  await store.finishSeeding(seeding);
   const sizes = await store.reporting.snapshotSegments(now);
   return { evaluated, started, sizes };
 }

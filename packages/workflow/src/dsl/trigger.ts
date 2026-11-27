@@ -75,16 +75,25 @@ export interface TriggerFactory {
   ): EventTriggerRef<P>;
 
   /**
-   * Segment-entry trigger: the user enters the moment they go from not
-   * matching to matching. Each fresh qualification (left the segment, matched
-   * again) is one entry attempt under the workflow's `reentry` policy; staying
-   * a member never enters again. Only a named segment is accepted — entry semantics
-   * need a membership table, which an anonymous expression cannot provide.
-   * Runtime note: membership is maintained lazily (re-evaluated on the user's
-   * ingest/identify activity), so purely time-driven drift — e.g. an
-   * inactivity segment becoming true by clock alone — is only observed on the
-   * user's next activity. TODO: a cron sweep for time-driven segments.
+   * Segment-entry trigger: the journey starts when the user goes from not
+   * matching the segment to matching it. It is about entering, not about being
+   * in: someone who already matched when the segment was deployed (or when its
+   * condition last changed) is recorded as a member and starts nothing. Each
+   * fresh qualification (left the segment, matched again) is one entry attempt
+   * under the workflow's `reentry` policy; staying a member never enters again.
+   *
+   * Only a named segment is accepted — entry needs a membership table, which an
+   * anonymous expression cannot have. Membership is re-evaluated on the user's
+   * own activity (ingest, identify) and by the scheduled sweep, which is what
+   * sees a segment entered by the clock alone (`not(performed(e.login, {
+   * within: '7 days' }))`).
+   *
+   * To act on everyone who is in a segment now, name it in a condition instead
+   * (a trigger's `filter`, a `branch`): that asks each user at that moment.
    */
+  enters(segment: SegmentRef): TriggerRef;
+
+  /** @deprecated Renamed `trigger.enters`: the same trigger, named for what it waits for. */
   segment(segment: SegmentRef): TriggerRef;
 
   /**
@@ -126,6 +135,8 @@ export const trigger: TriggerFactory = {
     };
     return impl;
   },
+  enters: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),
+  // oxlint-disable-next-line typescript/no-deprecated -- the alias itself
   segment: (seg) => makeTrigger({ type: 'segment', segment: seg.id }),
   date: (at) => makeTrigger({ type: 'date', at }),
   webhook: () => makeTrigger({ type: 'webhook' }),

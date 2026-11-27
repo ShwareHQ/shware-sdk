@@ -50,3 +50,14 @@ export async function truncateAll(pg: Pick<PGlite, 'exec'>, schema = 'workflow')
   const tables = Object.values(TABLES).map((table) => `"${schema}"."${table.name}"`);
   await pg.exec(`TRUNCATE ${tables.join(', ')}`);
 }
+
+/**
+ * End the seeding of every deployed segment, as the first sweep after a deploy does — without
+ * recording anyone. A test about entering a segment deploys, calls this, and then moves its user
+ * in: the user was not in the segment when it was seeded.
+ */
+export async function seeded(
+  store: Pick<PostgresJourneyStore, 'seedingSegments' | 'finishSeeding'>
+): Promise<void> {
+  await store.finishSeeding(await store.seedingSegments());
+}

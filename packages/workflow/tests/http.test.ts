@@ -22,7 +22,7 @@ import { reportingObserver } from '../src/reporting/observer';
 import { type JourneyReporting, type JourneyStore, UserErasedError } from '../src/store/index';
 import { makeEnv } from './fake-cloudflare';
 import { e, firstTimeRecovery, u } from './fixtures';
-import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
+import { type PgliteDatabase, pgliteDatabase, seeded, truncateAll } from './pglite';
 
 /**
  * The HTTP surface over the fake Workflow binding and a Postgres store (PGlite): the bare ingest
@@ -210,13 +210,14 @@ describe('identify', () => {
     const vipWelcome = workflow({
       id: 'vip_welcome',
       reentry: { mode: 'never' },
-      trigger: trigger.segment(vip),
+      trigger: trigger.enters(vip),
     }).email(firstTimeRecovery);
     await deployBundle(
       env,
       compileBundle({ workflows: [vipWelcome], segments: [vip] }),
       database.store
     );
+    await seeded(database.store);
 
     const response = await handleRequest(
       identifyRequest('u3', { subscription_plan: 'business' }),

@@ -15,7 +15,7 @@ import {
   workflow,
 } from '../src/index';
 import { FakeJourney } from './fake-cloudflare';
-import { type PgliteDatabase, pgliteDatabase, truncateAll } from './pglite';
+import { type PgliteDatabase, pgliteDatabase, seeded, truncateAll } from './pglite';
 
 /** An email transport that accepts every email: these hosts are not about delivery. */
 const quietTransport = { send: async () => ({}) };
@@ -173,7 +173,7 @@ describe('sweep', () => {
   const comeBack = workflow({
     id: 'come_back',
     reentry: { mode: 'never' },
-    trigger: trigger.segment(dormant),
+    trigger: trigger.enters(dormant),
   }).email(emails.welcome, { name: 'friend' });
   const sweeping = defineConfig({
     workflows: [comeBack],
@@ -193,6 +193,7 @@ describe('sweep', () => {
     await database.store.mergeProfile('u1', { plan: 'free' });
     await database.store.mergeProfile('u2', { plan: 'free' });
     await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
+    await seeded(database.store);
 
     const first = await worker.sweep(env);
     expect(first).toMatchObject({ evaluated: 2, sizes: [{ segment: 'dormant', size: 2 }] });
@@ -212,6 +213,7 @@ describe('sweep', () => {
     });
     await database.store.mergeProfile('u1', { plan: 'free' });
     await worker.fetch(new Request('http://worker/bundle/deploy', { method: 'POST' }), env);
+    await seeded(database.store);
 
     // Nothing is parked in waitUntil: a runtime that cut the handler off there would lose the sweep
     const parked: Promise<unknown>[] = [];

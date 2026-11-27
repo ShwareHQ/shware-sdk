@@ -28,7 +28,7 @@ export const reengagement = workflow({
   id: 'reengagement',
   reentry: { mode: 'never' },
   name: 'Re-engagement',
-  trigger: trigger.segment(inactive30d),
+  trigger: trigger.enters(inactive30d),
 })
   .push(push.comeback, { name: u.name })
   .delay('1 day') // give the push a day to work before falling back to email
