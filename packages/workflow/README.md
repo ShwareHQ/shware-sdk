@@ -1626,7 +1626,12 @@ unsubscribe link). Regenerate the drizzle file and let drizzle-kit write the
 migration; it needs no data step. Links recorded before the upgrade keep a null
 purpose, so clicks on the unsubscribe links of emails already sent go on
 counting as clicks; emails sent after it are measured without them.
-`POST /bundle/deploy` refuses to run until the column exists.
+**Run the migration before the new version serves.** The column is nullable and
+the previous version ignores it, so migrating first is safe; the other order is
+not — the new code writes and reads the column on every tracked email, so
+without it those sends fail and are retried, and tracked links (the unsubscribe
+link included) answer 500. `POST /bundle/deploy` refuses to run until the column
+exists, but a version already serving does not wait for it.
 
 **Upgrading to 9.1 (at-most-once delivery).** `message` gains a nullable
 `claimed_at` (set just before the transport takes a copy, cleared when the send
